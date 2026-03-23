@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ChromVoid UIKit Demo</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap');
+
+      :root {
+        color-scheme: dark;
+        --demo-surface: rgba(14, 23, 36, 0.82);
+        --demo-surface-elevated: rgba(21, 31, 48, 0.9);
+        --demo-border: rgba(116, 199, 255, 0.26);
+        --demo-border-strong: rgba(255, 159, 120, 0.5);
+        --demo-text: #dce9ff;
+        --demo-text-muted: rgba(171, 190, 216, 0.88);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+
+      body {
+        font-family: 'Manrope', 'Segoe UI', sans-serif;
+        background:
+          radial-gradient(980px 620px at 0% 0%, rgba(77, 202, 255, 0.15), transparent 60%),
+          radial-gradient(920px 620px at 100% 100%, rgba(255, 164, 131, 0.12), transparent 58%),
+          #08101b;
+        color: var(--demo-text);
+      }
+
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        background-image:
+          linear-gradient(rgba(120, 178, 216, 0.07) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(120, 178, 216, 0.07) 1px, transparent 1px);
+        background-size: 44px 44px, 44px 44px;
+        mask-image: radial-gradient(circle at 50% 35%, black 32%, transparent 82%);
+      }
+
+      .topbar {
+        position: relative;
+        z-index: 1;
+        border-bottom: 1px solid rgba(110, 166, 208, 0.22);
+        background: linear-gradient(180deg, rgba(10, 17, 29, 0.8), rgba(9, 14, 24, 0.62));
+      }
+
+      .topbar-inner {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 12px 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .topbar-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #d5e8f7;
+      }
+
+      .topbar-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .topbar-link {
+        display: inline-flex;
+        align-items: center;
+        min-height: 30px;
+        padding: 0 11px;
+        border-radius: 999px;
+        border: 1px solid rgba(101, 215, 255, 0.28);
+        background: rgba(15, 24, 36, 0.84);
+        color: #9ee5ff;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        letter-spacing: 0.03em;
+        text-decoration: none;
+        transition:
+          border-color 120ms ease,
+          background 120ms ease,
+          transform 120ms ease;
+      }
+
+      .topbar-link:hover {
+        border-color: rgba(255, 160, 126, 0.68);
+        background: rgba(22, 35, 52, 0.92);
+        transform: translateY(-1px);
+      }
+
+      .topbar-tag {
+        padding: 5px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(101, 215, 255, 0.28);
+        background: rgba(15, 24, 36, 0.84);
+        color: #9ee5ff;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+      }
+
+      .shell {
+        position: relative;
+        z-index: 1;
+        box-sizing: border-box;
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 26px 20px 40px;
+      }
+
+      .hero {
+        margin-bottom: 22px;
+      }
+
+      .eyebrow {
+        display: inline-block;
+        margin-bottom: 10px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--demo-border);
+        background: rgba(15, 24, 36, 0.84);
+        color: #9ee5ff;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-family: 'Orbitron', 'Manrope', sans-serif;
+        font-size: clamp(32px, 5.4vw, 62px);
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        line-height: 0.98;
+        text-transform: uppercase;
+        background: linear-gradient(115deg, #84e3ff 10%, #58ceff 48%, #ff9f78 95%);
+        -webkit-text-fill-color: transparent;
+        -webkit-background-clip: text;
+        background-clip: text;
+        text-shadow: 0 0 30px rgba(95, 214, 255, 0.2);
+      }
+
+      .subtitle {
+        margin: 0;
+        max-width: 46ch;
+        font-size: 18px;
+        line-height: 1.35;
+        color: var(--demo-text-muted);
+      }
+
+      .grid {
+        display: grid;
+        gap: 14px;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      }
+
+      .card {
+        position: relative;
+        overflow: hidden;
+        padding: 16px;
+        border-radius: 14px;
+        border: 1px solid var(--demo-border);
+        background: linear-gradient(150deg, var(--demo-surface-elevated), var(--demo-surface));
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        transition:
+          border-color 140ms ease,
+          transform 140ms ease;
+      }
+
+      .card::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: radial-gradient(circle at 100% 0%, rgba(255, 160, 126, 0.18), transparent 46%);
+      }
+
+      .card:hover {
+        border-color: var(--demo-border-strong);
+        transform: translateY(-2px);
+      }
+
+      .card h2 {
+        margin: 0 0 8px;
+        font-family: 'Orbitron', 'Manrope', sans-serif;
+        font-size: 14px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .card p {
+        margin: 0 0 10px;
+        color: var(--demo-text-muted);
+        font-size: 13px;
+      }
+
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .card cv-listbox,
+      .card cv-progress,
+      .card cv-slider,
+      .card cv-meter,
+      .card cv-select,
+      .card cv-disclosure,
+      .card cv-alert,
+      .card cv-accordion,
+      .card cv-toast-region,
+      .card cv-tabs,
+      .card cv-radio-group {
+        inline-size: 100%;
+      }
+
+      .card cv-button {
+        white-space: nowrap;
+      }
+
+      @media (max-width: 720px) {
+        .topbar-inner {
+          padding-inline: 14px;
+        }
+
+        .shell {
+          padding: 20px 14px 28px;
+        }
+
+        h1 {
+          font-size: clamp(30px, 12vw, 44px);
+        }
+
+        .subtitle {
+          font-size: 16px;
+        }
+
+        .card {
+          padding: 14px;
+        }
+
+        .topbar-link,
+        .topbar-tag {
+          padding-inline: 8px;
+          font-size: 10px;
+        }
+      }
+    </style>
+    <script type="module" crossorigin src="/assets/index-BjFMT_4H.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-d71bCUxA.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <span class="topbar-title">ChromVoid UIKit</span>
+        <div class="topbar-right">
+          <a class="topbar-link" href="/components/">components</a>
+          <span class="topbar-tag">live-demo</span>
+        </div>
+      </div>
+    </header>
+    <main class="shell">
+      <section class="hero">
+        <span class="eyebrow">Component Playground</span>
+        <h1>ChromVoid UIKit Demo</h1>
+        <p class="subtitle">Interactive preview page for @chromvoid/uikit components with the same visual language as docs.</p>
+      </section>
+      <section class="grid">
+        <article class="card">
+          <h2>Buttons / Switch</h2>
+          <p>Primary actions and binary toggles.</p>
+          <div class="row">
+            <cv-button>Continue</cv-button>
+            <cv-button toggle pressed>Toggle</cv-button>
+            <cv-button disabled>Disabled</cv-button>
+            <cv-switch checked></cv-switch>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>Checkbox / Listbox</h2>
+          <p>Selection controls with keyboard semantics.</p>
+          <div class="row">
+            <cv-checkbox checked>Enable sync</cv-checkbox>
+            <cv-checkbox indeterminate>Indeterminate state</cv-checkbox>
+          </div>
+          <cv-listbox selection-mode="multiple" aria-label="UIKit demo options">
+            <cv-option value="alpha" selected>Alpha</cv-option>
+            <cv-option value="beta">Beta</cv-option>
+            <cv-option value="gamma">Gamma</cv-option>
+            <cv-option value="delta" disabled>Delta (disabled)</cv-option>
+          </cv-listbox>
+        </article>
+
+        <article class="card">
+          <h2>Progress / Slider</h2>
+          <p>Feedback and range input components.</p>
+          <cv-progress value="60" max="100"></cv-progress>
+          <cv-slider value="35" min="0" max="100" aria-label="volume"></cv-slider>
+          <cv-meter value="46" min="0" max="100" low="25" high="80" optimum="50"></cv-meter>
+        </article>
+
+        <article class="card">
+          <h2>Radio Group</h2>
+          <p>Single-choice selection pattern.</p>
+          <cv-radio-group aria-label="plan">
+            <cv-radio value="starter" checked>Starter</cv-radio>
+            <cv-radio value="pro">Pro</cv-radio>
+            <cv-radio value="enterprise">Enterprise</cv-radio>
+          </cv-radio-group>
+        </article>
+
+        <article class="card">
+          <h2>Select / Disclosure</h2>
+          <p>Popup single-select and collapsible region.</p>
+          <cv-select value="balanced" aria-label="performance profile">
+            <cv-select-option value="silent">Silent</cv-select-option>
+            <cv-select-option value="balanced">Balanced</cv-select-option>
+            <cv-select-option value="turbo">Turbo</cv-select-option>
+            <cv-select-option value="locked" disabled>Locked</cv-select-option>
+          </cv-select>
+          <cv-disclosure>
+            <span slot="trigger">Advanced diagnostics</span>
+            Realtime overlays, memory tracing and latency probes are enabled for this profile.
+          </cv-disclosure>
+        </article>
+
+        <article class="card">
+          <h2>Alert</h2>
+          <p>Live-region notifications with imperative show/hide API.</p>
+          <div class="row">
+            <cv-button id="alert-success-trigger">Show success</cv-button>
+            <cv-button id="alert-warning-trigger">Show warning</cv-button>
+            <cv-button id="alert-hide-trigger">Hide</cv-button>
+          </div>
+          <cv-alert id="inline-alert" duration-ms="2400" aria-live="polite"></cv-alert>
+        </article>
+
+        <article class="card">
+          <h2>Accordion / Link</h2>
+          <p>Structured FAQ-style sections and semantic links.</p>
+          <cv-accordion allow-multiple aria-label="Demo FAQ">
+            <cv-accordion-item value="sync">
+              <span slot="trigger">How does sync work?</span>
+              Data is encrypted locally and synced only after explicit authorization.
+            </cv-accordion-item>
+            <cv-accordion-item value="export">
+              <span slot="trigger">Can I export data?</span>
+              Export supports encrypted backup and plain-text migration formats.
+            </cv-accordion-item>
+            <cv-accordion-item value="legacy" disabled>
+              <span slot="trigger">Legacy mode</span>
+              This section is disabled in demo.
+            </cv-accordion-item>
+          </cv-accordion>
+          <div class="row">
+            <cv-link href="#overview">Jump to overview</cv-link>
+            <cv-link href="#api">Open API section</cv-link>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>Tabs</h2>
+          <p>Structured tab and panel composition.</p>
+          <cv-tabs aria-label="section tabs">
+            <cv-tab value="overview" selected>Overview</cv-tab>
+            <cv-tab value="security">Security</cv-tab>
+            <cv-tab value="api">API</cv-tab>
+            <cv-tab-panel tab="overview">Overview content.</cv-tab-panel>
+            <cv-tab-panel tab="security">Security content.</cv-tab-panel>
+            <cv-tab-panel tab="api">API content.</cv-tab-panel>
+          </cv-tabs>
+        </article>
+
+        <article class="card">
+          <h2>Toast Region</h2>
+          <p>Imperative notifications driven by controller.</p>
+          <div class="row">
+            <cv-button id="toast-trigger">Show toast</cv-button>
+          </div>
+          <cv-toast-region id="toast-region"></cv-toast-region>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

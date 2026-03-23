@@ -1,0 +1,30 @@
+{
+  "name": "@chromvoid/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "icons:generate": "node ./scripts/generate-platform-icons.mjs",
+    "dev:run": "node ./scripts/run-tauri-dev.mjs",
+    "dev:run:signed": "node ./scripts/run-tauri-dev.mjs --signed",
+    "dev": "npm run dev:run",
+    "dev:signed": "npm run dev:run:signed",
+    "build": "tauri build --bundles app",
+    "build:dmg": "tauri build --bundles dmg",
+    "ios": "node ./scripts/run-tauri-ios-dev.mjs",
+    "ios:sim": "tauri ios dev \"iPhone 16\"",
+    "ios:sim:17": "tauri ios dev \"iPhone 17\"",
+    "ios:sim:latest": "sh -c 'tauri ios dev \"iPhone 17\" || tauri ios dev \"iPhone 16\"'",
+    "ios:sim:signed": "sh -c 'APPLE_DEVELOPMENT_TEAM=${APPLE_DEVELOPMENT_TEAM:?Set APPLE_DEVELOPMENT_TEAM} tauri ios dev \"iPhone 16\"'",
+    "ios:init": "HOMEBREW_NO_ENV_HINTS=1 tauri ios init",
+    "android": "node ./scripts/run-tauri-android-dev.mjs",
+    "android:init": "tauri android init",
+    "android:build:release:apk": "tauri android build --apk --target aarch64 --ci",
+    "android:deploy:release:apk": "npm run android:build:release:apk && node ./scripts/install-android-release-apk.mjs",
+    "test:e2e": "npx vitest run --config ./vitest.e2e.config.ts"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.10.0"
+  }
+}

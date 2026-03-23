@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-init-local-storage"
+description = "Enables the init_local_storage command without any pre-configured scope."
+commands.allow = ["init_local_storage"]
+
+[[permission]]
+identifier = "deny-init-local-storage"
+description = "Denies the init_local_storage command without any pre-configured scope."
+commands.deny = ["init_local_storage"]

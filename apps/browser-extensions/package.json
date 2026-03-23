@@ -1,0 +1,32 @@
+{
+  "name": "browser-extension",
+  "version": "1.0.0",
+  "description": "ChromVoid UNO configurator",
+  "type": "module",
+  "scripts": {
+    "build": "bun run scripts/build.ts && node ./scripts/build-css.mjs && node ./scripts/package-extension.mjs",
+    "dev": "node ./scripts/build-css.mjs && bun run scripts/build.ts --watch",
+    "build:css": "node ./scripts/build-css.mjs",
+    "build:package": "node ./scripts/package-extension.mjs",
+    "fix": "oxlint --fix **/*.{ts,tsx}",
+    "lint": "tsc --noEmit",
+    "test": "tsx --test --test-force-exit src/*.test.ts src/**/*.test.ts"
+  },
+  "keywords": [],
+  "author": "Kaifat",
+  "dependencies": {
+    "@chromvoid/scheme": "workspace:*",
+    "@project/i18n": "workspace:*",
+    "@noble/ciphers": "^2.1.1",
+    "@noble/curves": "^2.0.1",
+    "@noble/hashes": "^2.0.1",
+    "@chromvoid/uikit": "workspace:*",
+    "@reatom/core": "^1000.15.0",
+    "@project/passmanager": "workspace:*",
+    "@project/utils": "workspace:*",
+    "@types/chrome": "^0.0.270"
+  },
+  "devDependencies": {
+    "@webcomponents/custom-elements": "^1.6.0"
+  }
+}

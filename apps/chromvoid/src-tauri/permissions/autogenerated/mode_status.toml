@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mode-status"
+description = "Enables the mode_status command without any pre-configured scope."
+commands.allow = ["mode_status"]
+
+[[permission]]
+identifier = "deny-mode-status"
+description = "Denies the mode_status command without any pre-configured scope."
+commands.deny = ["mode_status"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gateway-list-active-grants"
+description = "Enables the gateway_list_active_grants command without any pre-configured scope."
+commands.allow = ["gateway_list_active_grants"]
+
+[[permission]]
+identifier = "deny-gateway-list-active-grants"
+description = "Denies the gateway_list_active_grants command without any pre-configured scope."
+commands.deny = ["gateway_list_active_grants"]

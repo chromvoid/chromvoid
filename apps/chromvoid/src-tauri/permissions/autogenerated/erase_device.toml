@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-erase-device"
+description = "Enables the erase_device command without any pre-configured scope."
+commands.allow = ["erase_device"]
+
+[[permission]]
+identifier = "deny-erase-device"
+description = "Denies the erase_device command without any pre-configured scope."
+commands.deny = ["erase_device"]

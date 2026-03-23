@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-publish-ios-presence"
+description = "Enables the publish_ios_presence command without any pre-configured scope."
+commands.allow = ["publish_ios_presence"]
+
+[[permission]]
+identifier = "deny-publish-ios-presence"
+description = "Denies the publish_ios_presence command without any pre-configured scope."
+commands.deny = ["publish_ios_presence"]

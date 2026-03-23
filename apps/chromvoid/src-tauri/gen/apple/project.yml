@@ -1,0 +1,198 @@
+name: chromvoid
+options:
+  bundleIdPrefix: com.chromvoid.app
+  deploymentTarget:
+    iOS: 16.0
+    macOS: 13.0
+fileGroups: [../../src]
+configs:
+  debug: debug
+  release: release
+settingGroups:
+  app:
+    base:
+      PRODUCT_NAME: ChromVoid
+      PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.app
+targetTemplates:
+  app:
+    type: application
+    sources:
+      - path: Sources/chromvoid
+    scheme:
+      environmentVariables:
+        RUST_BACKTRACE: full
+        RUST_LOG: info
+    settings:
+      groups: [app]
+targets:
+  chromvoid_iOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/chromvoid
+      - path: Assets.xcassets
+      - path: Externals
+        excludes:
+          - "**/*.a"
+      - path: chromvoid_iOS
+      - path: assets
+        buildPhase: resources
+        type: folder
+      - path: LaunchScreen.storyboard
+    info:
+      path: chromvoid_iOS/Info.plist
+      properties:
+        LSRequiresIPhoneOS: true
+        NSFaceIDUsageDescription: ChromVoid uses Face ID to verify access before showing the app.
+        UILaunchStoryboardName: LaunchScreen
+        UIRequiredDeviceCapabilities: [arm64, metal]
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        CFBundleShortVersionString: 0.1.0
+        CFBundleVersion: "0.1.0"
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.chromvoid.app.connection-refresh
+        UIBackgroundModes:
+          - fetch
+          - remote-notification
+    entitlements:
+      path: chromvoid_iOS/chromvoid_iOS.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.chromvoid.app.shared
+    scheme:
+      environmentVariables:
+        RUST_BACKTRACE: full
+        RUST_LOG: info
+    settings:
+      base:
+        ENABLE_BITCODE: false
+        ARCHS: [arm64]
+        VALID_ARCHS: arm64 
+        LIBRARY_SEARCH_PATHS[arch=x86_64]: $(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)
+        LIBRARY_SEARCH_PATHS[arch=arm64]: $(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)
+        ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: true
+        EXCLUDED_ARCHS[sdk=iphoneos*]: x86_64
+      groups: [app]
+    dependencies:
+      - framework: libapp.a
+        embed: false
+      - target: chromvoid_CredentialProviderExtension
+        embed: true
+      - sdk: BackgroundTasks.framework
+      - sdk: CoreGraphics.framework
+      - sdk: Metal.framework
+      - sdk: MetalKit.framework
+      - sdk: QuartzCore.framework
+      - sdk: Security.framework
+      - sdk: UIKit.framework
+      - sdk: WebKit.framework
+    preBuildScripts:
+      - script: npm run -- tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:-}" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}
+        name: Build Rust Code
+        basedOnDependencyAnalysis: false
+        outputFiles:
+          - $(SRCROOT)/Externals/x86_64/${CONFIGURATION}/libapp.a
+          - $(SRCROOT)/Externals/arm64/${CONFIGURATION}/libapp.a
+  chromvoid_iOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: chromvoid_iOSTests
+    dependencies:
+      - target: chromvoid_iOS
+
+  chromvoid_CredentialProviderExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: chromvoid_CredentialProviderExtension
+      - path: Sources/chromvoid/CredentialIPCBridge.swift
+    info:
+      path: chromvoid_CredentialProviderExtension/Info.plist
+    entitlements:
+      path: chromvoid_CredentialProviderExtension/chromvoid_CredentialProviderExtension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.chromvoid.app.shared
+        com.apple.developer.authentication-services.autofill-credential-provider: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.app.credential-provider
+        PRODUCT_NAME: ChromVoidCredentialProvider
+        SWIFT_VERSION: 5.0
+        ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: true
+    dependencies:
+      - sdk: AuthenticationServices.framework
+      - sdk: Foundation.framework
+      - sdk: UIKit.framework
+
+  chromvoid_macOS_CredentialProviderExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: chromvoid_CredentialProviderExtension
+      - path: Sources/chromvoid/CredentialIPCBridge.swift
+    info:
+      path: chromvoid_CredentialProviderExtension/Info.plist
+    entitlements:
+      path: chromvoid_CredentialProviderExtension/chromvoid_CredentialProviderExtension_macos.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups:
+          - group.com.chromvoid.app.shared
+        com.apple.developer.authentication-services.autofill-credential-provider: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.app.credential-provider
+        PRODUCT_NAME: ChromVoidCredentialProvider
+        SWIFT_VERSION: 5.0
+        ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: true
+        MACOSX_DEPLOYMENT_TARGET: 13.0
+    dependencies:
+      - sdk: AuthenticationServices.framework
+      - sdk: Foundation.framework
+      - sdk: AppKit.framework
+
+  chromvoid_macos:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/chromvoid-desktop
+      - path: Assets.xcassets
+      - path: Externals
+        excludes:
+          - "**/*.a"
+      - path: chromvoid_macos
+      - path: assets
+        buildPhase: resources
+        type: folder
+    info:
+      path: chromvoid_macos/Info.plist
+    entitlements:
+      path: chromvoid_macos/chromvoid_macos.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.chromvoid.app.shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.app.desktop
+        PRODUCT_NAME: ChromVoidDesktop
+        SWIFT_VERSION: 5.0
+        ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: true
+    dependencies:
+      - framework: libapp.a
+        embed: false
+      - target: chromvoid_macOS_CredentialProviderExtension
+        embed: true
+      - sdk: AppKit.framework
+      - sdk: Foundation.framework
+      - sdk: Security.framework
+      - sdk: WebKit.framework

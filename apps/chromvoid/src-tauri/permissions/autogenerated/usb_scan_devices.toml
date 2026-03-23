@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-usb-scan-devices"
+description = "Enables the usb_scan_devices command without any pre-configured scope."
+commands.allow = ["usb_scan_devices"]
+
+[[permission]]
+identifier = "deny-usb-scan-devices"
+description = "Denies the usb_scan_devices command without any pre-configured scope."
+commands.deny = ["usb_scan_devices"]

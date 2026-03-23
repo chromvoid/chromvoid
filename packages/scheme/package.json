@@ -1,0 +1,36 @@
+{
+  "name": "@chromvoid/scheme",
+  "version": "0.1.0",
+  "description": "TypeScript types generated from ChromVoid Rust Core",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "fix": "npm run lint:fix && npm run format",
+    "lint:fix": "oxlint --fix src/**/*.ts",
+    "format": "prettier --write src/**/*.ts",
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "generate": "cd ../.. && cargo test --features ts-bindings -- export_bindings --nocapture",
+    "prepublish": "npm run generate && npm run build"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chromvoid/chromvoid"
+  }
+}

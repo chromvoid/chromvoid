@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-restore-local-cancel"
+description = "Enables the restore_local_cancel command without any pre-configured scope."
+commands.allow = ["restore_local_cancel"]
+
+[[permission]]
+identifier = "deny-restore-local-cancel"
+description = "Denies the restore_local_cancel command without any pre-configured scope."
+commands.deny = ["restore_local_cancel"]

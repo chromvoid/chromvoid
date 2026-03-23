@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ChromVoid Autofill Probe</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        padding: 24px;
+        margin: 0;
+        background: #f5f7fb;
+      }
+
+      form {
+        display: grid;
+        gap: 16px;
+        max-width: 480px;
+      }
+
+      label {
+        display: grid;
+        gap: 8px;
+        font-weight: 600;
+        color: #1f2937;
+      }
+
+      input {
+        font: inherit;
+        padding: 14px 16px;
+        border: 1px solid #cbd5e1;
+        border-radius: 12px;
+        background: white;
+      }
+    </style>
+  </head>
+  <body>
+    <form autocomplete="on">
+      <label>
+        Username
+        <input
+          id="login_field"
+          name="login"
+          type="text"
+          autocomplete="username"
+          placeholder="probe-user@example.com"
+        />
+      </label>
+      <label>
+        Password
+        <input
+          id="password_field"
+          name="password"
+          type="password"
+          autocomplete="current-password"
+          placeholder="password"
+        />
+      </label>
+    </form>
+    <script>
+      window.readProbeState = function () {
+        return {
+          login: document.getElementById('login_field')?.value || '',
+          password: document.getElementById('password_field')?.value || '',
+          href: location.href,
+          title: document.title,
+        }
+      }
+    </script>
+  </body>
+</html>

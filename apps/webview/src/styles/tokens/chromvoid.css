@@ -1,0 +1,286 @@
+:root,
+[data-theme='dark'],
+[theme='dark'],
+cv-theme-provider,
+cv-theme-provider[theme='dark'] {
+  --cv-color-bg: #070b12;
+  --cv-color-surface: #101722;
+  --cv-color-surface-2: #181c23;
+  --cv-color-surface-3: #262a32;
+  --cv-color-surface-4: #31353d;
+  --cv-color-surface-elevated: var(--cv-color-surface-2);
+  --cv-color-surface-secondary: var(--cv-color-surface-2);
+  --cv-color-surface-tertiary: var(--cv-color-surface-3);
+  --cv-color-surface-hover: color-mix(in oklch, var(--cv-color-primary) 7%, var(--cv-color-surface));
+  --cv-color-text: #eef5ff;
+  --cv-color-text-primary: var(--cv-color-text);
+  --cv-color-text-muted: color-mix(in oklch, #eef5ff 72%, transparent);
+  --cv-color-text-secondary: var(--cv-color-text-muted);
+  --cv-color-text-subtle: color-mix(in oklch, #eef5ff 54%, transparent);
+  --cv-color-text-strong: #f8fbff;
+  --cv-color-text-strongest: #ffffff;
+  --cv-color-border: color-mix(in oklch, #2c415d 80%, transparent);
+  --cv-color-border-muted: color-mix(in oklch, var(--cv-color-border) 52%, transparent);
+  --cv-color-border-strong: color-mix(in oklch, var(--cv-color-border) 86%, var(--cv-color-text-muted));
+  --cv-color-border-accent: color-mix(in oklch, var(--cv-color-primary) 38%, var(--cv-color-border));
+  --cv-color-brand: var(--cv-color-primary);
+  --cv-color-primary: #00e5ff;
+  --cv-color-primary-dark: #00b7cc;
+  --cv-color-primary-darker: #00879b;
+  --cv-color-primary-subtle: color-mix(
+    in oklch,
+    var(--cv-color-primary) 10%,
+    var(--cv-color-surface)
+  );
+  --cv-color-primary-muted: color-mix(
+    in oklch,
+    var(--cv-color-primary) 18%,
+    var(--cv-color-surface)
+  );
+  --cv-color-on-primary: #00171a;
+  --cv-color-accent: #b388ff;
+  --cv-color-accent-light: color-mix(in oklch, var(--cv-color-accent) 70%, white);
+  --cv-color-accent-dark: color-mix(in oklch, var(--cv-color-accent) 72%, black);
+  --cv-color-accent-hover: #c6a2ff;
+  --cv-color-accent-contrast: #14001f;
+  --cv-color-cyan: #00e5ff;
+  --cv-color-cyan-light: color-mix(in oklch, var(--cv-color-cyan) 70%, white);
+  --cv-color-cyan-dark: color-mix(in oklch, var(--cv-color-cyan) 70%, black);
+  --cv-color-success: #00f5a0;
+  --cv-color-success-dark: #00c480;
+  --cv-color-success-text: #001a10;
+  --cv-color-warning: #ffb020;
+  --cv-color-warning-dark: #cc8d1a;
+  --cv-color-warning-text: #1a1100;
+  --cv-color-danger: #ff3b30;
+  --cv-color-danger-dark: #cc2f26;
+  --cv-color-danger-text: #1a0500;
+  --cv-color-info: var(--cv-color-primary);
+  --cv-color-info-text: var(--cv-color-text);
+  --cv-color-focus: var(--cv-color-primary);
+  --cv-color-focus-ring: var(--cv-color-primary);
+  --cv-color-hover: color-mix(in oklch, var(--cv-color-primary) 10%, var(--cv-color-surface));
+  --cv-color-active: color-mix(in oklch, var(--cv-color-primary) 18%, transparent);
+  --cv-color-selected: color-mix(in oklch, var(--cv-color-primary) 16%, var(--cv-color-surface));
+  --cv-color-overlay: color-mix(in oklch, #03070e 72%, transparent);
+
+  --cv-space-1: 4px;
+  --cv-space-2: 8px;
+  --cv-space-3: 12px;
+  --cv-space-4: 16px;
+  --cv-space-5: 20px;
+  --cv-space-6: 24px;
+  --cv-space-7: 32px;
+  --cv-space-8: 40px;
+
+  --cv-radius-1: 6px;
+  --cv-radius-2: 10px;
+  --cv-radius-3: 14px;
+  --cv-radius-4: 18px;
+  --cv-radius-s: var(--cv-radius-1);
+  --cv-radius-sm: var(--cv-radius-1);
+  --cv-radius-m: var(--cv-radius-2);
+  --cv-radius-md: var(--cv-radius-2);
+  --cv-radius-lg: var(--cv-radius-3);
+  --cv-radius-xl: var(--cv-radius-4);
+  --cv-radius-pill: 999px;
+  --cv-radius-full: 9999px;
+
+  --cv-font-family-primary:
+    'Inter', 'Lato', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  --cv-font-family-body: var(--cv-font-family-primary);
+  --cv-font-family-display:
+    'Satoshi', 'Inter', 'Lato', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --cv-font-family-sans: var(--cv-font-family-primary);
+  --cv-font-family-code:
+    'JetBrains Mono', 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Courier New', monospace;
+
+  --cv-font-size-xs: 0.75rem;
+  --cv-font-size-sm: 0.875rem;
+  --cv-font-size-base: 1rem;
+  --cv-font-size-md: var(--cv-font-size-base);
+  --cv-font-size-lg: 1.125rem;
+  --cv-font-size-xl: 1.25rem;
+  --cv-font-size-2xl: 1.5rem;
+  --cv-font-size-3xl: 1.875rem;
+  --cv-font-size-4xl: 2.25rem;
+  --cv-font-size-5xl: 3rem;
+  --cv-font-size-6xl: 3.75rem;
+
+  --cv-font-weight-thin: 100;
+  --cv-font-weight-light: 300;
+  --cv-font-weight-normal: 400;
+  --cv-font-weight-regular: var(--cv-font-weight-normal);
+  --cv-font-weight-medium: 500;
+  --cv-font-weight-semibold: 600;
+  --cv-font-weight-bold: 700;
+  --cv-font-weight-extrabold: 800;
+  --cv-font-weight-black: 900;
+
+  --cv-shadow-sm: 0 2px 8px var(--cv-alpha-black-25);
+  --cv-shadow-md: 0 8px 24px var(--cv-alpha-black-25);
+  --cv-shadow-lg: 0 16px 42px var(--cv-alpha-black-35);
+  --cv-shadow-xl: 0 24px 64px var(--cv-alpha-black-35);
+  --cv-shadow-glow: 0 0 40px color-mix(in oklch, var(--cv-color-cyan) 15%, transparent);
+  --cv-shadow-1: var(--cv-shadow-sm);
+  --cv-shadow-2: var(--cv-shadow-md);
+  --cv-shadow-3: var(--cv-shadow-lg);
+  --cv-shadow-4: var(--cv-shadow-xl);
+
+  --cv-duration-instant: 0ms;
+  --cv-duration-fast: 120ms;
+  --cv-duration-normal: 250ms;
+  --cv-duration-slow: 320ms;
+  --cv-duration-slower: 500ms;
+  --cv-duration-slowest: 800ms;
+
+  --cv-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --cv-easing-accelerate: cubic-bezier(0.4, 0, 1, 1);
+  --cv-easing-decelerate: cubic-bezier(0, 0, 0.2, 1);
+  --cv-easing-spring: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --cv-z-base: 0;
+  --cv-z-overlay: 1000;
+  --cv-z-modal: 1100;
+  --cv-z-toast: 1200;
+
+  --cv-size-control-height: 48px;
+}
+
+[data-theme='light'],
+[theme='light'],
+cv-theme-provider[theme='light'] {
+  --cv-color-bg: #f4f8fb;
+  --cv-color-surface: #ffffff;
+  --cv-color-surface-2: #f2f6fb;
+  --cv-color-surface-3: #e9eff7;
+  --cv-color-surface-4: #dde7f2;
+  --cv-color-surface-elevated: var(--cv-color-surface);
+  --cv-color-surface-secondary: var(--cv-color-surface-2);
+  --cv-color-surface-tertiary: var(--cv-color-surface-3);
+  --cv-color-surface-hover: color-mix(in oklch, var(--cv-color-primary) 7%, var(--cv-color-surface));
+  --cv-color-text: #121722;
+  --cv-color-text-primary: var(--cv-color-text);
+  --cv-color-text-muted: color-mix(in oklch, #121722 70%, transparent);
+  --cv-color-text-secondary: var(--cv-color-text-muted);
+  --cv-color-text-subtle: color-mix(in oklch, #121722 50%, transparent);
+  --cv-color-text-strong: #090d14;
+  --cv-color-text-strongest: #000000;
+  --cv-color-border: color-mix(in oklch, #192b46 14%, transparent);
+  --cv-color-border-muted: color-mix(in oklch, #192b46 8%, transparent);
+  --cv-color-border-strong: color-mix(in oklch, #192b46 22%, transparent);
+  --cv-color-border-accent: color-mix(in oklch, var(--cv-color-primary) 30%, var(--cv-color-border));
+  --cv-color-primary: #00b7cc;
+  --cv-color-primary-dark: #0092a3;
+  --cv-color-primary-darker: #006b78;
+  --cv-color-primary-subtle: color-mix(in oklch, #00b7cc 8%, transparent);
+  --cv-color-primary-muted: color-mix(in oklch, #00b7cc 16%, transparent);
+  --cv-color-on-primary: #ffffff;
+  --cv-color-accent-hover: #9d69ff;
+  --cv-color-success: #00c480;
+  --cv-color-success-dark: #009963;
+  --cv-color-warning: #e69e1d;
+  --cv-color-warning-dark: #b87912;
+  --cv-color-danger: #e6352b;
+  --cv-color-danger-dark: #b82821;
+  --cv-color-focus: #00b7cc;
+  --cv-color-focus-ring: #00b7cc;
+  --cv-color-overlay: color-mix(in oklch, var(--cv-color-bg) 42%, transparent);
+  --cv-shadow-sm: 0 2px 8px color-mix(in oklch, var(--cv-color-bg) 8%, transparent);
+  --cv-shadow-md: 0 10px 30px color-mix(in oklch, var(--cv-color-bg) 12%, transparent);
+  --cv-shadow-lg: 0 18px 48px color-mix(in oklch, var(--cv-color-bg) 15%, transparent);
+  --cv-shadow-xl: 0 28px 72px color-mix(in oklch, var(--cv-color-bg) 18%, transparent);
+  --cv-shadow-1: var(--cv-shadow-sm);
+  --cv-shadow-2: var(--cv-shadow-md);
+  --cv-shadow-3: var(--cv-shadow-lg);
+  --cv-shadow-4: var(--cv-shadow-xl);
+}
+
+:root {
+  --app-border-radius: var(--cv-radius-md);
+  --app-spacing-1: var(--cv-space-1);
+  --app-spacing-2: var(--cv-space-2);
+  --app-spacing-3: var(--cv-space-3);
+  --app-spacing-4: var(--cv-space-4);
+  --app-spacing-5: var(--cv-space-5);
+  --app-spacing-6: var(--cv-space-6);
+  --app-spacing-7: var(--cv-space-7);
+  --app-spacing-8: var(--cv-space-8);
+  --touch-target-min: var(--cv-size-control-height);
+  --touch-target-comfortable: 52px;
+  --touch-target-large: 60px;
+  --touch-spacing: var(--cv-space-3);
+  --touch-spacing-compact: var(--cv-space-2);
+  --finger-friendly-gap: var(--cv-space-4);
+  --swipe-area-height: 64px;
+  --toast-top-offset: 56px;
+  --toast-bottom-offset: var(--safe-area-bottom);
+  --bars-background: var(--cv-color-surface-2);
+  --bars-color: var(--cv-color-text);
+  --overlay-bg: var(--cv-color-overlay);
+  --glass-bg: color-mix(in oklch, var(--cv-color-surface) 60%, transparent);
+  --glass-border: color-mix(in oklch, var(--cv-color-border) 40%, transparent);
+  --glass-shadow: 0 12px 36px color-mix(in oklch, black 25%, transparent);
+  --glass-glow: var(--cv-shadow-glow);
+  --gradient-primary: linear-gradient(
+    135deg,
+    var(--cv-color-primary) 0%,
+    color-mix(in oklch, var(--cv-color-primary) 70%, var(--cv-color-accent)) 100%
+  );
+  --gradient-secondary: linear-gradient(
+    135deg,
+    var(--cv-color-accent) 0%,
+    color-mix(in oklch, var(--cv-color-accent) 70%, var(--cv-color-primary)) 100%
+  );
+  --gradient-success: linear-gradient(
+    135deg,
+    var(--cv-color-success) 0%,
+    color-mix(in oklch, var(--cv-color-success) 80%, var(--cv-color-primary)) 100%
+  );
+  --gradient-brand: linear-gradient(135deg, var(--cv-color-cyan) 0%, var(--cv-color-accent) 100%);
+  --gradient-subtle: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--cv-color-primary) 10%, transparent) 0%,
+    color-mix(in oklch, var(--cv-color-accent) 6%, transparent) 55%,
+    transparent 100%
+  );
+}
+
+cv-button.gradient-primary::part(base),
+.gradient-primary cv-button::part(base) {
+  background: var(--gradient-primary);
+  border: none;
+  color: var(--cv-color-on-primary);
+  box-shadow: var(--cv-shadow-2);
+}
+
+cv-button.gradient-secondary::part(base),
+.gradient-secondary cv-button::part(base) {
+  background: var(--gradient-secondary);
+  border: none;
+  color: #ffffff;
+  box-shadow: var(--cv-shadow-2);
+}
+
+cv-button.gradient-success::part(base),
+.gradient-success cv-button::part(base) {
+  background: var(--gradient-success);
+  border: none;
+  color: #ffffff;
+  box-shadow: var(--cv-shadow-2);
+}
+
+cv-button.gradient-primary::part(base):hover,
+cv-button.gradient-secondary::part(base):hover,
+cv-button.gradient-success::part(base):hover {
+  transform: translateY(-1px);
+  box-shadow: var(--cv-shadow-3);
+}
+
+cv-button.gradient-primary::part(base):active,
+cv-button.gradient-secondary::part(base):active,
+cv-button.gradient-success::part(base):active {
+  transform: translateY(0);
+  box-shadow: var(--cv-shadow-2);
+}
+

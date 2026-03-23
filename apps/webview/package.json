@@ -1,0 +1,42 @@
+{
+  "name": "dashboard",
+  "version": "1.0.0",
+  "description": "ChromVoid device",
+  "type": "module",
+  "scripts": {
+    "build": "NODE_ENV=production bun run scripts/build.ts",
+    "dev": "NODE_ENV=production bun run scripts/dev-server.ts",
+    "build:css": "node ./scripts/build-css.mjs",
+    "copy:assets": "node ./scripts/copy-assets.mjs",
+    "vendor:fonts": "bun run scripts/vendor-fonts.ts",
+    "lint": "tsc --project . --noEmit",
+    "fix": "oxlint --fix \"**/*.{ts,tsx}\"",
+    "test": "vitest run --config ./vitest.unit.config.ts",
+    "test:unit": "vitest --config ./vitest.unit.config.ts",
+    "test:unit:watch": "vitest --config ./vitest.unit.config.ts --watch",
+    "test:e2e": "vitest --config ./vitest.config.ts",
+    "test:e2e:headed": "HEADED=1 vitest --config ./vitest.config.ts"
+  },
+  "keywords": [],
+  "author": "Kaifat",
+  "dependencies": {
+    "@chromvoid/password-import": "workspace:*",
+    "@lit-labs/virtualizer": "^2.1.1",
+    "@chromvoid/uikit": "workspace:*",
+    "@project/passmanager": "workspace:*",
+    "@chromvoid/ui": "workspace:*",
+    "@project/utils": "workspace:*",
+    "@tauri-apps/api": "^2.9.1",
+    "@tauri-apps/plugin-dialog": "^2.0.0",
+    "@types/zxcvbn": "^4.4.5",
+    "zxcvbn": "^4.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@vitest/browser": "^3.2.4",
+    "jsdom": "^26.1.0",
+    "playwright": "^1.54.2",
+    "typescript": "^5.6.3",
+    "vitest": "^3.2.4"
+  }
+}

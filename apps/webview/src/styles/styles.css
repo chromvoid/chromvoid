@@ -1,0 +1,21 @@
+/* Dashboard global styles entry.
+ * This file is the single entrypoint for LightningCSS bundling.
+ */
+
+/* ChromVoid design tokens (CV source of truth + app primitives). */
+@import './tokens/chromvoid.css';
+
+/* Editorial design tokens (shared variables + keyframes). */
+@import './tokens/editorial.css';
+
+/* Fonts + font-related custom properties. */
+@import './base/fonts.css';
+
+/* Baseline element styles (html/body, box-sizing, etc.). */
+@import './base/reset.css';
+
+/* Inline loading screen (moved from index.html for CSP). */
+@import './base/loading.css';
+
+/* App-specific custom properties (spacing, easing, radii, z-index, etc.). */
+@import './tokens/app.css';

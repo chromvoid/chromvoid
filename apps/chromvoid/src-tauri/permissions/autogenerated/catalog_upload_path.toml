@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-catalog-upload-path"
+description = "Enables the catalog_upload_path command without any pre-configured scope."
+commands.allow = ["catalog_upload_path"]
+
+[[permission]]
+identifier = "deny-catalog-upload-path"
+description = "Denies the catalog_upload_path command without any pre-configured scope."
+commands.deny = ["catalog_upload_path"]

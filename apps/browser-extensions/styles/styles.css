@@ -1,0 +1,26 @@
+:root {
+  --cv-color-surface: rgb(15 23 42 / 82%);
+  --cv-color-surface-elevated: rgb(2 6 23 / 86%);
+  --cv-color-border: rgb(148 163 184 / 18%);
+  --cv-color-text: rgb(226 232 240 / 96%);
+  --cv-color-text-muted: rgb(148 163 184 / 92%);
+  --cv-color-primary: rgb(56 189 248 / 88%);
+  --cv-color-success: #5beba0;
+  --cv-color-warning: #ffc857;
+  --cv-color-danger: #ff7d86;
+  --cv-radius-sm: 10px;
+  --cv-radius-md: 13px;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  width: 430px;
+  min-height: 380px;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
+    'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+  overflow: hidden;
+}

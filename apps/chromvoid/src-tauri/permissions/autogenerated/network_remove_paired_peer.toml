@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-network-remove-paired-peer"
+description = "Enables the network_remove_paired_peer command without any pre-configured scope."
+commands.allow = ["network_remove_paired_peer"]
+
+[[permission]]
+identifier = "deny-network-remove-paired-peer"
+description = "Denies the network_remove_paired_peer command without any pre-configured scope."
+commands.deny = ["network_remove_paired_peer"]

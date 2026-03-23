@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mode-get"
+description = "Enables the mode_get command without any pre-configured scope."
+commands.allow = ["mode_get"]
+
+[[permission]]
+identifier = "deny-mode-get"
+description = "Denies the mode_get command without any pre-configured scope."
+commands.deny = ["mode_get"]

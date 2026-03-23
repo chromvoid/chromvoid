@@ -1,0 +1,55 @@
+:root {
+  /* Base app tokens (can be overridden by wrappers / :host-context). */
+  --app-border-radius: 8px;
+  --app-spacing-1: 4px;
+  --app-spacing-2: 8px;
+  --app-spacing-3: 12px;
+  --app-spacing-4: 16px;
+  --app-spacing-5: 20px;
+  --app-spacing-6: 24px;
+  --app-spacing-7: 32px;
+  --app-spacing-8: 40px;
+
+  /* Easing primitives (referenced from component styles via var()). */
+  --cv-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --cv-easing-accelerate: cubic-bezier(0.4, 0, 1, 1);
+  --cv-easing-decelerate: cubic-bezier(0, 0, 0.2, 1);
+
+  /* Springs (used via --cv-easing-spring alias). */
+  --spring-gentle: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Geometry and z-index. */
+  --cv-radius-1: 6px;
+  --cv-radius-2: 10px;
+  --cv-radius-3: 14px;
+  --cv-z-base: 0;
+  --cv-z-overlay: 1000;
+  --cv-z-modal: 1100;
+  --cv-z-toast: 1200;
+
+  /* Reserved safe strips for global toast placement. */
+  --toast-top-offset: 56px;
+  --toast-bottom-offset: var(--safe-area-bottom);
+
+  /* Breakpoints (reference tokens). */
+  --bp-xs: 375px;
+  --bp-sm: 480px;
+  --bp-md: 768px;
+  --bp-lg: 1024px;
+  --bp-xl: 1280px;
+  --bp-2xl: 1536px;
+
+  /* Touch-friendly sizes. */
+  --touch-target-min: 48px;
+  --touch-target-comfortable: 52px;
+  --touch-target-large: 60px;
+  --touch-spacing: 12px;
+  --touch-spacing-compact: 8px;
+
+  --finger-friendly-gap: 16px;
+  --swipe-area-height: 64px;
+
+  /* Legacy/compat tokens still referenced in code. */
+  --bars-background: var(--cv-color-surface-2, #f6f6f7);
+  --bars-color: var(--cv-color-text, #1f2937);
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rpc-dispatch"
+description = "Enables the rpc_dispatch command without any pre-configured scope."
+commands.allow = ["rpc_dispatch"]
+
+[[permission]]
+identifier = "deny-rpc-dispatch"
+description = "Denies the rpc_dispatch command without any pre-configured scope."
+commands.deny = ["rpc_dispatch"]

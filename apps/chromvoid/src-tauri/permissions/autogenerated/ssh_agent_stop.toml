@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ssh-agent-stop"
+description = "Enables the ssh_agent_stop command without any pre-configured scope."
+commands.allow = ["ssh_agent_stop"]
+
+[[permission]]
+identifier = "deny-ssh-agent-stop"
+description = "Denies the ssh_agent_stop command without any pre-configured scope."
+commands.deny = ["ssh_agent_stop"]

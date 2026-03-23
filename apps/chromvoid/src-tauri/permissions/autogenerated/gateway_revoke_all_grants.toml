@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gateway-revoke-all-grants"
+description = "Enables the gateway_revoke_all_grants command without any pre-configured scope."
+commands.allow = ["gateway_revoke_all_grants"]
+
+[[permission]]
+identifier = "deny-gateway-revoke-all-grants"
+description = "Denies the gateway_revoke_all_grants command without any pre-configured scope."
+commands.deny = ["gateway_revoke_all_grants"]

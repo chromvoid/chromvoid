@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-catalog-download"
+description = "Enables the catalog_download command without any pre-configured scope."
+commands.allow = ["catalog_download"]
+
+[[permission]]
+identifier = "deny-catalog-download"
+description = "Denies the catalog_download command without any pre-configured scope."
+commands.deny = ["catalog_download"]

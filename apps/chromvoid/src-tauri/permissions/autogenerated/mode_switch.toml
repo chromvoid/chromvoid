@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mode-switch"
+description = "Enables the mode_switch command without any pre-configured scope."
+commands.allow = ["mode_switch"]
+
+[[permission]]
+identifier = "deny-mode-switch"
+description = "Denies the mode_switch command without any pre-configured scope."
+commands.deny = ["mode_switch"]

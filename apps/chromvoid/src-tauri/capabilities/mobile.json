@@ -1,0 +1,7 @@
+{
+  "identifier": "mobile",
+  "description": "Main ChromVoid mobile window IPC permissions.",
+  "platforms": ["iOS", "android"],
+  "windows": ["main"],
+  "permissions": ["core:default", "mobile", "dialog:default", "clipboard-manager:allow-write-text"]
+}

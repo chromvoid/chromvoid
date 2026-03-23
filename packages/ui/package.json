@@ -1,0 +1,62 @@
+{
+  "name": "@chromvoid/ui",
+  "version": "0.0.1",
+  "description": "UI components for ChromVoid (Lit + @statx/lit)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./components": {
+      "types": "./src/components/index.ts",
+      "import": "./src/components/index.ts",
+      "default": "./src/components/index.ts"
+    },
+    "./components/*": {
+      "types": "./src/components/*.ts",
+      "import": "./src/components/*.ts",
+      "default": "./src/components/*.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "lint": "tsc --noEmit -p tsconfig.test.json",
+    "type-check": "tsc --noEmit --incremental false",
+    "test": "echo \"No tests defined\"",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "npm run type-check",
+    "fix": "oxlint --fix **/*.{ts,tsx}"
+  },
+  "keywords": [
+    "lit",
+    "web-components",
+    "statx",
+    "ui"
+  ],
+  "author": "ChromVoid Team",
+  "license": "MIT",
+  "peerDependencies": {
+    "@statx/core": "^1.15.0",
+    "@statx/lit": "^1.15.0",
+    "lit": "^3.0.0"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^3.2.4",
+    "typescript": "^5.5.4",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

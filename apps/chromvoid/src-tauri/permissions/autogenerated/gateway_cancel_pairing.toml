@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gateway-cancel-pairing"
+description = "Enables the gateway_cancel_pairing command without any pre-configured scope."
+commands.allow = ["gateway_cancel_pairing"]
+
+[[permission]]
+identifier = "deny-gateway-cancel-pairing"
+description = "Denies the gateway_cancel_pairing command without any pre-configured scope."
+commands.deny = ["gateway_cancel_pairing"]

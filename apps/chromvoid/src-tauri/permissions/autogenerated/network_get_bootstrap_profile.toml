@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-network-get-bootstrap-profile"
+description = "Enables the network_get_bootstrap_profile command without any pre-configured scope."
+commands.allow = ["network_get_bootstrap_profile"]
+
+[[permission]]
+identifier = "deny-network-get-bootstrap-profile"
+description = "Denies the network_get_bootstrap_profile command without any pre-configured scope."
+commands.deny = ["network_get_bootstrap_profile"]

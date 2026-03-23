@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-handle-ios-wake"
+description = "Enables the handle_ios_wake command without any pre-configured scope."
+commands.allow = ["handle_ios_wake"]
+
+[[permission]]
+identifier = "deny-handle-ios-wake"
+description = "Denies the handle_ios_wake command without any pre-configured scope."
+commands.deny = ["handle_ios_wake"]

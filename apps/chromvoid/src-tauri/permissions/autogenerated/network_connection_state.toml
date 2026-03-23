@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-network-connection-state"
+description = "Enables the network_connection_state command without any pre-configured scope."
+commands.allow = ["network_connection_state"]
+
+[[permission]]
+identifier = "deny-network-connection-state"
+description = "Denies the network_connection_state command without any pre-configured scope."
+commands.deny = ["network_connection_state"]

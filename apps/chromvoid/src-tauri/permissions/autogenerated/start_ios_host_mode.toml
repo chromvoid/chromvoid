@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-start-ios-host-mode"
+description = "Enables the start_ios_host_mode command without any pre-configured scope."
+commands.allow = ["start_ios_host_mode"]
+
+[[permission]]
+identifier = "deny-start-ios-host-mode"
+description = "Denies the start_ios_host_mode command without any pre-configured scope."
+commands.deny = ["start_ios_host_mode"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gateway-set-enabled"
+description = "Enables the gateway_set_enabled command without any pre-configured scope."
+commands.allow = ["gateway_set_enabled"]
+
+[[permission]]
+identifier = "deny-gateway-set-enabled"
+description = "Denies the gateway_set_enabled command without any pre-configured scope."
+commands.deny = ["gateway_set_enabled"]

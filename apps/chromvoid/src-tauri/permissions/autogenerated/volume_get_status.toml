@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-volume-get-status"
+description = "Enables the volume_get_status command without any pre-configured scope."
+commands.allow = ["volume_get_status"]
+
+[[permission]]
+identifier = "deny-volume-get-status"
+description = "Denies the volume_get_status command without any pre-configured scope."
+commands.deny = ["volume_get_status"]

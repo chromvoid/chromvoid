@@ -1,0 +1,10 @@
+{
+  "identifier": "mobile-dev",
+  "description": "Main ChromVoid mobile window IPC permissions for development - allows localhost dev server.",
+  "platforms": ["iOS", "android"],
+  "remote": {
+    "urls": ["http://localhost:4400/*", "http://127.0.0.1:4400/*"]
+  },
+  "windows": ["main"],
+  "permissions": ["core:default", "mobile", "dialog:default", "clipboard-manager:allow-write-text"]
+}

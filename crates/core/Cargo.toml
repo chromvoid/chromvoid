@@ -1,0 +1,54 @@
+[package]
+name = "chromvoid-core"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+description = "Core library for ChromVoid encrypted storage"
+
+[features]
+default = []
+ts-bindings = ["dep:ts-rs"]
+
+[dependencies]
+# Crypto
+chacha20poly1305.workspace = true
+argon2.workspace = true
+blake3.workspace = true
+sha2.workspace = true
+getrandom.workspace = true
+zeroize.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+serde_repr.workspace = true
+base64.workspace = true
+tar.workspace = true
+tempfile.workspace = true
+regex = "1"
+url = "2"
+
+# OTP
+totp-rs.workspace = true
+
+# TypeScript bindings (optional)
+ts-rs = { workspace = true, optional = true }
+
+# Error handling
+thiserror.workspace = true
+
+[dev-dependencies]
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
+
+[target.'cfg(all(target_os = "linux", not(target_env = "musl")))'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"

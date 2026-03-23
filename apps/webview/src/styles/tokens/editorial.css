@@ -1,0 +1,383 @@
+/* ============================================================================
+ * EDITORIAL DESIGN TOKENS
+ * Modern Editorial style inspired by Linear, Raycast, Arc Browser
+ * ============================================================================ */
+
+:root {
+  /* ========== TYPOGRAPHY SYSTEM ========== */
+  
+  /* Font Families */
+  --cv-font-family-display: 'Satoshi', 'SF Pro Display', system-ui, sans-serif;
+  --cv-font-family-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --cv-font-family-code: 'JetBrains Mono', 'SF Mono', monospace;
+  
+  /* Display Typography (Headlines) */
+  --text-hero: 3rem;        /* 48px - Page titles */
+  --text-display: 2.25rem;  /* 36px - Section headers */
+  --text-title: 1.5rem;     /* 24px - Card titles */
+  --text-heading: 1.125rem; /* 18px - Subsections */
+  
+  /* Body Typography */
+  --text-body: 0.9375rem;   /* 15px - Primary content */
+  --text-small: 0.8125rem;  /* 13px - Secondary content */
+  --text-micro: 0.6875rem;  /* 11px - Labels, badges */
+  
+  /* Font Weights */
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  
+  /* Letter Spacing */
+  --tracking-tight: -0.02em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.02em;
+  --tracking-caps: 0.08em;
+  
+  /* Line Heights */
+  --leading-none: 1;
+  --leading-tight: 1.2;
+  --leading-snug: 1.35;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  /* ========== SPACING SYSTEM ========== */
+  
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ========== BORDER RADIUS ========== */
+  
+  --cv-radius-sm: 4px;
+  --cv-radius-md: 8px;
+  --cv-radius-lg: 12px;
+  --cv-radius-xl: 16px;
+  --cv-radius-full: 9999px;
+
+  /* ========== MOTION ========== */
+
+  /* Easing - Editorial feel */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ========== LAYOUT ========== */
+  
+  --nav-rail-width: 72px;
+  --nav-rail-width-expanded: 240px;
+  --header-height: 64px;
+  --status-bar-height: 32px;
+  --details-panel-width: 400px;
+}
+
+/* ========== DARK THEME (Default) ========== */
+
+:root,
+[data-theme="dark"],
+[theme="dark"],
+cv-theme-provider,
+cv-theme-provider[theme='dark'] {
+  /* Surfaces - ChromVoid dark base */
+  --surface-base: #070b12;
+  --surface-raised: #0a0e15;
+  --surface-overlay: #101722;
+  --surface-elevated: #181c23;
+  --surface-muted: #1c2027;
+  
+  /* Text - High contrast */
+  --text-primary: #ffffff;
+  --text-secondary: var(--cv-alpha-white-70);
+  --text-tertiary: var(--cv-alpha-white-50);
+  --text-quaternary: var(--cv-alpha-white-30);
+  
+  /* Borders - Subtle */
+  --border-subtle: var(--cv-alpha-white-6);
+  --border-default: var(--cv-alpha-white-10);
+  --border-strong: var(--cv-alpha-white-15);
+  --border-focus: color-mix(in oklch, var(--cv-color-accent) 50%, transparent);
+  
+  /* Accent - Brand Cyan */
+  --accent: #00E5FF;
+  --accent-hover: #33e8ff;
+  --accent-muted: color-mix(in oklch, var(--cv-color-primary) 15%, transparent);
+  --accent-subtle: color-mix(in oklch, var(--cv-color-primary) 8%, transparent);
+  
+  /* Secondary Accent - Electric Purple */
+  --accent-secondary: #6200EA;
+  --accent-secondary-hover: #7c1fff;
+  --accent-secondary-muted: color-mix(in oklch, var(--accent-secondary) 15%, transparent);
+  
+  /* Status Colors - ChromVoid Brand */
+  --success: #00FF85;
+  --success-muted: color-mix(in oklch, var(--cv-color-success) 15%, transparent);
+  --warning: #FFAB00;
+  --warning-muted: color-mix(in oklch, var(--warning) 15%, transparent);
+  --error: #FF3D00;
+  --error-muted: color-mix(in oklch, var(--error) 15%, transparent);
+  --info: #00E5FF;
+  --info-muted: color-mix(in oklch, var(--cv-color-primary) 15%, transparent);
+  
+  /* Shadows */
+  --cv-shadow-sm: 0 1px 2px var(--cv-alpha-black-50);
+  --cv-shadow-md: 0 4px 12px var(--cv-alpha-black-50);
+  --cv-shadow-lg: 0 8px 24px var(--cv-alpha-black-65);
+  --cv-shadow-xl: 0 16px 48px var(--cv-alpha-black-65);
+  --cv-shadow-glow: 0 0 24px color-mix(in oklch, var(--cv-color-primary) 25%, transparent);
+  
+  /* Interactive states */
+  --hover-overlay: var(--cv-alpha-white-4);
+  --active-overlay: var(--cv-alpha-white-8);
+  --selected-bg: color-mix(in oklch, var(--cv-color-primary) 12%, transparent);
+}
+
+/* ========== LIGHT THEME ========== */
+
+[data-theme="light"],
+[theme="light"],
+cv-theme-provider[theme='light'] {
+  /* Surfaces - Warm white */
+  --surface-base: #fafafa;
+  --surface-raised: #ffffff;
+  --surface-overlay: #f5f5f5;
+  --surface-elevated: #ffffff;
+  --surface-muted: #f0f0f0;
+  
+  /* Text - Softer black */
+  --text-primary: #111111;
+  --text-secondary: var(--cv-alpha-black-65);
+  --text-tertiary: var(--cv-alpha-black-50);
+  --text-quaternary: var(--cv-alpha-black-25);
+  
+  /* Borders */
+  --border-subtle: var(--cv-alpha-black-5);
+  --border-default: var(--cv-alpha-black-10);
+  --border-strong: var(--cv-alpha-black-10);
+  --border-focus: color-mix(in oklch, var(--cv-color-primary-dark) 50%, transparent);
+  
+  /* Accent - Slightly darker for contrast on white */
+  --accent: #00b4d4;
+  --accent-hover: #00c8eb;
+  --accent-muted: color-mix(in oklch, var(--cv-color-primary-dark) 12%, transparent);
+  --accent-subtle: color-mix(in oklch, var(--cv-color-primary-dark) 6%, transparent);
+  
+  /* Secondary Accent - Electric Purple */
+  --accent-secondary: #5000c8;
+  --accent-secondary-hover: #6200EA;
+  --accent-secondary-muted: color-mix(in oklch, var(--accent-secondary) 12%, transparent);
+  
+  /* Status Colors - ChromVoid Brand (adjusted for light bg) */
+  --success: #00d970;
+  --success-muted: color-mix(in oklch, var(--cv-color-success) 12%, transparent);
+  --warning: #e69900;
+  --warning-muted: color-mix(in oklch, var(--warning) 12%, transparent);
+  --error: #e63300;
+  --error-muted: color-mix(in oklch, var(--error) 12%, transparent);
+  --info: #00b4d4;
+  --info-muted: color-mix(in oklch, var(--cv-color-primary-dark) 12%, transparent);
+  
+  /* Shadows - Softer */
+  --cv-shadow-sm: 0 1px 2px var(--cv-alpha-black-5);
+  --cv-shadow-md: 0 4px 12px var(--cv-alpha-black-10);
+  --cv-shadow-lg: 0 8px 24px var(--cv-alpha-black-10);
+  --cv-shadow-xl: 0 16px 48px var(--cv-alpha-black-10);
+  --cv-shadow-glow: 0 0 24px color-mix(in oklch, var(--cv-color-primary-dark) 20%, transparent);
+  
+  /* Interactive states */
+  --hover-overlay: var(--cv-alpha-black-5);
+  --active-overlay: var(--cv-alpha-black-5);
+  --selected-bg: color-mix(in oklch, var(--cv-color-primary-dark) 8%, transparent);
+}
+
+/* ========== ANIMATION KEYFRAMES ========== */
+
+@keyframes editorial-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes editorial-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes editorial-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes editorial-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes editorial-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ========== VIEW TRANSITION API ========== */
+/* @see https://developer.mozilla.org/en-US/docs/Web/API/View_Transition_API */
+
+/*
+ * Default root transition - subtle crossfade for page changes.
+ * The browser automatically creates ::view-transition-old(root) and
+ * ::view-transition-new(root) pseudo-elements for the full page.
+ */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 200ms;
+  animation-timing-function: cubic-bezier(0.25, 1, 0.5, 1);
+  /* 'both' ensures the animation applies styles before start and after end */
+  animation-fill-mode: both;
+}
+
+/*
+ * Gallery image transition keyframes.
+ * These are applied dynamically via JS when navigating between images.
+ * Each keyframe must have explicit from/to for predictable behavior.
+ */
+@keyframes slide-out-left {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-8%);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(8%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-out-right {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(8%);
+  }
+}
+
+@keyframes slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-8%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Gallery image base transition - applied via view-transition-name in component */
+::view-transition-old(gallery-image),
+::view-transition-new(gallery-image) {
+  animation-duration: 180ms;
+  animation-timing-function: var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1));
+  animation-fill-mode: both;
+}
+
+/*
+ * Route content transition - for major page changes (welcome -> dashboard).
+ * Uses scale-in for new content, fade-out for old.
+ */
+@keyframes vt-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes vt-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+::view-transition-old(route-content) {
+  animation: 180ms var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1)) both vt-fade-out;
+}
+
+::view-transition-new(route-content) {
+  animation: 220ms var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1)) both vt-scale-in;
+}
+
+/* Shell content transition - very subtle for sub-page changes within dashboard */
+::view-transition-old(shell-content),
+::view-transition-new(shell-content) {
+  animation-duration: 150ms;
+  animation-timing-function: var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1));
+  animation-fill-mode: both;
+}
+
+/* Details panel - typically has CSS transitions, view-transition as enhancement */
+::view-transition-old(details-panel),
+::view-transition-new(details-panel) {
+  animation-duration: 200ms;
+  animation-timing-function: var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1));
+  animation-fill-mode: both;
+}
+
+/* Reduced motion: disable all view transitions */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
