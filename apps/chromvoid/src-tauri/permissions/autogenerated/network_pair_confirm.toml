@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-network-pair-confirm"
+description = "Enables the network_pair_confirm command without any pre-configured scope."
+commands.allow = ["network_pair_confirm"]
+
+[[permission]]
+identifier = "deny-network-pair-confirm"
+description = "Denies the network_pair_confirm command without any pre-configured scope."
+commands.deny = ["network_pair_confirm"]

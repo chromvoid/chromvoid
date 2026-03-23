@@ -1,0 +1,7 @@
+{
+  "identifier": "main-window",
+  "description": "Main ChromVoid window IPC permissions (production - no remote URLs).",
+  "platforms": ["macOS", "windows", "linux"],
+  "windows": ["main"],
+  "permissions": ["core:default", "desktop", "dialog:default", "clipboard-manager:allow-write-text"]
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mobile-biometric-auth"
+description = "Enables the mobile_biometric_auth command without any pre-configured scope."
+commands.allow = ["mobile_biometric_auth"]
+
+[[permission]]
+identifier = "deny-mobile-biometric-auth"
+description = "Denies the mobile_biometric_auth command without any pre-configured scope."
+commands.deny = ["mobile_biometric_auth"]

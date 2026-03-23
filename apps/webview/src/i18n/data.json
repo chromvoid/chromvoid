@@ -1,0 +1,2643 @@
+{
+  "lock:warning": {
+    "context": "",
+    "ru": "После записи данных на зашифрованный диск ОБЯЗАТЕЛЬНО нажмите кнопку LOCK на этой странице перед отключением или отмонтированием устройства и дождитесь окончания закрытия хранилища.",
+    "en": "After writing data to the encrypted disk, you MUST press the LOCK button on this page before disconnecting or unmounting the device and wait for the storage to close.",
+    "uk": "Після запису даних на зашифрований диск ОБОВ'ЯЗКОВО натисніть кнопку LOCK на цій сторінці перед відключенням або відмонтуванням пристрою і дочекайтесь завершення закриття сховища.",
+    "es": "Después de escribir datos en el disco cifrado, DEBE presionar el botón LOCK en esta página antes de desconectar o desmontar el dispositivo y esperar a que el almacenamiento se cierre.",
+    "tr": "Şifreli diske veri yazdıktan sonra, cihazı çıkarmadan veya ayırmadan önce bu sayfadaki KİLİT düğmesine basmanız ve depolamanın kapanmasını beklemeniz GEREKİR.",
+    "fr": "Après avoir écrit des données sur le disque chiffré, vous DEVEZ appuyer sur le bouton LOCK de cette page avant de déconnecter ou de démonter l'appareil et attendre la fermeture du stockage.",
+    "it": "Dopo aver scritto i dati sul disco crittografato, DEVI premere il pulsante LOCK su questa pagina prima di scollegare o smontare il dispositivo e attendere la chiusura dello storage.",
+    "id": "Setelah menulis data ke disk terenkripsi, Anda HARUS menekan tombol LOCK di halaman ini sebelum melepaskan atau mencopot perangkat dan menunggu penyimpanan tertutup.",
+    "zh": "在将数据写入加密磁盘后，您必须在断开或卸载设备之前按下此页面上的 LOCK 按钮，并等待存储关闭。",
+    "ja": "暗号化されたディスクにデータを書き込んだ後、デバイスの接続を解除またはマウント解除する前に、このページのLOCKボタンを押し、ストレージが閉じるのを待つ必要があります。",
+    "vi": "Sau khi ghi dữ liệu vào đĩa được mã hóa, bạn PHẢI nhấn nút LOCK trên trang này trước khi ngắt kết nối hoặc gỡ bỏ thiết bị và đợi bộ nhớ đóng lại."
+  },
+  "pm:session-invalid:text": {
+    "context": "Вместо кнопки открытия менеджера паролей, когда сессия не валидна отображем текст",
+    "ru": "Для доступа к менеджеру паролей пожалуйста разблокируйте хранилище из панели управления",
+    "en": "To access the password manager, please unlock the storage from the control panel",
+    "uk": "Для доступу до менеджера паролей пожалуйста розблокуйте хранилище з панелі управління",
+    "es": "Para acceder al administrador de contraseñas, por favor desbloquee el almacenamiento desde el panel de control",
+    "tr": "Sifre yoneticisiye erişim yapmak için, kontrol panelinden depolama kilitlerinizi kapatın",
+    "fr": "Pour accéder au gestionnaire de mots de passe, veuillez débloquer le stockage depuis le panneau de contrôle",
+    "it": "Per accedere al gestore password, per favore blocca l'archiviazione dal pannello di controllo",
+    "id": "Untuk mengakses pengelola kata sandi, silahkan kunci penyimpanan dari panel kontrol",
+    "zh": "要访问密码管理器，请从控制面板中解锁存储",
+    "ja": "パスワード管理にアクセスするには、コンポーネントパネルからストレージを解除してください",
+    "vi": "Để truy cập quản lý mật khẩu, vui lòng màn hình điều khiển để mở kho lưu trữ"
+  },
+  "welcome:title": {
+    "en": "Welcome to ChromVoid UNO",
+    "ru": "Добро пожаловать в ChromVoid UNO",
+    "uk": "Ласкаво просимо в ChromVoid UNO",
+    "es": "Bienvenido a ChromVoid UNO",
+    "tr": "ChromVoid UNO'ya Hoş Geldiniz",
+    "fr": "Bienvenue chez ChromVoid UNO",
+    "it": "Benvenuto a ChromVoid UNO",
+    "id": "Selamat datang di ChromVoid UNO",
+    "zh": "欢迎来到 ChromVoid UNO",
+    "ja": "ChromVoid UNOへようこそ",
+    "vi": "Chào mừng đến với ChromVoid UNO"
+  },
+  "welcome:text": {
+    "en": "If you see this message - you are the first user of the device. You need to activate it.",
+    "ru": "Если вы видите это сообщение - вы первый пользователь устройства. Вам нужно активировать его.",
+    "uk": "Якщо ви бачите це повідомлення - ви перший користувач пристрою. Вам потрібно активувати його.",
+    "es": "Si ves este mensaje, eres el primer usuario del dispositivo. Necesitas activarlo.",
+    "tr": "Bu mesajı görüyorsanız - cihazın ilk kullanıcısınız. Onu etkinleştirmeniz gerekiyor.",
+    "fr": "Si vous voyez ce message, vous êtes le premier utilisateur de l'appareil. Vous devez l'activer.",
+    "it": "Se vedi questo messaggio, sei il primo utente del dispositivo. Devi attivarlo.",
+    "id": "Jika Anda melihat pesan ini - Anda adalah pengguna pertama perangkat. Anda perlu mengaktifkannya.",
+    "zh": "如果你看到这个信息 - 你是这个设备的第一个用户。你需要激活它。",
+    "ja": "このメッセージが表示された場合、デバイスの最初のユーザーです。デバイスをアクティブ化する必要があります。",
+    "vi": "Nếu bạn thấy thông báo này - bạn là người dùng đầu tiên của thiết bị. Bạn cần kích hoạt nó."
+  },
+  "welcome:button_init": {
+    "en": "Initialize the device",
+    "ru": "Инициализировать устройство",
+    "uk": "Ініціалізувати пристрій",
+    "es": "Inicializar dispositivo",
+    "tr": "Cihazı Başlat",
+    "fr": "Initialiser l'appareil",
+    "it": "Inizializzare il dispositivo",
+    "id": "Inisialisasi perangkat",
+    "zh": "初始化设备",
+    "ja": "デバイスを初期化する",
+    "vi": "Khởi tạo thiết bị"
+  },
+  "welcome:button_finish": {
+    "en": "Finish",
+    "ru": "Завершить",
+    "uk": "Завершити",
+    "es": "Terminar",
+    "tr": "Bitir",
+    "fr": "Terminer",
+    "it": "Finire",
+    "id": "Selesai",
+    "zh": "完成",
+    "ja": "完了",
+    "vi": "Hoàn thành"
+  },
+  "no-connection": {
+    "en": "No connection",
+    "ru": "Нет соединения",
+    "uk": "Немає з'єднання",
+    "es": "Sin conexión",
+    "tr": "Bağlantı yok",
+    "fr": "Pas de connexion",
+    "it": "Nessuna connessione",
+    "id": "Tidak ada koneksi",
+    "zh": "没有连接",
+    "ja": "接続がありません",
+    "vi": "Không kết nối"
+  },
+  "button:changeNetwork": {
+    "en": "Change newtwork settings",
+    "ru": "Изменить настройки сети",
+    "uk": "Змінити налаштування мережі",
+    "es": "Cambiar ajustes de red",
+    "tr": "Yeni yönetim ayarlarını değiştir",
+    "fr": "Modifier les paramètres de réseau",
+    "it": "Cambia le impostazioni di rete",
+    "id": "Ganti pengaturan jaringan",
+    "zh": "更改网络设置",
+    "ja": "ネットワーク設定を変更",
+    "vi": "Thay đổi thiet bi mang"
+  },
+  "ip": {
+    "en": "IP address",
+    "ru": "IP-адрес",
+    "uk": "IP-адрес",
+    "es": "Dirección IP",
+    "tr": "IP adresi",
+    "fr": "Adresse IP",
+    "it": "Indirizzo IP",
+    "id": "Alamat IP",
+    "zh": "IP 地址",
+    "ja": "IP アドレス",
+    "vi": "Đị̣a chi IP"
+  },
+  "hostname": {
+    "en": "Hostname",
+    "ru": "Имя хоста",
+    "uk": "Ім'я хоста",
+    "es": "Nombre de host",
+    "tr": "Ana bilgisayar adı",
+    "fr": "Nom d'hôte",
+    "it": "Nome host",
+    "id": "Hostname",
+    "zh": "主机名",
+    "ja": "ホスト名",
+    "vi": "Tên môi"
+  },
+  "unlock_on_next": {
+    "en": "Unlock At Next Power On",
+    "ru": "Разблокировать при следующем запуске",
+    "uk": "Розблокувати при наступному запуску",
+    "es": "Desbloquear en el siguiente encendido",
+    "tr": "Güncelleme sonrası, tüm işletim sistemi, dashbord, dahil etkinleştirilecek.",
+    "fr": "Le device sera deconnecté et le device reseau sera disponible, y compris le tableau de bord.",
+    "it": "Il dispositivo scompare e il dispositivo rete è disponibile, compreso il pannello di controllo.",
+    "id": "Perangkat akan dikunci dan perangkat jaringan tersedia, termasuk dashboard.",
+    "zh": "下次开机时解锁",
+    "ja": "次回の電源オン時に解除",
+    "vi": "Đăng nhập sau khi sẵn sàng điện điện"
+  },
+  "unlock_on_next:text": {
+    "en": "Attention! This is a special mode that unlocks the selected storage the next time the device is switched on. Use it only to connect CHROMVOID to a device from which it is impossible to enter the password. Do not leave the device with activated unlock mode unattended the next time it is switched on. To turn off this mode, simply turn the device on and turn it off after one minute.",
+    "ru": "Внимание! Это специальный режим, который разблокирует выбранное хранилище при следующем включении устройства. Используйте его только для подключению CHROMVOID к устройству, с которого невозможен ввод пароля. Не оставляйте устройство с активированным режимом разблокировки при следующем включении без присмотра. Для выключения данного режима просто включите устройство и выключите его через минуту.",
+    "uk": "Увага! Це спеціальний режим, який розблокує вибране сховище під час наступного ввімкнення пристрою. Використовуйте його лише для під'єднання CHROMVOID до пристрою, з якого неможливе введення пароля. Не залишайте пристрій з активованим режимом розблокування при наступному увімкненні без нагляду. Для вимкнення цього режиму просто увімкніть пристрій і вимкніть його через хвилину.",
+    "es": "Atención: se trata de un modo especial que desbloquea el almacenamiento seleccionado la próxima vez que se encienda el dispositivo. Utilícelo sólo para conectar la CHROMVOID a un dispositivo desde el que sea imposible introducir la contraseña. No deje desatendido el dispositivo con el modo de desbloqueo activado la próxima vez que se encienda. Para desactivar este modo, basta con encender el dispositivo y apagarlo al cabo de un minuto.",
+    "tr": "Dikkat! Bu, cihazın bir sonraki açılışında seçilen depolamanın kilidini açan özel bir moddur. Bunu sadece CHROMVOID'yi şifre girmenin mümkün olmadığı bir cihaza bağlamak için kullanın. Kilit açma modu etkinleştirilmiş cihazı bir sonraki açılışında gözetimsiz bırakmayın. Bu modu kapatmak için cihazı açın ve bir dakika sonra kapatın.",
+    "fr": "Attention : Il s'agit d'un mode spécial qui déverrouille la mémoire sélectionnée lors de la prochaine mise en marche du dispositif. Utilisez-le seulement pour connecter CHROMVOID à un dispositif à partir duquel il est impossible d'entrer le mot de passe. Ne laissez pas le dispositif avec le mode de déverrouillage activé sans surveillance la prochaine fois qu'il est allumé. Pour désactiver ce mode, il suffit d'allumer le dispositif et de l'éteindre après une minute.",
+    "it": "Attenzione: si tratta di una modalità speciale che sblocca la memoria selezionata alla successiva accensione del dispositivo. Utilizzarla solo per collegare CHROMVOID a un dispositivo dal quale è impossibile inserire la password. Non lasciare incustodito il dispositivo con la modalità di sblocco attivata alla successiva accensione. Per disattivare questa modalità, è sufficiente accendere il dispositivo e spegnerlo dopo un minuto.",
+    "id": "Perhatian Ini adalah mode khusus yang membuka penyimpanan yang dipilih saat perangkat dinyalakan kembali. Gunakan mode ini hanya untuk menyambungkan CHROMVOID ke perangkat yang tidak memungkinkan untuk memasukkan kata sandi. Jangan tinggalkan perangkat dengan mode buka kunci yang diaktifkan tanpa pengawasan saat perangkat dinyalakan kembali. Untuk menonaktifkan mode ini, cukup nyalakan perangkat dan matikan setelah satu menit.",
+    "zh": "注意！这是一种特殊模式，可在下次打开设备时解锁所选存储设备。只有在将 CHROMVOID 连接到无法输入密码的设备时才可使用。下次开机时，请勿让已激活解锁模式的设备处于无人看管状态。要关闭该模式，只需打开设备并在一分钟后关闭即可。",
+    "ja": "注意！これは特別なモードで、次回デバイスの電源を入れたときに選択したストレージのロックが解除されます。パスワードの入力が不可能なデバイスにCHROMVOIDを接続する場合にのみ使用してください。ロック解除モードを有効にしたデバイスを、次に電源を入れたときに放置しないでください。このモードをオフにするには、デバイスの電源を入れ、1分後にオフにします。",
+    "vi": "Chú ý! Đây là chế độ đặc biệt giúp mở khóa bộ nhớ đã chọn vào lần bật thiết bị tiếp theo. Chỉ sử dụng nó để kết nối CHROMVOID với một thiết bị không thể nhập mật khẩu. Không để thiết bị đang ở chế độ mở khóa được kích hoạt mà không được giám sát vào lần bật thiết bị tiếp theo. Để tắt chế độ này, bạn chỉ cần bật thiết bị và tắt sau một phút."
+  },
+  "password_maneger:open": {
+    "en": "Open Password Manager",
+    "ru": "Открыть менеджер паролей",
+    "uk": "Відкрити менеджер паролів",
+    "es": "Abrir administrador de contraseñas",
+    "tr": "Parola Yöneticisini Aç",
+    "fr": "Ouvrir le gestionnaire de mots de passe",
+    "it": "Apri Gestore password",
+    "id": "Buka Pengelola Kata Sandi",
+    "zh": "打开密码管理器",
+    "ja": "パスワードマネージャーを開く",
+    "vi": "Mở Quản lý mật khẩu"
+  },
+  "password_maneger:close": {
+    "en": "Close Password Manager",
+    "ru": "Закрыть менеджер паролей",
+    "uk": "Закрити менеджер паролів",
+    "es": "Cerrar administrador de contraseñas",
+    "tr": "Parola Yöneticisini Kapat",
+    "fr": "Fermer le gestionnaire de mots de passe",
+    "it": "Chiudi Gestore password",
+    "id": "Tutup Pengelola Kata Sandi",
+    "zh": "关闭密码管理器",
+    "ja": "パスワードマネージャーを閉じる",
+    "vi": "Đóng Quản lý mật khẩu"
+  },
+  "password:placeholder": {
+    "en": "Enter the password to open encrypted storage",
+    "ru": "Введите пароль для открытия зашифрованного хранилища",
+    "uk": "Введіть пароль для відкриття зашифрованого сховища",
+    "es": "Ingrese la contraseña para abrir el almacenamiento encriptado",
+    "tr": "Şifreli depoyu açmak için lütfen şifreyi girin",
+    "fr": "Veuillez entrer le mot de passe pour ouvrir le stockage crypté",
+    "it": "Si prega di inserire la password per aprire lo storage criptato",
+    "id": "Silakan masukkan kata sandi untuk membuka penyimpanan terenkripsi",
+    "zh": "请输入密码以打开加密存储",
+    "ja": "暗号化されたストレージを開くにはパスワードを入力してください",
+    "vi": "Vui lòng nhập mật khẩu để mở lưu trữ được mã hóa"
+  },
+  "task:PerformingTask": {
+    "en": "Performing task: ${task}",
+    "ru": "Выполнение задачи: ${task}",
+    "uk": "Виконання завдання: ${task}",
+    "es": "Realizando tarea: ${task}",
+    "tr": "Görev yapılıyor: ${task}",
+    "fr": "Exécution de la tâche: ${task}",
+    "it": "Esecuzione del compito: ${task}",
+    "id": "Melaksanakan tugas: ${task}",
+    "zh": "执行任务：${task}",
+    "ja": "タスクの実行中：${task}",
+    "vi": "Thực hiện nhiệm vụ: ${task}"
+  },
+  "task:progress": {
+    "en": "Progress: ${progress}",
+    "ru": "Прогресс: ${progress}",
+    "uk": "Прогрес: ${progress}",
+    "es": "Progreso: ${progress}",
+    "tr": "İlerleme: ${progress}",
+    "fr": "Progression : ${progress}",
+    "it": "Progresso: ${progress}",
+    "id": "Kemajuan: ${progress}",
+    "zh": "进度：${progress}",
+    "ja": "進行状況：${progress}",
+    "vi": "Tiến độ: ${progress}"
+  },
+  "storePath:title": {
+    "en": "Storage Path: ${path}",
+    "ru": "Путь хранилища: ${path}",
+    "uk": "Шлях збереження: ${path}",
+    "es": "Ruta de almacenamiento: ${path}",
+    "tr": "Depolama yolu: ${path}",
+    "fr": "Chemin de stockage: ${path}",
+    "it": "Percorso di archiviazione: ${path}",
+    "id": "Jalur penyimpanan: ${path}",
+    "zh": "存储路径：${path}",
+    "ja": "保存パス：${path}",
+    "vi": "Đường dẫn lưu trữ: ${path}"
+  },
+  "storePath:description:window": {
+    "en": "The new disk has been added to My Computer",
+    "ru": "Новый диск добавлен в мой компьютер",
+    "uk": "Новий диск доданий в мій комп'ютер",
+    "es": "Un nuevo disco está disponible en mi computadora",
+    "tr": "Bulundugünuz bilgisayarda yeni bir disk mevcut",
+    "fr": "Un nouveau disque est disponible sur mon ordinateur",
+    "it": "Un nuovo disco è disponibile sul mio computer",
+    "id": "Baru disk tersedia di komputer saya",
+    "zh": "我的电脑中有新硬盘",
+    "ja": "マイコンピューターに新しいディスクがあります",
+    "vi": "Một thư nhiều dạng với một môt máy tính"
+  },
+  "storePath:description:other": {
+    "en": "The storage has been mounted to your device as a new drive.",
+    "ru": "Хранилище было подключено к вашему устройству как новый диск.",
+    "uk": "Сховище було підключено до вашого пристрою як новий диск.",
+    "es": "El almacenamiento ha sido montado en su dispositivo como una nueva unidad.",
+    "tr": "Depolama cihazınıza yeni bir disk olarak bağlandı.",
+    "fr": "Le stockage a été monté sur votre appareil en tant que nouveau disque.",
+    "it": "Lo storage è stato montato sul tuo dispositivo come nuovo disco.",
+    "id": "Penyimpanan telah dipasang ke perangkat Anda sebagai drive baru.",
+    "zh": "存储已作为新驱动器挂载到您的设备。",
+    "ja": "ストレージが新しいドライブとしてデバイスにマウントされました。",
+    "vi": "Ổ lưu trữ đã được gắn vào thiết bị của bạn dưới dạng ổ đĩa mới."
+  },
+  "statusbar:title": {
+    "en": "ChromVoid UNO",
+    "ru": "ChromVoid UNO",
+    "uk": "ChromVoid UNO",
+    "es": "ChromVoid UNO",
+    "tr": "ChromVoid UNO",
+    "fr": "ChromVoid UNO",
+    "it": "ChromVoid UNO",
+    "id": "ChromVoid UNO",
+    "zh": "ChromVoid UNO",
+    "ja": "ChromVoid UNO",
+    "vi": "ChromVoid UNO"
+  },
+  "temperature": {
+    "en": "Temperature",
+    "ru": "Температура",
+    "uk": "Температура",
+    "es": "Temperatura",
+    "tr": "Sıcaklık",
+    "fr": "Température",
+    "it": "Temperatura",
+    "id": "Suhu",
+    "zh": "温度",
+    "ja": "温度",
+    "vi": "Nhiệt độ"
+  },
+  "statusbar:time": {
+    "en": "Time",
+    "ru": "Время",
+    "uk": "Час",
+    "es": "Hora",
+    "tr": "Zaman",
+    "fr": "Temps",
+    "it": "Tempo",
+    "id": "Waktu",
+    "zh": "时间",
+    "ja": "時間",
+    "vi": "Thời gian"
+  },
+  "statusbar:status": {
+    "en": "Status",
+    "ru": "Статус",
+    "uk": "Статус",
+    "es": "Estado",
+    "tr": "Durum",
+    "fr": "Statut",
+    "it": "Stato",
+    "id": "Status",
+    "zh": "状态",
+    "ja": "状態",
+    "vi": "Trạng thái"
+  },
+  "no-license:title": {
+    "en": "This Device has no license",
+    "ru": "Это Устройство не имеет лицензии",
+    "uk": "Пристрій не має ліцензії",
+    "es": "El dispositivo no tiene licencia",
+    "tr": "Cihazın lisansı yok",
+    "fr": "L'appareil n'a pas de licence",
+    "it": "Il dispositivo non ha licenza",
+    "id": "Perangkat tidak memiliki lisensi",
+    "zh": "设备没有许可证",
+    "ja": "デバイスにはライセンスがありません",
+    "vi": "Thiết bị không có giấy phép"
+  },
+  "external-storage": {
+    "en": "External storage",
+    "ru": "Внешнee хранилищe",
+    "uk": "Зовнішнє сховище",
+    "es": "Almacenamiento externo",
+    "tr": "Harici depolama",
+    "fr": "Stockage externe",
+    "it": "Archiviazione esterna",
+    "id": "Penyimpanan eksternal",
+    "zh": "外部存储",
+    "ja": "外部ストレージ",
+    "vi": "Lưu trữ ngoài"
+  },
+  "external-storages-list": {
+    "en": "External storages",
+    "ru": "Внешние хранилища",
+    "uk": "Зовнішні сховища",
+    "es": "Almacenamientos externos",
+    "tr": "Harici depolamalar",
+    "fr": "Stockages externes",
+    "it": "Archiviazioni esterne",
+    "id": "Penyimpanan eksternal",
+    "zh": "外部存储设备",
+    "ja": "外部ストレージ",
+    "vi": "Lưu trữ ngoài"
+  },
+  "external-drives-list": {
+    "en": "External drives",
+    "ru": "Внешние устройства",
+    "uk": "Зовнішні накопичувачі",
+    "es": "Unidades externas",
+    "tr": "Harici sürücüler",
+    "fr": "Lecteurs externes",
+    "it": "Unità esterne",
+    "id": "Drive eksternal",
+    "zh": "外部驱动器",
+    "ja": "外部ドライブ",
+    "vi": "Ổ đĩa ngoài"
+  },
+  "backup:description": {
+    "en": "Backup is performed to a drive attached to the ChromVoid UNO.",
+    "ru": "Бэкап производится на накопитель присоединенный к ChromVoid UNO.",
+    "uk": "Резервна копія виконується на накопичувач, приєднаний до ChromVoid UNO.",
+    "es": "La copia de seguridad se realiza en un disco duroo conectado a la placa de Sandy UNO.",
+    "tr": "Yedekleme, Sandy UNO'ya bağlı bir depolama cihazı ile yapılır.",
+    "fr": "La sauvegarde est effectuee sur un lecteur externe connecté à la placa de Sandy UNO.",
+    "it": "L'archiviazione viene eseguita su un dispositivo esterno collegato a la placa di Sandy UNO.",
+    "id": "Pengesalinan dilakukan di penyimpanan yang terhubung ke Sandy UNO.",
+    "zh": "备份在Sandy UNO上附加的驱动器上。",
+    "ja": "Sandy UNOで接続されたドライブにデバイスを接続してから、ベックアップを実行します。",
+    "vi": "Sao luu đang được thực hành trên ổ lưu trữ ngoài đang được kết nối đến ổ lưu trữ ngoại."
+  },
+  "external-drives-list:no-one": {
+    "en": "No external devices connected",
+    "ru": "Нет подключеных внешних устройств",
+    "uk": "Немає підключених зовнішніх пристроїв",
+    "es": "No tiene dispositivos externos",
+    "tr": "Harici cihaz yok",
+    "fr": "N'a pas de dispositifs externes",
+    "it": "Non ha dispositivi esterni",
+    "id": "Tidak ada perangkat eksternal",
+    "zh": "没有外部设备",
+    "ja": "外部デバイスがありません",
+    "vi": "Không có thiết bị ngoài"
+  },
+  "external-storage-path-label": {
+    "en": "Path",
+    "ru": "Путь",
+    "uk": "Шлях",
+    "es": "Ruta",
+    "tr": "Yol",
+    "fr": "Chemin",
+    "it": "Percorso",
+    "id": "Jalur",
+    "zh": "路径",
+    "ja": "パス",
+    "vi": "Đường dẫn"
+  },
+  "button:change": {
+    "en": "Change",
+    "ru": "Изменить",
+    "uk": "Змінити",
+    "es": "Cambiar",
+    "tr": "Değiştir",
+    "fr": "Changer",
+    "it": "Cambia",
+    "id": "Ubah",
+    "zh": "更改",
+    "ja": "変更",
+    "vi": "Thay đổi"
+  },
+  "button:changeHostname": {
+    "en": "Change hostname",
+    "ru": "Изменить имя хоста",
+    "uk": "Змінити ім'я хоста",
+    "es": "Cambiar nombre de host",
+    "tr": "Ana bilgisayar adını değiştir",
+    "fr": "Changer le nom d'hôte",
+    "it": "Cambia nome host",
+    "id": "Ubah nama host",
+    "zh": "更改主机名",
+    "ja": "ホスト名を変更する",
+    "vi": "Thay đổi tên một"
+  },
+  "button:init-external-storage": {
+    "en": "Initialize",
+    "ru": "Инициализировать",
+    "uk": "Ініціалізувати",
+    "es": "Inicializar",
+    "tr": "Başlat",
+    "fr": "Initialiser",
+    "it": "Inizializzare",
+    "id": "Inisialisasi",
+    "zh": "初始化",
+    "ja": "初期化",
+    "vi": "Khởi tạo"
+  },
+  "init-external-storage": {
+    "en": "Initialize external storage",
+    "ru": "Инициализировать внешнее хранилище",
+    "uk": "Ініціалізувати зовнішнє сховище",
+    "es": "Inicializar almacenamiento externo",
+    "tr": "Harici depolamayı başlat",
+    "fr": "Initialiser le stockage externe",
+    "it": "Inizializzare l'archiviazione esterna",
+    "id": "Inisialisasi penyimpanan eksternal",
+    "zh": "初始化外部存储",
+    "ja": "外部ストレージを初期化",
+    "vi": "Khởi tạo lưu trữ ngoài"
+  },
+  "init-external-storage:description": {
+    "en": "Connect the external drive to the ChromVoid UNO to initialize the external storage.",
+    "ru": "Подключите внешний накопитель к ChromVoid UNO для инициализации внешнего хранилища.",
+    "uk": "Підключіть накопичувач до ChromVoid UNO для ініціалізації внешнього сховища.",
+    "es": "Conecte el almacenamiento externo al dispositivo para la inicialización del almacenamiento externo.",
+    "tr": "ChromVoid UNO'da eklentiye ekranı ve depolama ayarlarınızı yükleyin.",
+    "fr": "Connectez le stockage externe à l'appareil pour l'initialisation du stockage externe.",
+    "it": "Collegare l'archiviazione esterna al dispositivo per l'inizializzazione dell'archiviazione esterna.",
+    "id": "Terhubungkan penyimpanan eksternal ke Sandy UNO untuk inisialisasi penyimpanan eksternal.",
+    "zh": "将外部存储设备与Sandy UNO连接以进行外部存储初始化。",
+    "ja": "ChromVoid UNOに外部ストレージを初期化するために、外部ストレージを初期化します。",
+    "vi": "Kết nối lưu trữ ngoài để khởi tạo lưu trữ ngoài."
+  },
+  "init-external-storage:success:title": {
+    "ru": "Успех",
+    "en": "Success"
+  },
+  "init-external-storage:success:description": {
+    "ru": "Хранилище успешно создано в директории \"${path}\" устройства ${device}",
+    "en": "Storage has bees created successfull at the path \"${path}\" in device \"${device}\""
+  },
+  "select-storage:title": {
+    "en": "Select storage",
+    "ru": "Выберите хранилище",
+    "uk": "Виберіть сховище",
+    "es": "Seleccionar almacenamiento",
+    "tr": "Depolamayı seçin",
+    "fr": "Sélectionner le stockage",
+    "it": "Seleziona l'archiviazione",
+    "id": "Pilih penyimpanan",
+    "zh": "选择存储",
+    "ja": "ストレージを選択",
+    "vi": "Chọn lưu trữ"
+  },
+  "internal-storage:title": {
+    "en": "Internal",
+    "ru": "Внутреннее",
+    "uk": "Внутрішнє",
+    "es": "Interno",
+    "tr": "Dahili",
+    "fr": "Interne",
+    "it": "Interno",
+    "id": "Internal",
+    "zh": "内部的",
+    "ja": "内部",
+    "vi": "Nội bộ"
+  },
+  "external-storage:disabled": {
+    "en": "External",
+    "ru": "Внешнее",
+    "uk": "Зовнішнє",
+    "es": "Externo",
+    "tr": "Harici",
+    "fr": "Externe",
+    "it": "Esterna",
+    "id": "Eksternal",
+    "zh": "外部的",
+    "ja": "外部",
+    "vi": "Bên ngoài"
+  },
+  "external-storage:disabled:no-devices": {
+    "en": "No devices",
+    "ru": "Нет устройств",
+    "uk": "Немає пристроїв",
+    "es": "No hay dispositivos",
+    "tr": "Cihaz yok",
+    "fr": "Aucun appareil",
+    "it": "Nessun dispositivo",
+    "id": "Tidak ada perangkat",
+    "zh": "没有设备",
+    "ja": "デバイスがありません",
+    "vi": "Không có thiết bị"
+  },
+  "external-storage:disabled:no-stores": {
+    "en": "There are no initialized storages",
+    "ru": "Нет инициализированных хранилищ",
+    "uk": "Немає ініціалізованих сховищ",
+    "es": "No hay almacenes iniciales",
+    "tr": "Hicbir depolama yok",
+    "fr": "Aucun stockage initialisé",
+    "it": "Nessun archiviazione inizializzata",
+    "id": "Tidak ada penyimpanan yang diinisialisasi",
+    "zh": "没有初始化存储",
+    "ja": "初期化されたストレージがありません",
+    "vi": "Không có lưu trữ ngoài đã được khởi động"
+  },
+  "external-storage:title": {
+    "en": "External: ${label}",
+    "ru": "Внешнее: ${label}",
+    "uk": "Зовнішнє: ${label}",
+    "es": "Externo: ${label}",
+    "tr": "Harici: ${label}",
+    "fr": "Externe: ${label}",
+    "it": "Esterna: ${label}",
+    "id": "Eksternal: ${label}",
+    "zh": "外部的：${label}",
+    "ja": "外部：${label}",
+    "vi": "Bên ngoài: ${label}"
+  },
+  "unmount-device": {
+    "en": "Unmount the device",
+    "ru": "Размонтировать устройство",
+    "uk": "Відключити пристрій",
+    "es": "Desmontar dispositivo",
+    "tr": "Aygıtı çıkar",
+    "fr": "Démonter l'appareil",
+    "it": "Smonta dispositivo",
+    "id": "Lepas perangkat",
+    "zh": "卸载设备",
+    "ja": "デバイスのマウントを解除",
+    "vi": "Tháo thiết bị"
+  },
+  "available-space": {
+    "en": "Available space",
+    "ru": "Доступное место",
+    "uk": "Доступне місце",
+    "es": "Espacio disponible",
+    "tr": "Kullanılabilir alan",
+    "fr": "Espace disponible",
+    "it": "Spazio disponibile",
+    "id": "Ruang yang tersedia",
+    "zh": "可用空间",
+    "ja": "利用可能なスペース",
+    "vi": "Không gian có sẵn"
+  },
+  "is-device-busy": {
+    "en": "The device is busy",
+    "ru": "Устройство занято",
+    "uk": "Пристрій зайнятий",
+    "es": "Dispositivo ocupado",
+    "tr": "Cihaz meşgul",
+    "fr": "Appareil occupé",
+    "it": "Dispositivo occupato",
+    "id": "Perangkat sibuk",
+    "zh": "设备忙",
+    "ja": "デバイスがビジー",
+    "vi": "Thiết bị bận"
+  },
+  "is-device-running": {
+    "en": "Device is running",
+    "ru": "Устройство запущено",
+    "uk": "Пристрій працює",
+    "es": "Dispositivo en funcionamiento",
+    "tr": "Cihaz çalışıyor",
+    "fr": "Appareil en cours d'exécution",
+    "it": "Dispositivo in esecuzione",
+    "id": "Perangkat berjalan",
+    "zh": "设备运行",
+    "ja": "デバイスが動作中",
+    "vi": "Thiết bị đang chạy"
+  },
+  "device-version": {
+    "en": "Version",
+    "ru": "Версия",
+    "uk": "Версія",
+    "es": "Versión",
+    "tr": "Sürüm",
+    "fr": "Version",
+    "it": "Versione",
+    "id": "Versi",
+    "zh": "版本",
+    "ja": "バージョン",
+    "vi": "Phiên bản"
+  },
+  "device-version-short": {
+    "en": "v.",
+    "ru": "v.",
+    "uk": "v.",
+    "es": "v.",
+    "tr": "v.",
+    "fr": "v.",
+    "it": "v.",
+    "id": "v.",
+    "zh": "v.",
+    "ja": "v.",
+    "vi": "v."
+  },
+  "storage-password": {
+    "en": "Storage password",
+    "ru": "Пароль от хранилища",
+    "uk": "Пароль до сховища",
+    "es": "Contraseña de almacenamiento",
+    "tr": "Depolama parolası",
+    "fr": "Mot de passe de stockage",
+    "it": "Password di archiviazione",
+    "id": "Kata sandi penyimpanan",
+    "zh": "存储密码",
+    "ja": "ストレージパスワード",
+    "vi": "Mật khẩu lưu trữ"
+  },
+  "storage-password-confirm": {
+    "en": "Password confirmation",
+    "ru": "Подтверждение пароля",
+    "uk": "Підтвердження пароля",
+    "es": "Confirmar contraseña",
+    "tr": "Parola onayı",
+    "fr": "Confirmer le mot de passe",
+    "it": "Conferma password",
+    "id": "Konfirmasi kata sandi",
+    "zh": "确认密码",
+    "ja": "パスワードの確認",
+    "vi": "Xác nhận mật khẩu"
+  },
+  "isBusy:true": {
+    "en": "Busy",
+    "ru": "Занято",
+    "uk": "Зайнято",
+    "es": "Ocupado",
+    "tr": "Meşgul",
+    "fr": "Occupé",
+    "it": "Occupato",
+    "id": "Sibuk",
+    "zh": "忙碌",
+    "ja": "ビジー",
+    "vi": "Bận"
+  },
+  "isBusy:false": {
+    "en": "Available",
+    "ru": "Свободно",
+    "uk": "Доступно",
+    "es": "Disponible",
+    "tr": "Mevcut",
+    "fr": "Disponible",
+    "it": "Disponibile",
+    "id": "Tersedia",
+    "zh": "可用",
+    "ja": "利用可能",
+    "vi": "Có sẵn"
+  },
+  "isRunning:true": {
+    "en": "Running",
+    "ru": "Запущено",
+    "uk": "Запущено",
+    "es": "En funcionamiento",
+    "tr": "Çalışıyor",
+    "fr": "En cours d'exécution",
+    "it": "In esecuzione",
+    "id": "Berjalan",
+    "zh": "运行中",
+    "ja": "実行中",
+    "vi": "Đang chạy"
+  },
+  "isRunning:false": {
+    "en": "Stopped",
+    "ru": "Остановлено",
+    "uk": "Зупинено",
+    "es": "Detenido",
+    "tr": "Durduruldu",
+    "fr": "Arrêté",
+    "it": "Fermato",
+    "id": "Dihentikan",
+    "zh": "已停止",
+    "ja": "停止しました",
+    "vi": "Đã dừng"
+  },
+  "actions": {
+    "en": "Actions",
+    "ru": "Действия",
+    "uk": "Дії",
+    "es": "Acciones",
+    "tr": "Eylemler",
+    "fr": "Actions",
+    "it": "Azioni",
+    "id": "Tindakan",
+    "zh": "操作",
+    "ja": "アクション",
+    "vi": "Hành động"
+  },
+  "lock:title": {
+    "en": "Lock storage",
+    "ru": "Заблокировать хранилище",
+    "uk": "Заблокувати сховище",
+    "es": "Bloquear almacenamiento",
+    "tr": "Depolamayı kilitle",
+    "fr": "Verrouiller le stockage",
+    "it": "Blocca archiviazione",
+    "id": "Kunci penyimpanan",
+    "zh": "锁定存储",
+    "ja": "ストレージをロック",
+    "vi": "Khóa lưu trữ"
+  },
+  "lock:processing": {
+    "en": "A storage locking is in progress, please wait...",
+    "ru": "Происходит закрытие хранилища, пожалуйста подождите...",
+    "uk": "Відбувається блокування сховища, будь ласка, зачекайте...",
+    "es": "Se está bloqueando el almacenamiento, por favor espere...",
+    "tr": "Depolama kilitleniyor, lütfen bekleyin...",
+    "fr": "Le verrouillage du stockage est en cours, veuillez patienter...",
+    "it": "Blocco dell'archiviazione in corso, attendere...",
+    "id": "Penguncian penyimpanan sedang berlangsung, harap tunggu...",
+    "zh": "存储锁定中, 请稍候...",
+    "ja": "ストレージのロックが進行中です、お待ちください...",
+    "vi": "Đang khóa bộ nhớ, vui lòng đợi..."
+  },
+  "button:lock": {
+    "en": "Lock storage",
+    "ru": "Заблокировать хранилище",
+    "uk": "Заблокувати сховище",
+    "es": "Bloquear almacenamiento",
+    "tr": "Depolamayı kilitle",
+    "fr": "Verrouiller le stockage",
+    "it": "Blocca archiviazione",
+    "id": "Kunci penyimpanan",
+    "zh": "锁定存储",
+    "ja": "ストレージをロック",
+    "vi": "Khóa lưu trữ"
+  },
+  "button:unlock": {
+    "en": "Unlock",
+    "ru": "Разблокировать",
+    "uk": "Розблокувати",
+    "es": "Desbloquear",
+    "tr": "Kilidi aç",
+    "fr": "Déverrouiller",
+    "it": "Sbloccare",
+    "id": "Buka kunci",
+    "zh": "解锁",
+    "ja": "アンロック",
+    "vi": "Mở khóa"
+  },
+  "unlock:title": {
+    "en": "Unlock storage",
+    "ru": "Разблокировать хранилище",
+    "uk": "Розблокувати сховище",
+    "es": "Desbloquear almacenamiento",
+    "tr": "Depolamayı kilidini aç",
+    "fr": "Déverrouiller le stockage",
+    "it": "Sblocca archiviazione",
+    "id": "Buka kunci penyimpanan",
+    "zh": "解锁存储",
+    "ja": "ストレージのロックを解除",
+    "vi": "Mở khóa lưu trữ"
+  },
+  "unlock:description": {
+    "en": "To create an encrypted container (STORAGE) just enter a new password and click on unlock",
+    "ru": "Для создания зашифрованного контейнера (ХРАНИЛИЩА) просто введите новый пароль и нажмите Разблокировать",
+    "uk": "Для створення зашифрованого контейнера введіть новий пароль і натисніть Розблокувати",
+    "es": "Para crear un contenedor cifrado, solo ingrese una nueva contraseña y haga clic en desbloquear",
+    "tr": "Şifreli bir konteyner oluşturmak için sadece yeni bir şifre girin ve kilidi aç'a tıklayın",
+    "fr": "Pour créer un conteneur crypté, entrez un nouveau mot de passe et cliquez sur Déverrouiller",
+    "it": "Per creare un contenitore cifrato, inserisci una nuova password e clicca su Sblocca",
+    "id": "Untuk membuat container terenkripsi, masukkan kata sandi baru dan klik tombol membuka kunci",
+    "zh": "要创建加密容器，只需输入新密码并点击解锁",
+    "ja": "暗号化コンテナを作成するには、新しいパスワードを入力してアンロックをクリックしてください",
+    "vi": "Để tạo một thư mục mã hóa, chỉ cần nhập mật khẩu mới và nhấp vào mở khóa"
+  },
+  "dashboard": {
+    "en": "Dashboard",
+    "ru": "Дашборд",
+    "uk": "Панель управління",
+    "es": "Tablero",
+    "tr": "Gösterge Paneli",
+    "fr": "Tableau de bord",
+    "it": "Cruscotto",
+    "id": "Dasbor",
+    "zh": "仪表盘",
+    "ja": "ダッシュボード",
+    "vi": "Bảng điều khiển"
+  },
+  "password-manager": {
+    "en": "Password manager",
+    "ru": "Менеджер паролей",
+    "uk": "Менеджер паролів",
+    "es": "Administrador de contraseñas",
+    "tr": "Şifre Yöneticisi",
+    "fr": "Gestionnaire de mots de passe",
+    "it": "Gestore password",
+    "id": "Pengelola Kata Sandi",
+    "zh": "密码管理器",
+    "ja": "パスワードマネージャー",
+    "vi": "Trình quản lý mật khẩu"
+  },
+  "serial": {
+    "en": "Serial number",
+    "ru": "Серийный номер",
+    "uk": "Серійний номер",
+    "es": "Número de serie",
+    "tr": "Seri numarası",
+    "fr": "Numéro de série",
+    "it": "Numero di serie",
+    "id": "Nomor seri",
+    "zh": "序列号",
+    "ja": "シリアル番号",
+    "vi": "Số sê-ri"
+  },
+  "freespace:label": {
+    "en": "${free} free from ${total}",
+    "ru": "${free} свободно из ${total}",
+    "uk": "${free} вільно з ${total}",
+    "es": "${free} libre de ${total}",
+    "tr": "${free} boş ${total} 'den",
+    "fr": "${free} libre sur ${total}",
+    "it": "${free} libero da ${total}",
+    "id": "${free} bebas dari ${total}",
+    "zh": "${free} 可用 / ${total} 总计",
+    "ja": "${total} 中 ${free} の空き",
+    "vi": "${free} trống từ ${total}"
+  },
+  "status:unknown": {
+    "en": "Unknown",
+    "ru": "Неизвестно",
+    "uk": "Невідомо",
+    "es": "Desconocido",
+    "tr": "Bilinmeyen",
+    "fr": "Inconnu",
+    "it": "Sconosciuto",
+    "id": "Tidak diketahui",
+    "zh": "未知",
+    "ja": "不明",
+    "vi": "Không rõ"
+  },
+  "status:not-inited": {
+    "en": "Not initialized",
+    "ru": "Не инициализировано",
+    "uk": "Не ініціалізовано",
+    "es": "No inicializado",
+    "tr": "Başlatılmadı",
+    "fr": "Non initialisé",
+    "it": "Non inizializzato",
+    "id": "Belum diinisialisasi",
+    "zh": "未初始化",
+    "ja": "初期化されていない",
+    "vi": "Chưa được khởi tạo"
+  },
+  "status:stopped": {
+    "en": "Stopped",
+    "ru": "Остановлено",
+    "uk": "Зупинено",
+    "es": "Detenido",
+    "tr": "Durduruldu",
+    "fr": "Arrêté",
+    "it": "Fermato",
+    "id": "Dihentikan",
+    "zh": "已停止",
+    "ja": "停止しました",
+    "vi": "Đã dừng"
+  },
+  "status:private": {
+    "en": "Private",
+    "ru": "Приватный",
+    "uk": "Приватний",
+    "es": "Privado",
+    "tr": "Özel",
+    "fr": "Privé",
+    "it": "Privato",
+    "id": "Pribadi",
+    "zh": "私人",
+    "ja": "プライベート",
+    "vi": "Riêng tư"
+  },
+  "status:public": {
+    "en": "Public",
+    "ru": "Публичный",
+    "uk": "Публічний",
+    "es": "Público",
+    "tr": "Herkese açık",
+    "fr": "Public",
+    "it": "Pubblico",
+    "id": "Umum",
+    "zh": "公共",
+    "ja": "パブリック",
+    "vi": "Công cộng"
+  },
+  "status:unlocked": {
+    "en": "Unlocked",
+    "ru": "Разблокировано",
+    "uk": "Розблоковано",
+    "es": "Desbloqueado",
+    "tr": "Kilitli değil",
+    "fr": "Déverrouillé",
+    "it": "Sbloccato",
+    "id": "Tidak terkunci",
+    "zh": "已解锁",
+    "ja": "ロック解除済み",
+    "vi": "Đã mở khóa"
+  },
+  "status:unlocking": {
+    "en": "Unlocking storage, please wait…",
+    "ru": "Разблокирование хранилища, пожалуйста, подождите…",
+    "uk": "Розблокування сховища, будь ласка, зачекайте…",
+    "es": "Desbloqueando almacenamiento, por favor espere…",
+    "tr": "Depolama kilitleniyor, lütfen bekleyin…",
+    "fr": "Deverrouillage du stockage, veuillez patienter…",
+    "it": "Sblocca archiviazione, attendere…",
+    "id": "Mengunci penyimpanan, harap tungang…",
+    "zh": "解锁存储中, 请稍后…",
+    "ja": "ストレージをロック解除しています、お待ち下さい…",
+    "vi": "Dùng trường, vui lý dùng với…"
+  },
+  "status:locking": {
+    "en": "Locking storage, please wait…",
+    "ru": "Блокировка хранилища, пожалуйста, подождите…"
+  },
+  "status:unlocking:un-next-power-on": {
+    "en": "The device will now be turned off, the container will be connected without the need to enter a password the next time you make a USB-C connection",
+    "ru": "Теперь устройство будет выключено, контейнер будет подключено без необходимости ввода пароля при следующем USB-C подключении",
+    "uk": "Тепер пристрій буде вимкнено, контейнер буде підключено без необхідності введення пароля при наступному підключенні USB-C",
+    "es": "El dispositivo ahora se apagará, el contenedor se conectará sin necesidad de ingresar una contraseña en la próxima conexión USB-C",
+    "tr": "Cihaz şimdi kapatılacak, bir sonraki USB-C bağlantısında şifre girmeye gerek kalmadan konteyner bağlanacak",
+    "fr": "L'appareil va maintenant s'éteindre, le conteneur sera connecté sans avoir besoin d'entrer un mot de passe lors de la prochaine connexion USB-C",
+    "it": "Il dispositivo verrà spento, il contenitore sarà connesso senza bisogno di inserire la password alla prossima connessione USB-C",
+    "id": "Perangkat sekarang akan dimatikan, kontainer akan terhubung tanpa perlu memasukkan kata sandi pada koneksi USB-C berikutnya",
+    "zh": "设备现在将关闭，下次 USB-C 连接时将无需输入密码即可连接容器",
+    "ja": "デバイスはこれから電源がオフになり、次にUSB-C接続時にはパスワードを入力せずにコンテナが接続されます",
+    "vi": "Thiết bị sẽ tắt ngay bây giờ và container sẽ được kết nối mà không cần nhập mật khẩu trong lần kết nối USB-C tiếp theo"
+  },
+  "status:locked": {
+    "en": "Locked",
+    "ru": "Заблокировано",
+    "uk": "Заблоковано",
+    "es": "Bloqueado",
+    "tr": "Kilitli",
+    "fr": "Verrouillé",
+    "it": "Bloccato",
+    "id": "Terkunci",
+    "zh": "已锁定",
+    "ja": "ロック済み",
+    "vi": "Đã khóa"
+  },
+  "details:toolbar": {"en": "Details toolbar", "ru": "Панель инструментов сведений"},
+  "details:region:single": {"en": "File details", "ru": "Сведения о файле"},
+  "details:region:multi": {"en": "Selection details", "ru": "Сведения о выделении"},
+  "sidebar:quick-access": {
+    "en": "Quick access",
+    "ru": "Быстрый доступ"
+  },
+  "sidebar:tags": {
+    "en": "Tags",
+    "ru": "Теги"
+  },
+  "sidebar:storage": {
+    "en": "Storage",
+    "ru": "Хранилище"
+  },
+  "sidebar:status": {
+    "en": "Status",
+    "ru": "Статус"
+  },
+  "sidebar:controls": {
+    "en": "Controls",
+    "ru": "Управление"
+  },
+  "sidebar:system": {
+    "en": "System",
+    "ru": "Система"
+  },
+  "quick-access:starred": {
+    "en": "Starred",
+    "ru": "Помеченные"
+  },
+  "quick-access:recent": {
+    "en": "Recent",
+    "ru": "Недавние"
+  },
+  "quick-access:trash": {
+    "en": "Trash",
+    "ru": "Корзина"
+  },
+  "tags:work": {"en": "Work", "ru": "Работа"},
+  "tags:personal": {"en": "Personal", "ru": "Личное"},
+  "tags:scan": {"en": "Scan", "ru": "Скан"},
+  "tags:project": {"en": "Projects", "ru": "Проекты"},
+  "details:show-hidden": {"en": "Show hidden", "ru": "Показывать скрытые"},
+  "node:dir": {"en": "Folder", "ru": "Папка"},
+  "node:file": {"en": "File", "ru": "Файл"},
+  "details:selected": {"en": "Selected", "ru": "Выбрано"},
+  "details:dirs": {"en": "Folders", "ru": "Папок"},
+  "details:files": {"en": "Files", "ru": "Файлов"},
+  "details:total-size": {"en": "Total size", "ru": "Суммарный размер"},
+  "statusbar:catalog": {"en": "Catalog", "ru": "Каталог"},
+  "statusbar:selected": {"en": "Selected", "ru": "Выбрано"},
+  "theme:switch-to-dark": {"en": "Switch to dark theme", "ru": "Переключить на тёмную тему"},
+  "theme:switch-to-system": {"en": "Switch to system theme", "ru": "Переключить на системную тему"},
+  "theme:switch-to-light": {"en": "Switch to light theme", "ru": "Переключить на светлую тему"},
+  "theme:title": {"en": "Theme", "ru": "Тема"},
+  "language:title": {"en": "Language", "ru": "Язык"},
+  "copyright": {
+    "en": "PT ChromVoid Data Labs ©",
+    "ru": "PT ChromVoid Data Labs ©",
+    "uk": "PT ChromVoid Data Labs ©",
+    "es": "PT ChromVoid Data Labs ©",
+    "tr": "PT ChromVoid Data Labs ©",
+    "fr": "PT ChromVoid Data Labs ©",
+    "it": "PT ChromVoid Data Labs ©",
+    "id": "PT ChromVoid Data Labs ©",
+    "zh": "PT ChromVoid Data Labs ©",
+    "ja": "PT ChromVoid Data Labs ©",
+    "vi": "PT ChromVoid Data Labs ©"
+  },
+  "masterpassword:title": {
+    "en": "Master password",
+    "ru": "Мастер пароль",
+    "uk": "Головний пароль",
+    "es": "Contraseña maestra",
+    "tr": "Ana şifre",
+    "fr": "Mot de passe principal",
+    "it": "Password principale",
+    "id": "Kata sandi utama",
+    "zh": "主密码",
+    "ja": "マスターパスワード",
+    "vi": "Mật khẩu chính"
+  },
+  "masterpassword:title:confirm": {
+    "en": "Confirm master password",
+    "ru": "Подтвердите мастер пароль",
+    "uk": "Підтвердьте головний пароль",
+    "es": "Confirma la contraseña maestra",
+    "tr": "Ana şifreyi onayla",
+    "fr": "Confirmez le mot de passe principal",
+    "id": "Konfirmasi kata sandi utama",
+    "zh": "确认主密码",
+    "ja": "マスターパスワードを確認",
+    "vi": "Xác nhận mật bạn"
+  },
+  "masterpassword:text": {
+    "en": "Record and store the master password securely. <br/><br/>The master password can only be changed by entering the old password. Master password is not the password for the storage. It is used for backup, erase, and restoring the device",
+    "ru": "Запишите и храните в надежном месте. Мастер пароль можно изменить только введя старый пароль. <br/><br/>Мастер пароль не является паролем от хранилища. Он используется для бэкапа, очистки и восстановления устройства",
+    "uk": "Запишіть і зберіть мастер пароль надійно. Мастер пароль можна змінити, введя старий пароль. Мастер пароль не є паролем від сховища. Він використовується для резервного копіювання, очищення та відновлення пристрою",
+    "es": "Registre y almacene la contraseña maestra de forma segura. La contraseña maestra solo se puede cambiar ingresando la contraseña anterior. La contraseña maestra no es la contraseña del almacenamiento. Se utiliza para realizar copias de seguridad, limpiar y restaurar el dispositivo",
+    "tr": "Kayıt ve güvenli bir şekilde mağaza kaydedin. Mağaza parolasını sadece eski parolayı girerek değiştirilebilir. Mağaza parolası, depolama parolası değil. Cihazı yedeklemek, temizlemek ve geri yüklemek için kullanılır",
+    "fr": "Enregistrez et stockez le mot de passe maître de manière sécurisée. Le mot de passe maître ne peut être modifié qu'en entrant l'ancien mot de passe. Le mot de passe maître n'est pas le mot de passe du stockage. Il est utilisé pour la sauvegarde, le nettoyage et la restauration de l'appareil",
+    "it": "Registrare e archiviare in modo sicuro la password master. La password master può essere modificata solo inserendo la vecchia password. La password master non è la password di archiviazione. Viene utilizzata per eseguire backup, pulire e ripristinare il dispositivo",
+    "id": "Catat dan simpan kata sandi pengaturan dengan aman. Kata sandi pengaturan hanya dapat diubah dengan memasukkan kata sandi sebelumnya. Kata sandi pengaturan bukan kata sandi penyimpanan. Digunakan untuk melakukan cadangan, membersihkan dan memulihkan perangkat",
+    "zh": "记录并安全地存储主密码。只能通过输入旧密码来更改主密码。主密码不是存储密码。它用于备份、清理和恢复设备",
+    "ja": "安全に記録してストレージしてください。古いパスワードを入力してのみ、マスターパスワードを変更できます。マスターパスワードはストレージパスワードではありません。バックアップ、クリーニング、デバイスの復元に使用されます",
+    "vi": "Ghi nhận và lưu trữ mật khẩu chính an toàn. Chỉ có thể thay đổi mật khẩu chính bằng cách nhập mật khẩu cũ. Mật khẩu chính không phải là mật khẩu lưu trữ. Nó đượ"
+  },
+  "masterpassword:text:alert": {
+    "en": "Warning! If you lose your Master Password, you will not be able to erase, backup, or restore this device!",
+    "ru": "Внимание! Если вы потеряете Мастер Пароль, вы не сможете очишать, восстанавливать и создавать бэкапы!",
+    "uk": "Увага! Якщо ви зберегли Мастер Пароль, ви не сможете видалити, резервувати чи відновити цей пристрій!",
+    "es": "¡Advertencia! Si pierdes tu contraseña maestra, no podras borrar, copiar o restaurar este dispositivo!",
+    "tr": "Uyarı! Eşer ana şifrenizi kaybettiğinizde, bu cihazı silmek, kurtarmak veya kurtarmak istediğinizde bırakamazsınız!",
+    "fr": "Attention! Si vous perdez votre mot de passe principal, vous ne pourrez pas supprimer, sauvegarder ou restaurer ce dispositif!",
+    "it": "Attenzione! Se perderai la password principale, non potrai cancellarla, creare un backup o ripristinare questo dispositivo!",
+    "id": "Peringatan! Jika Anda hilang kata sandi utama, Anda tidak dapat menghapus, membackup atau memulihkan perangkat ini!",
+    "zh": "警告!如果您丢失了主密码，您将无法删除，备份或恢复此设备!",
+    "ja": "警告! マスターパスワードが失われた場合は、このデバイスを削除、ベックアップ、復元することはできません!",
+    "vi": "Cảnh báo! Nếu bạn thua đút mật không chính, bạn sẽ không thể xóa, sao lưu hoặc khôi phục thiết bị này!"
+  },
+
+  "masterpassword:create:placeholder": {
+    "en": "Create your master password",
+    "ru": "Придумайте мастер пароль",
+    "uk": "Створіть свій головний пароль",
+    "es": "Crea tu contraseña maestra",
+    "tr": "Ana şifrenizi oluşturun",
+    "fr": "Créez votre mot de passe principal",
+    "it": "Crea la tua password principale",
+    "id": "Buat kata sandi utama Anda",
+    "zh": "创建您的主密码",
+    "ja": "マスターパスワードを作成してください",
+    "vi": "Tạo mật khẩu chính của bạn"
+  },
+  "masterpassword:confirm:placeholder": {
+    "en": "Confirm master password",
+    "ru": "Подвердите мастер пароль",
+    "uk": "Підтвердьте головний пароль",
+    "es": "Confirma la contraseña maestra",
+    "tr": "Ana şifreyi onayla",
+    "fr": "Confirmez le mot de passe principal",
+    "it": "Conferma la password principale",
+    "id": "Konfirmasi kata sandi utama",
+    "zh": "确认主密码",
+    "ja": "マスターパスワードを確認",
+    "vi": "Xác nhận mật khẩu chính"
+  },
+  "masterpassword:placeholder": {
+    "en": "Enter master password",
+    "ru": "Введите мастер пароль",
+    "uk": "Введіть головний пароль",
+    "es": "Ingresa la contraseña maestra",
+    "tr": "Ana şifreyi girin",
+    "fr": "Entrez le mot de passe principal",
+    "it": "Inserisci la password principale",
+    "id": "Masukkan kata sandi utama",
+    "zh": "输入主密码",
+    "ja": "マスターパスワードを入力してください",
+    "vi": "Nhập mật khẩu chính"
+  },
+  "changenetwork:title": {
+    "en": "Change newtwork settings",
+    "ru": "Изменить настройки сети",
+    "uk": "Змінити налаштування мережі",
+    "es": "Cambiar ajustes de red",
+    "tr": "Yeni yönetim ayarlarını değiştir",
+    "fr": "Modifier les paramètres de réseau",
+    "it": "Cambia le impostazioni di rete",
+    "id": "Ganti pengaturan jaringan",
+    "zh": "更改网络设置",
+    "ja": "ネットワーク設定を変更",
+    "vi": "Thay đổi thiet bi mang"
+  },
+  "changenetwork:description": {
+    "en": "The device will reboot",
+    "ru": "Устройство перезагрузится",
+    "uk": "Устройство перезавантажиться",
+    "es": "El dispositivo se reiniciará",
+    "tr": "Cihaz yeniden bağlantı kurulacak",
+    "fr": "L'appareil va se redémarrer",
+    "it": "Il dispositivo si riavviera",
+    "id": "Perangkat akan direboot",
+    "zh": "设备将重启",
+    "ja": "デバイスを再起動します",
+    "vi": "Thiết bị se chạy lai"
+  },
+  "changenetwork:newIp": {
+    "en": "New IP address",
+    "ru": "Новый IP-адрес",
+    "uk": "Новий IP-адрес",
+    "es": "Nueva dirección IP",
+    "tr": "Yeni IP adresi",
+    "fr": "Nouvelle adresse IP",
+    "it": "Nuovo indirizzo IP",
+    "id": "IP baru",
+    "zh": "新IP地址",
+    "ja": "新しいIPアドレス",
+    "vi": "Thay đổi điệ̀c IP"
+  },
+  "changenetwork:hostname": {
+    "en": "New hostname",
+    "ru": "Новое имя хоста",
+    "uk": "Нове ім'я хоста",
+    "es": "Nuevo nombre de host",
+    "tr": "Yeni ana bilgisayar adı",
+    "fr": "Nouveau nom d'hôte",
+    "it": "Nuovo nome host",
+    "id": "Hostname baru",
+    "zh": "新主机名",
+    "ja": "新しいホスト名",
+    "vi": "Thay đổi tên môi"
+  },
+  "changepwd:title": {
+    "en": "Change master password",
+    "ru": "Сменить мастер пароль",
+    "uk": "Змінити головний пароль",
+    "es": "Cambiar contraseña maestra",
+    "tr": "Ana şifreyi değiştir",
+    "fr": "Changer le mot de passe principal",
+    "it": "Cambia la password principale",
+    "id": "Ganti kata sandi utama",
+    "zh": "更改主密码",
+    "ja": "マスターパスワードを変更",
+    "vi": "Thay đổi mật khẩu chính"
+  },
+  "changepwd:old:title": {
+    "en": "Old password",
+    "ru": "Старый пароль",
+    "uk": "Старий пароль",
+    "es": "Contraseña antigua",
+    "tr": "Eski şifre",
+    "fr": "Ancien mot de passe",
+    "it": "Vecchia password",
+    "id": "Kata sandi lama",
+    "zh": "旧密码",
+    "ja": "古いパスワード",
+    "vi": "Mật khẩu cũ"
+  },
+  "erase:title": {
+    "en": "Erase device?",
+    "ru": "Очистить устройство?",
+    "uk": "Очистити пристрій?",
+    "es": "¿Borrar dispositivo?",
+    "tr": "Cihazı sil?",
+    "fr": "Effacer l'appareil ?",
+    "it": "Cancellare il dispositivo?",
+    "id": "Hapus perangkat?",
+    "zh": "擦除设备？",
+    "ja": "デバイスを消去しますか？",
+    "vi": "Xóa thiết bị?"
+  },
+  "extdrive:title": {
+    "en": "External drive",
+    "ru": "Внешний диск",
+    "uk": "Зовнішній диск",
+    "es": "Unidad externa",
+    "tr": "Harici disk",
+    "fr": "Lecteur externe",
+    "it": "Unità esterna",
+    "id": "Drive eksternal",
+    "zh": "外部驱动器",
+    "ja": "外部ドライブ",
+    "vi": "Ổ đĩa ngoài"
+  },
+  "extdrive:placeholder": {
+    "en": "Enter external drive name",
+    "ru": "Введите имя внешнего диска",
+    "uk": "Введіть назву зовнішнього диска",
+    "es": "Ingrese el nombre de la unidad externa",
+    "tr": "Harici disk adını girin",
+    "fr": "Entrez le nom du lecteur externe",
+    "it": "Inserisci il nome dell'unità esterna",
+    "id": "Masukkan nama drive eksternal",
+    "zh": "输入外部驱动器名称",
+    "ja": "外部ドライブの名前を入力してください",
+    "vi": "Nhập tên ổ đĩa ngoài"
+  },
+  "backup:title": {
+    "en": "Backup device?",
+    "ru": "Создать бэкап?",
+    "uk": "Зробити резервну копію пристрою?",
+    "es": "¿Hacer copia de seguridad del dispositivo?",
+    "tr": "Cihazı yedekle?",
+    "fr": "Sauvegarder l'appareil ?",
+    "it": "Eseguire il backup del dispositivo?",
+    "id": "Cadangkan perangkat?",
+    "zh": "备份设备？",
+    "ja": "デバイスをバックアップしますか？",
+    "vi": "Sao lưu thiết bị?"
+  },
+  "restore:title": {
+    "en": "Restore device?",
+    "ru": "Восстановить устройство?",
+    "uk": "Відновити пристрій?",
+    "es": "¿Restaurar dispositivo?",
+    "tr": "Cihazı geri yükle?",
+    "fr": "Restaurer l'appareil ?",
+    "it": "Ripristinare il dispositivo?",
+    "id": "Pulihkan perangkat?",
+    "zh": "恢复设备？",
+    "ja": "デバイスを復元しますか？",
+    "vi": "Khôi phục thiết bị?"
+  },
+  "folder:title": {
+    "en": "Folder",
+    "ru": "Папка",
+    "uk": "Папка",
+    "es": "Carpeta",
+    "tr": "Klasör",
+    "fr": "Dossier",
+    "it": "Cartella",
+    "id": "Map",
+    "zh": "文件夹",
+    "ja": "フォルダー",
+    "vi": "Thư mục"
+  },
+  "folder:placeholder": {
+    "en": "Enter folder name",
+    "ru": "Введите название папки",
+    "uk": "Введіть назву папки",
+    "es": "Ingrese el nombre de la carpeta",
+    "tr": "Klasör adını girin",
+    "fr": "Entrez le nom du dossier",
+    "it": "Inserisci il nome della cartella",
+    "id": "Masukkan nama folder",
+    "zh": "输入文件夹名称",
+    "ja": "フォルダー名を入力してください",
+    "vi": "Nhập tên thư mục"
+  },
+  "changepwd:new:title": {
+    "en": "New password",
+    "ru": "Новый пароль",
+    "uk": "Новий пароль",
+    "es": "Nueva contraseña",
+    "tr": "Yeni şifre",
+    "fr": "Nouveau mot de passe",
+    "it": "Nuova password",
+    "id": "Kata sandi baru",
+    "zh": "新密码",
+    "ja": "新しいパスワード",
+    "vi": "Mật khẩu mới"
+  },
+  "button:changepwd": {
+    "en": "Change master password",
+    "ru": "Сменить мастер пароль",
+    "uk": "Змінити головний пароль",
+    "es": "Cambiar contraseña maestra",
+    "tr": "Ana şifreyi değiştir",
+    "fr": "Changer le mot de passe principal",
+    "it": "Cambia la password principale",
+    "id": "Ganti kata sandi utama",
+    "zh": "更改主密码",
+    "ja": "マスターパスワードを変更",
+    "vi": "Thay đổi mật khẩu chính"
+  },
+  "button:erase": {
+    "en": "Erase device",
+    "ru": "Очистить устройство",
+    "uk": "Очистити пристрій",
+    "es": "Borrar dispositivo",
+    "tr": "Cihazı sil",
+    "fr": "Effacer l'appareil",
+    "it": "Cancella dispositivo",
+    "id": "Hapus perangkat",
+    "zh": "擦除设备",
+    "ja": "デバイスを消去",
+    "vi": "Xóa thiết bị"
+  },
+  "button:backup": {
+    "en": "Backup device",
+    "ru": "Бэкап устройства",
+    "uk": "Зробити резервну копію пристрою",
+    "es": "Hacer copia de seguridad del dispositivo",
+    "tr": "Cihazı yedekle",
+    "fr": "Sauvegarder l'appareil",
+    "it": "Esegui backup del dispositivo",
+    "id": "Cadangkan perangkat",
+    "zh": "备份设备",
+    "ja": "デバイスをバックアップ",
+    "vi": "Sao lưu thiết bị"
+  },
+  "button:restore": {
+    "en": "Restore device",
+    "ru": "Восстановление устройства",
+    "uk": "Відновлення пристрою",
+    "es": "Restaurar dispositivo",
+    "tr": "Cihazı geri yükle",
+    "fr": "Restaurer l'appareil",
+    "it": "Ripristina dispositivo",
+    "id": "Pulihkan perangkat",
+    "zh": "恢复设备",
+    "ja": "デバイスを復元",
+    "vi": "Khôi phục thiết bị"
+  },
+  "button:menu": {
+    "en": "Menu",
+    "ru": "Меню",
+    "uk": "Меню",
+    "es": "Menú",
+    "tr": "Menü",
+    "fr": "Menu",
+    "it": "Menu",
+    "id": "Menu",
+    "zh": "菜单",
+    "ja": "メニュー",
+    "vi": "Thực đơn"
+  },
+  "error:title": {
+    "en": "Error",
+    "ru": "Ошибка",
+    "uk": "Помилка",
+    "es": "Error",
+    "tr": "Hata",
+    "fr": "Erreur",
+    "it": "Errore",
+    "id": "Kesalahan",
+    "zh": "错误",
+    "ja": "エラー",
+    "vi": "Lỗi"
+  },
+  "error:ip-must-end-with-1": {
+    "en": "IP must end with \"1\"",
+    "ru": "IP должен заканчиваться на \"1\"",
+    "uk": "IP повинен закінчитися на \"1\"",
+    "es": "El IP debe terminar con \"1\"",
+    "tr": "IP \"1\" ile bitmelidir",
+    "fr": "L'IP doit se terminer par \"1\"",
+    "it": "L'IP deve finire con \"1\"",
+    "id": "IP harus diakhiri dengan \"1\"",
+    "zh": "IP 必须以 \"1\" 结尾",
+    "ja": "IP は \"1\" で終わらなければなりません",
+    "vi": "IP phải dạy phải dạy \"1\""
+  },
+  "readonly:warning": {
+    "en": "Attention! Soon there will be no more space on the device and the read-only mode will be turned on.",
+    "ru": "Внимание! Скоро не останется места на устройсве и включится readonly режим.",
+    "uk": "Увага! Незабаром на пристрої не залишиться місця, і буде ввімкнено режим лише для читання.",
+    "es": "¡Atención! Pronto no habrá más espacio en el dispositivo y se activará el modo de solo lectura.",
+    "tr": "Dikkat! Cihazda yakında boş alan kalmayacak ve salt okunur mod açılacak.",
+    "fr": "Attention! Bientôt, il n'y aura plus d'espace sur l'appareil et le mode lecture seule sera activé.",
+    "it": "Attenzione! Presto non ci sarà più spazio sul dispositivo e verrà attivata la modalità di sola lettura.",
+    "id": "Perhatian! Segera tidak akan ada lagi ruang di perangkat dan mode hanya-baca akan diaktifkan.",
+    "zh": "注意！设备上的空间即将用尽，并且将启用只读模式。",
+    "ja": "注意！デバイスの空き容量がなくなり、読み取り専用モードがオンになります。",
+    "vi": "Chú ý! Sắp hết dung lượng trên thiết bị và chế độ chỉ đọc sẽ được bật."
+  },
+  "readonly:error": {
+    "en": "Attention! The Read Only mode has been activated. To perform write operations, you need to clear the device. Make a backup and cleanup.",
+    "ru": "Внимание! Установлен режим ТОЛЬКО ЧТЕНИЕ. Для того чтобы производить операции записи требуется очистить устройство. Сделайте бэкап и очистку.",
+    "uk": "Увага! Активовано режим лише для читання. Щоб виконувати операції запису, потрібно очистити пристрій. Зробіть резервну копію та очистку.",
+    "es": "¡Atención! Se ha activado el modo de solo lectura. Para realizar operaciones de escritura, debe limpiar el dispositivo. Haga una copia de seguridad y una limpieza.",
+    "tr": "Dikkat! Salt okunur mod etkinleştirildi. Yazma işlemleri yapmak için cihazı temizlemeniz gerekir. Yedek alın ve temizleme yapın.",
+    "fr": "Attention! Le mode lecture seule a été activé. Pour effectuer des opérations d'écriture, vous devez nettoyer l'appareil. Faites une sauvegarde et un nettoyage.",
+    "it": "Attenzione! È stata attivata la modalità di sola lettura. Per eseguire operazioni di scrittura, è necessario pulire il dispositivo. Esegui un backup e una pulizia.",
+    "id": "Perhatian! Mode hanya-baca telah diaktifkan. Untuk melakukan operasi tulis, Anda perlu membersihkan perangkat. Buat cadangan dan bersihkan.",
+    "zh": "注意！只读模式已激活。要执行写操作，您需要清理设备。进行备份和清理。",
+    "ja": "注意！読み取り専用モードが有効化されました。書き込み操作を行うには、デバイスをクリアする必要があります。バックアップとクリーンアップを行ってください。",
+    "vi": "Chú ý! Chế độ chỉ đọc đã được kích hoạt. Để thực hiện các thao tác ghi, bạn cần xóa thiết bị. Sao lưu và dọn dẹp."
+  },
+  "error:empty-password": {
+    "en": "Password cannot be empty",
+    "ru": "Пароль не может быть пуст",
+    "uk": "Пароль не може бути порожнім",
+    "es": "La contraseña no puede estar vacía",
+    "tr": "Parola boş olamaz",
+    "fr": "Le mot de passe ne peut pas être vide",
+    "it": "La password non può essere vuota",
+    "id": "Kata sandi tidak boleh kosong",
+    "zh": "密码不能为空",
+    "ja": "パスワードは空にできません",
+    "vi": "Mật khẩu không thể để trống"
+  },
+  "error:passwords-not-same": {
+    "en": "Passwords are different",
+    "ru": "Пароли отличаются",
+    "uk": "Паролі різні",
+    "es": "Las contraseñas son diferentes",
+    "tr": "Şifreler farklı",
+    "fr": "Les mots de passe sont différents",
+    "it": "Le password sono diverse",
+    "id": "Kata sandi berbeda",
+    "zh": "密码不同",
+    "ja": "パスワードが異なります",
+    "vi": "Mật khẩu khác nhau"
+  },
+  "currentTask:waiting": {
+    "en": "Waiting",
+    "ru": "Ожидание",
+    "uk": "Чекаємо",
+    "es": "Esperando",
+    "tr": "Bekleniyor",
+    "fr": "En attente",
+    "it": "In attesa",
+    "id": "Menunggu",
+    "zh": "等待",
+    "ja": "待機中",
+    "vi": "Đang chợn"
+  },
+  "currentTask:erase": {
+    "en": "Erase",
+    "ru": "Очистка",
+    "uk": "Очистити",
+    "es": "Borrar",
+    "tr": "Sil",
+    "fr": "Effacer",
+    "it": "Cancella",
+    "id": "Hapus",
+    "zh": "删除",
+    "ja": "削除",
+    "vi": "Tạo nhóm"
+  },
+  "currentTask:backup": {
+    "en": "Backup",
+    "ru": "Резервное копирование",
+    "uk": "Резервне копіювання",
+    "es": "Copia de seguridad",
+    "tr": "Yedekle",
+    "fr": "Sauvegarde",
+    "it": "Backup",
+    "id": "Backup",
+    "zh": "备份",
+    "ja": "デバックアップ",
+    "vi": "Tạo nhóm"
+  },
+  "currentTask:restore": {
+    "en": "Restore",
+    "ru": "Восстановление",
+    "uk": "Відновлення",
+    "es": "Restaurar",
+    "tr": "Geri al",
+    "fr": "Restaurer",
+    "it": "Ripristina",
+    "id": "Restore",
+    "zh": "还原",
+    "ja": "復元",
+    "vi": "Tạo nhóm"
+  },
+  "10001": {
+    "en": "POST method required",
+    "ru": "Требуется метод POST",
+    "uk": "Потрібен метод POST",
+    "es": "Se requiere el método POST",
+    "tr": "POST yöntemi gerekli",
+    "fr": "Méthode POST requise",
+    "it": "Metodo POST richiesto",
+    "id": "Metode POST diperlukan",
+    "zh": "需要POST方法",
+    "ja": "POSTメソッドが必要です",
+    "vi": "Yêu cầu phương thức POST"
+  },
+  "10003": {
+    "en": "Field {0} required to unlock a storage",
+    "ru": "Необходимо указать поле {0} для разблокировки хранилища",
+    "uk": "Необхідно вказати поле {0} для розблокування сховища",
+    "es": "Se requiere el campo {0} para desbloquear un almacenamiento",
+    "tr": "Depolamanın kilidini açmak için {0} alanı gerekli",
+    "fr": "Le champ {0} est requis pour déverrouiller un stockage",
+    "it": "Il campo {0} è richiesto per sbloccare un archivio",
+    "id": "Bidang {0} diperlukan untuk membuka kunci penyimpanan",
+    "zh": "需要字段 {0} 来解锁存储",
+    "ja": "ストレージのロックを解除するにはフィールド {0} が必要です",
+    "vi": "Trường {0} bắt buộc để mở khóa lưu trữ"
+  },
+  "10004": {
+    "en": "OEM initialization already completed",
+    "ru": "Инициализация OEM уже завершена",
+    "uk": "Ініціалізація OEM вже завершена",
+    "es": "La inicialización de OEM ya se ha completado",
+    "tr": "OEM başlatma zaten tamamlandı",
+    "fr": "L'initialisation OEM est déjà terminée",
+    "it": "L'inizializzazione OEM è già completata",
+    "id": "Inisialisasi OEM sudah selesai",
+    "zh": "OEM初始化已完成",
+    "ja": "OEMの初期化はすでに完了しました",
+    "vi": "Khởi tạo OEM đã hoàn thành"
+  },
+  "10005": {
+    "en": "The device already has a license and is ready for use.",
+    "ru": "Устройство уже имеет лицензию и готово к использованию.",
+    "uk": "Пристрій вже має ліцензію та готовий до використання",
+    "es": "El dispositivo ya tiene una licencia y está listo para su uso",
+    "tr": "Cihaz zaten lisansa sahip ve kullanıma hazır",
+    "fr": "L'appareil a déjà une licence et est prêt à l'utilisation",
+    "it": "Il dispositivo ha già una licenza ed è pronto per l'uso",
+    "id": "Perangkat sudah memiliki lisensi dan siap digunakan",
+    "zh": "设备已拥有许可证并准备好使用",
+    "ja": "デバイスにはすでにライセンスがあり、使用可能です",
+    "vi": "Thiết bị đã có giấy phép và sẵn sàng sử dụng"
+  },
+  "10006": {
+    "en": "\"License\" parameter required",
+    "ru": "Необходимо указать параметр \"license\"",
+    "uk": "Потрібно вказати параметр ліцензії",
+    "es": "Se requiere el parámetro de licencia",
+    "tr": "Lisans parametresi gerekli",
+    "fr": "Paramètre de licence requis",
+    "it": "Parametro della licenza richiesto",
+    "id": "Parameter lisensi diperlukan",
+    "zh": "需要许可证参数",
+    "ja": "ライセンスパラメータが必要です",
+    "vi": "Yêu cầu tham số giấy phép"
+  },
+  "10007": {
+    "en": "ChromVoidFS declined this license",
+    "ru": "ChromVoidFS отклонил эту лицензию",
+    "uk": "ChromVoidFS відхилив цю ліцензію",
+    "es": "ChromVoidFS rechazó esta licencia",
+    "tr": "ChromVoidFS bu lisansı reddetti",
+    "fr": "ChromVoidFS a refusé cette licence",
+    "it": "ChromVoidFS ha rifiutato questa licenza",
+    "id": "ChromVoidFS menolak lisensi ini",
+    "zh": "ChromVoidFS拒绝了此许可证",
+    "ja": "ChromVoidFSはこのライセンスを拒否しました",
+    "vi": "ChromVoidFS đã từ chối giấy phép này"
+  },
+  "10008": {
+    "en": "User initialization already complete",
+    "ru": "Инициализация пользователем уже завершена",
+    "uk": "Ініціалізація користувача вже завершена",
+    "es": "La inicialización del usuario ya se ha completado",
+    "tr": "Kullanıcı başlatma zaten tamamlandı",
+    "fr": "L'initialisation de l'utilisateur est déjà terminée",
+    "it": "L'inizializzazione dell'utente è già completata",
+    "id": "Inisialisasi pengguna sudah selesai",
+    "zh": "用户初始化已完成",
+    "ja": "ユーザーの初期化はすでに完了しました",
+    "vi": "Khởi tạo người dùng đã hoàn thành"
+  },
+  "10009": {
+    "en": "NO HASH",
+    "ru": "Отсутствует хеш",
+    "uk": "Відсутній хеш",
+    "es": "SIN HASH",
+    "tr": "HASH YOK",
+    "fr": "PAS DE HACHAGE",
+    "it": "NESSUN HASH",
+    "id": "TIDAK ADA HASH",
+    "zh": "没有哈希",
+    "ja": "ハッシュなし",
+    "vi": "KHÔNG CÓ HASH"
+  },
+  "10010": {
+    "en": "ChromVoidFS process is not active",
+    "ru": "Процесс ChromVoidFS не активен",
+    "uk": "Процес ChromVoidFS не активний",
+    "es": "El proceso ChromVoidFS no está activo",
+    "tr": "ChromVoidFS süreci aktif değil",
+    "fr": "Le processus ChromVoidFS n'est pas actif",
+    "it": "Il processo ChromVoidFS non è attivo",
+    "id": "Proses ChromVoidFS tidak aktif",
+    "zh": "ChromVoidFS进程未激活",
+    "ja": "ChromVoidFSプロセスはアクティブではありません",
+    "vi": "Quá trình ChromVoidFS không hoạt động"
+  },
+  "10011": {
+    "en": "Task in progress",
+    "ru": "Задача выполняется",
+    "uk": "Завдання виконується",
+    "es": "Tarea en progreso",
+    "tr": "Görev devam ediyor",
+    "fr": "Tâche en cours",
+    "it": "Compito in corso",
+    "id": "Tugas sedang berlangsung",
+    "zh": "任务进行中",
+    "ja": "タスク進行中",
+    "vi": "Nhiệm vụ đang tiến hành"
+  },
+  "10012": {
+    "en": "Ramdisk is not mounted",
+    "ru": "RAMDisk не подключен",
+    "uk": "RAMDisk не підключений",
+    "es": "ramdisk no está montado",
+    "tr": "ramdisk monte edilmedi",
+    "fr": "Le ramdisk n'est pas monté",
+    "it": "Il ramdisk non è montato",
+    "id": "ramdisk tidak dipasang",
+    "zh": "ramdisk未挂载",
+    "ja": "ramdiskがマウントされていません",
+    "vi": "ramdisk chưa được gắn kết"
+  },
+  "10013": {
+    "en": "Magic path is empty",
+    "ru": "Магический путь пуст",
+    "uk": "Магічний шлях порожній",
+    "es": "La ruta mágica está vacía",
+    "tr": "Sihirli yol boş",
+    "fr": "Le chemin magique est vide",
+    "it": "Il percorso magico è vuoto",
+    "id": "Jalur ajaib kosong",
+    "zh": "魔法路径为空",
+    "ja": "マジックパスが空です",
+    "vi": "Đường dẫn ma thuật trống"
+  },
+  "10015": {
+    "en": "Incorrect session",
+    "ru": "Неверная сессия",
+    "uk": "Невірна сесія",
+    "es": "Sesión incorrecta",
+    "tr": "Yanlış oturum",
+    "fr": "Session incorrecte",
+    "it": "Sessione non corretta",
+    "id": "Sesi tidak benar",
+    "zh": "会话错误",
+    "ja": "セッションが正しくありません",
+    "vi": "Phiên không đúng"
+  },
+  "10016": {
+    "en": "Key field is required",
+    "ru": "Поле ключ обязательно",
+    "uk": "Поле ключа обов'язкове",
+    "es": "El campo clave es obligatorio",
+    "tr": "Anahtar alanı gerekli",
+    "fr": "Le champ clé est requis",
+    "it": "Il campo chiave è obbligatorio",
+    "id": "Bidang kunci diperlukan",
+    "zh": "键字段是必需的",
+    "ja": "キー項目は必須です",
+    "vi": "Trường khóa là bắt buộc"
+  },
+  "10017": {
+    "en": "Key must be alphanumeric",
+    "ru": "Ключ должен быть алфавитно-цифровым",
+    "uk": "Ключ має бути буквено-цифровим",
+    "es": "La clave debe ser alfanumérica",
+    "tr": "Anahtar alfanümerik olmalıdır",
+    "fr": "La clé doit être alphanumérique",
+    "it": "La chiave deve essere alfanumerica",
+    "id": "Kunci harus berupa alfanumerik",
+    "zh": "键应为字母数字",
+    "ja": "キーは英数字である必要があります",
+    "vi": "Khóa phải là chữ và số"
+  },
+  "10018": {
+    "trans": "change",
+    "en": "Field value type of file is required",
+    "ru": "Параметр \"value\" обязательно и должен быть типом File",
+    "uk": "Тип значення поля файл обов'язковий",
+    "es": "Se requiere el tipo de valor del campo de archivo",
+    "tr": "Dosya alanı değeri türü gereklidir",
+    "fr": "Le type de valeur du champ de fichier est requis",
+    "it": "Il tipo di valore del campo del file è obbligatorio",
+    "id": "Jenis nilai bidang file diperlukan",
+    "zh": "需要字段值类型的文件",
+    "ja": "ファイルのフィールド値タイプが必要です",
+    "vi": "Cần trường kiểu giá trị tệp"
+  },
+  "30002": {
+    "en": "Storage drive doesn't exists",
+    "ru": "Устройство хранения не существует",
+    "uk": "Пристрій зберігання не існує",
+    "es": "La unidad de almacenamiento no existe",
+    "tr": "Depolama sürücüsü mevcut değil",
+    "fr": "Le lecteur de stockage n'existe pas",
+    "it": "Il disco di archiviazione non esiste",
+    "id": "Drive penyimpanan tidak ada",
+    "zh": "存储驱动器不存在",
+    "ja": "ストレージドライブが存在しません",
+    "vi": "Ổ đĩa lưu trữ không tồn tại"
+  },
+  "30003": {
+    "en": "Error mounting storage drive",
+    "ru": "Ошибка подключения устройства хранения",
+    "uk": "Помилка підключення пристрою зберігання",
+    "es": "Error al montar la unidad de almacenamiento",
+    "tr": "Depolama sürücüsü bağlanırken hata",
+    "fr": "Erreur lors du montage du lecteur de stockage",
+    "it": "Errore durante il montaggio del disco di archiviazione",
+    "id": "Kesalahan saat memasang drive penyimpanan",
+    "zh": "挂载存储驱动器时出错",
+    "ja": "ストレージドライブのマウント中にエラーが発生しました",
+    "vi": "Lỗi gắn ổ đĩa lưu trữ"
+  },
+  "30007": {
+    "en": "Error setting master password",
+    "ru": "Ошибка установки главного пароля",
+    "uk": "Помилка встановлення головного пароля",
+    "es": "Error al establecer la contraseña maestra",
+    "tr": "Ana parola ayarlanırken hata",
+    "fr": "Erreur lors de la définition du mot de passe principal",
+    "it": "Errore nell'impostazione della password principale",
+    "id": "Kesalahan dalam mengatur kata sandi utama",
+    "zh": "设置主密码错误",
+    "ja": "マスターパスワードの設定エラー",
+    "vi": "Lỗi đặt mật khẩu chính"
+  },
+  "30008": {
+    "en": "Storage drive doesn't exists",
+    "ru": "Устройство хранения не существует",
+    "uk": "Пристрій зберігання не існує",
+    "es": "La unidad de almacenamiento no existe",
+    "tr": "Depolama sürücüsü mevcut değil",
+    "fr": "Le lecteur de stockage n'existe pas",
+    "it": "Il disco di archiviazione non esiste",
+    "id": "Drive penyimpanan tidak ada",
+    "zh": "存储驱动器不存在",
+    "ja": "ストレージドライブが存在しません",
+    "vi": "Ổ đĩa lưu trữ không tồn tại"
+  },
+  "30009": {
+    "en": "Error mounting storage drive",
+    "ru": "Ошибка подключения устройства хранения",
+    "uk": "Помилка підключення пристрою зберігання",
+    "es": "Error al montar la unidad de almacenamiento",
+    "tr": "Depolama sürücüsü bağlanırken hata",
+    "fr": "Erreur lors du montage du lecteur de stockage",
+    "it": "Errore durante il montaggio del disco di archiviazione",
+    "id": "Kesalahan saat memasang drive penyimpanan",
+    "zh": "挂载存储驱动器时出错",
+    "ja": "ストレージドライブのマウント中にエラーが発生しました",
+    "vi": "Lỗi gắn ổ đĩa lưu trữ"
+  },
+  "30010": {
+    "en": "Incorrect path to storage",
+    "ru": "Неверный путь к хранилищу",
+    "uk": "Невірний шлях до сховища",
+    "es": "Ruta incorrecta al almacenamiento",
+    "tr": "Depolamaya yanlış yol",
+    "fr": "Chemin incorrect vers le stockage",
+    "it": "Percorso errato verso l'archiviazione",
+    "id": "Jalur yang salah ke penyimpanan",
+    "zh": "存储路径不正确",
+    "ja": "ストレージへのパスが正しくありません",
+    "vi": "Đường dẫn đến lưu trữ không đúng"
+  },
+  "30013": {
+    "en": "Incorrect master password",
+    "ru": "Неверный мастер пароль",
+    "uk": "Невірний головний пароль",
+    "es": "Contraseña maestra incorrecta",
+    "tr": "Yanlış ana parola",
+    "fr": "Mot de passe principal incorrect",
+    "it": "Password principale errata",
+    "id": "Kata sandi utama tidak benar",
+    "zh": "主密码不正确",
+    "ja": "マスターパスワードが正しくありません",
+    "vi": "Mật khẩu chính không đúng"
+  },
+  "30014": {
+    "en": "Incorrect external drive",
+    "ru": "Неверный внешний диск",
+    "uk": "Невірний зовнішній диск",
+    "es": "Unidad externa incorrecta",
+    "tr": "Yanlış harici disk",
+    "fr": "Lecteur externe incorrect",
+    "it": "Unità esterna errata",
+    "id": "Drive eksternal salah",
+    "zh": "外部驱动器不正确",
+    "ja": "外部ドライブが正しくありません",
+    "vi": "Ổ đĩa ngoài không đúng"
+  },
+  "30015": {
+    "en": "Please enter correct folder name",
+    "ru": "Пожалуйста, укажите правильное имя папки",
+    "uk": "Будь ласка, введіть правильну назву папки",
+    "es": "Por favor ingrese el nombre correcto de la carpeta",
+    "tr": "Lütfen doğru klasör adını girin",
+    "fr": "Veuillez saisir le nom correct du dossier",
+    "it": "Si prega di inserire il nome corretto della cartella",
+    "id": "Harap masukkan nama folder yang benar",
+    "zh": "请输入正确的文件夹名称",
+    "ja": "正しいフォルダ名を入力してください",
+    "vi": "Vui lòng nhập tên thư mục đúng"
+  },
+  "30016": {
+    "en": "Drive mounting error",
+    "ru": "Ошибка подключения диска",
+    "uk": "Помилка підключення диска",
+    "es": "Error al montar la unidad",
+    "tr": "Sürücü bağlama hatası",
+    "fr": "Erreur de montage du lecteur",
+    "it": "Errore di montaggio del disco",
+    "id": "Kesalahan memasang drive",
+    "zh": "挂载驱动器错误",
+    "ja": "ドライブのマウントエラー",
+    "vi": "Lỗi gắn ổ đĩa"
+  },
+  "30017": {
+    "en": "You should erase your device before restoring",
+    "ru": "Перед восстановлением нужно очистить устройство",
+    "uk": "Перед відновленням потрібно очистити пристрій",
+    "es": "Debe borrar su dispositivo antes de restaurarlo",
+    "tr": "Geri yüklemeden önce cihazınızı silmelisiniz",
+    "fr": "Vous devez effacer votre appareil avant de le restaurer",
+    "it": "È necessario cancellare il dispositivo prima di ripristinarlo",
+    "id": "Anda harus menghapus perangkat Anda sebelum memulihkan",
+    "zh": "在恢复之前应清除设备",
+    "ja": "復元する前にデバイスを消去する必要があります",
+    "vi": "Bạn nên xóa thiết bị trước khi khôi phục"
+  },
+  "30018": {
+    "en": "Failed to find the device backup in this folder",
+    "ru": "Не удалось найти резервное копирование устройства в этой папке",
+    "uk": "Не вдалося знайти резервну копію пристрою в цій папці",
+    "es": "No se pudo encontrar la copia de seguridad del dispositivo en esta carpeta",
+    "tr": "Bu klasörde cihaz yedeklemesi bulunamadı",
+    "fr": "Impossible de trouver la sauvegarde de l'appareil dans ce dossier",
+    "it": "Impossibile trovare il backup del dispositivo in questa cartella",
+    "id": "Tidak dapat menemukan cadangan perangkat di folder ini",
+    "zh": "在此文件夹中找不到设备备份",
+    "ja": "このフォルダーにデバイスバックアップが見つかりません",
+    "vi": "Không thể tìm thấy bản sao lưu thiết bị trong thư mục này"
+  },
+  "30019": {
+    "en": "Storage already exists",
+    "ru": "Хранилище уже существует",
+    "uk": "Сховище вже існує",
+    "es": "El almacenamiento ya existe",
+    "tr": "Depolama zaten mevcut",
+    "fr": "Le stockage existe déjà",
+    "it": "Lo storage esiste già",
+    "id": "Penyimpanan sudah ada",
+    "zh": "存储已存在",
+    "ja": "ストレージは既に存在します",
+    "vi": "Lưu trữ đã tồn tại"
+  },
+  "30020": {
+    "en": "External drive storage initialization error",
+    "ru": "Ошибка инициализации внешнего диска хранилища",
+    "uk": "Помилка ініціалізації зовнішнього диска сховища",
+    "es": "Error de inicialización del almacenamiento del disco externo",
+    "tr": "Harici sürücü depolama başlatma hatası",
+    "fr": "Erreur d'initialisation du stockage du disque externe",
+    "it": "Errore di inizializzazione dello storage del disco esterno",
+    "id": "Kesalahan inisialisasi penyimpanan drive eksternal",
+    "zh": "外部驱动器存储初始化错误",
+    "ja": "外部ドライブストレージの初期化エラー",
+    "vi": "Lỗi khởi tạo lưu trữ ổ đĩa ngoài"
+  },
+  "onboard:hero:create": {
+    "en": "Create your secure storage",
+    "ru": "Создайте ваше защищённое хранилище"
+  },
+  "onboard:hero:unlock": {
+    "en": "Unlock your vault",
+    "ru": "Откройте ваше хранилище"
+  },
+  "onboard:step:vault:title": {
+    "en": "1. Daily Access (Vault Password)",
+    "ru": "1. Ежедневный доступ (Пароль хранилища)"
+  },
+  "onboard:step:vault:desc": {
+    "en": "Use this password to open your vault every day. It encrypts your personal data.",
+    "ru": "Используйте этот пароль для ежедневного входа. Он шифрует ваши личные данные."
+  },
+  "onboard:step:master:title": {
+    "en": "2. Admin Access (Master Password)",
+    "ru": "2. Админ-доступ (Мастер Пароль)"
+  },
+  "onboard:step:master:desc": {
+    "en": "Required for Backup, Restore, and Erase. Store it offline securely.",
+    "ru": "Нужен для Бэкапа, Восстановления и Очистки. Храните его надежно оффлайн."
+  },
+  "onboard:master:warning": {
+    "en": "If you lose your Master Password, recovery is IMPOSSIBLE. Even a backup cannot be restored without it.",
+    "ru": "Если вы потеряете Мастер Пароль, восстановление НЕВОЗМОЖНО. Даже наличие бэкапа не поможет без него."
+  },
+  "onboard:master:recommendation": {
+    "en": "Recommendation: Use a phrase of 4+ words (16+ chars). Do not reuse passwords.",
+    "ru": "Рекомендация: Используйте фразу из 4+ слов (16+ символов). Не используйте старые пароли."
+  },
+  "onboard:tools:title": {
+    "en": "Device Tools",
+    "ru": "Инструменты устройства"
+  },
+  "onboard:restore:success": {
+    "en": "Device restored successfully. Please unlock your vault.",
+    "ru": "Устройство успешно восстановлено. Пожалуйста, откройте хранилище."
+  },
+  "onboard:restore:warning": {
+    "en": "Warning: You must erase the device before restoring if it is not empty.",
+    "ru": "Внимание: Необходимо очистить устройство перед восстановлением, если оно не пустое."
+  },
+  "onboard:erase:confirm:title": {
+    "en": "Erase Device?",
+    "ru": "Стереть устройство?"
+  },
+  "onboard:erase:confirm:text": {
+    "en": "This will permanently delete ALL data. This action cannot be undone.",
+    "ru": "Это действие безвозвратно удалит ВСЕ данные. Отменить невозможно."
+  },
+  "button:close": {
+    "en": "Close",
+    "ru": "Закрыть"
+  },
+  "button:done": {
+    "en": "Done",
+    "ru": "Готово"
+  },
+  "button:retry": {
+    "en": "Retry",
+    "ru": "Повторить"
+  },
+  "button:cancel": {
+    "en": "Cancel",
+    "ru": "Отменить"
+  },
+  "button:reset": {
+    "en": "Reset",
+    "ru": "Сбросить"
+  },
+  "button:clear-completed": {
+    "en": "Clear completed",
+    "ru": "Очистить завершённые"
+  },
+  "button:expand": {
+    "en": "Expand",
+    "ru": "Развернуть"
+  },
+  "button:collapse": {
+    "en": "Collapse",
+    "ru": "Свернуть"
+  },
+  "theme:mode:light": {
+    "en": "Light",
+    "ru": "Светлая"
+  },
+  "theme:mode:dark": {
+    "en": "Dark",
+    "ru": "Тёмная"
+  },
+  "theme:mode:system": {
+    "en": "System",
+    "ru": "Системная"
+  },
+  "theme:toggle": {
+    "en": "Toggle theme",
+    "ru": "Переключить тему"
+  },
+  "menu:open": {
+    "en": "Open menu",
+    "ru": "Открыть меню"
+  },
+  "menu:close": {
+    "en": "Close menu",
+    "ru": "Закрыть меню"
+  },
+  "nav:back": {
+    "en": "Back",
+    "ru": "Назад"
+  },
+  "command:search-and-commands": {
+    "en": "Search and commands",
+    "ru": "Поиск и команды"
+  },
+  "statusbar:connection": {
+    "en": "Connection",
+    "ru": "Подключение"
+  },
+  "statusbar:connection:connected": {
+    "en": "Connected",
+    "ru": "Подключено"
+  },
+  "statusbar:connection:connecting": {
+    "en": "Connecting...",
+    "ru": "Соединение..."
+  },
+  "statusbar:connection:offline": {
+    "en": "Offline",
+    "ru": "Офлайн"
+  },
+  "statusbar:catalog:idle": {
+    "en": "Synced",
+    "ru": "Синхронизировано"
+  },
+  "statusbar:catalog:syncing": {
+    "en": "Syncing...",
+    "ru": "Синхронизация..."
+  },
+  "statusbar:catalog:loading": {
+    "en": "Loading...",
+    "ru": "Загрузка..."
+  },
+  "statusbar:catalog:error": {
+    "en": "Sync error",
+    "ru": "Ошибка синхронизации"
+  },
+  "statusbar:catalog:ready": {
+    "en": "Ready",
+    "ru": "Готово"
+  },
+  "statusbar:selection-mode": {
+    "en": "Selection mode",
+    "ru": "Режим выделения"
+  },
+  "statusbar:selection-mode:on": {
+    "en": "On",
+    "ru": "Вкл."
+  },
+  "statusbar:selection-mode:off": {
+    "en": "Off",
+    "ru": "Выкл."
+  },
+  "statusbar:selection-mode:enable": {
+    "en": "Enable selection mode",
+    "ru": "Включить режим выделения"
+  },
+  "statusbar:selection-mode:disable": {
+    "en": "Disable selection mode",
+    "ru": "Выключить режим выделения"
+  },
+  "statusbar:system": {
+    "en": "System status",
+    "ru": "Статус системы"
+  },
+  "navigation:main": {
+    "en": "Navigation",
+    "ru": "Навигация"
+  },
+  "navigation:actions": {
+    "en": "Actions",
+    "ru": "Действия"
+  },
+  "navigation:files": {
+    "en": "Files",
+    "ru": "Файлы"
+  },
+  "navigation:passwords": {
+    "en": "Passwords",
+    "ru": "Пароли"
+  },
+  "navigation:command-palette": {
+    "en": "Command palette",
+    "ru": "Палитра команд"
+  },
+  "navigation:storage": {
+    "en": "Storage",
+    "ru": "Хранилище"
+  },
+  "navigation:remote": {
+    "en": "Remote",
+    "ru": "Удалённый доступ"
+  },
+  "navigation:extensions": {
+    "en": "Extensions",
+    "ru": "Расширения"
+  },
+  "navigation:network-pair": {
+    "en": "Network Pair",
+    "ru": "Сетевая пара"
+  },
+  "navigation:settings": {
+    "en": "Settings",
+    "ru": "Настройки"
+  },
+  "navigation:lock": {
+    "en": "Lock",
+    "ru": "Заблокировать"
+  },
+  "navigation:expand-sidebar": {
+    "en": "Expand sidebar",
+    "ru": "Развернуть боковую панель"
+  },
+  "navigation:collapse-sidebar": {
+    "en": "Collapse sidebar",
+    "ru": "Свернуть боковую панель"
+  },
+  "notification:vault-locked": {
+    "en": "Vault locked",
+    "ru": "Хранилище заблокировано"
+  },
+  "error:lock-failed": {
+    "en": "Failed to lock",
+    "ru": "Не удалось заблокировать"
+  },
+  "loading": {
+    "en": "Loading...",
+    "ru": "Загрузка..."
+  },
+  "file-manager:selected-count": {
+    "en": "Selected: ${count}",
+    "ru": "Выбрано: ${count}"
+  },
+  "file-manager:select-items": {
+    "en": "Select items",
+    "ru": "Выберите элементы"
+  },
+  "file-manager:delete-selected": {
+    "en": "Delete selected (${count})",
+    "ru": "Удалить выбранное (${count})"
+  },
+  "file-manager:create-folder": {
+    "en": "Create folder",
+    "ru": "Создать папку"
+  },
+  "file-manager:upload-files": {
+    "en": "Upload files",
+    "ru": "Загрузить файлы"
+  },
+  "file-manager:upload": {
+    "en": "Upload",
+    "ru": "Загрузить"
+  },
+  "file-manager:exit-selection-mode": {
+    "en": "Exit selection mode",
+    "ru": "Выйти из режима выделения"
+  },
+  "file-manager:drop-files-here": {
+    "en": "Drop files here",
+    "ru": "Перетащите файлы сюда"
+  },
+  "file-manager:filters-and-sorting": {
+    "en": "Filters and sorting",
+    "ru": "Фильтры и сортировка"
+  },
+  "file-manager:name": {
+    "en": "Name",
+    "ru": "Имя"
+  },
+  "file-manager:size": {
+    "en": "Size",
+    "ru": "Размер"
+  },
+  "file-manager:modified": {
+    "en": "Modified",
+    "ru": "Изменено"
+  },
+  "file-manager:type": {
+    "en": "Type",
+    "ru": "Тип"
+  },
+  "file-manager:view:list": {
+    "en": "List",
+    "ru": "Список"
+  },
+  "file-manager:view:grid": {
+    "en": "Grid",
+    "ru": "Сетка"
+  },
+  "file-manager:view:table": {
+    "en": "Table",
+    "ru": "Таблица"
+  },
+  "file-manager:type:images": {
+    "en": "Images",
+    "ru": "Изображения"
+  },
+  "file-manager:type:documents": {
+    "en": "Documents",
+    "ru": "Документы"
+  },
+  "file-manager:type:videos": {
+    "en": "Videos",
+    "ru": "Видео"
+  },
+  "file-manager:type:audio": {
+    "en": "Audio",
+    "ru": "Аудио"
+  },
+  "file-manager:type:archives": {
+    "en": "Archives",
+    "ru": "Архивы"
+  },
+  "file-manager:type:code": {
+    "en": "Code",
+    "ru": "Код"
+  },
+  "file-manager:sort-direction:az": {
+    "en": "A → Z",
+    "ru": "A → Z"
+  },
+  "file-manager:sort-direction:za": {
+    "en": "Z → A",
+    "ru": "Z → A"
+  },
+  "file-manager:sort-direction:asc": {
+    "en": "Ascending",
+    "ru": "По возрастанию"
+  },
+  "file-manager:sort-direction:desc": {
+    "en": "Descending",
+    "ru": "По убыванию"
+  },
+  "file-manager:sort-by": {
+    "en": "Sort by",
+    "ru": "Сортировать по"
+  },
+  "file-manager:direction": {
+    "en": "Direction",
+    "ru": "Направление"
+  },
+  "file-manager:view": {
+    "en": "View",
+    "ru": "Вид"
+  },
+  "file-manager:file-type": {
+    "en": "File type",
+    "ru": "Тип файла"
+  },
+  "file-manager:hidden-files": {
+    "en": "Hidden files",
+    "ru": "Скрытые файлы"
+  },
+  "file-manager:show": {
+    "en": "Show",
+    "ru": "Показывать"
+  },
+  "file-manager:hide": {
+    "en": "Hide",
+    "ru": "Скрыть"
+  },
+  "file-manager:active-filters": {
+    "en": "Active filters",
+    "ru": "Активные фильтры"
+  },
+  "file-manager:change-view": {
+    "en": "Change view",
+    "ru": "Сменить вид"
+  },
+  "file-manager:view-current": {
+    "en": "View: ${view}",
+    "ru": "Вид: ${view}"
+  },
+  "file-manager:toggle-sort-direction": {
+    "en": "Toggle sort direction",
+    "ru": "Переключить направление сортировки"
+  },
+  "file-manager:sort-current": {
+    "en": "Sort: ${sort}",
+    "ru": "Сорт: ${sort}"
+  },
+  "file-manager:search": {
+    "en": "Search",
+    "ru": "Поиск"
+  },
+  "file-manager:edit-in-command": {
+    "en": "Edit in ⌘K",
+    "ru": "Изменить в ⌘K"
+  },
+  "file-manager:search-current": {
+    "en": "Search: ${query}",
+    "ru": "Поиск: ${query}"
+  },
+  "file-manager:clear-search": {
+    "en": "Clear search",
+    "ru": "Очистить поиск"
+  },
+  "file-manager:show-hidden": {
+    "en": "Show hidden",
+    "ru": "Показывать скрытые"
+  },
+  "file-manager:hide-hidden-files": {
+    "en": "Hide hidden files",
+    "ru": "Скрыть скрытые файлы"
+  },
+  "file-manager:remove-filter": {
+    "en": "Remove filter: ${label}",
+    "ru": "Убрать фильтр: ${label}"
+  },
+  "details:title": {
+    "en": "File info",
+    "ru": "Сведения о файле"
+  },
+  "details:actions": {
+    "en": "Quick actions",
+    "ru": "Быстрые действия"
+  },
+  "action:open-external": {
+    "en": "Open in system",
+    "ru": "Открыть в системе"
+  },
+  "action:download": {
+    "en": "Download",
+    "ru": "Скачать"
+  },
+  "action:rename": {
+    "en": "Rename",
+    "ru": "Переименовать"
+  },
+  "action:copy": {
+    "en": "Copy",
+    "ru": "Копировать"
+  },
+  "action:delete": {
+    "en": "Delete",
+    "ru": "Удалить"
+  },
+  "action:share": {
+    "en": "Share",
+    "ru": "Поделиться"
+  },
+  "details:metadata": {
+    "en": "Details",
+    "ru": "Детали"
+  },
+  "details:path": {
+    "en": "Path",
+    "ru": "Путь"
+  },
+  "details:modified": {
+    "en": "Modified",
+    "ru": "Изменено"
+  },
+  "details:size": {
+    "en": "Size",
+    "ru": "Размер"
+  },
+  "details:dimensions": {
+    "en": "Dimensions",
+    "ru": "Размеры"
+  },
+  "details:bytes": {
+    "en": "bytes",
+    "ru": "байт"
+  },
+  "file-type:document": {
+    "en": "Document",
+    "ru": "Документ"
+  },
+  "file-type:spreadsheet": {
+    "en": "Spreadsheet",
+    "ru": "Таблица"
+  },
+  "file-type:presentation": {
+    "en": "Presentation",
+    "ru": "Презентация"
+  },
+  "file-type:text": {
+    "en": "Text file",
+    "ru": "Текстовый файл"
+  },
+  "file-type:code": {
+    "en": "Code file",
+    "ru": "Файл кода"
+  },
+  "file-type:image": {
+    "en": "Image",
+    "ru": "Изображение"
+  },
+  "file-type:audio": {
+    "en": "Audio file",
+    "ru": "Аудиофайл"
+  },
+  "file-type:video": {
+    "en": "Video file",
+    "ru": "Видеофайл"
+  },
+  "file-type:archive": {
+    "en": "Archive",
+    "ru": "Архив"
+  },
+  "file-type:password": {
+    "en": "Password",
+    "ru": "Пароль"
+  },
+  "file-type:secure-note": {
+    "en": "Secure note",
+    "ru": "Защищённая заметка"
+  },
+  "file-type:seed-phrase": {
+    "en": "Seed phrase",
+    "ru": "Seed-фраза"
+  },
+  "file-type:private-key": {
+    "en": "Private key",
+    "ru": "Приватный ключ"
+  },
+  "file-manager:more": {
+    "en": "More",
+    "ru": "Ещё"
+  },
+  "file-manager:info": {
+    "en": "Info",
+    "ru": "Информация"
+  },
+  "file-manager:file-item-missing": {
+    "en": "No data in FileItem",
+    "ru": "Нет данных в FileItem"
+  },
+  "file-manager:files": {
+    "en": "Files",
+    "ru": "Файлы"
+  },
+  "file-manager:no-files-found": {
+    "en": "Files not found",
+    "ru": "Файлы не найдены"
+  },
+  "file-manager:folder-empty": {
+    "en": "Folder is empty",
+    "ru": "Папка пуста"
+  },
+  "file-manager:change-search-or-filters": {
+    "en": "Try changing your search or filters",
+    "ru": "Попробуйте изменить параметры поиска или фильтры"
+  },
+  "file-manager:clear-filters": {
+    "en": "Clear filters",
+    "ru": "Сбросить фильтры"
+  },
+  "file-manager:items-count": {
+    "en": "Items: ${count}",
+    "ru": "Элементов: ${count}"
+  },
+  "file-manager:selection:none": {
+    "en": "Nothing selected",
+    "ru": "Ничего не выбрано"
+  },
+  "file-manager:selection:count": {
+    "en": "Selected: ${count}",
+    "ru": "Выбрано: ${count}"
+  },
+  "file-manager:actions-header": {
+    "en": "Actions",
+    "ru": "Действия"
+  },
+  "file-manager:select": {
+    "en": "Select",
+    "ru": "Выбор"
+  },
+  "file-manager:select-item": {
+    "en": "Select ${name}",
+    "ru": "Выбрать ${name}"
+  },
+  "file-manager:transfers": {
+    "en": "File transfers (${total})",
+    "ru": "Передача файлов (${total})"
+  },
+  "file-manager:transfers-progress": {
+    "en": "File transfers in progress",
+    "ru": "Идет передача файлов"
+  },
+  "file-manager:overall-progress": {
+    "en": "Overall progress: ${progress}%",
+    "ru": "Общий прогресс: ${progress}%"
+  },
+  "file-manager:completed-of-total": {
+    "en": "${completed} of ${total}",
+    "ru": "${completed} из ${total}"
+  },
+  "upload:speed": {
+    "en": "${speed}/s",
+    "ru": "${speed}/с"
+  },
+  "upload:eta:seconds": {
+    "en": "${value}s",
+    "ru": "${value}с"
+  },
+  "upload:eta:minutes": {
+    "en": "${value}m",
+    "ru": "${value}м"
+  },
+  "upload:eta:hours": {
+    "en": "${value}h",
+    "ru": "${value}ч"
+  },
+  "upload:downloading": {
+    "en": "Downloading...",
+    "ru": "Скачивание..."
+  },
+  "upload:uploading": {
+    "en": "Uploading...",
+    "ru": "Загрузка..."
+  },
+  "upload:done": {
+    "en": "Done",
+    "ru": "Готово"
+  },
+  "upload:error": {
+    "en": "Error",
+    "ru": "Ошибка"
+  },
+  "upload:paused": {
+    "en": "Paused",
+    "ru": "Пауза"
+  },
+  "upload:finalizing": {
+    "en": "Finalizing...",
+    "ru": "Завершение…"
+  },
+  "upload:remaining": {
+    "en": "${time} left",
+    "ru": "осталось ${time}"
+  },
+  "media:image-viewer": {
+    "en": "Image viewer",
+    "ru": "Просмотр изображений"
+  },
+  "media:video-player": {
+    "en": "Video player",
+    "ru": "Видеоплеер"
+  },
+  "media:image-position": {
+    "en": "${current} of ${total}",
+    "ru": "${current} из ${total}"
+  },
+  "media:image": {
+    "en": "Image ${index}",
+    "ru": "Изображение ${index}"
+  },
+  "media:previous-image": {
+    "en": "Previous image",
+    "ru": "Предыдущее изображение"
+  },
+  "media:next-image": {
+    "en": "Next image",
+    "ru": "Следующее изображение"
+  },
+  "media:preview-desktop-only": {
+    "en": "Preview is available only in the desktop app",
+    "ru": "Предпросмотр доступен только в desktop приложении"
+  },
+  "media:image-load-failed": {
+    "en": "Failed to load image",
+    "ru": "Не удалось загрузить изображение"
+  },
+  "media:image-display-failed": {
+    "en": "Unable to display image",
+    "ru": "Невозможно отобразить изображение"
+  },
+  "media:video-format-unsupported": {
+    "en": "Format is not supported",
+    "ru": "Формат не поддерживается"
+  },
+  "media:video-load-failed": {
+    "en": "Failed to load video",
+    "ru": "Не удалось загрузить видео"
+  },
+  "media:video-play-failed": {
+    "en": "Unable to play video",
+    "ru": "Невозможно воспроизвести видео"
+  },
+  "storage:used": {
+    "en": "Used",
+    "ru": "Использовано"
+  },
+  "storage:used-short": {
+    "en": "Used: ${value}",
+    "ru": "Исп.: ${value}"
+  },
+  "storage:total-short": {
+    "en": "Total: ${value}",
+    "ru": "Всего: ${value}"
+  },
+  "command-bar:category:navigation": {
+    "en": "Navigation",
+    "ru": "Навигация"
+  },
+  "command-bar:category:actions": {
+    "en": "Actions",
+    "ru": "Действия"
+  },
+  "command-bar:category:filters": {
+    "en": "Filters",
+    "ru": "Фильтры"
+  },
+  "command-bar:category:search": {
+    "en": "Search",
+    "ru": "Поиск"
+  },
+  "command-bar:no-results": {
+    "en": "No results",
+    "ru": "Ничего не найдено"
+  },
+  "command-bar:title": {
+    "en": "Command palette",
+    "ru": "Палитра команд"
+  },
+  "command-bar:placeholder": {
+    "en": "Type a command…",
+    "ru": "Введите команду…"
+  },
+  "context-menu:title": {
+    "en": "Context menu",
+    "ru": "Контекстное меню"
+  }
+}

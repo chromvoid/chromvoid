@@ -1,0 +1,168 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@statx/core':
+        specifier: ^1.15.0
+        version: 1.15.6
+      '@statx/lit':
+        specifier: ^1.15.0
+        version: 1.15.6(@xstate/fsm@3.0.0-beta.3)
+      kdbxweb:
+        specifier: ^1.10.0
+        version: 1.14.4
+      lit:
+        specifier: ^3.0.0
+        version: 3.3.2
+      papaparse:
+        specifier: ^5.4.1
+        version: 5.5.3
+    devDependencies:
+      '@types/papaparse':
+        specifier: ^5.3.14
+        version: 5.5.2
+
+packages:
+
+  '@lit-labs/ssr-dom-shim@1.5.1':
+    resolution: {integrity: sha512-Aou5UdlSpr5whQe8AA/bZG0jMj96CoJIWbGfZ91qieWu5AWUMKw8VR/pAkQkJYvBNhmCcWnZlyyk5oze8JIqYA==}
+
+  '@lit/reactive-element@2.1.2':
+    resolution: {integrity: sha512-pbCDiVMnne1lYUIaYNN5wrwQXDtHaYtg7YEFPeW+hws6U47WeFvISGUWekPGKWOP1ygrs0ef0o1VJMk1exos5A==}
+
+  '@statx/core@1.15.6':
+    resolution: {integrity: sha512-PqX7IULptzoR45PQHTlNZGCOoDYCraKVWTRTFSAxeskjS71ydC26vjfwHKbVyXOCe/BvOEt7YV8xfjfpyISTZw==}
+
+  '@statx/element@1.15.6':
+    resolution: {integrity: sha512-91S7pD5A3ffm9oc68AI/b4sJ2X+CymoVC7pRbAKN2nnTm7yxzC61aeKoM50gaV6ru03M1bVfr6k021wCUv4OnA==}
+
+  '@statx/lit@1.15.6':
+    resolution: {integrity: sha512-H31gV3ZBWKe97A0A4lgSJTEW2w43qTlr3Megv0d5ctHBfp8iKw5KmIHsl3IUKoFoUb1pRxWjySNTLfV3iunhcg==}
+
+  '@statx/machine@1.15.6':
+    resolution: {integrity: sha512-Nv9U9+ps5K6NdI++1wQcFjQtVV9Onn17ATZEOuP3MYXi/YfzUWnX93U4SUVrPFQOcca02hU8fSSMiaZrpA5nbg==}
+    peerDependencies:
+      '@xstate/fsm': ^3.0.0-beta.3
+
+  '@types/node@25.1.0':
+    resolution: {integrity: sha512-t7frlewr6+cbx+9Ohpl0NOTKXZNV9xHRmNOvql47BFJKcEG1CxtxlPEEe+gR9uhVWM4DwhnvTF110mIL4yP9RA==}
+
+  '@types/papaparse@5.5.2':
+    resolution: {integrity: sha512-gFnFp/JMzLHCwRf7tQHrNnfhN4eYBVYYI897CGX4MY1tzY9l2aLkVyx2IlKZ/SAqDbB3I1AOZW5gTMGGsqWliA==}
+
+  '@types/trusted-types@2.0.7':
+    resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
+
+  '@xstate/fsm@3.0.0-beta.3':
+    resolution: {integrity: sha512-SH/rYOWlOXv/rJpd6R3t7wi56puh8RHXtcE/Y1ufifXV3oKy0fDj3SANPkD6xBG1GksD1ABWwXggnKJ8sIAfnQ==}
+
+  kdbxweb@1.14.4:
+    resolution: {integrity: sha512-QhLQ6lU12Atba33/D0h/3UNLGYqmHXwjzcfgnFQ91A1PIXLS99/UpWHg1GvBniZrpXzfi8TnTEXD4wgLTK3ktw==}
+
+  lit-element@4.2.2:
+    resolution: {integrity: sha512-aFKhNToWxoyhkNDmWZwEva2SlQia+jfG0fjIWV//YeTaWrVnOxD89dPKfigCUspXFmjzOEUQpOkejH5Ly6sG0w==}
+
+  lit-html@3.3.2:
+    resolution: {integrity: sha512-Qy9hU88zcmaxBXcc10ZpdK7cOLXvXpRoBxERdtqV9QOrfpMZZ6pSYP91LhpPtap3sFMUiL7Tw2RImbe0Al2/kw==}
+
+  lit@3.3.2:
+    resolution: {integrity: sha512-NF9zbsP79l4ao2SNrH3NkfmFgN/hBYSQo90saIVI1o5GpjAdCPVstVzO1MrLOakHoEhYkrtRjPK6Ob521aoYWQ==}
+
+  pako@https://codeload.github.com/keeweb/pako/tar.gz/653c0b00d8941c89d09ed4546d2179001ec44efc:
+    resolution: {tarball: https://codeload.github.com/keeweb/pako/tar.gz/653c0b00d8941c89d09ed4546d2179001ec44efc}
+    version: 1.0.3
+
+  papaparse@5.5.3:
+    resolution: {integrity: sha512-5QvjGxYVjxO59MGU2lHVYpRWBBtKHnlIAcSe1uNFCkkptUh63NFRj0FJQm7nR67puEruUci/ZkjmEFrjCAyP4A==}
+
+  text-encoding@https://codeload.github.com/keeweb/text-encoding/tar.gz/4dfb7cb0954c222852092f8b06ae4f6b4f60bfbb:
+    resolution: {tarball: https://codeload.github.com/keeweb/text-encoding/tar.gz/4dfb7cb0954c222852092f8b06ae4f6b4f60bfbb}
+    version: 0.6.0
+
+  undici-types@7.16.0:
+    resolution: {integrity: sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw==}
+
+  xmldom@https://codeload.github.com/keeweb/xmldom/tar.gz/ec8f61f723e2f403adaf7a1bbf55ced4ff1ea0c6:
+    resolution: {tarball: https://codeload.github.com/keeweb/xmldom/tar.gz/ec8f61f723e2f403adaf7a1bbf55ced4ff1ea0c6}
+    version: 0.1.21
+    engines: {node: '>=0.1'}
+
+snapshots:
+
+  '@lit-labs/ssr-dom-shim@1.5.1': {}
+
+  '@lit/reactive-element@2.1.2':
+    dependencies:
+      '@lit-labs/ssr-dom-shim': 1.5.1
+
+  '@statx/core@1.15.6': {}
+
+  '@statx/element@1.15.6(@xstate/fsm@3.0.0-beta.3)':
+    dependencies:
+      '@statx/core': 1.15.6
+      '@statx/machine': 1.15.6(@xstate/fsm@3.0.0-beta.3)
+    transitivePeerDependencies:
+      - '@xstate/fsm'
+
+  '@statx/lit@1.15.6(@xstate/fsm@3.0.0-beta.3)':
+    dependencies:
+      '@statx/core': 1.15.6
+      '@statx/element': 1.15.6(@xstate/fsm@3.0.0-beta.3)
+      lit: 3.3.2
+    transitivePeerDependencies:
+      - '@xstate/fsm'
+
+  '@statx/machine@1.15.6(@xstate/fsm@3.0.0-beta.3)':
+    dependencies:
+      '@statx/core': 1.15.6
+      '@xstate/fsm': 3.0.0-beta.3
+
+  '@types/node@25.1.0':
+    dependencies:
+      undici-types: 7.16.0
+
+  '@types/papaparse@5.5.2':
+    dependencies:
+      '@types/node': 25.1.0
+
+  '@types/trusted-types@2.0.7': {}
+
+  '@xstate/fsm@3.0.0-beta.3': {}
+
+  kdbxweb@1.14.4:
+    dependencies:
+      pako: https://codeload.github.com/keeweb/pako/tar.gz/653c0b00d8941c89d09ed4546d2179001ec44efc
+      text-encoding: https://codeload.github.com/keeweb/text-encoding/tar.gz/4dfb7cb0954c222852092f8b06ae4f6b4f60bfbb
+      xmldom: https://codeload.github.com/keeweb/xmldom/tar.gz/ec8f61f723e2f403adaf7a1bbf55ced4ff1ea0c6
+
+  lit-element@4.2.2:
+    dependencies:
+      '@lit-labs/ssr-dom-shim': 1.5.1
+      '@lit/reactive-element': 2.1.2
+      lit-html: 3.3.2
+
+  lit-html@3.3.2:
+    dependencies:
+      '@types/trusted-types': 2.0.7
+
+  lit@3.3.2:
+    dependencies:
+      '@lit/reactive-element': 2.1.2
+      lit-element: 4.2.2
+      lit-html: 3.3.2
+
+  pako@https://codeload.github.com/keeweb/pako/tar.gz/653c0b00d8941c89d09ed4546d2179001ec44efc: {}
+
+  papaparse@5.5.3: {}
+
+  text-encoding@https://codeload.github.com/keeweb/text-encoding/tar.gz/4dfb7cb0954c222852092f8b06ae4f6b4f60bfbb: {}
+
+  undici-types@7.16.0: {}
+
+  xmldom@https://codeload.github.com/keeweb/xmldom/tar.gz/ec8f61f723e2f403adaf7a1bbf55ced4ff1ea0c6: {}

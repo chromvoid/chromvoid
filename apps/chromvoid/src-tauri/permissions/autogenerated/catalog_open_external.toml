@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-catalog-open-external"
+description = "Enables the catalog_open_external command without any pre-configured scope."
+commands.allow = ["catalog_open_external"]
+
+[[permission]]
+identifier = "deny-catalog-open-external"
+description = "Denies the catalog_open_external command without any pre-configured scope."
+commands.deny = ["catalog_open_external"]

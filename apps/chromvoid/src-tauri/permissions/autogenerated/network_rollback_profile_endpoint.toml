@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-network-rollback-profile-endpoint"
+description = "Enables the network_rollback_profile_endpoint command without any pre-configured scope."
+commands.allow = ["network_rollback_profile_endpoint"]
+
+[[permission]]
+identifier = "deny-network-rollback-profile-endpoint"
+description = "Denies the network_rollback_profile_endpoint command without any pre-configured scope."
+commands.deny = ["network_rollback_profile_endpoint"]

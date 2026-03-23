@@ -1,0 +1,96 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["eslint", "unicorn", "typescript", "oxc", "import"],
+  "categories": {
+    "correctness": "warn",
+    "suspicious": "warn",
+    "perf": "warn",
+    "style": "warn",
+    "restriction": "warn"
+  },
+  "env": {
+    "browser": true,
+    "es2021": true
+  },
+  "ignorePatterns": [
+    "node_modules/**",
+    "**/node_modules/**",
+    "dist/**",
+    "**/dist/**",
+    "build/**",
+    "**/build/**",
+    "*.min.js",
+    "**/*.min.js",
+    "*.bundle.js",
+    "**/*.bundle.js",
+    ".cache/**",
+    "coverage/**",
+    "**/coverage/**",
+    "**/*.d.ts",
+    ".vscode/**",
+    ".idea/**",
+    "*.log",
+    "backup/**",
+    "**/backup/**",
+    "**/*.md",
+    "**/fixtures/**",
+    "**/mocks/**",
+    "**/test-data/**"
+  ],
+  "rules": {
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
+      }
+    ],
+    "typescript/consistent-type-imports": "error",
+    "typescript/no-explicit-any": "warn",
+    "typescript/no-inferrable-types": "error",
+    "no-empty-function": "warn",
+    "typescript/no-empty-interface": "warn",
+    "typescript/no-namespace": "error",
+    "typescript/no-var-requires": "error",
+    "typescript/prefer-namespace-keyword": "error",
+    "typescript/triple-slash-reference": "error",
+    "typescript/no-non-null-assertion": "off",
+    "typescript/no-unnecessary-type-constraint": "off",
+    "no-undef": "off",
+    "no-redeclare": "off",
+    "quotes": [
+      "warn",
+      "single",
+      {
+        "allowTemplateLiterals": true,
+        "avoidEscape": true
+      }
+    ],
+    "semi": ["error", "never"],
+    "no-console": "warn",
+    "no-mixed-spaces-and-tabs": ["error", "smart-tabs"],
+    "no-empty": ["error", {"allowEmptyCatch": true}],
+    "object-curly-spacing": ["error", "never"],
+    "import/no-duplicates": "error",
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "MemberExpression[object.name='window'][property.name='store']",
+        "message": "Использовать getAppContext().store вместо window.store"
+      },
+      {
+        "selector": "MemberExpression[object.name='window'][property.name='ws']",
+        "message": "Использовать getAppContext().ws вместо window.ws"
+      },
+      {
+        "selector": "MemberExpression[object.name='window'][property.name='catalog']",
+        "message": "Использовать getAppContext().catalog вместо window.catalog"
+      },
+      {
+        "selector": "MemberExpression[object.name='window'][property.name='state']",
+        "message": "Использовать getAppContext().state вместо window.state"
+      }
+    ]
+  }
+}

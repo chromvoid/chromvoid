@@ -1,0 +1,21 @@
+<resources>
+    <string name="app_name">ChromVoid</string>
+    <string name="main_activity_title">ChromVoid</string>
+    <string name="credential_provider_subtitle">Local-only credential provider</string>
+    <string name="autofill_runtime_not_ready">ChromVoid AutoFill is temporarily unavailable.</string>
+    <string name="autofill_unsupported_request">ChromVoid could not understand this autofill request.</string>
+    <string name="autofill_save_missing_required_data">ChromVoid needs a domain and password before it can save a login.</string>
+    <string name="autofill_choose_otp">Choose one-time code</string>
+    <string name="autofill_otp_copied">OTP copied — paste it into the field</string>
+    <string name="biometric_prompt_title">Unlock ChromVoid</string>
+    <string name="biometric_prompt_subtitle">Confirm local access to continue</string>
+    <string name="passkey_get_title">Use ChromVoid passkey</string>
+    <string name="passkey_create_title">Create ChromVoid passkey</string>
+    <string name="passkey_prompt_subtitle">Confirm local access to continue</string>
+    <string name="passkey_create_entry_title">Create passkey with ChromVoid</string>
+    <string name="connection_channel_name">Connection Service</string>
+    <string name="connection_channel_description">Keeps the desktop connection alive in the background</string>
+    <string name="connection_notification_title">Connected to %1$s</string>
+    <string name="connection_notification_text">ChromVoid is sharing data with your desktop</string>
+    <string name="connection_disconnect_action">Disconnect</string>
+</resources>

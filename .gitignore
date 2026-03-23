@@ -1,0 +1,36 @@
+node_modules
+.parcel-cache
+.env
+.DS_Store
+.vscode
+.env.local
+dist
+dist.zip
+build
+*.zip
+*.tar
+*.rar
+coverage
+target/
+# Generated Web Awesome styles (copied from node_modules during build)
+.auto-claude
+# OpenCode per-project MCP state
+.opencode/personal-knowledge/
+# Dev Containers
+.devcontainer/.env
+*.db
+# Mock transport persisted state (dev only)
+.mock-data/
+.mcp.json
+build-codex
+scripts/infra/timeweb-prod.secrets.env
+# Terraform/OpenTofu local artifacts
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+.artifacts
+packages/uikit/docs/.vitepress/cache
+apps/chromvoid/src-tauri/gen/android/keystore.properties

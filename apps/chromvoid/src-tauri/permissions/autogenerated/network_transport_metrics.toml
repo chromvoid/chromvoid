@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-network-transport-metrics"
+description = "Enables the network_transport_metrics command without any pre-configured scope."
+commands.allow = ["network_transport_metrics"]
+
+[[permission]]
+identifier = "deny-network-transport-metrics"
+description = "Denies the network_transport_metrics command without any pre-configured scope."
+commands.deny = ["network_transport_metrics"]

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ChromVoid",
+  "version": "0.1.0",
+  "identifier": "com.chromvoid.app",
+  "build": {
+    "beforeDevCommand": "cd ../webview && bun run dev",
+    "beforeBuildCommand": "cd ../webview && bun run build",
+    "devUrl": "http://localhost:4400",
+    "frontendDist": "../../webview/dist"
+  },
+  "bundle": {
+    "active": true,
+    "icon": ["icons/icon.png"],
+    "macOS": {
+      "signingIdentity": "Apple Development: andry.diego2011@gmail.com (FLHR4S56QT)",
+      "entitlements": "Entitlements.plist"
+    }
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "ChromVoid",
+        "width": 1200,
+        "height": 820,
+        "resizable": true,
+        "disableInputAccessoryView": true
+      }
+    ],
+    "security": {
+      "capabilities": ["main-window", "mobile"],
+      "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self' data: ipc: http://ipc.localhost ws://127.0.0.1:8003; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none';"
+    }
+  }
+}

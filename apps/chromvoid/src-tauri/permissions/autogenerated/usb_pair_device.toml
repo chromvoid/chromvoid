@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-usb-pair-device"
+description = "Enables the usb_pair_device command without any pre-configured scope."
+commands.allow = ["usb_pair_device"]
+
+[[permission]]
+identifier = "deny-usb-pair-device"
+description = "Denies the usb_pair_device command without any pre-configured scope."
+commands.deny = ["usb_pair_device"]

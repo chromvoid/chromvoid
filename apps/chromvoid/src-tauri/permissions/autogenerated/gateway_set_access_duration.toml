@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gateway-set-access-duration"
+description = "Enables the gateway_set_access_duration command without any pre-configured scope."
+commands.allow = ["gateway_set_access_duration"]
+
+[[permission]]
+identifier = "deny-gateway-set-access-duration"
+description = "Denies the gateway_set_access_duration command without any pre-configured scope."
+commands.deny = ["gateway_set_access_duration"]

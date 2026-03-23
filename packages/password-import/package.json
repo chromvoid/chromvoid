@@ -1,0 +1,31 @@
+{
+  "name": "@chromvoid/password-import",
+  "version": "0.0.1",
+  "description": "Password import from KeePass, Bitwarden, CSV",
+  "main": "./src/index.ts",
+  "type": "module",
+  "scripts": {
+    "lint": "tsc --noEmit",
+    "test": "vitest run --config ./vitest.config.ts",
+    "test:unit": "vitest --config ./vitest.config.ts --watch"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "peerDependencies": {
+    "@statx/core": "^1.15.0",
+    "@statx/lit": "^1.15.0",
+    "lit": "^3.0.0"
+  },
+  "dependencies": {
+    "@project/passmanager": "*",
+    "kdbxweb": "^1.10.0",
+    "papaparse": "^5.4.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/api": "^2.9.1",
+    "@tauri-apps/plugin-dialog": "^2.0.0",
+    "@types/papaparse": "^5.3.14",
+    "vitest": "^3.2.4"
+  }
+}

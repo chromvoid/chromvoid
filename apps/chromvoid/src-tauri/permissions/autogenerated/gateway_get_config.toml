@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gateway-get-config"
+description = "Enables the gateway_get_config command without any pre-configured scope."
+commands.allow = ["gateway_get_config"]
+
+[[permission]]
+identifier = "deny-gateway-get-config"
+description = "Denies the gateway_get_config command without any pre-configured scope."
+commands.deny = ["gateway_get_config"]

@@ -1,0 +1,1 @@
+/Users/kaifaty/Library/Application Support/com.chromvoid.app/logs/chromvoid.log

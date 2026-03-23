@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-desktop-connect-ios"
+description = "Enables the desktop_connect_ios command without any pre-configured scope."
+commands.allow = ["desktop_connect_ios"]
+
+[[permission]]
+identifier = "deny-desktop-connect-ios"
+description = "Denies the desktop_connect_ios command without any pre-configured scope."
+commands.deny = ["desktop_connect_ios"]

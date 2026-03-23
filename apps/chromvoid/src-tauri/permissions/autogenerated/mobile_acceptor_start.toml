@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mobile-acceptor-start"
+description = "Enables the mobile_acceptor_start command without any pre-configured scope."
+commands.allow = ["mobile_acceptor_start"]
+
+[[permission]]
+identifier = "deny-mobile-acceptor-start"
+description = "Denies the mobile_acceptor_start command without any pre-configured scope."
+commands.deny = ["mobile_acceptor_start"]

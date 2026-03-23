@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-usb-list-paired"
+description = "Enables the usb_list_paired command without any pre-configured scope."
+commands.allow = ["usb_list_paired"]
+
+[[permission]]
+identifier = "deny-usb-list-paired"
+description = "Denies the usb_list_paired command without any pre-configured scope."
+commands.deny = ["usb_list_paired"]

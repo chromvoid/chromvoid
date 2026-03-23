@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ssh-agent-start"
+description = "Enables the ssh_agent_start command without any pre-configured scope."
+commands.allow = ["ssh_agent_start"]
+
+[[permission]]
+identifier = "deny-ssh-agent-start"
+description = "Denies the ssh_agent_start command without any pre-configured scope."
+commands.deny = ["ssh_agent_start"]

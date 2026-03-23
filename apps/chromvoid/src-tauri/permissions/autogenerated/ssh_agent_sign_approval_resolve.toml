@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ssh-agent-sign-approval-resolve"
+description = "Enables the ssh_agent_sign_approval_resolve command without any pre-configured scope."
+commands.allow = ["ssh_agent_sign_approval_resolve"]
+
+[[permission]]
+identifier = "deny-ssh-agent-sign-approval-resolve"
+description = "Denies the ssh_agent_sign_approval_resolve command without any pre-configured scope."
+commands.deny = ["ssh_agent_sign_approval_resolve"]

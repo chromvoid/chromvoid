@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-network-generate-room-id"
+description = "Enables the network_generate_room_id command without any pre-configured scope."
+commands.allow = ["network_generate_room_id"]
+
+[[permission]]
+identifier = "deny-network-generate-room-id"
+description = "Denies the network_generate_room_id command without any pre-configured scope."
+commands.deny = ["network_generate_room_id"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gateway-list-paired"
+description = "Enables the gateway_list_paired command without any pre-configured scope."
+commands.allow = ["gateway_list_paired"]
+
+[[permission]]
+identifier = "deny-gateway-list-paired"
+description = "Denies the gateway_list_paired command without any pre-configured scope."
+commands.deny = ["gateway_list_paired"]

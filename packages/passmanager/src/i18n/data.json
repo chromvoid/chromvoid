@@ -1,0 +1,1872 @@
+{
+  "action": {
+    "en": "Action",
+    "ru": "Действие",
+    "uk": "Действі",
+    "es": "AcciÃ³n",
+    "tr": "Eylem",
+    "fr": "Action",
+    "it": "Azione",
+    "id": "Tindakan",
+    "zh": "操作",
+    "ja": "アクション",
+    "vi": "Hệ thống"
+  },
+  "title": {
+    "en": "Title",
+    "ru": "Название",
+    "uk": "Заголовок",
+    "es": "Título",
+    "tr": "Başlık",
+    "fr": "Titre",
+    "it": "Titolo",
+    "id": "Judul",
+    "zh": "标题",
+    "ja": "タイトル",
+    "vi": "Tiêu đề"
+  },
+  "title_or_url": {
+    "en": "Title or website",
+    "ru": "Название или вебсайт",
+    "uk": "Заголовок або вебсайт",
+    "es": "Título o sitio web",
+    "tr": "Başlık veya web sitesi",
+    "fr": "Titre ou site Web",
+    "it": "Titolo o sito web",
+    "id": "Judul atau situs web",
+    "zh": "标题或网站",
+    "ja": "タイトルまたはウェブサイト",
+    "vi": "Tiêu đề hoặc trang web"
+  },
+  "title_or_url:placeholder": {
+    "en": "Enter title or website",
+    "ru": "Введите название или вебсайт",
+    "uk": "Введіть заголовок або вебсайт",
+    "es": "Ingrese título o sitio web",
+    "tr": "Başlık veya web sitesi girin",
+    "fr": "Entrez le titre ou le site Web",
+    "it": "Inserisci il titolo o il sito web",
+    "id": "Masukkan judul atau situs web",
+    "zh": "输入标题或网站",
+    "ja": "タイトルまたはウェブサイトを入力してください",
+    "vi": "Nhập tiêu đề hoặc trang web"
+  },
+  "accounts": {
+    "en": "Accounts",
+    "ru": "Аккаунты",
+    "uk": "Акаунти",
+    "es": "Cuentas",
+    "tr": "Hesaplar",
+    "fr": "Comptes",
+    "it": "Account",
+    "id": "Akun",
+    "zh": "帐户",
+    "ja": "アカウント",
+    "vi": "Tài khoản"
+  },
+  "note:title": {
+    "en": "Note",
+    "ru": "Заметка",
+    "uk": "Примітка",
+    "es": "Nota",
+    "tr": "Not",
+    "fr": "Note",
+    "it": "Nota",
+    "id": "Catatan",
+    "zh": "笔记",
+    "ja": "ノート",
+    "vi": "Ghi chú"
+  },
+  "note:placeholder": {
+    "en": "Enter a note for this entry",
+    "ru": "Введите заметка для этой записи",
+    "uk": "Введіть примітку для цього запису",
+    "es": "Ingrese una nota para esta entrada",
+    "tr": "Bu giriş için bir not girin",
+    "fr": "Entrez une note pour cette entrée",
+    "it": "Inserisci una nota per questa voce",
+    "id": "Masukkan catatan untuk entri ini",
+    "zh": "输入此条目的备注",
+    "ja": "このエントリのメモを入力してください",
+    "vi": "Nhập ghi chú cho mục này"
+  },
+  "seed:title": {
+    "en": "Seed",
+    "ru": "Seed"
+  },
+  "seed:placeholder": {
+    "en": "Seed phrase",
+    "ru": "Seed фраза",
+    "uk": "Seed фраза",
+    "es": "Frase semilla",
+    "tr": "Seed fırsatı",
+    "fr": "Phrase de seed",
+    "it": "Parola chiave",
+    "id": "Frase seed",
+    "zh": "种子短语",
+    "ja": "シードフレース",
+    "vi": "Phrasing seed"
+  },
+  "privateKey:title": {
+    "en": "Private key",
+    "ru": "Приватный ключ",
+    "uk": "Приватний ключ",
+    "es": "Clave privada",
+    "tr": "Gizli anahtar",
+    "fr": "Clé privée",
+    "it": "Chiave privata",
+    "id": "Kunci pribadi",
+    "zh": "私钥",
+    "ja": "プライベートキー",
+    "vi": "Khóa rí"
+  },
+  "privateKey:placeholder": {
+    "en": "Private key",
+    "ru": "Приватный ключ",
+    "uk": "Приватний ключ",
+    "es": "Clave privada",
+    "tr": "Gizli anahtar",
+    "fr": "Clé privée",
+    "it": "Chiave privata",
+    "id": "Kunci pribadi",
+    "zh": "私钥",
+    "ja": "プライベートキー",
+    "vi": "Khóa rí"
+  },
+  "enrty:create": {
+    "en": "Entry",
+    "ru": "Запись",
+    "uk": "Запис",
+    "es": "Entrada",
+    "tr": "Giriş",
+    "fr": "Entrée",
+    "it": "Voce",
+    "id": "Entri",
+    "zh": "条目",
+    "ja": "エントリ",
+    "vi": "Một"
+  },
+  "enrty:edit": {
+    "en": "Edit",
+    "ru": "Редактировать",
+    "uk": "Редагувати",
+    "es": "Editar",
+    "tr": "Düzenle",
+    "fr": "Éditer",
+    "it": "Modifica",
+    "id": "Edit",
+    "zh": "编辑",
+    "ja": "編集",
+    "vi": "Chỉnh sửa"
+  },
+  "entry:search": {
+    "en": "Search entry",
+    "ru": "Поиск записи",
+    "uk": "Пошук запису",
+    "es": "Buscar entrada",
+    "tr": "Giriş ara",
+    "fr": "Rechercher une entrée",
+    "it": "Cerca voce",
+    "id": "Cari entri",
+    "zh": "搜索条目",
+    "ja": "エントリを検索",
+    "vi": "Tìm mục"
+  },
+  "quick:recent": {
+    "en": "Recent",
+    "ru": "Недавние"
+  },
+  "quick:files": {
+    "en": "With files",
+    "ru": "С файлами"
+  },
+  "quick:nopass": {
+    "en": "No password",
+    "ru": "Без пароля"
+  },
+  "entry:files": {
+    "en": "Files",
+    "ru": "Файлы",
+    "uk": "Файли",
+    "es": "Archivos",
+    "tr": "Dosyalar",
+    "fr": "Fichiers",
+    "it": "File",
+    "id": "File",
+    "zh": "文件",
+    "ja": "ファイル",
+    "vi": "Tập tin"
+  },
+  "createNedCard": {
+    "en": "Create card",
+    "ru": "Создать карточку",
+    "uk": "Створити картку",
+    "es": "Crear tarjeta",
+    "tr": "Kart oluştur",
+    "fr": "Créer une carte",
+    "it": "Crea scheda",
+    "id": "Buat kartu",
+    "zh": "创建卡片",
+    "ja": "カードを作成",
+    "vi": "Tạo thẻ"
+  },
+  "error:save": {
+    "en": "Save error",
+    "ru": "Ошибка сохранения",
+    "uk": "Помилка збереження",
+    "es": "Error de guardado",
+    "tr": "Kaydetme hatası",
+    "fr": "Erreur de sauvegarde",
+    "it": "Errore di salvataggio",
+    "id": "Kesalahan penyimpanan",
+    "zh": "保存错误",
+    "ja": "保存エラー",
+    "vi": "Lỗi lưu"
+  },
+  "username": {
+    "en": "User name",
+    "ru": "Имя пользователя",
+    "uk": "Ім'я користувача",
+    "es": "Nombre de usuario",
+    "tr": "Kullanıcı adı",
+    "fr": "Nom d'utilisateur",
+    "it": "Nome utente",
+    "id": "Nama pengguna",
+    "zh": "用户名",
+    "ja": "ユーザー名",
+    "vi": "Tên người dùng"
+  },
+  "username:placeholder": {
+    "en": "Enter user name or account name",
+    "ru": "Введите имя пользователя или название аккаунта",
+    "uk": "Введіть ім'я користувача або назву акаунта",
+    "es": "Ingrese nombre de usuario o nombre de cuenta",
+    "tr": "Kullanıcı adı veya hesap adı girin",
+    "fr": "Entrez le nom d'utilisateur ou le nom du compte",
+    "it": "Inserisci il nome utente o il nome dell'account",
+    "id": "Masukkan nama pengguna atau nama akun",
+    "zh": "输入用户名或帐户名",
+    "ja": "ユーザー名またはアカウント名を入力してください",
+    "vi": "Nhập tên người dùng hoặc tên tài khoản"
+  },
+  "password": {
+    "en": "Password",
+    "ru": "Пароль",
+    "uk": "Пароль",
+    "es": "Contraseña",
+    "tr": "Şifre",
+    "fr": "Mot de passe",
+    "it": "Password",
+    "id": "Kata sandi",
+    "zh": "密码",
+    "ja": "パスワード",
+    "vi": "Mật khẩu"
+  },
+  "password:placeholder": {
+    "en": "Enter password",
+    "ru": "Введите пароль",
+    "uk": "Введіть пароль",
+    "es": "Ingrese la contraseña",
+    "tr": "Şifreyi girin",
+    "fr": "Entrez le mot de passe",
+    "it": "Inserisci la password",
+    "id": "Masukkan kata sandi",
+    "zh": "输入密码",
+    "ja": "パスワードを入力してください",
+    "vi": "Nhập mật khẩu"
+  },
+  "file:add:title": {
+    "en": "Add files",
+    "ru": "Добавить файлы",
+    "uk": "Додати файли",
+    "es": "Agregar archivos",
+    "tr": "Dosyaları ekle",
+    "fr": "Ajouter des fichiers",
+    "it": "Aggiungi file",
+    "id": "Masukkan berkas",
+    "zh": "添加文件",
+    "ja": "ファイルを追加",
+    "vi": "Thêm tập tin"
+  },
+  "otp": {
+    "en": "OTP",
+    "ru": "OTP",
+    "uk": "OTP",
+    "es": "OTP",
+    "tr": "OTP",
+    "fr": "OTP",
+    "it": "OTP",
+    "id": "OTP",
+    "zh": "OTP",
+    "ja": "OTP",
+    "vi": "OTP"
+  },
+  "url": {
+    "en": "URL",
+    "ru": "Ссылка",
+    "uk": "Посилання",
+    "es": "URL",
+    "tr": "URL",
+    "fr": "URL",
+    "it": "URL",
+    "id": "URL",
+    "zh": "网址",
+    "ja": "URL",
+    "vi": "URL"
+  },
+  "otp:use": {
+    "en": "Use OTP",
+    "ru": "Использовать OTP",
+    "uk": "Використовувати OTP",
+    "es": "Usar OTP",
+    "tr": "OTP kullan",
+    "fr": "Utiliser OTP",
+    "it": "Usa OTP",
+    "id": "Gunakan OTP",
+    "zh": "使用OTP",
+    "ja": "OTPを使用",
+    "vi": "Sử dụng OTP"
+  },
+  "otp:counter": {
+    "en": "Counter",
+    "ru": "Счётчик",
+    "uk": "Лічильник",
+    "es": "Conteo",
+    "tr": "Sayac",
+    "fr": "Compteur",
+    "it": "Contatore",
+    "id": "Kounter",
+    "zh": "计数器",
+    "ja": "カウンター",
+    "vi": "Lãm bộ"
+  },
+  "otp:default:name": {
+    "en": "Code",
+    "ru": "Код",
+    "uk": "Код",
+    "es": "Código",
+    "tr": "Kod",
+    "fr": "Code",
+    "it": "Codice",
+    "id": "Kode",
+    "zh": "代码",
+    "ja": "コード",
+    "vi": "Mã sơ"
+  },
+  "otp:googleauth": {
+    "en": "Google Authenticator",
+    "ru": "Google Authenticator",
+    "uk": "Google Authenticator",
+    "es": "Google Authenticator",
+    "tr": "Google Authenticator",
+    "fr": "Google Authenticator",
+    "it": "Google Authenticator",
+    "id": "Google Authenticator",
+    "zh": "Google Authenticator",
+    "ja": "Google Authenticator",
+    "vi": "Google Authenticator"
+  },
+  "otp:custom": {
+    "en": "Custom",
+    "ru": "Настроить",
+    "uk": "Налаштувати",
+    "es": "Personalizado",
+    "tr": "Özel",
+    "fr": "Personnalisé",
+    "it": "Personalizzato",
+    "id": "Kustom",
+    "zh": "自定义",
+    "ja": "カスタム",
+    "vi": "Tùy chỉnh"
+  },
+  "otp:label": {
+    "en": "Label",
+    "ru": "Название",
+    "uk": "Назва",
+    "es": "Etiqueta",
+    "tr": "Etiket",
+    "fr": "Étiquette",
+    "it": "Etichetta",
+    "id": "Label",
+    "zh": "标签",
+    "ja": "ラベル",
+    "vi": "Nhãn"
+  },
+  "otp:add": {
+    "en": "Add OTP",
+    "ru": "Добавить OTP",
+    "uk": "Додати OTP",
+    "es": "Agregar OTP",
+    "tr": "OTP ekle",
+    "fr": "Ajouter OTP",
+    "it": "Aggiungi OTP",
+    "id": "Tambahkan OTP",
+    "zh": "添加OTP",
+    "ja": "OTPを追加",
+    "vi": "Thêm OTP"
+  },
+  "otp:save": {
+    "en": "Save OTP",
+    "ru": "Сохранить OTP",
+    "uk": "Зберегти OTP",
+    "es": "Guardar OTP",
+    "tr": "OTP kaydet",
+    "fr": "Sauvegarder OTP",
+    "it": "Salva OTP",
+    "id": "Simpan OTP",
+    "zh": "保存OTP",
+    "ja": "OTPを保存",
+    "vi": "Luu OTP"
+  },
+  "otp:list": {
+    "en": "OTP list",
+    "ru": "Список OTP",
+    "uk": "Список OTP",
+    "es": "Lista OTP",
+    "tr": "OTP listesi",
+    "fr": "Liste OTP",
+    "it": "Elenco OTP",
+    "id": "Daftar OTP",
+    "zh": "OTP列表",
+    "ja": "OTPリスト",
+    "vi": "Danh sách OTP"
+  },
+  "otp:remove": {
+    "en": "Remove",
+    "ru": "Удалить",
+    "uk": "Видалити",
+    "es": "Eliminar",
+    "tr": "Kaldır",
+    "fr": "Supprimer",
+    "it": "Rimuovi",
+    "id": "Hapus",
+    "zh": "删除",
+    "ja": "削除",
+    "vi": "Xóa"
+  },
+  "otp:remove:ask:title": {
+    "en": "Remove OTP?",
+    "ru": "Удалить OTP?",
+    "uk": "Видалити OTP?",
+    "es": "¿Eliminar OTP?",
+    "tr": "OTP'yi kaldır?",
+    "fr": "Supprimer OTP?",
+    "it": "Rimuovere OTP?",
+    "id": "Hapus OTP?",
+    "zh": "删除OTP？",
+    "ja": "OTPを削除しますか？",
+    "vi": "Xóa OTP?"
+  },
+  "otp:label.placeholder": {
+    "en": "Enter a label for OTP key",
+    "ru": "Введите название для ключа",
+    "uk": "Введіть назву для ключа OTP",
+    "es": "Ingrese una etiqueta para la clave OTP",
+    "tr": "OTP anahtarı için bir etiket girin",
+    "fr": "Entrez une étiquette pour la clé OTP",
+    "it": "Inserisci un'etichetta per la chiave OTP",
+    "id": "Masukkan label untuk kunci OTP",
+    "zh": "输入OTP密钥的标签",
+    "ja": "OTPキーのラベルを入力してください",
+    "vi": "Nhập nhãn cho khóa OTP"
+  },
+  "button:createNew": {
+    "en": "Create",
+    "ru": "Создать",
+    "uk": "Створити",
+    "es": "Crear",
+    "tr": "Oluştur",
+    "fr": "Créer",
+    "it": "Crea",
+    "id": "Buat",
+    "zh": "创建",
+    "ja": "作成",
+    "vi": "Tạo"
+  },
+  "button:cancel": {
+    "en": "Cancel",
+    "ru": "Отменить",
+    "uk": "Скасувати",
+    "es": "Cancelar",
+    "tr": "İptal",
+    "fr": "Annuler",
+    "it": "Annulla",
+    "id": "Batal",
+    "zh": "取消",
+    "ja": "キャンセル",
+    "vi": "Hủy bỏ"
+  },
+  "button:show": {
+    "en": "Show",
+    "ru": "Показать",
+    "uk": "Показати",
+    "es": "Mostrar",
+    "tr": "Göster",
+    "fr": "Afficher",
+    "it": "Mostra",
+    "id": "Tunjukkan",
+    "zh": "显示",
+    "ja": "表示",
+    "vi": "Hien thi"
+  },
+  "button:hide": {
+    "en": "Hide",
+    "ru": "Скрыть",
+    "uk": "Приховати",
+    "es": "Ocultar",
+    "tr": "Gizle",
+    "fr": "Masquer",
+    "it": "Nascondi",
+    "id": "Sembunyikan",
+    "zh": "隐藏",
+    "ja": "非表示",
+    "vi": "An"
+  },
+  "button:getotp": {
+    "en": "Get code",
+    "ru": "Получить код",
+    "uk": "Отримати код",
+    "es": "Obtener código",
+    "tr": "Kodu al",
+    "fr": "Obtenir le code",
+    "it": "Ottieni codice",
+    "id": "Ambil kode",
+    "zh": "获取代码",
+    "ja": "コードを取得",
+    "vi": "Nhan ma code"
+  },
+  "button:edit": {
+    "en": "Edit",
+    "ru": "Редактировать",
+    "uk": "Редагувати",
+    "es": "Editar",
+    "tr": "Düzenle",
+    "fr": "Éditer",
+    "it": "Modifica",
+    "id": "Edit",
+    "zh": "编辑",
+    "ja": "編集",
+    "vi": "Chỉnh sửa"
+  },
+  "button:save": {
+    "en": "Save",
+    "ru": "Сохранить",
+    "uk": "Зберегти",
+    "es": "Guardar",
+    "tr": "Kaydet",
+    "fr": "Enregistrer",
+    "it": "Salva",
+    "id": "Simpan",
+    "zh": "保存",
+    "ja": "保存",
+    "vi": "Lưu"
+  },
+  "button:remove": {
+    "en": "Delete",
+    "ru": "Удалить",
+    "uk": "Видалити",
+    "es": "Eliminar",
+    "tr": "Sil",
+    "fr": "Supprimer",
+    "it": "Elimina",
+    "id": "Hapus",
+    "zh": "删除",
+    "ja": "削除",
+    "vi": "Xóa"
+  },
+  "button:openSite": {
+    "en": "Open site",
+    "ru": "Открыть сайт"
+  },
+  "button:copyAll": {
+    "en": "Copy all",
+    "ru": "Скопировать всё"
+  },
+  "button:copy": {
+    "en": "Copy",
+    "ru": "Скопировать",
+    "uk": "Скопіювати",
+    "es": "Copiar",
+    "tr": "Kopyala",
+    "fr": "Copier",
+    "it": "Copia",
+    "id": "Salin",
+    "zh": "复制",
+    "ja": "コピー",
+    "vi": "Sao chép"
+  },
+  "button:copied": {
+    "en": "Copied",
+    "ru": "Скопировано"
+  },
+  "notify:createGroup:success": {
+    "en": "Group created",
+    "ru": "Группа создана"
+  },
+  "notify:createEntry:success": {
+    "en": "Entry created",
+    "ru": "Запись создана"
+  },
+  "notify:load:error": {
+    "en": "Failed to load data",
+    "ru": "Не удалось загрузить данные"
+  },
+  "notify:clean:success": {
+    "en": "Vault cleared",
+    "ru": "Хранилище очищено"
+  },
+  "notify:import:success": {
+    "en": "Imported successfully",
+    "ru": "Импорт выполнен"
+  },
+  "notify:import:error": {
+    "en": "Import failed",
+    "ru": "Ошибка импорта"
+  },
+  "notify:import:started": {
+    "en": "Import started",
+    "ru": "Импорт начат"
+  },
+  "notify:export:success": {
+    "en": "Exported successfully",
+    "ru": "Экспорт выполнен"
+  },
+  "announce:copied": {
+    "en": "Copied to clipboard",
+    "ru": "Скопировано в буфер обмена"
+  },
+  "announce:copy_error": {
+    "en": "Failed to copy to clipboard",
+    "ru": "Ошибка копирования в буфер"
+  },
+  "notify:move:success": {
+    "en": "Moved successfully",
+    "ru": "Перемещено"
+  },
+  "notify:move:moved_prefix": {
+    "en": "Moved",
+    "ru": "Перемещено"
+  },
+  "notify:move:moved_to": {
+    "en": "to",
+    "ru": "в"
+  },
+  "notify:move:undo_success": {
+    "en": "Move undone",
+    "ru": "Перемещение отменено"
+  },
+  "notify:move:already_in_group": {
+    "en": "Entry is already in this group",
+    "ru": "Запись уже находится в этой группе"
+  },
+  "notify:remove:success": {
+    "en": "Deleted successfully",
+    "ru": "Удалено"
+  },
+  "button:browse": {
+    "en": "Browse",
+    "ru": "Обзор",
+    "uk": "Переглянути",
+    "es": "Explorar",
+    "tr": "Gezinti",
+    "fr": "Naviguer",
+    "it": "Naviga",
+    "id": "Telusuri",
+    "zh": "浏览",
+    "ja": "ブラウザ",
+    "vi": "Dọc"
+  },
+  "copyof": {
+    "en": "Copy of ",
+    "ru": "Копия ",
+    "uk": "Копія ",
+    "es": "Copia de ",
+    "tr": "Kopyası ",
+    "fr": "Copie de ",
+    "it": "Copia di ",
+    "id": "Salinan ",
+    "zh": "副本 ",
+    "ja": "のコピー ",
+    "vi": "Bản sao của "
+  },
+  "export": {
+    "en": "Export",
+    "ru": "Экспорт",
+    "uk": "Експорт",
+    "es": "Exportar",
+    "tr": "Dısarı aktar",
+    "fr": "Exporter",
+    "it": "Esporta",
+    "id": "Ekspor",
+    "zh": "导出",
+    "ja": "エクスポート",
+    "vi": "Xuat"
+  },
+  "import": {
+    "en": "Import",
+    "ru": "Импорт",
+    "uk": "Імпорт",
+    "es": "Importar",
+    "tr": "Güvenli olarak",
+    "fr": "Importer",
+    "it": "Importa",
+    "id": "Impor",
+    "zh": "导入",
+    "ja": "インプート",
+    "vi": "Nhap"
+  },
+  "clean": {
+    "en": "Clean",
+    "ru": "Очистить",
+    "uk": "Очистити",
+    "es": "Limpiar",
+    "tr": "Temizle",
+    "fr": "Nettoyer",
+    "it": "Pulisci",
+    "id": "Bersihkan",
+    "zh": "清除",
+    "ja": "クリア",
+    "vi": "Xoá"
+  },
+  "algorithm": {
+    "en": "Algorithm",
+    "ru": "Алгоритм",
+    "uk": "Алгоритм",
+    "es": "Algoritmo",
+    "tr": "Algoritma",
+    "fr": "Algorithme",
+    "it": "Algoritmo",
+    "id": "Algoritma",
+    "zh": "算法",
+    "ja": "アルゴリズム",
+    "vi": "Thuật toán"
+  },
+  "password.placeholder": {
+    "en": "Type placeholder",
+    "ru": "Введите пароль",
+    "uk": "Введіть пароль",
+    "es": "Escriba el marcador de posición",
+    "tr": "Yer tutucu yazın",
+    "fr": "Tapez le texte de remplacement",
+    "it": "Digita segnaposto",
+    "id": "Ketik placeholder",
+    "zh": "键入占位符",
+    "ja": "プレースホルダを入力してください",
+    "vi": "Nhập văn bản giữ chỗ"
+  },
+  "otp:secretKey": {
+    "en": "Secret key",
+    "ru": "Секретный ключ",
+    "uk": "Секретний ключ",
+    "es": "Clave secreta",
+    "tr": "Gizli anahtar",
+    "fr": "Clé secrète",
+    "it": "Chiave segreta",
+    "id": "Kunci rahasia",
+    "zh": "密钥",
+    "ja": "秘密鍵",
+    "vi": "Khóa bí mật"
+  },
+  "otp:digits": {
+    "en": "Digits",
+    "ru": "Цифры",
+    "uk": "Цифри",
+    "es": "Dígitos",
+    "tr": "Basamaklar",
+    "fr": "Chiffres",
+    "it": "Cifre",
+    "id": "Digit",
+    "zh": "位数",
+    "ja": "数字",
+    "vi": "Chữ số"
+  },
+  "otp:digits.placeholder": {
+    "en": "Number of digits in OTP code",
+    "ru": "Количество цифр в OTP коде",
+    "uk": "Кількість цифр у коді OTP",
+    "es": "Número de dígitos en el código OTP",
+    "tr": "OTP kodundaki basamak sayısı",
+    "fr": "Nombre de chiffres dans le code OTP",
+    "it": "Numero di cifre nel codice OTP",
+    "id": "Jumlah digit dalam kode OTP",
+    "zh": "OTP代码中的位数",
+    "ja": "OTPコードの桁数",
+    "vi": "Số chữ số trong mã OTP"
+  },
+  "otp:issuer": {
+    "en": "Issuer",
+    "ru": "Создатель ключа",
+    "uk": "Видавець",
+    "es": "Emisor",
+    "tr": "Yayıncı",
+    "fr": "Émetteur",
+    "it": "Emittente",
+    "id": "Penerbit",
+    "zh": "发行人",
+    "ja": "発行者",
+    "vi": "Nhà phát hành"
+  },
+  "otp:issuer.placeholder": {
+    "en": "Who generate you a secret key",
+    "ru": "Кто сгенерировал секретный ключ",
+    "uk": "Хто генерує вам секретний ключ",
+    "es": "¿Quién te genera una clave secreta?",
+    "tr": "Kim size gizli bir anahtar üretiyor",
+    "fr": "Qui vous génère une clé secrète",
+    "it": "Chi ti genera una chiave segreta",
+    "id": "Siapa yang menghasilkan kunci rahasia untuk Anda",
+    "zh": "谁为你生成密钥",
+    "ja": "誰が秘密鍵を生成しますか",
+    "vi": "Ai tạo khóa bí mật cho bạn"
+  },
+  "otp:period": {
+    "en": "Period",
+    "ru": "Период",
+    "uk": "Період",
+    "es": "Período",
+    "tr": "Dönem",
+    "fr": "Période",
+    "it": "Periodo",
+    "id": "Periode",
+    "zh": "周期",
+    "ja": "期間",
+    "vi": "Thời gian"
+  },
+
+  "otp:period.placeholder": {
+    "en": "Time period in seconds for OTP code",
+    "ru": "Время действия кода в секундах",
+    "uk": "Часовий період у секундах для коду OTP",
+    "es": "Período de tiempo en segundos para el código OTP",
+    "tr": "OTP kodu için saniye cinsinden süre",
+    "fr": "Période de temps en secondes pour le code OTP",
+    "it": "Periodo di tempo in secondi per il codice OTP",
+    "id": "Periode waktu dalam detik untuk kode OTP",
+    "zh": "OTP代码的时间周期（秒）",
+    "ja": "OTPコードの時間（秒）",
+    "vi": "Thời gian mã OTP tồn tại (giây)"
+  },
+  "otp:additionalOptions": {
+    "en": "Additional options",
+    "ru": "Дополнительные опции",
+    "uk": "Додаткові параметри",
+    "es": "Opciones adicionales",
+    "tr": "Ek seçenekler",
+    "fr": "Options supplémentaires",
+    "it": "Opzioni aggiuntive",
+    "id": "Opsi tambahan",
+    "zh": "附加选项",
+    "ja": "追加オプション",
+    "vi": "Tùy chọn bổ sung"
+  },
+  "website:title": {
+    "en": "Website",
+    "ru": "Вебсайт",
+    "uk": "Вебсайт",
+    "es": "Sitio web",
+    "tr": "Web sitesi",
+    "fr": "Site Internet",
+    "it": "Sito web",
+    "id": "Situs web",
+    "zh": "网站",
+    "ja": "ウェブサイト",
+    "vi": "Trang web"
+  },
+  "website:placeholder": {
+    "en": "Website, multiple separated by comma",
+    "ru": "Введите вебсайт, можно несколько через запятую",
+    "uk": "Вебсайт, можливо нескія через кому",
+    "es": "Sitio web, multiples separados por coma",
+    "tr": "Website, virgülle ayrılmış",
+    "fr": "Site Internet, multiples sepré par virgule",
+    "it": "Sito web, multipli separati da virgola",
+    "id": "Situs web, lebih dari satu dipisahkan dengan koma",
+    "zh": "网站，多个用逗号分隔",
+    "ja": "ウェブサイト、コンマで区切る",
+    "vi": "Trang web, những website, như 1 website, như 1 website, như 1 website"
+  },
+  "ts:modified": {
+    "en": "Last modified",
+    "ru": "Последнее изменение",
+    "uk": "Остання зміна",
+    "es": "Última modificación",
+    "tr": "Son değişiklik",
+    "fr": "Dernière modification",
+    "it": "Ultima modifica",
+    "id": "Terakhir diubah",
+    "zh": "最后修改",
+    "ja": "最終更新",
+    "vi": "Lần sửa đổi cuối"
+  },
+  "ts:created": {
+    "en": "Created",
+    "ru": "Создано",
+    "uk": "Створено",
+    "es": "Creado",
+    "tr": "Oluşturulma",
+    "fr": "Créé",
+    "it": "Creato",
+    "id": "Dibuat",
+    "zh": "创建",
+    "ja": "作成",
+    "vi": "Đã tạo"
+  },
+  "ts:unknown": {
+    "en": "Unknown",
+    "ru": "Неизвестно"
+  },
+  "no_title": {
+    "en": "[No title]",
+    "ru": "[Без названия]",
+    "uk": "[Без назви]",
+    "es": "[Sin título]",
+    "tr": "[Başlıksız]",
+    "fr": "[Sans titre]",
+    "it": "[Senza titolo]",
+    "id": "[Tanpa judul]",
+    "zh": "[无标题]",
+    "ja": "[無題]",
+    "vi": "[Không có tiêu đề]"
+  },
+  "remove:dialog:title": {
+    "en": "Are you sure?",
+    "ru": "Вы уверены?",
+    "uk": "Ви впевнені?",
+    "es": "¿Estás seguro?",
+    "tr": "Emin misiniz?",
+    "fr": "Êtes-vous sûr?",
+    "it": "Sei sicuro?",
+    "id": "Apakah kamu yakin?",
+    "zh": "你确定吗？",
+    "ja": "よろしいですか？",
+    "vi": "Bạn có chắc không?"
+  },
+  "remove:dialog:text": {
+    "en": "You won't be able to revert this!",
+    "ru": "Вы не сможете это отменить!",
+    "uk": "Ви не зможете це скасувати!",
+    "es": "¡No podrás revertir esto!",
+    "tr": "Bunu geri alamazsınız!",
+    "fr": "Vous ne pourrez pas annuler cela!",
+    "it": "Non potrai annullare questo!",
+    "id": "Anda tidak akan dapat mengembalikannya!",
+    "zh": "您将无法撤销此操作！",
+    "ja": "これは元に戻せません！",
+    "vi": "Bạn sẽ không thể hoàn tác điều này!"
+  },
+  "group:create": {
+    "en": "Group",
+    "ru": "Группа",
+    "uk": "Група",
+    "es": "Grupo",
+    "tr": "Grup",
+    "fr": "Groupe",
+    "it": "Gruppo",
+    "id": "Group",
+    "zh": "群组",
+    "ja": "グループ",
+    "vi": "Nhom"
+  },
+  "group:create:title": {
+    "en": "Create group",
+    "ru": "Создать группу",
+    "uk": "Створити групу",
+    "es": "Crear grupo",
+    "tr": "Grup olustur",
+    "fr": "Créer un groupe",
+    "it": "Crea gruppo",
+    "id": "Buat group",
+    "zh": "创建群组",
+    "ja": "グループを作成",
+    "vi": "Tạo nhóm"
+  },
+  "group:name": {
+    "en": "Name",
+    "ru": "Название",
+    "uk": "Назва",
+    "es": "Nombre",
+    "tr": "Ad",
+    "fr": "Nom",
+    "it": "Nome",
+    "id": "Nama",
+    "zh": "名称",
+    "ja": "名前",
+    "vi": "Tên"
+  },
+  "group:name:placeholder": {
+    "en": "Enter a name for the group",
+    "ru": "Введите название для группы",
+    "uk": "Введіть назву для групи",
+    "es": "Introduzca un nombre para el grupo",
+    "tr": "Grup adını girin",
+    "fr": "Entrez un nom pour le groupe",
+    "it": "Inserisci un nome per il gruppo",
+    "id": "Masukkan nama untuk group",
+    "zh": "输入群组名称",
+    "ja": "グループ名を入力",
+    "vi": "Nhập tên cho nhóm"
+  },
+  "import:error:title": {
+    "en": "Import error",
+    "ru": "Ошибка импорта",
+    "uk": "Помилка імпорту",
+    "es": "Error de importación",
+    "tr": "İmport hata",
+    "fr": "Erreur d'importation",
+    "it": "Errore di importazione",
+    "id": "Kesalahan impor",
+    "zh": "导入错误",
+    "ja": "インポートエラー",
+    "vi": "Loại báo nhập"
+  },
+  "group:error:name_title": {
+    "en": "Name error",
+    "ru": "Ошибка имени",
+    "uk": "Помилка назви",
+    "es": "Error de nombre",
+    "tr": "Ad hata",
+    "fr": "Erreur de nom",
+    "it": "Errore di nome",
+    "id": "Kesalahan nama",
+    "zh": "名称错误",
+    "ja": "名前エラー",
+    "vi": "Loại báo"
+  },
+  "group:error:name_text": {
+    "en": "Name must me unique",
+    "ru": "Имя должно быть уникальным",
+    "uk": "Ім'я повинно бути унікальним",
+    "es": "El nombre debe ser único",
+    "tr": "Ad benzersiz olmalıdır",
+    "fr": "Le nom doit être unique",
+    "it": "Il nome deve essere univoco",
+    "id": "Nama harus unik",
+    "zh": "名称必须是唯一的",
+    "ja": "名前は一意のものである必要があります",
+    "vi": "Tên phải báo"
+  },
+  "group:entries": {
+    "en": "Entries",
+    "ru": "Записи",
+    "uk": "Записи",
+    "es": "Entradas",
+    "tr": "Girişler",
+    "fr": "Entreprises",
+    "it": "Entrate",
+    "id": "Entri",
+    "zh": "条目",
+    "ja": "エントリー",
+    "vi": "Tạo nhóm"
+  },
+  "group:groups": {
+    "en": "Groups",
+    "ru": "Группы",
+    "uk": "Групи",
+    "es": "Grupos",
+    "tr": "Gruplar",
+    "fr": "Groupes",
+    "it": "Gruppi",
+    "id": "Group",
+    "zh": "群组",
+    "ja": "グループ",
+    "vi": "Nhom"
+  },
+  "group:entries:placeholder": {
+    "en": "Choose an entries",
+    "ru": "Выберите записи",
+    "uk": "Оберіть записи",
+    "es": "Elija entradas",
+    "tr": "Girişleri seçin",
+    "fr": "Choisir des entrepoles",
+    "it": "Scegli un elenco",
+    "id": "Pilih entri",
+    "zh": "选择条目",
+    "ja": "エントリーを選択",
+    "vi": "Tạo nhóm"
+  },
+  "group:create:button": {
+    "en": "Create",
+    "ru": "Создать",
+    "uk": "Створити",
+    "es": "Crear",
+    "tr": "Oluştur",
+    "fr": "Créer",
+    "it": "Crea",
+    "id": "Buat",
+    "zh": "创建",
+    "ja": "作成",
+    "vi": "Tạo"
+  },
+  "group:no_entries": {
+    "en": "Empty",
+    "ru": "Пусто",
+    "uk": "Пусто",
+    "es": "Vació",
+    "tr": "Bos",
+    "fr": "Vide",
+    "it": "Vuoto",
+    "id": "Kosong",
+    "zh": "空",
+    "ja": "空",
+    "vi": "Tạo nhóm"
+  },
+  "button:move": {
+    "en": "Move",
+    "ru": "Переместить",
+    "uk": "Перемістити",
+    "es": "Mover",
+    "tr": "Tasla",
+    "fr": "Déplacer",
+    "it": "Sposta",
+    "id": "Pindah",
+    "zh": "移动",
+    "ja": "移動",
+    "vi": "Tạo nhóm"
+  },
+  "button:undo": {
+    "en": "Undo",
+    "ru": "Отменить"
+  },
+  "button:open_group": {
+    "en": "Open group",
+    "ru": "Открыть группу"
+  },
+  "dialog:move:title": {
+    "en": "Move to",
+    "ru": "Переместить в",
+    "uk": "Перемістити в",
+    "es": "Mover a",
+    "tr": "Tasla",
+    "fr": "Déplacer vers",
+    "it": "Sposta in",
+    "id": "Pindah ke",
+    "zh": "移动到",
+    "ja": "移動",
+    "vi": "Tạo nhóm"
+  },
+  "dialog:move:search_placeholder": {
+    "en": "Search groups",
+    "ru": "Поиск групп"
+  },
+  "dialog:move:search_help": {
+    "en": "Type to filter groups. Use arrow keys to navigate and Enter to select destination.",
+    "ru": "Введите запрос для фильтрации групп. Используйте стрелки для навигации и Enter для выбора."
+  },
+  "dialog:move:list_aria_label": {
+    "en": "Destination groups",
+    "ru": "Группы назначения"
+  },
+  "dialog:move:selected_announce_prefix": {
+    "en": "Selected destination",
+    "ru": "Выбрано место назначения"
+  },
+  "dialog:move:recent_title": {
+    "en": "Recent destinations",
+    "ru": "Недавние группы"
+  },
+  "root:title": {
+    "en": "Root",
+    "ru": "Корень",
+    "uk": "Корінь",
+    "es": "Raíz",
+    "tr": "Koşuk",
+    "fr": "Racine",
+    "it": "Radice",
+    "id": "Root",
+    "zh": "根",
+    "ja": "ルート",
+    "vi": "Tạo nhóm"
+  },
+  "encoding": {
+    "en": "Encoding",
+    "ru": "Кодировка",
+    "uk": "Кодування",
+    "es": "Codificación",
+    "tr": "Kodlama",
+    "fr": "Encodage",
+    "it": "Codifica",
+    "id": "Encoding",
+    "zh": "编码",
+    "ja": "エンコード",
+    "vi": "Tạo nhóm"
+  },
+  "tooltip:copy-username": {
+    "en": "Copy username",
+    "ru": "Скопировать имя пользователя",
+    "uk": "Скопіювати ім'я користувача",
+    "es": "Copiar nombre de usuario",
+    "tr": "Kullanıcı adını kopyala",
+    "fr": "Copier le nom d'utilisateur",
+    "it": "Copia nome utente",
+    "id": "Salin username",
+    "zh": "复制用户名",
+    "ja": "ユーザー名をコピー",
+    "vi": "Sao chép tên người dùng"
+  },
+  "tooltip:copy-password": {
+    "en": "Copy password",
+    "ru": "Скопировать пароль",
+    "uk": "Скопіювати пароль",
+    "es": "Copiar contraseña",
+    "tr": "Sifreyi kopyala",
+    "fr": "Copier le mot de passe",
+    "it": "Copia password",
+    "id": "Salin kata sandi",
+    "zh": "复制密码",
+    "ja": "パスワードをコピー",
+    "vi": "Sao chép tên người dùng"
+  },
+  "tooltip:copy-otp": {
+    "en": "Copy OTP code",
+    "ru": "Скопировать код OTP",
+    "uk": "Скопіювати код OTP",
+    "es": "Copiar código OTP",
+    "tr": "OTP kodunu kopyala",
+    "fr": "Copier le code OTP",
+    "it": "Copia codice OTP",
+    "id": "Salin kode OTP",
+    "zh": "复制OTP代码",
+    "ja": "OTPコードをコピー",
+    "vi": "Sao chép tên ngữ dùng"
+  },
+  "tooltip:has-otp": {
+    "en": "Has OTP",
+    "ru": "Имеет OTP"
+  },
+  "tooltip:has-files": {
+    "en": "Has files",
+    "ru": "Имеет файлы"
+  },
+  "view-mode": {
+    "en": "View Mode",
+    "ru": "Режим просмотра"
+  },
+  "view-mode:default": {
+    "en": "Default view",
+    "ru": "Обычный вид"
+  },
+  "view-mode:compact": {
+    "en": "Compact view",
+    "ru": "Компактный вид"
+  },
+  "view-mode:dense": {
+    "en": "Dense view",
+    "ru": "Плотный вид"
+  },
+  "sort-by": {
+    "en": "Sort by",
+    "ru": "Сортировать по"
+  },
+  "group-by": {
+    "en": "Group by",
+    "ru": "Группировать по"
+  },
+  "sort:name": {
+    "en": "Name",
+    "ru": "Название"
+  },
+  "sort:username": {
+    "en": "Username",
+    "ru": "Имя пользователя"
+  },
+  "sort:modified": {
+    "en": "Modified",
+    "ru": "Изменено"
+  },
+  "sort:created": {
+    "en": "Created",
+    "ru": "Создано"
+  },
+  "sort:website": {
+    "en": "Website",
+    "ru": "Сайт"
+  },
+  "group:none": {
+    "en": "No grouping",
+    "ru": "Без группировки"
+  },
+  "group:folder": {
+    "en": "By folder",
+    "ru": "По папкам"
+  },
+  "group:website": {
+    "en": "By website",
+    "ru": "По сайтам"
+  },
+  "group:modified": {
+    "en": "By modification date",
+    "ru": "По дате изменения"
+  },
+  "group:security": {
+    "en": "By security level",
+    "ru": "По уровню безопасности"
+  },
+  "modified": {
+    "en": "Modified",
+    "ru": "Изменено"
+  },
+  "website": {
+    "en": "Website",
+    "ru": "Вебсайт"
+  },
+  "field:empty": {
+    "en": "Empty",
+    "ru": "Пусто"
+  },
+  "field:password": {
+    "en": "Password field",
+    "ru": "Поле пароля"
+  },
+  "entry:metadata": {
+    "en": "Entry metadata",
+    "ru": "Метаданные записи"
+  },
+  "entry:otp_count": {
+    "en": "OTP codes: {0}",
+    "ru": "OTP кодов: {0}"
+  },
+  "entry:quick_actions": {
+    "en": "Quick actions",
+    "ru": "Быстрые действия"
+  },
+  "entry:primary_information": {
+    "en": "Primary information",
+    "ru": "Основная информация"
+  },
+  "entry:credentials": {
+    "en": "Credentials",
+    "ru": "Учетные данные"
+  },
+  "entry:additional_information": {
+    "en": "Additional information",
+    "ru": "Дополнительная информация"
+  },
+  "entry:actions": {
+    "en": "Entry actions",
+    "ru": "Действия записи"
+  },
+  "note:content": {
+    "en": "Note content",
+    "ru": "Содержимое заметки"
+  },
+  "password:strength_indicator": {
+    "en": "Password strength indicator",
+    "ru": "Индикатор силы пароля"
+  },
+  "password:strength": {
+    "en": "Strength: {0}",
+    "ru": "Сила: {0}"
+  },
+  "password:strength_progress": {
+    "en": "Password strength progress: {0}%",
+    "ru": "Прогресс силы пароля: {0}%"
+  },
+  "button:copy-username": {
+    "en": "Copy username",
+    "ru": "Копировать имя пользователя"
+  },
+  "button:copy-password": {
+    "en": "Copy password",
+    "ru": "Копировать пароль"
+  },
+  "button:more_actions": {
+    "en": "More actions",
+    "ru": "Дополнительные действия"
+  },
+  "button:more": {
+    "en": "More",
+    "ru": "Больше"
+  },
+  "button:move_entry": {
+    "en": "Move entry",
+    "ru": "Переместить запись"
+  },
+  "button:copy_all_data": {
+    "en": "Copy all data",
+    "ru": "Копировать все данные"
+  },
+  "button:delete_entry": {
+    "en": "Delete entry",
+    "ru": "Удалить запись"
+  },
+  "menu:additional_actions": {
+    "en": "Additional actions menu",
+    "ru": "Меню дополнительных действий"
+  },
+  "tooltip:edit_entry": {
+    "en": "Edit entry",
+    "ru": "Редактировать запись"
+  },
+  "tooltip:open_first_website": {
+    "en": "Open first website",
+    "ru": "Открыть первый сайт"
+  },
+  "password:hide": {
+    "en": "Hide password",
+    "ru": "Скрыть пароль"
+  },
+  "password:show": {
+    "en": "Show password",
+    "ru": "Показать пароль"
+  },
+  "otp:type": {
+    "en": "OTP Type",
+    "ru": "Тип OTP"
+  },
+  "otp:preset": {
+    "en": "Preset",
+    "ru": "Пресет"
+  },
+  "otp:type:totp": {
+    "en": "TOTP (Time-based)",
+    "ru": "TOTP (по времени)"
+  },
+  "otp:type:hotp": {
+    "en": "HOTP (Counter-based)",
+    "ru": "HOTP (по счётчику)"
+  },
+  "otp:counter:placeholder": {
+    "en": "Initial counter value",
+    "ru": "Начальное значение счётчика"
+  },
+  "button:generate": {
+    "en": "Generate",
+    "ru": "Сгенерировать"
+  },
+  "button:copy-otp": {
+    "en": "Copy OTP code",
+    "ru": "Скопировать OTP код"
+  },
+  "error:required": {
+    "en": "This field is required",
+    "ru": "Это поле обязательно"
+  },
+  "error:digits_range": {
+    "en": "Digits must be between 4 and 10",
+    "ru": "Количество цифр: от 4 до 10"
+  },
+  "error:period_range": {
+    "en": "Period must be between 10 and 120 seconds",
+    "ru": "Период: от 10 до 120 сек"
+  },
+  "error:counter_negative": {
+    "en": "Counter cannot be negative",
+    "ru": "Счётчик не может быть отрицательным"
+  },
+  "error:label_too_long": {
+    "en": "Label is too long (max 64 characters)",
+    "ru": "Метка слишком длинная (макс. 64 символа)"
+  },
+  "import:dialog:title": {
+    "en": "Import Passwords",
+    "ru": "Импорт паролей"
+  },
+  "import:dialog:drop_zone": {
+    "en": "Drop your export file here or click to select",
+    "ru": "Перетащите файл сюда или нажмите для выбора"
+  },
+  "import:dialog:supported_formats": {
+    "en": "Supported: .kdbx (KeePass), .json (Bitwarden), .csv (LastPass, Generic)",
+    "ru": "Поддерживается: .kdbx (KeePass), .json (Bitwarden), .csv (LastPass, Generic)"
+  },
+  "import:password:title": {
+    "en": "Enter Master Password",
+    "ru": "Введите мастер-пароль"
+  },
+  "import:password:description": {
+    "en": "This KeePass database is encrypted. Enter the master password to decrypt it.",
+    "ru": "Эта база данных KeePass зашифрована. Введите мастер-пароль для расшифровки."
+  },
+  "import:password:placeholder": {
+    "en": "Master password",
+    "ru": "Мастер-пароль"
+  },
+  "import:password:empty": {
+    "en": "Please enter the master password.",
+    "ru": "Введите мастер-пароль."
+  },
+  "import:preview:title": {
+    "en": "Import Preview",
+    "ru": "Предварительный просмотр"
+  },
+  "import:preview:entries": {
+    "en": "Entries",
+    "ru": "Записи"
+  },
+  "import:preview:new_entries": {
+    "en": "New entries",
+    "ru": "Новые записи"
+  },
+  "import:preview:update_entries": {
+    "en": "To update",
+    "ru": "К обновлению"
+  },
+  "import:preview:folders": {
+    "en": "Folders",
+    "ru": "Папки"
+  },
+  "import:preview:import_button": {
+    "en": "Import",
+    "ru": "Импортировать"
+  },
+  "import:progress:title": {
+    "en": "Importing...",
+    "ru": "Импорт..."
+  },
+  "import:progress:imported": {
+    "en": "imported",
+    "ru": "импортировано"
+  },
+  "import:progress:updated": {
+    "en": "updated",
+    "ru": "обновлено"
+  },
+  "import:progress:errors": {
+    "en": "errors",
+    "ru": "ошибки"
+  },
+  "import:progress:current": {
+    "en": "Current",
+    "ru": "Текущий"
+  },
+  "import:progress:cancel": {
+    "en": "Cancel Import",
+    "ru": "Отменить импорт"
+  },
+  "import:complete:title": {
+    "en": "Import Complete",
+    "ru": "Импорт завершён"
+  },
+  "import:complete:title_errors": {
+    "en": "Import Completed with Errors",
+    "ru": "Импорт завершён с ошибками"
+  },
+  "import:complete:imported": {
+    "en": "Imported",
+    "ru": "Импортировано"
+  },
+  "import:complete:updated": {
+    "en": "Updated",
+    "ru": "Обновлено"
+  },
+  "import:complete:errors": {
+    "en": "Errors",
+    "ru": "Ошибки"
+  },
+  "import:error:unsupported_format": {
+    "en": "Unsupported file format. Please select a .kdbx, .json, or .csv file.",
+    "ru": "Неподдерживаемый формат файла. Выберите файл .kdbx, .json или .csv."
+  },
+  "import:button:back": {
+    "en": "Back",
+    "ru": "Назад"
+  },
+  "import:button:decrypt": {
+    "en": "Decrypt & Parse",
+    "ru": "Расшифровать"
+  },
+  "import:button:close": {
+    "en": "Close",
+    "ru": "Закрыть"
+  },
+  "import:step:file": {
+    "en": "File",
+    "ru": "Файл"
+  },
+  "import:step:preview": {
+    "en": "Preview",
+    "ru": "Обзор"
+  },
+  "import:step:import": {
+    "en": "Import",
+    "ru": "Импорт"
+  },
+  "import:step:done": {
+    "en": "Done",
+    "ru": "Готово"
+  },
+  "import:preview:total_entries": {
+    "en": "entries found",
+    "ru": "записей найдено"
+  },
+  "ssh:title": {
+    "en": "SSH Key",
+    "ru": "SSH ключ"
+  },
+  "ssh:fingerprint": {
+    "en": "Fingerprint",
+    "ru": "Отпечаток"
+  },
+  "ssh:comment": {
+    "en": "Comment",
+    "ru": "Комментарий"
+  },
+  "ssh:public_key": {
+    "en": "Public Key",
+    "ru": "Публичный ключ"
+  },
+  "ssh:key_type": {
+    "en": "Key Type",
+    "ru": "Тип ключа"
+  },
+  "ssh:generate": {
+    "en": "Generate SSH Key",
+    "ru": "Сгенерировать SSH ключ"
+  },
+  "ssh:remove": {
+    "en": "Remove SSH Keys",
+    "ru": "Удалить SSH ключи"
+  },
+  "ssh:remove:confirm:title": {
+    "en": "Remove SSH Keys?",
+    "ru": "Удалить SSH ключи?"
+  },
+  "ssh:remove:confirm:text": {
+    "en": "Private and public keys will be permanently deleted from this entry.",
+    "ru": "Приватный и публичный ключи будут безвозвратно удалены из этой записи."
+  },
+  "ssh:key_type:ed25519": {
+    "en": "Ed25519",
+    "ru": "Ed25519"
+  },
+  "ssh:key_type:rsa": {
+    "en": "RSA-4096",
+    "ru": "RSA-4096"
+  },
+  "ssh:key_type:ecdsa": {
+    "en": "ECDSA-P256",
+    "ru": "ECDSA-P256"
+  },
+  "ssh:comment:placeholder": {
+    "en": "Key comment (e.g. user@host)",
+    "ru": "Комментарий ключа (например user@host)"
+  },
+  "ssh:generating": {
+    "en": "Generating...",
+    "ru": "Генерация..."
+  },
+  "ssh:copy_public_key": {
+    "en": "Copy Public Key",
+    "ru": "Скопировать публичный ключ"
+  },
+  "ssh:public_key_copied": {
+    "en": "Public key copied to clipboard",
+    "ru": "Публичный ключ скопирован в буфер обмена"
+  },
+  "tooltip:has-ssh": {
+    "en": "Has SSH key",
+    "ru": "Имеет SSH ключ"
+  },
+  "tooltip:copy-ssh-pubkey": {
+    "en": "Copy SSH public key",
+    "ru": "Скопировать публичный SSH ключ"
+  },
+  "button:back": {
+    "en": "Back",
+    "ru": "Назад"
+  },
+  "button:ok": {
+    "en": "OK",
+    "ru": "Понятно"
+  },
+  "button:refresh": {
+    "en": "Refresh",
+    "ru": "Обновить"
+  },
+  "button:upload": {
+    "en": "Upload",
+    "ru": "Загрузить"
+  },
+  "button:reset": {
+    "en": "Reset",
+    "ru": "Сбросить"
+  },
+  "button:show_filters": {
+    "en": "Show filters",
+    "ru": "Показать фильтры"
+  },
+  "button:hide_filters": {
+    "en": "Hide filters",
+    "ru": "Скрыть фильтры"
+  },
+  "button:expand_group": {
+    "en": "Expand group",
+    "ru": "Развернуть группу"
+  },
+  "button:collapse_group": {
+    "en": "Collapse group",
+    "ru": "Свернуть группу"
+  },
+  "button:create_entry": {
+    "en": "Create entry",
+    "ru": "Создать запись"
+  },
+  "button:filters_sorting": {
+    "en": "Filters and sorting",
+    "ru": "Фильтры и сортировка"
+  },
+  "loading": {
+    "en": "Loading",
+    "ru": "Загрузка"
+  },
+  "icon:title": {
+    "en": "Icon",
+    "ru": "Иконка"
+  },
+  "icon:saved": {
+    "en": "Saved icons",
+    "ru": "Сохранённые иконки"
+  },
+  "icon:loading": {
+    "en": "Loading icons...",
+    "ru": "Загрузка иконок..."
+  },
+  "icon:choose": {
+    "en": "Choose",
+    "ru": "Выбрать"
+  },
+  "icon:empty": {
+    "en": "No saved icons yet",
+    "ru": "Нет сохранённых иконок"
+  },
+  "group:actions": {
+    "en": "Group actions",
+    "ru": "Действия группы"
+  },
+  "group:create:subgroup": {
+    "en": "Create subgroup",
+    "ru": "Создать подгруппу"
+  },
+  "group:parent": {
+    "en": "Parent group: ${parent}",
+    "ru": "Родительская группа: ${parent}"
+  },
+  "sort:direction": {
+    "en": "Direction",
+    "ru": "Направление"
+  },
+  "sort:direction:asc": {
+    "en": "Ascending",
+    "ru": "По возрастанию"
+  },
+  "sort:direction:desc": {
+    "en": "Descending",
+    "ru": "По убыванию"
+  },
+  "entry:no_info": {
+    "en": "No info",
+    "ru": "Нет данных"
+  },
+  "entry:create:title": {
+    "en": "Create entry",
+    "ru": "Создать запись"
+  },
+  "entry:edit:title": {
+    "en": "Edit entry",
+    "ru": "Редактировать запись"
+  },
+  "entry:empty_search:title": {
+    "en": "No entries found",
+    "ru": "Записей не найдено"
+  },
+  "entry:empty_search:description": {
+    "en": "Try changing your search or add a new entry",
+    "ru": "Попробуйте изменить параметры поиска или добавьте новую запись"
+  },
+  "entry:note:empty_hint": {
+    "en": "Add context, recovery hints, or account details...",
+    "ru": "Добавьте контекст, подсказки для восстановления или детали аккаунта..."
+  },
+  "entry:secret:unavailable": {
+    "en": "Unavailable",
+    "ru": "Недоступно"
+  },
+  "entry:badge:encrypted": {
+    "en": "Encrypted",
+    "ru": "Зашифровано"
+  },
+  "entry:badge:two_factor": {
+    "en": "2FA",
+    "ru": "2FA"
+  },
+  "file:no_file": {
+    "en": "No file",
+    "ru": "Нет файла"
+  },
+  "file:unknown_type": {
+    "en": "Unknown file type",
+    "ru": "Неизвестный тип файла"
+  },
+  "otp:item": {
+    "en": "item",
+    "ru": "элемент"
+  },
+  "otp:totp_short": {
+    "en": "TOTP",
+    "ru": "TOTP"
+  },
+  "otp:hotp_short": {
+    "en": "HOTP",
+    "ru": "HOTP"
+  },
+  "otp:item_fallback": {
+    "en": "OTP ${index}",
+    "ru": "OTP ${index}"
+  },
+  "password:length": {
+    "en": "Length",
+    "ru": "Длина"
+  },
+  "password:generator_settings": {
+    "en": "Generator settings",
+    "ru": "Настройки генератора"
+  },
+  "password:generate": {
+    "en": "Generate password",
+    "ru": "Сгенерировать пароль"
+  },
+  "dialog:validation:title": {
+    "en": "Validation error",
+    "ru": "Ошибка валидации"
+  },
+  "dialog:validation:title_required": {
+    "en": "Fill in the required field: Title",
+    "ru": "Заполните обязательное поле: Название"
+  },
+  "dialog:validation:fix_errors": {
+    "en": "Please fix the fields highlighted in red",
+    "ru": "Пожалуйста, исправьте ошибки в полях, выделенных красным"
+  },
+  "dialog:validation:secrets_loading": {
+    "en": "Secrets are still loading, please wait",
+    "ru": "Секреты ещё загружаются, подождите"
+  },
+  "error:title_required": {
+    "en": "Title is required",
+    "ru": "Название обязательно"
+  },
+  "error:invalid_url_rule": {
+    "en": "Invalid value: \"${invalid}\". Examples: google.com, www.google.com, https://google.com or a regex pattern.",
+    "ru": "Некорректное значение: \"${invalid}\". Примеры: google.com, www.google.com, https://google.com или regex-шаблон."
+  },
+  "error:password_weak": {
+    "en": "Password is weak. Increase the length or add more character sets.",
+    "ru": "Пароль слабый. Увеличьте длину или добавьте наборы символов."
+  },
+  "error:group_name_required": {
+    "en": "Name cannot be empty",
+    "ru": "Название не может быть пустым"
+  },
+  "error:group_name_invalid_chars": {
+    "en": "Name must not contain slash characters",
+    "ru": "Название не должно содержать символы слеша"
+  },
+  "group:edit:title": {
+    "en": "Edit group",
+    "ru": "Редактировать группу"
+  },
+  "ssh:short": {
+    "en": "SSH",
+    "ru": "SSH"
+  }
+}
