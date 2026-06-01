@@ -64,7 +64,7 @@ describe('CatalogPasswordsRepository.readRoot — NODE_NOT_FOUND regression', ()
 
     const out = await repo.readRoot<{version: number; entries: unknown[]; folders: string[]}>()
     expect(out).toBeDefined()
-    expect(out?.version).toBe(2)
+    expect(out?.version).toBe(3)
     expect(out?.entries).toEqual([])
     expect(out?.folders).toEqual([])
     expect(catalog.lastError.set).not.toHaveBeenCalled()
@@ -82,7 +82,7 @@ describe('CatalogPasswordsRepository.readRoot — NODE_NOT_FOUND regression', ()
                 entries: [
                   {
                     id: 'entry-1',
-                    title: 'Цук',
+                    title: 'zuc',
                     urls: [],
                     username: '234124',
                     otps: [],
@@ -103,12 +103,12 @@ describe('CatalogPasswordsRepository.readRoot — NODE_NOT_FOUND regression', ()
       folders: string[]
     }>()
     expect(out).toBeDefined()
-    expect(out?.version).toBe(2)
+    expect(out?.version).toBe(3)
     expect(out?.folders).toEqual([])
     expect(out?.entries).toHaveLength(1)
     expect(out?.entries[0]).toMatchObject({
       id: 'entry-1',
-      title: 'Цук',
+      title: 'zuc',
       folderPath: null,
     })
     expect(catalog.lastError.set).not.toHaveBeenCalled()

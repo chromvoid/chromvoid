@@ -73,6 +73,11 @@ pub struct ShardMeta {
     /// Last delta sequence number
     #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
     pub last_delta_seq: u64,
+
+    /// Versioned snapshot chunk sequence. Legacy shard snapshots use `0`.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
+    pub snapshot_seq: u64,
 }
 
 impl ShardMeta {
@@ -91,12 +96,18 @@ impl ShardMeta {
             has_deltas: false,
             delta_count: 0,
             last_delta_seq: 0,
+            snapshot_seq: 0,
         }
     }
 
     /// Create metadata for .passmanager shard (always eager)
     pub fn passmanager() -> Self {
         Self::new(".passmanager", LoadStrategy::Eager)
+    }
+
+    /// Create metadata for a protected eager system shard.
+    pub fn eager_system(shard_id: impl Into<String>) -> Self {
+        Self::new(shard_id, LoadStrategy::Eager)
     }
 
     /// Update metadata after adding nodes

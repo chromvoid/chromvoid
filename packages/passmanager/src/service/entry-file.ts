@@ -1,9 +1,9 @@
-import {computed, state} from '@statx/core'
+import {atom, computed} from '@reatom/core'
 
-import Swal from 'sweetalert2'
 import {v4} from 'uuid'
 
 import {i18n} from '../i18n'
+import {confirmPassManagerAction} from './dialog'
 import type {Entry} from './entry'
 
 export type FileSnapshot = {
@@ -19,7 +19,7 @@ type EntryFileStatus = 'ready' | 'saving' | 'loading' | 'fetched' | 'deleted'
 
 export class EntryFile {
   id: string
-  status = state<EntryFileStatus>('ready')
+  status = atom<EntryFileStatus>('ready')
   file: File | undefined
 
   get name() {
@@ -72,13 +72,13 @@ export class EntryFile {
       return
     }
     if (!silent) {
-      const res = await Swal.fire({
+      const confirmed = await confirmPassManagerAction({
         title: i18n('remove:dialog:title'),
-        text: i18n('remove:dialog:text'),
-        showConfirmButton: true,
-        showCancelButton: true,
+        message: i18n('remove:dialog:text'),
+        variant: 'danger',
+        confirmVariant: 'danger',
       })
-      if (!res.isConfirmed) {
+      if (!confirmed) {
         return
       }
     }

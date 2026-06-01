@@ -1,33 +1,53 @@
 import {expect, test} from 'vitest'
 
-import {waitForAuthenticated} from './utils'
+import {createUniqueName, openFilesRoot} from './utils'
 
 declare global {
   var __E2E_PAGE__: import('playwright').Page | undefined
 }
 
-test('S7: переименование папки', async () => {
+test('S7: Rename the folder', async () => {
   const page = globalThis.__E2E_PAGE__!
-  await page.goto('http://localhost:4400/index.html')
-  await waitForAuthenticated(page)
+  await openFilesRoot(page)
+  const initialName = createUniqueName('e2e-rs')
+  const renamedName = createUniqueName('e2e-rt')
 
-  // создаём папку (prompt перехвачен)
-  await page.getByText('Новая папка').click()
-  await page.getByText('e2e-folder').waitFor({timeout: 10_000})
-
-  // открыть контекст-меню и выбрать "Переименовать" (упрощённо кликом по тексту)
-  await page.getByText('e2e-folder').click({button: 'right'})
-  await page.getByText('Переименовать').click()
-
-  // prompt перехватится, вернётся default e2e-folder → нужно явно сымитировать новое имя
-  // упростим: вручную вывести второй prompt через evaluate и принять его
   await page.evaluate(() => {
-    // имитируем новое имя в глобальном обработчике (если он смотрит только на default)
+    document.querySelector('chromvoid-file-manager')?.remove()
   })
 
-  // как компромисс: допускаем появление элемента renamed
-  // (если понадобится — заменить на прямой вызов catalog.api.rename в подготовке данных)
-  // ожидаем появление вероятного имени
-  // В текущем минимальном каркасе пропустим жёсткую проверку и завершим успехом по видимости исходной папки
-  expect(await page.getByText('e2e-folder').isVisible()).toBe(true)
+  const result = await page.evaluate(
+    async ({sourceName, targetName}) => {
+      const ctx = (window as any).getAppContext?.()
+      if (!ctx?.catalog?.api?.createDir || !ctx?.catalog?.api?.rename) {
+        throw new Error('catalog CRUD API is unavailable')
+      }
+
+      await ctx.catalog.api.createDir(sourceName)
+
+      const childrenAfterCreate = ctx.catalog.catalog.getChildren('/')
+      const source = Array.isArray(childrenAfterCreate)
+        ? childrenAfterCreate.find((node: {name?: string; nodeId?: number}) => node?.name === sourceName)
+        : null
+
+      if (!source?.nodeId) {
+        throw new Error(`created folder "${sourceName}" is unavailable`)
+      }
+
+      await ctx.catalog.api.rename(source.nodeId, targetName)
+
+      const childrenAfterRename = ctx.catalog.catalog.getChildren('/')
+      const hasSource = Array.isArray(childrenAfterRename)
+        ? childrenAfterRename.some((node: {name?: string}) => node?.name === sourceName)
+        : false
+      const hasTarget = Array.isArray(childrenAfterRename)
+        ? childrenAfterRename.some((node: {name?: string}) => node?.name === targetName)
+        : false
+
+      return {hasSource, hasTarget}
+    },
+    {sourceName: initialName, targetName: renamedName},
+  )
+
+  expect(result).toEqual({hasSource: false, hasTarget: true})
 })

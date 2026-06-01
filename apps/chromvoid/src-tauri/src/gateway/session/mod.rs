@@ -32,14 +32,27 @@ fn encoded_error_frame(message_id: u64, code: u16, message: &str) -> Vec<u8> {
 
 /// Commands that use chunked upload (extension -> core).
 fn is_upload_stream_command(command: &str) -> bool {
-    matches!(command, "catalog:upload" | "catalog:secret:write")
+    matches!(
+        command,
+        "catalog:upload"
+            | "catalog:file:replace"
+            | "catalog:secret:write"
+            | "catalog:derivative:write"
+    )
+}
+
+fn is_full_upload_stream_command(command: &str) -> bool {
+    matches!(command, "catalog:file:replace" | "catalog:derivative:write")
 }
 
 /// Commands that use chunked download (core -> extension).
 fn is_download_stream_command(command: &str) -> bool {
     matches!(
         command,
-        "catalog:download" | "catalog:secret:read" | "vault:export:download"
+        "catalog:download"
+            | "catalog:secret:read"
+            | "catalog:derivative:read"
+            | "vault:export:download"
     )
 }
 

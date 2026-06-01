@@ -114,6 +114,31 @@ fn test_move_node() {
 }
 
 #[test]
+fn test_source_revision_survives_rename_and_move() {
+    let mut manager = CatalogManager::new();
+
+    manager.create_dir("/", "src").expect("should create src");
+    manager.create_dir("/", "dest").expect("should create dest");
+    let file_id = manager
+        .create_file("/src", "photo.jpg", 100, Some("image/jpeg".to_string()))
+        .expect("should create file");
+    let source_revision = manager
+        .find_by_id(file_id)
+        .expect("should find file")
+        .source_revision();
+
+    manager
+        .rename(file_id, "renamed.jpg")
+        .expect("should rename");
+    manager.move_node(file_id, "/dest").expect("should move");
+
+    let moved = manager
+        .find_by_path("/dest/renamed.jpg")
+        .expect("should find moved file");
+    assert_eq!(moved.source_revision(), source_revision);
+}
+
+#[test]
 fn test_delete() {
     let mut manager = CatalogManager::new();
 

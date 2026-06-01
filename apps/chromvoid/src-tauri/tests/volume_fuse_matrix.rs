@@ -348,7 +348,7 @@ async fn fuse_rw_matrix() {
     // Re-create /docs and a large file to validate core download path too.
     // (Second mount not needed; use RPC directly through core.)
     {
-        use chromvoid_core::rpc::types::{PrepareUploadResponse, RpcRequest, RpcResponse};
+        use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
         use chromvoid_core::rpc::RpcInputStream;
         use chromvoid_core::rpc::RpcReply;
         use serde_json::json;
@@ -367,26 +367,27 @@ async fn fuse_rw_matrix() {
             other => panic!("catalog:createDir failed: {other:?}"),
         }
 
-        let prep = a.handle(&RpcRequest::new(
-            "catalog:prepareUpload".to_string(),
-            json!({"parent_path": "/docs", "name": "big2.bin", "size": big2.len() as u64, "mime_type": null, "chunk_size": null}),
-        ));
-        let RpcResponse::Success { result, .. } = prep else {
-            panic!("prepareUpload failed: {prep:?}");
-        };
-        let prep: PrepareUploadResponse =
-            serde_json::from_value(result).expect("parse PrepareUploadResponse");
         let up = a.handle_with_stream(
             &RpcRequest::new(
                 "catalog:upload".to_string(),
-                json!({"node_id": prep.node_id, "size": big2.len() as u64, "offset": 0}),
+                json!({
+                    "parent_path": "/docs",
+                    "name": "big2.bin",
+                    "total_size": big2.len() as u64,
+                    "mime_type": null,
+                    "chunk_size": null,
+                    "size": big2.len() as u64,
+                    "offset": 0,
+                }),
             ),
             Some(RpcInputStream::from_bytes(big2.clone())),
         );
         match up {
             RpcReply::Json(RpcResponse::Success { .. }) => {}
             RpcReply::Json(r) => panic!("upload failed: {r:?}"),
-            RpcReply::Stream(_) => panic!("upload failed: unexpected stream reply"),
+            RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+                panic!("upload failed: unexpected stream reply")
+            }
         }
         a.save().expect("save");
 

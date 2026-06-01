@@ -7,17 +7,16 @@ import {
   skeletonShimmerStyles,
 } from 'root/shared/ui/shared-styles'
 
-/**
- * Единые стили для элементов списка записей менеджера паролей
- * Поддерживает режимы: default, compact, dense
- */
+/**Uniform styles for elements of the password manager entries list
+Supports modes: default, compact, dense
+*/
 export const listItemStyles = css`
   ${hostContainStyles}
   ${motionPrimitiveStyles}
   ${pulseIndicatorStyles}
   ${skeletonShimmerStyles}
 
-  /* ========== ОСНОВНЫЕ СТИЛИ ЭЛЕМЕНТА ========== */
+  /*========= Basic Element Styles ==========*/
 
   .list-item {
     display: grid;
@@ -34,13 +33,13 @@ export const listItemStyles = css`
     contain: layout style;
 
     &:focus-visible {
-      outline: 2px solid var(--cv-color-primary);
-      outline-offset: -2px;
-      border-color: var(--cv-color-primary);
+      outline: var(--pm-focus-outline, 2px solid var(--cv-color-focus, var(--cv-color-primary)));
+      outline-offset: var(--pm-active-outline-offset, -2px);
+      border-color: var(--pm-focus-border-color, var(--cv-color-primary));
     }
   }
 
-  /* ========== ИКОНКА ========== */
+  /*===================*/
 
   .item-icon {
     width: round(calc(var(--cv-font-size-base) * 1.125), 1px);
@@ -52,10 +51,10 @@ export const listItemStyles = css`
     justify-content: center;
   }
 
-  /* ========== КОНТЕНТ ========== */
+  /*=================*/
 
   .item-content {
-    min-width: 0; /* Для правильного text-overflow */
+    min-width: 0; /*For the right text-overflow*/
     overflow: hidden;
   }
 
@@ -80,7 +79,7 @@ export const listItemStyles = css`
     line-height: 1.2;
   }
 
-  /* ========== ДЕЙСТВИЯ ========== */
+  /*==================*/
 
   .item-actions {
     display: flex;
@@ -107,7 +106,7 @@ export const listItemStyles = css`
     width: 24px;
     height: 24px;
     border-radius: var(--cv-radius-1);
-    border: 1px solid color-mix(in oklch, var(--cv-color-border) 50%, transparent);
+    border: 1px solid var(--cv-color-border-glass);
     background: var(--cv-color-surface-2);
     color: var(--cv-color-text-muted);
     cursor: pointer;
@@ -122,7 +121,7 @@ export const listItemStyles = css`
     }
   }
 
-  /* ========== БЕЙДЖ СТАТУСА ========== */
+  /*=====================*/
 
   .status-indicator {
     position: absolute;
@@ -139,9 +138,9 @@ export const listItemStyles = css`
     }
   }
 
-  /* ========== РЕЖИМЫ ОТОБРАЖЕНИЯ ========== */
+  /*======================*/
 
-  /* Компактный режим */
+  /*Compact mode*/
   :host([view-mode='compact']) {
     .list-item {
       padding: calc(var(--cv-space-2) * 0.75) var(--cv-space-2);
@@ -168,7 +167,7 @@ export const listItemStyles = css`
     }
   }
 
-  /* Плотный режим */
+  /*Tight mode.*/
   :host([view-mode='dense']) {
     .list-item {
       padding: 2px calc(var(--cv-space-2) * 0.75);
@@ -194,7 +193,7 @@ export const listItemStyles = css`
   /* ========== SKELETON LOADER ========== */
 
   .skeleton-item {
-    --skeleton-bg: color-mix(in oklch, var(--cv-color-border) 35%, transparent);
+    --skeleton-bg: var(--cv-color-border-muted);
     display: grid;
     grid-template-columns: auto 1fr;
     gap: var(--cv-space-3);
@@ -203,7 +202,7 @@ export const listItemStyles = css`
     margin: 4px 0;
     border-radius: var(--cv-radius-2);
     background: var(--cv-color-surface-2);
-    border: 1px solid color-mix(in oklch, var(--cv-color-border) 30%, transparent);
+    border: 1px solid var(--cv-color-border-muted);
   }
 
   .skeleton-icon {
@@ -236,9 +235,8 @@ export const listItemStyles = css`
 
 `
 
-/**
- * Стили для группировки элементов списка
- */
+/*** Styles for grouping list elements
+*/
 export const listGroupStyles = css`
   .list-group {
     margin-block: 2px;

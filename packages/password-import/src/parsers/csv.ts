@@ -57,6 +57,7 @@ export async function parseCSV(file: File): Promise<ImportResult> {
     ])
     const url = pick(row, ['url', 'URL', 'uri', 'URI', 'login_uri', 'loginUri'])
     const notes = pick(row, ['notes', 'Notes', 'extra', 'Extra'])
+    const tags = parseTags(pick(row, ['tags', 'Tags', 'tag', 'Tag']))
     const folderRaw = pick(row, ['folder', 'Folder', 'grouping', 'Grouping']) || '/'
     const folder = normalizeFolder(folderRaw)
 
@@ -87,6 +88,7 @@ export async function parseCSV(file: File): Promise<ImportResult> {
       password,
       urls: url ? [{value: url, match: 'base_domain'}] : [],
       notes,
+      tags: tags.length > 0 ? tags : undefined,
       folder: folder === '/' ? undefined : folder,
     })
   }
@@ -116,6 +118,24 @@ function pick(row: Record<string, string>, keys: string[]): string | undefined {
     }
   }
   return undefined
+}
+
+function parseTags(value?: string): string[] {
+  if (!value) return []
+
+  const seen = new Set<string>()
+  const tags: string[] = []
+  for (const part of value.split(/[;,]/u)) {
+    const tag = part.trim()
+    if (!tag) continue
+
+    const key = tag.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    tags.push(tag)
+  }
+
+  return tags
 }
 
 function normalizeFolder(folder: string): string {

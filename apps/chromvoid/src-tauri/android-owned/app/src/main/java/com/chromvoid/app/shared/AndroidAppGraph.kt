@@ -14,10 +14,7 @@ import com.chromvoid.app.autofill.InMemoryAutofillSessionStore
 import com.chromvoid.app.passkey.PasskeyRequestRegistry
 import com.chromvoid.app.passkey.PersistentPasskeyRequestRegistry
 import com.chromvoid.app.security.BiometricPromptRunner
-import com.chromvoid.app.security.KeystoreKeyProvider
-import com.chromvoid.app.security.PasskeyMetadataStore
 import com.chromvoid.app.security.PepperStore
-import com.chromvoid.app.security.SystemPasskeyMetadataStore
 import com.chromvoid.app.security.SystemPepperStore
 
 internal interface AndroidAppGraph {
@@ -30,7 +27,6 @@ internal interface AndroidAppGraph {
     val passkeyRequestRegistry: PasskeyRequestRegistry
     val passwordSaveRequestStore: PasswordSaveRequestStore
     val passwordSaveReviewController: PasswordSaveReviewController
-    val passkeyMetadataStore: PasskeyMetadataStore
     val pepperStore: PepperStore
 }
 
@@ -51,7 +47,5 @@ internal class DefaultAndroidAppGraph(
         PasswordSaveReviewController(passwordSaveActivityRegistry)
     override val bridgeGateway: AndroidBridgeGateway =
         JniAndroidBridgeGateway(appContext, CredentialProviderNativeRuntime)
-    override val passkeyMetadataStore: PasskeyMetadataStore =
-        SystemPasskeyMetadataStore(appContext)
     override val pepperStore: PepperStore = SystemPepperStore(appContext)
 }

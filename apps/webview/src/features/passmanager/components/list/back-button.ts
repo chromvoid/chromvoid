@@ -1,18 +1,30 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html, nothing} from 'lit'
+import {css, nothing} from 'lit'
 
-import type {CVIcon} from '@chromvoid/uikit'
+import type {CVIcon} from '@chromvoid/uikit/components/cv-icon'
 
-import {ManagerRoot, i18n} from '@project/passmanager'
+import {ManagerRoot} from '@project/passmanager/core'
+import {i18n} from '@project/passmanager/i18n'
+import {getPassmanagerShowElement} from '../../models/pm-root.adapter'
 import {pmModel} from '../../password-manager.model'
 
-export class ButtonBack extends XLitElement {
+export class ButtonBack extends ReatomLitElement {
   static define() {
-    customElements.define('back-button', this)
+    if (!customElements.get('back-button')) {
+      customElements.define('back-button', this)
+    }
   }
   static styles = css`
-    button {
+    :host {
+      --back-button-radius: var(--cv-radius-2);
+      --back-button-color: var(--cv-color-primary);
+      --back-button-hover-bg: var(--cv-color-primary-surface-strong);
+      --back-button-hover-border-color: var(--cv-color-primary);
+      --back-button-hover-color: var(--back-button-color);
+    }
+
+    cv-button {
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -22,7 +34,7 @@ export class ButtonBack extends XLitElement {
       border: 1px solid
         var(
           --back-button-border-color,
-          color-mix(in oklch, var(--cv-color-border) 100%, var(--cv-color-text) 20%)
+          var(--cv-color-border-strong)
         );
       border-radius: var(--back-button-radius, var(--cv-radius-2));
       background: var(--back-button-bg, var(--cv-color-surface-2));
@@ -37,7 +49,7 @@ export class ButtonBack extends XLitElement {
       &:hover {
         background: var(
           --back-button-hover-bg,
-          color-mix(in oklch, var(--cv-color-primary) 15%, var(--cv-color-surface-2))
+          var(--cv-color-primary-surface-strong)
         );
         border-color: var(--back-button-hover-border-color, var(--cv-color-primary));
         color: var(--back-button-hover-color, var(--back-button-color, var(--cv-color-primary)));
@@ -58,14 +70,14 @@ export class ButtonBack extends XLitElement {
   }
 
   render() {
-    if (window.passmanager?.showElement() instanceof ManagerRoot) {
+    if (getPassmanagerShowElement() instanceof ManagerRoot) {
       this.classList.add('hidden')
       return nothing
     }
     this.classList.remove('hidden')
-    return html`<button @click=${this.handleClick} aria-label=${i18n('button:back')}>
+    return html`<cv-button unstyled @click=${this.handleClick} aria-label=${i18n('button:back')}>
       <cv-icon name="arrow-left"></cv-icon>
-    </button>`
+    </cv-button>`
   }
 }
 

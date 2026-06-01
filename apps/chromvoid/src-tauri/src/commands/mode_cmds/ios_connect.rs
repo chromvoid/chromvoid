@@ -1,12 +1,16 @@
 use tauri::Emitter;
 use tracing::{info, warn};
 
+use crate::catalog_blocking_io::{CatalogBlockingIoError, CatalogBlockingIoRuntimeState};
+use std::sync::Arc;
+
 use super::helpers::now_ms;
 use super::models::IosPresenceResolution;
 use super::noise_handshake::handshake_ik_over_transport;
 
 pub(super) async fn connect_paired_ios_peer(
     app: &tauri::AppHandle,
+    catalog_blocking_io_runtime: Arc<CatalogBlockingIoRuntimeState>,
     storage_root: &std::path::Path,
     peer: &crate::network::PairedIosPeer,
 ) -> Result<
@@ -53,8 +57,8 @@ pub(super) async fn connect_paired_ios_peer(
     ) as Box<dyn chromvoid_protocol::RemoteTransport>;
 
     let identity_path = storage_root.join("network_local_identity.json");
-    let mut store = crate::network::LocalDeviceIdentityStore::load(&identity_path);
-    let identity = store.get_or_create("ChromVoid Desktop")?;
+    let identity =
+        get_or_create_ios_connect_identity(catalog_blocking_io_runtime, identity_path).await?;
     let client_privkey = hex::decode(&identity.static_privkey_hex)
         .map_err(|e| format!("Bad local identity privkey: {e}"))?;
     let peer_pubkey =
@@ -162,4 +166,31 @@ async fn resolve_ios_presence(
     }
 
     Err(last_error.unwrap_or_else(|| "Timed out waiting for iOS host wake".to_string()))
+}
+
+async fn get_or_create_ios_connect_identity(
+    catalog_blocking_io_runtime: Arc<CatalogBlockingIoRuntimeState>,
+    path: std::path::PathBuf,
+) -> Result<crate::network::LocalDeviceIdentity, String> {
+    match catalog_blocking_io_runtime
+        .spawn_blocking(move || {
+            let mut store = crate::network::LocalDeviceIdentityStore::load(&path);
+            store.get_or_create("ChromVoid Desktop")
+        })
+        .await
+    {
+        Ok(result) => result,
+        Err(error) => Err(ios_connect_identity_blocking_err(
+            error,
+            "iOS connect local identity",
+        )),
+    }
+}
+
+fn ios_connect_identity_blocking_err(
+    error: CatalogBlockingIoError,
+    task_label: &'static str,
+) -> String {
+    let (error, _code) = error.into_rpc_error(task_label);
+    error
 }

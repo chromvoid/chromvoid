@@ -2,30 +2,115 @@
   "name": "@chromvoid/password-import",
   "version": "0.0.1",
   "description": "Password import from KeePass, Bitwarden, CSV",
-  "main": "./src/index.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js",
+      "default": "./dist/types.js"
+    },
+    "./validation": {
+      "types": "./dist/validation.d.ts",
+      "import": "./dist/validation.js",
+      "default": "./dist/validation.js"
+    },
+    "./conflicts": {
+      "types": "./dist/conflicts.d.ts",
+      "import": "./dist/conflicts.js",
+      "default": "./dist/conflicts.js"
+    },
+    "./mapper": {
+      "types": "./dist/mapper.d.ts",
+      "import": "./dist/mapper.js",
+      "default": "./dist/mapper.js"
+    },
+    "./parsers": {
+      "types": "./dist/parsers/index.d.ts",
+      "import": "./dist/parsers/index.js",
+      "default": "./dist/parsers/index.js"
+    },
+    "./parsers/csv": {
+      "types": "./dist/parsers/csv.d.ts",
+      "import": "./dist/parsers/csv.js",
+      "default": "./dist/parsers/csv.js"
+    },
+    "./parsers/bitwarden": {
+      "types": "./dist/parsers/bitwarden.d.ts",
+      "import": "./dist/parsers/bitwarden.js",
+      "default": "./dist/parsers/bitwarden.js"
+    },
+    "./parsers/1password": {
+      "types": "./dist/parsers/1password.d.ts",
+      "import": "./dist/parsers/1password.js",
+      "default": "./dist/parsers/1password.js"
+    },
+    "./parsers/keepass": {
+      "types": "./dist/parsers/keepass.d.ts",
+      "import": "./dist/parsers/keepass.js",
+      "default": "./dist/parsers/keepass.js"
+    },
+    "./ui/import-dialog": {
+      "types": "./dist/ui/import-dialog.d.ts",
+      "import": "./dist/ui/import-dialog.js",
+      "default": "./dist/ui/import-dialog.js"
+    },
+    "./ui/import-dialog-state": {
+      "types": "./dist/ui/import-dialog-state.d.ts",
+      "import": "./dist/ui/import-dialog-state.js",
+      "default": "./dist/ui/import-dialog-state.js"
+    },
+    "./ui/mobile-file-picker-lifecycle": {
+      "types": "./dist/ui/mobile-file-picker-lifecycle.d.ts",
+      "import": "./dist/ui/mobile-file-picker-lifecycle.js",
+      "default": "./dist/ui/mobile-file-picker-lifecycle.js"
+    },
+    "./ui/file-accept": {
+      "types": "./dist/ui/file-accept.d.ts",
+      "import": "./dist/ui/file-accept.js",
+      "default": "./dist/ui/file-accept.js"
+    },
+    "./package.json": "./package.json"
+  },
   "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && node ./scripts/postbuild.mjs",
+    "check:bundle": "npm run build && node ./scripts/check-bundle-contract.mjs",
+    "check:exports": "npm run build && node ./scripts/check-package-exports.mjs",
+    "check:import-contract": "node ./scripts/check-import-contract.mjs",
     "lint": "tsc --noEmit",
-    "test": "vitest run --config ./vitest.config.ts",
+    "test": "vitest run --config ./vitest.config.ts && npm run check:exports && npm run check:bundle && npm run check:import-contract",
     "test:unit": "vitest --config ./vitest.config.ts --watch"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
-  "peerDependencies": {
-    "@statx/core": "^1.15.0",
-    "@statx/lit": "^1.15.0",
-    "lit": "^3.0.0"
-  },
+  "license": "AGPL-3.0-only",
   "dependencies": {
-    "@project/passmanager": "*",
+    "fflate": "^0.8.2",
     "kdbxweb": "^1.10.0",
     "papaparse": "^5.4.1"
   },
   "devDependencies": {
-    "@tauri-apps/api": "^2.9.1",
-    "@tauri-apps/plugin-dialog": "^2.0.0",
+    "@tauri-apps/api": "2.10.1",
+    "@tauri-apps/plugin-dialog": "2.6.0",
     "@types/papaparse": "^5.3.14",
-    "vitest": "^3.2.4"
+    "esbuild": "^0.27.4",
+    "vitest": "^4.1.1"
+  },
+  "peerDependencies": {
+    "@chromvoid/uikit": "*",
+    "@reatom/core": "^1000.15.0",
+    "lit": "^3.0.0"
   }
 }

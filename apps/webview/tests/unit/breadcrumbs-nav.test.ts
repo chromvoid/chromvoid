@@ -31,8 +31,10 @@ describe('breadcrumbs-nav', () => {
     expect(items[0]?.querySelector('cv-icon[slot="prefix"][name="house"]')).toBeTruthy()
     expect(items[1]?.getAttribute('value')).toBe('/docs')
     expect(items[1]?.getAttribute('href')).toBe('/docs')
+    expect(items[1]?.hasAttribute('current')).toBe(false)
     expect(items[2]?.getAttribute('value')).toBe('/docs/api')
     expect(items[2]?.getAttribute('href')).toBe('/docs/api')
+    expect(items[2]?.hasAttribute('current')).toBe(true)
   })
 
   it('dispatches navigate and prevents default for non-current item clicks', async () => {
@@ -56,6 +58,19 @@ describe('breadcrumbs-nav', () => {
 
     expect(clickEvent.defaultPrevented).toBe(true)
     expect(navigatedPath).toBe('/docs')
+  })
+
+  it('marks the root breadcrumb as current on the files root path', async () => {
+    BreadcrumbsNav.define()
+
+    const element = document.createElement('breadcrumbs-nav') as BreadcrumbsNav
+    element.currentPath = '/'
+    document.body.append(element)
+    await settle(element)
+
+    const [rootItem] = Array.from(element.shadowRoot?.querySelectorAll('cv-breadcrumb-item') ?? [])
+    expect(rootItem?.getAttribute('value')).toBe('/')
+    expect(rootItem?.hasAttribute('current')).toBe(true)
   })
 
   it('prevents default but does not navigate for the current breadcrumb item', async () => {

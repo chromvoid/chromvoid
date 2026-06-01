@@ -38,11 +38,17 @@ internal object PasskeyResponseAssembler {
         credentialId: ByteArray,
         clientDataJson: ByteArray,
         attestationObject: ByteArray,
+        authenticatorData: ByteArray,
+        publicKeyDer: ByteArray,
+        credPropsRk: Boolean?,
     ): String {
         return PasskeyCredentialJsonEncoder.registrationResponse(
             credentialId = credentialId,
             clientDataJson = clientDataJson,
             attestationObject = attestationObject,
+            authenticatorData = authenticatorData,
+            publicKeyDer = publicKeyDer,
+            credPropsRk = credPropsRk,
         )
     }
 
@@ -78,6 +84,15 @@ internal object PasskeyResponseAssembler {
         origin: String,
     ): ByteArray {
         return PasskeyClientDataJsonEncoder.encode(type, challengeB64Url, origin)
+    }
+
+    fun responseClientDataJson(
+        type: String,
+        challengeB64Url: String,
+        origin: String,
+        providedHash: ByteArray?,
+    ): ByteArray {
+        return PasskeyClientDataJsonEncoder.responseJson(type, challengeB64Url, origin, providedHash)
     }
 
     fun clientDataHash(

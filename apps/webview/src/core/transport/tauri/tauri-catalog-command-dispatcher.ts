@@ -1,6 +1,7 @@
 import type {Logger} from '../../logger'
 import type {RpcResult} from '@chromvoid/scheme'
 import {isSuccess} from '@chromvoid/scheme'
+import {tauriInvoke} from './ipc'
 
 import type {RpcCmdData, RpcCmdName, RpcCmdResult} from './tauri-rpc-types'
 
@@ -199,38 +200,54 @@ export async function dispatchTauriCatalogCommand(input: DispatchCatalogCommandI
       return {ok: true, result}
     }
 
-    case 'catalog:prepareUpload': {
-      const parent_path = String(data['parent_path'] ?? data['parentPath'] ?? '')
-      const name = String(data['name'] ?? '')
-      const size = toU64(data['size'], 'size')
-      const mime_type =
-        (data['mime_type'] as string | null | undefined) ?? (data['mimeType'] as string | undefined) ?? null
-      const chunk_size =
-        (data['chunk_size'] as number | null | undefined) ?? (data['chunkSize'] as number | undefined) ?? null
-      const result = await rpc('catalog:prepareUpload', {parent_path, name, size, mime_type, chunk_size})
+    case 'catalog:sync:manifest': {
+      const result = await rpcDispatch('catalog:sync:manifest', {})
       return {ok: true, result}
     }
 
-    case 'catalog:syncInit': {
-      const result = await rpc('catalog:syncInit', {})
+    case 'catalog:folder:list': {
+      const path = String(data['path'] ?? '/')
+      const offset = toU64(data['offset'] ?? 0, 'offset')
+      const limitRaw = data['limit']
+      const limit = limitRaw === undefined || limitRaw === null ? null : toU64(limitRaw, 'limit')
+      const expectedVersionRaw = data['expected_version'] ?? data['expectedVersion']
+      const expected_version =
+        expectedVersionRaw === undefined || expectedVersionRaw === null
+          ? null
+          : toU64(expectedVersionRaw, 'expected_version')
+      const sort = (data['sort'] as Record<string, unknown> | null | undefined) ?? null
+      const filter = (data['filter'] as Record<string, unknown> | null | undefined) ?? null
+      const result = await rpcDispatch('catalog:folder:list', {
+        path,
+        offset,
+        limit,
+        expected_version,
+        sort,
+        filter,
+      })
       return {ok: true, result}
     }
 
-    case 'catalog:sync:delta': {
-      const from_version = toU64(data['from_version'] ?? data['fromVersion'], 'from_version')
-      const result = await rpc('catalog:sync:delta', {from_version})
+    case 'catalog:folder:batch': {
+      const pages = Array.isArray(data['pages']) ? (data['pages'] as unknown[]) : []
+      const result = await rpcDispatch('catalog:folder:batch', {pages})
       return {ok: true, result}
     }
 
-    case 'catalog:shard:list': {
-      const result = await rpc('catalog:shard:list', {})
+    case 'catalog:notes:list': {
+      const result = await rpc('catalog:notes:list', {})
       return {ok: true, result}
     }
 
-    case 'catalog:shard:load': {
-      const shard_id = String(data['shard_id'] ?? data['shardId'] ?? '')
-      if (!shard_id) throw new Error('shard_id is required')
-      const result = await rpc('catalog:shard:load', {shard_id})
+    case 'catalog:source:metadata': {
+      const node_id = toU64(data['node_id'] ?? data['nodeId'], 'node_id')
+      const result = await rpc('catalog:source:metadata', {node_id})
+      return {ok: true, result}
+    }
+
+    case 'catalog:media:inspect': {
+      const node_id = toU64(data['node_id'] ?? data['nodeId'], 'node_id')
+      const result = await rpcDispatch('catalog:media:inspect', {node_id})
       return {ok: true, result}
     }
 
@@ -368,6 +385,36 @@ export async function dispatchTauriCatalogCommand(input: DispatchCatalogCommandI
       return {ok: true, result}
     }
 
+    case 'passmanager:ssh:keygen': {
+      const entry_id_raw = data['entry_id'] ?? data['entryId']
+      const entry_id =
+        entry_id_raw === undefined || entry_id_raw === null ? null : String(entry_id_raw).trim() || null
+      if (entry_id === null) {
+        throw new Error('Invalid passmanager:ssh:keygen payload: entry_id is required')
+      }
+
+      const key_type_raw = data['key_type'] ?? data['keyType']
+      const key_type =
+        key_type_raw === undefined || key_type_raw === null ? null : String(key_type_raw).trim() || null
+      if (key_type === null) {
+        throw new Error('Invalid passmanager:ssh:keygen payload: key_type is required')
+      }
+
+      const comment_raw = data['comment']
+      const comment = comment_raw === undefined || comment_raw === null ? '' : String(comment_raw)
+      const result = await tauriInvoke<{
+        key_id: string
+        public_key_openssh: string
+        fingerprint: string
+        key_type: string
+      }>('ssh_keygen', {
+        entryId: entry_id,
+        keyType: key_type,
+        comment,
+      })
+      return {ok: true, result}
+    }
+
     case 'passmanager:entry:save':
     case 'passmanager:entry:read':
     case 'passmanager:entry:delete':
@@ -379,9 +426,11 @@ export async function dispatchTauriCatalogCommand(input: DispatchCatalogCommandI
     case 'passmanager:group:ensure':
     case 'passmanager:group:setMeta':
     case 'passmanager:group:list':
+    case 'passmanager:group:delete':
     case 'passmanager:icon:put':
     case 'passmanager:icon:get':
     case 'passmanager:icon:list':
+    case 'passmanager:icon:setMeta':
     case 'passmanager:icon:gc':
     case 'passmanager:root:import':
     case 'passmanager:root:export': {

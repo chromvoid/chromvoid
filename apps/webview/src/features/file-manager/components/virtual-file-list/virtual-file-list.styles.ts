@@ -1,12 +1,14 @@
 import {css} from 'lit'
 
 import {motionPrimitiveStyles, sharedStyles} from 'root/shared/ui/shared-styles'
+import {scrollEdgeAffordanceStyles} from 'root/shared/ui/scroll-edge-affordance.styles'
 
 export const virtualFileListStyles = [
   sharedStyles,
   motionPrimitiveStyles,
+  scrollEdgeAffordanceStyles,
   css`
-    /* ========== КОНТЕЙНЕР ВИРТУАЛЬНОГО СПИСКА ========== */
+    /*========== Virtual List Container ===========*/
 
     :host {
       display: flex;
@@ -15,26 +17,24 @@ export const virtualFileListStyles = [
       flex: 1;
       min-height: 0;
       container-type: inline-size;
-      background: var(--cv-color-surface);
+      background: transparent;
       overflow: hidden;
-      box-shadow: var(--cv-shadow-2);
       position: relative;
-
-      &::before {
-        content: '';
-        position: absolute;
-        inset: 0;
-        background: var(--gradient-subtle);
-        opacity: 0.1;
-        z-index: -1;
-        pointer-events: none;
-      }
     }
 
     /* ========== SCROLL CONTAINER ========== */
 
+    .file-list-scroll-edge {
+      flex: 1;
+      min-block-size: 0;
+      --cv-scroll-edge-block-size: 52px;
+      --cv-scroll-edge-inline-end: 12px;
+      --cv-scroll-edge-surface: var(--cv-color-surface);
+    }
+
     .list-container {
       flex: 1;
+      block-size: 100%;
       min-height: 0;
       overflow-y: auto;
       overflow-x: hidden;
@@ -56,7 +56,7 @@ export const virtualFileListStyles = [
       }
 
       &::-webkit-scrollbar-thumb {
-        background: color-mix(in oklch, var(--cv-color-text-muted), transparent 60%);
+        background: var(--cv-color-text-subtle);
         border-radius: 6px;
         border: 2px solid var(--cv-color-surface-2);
       }
@@ -77,8 +77,171 @@ export const virtualFileListStyles = [
       padding: var(--app-spacing-4);
     }
 
+    .grid-virtual-spacer {
+      block-size: var(--virtual-total-height, 0px);
+      position: relative;
+    }
+
+    .grid-virtual-window {
+      transform: translateY(var(--virtual-offset-y, 0px));
+    }
+
     .table-view {
       inline-size: 100%;
+    }
+
+    .virtual-spacer {
+      block-size: var(--virtual-total-height, 0px);
+    }
+
+    .virtual-window {
+      transform: translateY(var(--virtual-offset-y, 0px));
+    }
+
+    file-item-desktop[data-delete-exiting],
+    file-item-mobile[data-delete-exiting],
+    .file-item-wrapper[data-delete-exiting] {
+      pointer-events: none;
+      transform-origin: center;
+      animation: file-delete-row-exit var(--cv-duration-normal, 250ms)
+        var(--cv-easing-decelerate, cubic-bezier(0, 0, 0.2, 1)) both;
+      will-change: transform, opacity;
+    }
+
+    @keyframes file-delete-row-exit {
+      0% {
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      35% {
+        opacity: 0.92;
+        transform: scale(1.025, 0.94);
+      }
+
+      100% {
+        opacity: 0;
+        transform: scale(0.96, 0.82);
+      }
+    }
+
+    .mobile-dnd-live {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .mobile-dnd-ghost {
+      position: fixed;
+      inset-block-start: 0;
+      inset-inline-start: 0;
+      z-index: 30;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      max-inline-size: min(280px, calc(100vw - 24px));
+      padding: 8px 10px;
+      border: 1px solid var(--cv-color-primary);
+      border-radius: var(--cv-radius-2);
+      background: var(--cv-color-surface);
+      color: var(--cv-color-text);
+      box-shadow: var(--cv-shadow-3);
+      pointer-events: none;
+      transform: translate(var(--file-mobile-dnd-x, 0), var(--file-mobile-dnd-y, 0)) translate(12px, 12px);
+    }
+
+    .mobile-dnd-ghost span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .file-item-skeleton {
+      min-block-size: 64px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: var(--cv-radius-2);
+      background: var(--cv-color-surface-2);
+      border: 1px solid var(--cv-color-border-muted);
+      pointer-events: none;
+      contain: layout paint style;
+
+      .skeleton-icon,
+      .skeleton-cell,
+      .skeleton-lines span {
+        display: block;
+        border-radius: var(--cv-radius-1);
+        background: linear-gradient(
+          90deg,
+          var(--cv-color-surface-3, var(--cv-color-surface-2)),
+          var(--cv-color-hover),
+          var(--cv-color-surface-3, var(--cv-color-surface-2))
+        );
+        background-size: 200% 100%;
+        animation: skeleton-pulse 1.2s ease-in-out infinite;
+      }
+
+      .skeleton-icon {
+        inline-size: 32px;
+        block-size: 32px;
+        border-radius: 8px;
+        flex: 0 0 auto;
+      }
+
+      .skeleton-lines {
+        display: grid;
+        gap: 8px;
+        inline-size: min(220px, 65%);
+
+        span:first-child {
+          inline-size: 100%;
+          block-size: 12px;
+        }
+
+        span:last-child {
+          inline-size: 54%;
+          block-size: 10px;
+        }
+      }
+    }
+
+    .file-item-skeleton-grid {
+      min-block-size: 180px;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: flex-end;
+    }
+
+    .file-item-skeleton-table {
+      min-block-size: 0;
+      block-size: auto;
+
+      .skeleton-lines {
+        inline-size: min(240px, 70%);
+      }
+
+      .skeleton-cell {
+        inline-size: 72px;
+        block-size: 12px;
+      }
+    }
+
+    @keyframes skeleton-pulse {
+      from {
+        background-position: 100% 0;
+      }
+
+      to {
+        background-position: -100% 0;
+      }
     }
 
     /* ========== TABLE HEADER ========== */
@@ -126,7 +289,7 @@ export const virtualFileListStyles = [
       }
     }
 
-    /* Table row layout (для renderTableRow) */
+    /*Table row layout (for renderTableRow)*/
     .table-view {
       .file-item-wrapper {
         display: grid;
@@ -134,22 +297,48 @@ export const virtualFileListStyles = [
         gap: var(--app-spacing-3);
         padding: var(--app-spacing-3) var(--app-spacing-4);
         align-items: center;
+        position: relative;
+        outline: 2px solid transparent;
+        outline-offset: -2px;
         border-block-end: 1px solid var(--cv-color-border-muted);
+        transition:
+          background var(--cv-duration-fast) var(--cv-easing-standard),
+          border-color var(--cv-duration-fast) var(--cv-easing-standard),
+          box-shadow var(--cv-duration-fast) var(--cv-easing-standard),
+          outline-color var(--cv-duration-fast) var(--cv-easing-standard);
 
         &:nth-child(even) {
-          background: color-mix(in oklch, var(--cv-color-surface-2) 40%, transparent);
+          background: var(--cv-color-surface-secondary-glass-soft);
         }
 
         &.selected {
-          background: color-mix(in oklch, var(--cv-color-primary) 16%, transparent);
+          background: var(--cv-color-primary-surface-strong);
+          border-color: var(--cv-color-primary);
+          outline-color: var(--cv-color-primary-ring);
           box-shadow:
-            inset 3px 0 0 color-mix(in oklch, var(--cv-color-primary) 55%, transparent),
-            inset 0 0 0 1px color-mix(in oklch, var(--cv-color-primary) 25%, transparent);
+            inset 4px 0 0 var(--cv-color-primary);
+        }
+
+        &[aria-busy='true'] {
+          background: var(--cv-color-primary-surface);
+        }
+
+        &.selected[aria-busy='true'] {
+          background: var(--cv-color-primary-surface-strong);
+          box-shadow:
+            inset 4px 0 0 var(--cv-color-primary),
+            inset 0 0 0 1px var(--cv-color-primary-border-strong);
         }
       }
 
       cv-checkbox.selection-checkbox::part(base) {
         gap: 0;
+      }
+
+      .table-primary-cell {
+        display: flex;
+        align-items: center;
+        gap: 8px;
       }
     }
 
@@ -196,20 +385,14 @@ export const virtualFileListStyles = [
       align-items: center;
       justify-content: space-between;
       gap: var(--app-spacing-3);
-      padding: 8px 12px;
-      background: var(--cv-color-surface-2);
-      border-block-start: 1px solid var(--cv-color-border);
+      padding: var(--cv-space-2) var(--cv-space-3);
       color: var(--cv-color-text);
       font-size: var(--cv-font-size-sm);
 
-      .status-left {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-
-      .status-sep {
-        opacity: 0.5;
+      .status-summary {
+        flex: 1 1 auto;
+        min-inline-size: 0;
+        --pm-summary-rail-inline-size: 100%;
       }
 
       .status-right {
@@ -231,10 +414,9 @@ export const virtualFileListStyles = [
           color: inherit;
         }
       }
-
     }
 
-    /* ========== АДАПТИВНОСТЬ ========== */
+    /*====================*/
 
     @container (min-width: 1200px) {
       .grid-view {
@@ -301,6 +483,10 @@ export const virtualFileListStyles = [
     }
 
     @container (max-width: 600px) {
+      .list-container {
+        background: transparent;
+      }
+
       .table-header {
         grid-template-columns: 32px 1fr 56px;
         padding: var(--app-spacing-2) var(--app-spacing-3);
@@ -330,7 +516,7 @@ export const virtualFileListStyles = [
       }
 
       .list-view {
-        padding: var(--app-spacing-2);
+        padding: var(--app-spacing-3);
       }
 
       .empty-state {
@@ -353,20 +539,9 @@ export const virtualFileListStyles = [
       }
 
       .status-bar {
-        padding: 6px 10px;
+        padding: var(--app-surface-gutter-mobile) var(--cv-space-3);
         font-size: var(--cv-font-size-xs, 0.75rem);
         gap: var(--app-spacing-2);
-
-        .status-left {
-          gap: 8px;
-          min-width: 0;
-
-          span {
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-          }
-        }
 
         .status-right {
           gap: 2px;
@@ -390,6 +565,22 @@ export const virtualFileListStyles = [
       .status-bar .status-right cv-button {
         min-block-size: 36px;
         min-inline-size: 36px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      file-item-desktop[data-delete-exiting],
+      file-item-mobile[data-delete-exiting],
+      .file-item-wrapper[data-delete-exiting] {
+        animation: file-delete-row-exit-reduced 1ms linear both;
+        transform: none;
+        will-change: opacity;
+      }
+
+      @keyframes file-delete-row-exit-reduced {
+        to {
+          opacity: 0;
+        }
       }
     }
   `,

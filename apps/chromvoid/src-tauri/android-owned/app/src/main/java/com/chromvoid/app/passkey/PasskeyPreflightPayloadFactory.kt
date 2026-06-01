@@ -2,6 +2,7 @@ package com.chromvoid.app.passkey
 
 import androidx.credentials.provider.BeginCreatePublicKeyCredentialRequest
 import androidx.credentials.provider.BeginGetPublicKeyCredentialOption
+import com.chromvoid.app.PasskeyCoreRequestPayload
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -43,6 +44,14 @@ internal object PasskeyPreflightPayloadFactory {
             rpId = parsed?.rpId.orEmpty(),
             supportedAlgorithms = parsed?.supportedAlgorithms?.toList().orEmpty(),
             excludeCredentials = parsed?.excludeCredentialIds?.toList().orEmpty(),
+        )
+    }
+
+    fun buildCoreGet(option: BeginGetPublicKeyCredentialOption): PasskeyCoreRequestPayload {
+        return PasskeyCoreRequestPayload(
+            requestJson = option.requestJson,
+            origin = "",
+            clientDataHashB64Url = option.clientDataHash?.let(PasskeyEncoding::base64UrlEncode),
         )
     }
 }

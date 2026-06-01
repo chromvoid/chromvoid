@@ -79,7 +79,7 @@ internal class AutofillAuthController(
     }
 
     fun handlePassword(args: AutofillAuthArgs): AutofillAuthResult {
-        if (args.sessionId.isBlank() || args.credentialId.isBlank() || args.passwordIds.isEmpty()) {
+        if (args.sessionId.isBlank() || args.credentialId.isBlank() || !args.hasCredentialTargets()) {
             return AutofillAuthResult.Cancelled("missing_required_extras")
         }
 
@@ -106,7 +106,7 @@ internal class AutofillAuthController(
                     args.passwordIds.forEach { autofillId ->
                         dataset.setValue(autofillId, AutofillValue.forText(password))
                     }
-                    AutofillAuthResult.Success(dataset)
+                    AutofillAuthResult.Success(dataset, otpValue = response.value.otp?.trim())
                 }
             }
         }
@@ -124,7 +124,23 @@ internal class AutofillAuthController(
         if (otpOptions.size > 1) {
             return AutofillAuthResult.Cancelled("otp_selector_required")
         }
-        val option = otpOptions.first()
+        return resolveOtpOption(args, otpOptions.first())
+    }
+
+    fun handleOtp(
+        args: AutofillAuthArgs,
+        option: OtpOption,
+    ): AutofillAuthResult {
+        if (args.sessionId.isBlank() || args.credentialId.isBlank() || args.otpIds.isEmpty()) {
+            return AutofillAuthResult.Cancelled("missing_required_extras")
+        }
+        return resolveOtpOption(args, option)
+    }
+
+    private fun resolveOtpOption(
+        args: AutofillAuthArgs,
+        option: OtpOption,
+    ): AutofillAuthResult {
         if (option.otpType == "HOTP") {
             return AutofillAuthResult.Cancelled("hotp_unsupported")
         }
@@ -155,40 +171,13 @@ internal class AutofillAuthController(
         }
     }
 
-    fun handleOtp(
-        args: AutofillAuthArgs,
-        option: OtpOption,
-    ): AutofillAuthResult {
-        if (args.sessionId.isBlank() || args.credentialId.isBlank() || args.otpIds.isEmpty()) {
-            return AutofillAuthResult.Cancelled("missing_required_extras")
+    fun closeSession(sessionId: String): Boolean {
+        if (sessionId.isBlank()) {
+            return false
         }
-        if (option.otpType == "HOTP") {
-            return AutofillAuthResult.Cancelled("hotp_unsupported")
-        }
-
-        return when (val response = bridgeGateway.autofillGetSecret(args.sessionId, args.credentialId, option.id)) {
-            is BridgeResult.Failure -> AutofillAuthResult.Cancelled("otp_lookup_failed")
-            is BridgeResult.Success -> {
-                val otp = response.value.otp.orEmpty().trim()
-                if (otp.isBlank()) {
-                    AutofillAuthResult.Cancelled("blank_otp")
-                } else {
-                    AutofillTrace.important(
-                        "authOtpResolved",
-                        "session" to args.sessionId,
-                        "credential" to args.credentialId,
-                        "otpIds" to AutofillTrace.ids(args.otpIds),
-                        "otpOptionId" to option.id,
-                        "otpType" to option.otpType,
-                        "otpLength" to otp.length,
-                    )
-                    val dataset = Dataset.Builder()
-                    args.otpIds.forEach { autofillId ->
-                        dataset.setValue(autofillId, AutofillValue.forText(otp))
-                    }
-                    AutofillAuthResult.Success(dataset, otpValue = otp)
-                }
-            }
+        return when (val closeResult = bridgeGateway.autofillCloseSession(sessionId)) {
+            is BridgeResult.Success -> closeResult.value
+            is BridgeResult.Failure -> false
         }
     }
 

@@ -12,7 +12,7 @@ import com.chromvoid.app.ChromVoidCredentialProviderService
 import com.chromvoid.app.ChromVoidPasskeyCreateActivity
 import com.chromvoid.app.ChromVoidPasskeyGetActivity
 import com.chromvoid.app.ChromVoidPasswordGetActivity
-import com.chromvoid.app.PasskeyMetadata
+import com.chromvoid.app.AndroidPasskeySummary
 import com.chromvoid.app.R
 import com.chromvoid.app.shared.ActivityIntentFactory
 
@@ -22,7 +22,7 @@ internal class CredentialProviderEntryFactory(
     fun buildPasskeyGetEntry(
         option: BeginGetPublicKeyCredentialOption,
         requestId: String,
-        metadata: PasskeyMetadata,
+        metadata: AndroidPasskeySummary,
     ): PublicKeyCredentialEntry {
         val pendingIntent =
             PendingIntent.getActivity(

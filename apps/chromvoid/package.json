@@ -2,6 +2,7 @@
   "name": "@chromvoid/desktop",
   "private": true,
   "version": "0.1.0",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "tauri": "tauri",
@@ -19,12 +20,19 @@
     "ios:sim:signed": "sh -c 'APPLE_DEVELOPMENT_TEAM=${APPLE_DEVELOPMENT_TEAM:?Set APPLE_DEVELOPMENT_TEAM} tauri ios dev \"iPhone 16\"'",
     "ios:init": "HOMEBREW_NO_ENV_HINTS=1 tauri ios init",
     "android": "node ./scripts/run-tauri-android-dev.mjs",
+    "android:adb-bridge": "node ./scripts/open-android-adb-bridge.mjs",
+    "android:adb-wifi": "node ./scripts/android-adb-wifi-target.mjs",
+    "android:remote-adb": "CHROMVOID_USE_ADB_TUNNEL=1 node ./scripts/run-tauri-android-dev.mjs",
     "android:init": "tauri android init",
-    "android:build:release:apk": "tauri android build --apk --target aarch64 --ci",
-    "android:deploy:release:apk": "npm run android:build:release:apk && node ./scripts/install-android-release-apk.mjs",
+    "android:build:release:apk": "node ./scripts/run-tauri-android-release-build.mjs",
+    "android:install:release:apk": "node ./scripts/install-android-release-apk.mjs",
+    "android:install:release:apk:remote-adb": "CHROMVOID_USE_ADB_TUNNEL=1 node ./scripts/install-android-release-apk.mjs",
+    "android:deploy:release:apk": "npm run android:build:release:apk && node ./scripts/install-android-release-apk.mjs --launch",
+    "android:deploy:release:apk:wifi": "npm run android:build:release:apk && CHROMVOID_USE_ADB_WIFI=1 node ./scripts/install-android-release-apk.mjs --launch",
+    "android:deploy:release:apk:remote-adb": "npm run android:build:release:apk && CHROMVOID_USE_ADB_TUNNEL=1 node ./scripts/install-android-release-apk.mjs --launch",
     "test:e2e": "npx vitest run --config ./vitest.e2e.config.ts"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.10.0"
+    "@tauri-apps/cli": "2.10.1"
   }
 }

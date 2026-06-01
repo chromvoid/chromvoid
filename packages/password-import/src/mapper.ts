@@ -9,14 +9,14 @@ const UPLOAD_CHUNK_SIZE = 16000
  */
 export interface CatalogOperations {
   createDir(name: string, parentPath: string): Promise<{nodeId: number} | {nameExists: true}>
-  prepareUpload(
+  upload(
     parentPath: string,
     name: string,
     size: number,
+    data: Uint8Array,
     chunkSize: number,
     mimeType: string,
   ): Promise<{nodeId: number}>
-  upload(nodeId: number, size: number, data: Uint8Array): Promise<void>
   setOTPSecret(params: {
     nodeId: number
     entryId?: string
@@ -28,7 +28,7 @@ export interface CatalogOperations {
     period: number
   }): Promise<void>
   deleteNode(nodeId: number): Promise<void>
-  putIcon?(contentBase64: string, mimeType: string): Promise<{iconRef: string}>
+  putIcon?(contentBase64: string, mimeType: string): Promise<{iconRef: string; backgroundColor?: string}>
   setGroupIcon?(path: string, iconRef: string | null): Promise<void>
 }
 
@@ -62,6 +62,12 @@ function buildNote(notes?: string, customFields?: Array<{key: string; value: str
   return parts.join('\n')
 }
 
+function normalizeCardDigits(value?: string): string | undefined {
+  if (!value) return undefined
+  const digits = value.replace(/\D+/g, '')
+  return digits.length > 0 ? digits : undefined
+}
+
 async function ensureDir(
   catalog: CatalogOperations,
   parentPath: string,
@@ -93,14 +99,14 @@ async function writeTextFile(
   text: string,
 ): Promise<void> {
   const bytes = new TextEncoder().encode(text)
-  const prep = await catalog.prepareUpload(
+  await catalog.upload(
     parentPath,
     name,
     bytes.byteLength,
+    bytes,
     UPLOAD_CHUNK_SIZE,
     'text/plain',
   )
-  await catalog.upload(prep.nodeId, bytes.byteLength, bytes)
 }
 
 async function writeJsonFile(
@@ -111,14 +117,14 @@ async function writeJsonFile(
 ): Promise<void> {
   const text = JSON.stringify(data)
   const bytes = new TextEncoder().encode(text)
-  const prep = await catalog.prepareUpload(
+  await catalog.upload(
     parentPath,
     name,
     bytes.byteLength,
+    bytes,
     UPLOAD_CHUNK_SIZE,
     'application/json',
   )
-  await catalog.upload(prep.nodeId, bytes.byteLength, bytes)
 }
 
 async function writeEntryFiles(
@@ -132,34 +138,69 @@ async function writeEntryFiles(
   const otpId = entry.otp ? crypto.randomUUID() : undefined
   const otpLabel = entry.otp?.label ?? 'OTP'
   const resolvedEntryId = targetEntryId ?? entry.id
-  const meta = {
-    id: resolvedEntryId,
-    title: entry.name,
-    urls: entry.urls ?? [],
-    username: entry.username ?? '',
-    otps: entry.otp
-      ? [
-          {
-            id: otpId,
-            label: otpLabel,
-            algorithm: entry.otp.algorithm ?? 'SHA1',
-            digits: entry.otp.digits ?? 6,
-            period: entry.otp.period ?? 30,
-            encoding: normalizeOTPEncoding(entry.otp.encoding),
+  const meta =
+    entry.type === 'card' && entry.paymentCard
+      ? {
+          id: resolvedEntryId,
+          title: entry.name,
+          entryType: 'payment_card',
+          paymentCard: {
+            cardholderName: entry.paymentCard.cardholderName,
+            expMonth: entry.paymentCard.expMonth,
+            expYear: entry.paymentCard.expYear,
+            ...(entry.paymentCard.brand ? {brand: entry.paymentCard.brand.toLowerCase()} : {}),
+            ...(normalizeCardDigits(entry.paymentCard.number)
+              ? {last4: normalizeCardDigits(entry.paymentCard.number)!.slice(-4)}
+              : {}),
           },
-        ]
-      : [],
-    ...(iconRef ? {iconRef} : {}),
-    import_source: {
-      type: 'unknown',
-      imported_at: Date.now(),
-      original_id: entry.id,
-      folder_path: entry.folder ?? null,
-    },
-  }
+          ...(entry.tags && entry.tags.length > 0 ? {tags: entry.tags} : {}),
+          ...(iconRef ? {iconRef} : {}),
+          import_source: {
+            type: entry.type,
+            imported_at: Date.now(),
+            original_id: entry.id,
+            folder_path: entry.folder ?? null,
+          },
+        }
+      : {
+          id: resolvedEntryId,
+          title: entry.name,
+          entryType: 'login',
+          urls: entry.urls ?? [],
+          username: entry.username ?? '',
+          otps: entry.otp
+            ? [
+                {
+                  id: otpId,
+                  label: otpLabel,
+                  algorithm: entry.otp.algorithm ?? 'SHA1',
+                  digits: entry.otp.digits ?? 6,
+                  period: entry.otp.period ?? 30,
+                  encoding: normalizeOTPEncoding(entry.otp.encoding),
+                },
+              ]
+            : [],
+          ...(entry.tags && entry.tags.length > 0 ? {tags: entry.tags} : {}),
+          ...(iconRef ? {iconRef} : {}),
+          import_source: {
+            type: entry.type,
+            imported_at: Date.now(),
+            original_id: entry.id,
+            folder_path: entry.folder ?? null,
+          },
+        }
   await writeJsonFile(catalog, entryPath, 'meta.json', meta)
 
-  if (entry.password) {
+  if (entry.type === 'card' && entry.paymentCard) {
+    const cardPan = normalizeCardDigits(entry.paymentCard.number)
+    const cardCvv = normalizeCardDigits(entry.paymentCard.cvv)
+    if (cardPan) {
+      await writeTextFile(catalog, entryPath, '.card_pan', cardPan)
+    }
+    if (cardCvv) {
+      await writeTextFile(catalog, entryPath, '.card_cvv', cardCvv)
+    }
+  } else if (entry.password) {
     await writeTextFile(catalog, entryPath, '.password', entry.password)
   }
 
@@ -170,12 +211,12 @@ async function writeEntryFiles(
     })
   }
 
-  const noteText = buildNote(entry.notes, entry.customFields)
+  const noteText = entry.type === 'card' ? '' : buildNote(entry.notes, entry.customFields)
   if (noteText) {
     await writeTextFile(catalog, entryPath, '.note', noteText)
   }
 
-  if (entry.otp?.secret && otpLabel) {
+  if (entry.type !== 'card' && entry.otp?.secret && otpLabel) {
     await catalog.setOTPSecret({
       nodeId: entryNodeId,
       entryId: resolvedEntryId,

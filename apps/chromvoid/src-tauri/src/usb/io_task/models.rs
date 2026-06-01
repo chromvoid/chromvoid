@@ -4,6 +4,7 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 use tokio_serial::SerialStream;
 
+use crate::core_adapter::{RemoteCancelGroup, RemoteRpcPriority};
 use crate::usb::noise_session::NoiseTransport;
 
 /// Request sent from RemoteCoreAdapter to the I/O task.
@@ -11,6 +12,8 @@ pub struct IoRequest {
     pub request: RpcRequest,
     pub stream: Option<RpcInputStream>,
     pub reply_tx: oneshot::Sender<RpcReply>,
+    pub priority: RemoteRpcPriority,
+    pub cancel_group: Option<RemoteCancelGroup>,
 }
 
 /// Event sent from the I/O task to the UI.

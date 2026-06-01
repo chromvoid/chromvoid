@@ -1,30 +1,52 @@
 import type {Page} from 'playwright'
 import {expect, test} from 'vitest'
 
-import {waitForAuthenticated} from './utils'
+import {createUniqueName, openFilesRoot} from './utils'
 
 declare global {
   var __E2E_PAGE__: Page | undefined
 }
 
-test('S8: удаление папки', async () => {
+test('S8: delete folder', async () => {
   const page = globalThis.__E2E_PAGE__!
-  await page.goto('http://localhost:4400/index.html')
-  await waitForAuthenticated(page)
+  await openFilesRoot(page)
+  const folderName = createUniqueName('test-sync-folder')
 
-  // создать папку (prompt перехвачен)
-  await page.getByText('Новая папка').click()
-  await page.getByText('e2e-folder').waitFor({timeout: 10_000})
+  const result = await page.evaluate(async (name) => {
+    const ctx = (window as any).getAppContext?.()
+    if (!ctx?.catalog?.api?.createDir) {
+      throw new Error('catalog.api.createDir is unavailable')
+    }
+    if (!ctx?.catalog?.api?.delete) {
+      throw new Error('catalog.api.delete is unavailable')
+    }
 
-  // контекст-меню → удалить → confirm перехвачен
-  await page.getByText('e2e-folder').click({button: 'right'})
-  await page.getByText('Удалить').click()
+    const created = await ctx.catalog.api.createDir(name)
+    const childrenAfterCreate = ctx.catalog.catalog.getChildren('/')
+    const createdVisible = Array.isArray(childrenAfterCreate)
+      ? childrenAfterCreate.some((node: {name?: string}) => node?.name === name)
+      : false
 
-  // ожидать, что элемент исчезнет
-  await page.waitForTimeout(300)
-  const isVisible = await page
-    .getByText('e2e-folder')
-    .isVisible()
-    .catch(() => false)
-  expect(isVisible).toBe(false)
+    if (!created?.nodeId) {
+      return {nodeId: null, createdVisible, deletedVisible: false}
+    }
+
+    await ctx.catalog.api.delete(created.nodeId)
+    const childrenAfterDelete = ctx.catalog.catalog.getChildren('/')
+    const deletedVisible = Array.isArray(childrenAfterDelete)
+      ? !childrenAfterDelete.some((node: {name?: string}) => node?.name === name)
+      : false
+
+    return {
+      nodeId: created.nodeId,
+      createdVisible,
+      deletedVisible,
+    }
+  }, folderName)
+
+  expect(result).toEqual({
+    nodeId: expect.any(Number),
+    createdVisible: true,
+    deletedVisible: true,
+  })
 })

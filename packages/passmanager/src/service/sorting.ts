@@ -1,9 +1,8 @@
 import type {GroupBy, SortDirection, SortField} from './types'
 import type {Entry} from './entry'
 
-/**
- * Утилиты для сортировки и группировки записей менеджера паролей
- */
+/**Utilities for sorting and grouping password manager records
+*/
 
 export interface GroupedEntries {
   groupName: string
@@ -13,14 +12,13 @@ export interface GroupedEntries {
 }
 
 function getPrimaryUrlValue(entry: Entry): string {
-  // Берём первый не-"never" URL как основной.
+  // Take the first non-never URL as the primary URL.
   const rule = entry.urls.find((r) => r.match !== 'never')
   return (rule?.value ?? '').trim()
 }
 
-/**
- * Сортирует массив записей по указанному полю и направлению
- */
+/*** Sorts an array of records by specified field and direction
+*/
 export function sortEntries(entries: Entry[], field: SortField, direction: SortDirection): Entry[] {
   const sorted = [...entries].sort((a, b) => {
     let aValue: string | number
@@ -56,12 +54,12 @@ export function sortEntries(entries: Entry[], field: SortField, direction: SortD
         return 0
     }
 
-    // Обработка пустых значений
+    // Processing empty values
     if (!aValue && !bValue) return 0
     if (!aValue) return direction === 'asc' ? 1 : -1
     if (!bValue) return direction === 'asc' ? -1 : 1
 
-    // Сравнение значений
+    // Comparison of values
     if (typeof aValue === 'string' && typeof bValue === 'string') {
       const result = aValue.localeCompare(bValue, 'ru-RU', {
         numeric: true,
@@ -79,9 +77,8 @@ export function sortEntries(entries: Entry[], field: SortField, direction: SortD
   return sorted
 }
 
-/**
- * Группирует записи по указанному критерию
- */
+/*** Groups records according to this criterion
+*/
 export function groupEntries(
   entries: Entry[],
   groupBy: GroupBy,
@@ -108,7 +105,7 @@ export function groupEntries(
     groups.get(groupKey)!.push(entry)
   }
 
-  // Создаем сгруппированные результаты
+  // Create grouped results
   const result: GroupedEntries[] = []
 
   for (const [groupName, groupEntries] of groups.entries()) {
@@ -120,24 +117,17 @@ export function groupEntries(
     })
   }
 
-  // Сортируем группы
+  // Sorting groups.
   return sortGroups(result, groupBy)
 }
 
-/**
- * Получает ключ группы для записи
- */
+/*** Receives the group key for recording
+*/
 function getGroupKey(entry: Entry, groupBy: GroupBy): string {
   switch (groupBy) {
-    case 'folder': {
-      // Получаем имя группы из parent, если есть
-      const groupName = entry.parent?.name || 'Без папки'
-      return groupName
-    }
-
     case 'website': {
       const website = getPrimaryUrlValue(entry)
-      if (!website) return 'Без сайта'
+      if (!website) return 'No website'
 
       try {
         const domain = new URL(website.startsWith('http') ? website : `https://${website}`).hostname
@@ -152,46 +142,41 @@ function getGroupKey(entry: Entry, groupBy: GroupBy): string {
       const entryDate = new Date(entry.updatedTs)
       const daysDiff = Math.floor((now.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24))
 
-      if (daysDiff === 0) return 'Сегодня'
-      if (daysDiff === 1) return 'Вчера'
-      if (daysDiff < 7) return 'На этой неделе'
-      if (daysDiff < 30) return 'В этом месяце'
-      if (daysDiff < 365) return 'В этом году'
-      return 'Более года назад'
+      if (daysDiff === 0) return 'Today'
+      if (daysDiff === 1) return 'Yesterday'
+      if (daysDiff < 7) return 'This week'
+      if (daysDiff < 30) return 'This month'
+      if (daysDiff < 365) return 'This year'
+      return 'More than a year ago'
     }
 
     case 'security': {
       const hasOtp = entry.otps().length > 0
 
-      // Здесь можно добавить проверку слабых паролей, когда будет доступ к расшифрованному паролю
+      // Here you can add a weak password check when you have access to the decrypted password.
 
-      if (hasOtp) return 'С двухфакторной аутентификацией'
-      return 'Базовая защита'
+      if (hasOtp) return 'With two-factor authentication'
+      return 'Basic protection'
     }
 
     default:
-      return 'Другое'
+      return 'Other'
   }
 }
 
-/**
- * Получает отображаемое имя группы
- */
+/*** Receives the displayed group name
+*/
 function getGroupDisplayName(groupKey: string, _groupBy: GroupBy): string {
-  // В большинстве случаев ключ и отображаемое имя совпадают
+  // In most cases, the key and the displayed name are the same.
   return groupKey
 }
 
-/**
- * Получает иконку для группы
- */
+/*** Gets an icon for the band
+*/
 function getGroupIcon(groupKey: string, groupBy: GroupBy): string {
   switch (groupBy) {
-    case 'folder':
-      return 'folder'
-
     case 'website': {
-      if (groupKey === 'Без сайта') return 'question-circle'
+      if (groupKey === 'No website') return 'question-circle'
       return 'globe'
     }
 
@@ -200,11 +185,11 @@ function getGroupIcon(groupKey: string, groupBy: GroupBy): string {
 
     case 'security': {
       switch (groupKey) {
-        case 'Максимальная защита':
+        case 'Maximum protection':
           return 'shield-check'
-        case 'С двухфакторной аутентификацией':
+        case 'With two-factor authentication':
           return 'shield'
-        case 'С файлами':
+        case 'With files':
           return 'paperclip'
         default:
           return 'key'
@@ -216,40 +201,30 @@ function getGroupIcon(groupKey: string, groupBy: GroupBy): string {
   }
 }
 
-/**
- * Сортирует группы по логическому порядку
- */
+/*** Sorts groups in logical order
+*/
 function sortGroups(groups: GroupedEntries[], groupBy: GroupBy): GroupedEntries[] {
   const sorted = [...groups]
 
   switch (groupBy) {
-    case 'folder':
-      // Сортируем папки по имени, "Без папки" в конец
-      sorted.sort((a, b) => {
-        if (a.groupName === 'Без папки') return 1
-        if (b.groupName === 'Без папки') return -1
-        return a.groupName.localeCompare(b.groupName, 'ru-RU')
-      })
-      break
-
     case 'website':
-      // Сортируем домены по алфавиту, "Без сайта" в конец
+      // Sort domains by alphabet, "No site" at the end
       sorted.sort((a, b) => {
-        if (a.groupName === 'Без сайта') return 1
-        if (b.groupName === 'Без сайта') return -1
+        if (a.groupName === 'No website') return 1
+        if (b.groupName === 'No website') return -1
         return a.groupName.localeCompare(b.groupName, 'ru-RU')
       })
       break
 
     case 'modified': {
-      // Сортируем по времени модификации (новые сверху)
+      // Sort by time of modification (new from above)
       const timeOrder = [
-        'Сегодня',
-        'Вчера',
-        'На этой неделе',
-        'В этом месяце',
-        'В этом году',
-        'Более года назад',
+        'Today',
+        'Yesterday',
+        'This week',
+        'This month',
+        'This year',
+        'More than a year ago',
       ]
       sorted.sort((a, b) => {
         const aIndex = timeOrder.indexOf(a.groupName)
@@ -260,12 +235,12 @@ function sortGroups(groups: GroupedEntries[], groupBy: GroupBy): GroupedEntries[
     }
 
     case 'security': {
-      // Сортируем по уровню безопасности (максимальная защита сверху)
+      // Sort by security level (maximum protection on top)
       const securityOrder = [
-        'Максимальная защита',
-        'С двухфакторной аутентификацией',
-        'С файлами',
-        'Базовая защита',
+        'Maximum protection',
+        'With two-factor authentication',
+        'With files',
+        'Basic protection',
       ]
       sorted.sort((a, b) => {
         const aIndex = securityOrder.indexOf(a.groupName)
@@ -276,7 +251,7 @@ function sortGroups(groups: GroupedEntries[], groupBy: GroupBy): GroupedEntries[
     }
 
     default:
-      // По умолчанию сортируем по количеству записей (больше сверху)
+      // By default, sort by number of records (more on top)
       sorted.sort((a, b) => b.count - a.count)
       break
   }
@@ -284,9 +259,8 @@ function sortGroups(groups: GroupedEntries[], groupBy: GroupBy): GroupedEntries[
   return sorted
 }
 
-/**
- * Фильтрует записи по поисковому запросу с учетом группировки
- */
+/*** Filters entries on the search query, taking into account the grouping
+*/
 export function filterAndGroupEntries(
   entries: Entry[],
   searchQuery: string,
@@ -294,7 +268,7 @@ export function filterAndGroupEntries(
   sortField: SortField,
   sortDirection: SortDirection,
 ): GroupedEntries[] {
-  // Сначала фильтруем записи
+  // First we filter the records.
   let filtered = entries
 
   if (searchQuery.trim()) {
@@ -308,6 +282,6 @@ export function filterAndGroupEntries(
     })
   }
 
-  // Затем группируем
+  // Then group together.
   return groupEntries(filtered, groupBy, sortField, sortDirection)
 }

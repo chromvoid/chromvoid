@@ -144,7 +144,15 @@ describe('SSH metadata preservation', () => {
         title: 'SSH Test',
         username: 'user',
         urls: [],
-        sshKeys: [{id: 'k1', type: 'ed25519', fingerprint: 'SHA256:abc123', comment: 'test@host'}],
+        sshKeys: [
+          {
+            id: 'k1',
+            type: 'ed25519',
+            fingerprint: 'SHA256:abc123',
+            name: 'SSH Test Key',
+            comment: 'test@host',
+          },
+        ],
       },
       'pw',
       '',
@@ -158,7 +166,15 @@ describe('SSH metadata preservation', () => {
     await new Promise((r) => setTimeout(r, 50))
 
     expect(saver.lastMetaCall).not.toBeNull()
-    expect(saver.lastMetaCall!.sshKeys).toEqual([{id: 'k1', type: 'ed25519', fingerprint: 'SHA256:abc123', comment: 'test@host'}])
+    expect(saver.lastMetaCall!.sshKeys).toEqual([
+      {
+        id: 'k1',
+        type: 'ed25519',
+        fingerprint: 'SHA256:abc123',
+        name: 'SSH Test Key',
+        comment: 'test@host',
+      },
+    ])
   })
 
   it('entry.addOTP() preserves sshKeys array in saveEntryMeta call', async () => {
@@ -197,12 +213,36 @@ describe('SSH metadata preservation', () => {
 
     saver.lastMetaCall = null
 
-    await entry.updateSshKeys([{id: 'k3', type: 'ecdsa', fingerprint: 'SHA256:ec789', comment: 'ec@key'}])
+    await entry.updateSshKeys([
+      {
+        id: 'k3',
+        type: 'ecdsa',
+        fingerprint: 'SHA256:ec789',
+        name: 'ECDSA deploy key',
+        comment: 'ec@key',
+      },
+    ])
 
-    expect(entry.sshKeys).toEqual([{id: 'k3', type: 'ecdsa', fingerprint: 'SHA256:ec789', comment: 'ec@key'}])
+    expect(entry.sshKeys).toEqual([
+      {
+        id: 'k3',
+        type: 'ecdsa',
+        fingerprint: 'SHA256:ec789',
+        name: 'ECDSA deploy key',
+        comment: 'ec@key',
+      },
+    ])
 
     expect(saver.lastMetaCall).not.toBeNull()
-    expect(saver.lastMetaCall!.sshKeys).toEqual([{id: 'k3', type: 'ecdsa', fingerprint: 'SHA256:ec789', comment: 'ec@key'}])
+    expect(saver.lastMetaCall!.sshKeys).toEqual([
+      {
+        id: 'k3',
+        type: 'ecdsa',
+        fingerprint: 'SHA256:ec789',
+        name: 'ECDSA deploy key',
+        comment: 'ec@key',
+      },
+    ])
   })
 
   it('entry.removeSshKey() removes one key from array and deletes secrets', async () => {

@@ -6,15 +6,15 @@ declare global {
   var __E2E_PAGE__: import('playwright').Page | undefined
 }
 
-test('S4: синхронизация каталога', async () => {
+test('S4: catalog synchronization', async () => {
   const page = globalThis.__E2E_PAGE__!
   await page.goto('http://localhost:4400/index.html')
   await waitForAuthenticated(page)
 
-  // ждём уведомление об успешной синхронизации (не строго обязательно)
+  // Give background catalog synchronization a short moment to settle.
   await page.waitForTimeout(300)
 
-  // проверяем наличие детей в корне
+  // Check the presence of children at the root
   const hasChildren = await page.evaluate(() => {
     const cat = (window as any).catalog
     if (!cat?.catalog) return false

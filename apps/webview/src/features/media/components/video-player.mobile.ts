@@ -1,4 +1,5 @@
-import {html, css, nothing} from 'lit'
+import {css, nothing} from 'lit'
+import {html} from '@chromvoid/uikit/reatom-lit'
 import {i18n} from 'root/i18n'
 import {animationStyles} from 'root/shared/ui/shared-styles'
 import {canShareFiles, shareFile} from 'root/shared/services/share'
@@ -94,6 +95,59 @@ export class VideoPlayerMobile extends VideoPlayerBase {
         animation: spin 0.8s linear infinite;
       }
 
+      .fallback-card {
+        inline-size: min(520px, calc(100% - var(--app-spacing-6)));
+        display: grid;
+        gap: var(--app-spacing-4);
+        justify-items: center;
+        padding: var(--app-spacing-5);
+        border: 1px solid var(--cv-alpha-white-20);
+        border-radius: var(--cv-radius-4);
+        background: var(--cv-alpha-white-10);
+        color: white;
+        text-align: center;
+      }
+
+      .fallback-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        inline-size: 56px;
+        block-size: 56px;
+        border-radius: var(--cv-radius-3);
+        background: var(--cv-alpha-white-15);
+      }
+
+      .fallback-title {
+        font-size: var(--cv-font-size-lg);
+        font-weight: var(--cv-font-weight-semibold);
+      }
+
+      .fallback-copy {
+        color: var(--cv-alpha-white-70);
+        line-height: 1.55;
+      }
+
+      .fallback-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: var(--app-spacing-2);
+      }
+
+      .fallback-button {
+        min-height: 40px;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--app-spacing-2);
+        padding: 0 var(--app-spacing-3);
+        border: 1px solid var(--cv-alpha-white-20);
+        border-radius: var(--cv-radius-2);
+        background: var(--cv-alpha-white-10);
+        color: white;
+        cursor: pointer;
+      }
+
       .footer {
         padding: var(--app-spacing-3);
         padding-bottom: max(var(--app-spacing-4), env(safe-area-inset-bottom));
@@ -101,7 +155,7 @@ export class VideoPlayerMobile extends VideoPlayerBase {
     `,
   ]
 
-  private handleShare = () => {
+  private handleShare() {
     void shareFile(this.fileId, this.fileName)
   }
 
@@ -110,7 +164,14 @@ export class VideoPlayerMobile extends VideoPlayerBase {
 
     const url = this.videoUrl()
     const isLoading = this.loading()
+    const fallbackLimited = this.fallbackLimited()
+    const errorMessage = this.errorMessage()
+    const nativeVideo = this.sourceKind() === 'android-native-video'
     const showShare = canShareFiles()
+
+    if (nativeVideo && !isLoading && !fallbackLimited && !errorMessage) {
+      return nothing
+    }
 
     return html`
       <div
@@ -120,20 +181,26 @@ export class VideoPlayerMobile extends VideoPlayerBase {
         aria-label=${this.fileName || i18n('media:video-player' as any)}
       >
         <div class="header">
-          <button class="close-button" @click=${this.close} aria-label=${i18n('button:close' as any)}>
+          <cv-button
+            unstyled
+            class="close-button"
+            @click=${this.close}
+            aria-label=${i18n('button:close' as any)}
+          >
             <cv-icon name="x" size="m"></cv-icon>
-          </button>
+          </cv-button>
           <span class="file-name">${this.fileName}</span>
           <div class="header-actions">
             ${showShare
               ? html`
-                  <button
+                  <cv-button
+                    unstyled
                     class="share-button"
                     @click=${this.handleShare}
                     aria-label=${i18n('action:share' as any)}
                   >
-                    <cv-icon name="share" size="m"></cv-icon>
-                  </button>
+                    <cv-icon name="share-2" size="m"></cv-icon>
+                  </cv-button>
                 `
               : nothing}
           </div>
@@ -142,11 +209,60 @@ export class VideoPlayerMobile extends VideoPlayerBase {
         <div class="main">
           ${isLoading
             ? html`<div class="loading-spinner"></div>`
-            : url
+            : fallbackLimited
               ? html`
-                  <video class="player-video" src=${url} controls playsinline webkit-playsinline></video>
+                  <div class="fallback-card">
+                    <div class="fallback-icon">
+                      <cv-icon name="file-earmark-play" size="l"></cv-icon>
+                    </div>
+                    <div class="fallback-title">${i18n('media:fallback-limited-title' as any)}</div>
+                    <div class="fallback-copy">${i18n('media:fallback-limited-copy' as any)}</div>
+                    <div class="fallback-actions">
+                      <cv-button unstyled class="fallback-button" @click=${this.handleOpenExternal}>
+                        <cv-icon slot="prefix" name="box-arrow-up-right" size="s"></cv-icon>
+                        <span>${i18n('action:open-external' as any)}</span>
+                      </cv-button>
+                      <cv-button unstyled class="fallback-button" @click=${this.handleDownload}>
+                        <cv-icon slot="prefix" name="download" size="s"></cv-icon>
+                        <span>${i18n('action:download' as any)}</span>
+                      </cv-button>
+                    </div>
+                  </div>
                 `
-              : nothing}
+              : errorMessage
+                ? html`
+                    <div class="fallback-card">
+                      <div class="fallback-icon">
+                        <cv-icon name="file-earmark-play" size="l"></cv-icon>
+                      </div>
+                      <div class="fallback-title">${errorMessage}</div>
+                      <div class="fallback-copy">${i18n('media:video-error-copy' as any)}</div>
+                      <div class="fallback-actions">
+                        <cv-button unstyled class="fallback-button" @click=${this.handleOpenExternal}>
+                          <cv-icon slot="prefix" name="box-arrow-up-right" size="s"></cv-icon>
+                          <span>${i18n('action:open-external' as any)}</span>
+                        </cv-button>
+                        <cv-button unstyled class="fallback-button" @click=${this.handleDownload}>
+                          <cv-icon slot="prefix" name="download" size="s"></cv-icon>
+                          <span>${i18n('action:download' as any)}</span>
+                        </cv-button>
+                      </div>
+                    </div>
+                  `
+                : url
+                  ? html`
+                      <video
+                        class="player-video"
+                        src=${url}
+                        controls
+                        playsinline
+                        webkit-playsinline
+                        @loadedmetadata=${this.handleVideoElementReady}
+                        @canplay=${this.handleVideoElementReady}
+                        @error=${this.handleVideoElementError}
+                      ></video>
+                    `
+                  : nothing}
         </div>
 
         <div class="footer"></div>

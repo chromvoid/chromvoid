@@ -1,8 +1,7 @@
-import {TouchDragDropController, isTouchDevice} from 'root/utils/touch-drag-drop'
-
 import type {FileItemData, ViewMode} from 'root/shared/contracts/file-manager'
+import {getAppContext} from 'root/shared/services/app-context'
 
-import {getDragData} from './utils'
+import {getFileManagerModel} from '../../file-manager.model'
 import {FileItemModel, type SwipeFinishResult} from '../../models/file-item.model'
 
 export type FileItemEventType =
@@ -20,6 +19,9 @@ type EmitFileItemEvent = <T>(type: FileItemEventType, detail: T, options?: boole
 export interface TouchDragDropBinding {
   destroy: () => void
 }
+
+const isTouchDevice = (): boolean =>
+  typeof window !== 'undefined' && !!window.matchMedia?.('(hover: none) and (pointer: coarse)')?.matches
 
 export const emitItemClick = (
   model: FileItemModel,
@@ -108,22 +110,34 @@ export const emitSwipeAction = (
   emit(action === 'rename' ? 'item-rename' : 'item-delete', item)
 }
 
+function fileMoveModel() {
+  try {
+    return getFileManagerModel(getAppContext()).fileMove
+  } catch {
+    return null
+  }
+}
+
 export const onDragStart = (item: FileItemData, event: DragEvent) => {
-  if (!event.dataTransfer) return
-  event.dataTransfer.setData('application/json', getDragData(item))
-  event.dataTransfer.effectAllowed = 'move'
+  fileMoveModel()?.setDragData(event, item.id)
 }
 
 export const onDragOver = (item: FileItemData, setDragOver: (value: boolean) => void, event: DragEvent) => {
   if (!item.isDir) return
+  const model = fileMoveModel()
+  const payload = model?.readDragPayload(event.dataTransfer) ?? null
+  if (!model?.canDropToTarget(item.path || '/', payload)) return
+
   event.preventDefault()
   if (event.dataTransfer) {
     event.dataTransfer.dropEffect = 'move'
   }
+  model.setDropTarget(item.path || '/')
   setDragOver(true)
 }
 
 export const onDragLeave = (setDragOver: (value: boolean) => void) => {
+  fileMoveModel()?.setDropTarget(null)
   setDragOver(false)
 }
 
@@ -132,68 +146,79 @@ export const onDrop = (item: FileItemData, emit: EmitFileItemEvent, event: DragE
 
   if (!item.isDir) return
 
-  const data = event.dataTransfer?.getData('application/json')
-  if (!data) return
+  const model = fileMoveModel()
+  const payload = model?.readDragPayload(event.dataTransfer) ?? null
+  model?.setDropTarget(null)
+  if (!model || !payload || !model.canDropToTarget(item.path || '/', payload)) return
 
-  const source = JSON.parse(data) as FileItemData
-  emit('item-drop', {target: item, source})
+  const sourceId = payload.kind === 'selection' ? payload.anchorId : payload.id
+  const source = getFileManagerModel(getAppContext()).getFileItemById(sourceId)
+  if (!source) return
+
+  emit('item-drop', {target: item, source, payload})
 }
 
 export const setupTouchDragDrop = (params: {
   item: FileItemData
-  itemElement: HTMLElement | null
   dragHandle: HTMLElement | null
   model: FileItemModel
-  emitDrop: (source: FileItemData) => void
   onTouchDragStateChange?: (value: boolean) => void
 }) => {
   if (!isTouchDevice()) return undefined
-  if (!params.itemElement || !params.dragHandle) return undefined
+  if (!params.dragHandle) return undefined
 
-  const controller = new TouchDragDropController(params.dragHandle, {
-    longPressDelay: 600,
-    dragThreshold: 15,
-    hapticFeedback: true,
-    touchOnly: true,
-  })
+  let pointerId: number | null = null
 
-  controller.setDragData(params.item)
-  controller.on('start', () => {
+  const clearTouchDragging = () => {
+    params.model.setTouchDragging(false)
+    params.onTouchDragStateChange?.(false)
+  }
+
+  const onPointerDown = (event: PointerEvent) => {
+    if (event.pointerType === 'mouse' || pointerId !== null) return
+    const model = fileMoveModel()
+    if (!model?.beginMobileDrag(params.item.id, {x: event.clientX, y: event.clientY})) return
+
+    pointerId = event.pointerId
+    params.dragHandle?.setPointerCapture?.(event.pointerId)
     params.model.setTouchDragging(true)
     params.onTouchDragStateChange?.(true)
-  })
-  controller.on('end', () => {
-    params.model.setTouchDragging(false)
-    params.onTouchDragStateChange?.(false)
-  })
-  controller.on('cancel', () => {
-    params.model.setTouchDragging(false)
-    params.onTouchDragStateChange?.(false)
-  })
+  }
 
-  if (params.item.isDir) {
-    controller.addDropZone(params.itemElement)
-    const onTouchDrop = (event: Event) => {
-      const customEvent = event as CustomEvent
-      const {data, source} = customEvent.detail as {data: FileItemData; source: HTMLElement}
-      if (data && source !== params.itemElement) {
-        params.emitDrop(data)
-      }
-    }
-
-    params.itemElement.addEventListener('touch-drop', onTouchDrop)
-
-    return {
-      destroy() {
-        controller.destroy()
-        params.itemElement?.removeEventListener('touch-drop', onTouchDrop)
-      },
+  const onPointerMove = (event: PointerEvent) => {
+    if (pointerId !== event.pointerId) return
+    if (fileMoveModel()?.moveMobileDrag({x: event.clientX, y: event.clientY})) {
+      event.preventDefault()
     }
   }
 
+  const finishPointerDrag = (event: PointerEvent, commit: boolean) => {
+    if (pointerId !== event.pointerId) return
+    pointerId = null
+    params.dragHandle?.releasePointerCapture?.(event.pointerId)
+    clearTouchDragging()
+    if (commit) {
+      void fileMoveModel()?.commitMobileDrag({x: event.clientX, y: event.clientY})
+    } else {
+      fileMoveModel()?.cancelMobileDrag()
+    }
+  }
+
+  const onPointerUp = (event: PointerEvent) => finishPointerDrag(event, true)
+  const onPointerCancel = (event: PointerEvent) => finishPointerDrag(event, false)
+
+  params.dragHandle.addEventListener('pointerdown', onPointerDown)
+  params.dragHandle.addEventListener('pointermove', onPointerMove)
+  params.dragHandle.addEventListener('pointerup', onPointerUp)
+  params.dragHandle.addEventListener('pointercancel', onPointerCancel)
+
   return {
     destroy() {
-      controller.destroy()
+      params.dragHandle?.removeEventListener('pointerdown', onPointerDown)
+      params.dragHandle?.removeEventListener('pointermove', onPointerMove)
+      params.dragHandle?.removeEventListener('pointerup', onPointerUp)
+      params.dragHandle?.removeEventListener('pointercancel', onPointerCancel)
+      fileMoveModel()?.cancelMobileDrag()
     },
   }
 }

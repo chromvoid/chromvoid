@@ -1,9 +1,10 @@
 import {type GroupBy, type SortDirection, type SortField} from 'root/features/passmanager/components/list/sort-controls'
+import type {KeyboardShortcutId} from 'root/shared/keyboard'
 
 export type CommandCategory = 'navigation' | 'actions' | 'filters' | 'search'
-export type CommandContext = 'files' | 'passwords-list' | 'passwords-entry' | 'none'
+export type CommandContext = 'files' | 'notes' | 'passwords-list' | 'passwords-entry' | 'none'
 
-export type PasswordQuickFilter = 'recent' | 'otp' | 'files' | 'nopass' | 'favorites'
+export type PasswordQuickFilter = 'recent' | 'otp' | 'ssh' | 'card'
 
 export type PasswordsMobileCommandContext = {
   kind: 'passwords-list' | 'passwords-entry' | 'none'
@@ -16,17 +17,12 @@ export type PasswordsMobileCommandContext = {
   groupBy: GroupBy
 }
 
-export type PasswordsMobileCommandProvider = HTMLElement & {
-  getMobileCommandContext?: () => PasswordsMobileCommandContext
-  executeMobileCommand?: (actionId: string, payload?: {query?: string}) => boolean
-}
-
 export type Command = {
   id: string
   icon: string
   label: string
   category: CommandCategory
-  shortcut?: string
+  shortcutId?: KeyboardShortcutId
   keywords?: string[]
   disabled?: boolean
   action: () => void

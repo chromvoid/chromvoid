@@ -1,14 +1,12 @@
-import {
-  CVBadge,
-  CVButton,
-  CVCard,
-  CVCopyButton,
-  CVInput,
-  CVProgressRing,
-  CVSelect,
-  CVSelectOption,
-  CVTooltip,
-} from '@chromvoid/uikit'
+import {CVBadge} from '@chromvoid/uikit/components/cv-badge'
+import {CVButton} from '@chromvoid/uikit/components/cv-button'
+import {CVCard} from '@chromvoid/uikit/components/cv-card'
+import {CVCopyButton} from '@chromvoid/uikit/components/cv-copy-button'
+import {CVInput} from '@chromvoid/uikit/components/cv-input'
+import {CVProgressRing} from '@chromvoid/uikit/components/cv-progress-ring'
+import {CVSelect} from '@chromvoid/uikit/components/cv-select'
+import {CVSelectOption} from '@chromvoid/uikit/components/cv-select-option'
+import {CVTooltip} from '@chromvoid/uikit/components/cv-tooltip'
 
 CVBadge.define()
 CVButton.define()

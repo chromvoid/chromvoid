@@ -7,7 +7,7 @@ describe('getImportDialogFileAccept', () => {
       getImportDialogFileAccept(
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36',
       ),
-    ).toBe('.kdbx,.json,.csv')
+    ).toBe('.kdbx,.json,.csv,.1pux')
   })
 
   it('removes the accept filter on Android so .kdbx stays selectable', () => {

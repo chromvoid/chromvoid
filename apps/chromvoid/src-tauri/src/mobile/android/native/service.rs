@@ -31,9 +31,7 @@ pub fn stop_connection_service() -> bool {
 
 fn jni_start_service(device_name: &str) -> Result<(), String> {
     super::jni::with_jni_env("start_connection_service", |env, context| {
-        let class = env
-            .find_class(SERVICE_CLASS)
-            .map_err(|e| format!("find_class: {e}"))?;
+        let class = super::jni::find_class(env, &context, SERVICE_CLASS)?;
 
         let j_device_name = env
             .new_string(device_name)
@@ -56,9 +54,7 @@ fn jni_start_service(device_name: &str) -> Result<(), String> {
 
 fn jni_stop_service() -> Result<(), String> {
     super::jni::with_jni_env("stop_connection_service", |env, context| {
-        let class = env
-            .find_class(SERVICE_CLASS)
-            .map_err(|e| format!("find_class: {e}"))?;
+        let class = super::jni::find_class(env, &context, SERVICE_CLASS)?;
 
         env.call_static_method(
             class,
@@ -77,5 +73,7 @@ pub extern "system" fn Java_com_chromvoid_app_ConnectionForegroundService_native
     _env: *mut c_void,
     _this: *mut c_void,
 ) {
-    let _ = crate::network::mobile_acceptor::stop_listening();
+    if let Some(runtime) = super::super::runtime::app_mobile_acceptor_runtime() {
+        let _ = crate::network::mobile_acceptor::stop_listening(&runtime);
+    }
 }

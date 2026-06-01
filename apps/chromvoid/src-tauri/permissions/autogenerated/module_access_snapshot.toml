@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-module-access-snapshot"
+description = "Enables the module_access_snapshot command without any pre-configured scope."
+commands.allow = ["module_access_snapshot"]
+
+[[permission]]
+identifier = "deny-module-access-snapshot"
+description = "Denies the module_access_snapshot command without any pre-configured scope."
+commands.deny = ["module_access_snapshot"]

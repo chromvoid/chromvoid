@@ -2,11 +2,15 @@ import {type CSSResult, css} from 'lit'
 
 import {sharedStyles as baseSharedStyles} from './base-shared-styles'
 
-// Локальные расширения к базовым стилям @chromvoid/ui. Убираем дублирование базового normalize/утилит,
-// оставляем только дополнительные оптимизации и утилиты, специфичные для приложения.
+// Local extensions to basic styles @chromvoid/ui. Remove duplication of basic normalize/utility,
+// We leave only additional optimizations and utilities specific to the application.
 export const sharedStyles: CSSResult[] = [
   ...baseSharedStyles,
   css`
+    :host {
+      --app-spacing: var(--app-spacing-4);
+    }
+
     /* ========== CONTAINMENT RULES ========== */
     .header-container {
       contain: layout paint style;
@@ -48,10 +52,11 @@ export const sharedStyles: CSSResult[] = [
     }
 
 
-    /* ========== FOCUS-VISIBLE СОСТОЯНИЯ ========== */
+    /*============= FOCUS-VISIBLE states =========================================================================================================================================================================================================================================*/
 
-    /* Базовый focus-visible для интерактивных элементов */
+    /*Basic focus-visible for interactive elements*/
     .focus-ring:focus-visible,
+    cv-button:focus-within,
     button:focus-visible,
     [role='button']:focus-visible,
     a:focus-visible,
@@ -135,6 +140,10 @@ export const motionPrimitiveStyles: CSSResult = css`
   /* floatY, shimmer, progressShimmer: removed — infinite animations hurt responsiveness */
 
   :host {
+    --motion-reveal-start-opacity: 0;
+    --motion-reveal-end-opacity: 1;
+    --motion-spin-duration: 1s;
+    --motion-spin-easing: linear;
     --motion-reveal-animation: reveal 0.4s var(--motion-reveal-easing, var(--cv-easing-standard, ease-in-out)) both;
     --motion-reveal-easing: var(--cv-easing-standard, ease-in-out);
     --motion-fade-up-animation: fadeInUp 0.35s var(--motion-fade-up-easing, var(--cv-easing-standard, ease-in-out)) both;
@@ -147,6 +156,135 @@ export const motionPrimitiveStyles: CSSResult = css`
 `
 
 export const animationStyles: CSSResult = motionPrimitiveStyles
+
+export const functionalMotionStyles: CSSResult = css`
+  @keyframes motion-text-swap-in {
+    from {
+      opacity: 0;
+      transform: translateY(var(--motion-text-swap-distance, 6px));
+      filter: blur(var(--motion-text-swap-blur, 2px));
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+      filter: blur(0);
+    }
+  }
+
+  @keyframes motion-number-pop-in {
+    from {
+      opacity: 0;
+      transform: translateY(var(--motion-number-pop-distance, 4px)) scale(var(--motion-number-pop-scale, 0.92));
+      filter: blur(var(--motion-number-pop-blur, 2px));
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+  }
+
+  @keyframes motion-icon-swap-in {
+    from {
+      opacity: 0;
+      transform: scale(var(--motion-icon-swap-scale, 0.78));
+      filter: blur(var(--motion-icon-swap-blur, 2px));
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+      filter: blur(0);
+    }
+  }
+
+  @keyframes motion-success-check-in {
+    from {
+      opacity: 0;
+      transform: rotate(-8deg) scale(0.86);
+      filter: blur(2px);
+    }
+    to {
+      opacity: 1;
+      transform: rotate(0) scale(1);
+      filter: blur(0);
+    }
+  }
+
+  .motion-panel-reveal {
+    display: grid;
+    grid-template-rows: 1fr;
+    opacity: 1;
+    overflow: hidden;
+    transform: translateY(0);
+    filter: blur(0);
+    transition:
+      grid-template-rows var(--cv-duration-normal) var(--cv-easing-decelerate),
+      opacity var(--cv-duration-normal) var(--cv-easing-standard),
+      transform var(--cv-duration-normal) var(--cv-easing-decelerate),
+      filter var(--cv-duration-fast) var(--cv-easing-standard);
+  }
+
+  .motion-panel-reveal[data-expanded='false'] {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(var(--motion-panel-reveal-distance, -8px));
+    filter: blur(var(--motion-panel-reveal-blur, 2px));
+  }
+
+  .motion-panel-reveal__inner {
+    min-block-size: 0;
+    overflow: hidden;
+  }
+
+  .motion-text-swap {
+    display: inline-block;
+    animation: motion-text-swap-in var(--cv-duration-fast) var(--cv-easing-decelerate) both;
+    will-change: opacity, transform, filter;
+  }
+
+  .motion-number-pop,
+  .motion-number-pop__digit {
+    animation: motion-number-pop-in var(--cv-duration-fast) var(--cv-easing-decelerate) both;
+    will-change: opacity, transform, filter;
+  }
+
+  .motion-icon-swap {
+    animation: motion-icon-swap-in var(--cv-duration-fast) var(--cv-easing-standard) both;
+    will-change: opacity, transform, filter;
+  }
+
+  .motion-success-check {
+    animation: motion-success-check-in var(--cv-duration-normal) var(--cv-easing-decelerate) both;
+    will-change: opacity, transform, filter;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .motion-panel-reveal {
+      transform: none;
+      filter: none;
+      transition:
+        grid-template-rows var(--cv-duration-fast) var(--cv-easing-standard),
+        opacity var(--cv-duration-fast) var(--cv-easing-standard);
+    }
+
+    .motion-panel-reveal[data-expanded='false'] {
+      transform: none;
+      filter: none;
+    }
+
+    .motion-text-swap,
+    .motion-number-pop,
+    .motion-number-pop__digit,
+    .motion-icon-swap,
+    .motion-success-check {
+      transform: none;
+      filter: none;
+      animation: none;
+      will-change: auto;
+    }
+  }
+`
 
 export const pageTransitionStyles: CSSResult = css`
   :host {

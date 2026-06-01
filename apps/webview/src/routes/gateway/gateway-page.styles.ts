@@ -67,24 +67,24 @@ export const gatewayPageStyles = [
       font-size: var(--cv-font-size-xs);
       font-weight: var(--cv-font-weight-semibold);
       border: 1px solid var(--cv-color-border);
-      background: color-mix(in oklch, var(--cv-color-info) 10%, var(--cv-color-surface));
+      background: var(--cv-color-info-surface);
       color: var(--cv-color-text);
       white-space: nowrap;
     }
 
     .badge.success {
-      background: color-mix(in oklch, var(--cv-color-success) 15%, var(--cv-color-surface));
-      border-color: color-mix(in oklch, var(--cv-color-success) 30%, var(--cv-color-border));
+      background: var(--cv-color-success-surface);
+      border-color: var(--cv-color-success-border);
     }
 
     .badge.warning {
-      background: color-mix(in oklch, var(--cv-color-warning) 15%, var(--cv-color-surface));
-      border-color: color-mix(in oklch, var(--cv-color-warning) 30%, var(--cv-color-border));
+      background: var(--cv-color-warning-surface);
+      border-color: var(--cv-color-warning-border);
     }
 
     .badge.danger {
-      background: color-mix(in oklch, var(--cv-color-danger) 15%, var(--cv-color-surface));
-      border-color: color-mix(in oklch, var(--cv-color-danger) 30%, var(--cv-color-border));
+      background: var(--cv-color-danger-surface);
+      border-color: var(--cv-color-danger-border);
     }
 
     .card-body {
@@ -207,6 +207,10 @@ export const gatewayPageStyles = [
       padding: var(--app-spacing-4) 0;
     }
 
+    .empty-state.empty-state-compact {
+      padding: 0;
+    }
+
     .pin-display {
       display: flex;
       justify-content: center;
@@ -251,7 +255,8 @@ export const gatewayPageStyles = [
       height: 100%;
       background: var(--cv-color-brand);
       border-radius: 3px;
-      transition: width 1s linear;
+      inline-size: var(--gateway-pairing-progress, 0%);
+      transition: inline-size 1s linear;
     }
 
     .progress-bar-fill.warn {
@@ -275,35 +280,32 @@ export const gatewayPageStyles = [
       padding-block-start: var(--app-spacing-2);
     }
 
-    .hint-block {
+    cv-callout.gateway-callout {
+      --cv-callout-padding-block: var(--app-spacing-3);
+      --cv-callout-padding-inline: var(--app-spacing-3);
+      --cv-callout-border-radius: var(--cv-radius-2);
+      --cv-callout-font-size: var(--cv-font-size-sm);
+      text-align: center;
+    }
+
+    cv-callout.gateway-callout::part(base) {
+      justify-content: center;
+    }
+
+    cv-callout.gateway-callout::part(message) {
       display: grid;
       gap: var(--app-spacing-2);
-      padding: var(--app-spacing-3);
-      border-radius: var(--cv-radius-2);
-      border: 1px solid color-mix(in oklch, var(--cv-color-warning) 30%, var(--cv-color-border));
-      background: color-mix(in oklch, var(--cv-color-warning) 10%, var(--cv-color-surface));
+      min-inline-size: 0;
+    }
+
+    .gateway-callout-title {
+      font-weight: var(--cv-font-weight-semibold);
       color: var(--cv-color-text);
-      text-align: center;
-
-      .hint-title {
-        font-weight: var(--cv-font-weight-semibold);
-      }
-
-      .hint-text {
-        color: var(--cv-color-text-muted);
-        font-size: var(--cv-font-size-sm);
-        line-height: 1.5;
-      }
     }
 
-    .hint-block.danger {
-      border-color: color-mix(in oklch, var(--cv-color-danger) 30%, var(--cv-color-border));
-      background: color-mix(in oklch, var(--cv-color-danger) 10%, var(--cv-color-surface));
-    }
-
-    .hint-block.info {
-      border-color: color-mix(in oklch, var(--cv-color-info) 30%, var(--cv-color-border));
-      background: color-mix(in oklch, var(--cv-color-info) 10%, var(--cv-color-surface));
+    .gateway-callout-text {
+      color: var(--cv-color-text-muted);
+      line-height: 1.5;
     }
 
     .ext-actions {

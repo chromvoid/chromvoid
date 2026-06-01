@@ -43,12 +43,19 @@ pub fn classify_command(command: &str) -> CommandCategory {
     match command {
         "catalog:secret:read"
         | "catalog:secret:write"
+        | "catalog:derivative:read"
+        | "catalog:derivative:write"
         | "catalog:download"
         | "catalog:upload"
         | "passmanager:secret:read"
         | "passmanager:otp:generate" => CommandCategory::Sensitive,
-        "catalog:createDir" | "catalog:rename" | "catalog:delete" | "catalog:move"
-        | "catalog:createFile" | "catalog:updateMeta" => CommandCategory::CatalogWrite,
+        "catalog:createDir"
+        | "catalog:rename"
+        | "catalog:delete"
+        | "catalog:move"
+        | "catalog:createFile"
+        | "catalog:updateMeta"
+        | "catalog:file:replace" => CommandCategory::CatalogWrite,
         _ => CommandCategory::ReadOnly,
     }
 }

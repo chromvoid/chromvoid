@@ -4,10 +4,11 @@
   "version": "0.1.0",
   "identifier": "com.chromvoid.app",
   "build": {
-    "beforeDevCommand": "cd ../webview && bun run dev",
-    "beforeBuildCommand": "cd ../webview && bun run build",
+    "beforeDevCommand": "cd ../webview && npm run dev",
+    "beforeBuildCommand": "node ./scripts/build-webview-if-needed.mjs",
     "devUrl": "http://localhost:4400",
-    "frontendDist": "../../webview/dist"
+    "frontendDist": "../../webview/dist",
+    "features": ["desktop"]
   },
   "bundle": {
     "active": true,
@@ -30,7 +31,11 @@
     ],
     "security": {
       "capabilities": ["main-window", "mobile"],
-      "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self' data: ipc: http://ipc.localhost ws://127.0.0.1:8003; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none';"
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPCACHE/chromvoid-preview/**"]
+      },
+      "csp": "default-src 'self'; img-src 'self' data: blob: asset: http://asset.localhost; media-src 'self' blob: asset: chromvoid-media: http://asset.localhost; style-src 'self'; script-src 'self'; connect-src 'self' data: ipc: http://ipc.localhost ws://127.0.0.1:8003; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none';"
     }
   }
 }

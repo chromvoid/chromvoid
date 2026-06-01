@@ -15,11 +15,15 @@ mod native {
     const AUTH_TIMEOUT: Duration = Duration::from_secs(30);
 
     pub fn biometric_bridge_available() -> bool {
+        // SAFETY: objc2 LocalAuthentication API; LAContext::new returns a +1 retained instance with no
+        // required arguments.
         let context = unsafe { LAContext::new() };
         can_evaluate_biometrics(&context).is_ok()
     }
 
     pub fn authenticate_with_biometric(reason: &str) -> Result<(), BiometricAuthError> {
+        // SAFETY: objc2 LocalAuthentication API; LAContext::new returns a +1 retained instance with no
+        // required arguments.
         let context = unsafe { LAContext::new() };
         can_evaluate_biometrics(&context)?;
 
@@ -35,6 +39,8 @@ mod native {
             let _ = tx.send(result);
         });
 
+        // SAFETY: context is a +1 LAContext; localized_reason is a live NSString borrow; reply is an
+        // RcBlock retained for the call's lifetime.
         unsafe {
             context.evaluatePolicy_localizedReason_reply(
                 LAPolicy::DeviceOwnerAuthenticationWithBiometrics,
@@ -48,6 +54,8 @@ mod native {
     }
 
     fn can_evaluate_biometrics(context: &LAContext) -> Result<(), BiometricAuthError> {
+        // SAFETY: context is a +1 LAContext borrow; canEvaluatePolicy_error fills an out-error and
+        // returns Result.
         unsafe {
             context
                 .canEvaluatePolicy_error(LAPolicy::DeviceOwnerAuthenticationWithBiometrics)
@@ -62,6 +70,8 @@ mod native {
             return BiometricAuthError::unavailable(fallback);
         }
 
+        // SAFETY: error was null-checked on line 61; LocalAuthentication populates it as a non-null
+        // NSError when the failure path runs.
         let error = unsafe { &*error };
         map_error_code(error.code(), error.localizedDescription().to_string())
     }

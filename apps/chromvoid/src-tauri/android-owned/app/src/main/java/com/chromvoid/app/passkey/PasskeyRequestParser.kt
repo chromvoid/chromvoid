@@ -58,6 +58,10 @@ internal object PasskeyRequestParser {
                 excludeCredentialIds += id
             }
         }
+        val extensions = json.optJSONObject("extensions")
+        val authenticatorSelection = json.optJSONObject("authenticatorSelection")
+        val residentKey = authenticatorSelection?.optString("residentKey").orEmpty()
+        val requireResidentKey = authenticatorSelection?.optBoolean("requireResidentKey", false) == true
         return CreatePasskeyRequestData(
             rpId = rpId,
             rpName = rp.optString("name"),
@@ -68,6 +72,8 @@ internal object PasskeyRequestParser {
             supportedAlgorithms = supportedAlgorithms,
             excludeCredentialIds = excludeCredentialIds,
             attestationPreference = json.optString("attestation").ifBlank { "none" },
+            credPropsRequested = extensions?.optBoolean("credProps", false) == true,
+            residentKeyRequired = requireResidentKey || residentKey == "required",
         )
     }
 }

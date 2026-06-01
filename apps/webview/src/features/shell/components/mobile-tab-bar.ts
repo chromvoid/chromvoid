@@ -1,12 +1,12 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html} from 'lit'
+import {css} from 'lit'
 
 import {i18n} from 'root/i18n'
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 
-export class MobileTabBar extends XLitElement {
+export class MobileTabBar extends ReatomLitElement {
   static elementName = 'mobile-tab-bar'
   static define() {
     if (!customElements.get(this.elementName)) {
@@ -23,7 +23,7 @@ export class MobileTabBar extends XLitElement {
 
       @media (max-width: 767px) {
         :host {
-          display: block;
+          display: var(--mobile-tab-bar-keyboard-aware-display, block);
           position: fixed;
           bottom: 0;
           left: 0;
@@ -32,7 +32,7 @@ export class MobileTabBar extends XLitElement {
           background: var(--cv-color-bg);
           backdrop-filter: blur(12px);
           -webkit-backdrop-filter: blur(12px);
-          border-top: 1px solid var(--border-subtle, var(--cv-alpha-white-6));
+          padding-bottom: var(--safe-area-bottom-active, var(--safe-area-bottom, 0px));
         }
       }
 
@@ -41,23 +41,19 @@ export class MobileTabBar extends XLitElement {
         align-items: center;
         justify-content: center;
         gap: 8px;
-        height: 72px;
+        height: 64px;
         padding: 0 16px;
       }
 
       .tab {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
         flex: 1;
         min-width: 0;
-        padding: 10px 0;
+        height: 100%;
+        position: relative;
         border: none;
         border-radius: 12px;
         background: transparent;
-        color: var(--cv-alpha-white-50);
+        color: var(--cv-color-text-muted);
         cursor: pointer;
         -webkit-tap-highlight-color: transparent;
         touch-action: manipulation;
@@ -67,26 +63,76 @@ export class MobileTabBar extends XLitElement {
         min-height: 48px;
       }
 
+      .tab::part(base) {
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        inline-size: 100%;
+        block-size: 100%;
+        box-sizing: border-box;
+        border-radius: inherit;
+        padding: 10px 0;
+      }
+
       .tab:active {
         transform: scale(0.96);
       }
 
+      .tab:focus-within,
+      .tab::part(base):focus-visible {
+        outline: none;
+        outline-offset: 0;
+      }
+
+      .tab:focus-visible::part(base),
+      .tab::part(base):focus-visible {
+        box-shadow: 0 0 0 2px var(--cv-color-accent-ring);
+      }
+
       .tab.active {
         color: var(--cv-color-accent);
-        background: color-mix(in oklch, var(--cv-color-accent) 12%, transparent);
-        box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--cv-color-accent) 15%, transparent);
+      }
+
+      .tab.active::before,
+      .tab.active::after {
+        content: '';
+        position: absolute;
+        inset-inline-start: 50%;
+        transform: translateX(-50%);
+        pointer-events: none;
+        background: var(--cv-color-accent);
+      }
+
+      .tab.active::before {
+        inset-block-start: 0;
+        inline-size: 44px;
+        block-size: 3px;
+        border-radius: 0 0 999px 999px;
+        box-shadow: 0 0 14px var(--cv-color-accent-ring);
+      }
+
+      .tab.active::after {
+        inset-block-end: 6px;
+        inline-size: 5px;
+        block-size: 5px;
+        border-radius: 999px;
       }
 
       .tab cv-icon {
-        font-size: 22px;
+        font-size: 20px;
         flex-shrink: 0;
       }
 
       .tab-label {
+        max-inline-size: 100%;
+        overflow: hidden;
         font-family: var(--cv-font-family-code, ui-monospace, SFMono-Regular, Menlo, monospace);
-        font-size: 11px;
+        font-size: 9px;
         font-weight: 600;
         line-height: 1;
+        text-overflow: ellipsis;
         white-space: nowrap;
         letter-spacing: 0.05em;
         text-transform: uppercase;
@@ -94,16 +140,24 @@ export class MobileTabBar extends XLitElement {
     `,
   ]
 
-  private onFiles = () => {
+  private onFiles() {
     navigationModel.navigateToSurface('files')
   }
 
-  private onPasswords = () => {
+  private onNotes() {
+    navigationModel.navigateToSurface('notes')
+  }
+
+  private onPasswords() {
     navigationModel.navigateToSurface('passwords')
   }
 
+  private onOtpCodes() {
+    navigationModel.openPassmanagerRoute({kind: 'otp-view'})
+  }
+
   private getActiveTab(): string {
-    return navigationModel.snapshot().surface === 'passwords' ? 'passwords' : 'files'
+    return navigationModel.activeMobileTab()
   }
 
   protected render() {
@@ -111,22 +165,38 @@ export class MobileTabBar extends XLitElement {
 
     return html`
       <nav class="tab-bar" aria-label=${i18n('navigation:main' as any)}>
-        <button
+        <cv-button unstyled
           class="tab ${active === 'files' ? 'active' : ''}"
           @click=${this.onFiles}
           aria-label=${i18n('navigation:files' as any)}
         >
-          <cv-icon name="folder-fill"></cv-icon>
+          <cv-icon slot="prefix" name="folder-fill"></cv-icon>
           <span class="tab-label">${i18n('navigation:files' as any)}</span>
-        </button>
-        <button
+        </cv-button>
+        <cv-button unstyled
+          class="tab ${active === 'notes' ? 'active' : ''}"
+          @click=${this.onNotes}
+          aria-label=${i18n('navigation:notes' as never)}
+        >
+          <cv-icon slot="prefix" name="file-text"></cv-icon>
+          <span class="tab-label">${i18n('navigation:notes' as never)}</span>
+        </cv-button>
+        <cv-button unstyled
           class="tab ${active === 'passwords' ? 'active' : ''}"
           @click=${this.onPasswords}
           aria-label=${i18n('navigation:passwords' as any)}
         >
-          <cv-icon name="lock"></cv-icon>
+          <cv-icon slot="prefix" name="lock"></cv-icon>
           <span class="tab-label">${i18n('navigation:passwords' as any)}</span>
-        </button>
+        </cv-button>
+        <cv-button unstyled
+          class="tab ${active === 'otp' ? 'active' : ''}"
+          @click=${this.onOtpCodes}
+          aria-label=${i18n('navigation:otp-codes' as any)}
+        >
+          <cv-icon slot="prefix" name="shield-check"></cv-icon>
+          <span class="tab-label">${i18n('navigation:otp-codes' as any)}</span>
+        </cv-button>
       </nav>
     `
   }

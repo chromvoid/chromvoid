@@ -5,12 +5,14 @@ mod test_helpers;
 use base64::{engine::general_purpose, Engine as _};
 use chromvoid_core::crypto::keystore::InMemoryKeystore;
 use chromvoid_core::crypto::{decrypt, derive_vault_key, hash};
-use chromvoid_core::rpc::types::RpcRequest;
+use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 use chromvoid_core::rpc::RpcRouter;
 use chromvoid_core::rpc::{RpcInputStream, RpcReply};
 use chromvoid_core::storage::Storage;
 use std::fs;
+use std::io::{Cursor, Read};
 use std::sync::Arc;
+use std::time::Duration;
 use tempfile::TempDir;
 use test_helpers::*;
 
@@ -63,6 +65,188 @@ fn derive_backup_key_v2(base_path: &std::path::Path, master_password: &str) -> [
     hash(&buf)
 }
 
+fn restore_validate_warnings(response: &RpcResponse) -> Vec<String> {
+    response
+        .result()
+        .expect("validate response result")
+        .get("warnings")
+        .and_then(|value| value.as_array())
+        .expect("warnings array")
+        .iter()
+        .map(|value| value.as_str().expect("warning string").to_string())
+        .collect()
+}
+
+fn assert_rpc_error_message(response: &RpcResponse, expected_code: &str, expected_message: &str) {
+    assert_rpc_error(response, expected_code);
+    assert_eq!(response.error_message(), Some(expected_message));
+}
+
+fn upload_test_file(router: &mut RpcRouter, name: &str, data: Vec<u8>) {
+    let upload_req = RpcRequest::new(
+        "catalog:upload",
+        serde_json::json!({
+            "parent_path": "/",
+            "name": name,
+            "total_size": data.len() as u64,
+            "size": data.len(),
+            "offset": 0,
+            "mime_type": "application/octet-stream",
+        }),
+    );
+    match router.handle_with_stream(&upload_req, Some(RpcInputStream::from_bytes(data))) {
+        RpcReply::Json(response) => assert_rpc_ok(&response),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:upload must return JSON response")
+        }
+    }
+}
+
+fn start_backup(router: &mut RpcRouter) -> (String, u64, u64) {
+    let start = router.handle(&RpcRequest::new(
+        "backup:local:start",
+        serde_json::json!({}),
+    ));
+    assert_rpc_ok(&start);
+    let result = start.result().unwrap();
+    let backup_id = result
+        .get("backup_id")
+        .and_then(|value| value.as_str())
+        .expect("backup_id")
+        .to_string();
+    let estimated_size = result
+        .get("estimated_size")
+        .and_then(|value| value.as_u64())
+        .expect("estimated_size");
+    let chunk_count = result
+        .get("chunk_count")
+        .and_then(|value| value.as_u64())
+        .expect("chunk_count");
+    (backup_id, estimated_size, chunk_count)
+}
+
+fn get_chunk_manifest(router: &mut RpcRouter, backup_id: &str) -> serde_json::Value {
+    let manifest = router.handle(&RpcRequest::new(
+        "backup:local:getChunkManifest",
+        serde_json::json!({"backup_id": backup_id}),
+    ));
+    assert_rpc_ok(&manifest);
+    manifest
+        .result()
+        .unwrap()
+        .get("manifest")
+        .expect("manifest")
+        .clone()
+}
+
+fn manifest_entries(manifest: &serde_json::Value) -> Vec<(String, u64)> {
+    manifest
+        .get("chunks")
+        .and_then(|value| value.as_array())
+        .expect("manifest chunks")
+        .iter()
+        .map(|entry| {
+            let name = entry
+                .get("name")
+                .and_then(|value| value.as_str())
+                .expect("chunk name")
+                .to_string();
+            let size = entry
+                .get("size")
+                .and_then(|value| value.as_u64())
+                .expect("chunk size");
+            (name, size)
+        })
+        .collect()
+}
+
+fn download_backup_pack(router: &mut RpcRouter, backup_id: &str) -> Vec<u8> {
+    let request = RpcRequest::new(
+        "backup:local:downloadPack",
+        serde_json::json!({"backup_id": backup_id}),
+    );
+    let mut reader = match router.handle_with_stream(&request, None) {
+        RpcReply::Stream(stream) => stream.reader,
+        RpcReply::Json(response) => panic!("downloadPack returned JSON: {response:?}"),
+        RpcReply::RangeStream(_) => panic!("downloadPack must not return range stream"),
+    };
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes).expect("read chunks.pack");
+    bytes
+}
+
+fn start_restore(router: &mut RpcRouter) -> String {
+    let backup_dir = TempDir::new().expect("backup dir");
+    let start = router.handle(&RpcRequest::new(
+        "restore:local:start",
+        serde_json::json!({"backup_path": backup_dir.path().to_string_lossy()}),
+    ));
+    assert_rpc_ok(&start);
+    start
+        .result()
+        .unwrap()
+        .get("restore_id")
+        .and_then(|value| value.as_str())
+        .expect("restore_id")
+        .to_string()
+}
+
+fn upload_backup_pack(
+    router: &mut RpcRouter,
+    restore_id: &str,
+    manifest: serde_json::Value,
+    pack: Vec<u8>,
+) -> chromvoid_core::rpc::types::RpcResponse {
+    let request = RpcRequest::new(
+        "restore:local:uploadPack",
+        serde_json::json!({
+            "restore_id": restore_id,
+            "manifest": manifest,
+        }),
+    );
+    match router.handle_with_stream(
+        &request,
+        Some(RpcInputStream::new(Box::new(Cursor::new(pack)))),
+    ) {
+        RpcReply::Json(response) => response,
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("restore:local:uploadPack must return JSON response")
+        }
+    }
+}
+
+fn upload_synthetic_restore_pack(
+    router: &mut RpcRouter,
+    restore_id: &str,
+    chunks: &[(&str, &[u8])],
+) -> chromvoid_core::rpc::types::RpcResponse {
+    let mut pack = Vec::new();
+    let manifest_chunks: Vec<_> = chunks
+        .iter()
+        .map(|(name, bytes)| {
+            pack.extend_from_slice(bytes);
+            serde_json::json!({
+                "name": name,
+                "size": bytes.len() as u64,
+            })
+        })
+        .collect();
+    let total_size = chunks
+        .iter()
+        .fold(0_u64, |total, (_name, bytes)| total + bytes.len() as u64);
+    upload_backup_pack(
+        router,
+        restore_id,
+        serde_json::json!({
+            "v": 2,
+            "chunk_count": chunks.len() as u64,
+            "total_size": total_size,
+            "chunks": manifest_chunks,
+        }),
+        pack,
+    )
+}
+
 #[test]
 fn test_backup_local_start_download_metadata_finish_contract() {
     let (mut router, temp_dir) = create_router_with_master();
@@ -93,43 +277,28 @@ fn test_backup_local_start_download_metadata_finish_contract() {
         "ADR-012: backup:local:start must return estimated_size"
     );
 
-    // Download chunks
-    for i in 0..chunk_count {
-        let chunk = router.handle(&RpcRequest::new(
-            "backup:local:downloadChunk",
-            serde_json::json!({"backup_id": backup_id.clone(), "chunk_index": i}),
-        ));
-        assert_rpc_ok(&chunk);
-
-        let r = chunk.result().unwrap();
-        let name = r
-            .get("chunk_name")
-            .expect("chunk_name")
-            .as_str()
-            .expect("chunk_name string");
+    // Download v2 pack manifest and the single chunks.pack stream.
+    let manifest = get_chunk_manifest(&mut router, &backup_id);
+    assert_eq!(manifest.get("v").and_then(|v| v.as_u64()), Some(2));
+    assert_eq!(
+        manifest.get("chunk_count").and_then(|v| v.as_u64()),
+        Some(chunk_count)
+    );
+    let manifest_entries = manifest_entries(&manifest);
+    let manifest_total_size = manifest_entries
+        .iter()
+        .fold(0_u64, |total, (_, size)| total.saturating_add(*size));
+    assert_eq!(
+        manifest.get("total_size").and_then(|v| v.as_u64()),
+        Some(manifest_total_size)
+    );
+    for (name, _) in &manifest_entries {
         assert_eq!(name.len(), 64);
         assert!(name.chars().all(|c| c.is_ascii_hexdigit()));
-
-        let chunk_index = r
-            .get("chunk_index")
-            .expect("chunk_index")
-            .as_u64()
-            .expect("chunk_index u64");
-        assert_eq!(chunk_index, i);
-
-        let data_b64 = r.get("data").expect("data").as_str().expect("data string");
-        let decoded = general_purpose::STANDARD
-            .decode(data_b64)
-            .expect("data must be base64");
-        assert!(!decoded.is_empty() || chunk_count == 0);
-
-        let is_last = r
-            .get("is_last")
-            .expect("is_last")
-            .as_bool()
-            .expect("is_last bool");
-        assert_eq!(is_last, i + 1 == chunk_count);
     }
+
+    let pack = download_backup_pack(&mut router, &backup_id);
+    assert_eq!(pack.len() as u64, manifest_total_size);
 
     // Metadata
     let meta = router.handle(&RpcRequest::new(
@@ -217,12 +386,204 @@ fn test_backup_local_start_download_metadata_finish_contract() {
     // Finish
     let finish = router.handle(&RpcRequest::new(
         "backup:local:finish",
-        serde_json::json!({"backup_id": backup_id}),
+        serde_json::json!({"backup_id": backup_id.clone()}),
     ));
     assert_rpc_ok(&finish);
     let finish_result = finish.result().unwrap();
     assert!(finish_result.get("backup_id").is_some());
     assert!(finish_result.get("created_at").is_some());
+
+    let after_finish = router.handle(&RpcRequest::new(
+        "backup:local:getMetadata",
+        serde_json::json!({"backup_id": backup_id}),
+    ));
+    assert_rpc_error(&after_finish, "NODE_NOT_FOUND");
+}
+
+#[test]
+fn test_backup_local_pack_manifest_matches_storage_chunks() {
+    let (mut router, temp_dir) = create_router_with_master();
+    unlock_vault(&mut router, "vault_password");
+    upload_test_file(&mut router, "alpha.bin", b"alpha pack data".to_vec());
+    upload_test_file(&mut router, "beta.bin", vec![42_u8; 8192]);
+
+    let (backup_id, estimated_size, chunk_count) = start_backup(&mut router);
+    let manifest = get_chunk_manifest(&mut router, &backup_id);
+    let entries = manifest_entries(&manifest);
+
+    assert_eq!(entries.len() as u64, chunk_count);
+    assert_eq!(
+        manifest.get("total_size").and_then(|value| value.as_u64()),
+        Some(estimated_size)
+    );
+
+    let storage = Storage::new(temp_dir.path()).expect("storage");
+    let mut storage_names = storage.list_chunks().expect("list chunks");
+    storage_names.sort();
+    let manifest_names = entries
+        .iter()
+        .map(|(name, _)| name.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(manifest_names, storage_names);
+
+    let mut expected_pack = Vec::new();
+    for (name, size) in &entries {
+        let bytes = storage.read_chunk(name).expect("read chunk");
+        assert_eq!(bytes.len() as u64, *size);
+        expected_pack.extend_from_slice(&bytes);
+    }
+
+    let pack = download_backup_pack(&mut router, &backup_id);
+    assert_eq!(pack, expected_pack);
+}
+
+#[test]
+fn test_backup_local_snapshot_is_immutable_after_start() {
+    let (mut router, temp_dir) = create_router_with_master();
+    unlock_vault(&mut router, "vault_password");
+    upload_test_file(&mut router, "before.bin", b"before snapshot".to_vec());
+
+    let (backup_id, estimated_size, _chunk_count) = start_backup(&mut router);
+    let manifest_at_start = get_chunk_manifest(&mut router, &backup_id);
+    let entries_at_start = manifest_entries(&manifest_at_start);
+    let storage = Storage::new(temp_dir.path()).expect("storage");
+    let mut expected_pack = Vec::new();
+    for (name, size) in &entries_at_start {
+        let bytes = storage.read_chunk(name).expect("read start chunk");
+        assert_eq!(bytes.len() as u64, *size);
+        expected_pack.extend_from_slice(&bytes);
+    }
+
+    upload_test_file(
+        &mut router,
+        "after.bin",
+        b"after snapshot mutation".to_vec(),
+    );
+
+    let manifest_after_mutation = get_chunk_manifest(&mut router, &backup_id);
+    assert_eq!(manifest_after_mutation, manifest_at_start);
+    assert_eq!(download_backup_pack(&mut router, &backup_id), expected_pack);
+
+    let first_chunk = router.handle(&RpcRequest::new(
+        "backup:local:downloadChunk",
+        serde_json::json!({"backup_id": backup_id, "chunk_index": 0}),
+    ));
+    assert_rpc_ok(&first_chunk);
+    let first_chunk_b64 = first_chunk
+        .result()
+        .unwrap()
+        .get("data")
+        .and_then(|value| value.as_str())
+        .expect("chunk data");
+    let first_chunk_bytes = general_purpose::STANDARD
+        .decode(first_chunk_b64)
+        .expect("chunk data base64");
+    assert_eq!(
+        first_chunk_bytes.len() as u64,
+        entries_at_start[0].1,
+        "downloadChunk should use start-time chunk size"
+    );
+    assert_eq!(
+        first_chunk_bytes,
+        expected_pack[..entries_at_start[0].1 as usize]
+    );
+    assert_eq!(expected_pack.len() as u64, estimated_size);
+}
+
+#[test]
+fn test_restore_local_upload_pack_restores_exact_chunks() {
+    let (mut source_router, source_dir) = create_router_with_master();
+    unlock_vault(&mut source_router, "vault_password");
+    upload_test_file(&mut source_router, "seed.bin", vec![7_u8; 16 * 1024]);
+
+    let (backup_id, _estimated_size, chunk_count) = start_backup(&mut source_router);
+    let manifest = get_chunk_manifest(&mut source_router, &backup_id);
+    let pack = download_backup_pack(&mut source_router, &backup_id);
+
+    let (mut target_router, target_dir) = create_router_with_master();
+    let restore_id = start_restore(&mut target_router);
+    let upload = upload_backup_pack(&mut target_router, &restore_id, manifest.clone(), pack);
+    assert_rpc_ok(&upload);
+    let upload_result = upload.result().unwrap();
+    assert_eq!(
+        upload_result
+            .get("received_chunks")
+            .and_then(|value| value.as_u64()),
+        Some(chunk_count)
+    );
+
+    let source_storage = Storage::new(source_dir.path()).expect("source storage");
+    let target_storage = Storage::new(target_dir.path()).expect("target storage");
+    for (name, _size) in manifest_entries(&manifest) {
+        let expected = source_storage.read_chunk(&name).expect("read source chunk");
+        let restored = target_storage.read_chunk(&name).expect("read target chunk");
+        assert_eq!(restored, expected);
+    }
+}
+
+#[test]
+fn test_restore_local_upload_pack_rejects_invalid_pack_inputs() {
+    let (mut source_router, _source_dir) = create_router_with_master();
+    unlock_vault(&mut source_router, "vault_password");
+    upload_test_file(
+        &mut source_router,
+        "seed.bin",
+        b"pack validation seed".to_vec(),
+    );
+    let (backup_id, _estimated_size, _chunk_count) = start_backup(&mut source_router);
+    let manifest = get_chunk_manifest(&mut source_router, &backup_id);
+    let pack = download_backup_pack(&mut source_router, &backup_id);
+
+    let attempt =
+        |manifest: serde_json::Value, pack: Vec<u8>| -> chromvoid_core::rpc::types::RpcResponse {
+            let (mut target_router, _target_dir) = create_router_with_master();
+            let restore_id = start_restore(&mut target_router);
+            upload_backup_pack(&mut target_router, &restore_id, manifest, pack)
+        };
+
+    let mut invalid_name_manifest = manifest.clone();
+    invalid_name_manifest["chunks"][0]["name"] = serde_json::Value::String("not-a-chunk".into());
+    assert_rpc_error(
+        &attempt(invalid_name_manifest, pack.clone()),
+        "RESTORE_INVALID_FORMAT",
+    );
+
+    let mut duplicate_name_manifest = manifest.clone();
+    let first_name = duplicate_name_manifest["chunks"][0]["name"].clone();
+    duplicate_name_manifest["chunks"]
+        .as_array_mut()
+        .expect("chunks array")
+        .push(serde_json::json!({"name": first_name, "size": 0}));
+    duplicate_name_manifest["chunk_count"] = serde_json::json!(duplicate_name_manifest["chunks"]
+        .as_array()
+        .expect("chunks array")
+        .len() as u64);
+    assert_rpc_error(
+        &attempt(duplicate_name_manifest, pack.clone()),
+        "RESTORE_INVALID_FORMAT",
+    );
+
+    let mut total_mismatch_manifest = manifest.clone();
+    total_mismatch_manifest["total_size"] = serde_json::json!(total_mismatch_manifest
+        ["total_size"]
+        .as_u64()
+        .expect("total_size")
+        .saturating_add(1));
+    assert_rpc_error(
+        &attempt(total_mismatch_manifest, pack.clone()),
+        "RESTORE_INVALID_FORMAT",
+    );
+
+    let mut truncated = pack.clone();
+    truncated.pop();
+    assert_rpc_error(
+        &attempt(manifest.clone(), truncated),
+        "RESTORE_INVALID_FORMAT",
+    );
+
+    let mut extra = pack.clone();
+    extra.push(0);
+    assert_rpc_error(&attempt(manifest, extra), "RESTORE_INVALID_FORMAT");
 }
 
 #[test]
@@ -238,7 +599,7 @@ fn test_backup_local_start_rejects_backup_too_large() {
         "backup:local:start",
         serde_json::json!({}),
     ));
-    assert_rpc_error(&start, "BACKUP_TOO_LARGE");
+    assert_rpc_error_message(&start, "BACKUP_TOO_LARGE", "Backup too large");
 }
 
 #[test]
@@ -256,7 +617,159 @@ fn test_backup_local_start_rejects_concurrent_start() {
         "backup:local:start",
         serde_json::json!({}),
     ));
-    assert_rpc_error(&start2, "BACKUP_ALREADY_IN_PROGRESS");
+    assert_rpc_error_message(
+        &start2,
+        "BACKUP_ALREADY_IN_PROGRESS",
+        "Backup already in progress",
+    );
+}
+
+#[test]
+fn test_backup_local_start_cleans_storage_and_legacy_temp_packs() {
+    let (mut router, temp_dir) = create_router_with_master();
+    unlock_vault(&mut router, "vault_password");
+
+    let storage_temp_dir = temp_dir.path().join(".storage-tmp").join("backup-local");
+    std::fs::create_dir_all(&storage_temp_dir).expect("storage temp dir");
+    let namespaced_stale = storage_temp_dir.join("backup-local-stale.pack");
+    std::fs::write(&namespaced_stale, b"stale").expect("write namespaced stale");
+    let legacy_stale = temp_dir.path().join(".backup-local-stale.pack");
+    std::fs::write(&legacy_stale, b"legacy").expect("write legacy stale");
+
+    let start = router.handle(&RpcRequest::new(
+        "backup:local:start",
+        serde_json::json!({}),
+    ));
+
+    assert_rpc_ok(&start);
+    assert!(!namespaced_stale.exists());
+    assert!(!legacy_stale.exists());
+}
+
+#[test]
+fn test_backup_local_expired_session_allows_new_start() {
+    let (router, _temp_dir) = create_router_with_master();
+    let mut router = router.with_backup_local_idle_ttl_ms(1);
+    unlock_vault(&mut router, "vault_password");
+
+    let start1 = router.handle(&RpcRequest::new(
+        "backup:local:start",
+        serde_json::json!({}),
+    ));
+    assert_rpc_ok(&start1);
+
+    std::thread::sleep(Duration::from_millis(3));
+
+    let start2 = router.handle(&RpcRequest::new(
+        "backup:local:start",
+        serde_json::json!({}),
+    ));
+    assert_rpc_ok(&start2);
+}
+
+#[test]
+fn test_backup_local_download_after_expiry_rejects_and_clears_session() {
+    let (router, _temp_dir) = create_router_with_master();
+    let mut router = router.with_backup_local_idle_ttl_ms(1);
+    unlock_vault(&mut router, "vault_password");
+    upload_test_file(&mut router, "backup-expiry-seed.bin", b"seed".to_vec());
+
+    let start = router.handle(&RpcRequest::new(
+        "backup:local:start",
+        serde_json::json!({}),
+    ));
+    assert_rpc_ok(&start);
+    let backup_id = start
+        .result()
+        .unwrap()
+        .get("backup_id")
+        .and_then(|v| v.as_str())
+        .expect("backup_id")
+        .to_string();
+
+    std::thread::sleep(Duration::from_millis(3));
+
+    let expired = router.handle(&RpcRequest::new(
+        "backup:local:downloadChunk",
+        serde_json::json!({"backup_id": backup_id, "chunk_index": 0}),
+    ));
+    assert_rpc_error_message(&expired, "NODE_NOT_FOUND", "backup_id not found");
+
+    let restart = router.handle(&RpcRequest::new(
+        "backup:local:start",
+        serde_json::json!({}),
+    ));
+    assert_rpc_ok(&restart);
+}
+
+#[test]
+fn test_restore_local_expired_session_rolls_back_and_allows_new_start() {
+    let (router, temp_dir) = create_router_with_master();
+    let mut router = router.with_long_running_session_idle_ttl_ms(1);
+    let start = router.handle(&RpcRequest::new(
+        "restore:local:start",
+        serde_json::json!({"backup_path": "/tmp/backup"}),
+    ));
+    assert_rpc_ok(&start);
+    let restore_id = start
+        .result()
+        .unwrap()
+        .get("restore_id")
+        .and_then(|value| value.as_str())
+        .expect("restore_id")
+        .to_string();
+    let chunk_name = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+    let upload =
+        upload_synthetic_restore_pack(&mut router, &restore_id, &[(chunk_name, b"restored")]);
+    assert_rpc_ok(&upload);
+    let storage = Storage::new(temp_dir.path()).expect("storage");
+    assert!(storage.chunk_exists(chunk_name).expect("chunk exists"));
+
+    std::thread::sleep(Duration::from_millis(2));
+    let next_start = router.handle(&RpcRequest::new(
+        "restore:local:start",
+        serde_json::json!({"backup_path": "/tmp/backup-2"}),
+    ));
+    assert_rpc_ok(&next_start);
+    assert!(!storage
+        .chunk_exists(chunk_name)
+        .expect("chunk removed after restore expiry"));
+}
+
+#[test]
+fn test_restore_local_commit_after_expiry_rejects_and_rolls_back() {
+    let (router, temp_dir) = create_router_with_master();
+    let mut router = router.with_long_running_session_idle_ttl_ms(1);
+    let start = router.handle(&RpcRequest::new(
+        "restore:local:start",
+        serde_json::json!({"backup_path": "/tmp/backup"}),
+    ));
+    assert_rpc_ok(&start);
+    let restore_id = start
+        .result()
+        .unwrap()
+        .get("restore_id")
+        .and_then(|value| value.as_str())
+        .expect("restore_id")
+        .to_string();
+    let chunk_name = "bbcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+    let upload =
+        upload_synthetic_restore_pack(&mut router, &restore_id, &[(chunk_name, b"restored")]);
+    assert_rpc_ok(&upload);
+
+    std::thread::sleep(Duration::from_millis(2));
+    let commit = router.handle(&RpcRequest::new(
+        "restore:local:commit",
+        serde_json::json!({
+            "restore_id": restore_id,
+            "metadata": "not-base64",
+        }),
+    ));
+    assert_rpc_error_message(&commit, "NODE_NOT_FOUND", "restore_id not found");
+    let storage = Storage::new(temp_dir.path()).expect("storage");
+    assert!(!storage
+        .chunk_exists(chunk_name)
+        .expect("chunk removed after restore expiry"));
 }
 
 #[test]
@@ -276,6 +789,99 @@ fn test_restore_local_validate_contract() {
     assert!(result.get("version").is_some());
     assert!(result.get("chunk_count").is_some());
     assert!(result.get("warnings").is_some());
+}
+
+#[test]
+fn test_restore_local_validate_directory_warning_contracts() {
+    let (mut router, _temp_dir) = create_router_with_master();
+
+    let backup_dir = TempDir::new().expect("backup dir");
+    let not_a_dir = backup_dir.path().join("missing");
+    let response = router.handle(&RpcRequest::new(
+        "restore:local:validate",
+        serde_json::json!({"backup_path": not_a_dir.to_string_lossy()}),
+    ));
+    assert_rpc_ok(&response);
+    let result = response.result().unwrap();
+    assert_eq!(result.get("valid").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(
+        restore_validate_warnings(&response),
+        vec!["backup_path is not a directory".to_string()]
+    );
+
+    let response = router.handle(&RpcRequest::new(
+        "restore:local:validate",
+        serde_json::json!({"backup_path": backup_dir.path().to_string_lossy()}),
+    ));
+    assert_rpc_ok(&response);
+    let warnings = restore_validate_warnings(&response);
+    assert!(warnings.contains(&"metadata.enc not found".to_string()));
+    assert!(warnings.contains(&"chunks.manifest.json not found".to_string()));
+    assert!(warnings.contains(&"chunks.pack not found".to_string()));
+}
+
+#[test]
+fn test_restore_local_validate_manifest_and_pack_warning_contracts() {
+    let (mut router, _temp_dir) = create_router_with_master();
+
+    let invalid_manifest_dir = TempDir::new().expect("invalid manifest dir");
+    fs::write(
+        invalid_manifest_dir.path().join("chunks.manifest.json"),
+        b"{not-json",
+    )
+    .expect("write invalid manifest");
+    let response = router.handle(&RpcRequest::new(
+        "restore:local:validate",
+        serde_json::json!({"backup_path": invalid_manifest_dir.path().to_string_lossy()}),
+    ));
+    assert_rpc_ok(&response);
+    assert!(restore_validate_warnings(&response)
+        .iter()
+        .any(|warning| warning.starts_with("chunks.manifest.json is invalid:")));
+
+    let pack_dir = TempDir::new().expect("pack dir");
+    fs::write(
+        pack_dir.path().join("chunks.manifest.json"),
+        serde_json::json!({
+            "v": 2,
+            "chunk_count": 0,
+            "total_size": 0,
+            "chunks": [],
+        })
+        .to_string(),
+    )
+    .expect("write manifest");
+    fs::create_dir(pack_dir.path().join("chunks.pack")).expect("create pack dir");
+    let response = router.handle(&RpcRequest::new(
+        "restore:local:validate",
+        serde_json::json!({"backup_path": pack_dir.path().to_string_lossy()}),
+    ));
+    assert_rpc_ok(&response);
+    assert!(restore_validate_warnings(&response).contains(&"chunks.pack is not a file".to_string()));
+
+    let size_mismatch_dir = TempDir::new().expect("size mismatch dir");
+    fs::write(
+        size_mismatch_dir.path().join("chunks.manifest.json"),
+        serde_json::json!({
+            "v": 2,
+            "chunk_count": 1,
+            "total_size": 5,
+            "chunks": [{
+                "name": "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                "size": 5,
+            }],
+        })
+        .to_string(),
+    )
+    .expect("write manifest");
+    fs::write(size_mismatch_dir.path().join("chunks.pack"), b"x").expect("write pack");
+    let response = router.handle(&RpcRequest::new(
+        "restore:local:validate",
+        serde_json::json!({"backup_path": size_mismatch_dir.path().to_string_lossy()}),
+    ));
+    assert_rpc_ok(&response);
+    assert!(restore_validate_warnings(&response)
+        .contains(&"chunks.pack size mismatch: manifest=5, found=1".to_string()));
 }
 
 #[test]
@@ -304,29 +910,14 @@ fn test_restore_local_validate_accepts_well_formed_backup_folder() {
         .expect("chunk_count");
 
     let backup_dir = TempDir::new().expect("backup dir");
-    let chunks_root = backup_dir.path().join("chunks");
-    fs::create_dir_all(&chunks_root).expect("mkdir chunks");
-
-    for i in 0..chunk_count {
-        let chunk = router.handle(&RpcRequest::new(
-            "backup:local:downloadChunk",
-            serde_json::json!({"backup_id": backup_id.clone(), "chunk_index": i}),
-        ));
-        assert_rpc_ok(&chunk);
-        let r = chunk.result().unwrap();
-        let chunk_name = r
-            .get("chunk_name")
-            .and_then(|v| v.as_str())
-            .expect("chunk_name");
-        let data_b64 = r.get("data").and_then(|v| v.as_str()).expect("data");
-        let bytes = general_purpose::STANDARD
-            .decode(data_b64)
-            .expect("chunk data must be base64");
-
-        let subdir = chunks_root.join(&chunk_name[0..1]).join(&chunk_name[1..3]);
-        fs::create_dir_all(&subdir).expect("mkdir chunk subdir");
-        fs::write(subdir.join(chunk_name), bytes).expect("write chunk");
-    }
+    let manifest = get_chunk_manifest(&mut router, &backup_id);
+    let pack = download_backup_pack(&mut router, &backup_id);
+    fs::write(
+        backup_dir.path().join("chunks.manifest.json"),
+        serde_json::to_vec(&manifest).expect("serialize manifest"),
+    )
+    .expect("write chunks.manifest.json");
+    fs::write(backup_dir.path().join("chunks.pack"), pack).expect("write chunks.pack");
 
     let meta = router.handle(&RpcRequest::new(
         "backup:local:getMetadata",
@@ -401,18 +992,16 @@ fn test_restore_local_start_upload_commit_contract() {
         "ADR-012: restore:local:start must return expected_chunks"
     );
 
-    // Upload (ADR-012/ADR-004 attachments): base64-encoded chunk bytes in JSON payload.
+    // Upload (ADR-012/ADR-004 attachments): manifest + chunks.pack stream.
     let chunk0 = b"chunk-bytes-0".to_vec();
-    let upload0 = router.handle(&RpcRequest::new(
-        "restore:local:uploadChunk",
-        serde_json::json!({
-            "restore_id": restore_id,
-            "chunk_index": 0,
-            "chunk_name": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            "data": general_purpose::STANDARD.encode(chunk0),
-            "is_last": true
-        }),
-    ));
+    let upload0 = upload_synthetic_restore_pack(
+        &mut router,
+        &restore_id,
+        &[(
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            chunk0.as_slice(),
+        )],
+    );
     assert_rpc_ok(&upload0);
     let upload0_result = upload0.result().unwrap();
     assert!(
@@ -420,14 +1009,14 @@ fn test_restore_local_start_upload_commit_contract() {
             .get("received_chunks")
             .and_then(|v| v.as_u64())
             .is_some(),
-        "restore:local:uploadChunk must return received_chunks"
+        "restore:local:uploadPack must return received_chunks"
     );
     assert!(
         upload0_result
             .get("total_chunks")
             .and_then(|v| v.as_u64())
             .is_some(),
-        "restore:local:uploadChunk must return total_chunks"
+        "restore:local:uploadPack must return total_chunks"
     );
 
     // Commit
@@ -468,79 +1057,58 @@ fn test_restore_local_start_upload_commit_contract() {
 }
 
 #[test]
-fn test_restore_local_upload_chunk_requires_base64_data() {
+fn test_restore_local_start_reports_restore_recovery_failure() {
+    enable_fast_kdf_for_tests();
+    let temp_dir = TempDir::new().expect("temp dir");
+    let storage = Storage::new(temp_dir.path()).expect("storage");
+    let mut router = RpcRouter::new(storage).with_master_key(MASTER_PASSWORD);
+    let restore_record = serde_json::json!({
+        "version": 1,
+        "kind": "restore",
+        "tx_id": "restore-recovery-failure",
+        "phase": "committing",
+        "payload": {
+            "version": 1,
+            "kind": "local",
+            "restore_id": "restore-recovery-failure",
+            "expected_chunks": [
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            ],
+            "written_artifacts": [],
+            "pepper_committed": true,
+        },
+    });
+    fs::write(
+        temp_dir.path().join("restore.transaction.json"),
+        serde_json::to_vec(&restore_record).expect("serialize restore record"),
+    )
+    .expect("write restore transaction");
+
+    let response = router.handle(&RpcRequest::new(
+        "restore:local:start",
+        serde_json::json!({"backup_path": temp_dir.path().to_string_lossy()}),
+    ));
+    assert_rpc_error(&response, "INTERNAL_ERROR");
+    assert!(response
+        .error_message()
+        .unwrap_or_default()
+        .starts_with("Failed to recover restore transaction:"));
+}
+
+#[test]
+fn test_restore_local_upload_chunk_is_removed() {
     let (mut router, _temp_dir) = create_router_with_master();
 
-    let backup_dir = TempDir::new().expect("backup dir");
-    let start = router.handle(&RpcRequest::new(
-        "restore:local:start",
-        serde_json::json!({"backup_path": backup_dir.path().to_string_lossy()}),
-    ));
-    assert_rpc_ok(&start);
-    let restore_id = start
-        .result()
-        .unwrap()
-        .get("restore_id")
-        .and_then(|v| v.as_str())
-        .expect("restore_id")
-        .to_string();
-
-    // Missing data must be rejected (typed error).
-    let missing_data = router.handle(&RpcRequest::new(
+    let response = router.handle(&RpcRequest::new(
         "restore:local:uploadChunk",
-        serde_json::json!({
-            "restore_id": restore_id,
-            "chunk_index": 0,
-            "chunk_name": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            "is_last": true
-        }),
+        serde_json::json!({}),
     ));
-    assert!(
-        !missing_data.is_ok(),
-        "expected restore:local:uploadChunk to reject missing data"
-    );
-    assert!(
-        missing_data.code().is_some(),
-        "expected typed error code for missing data"
-    );
-
-    // Invalid base64 must be rejected (typed error).
-    let invalid_b64 = router.handle(&RpcRequest::new(
-        "restore:local:uploadChunk",
-        serde_json::json!({
-            "restore_id": restore_id,
-            "chunk_index": 0,
-            "chunk_name": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            "data": "!!!not-base64!!!",
-            "is_last": true
-        }),
-    ));
-    assert!(
-        !invalid_b64.is_ok(),
-        "expected restore:local:uploadChunk to reject invalid base64"
-    );
-    assert!(
-        invalid_b64.code().is_some(),
-        "expected typed error code for invalid base64"
-    );
+    assert_rpc_error(&response, "UNKNOWN_COMMAND");
 }
 
 #[test]
 fn test_restore_local_rejects_wrong_restore_id() {
     let (mut router, temp_dir) = create_router_with_master();
-
-    // uploadChunk with unknown restore_id
-    let upload = router.handle(&RpcRequest::new(
-        "restore:local:uploadChunk",
-        serde_json::json!({
-            "restore_id": "restore-does-not-exist",
-            "chunk_index": 0,
-            "chunk_name": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            "data": general_purpose::STANDARD.encode(b"chunk0"),
-            "is_last": true
-        }),
-    ));
-    assert_rpc_error(&upload, "NODE_NOT_FOUND");
 
     // commit with unknown restore_id
     let backup_key = derive_backup_key_v2(temp_dir.path(), MASTER_PASSWORD);
@@ -569,7 +1137,7 @@ fn test_restore_local_rejects_wrong_restore_id() {
         "restore:local:commit",
         serde_json::json!({"restore_id": "restore-does-not-exist", "metadata": meta_b64}),
     ));
-    assert_rpc_error(&commit, "NODE_NOT_FOUND");
+    assert_rpc_error_message(&commit, "NODE_NOT_FOUND", "restore_id not found");
 }
 
 #[test]
@@ -578,7 +1146,7 @@ fn test_restore_local_validate_missing_metadata_or_chunks_is_invalid() {
 
     let backup_dir = TempDir::new().expect("backup dir");
 
-    // No metadata.enc and no chunks/.
+    // No metadata.enc, chunks.manifest.json, or chunks.pack.
     let response = router.handle(&RpcRequest::new(
         "restore:local:validate",
         serde_json::json!({"backup_path": backup_dir.path().to_string_lossy()}),
@@ -607,23 +1175,22 @@ fn test_backup_local_download_chunk_rejects_invalid_backup_id() {
 
     // Create at least one real chunk in storage so that downloadChunk(0) can succeed.
     let data = b"seed chunk for local backup".to_vec();
-    let prep = router.handle(&RpcRequest::new(
-        "catalog:prepareUpload",
-        serde_json::json!({
-            "name": "seed.bin",
-            "size": data.len() as u64,
-            "mime_type": "application/octet-stream",
-        }),
-    ));
-    assert_rpc_ok(&prep);
-    let node_id = get_node_id(&prep);
     let upload_req = RpcRequest::new(
         "catalog:upload",
-        serde_json::json!({"node_id": node_id, "size": data.len(), "offset": 0}),
+        serde_json::json!({
+            "parent_path": "/",
+            "name": "seed.bin",
+            "total_size": data.len() as u64,
+            "size": data.len(),
+            "offset": 0,
+            "mime_type": "application/octet-stream",
+        }),
     );
     match router.handle_with_stream(&upload_req, Some(RpcInputStream::from_bytes(data))) {
         RpcReply::Json(r) => assert_rpc_ok(&r),
-        RpcReply::Stream(_) => panic!("catalog:upload must return JSON response"),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:upload must return JSON response")
+        }
     }
 
     // Start a real backup to establish a baseline.
@@ -652,11 +1219,7 @@ fn test_backup_local_download_chunk_rejects_invalid_backup_id() {
         "backup:local:downloadChunk",
         serde_json::json!({"backup_id": "backup-does-not-exist", "chunk_index": 0}),
     ));
-    assert!(!bad.is_ok(), "invalid backup_id should be rejected");
-    assert!(
-        bad.code().is_some(),
-        "invalid backup_id should be a typed error"
-    );
+    assert_rpc_error_message(&bad, "NODE_NOT_FOUND", "backup_id not found");
 }
 
 #[test]
@@ -666,23 +1229,22 @@ fn test_backup_local_download_chunk_out_of_range_is_typed_error() {
 
     // Create at least one chunk.
     let data = b"seed chunk for range test".to_vec();
-    let prep = router.handle(&RpcRequest::new(
-        "catalog:prepareUpload",
-        serde_json::json!({
-            "name": "seed2.bin",
-            "size": data.len() as u64,
-            "mime_type": "application/octet-stream",
-        }),
-    ));
-    assert_rpc_ok(&prep);
-    let node_id = get_node_id(&prep);
     let upload_req = RpcRequest::new(
         "catalog:upload",
-        serde_json::json!({"node_id": node_id, "size": data.len(), "offset": 0}),
+        serde_json::json!({
+            "parent_path": "/",
+            "name": "seed2.bin",
+            "total_size": data.len() as u64,
+            "size": data.len(),
+            "offset": 0,
+            "mime_type": "application/octet-stream",
+        }),
     );
     match router.handle_with_stream(&upload_req, Some(RpcInputStream::from_bytes(data))) {
         RpcReply::Json(r) => assert_rpc_ok(&r),
-        RpcReply::Stream(_) => panic!("catalog:upload must return JSON response"),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:upload must return JSON response")
+        }
     }
 
     let start = router.handle(&RpcRequest::new(
@@ -703,8 +1265,7 @@ fn test_backup_local_download_chunk_out_of_range_is_typed_error() {
         "backup:local:downloadChunk",
         serde_json::json!({"backup_id": backup_id, "chunk_index": 999999u64}),
     ));
-    assert!(!response.is_ok());
-    assert!(response.code().is_some());
+    assert_rpc_error_message(&response, "NODE_NOT_FOUND", "chunk_index out of range");
 }
 
 #[test]
@@ -733,13 +1294,27 @@ fn test_restore_local_commit_rejects_invalid_metadata_base64() {
         }),
     ));
 
-    assert!(
-        !commit.is_ok(),
-        "restore:local:commit must reject invalid base64 metadata"
-    );
-    assert!(
-        commit.code().is_some(),
-        "restore:local:commit must be typed"
+    assert_rpc_error_message(&commit, "RESTORE_INVALID_FORMAT", "Invalid base64");
+}
+
+#[test]
+fn test_restore_local_start_rejects_concurrent_restore() {
+    let (mut router, _temp_dir) = create_router_with_master();
+
+    let first = router.handle(&RpcRequest::new(
+        "restore:local:start",
+        serde_json::json!({"backup_path": "/tmp/backup"}),
+    ));
+    assert_rpc_ok(&first);
+
+    let second = router.handle(&RpcRequest::new(
+        "restore:local:start",
+        serde_json::json!({"backup_path": "/tmp/backup-2"}),
+    ));
+    assert_rpc_error_message(
+        &second,
+        "BACKUP_ALREADY_IN_PROGRESS",
+        "Restore already in progress",
     );
 }
 
@@ -763,16 +1338,14 @@ fn test_restore_local_commit_rejects_missing_chunks() {
 
     // Upload only one chunk but claim chunk_count=2 in metadata.
     let chunk0 = b"chunk-bytes-0".to_vec();
-    let upload0 = router.handle(&RpcRequest::new(
-        "restore:local:uploadChunk",
-        serde_json::json!({
-            "restore_id": restore_id.as_str(),
-            "chunk_index": 0,
-            "chunk_name": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            "data": general_purpose::STANDARD.encode(chunk0),
-            "is_last": true
-        }),
-    ));
+    let upload0 = upload_synthetic_restore_pack(
+        &mut router,
+        &restore_id,
+        &[(
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            chunk0.as_slice(),
+        )],
+    );
     assert_rpc_ok(&upload0);
 
     let backup_key = derive_backup_key_v2(temp_dir.path(), MASTER_PASSWORD);
@@ -801,7 +1374,7 @@ fn test_restore_local_commit_rejects_missing_chunks() {
         "restore:local:commit",
         serde_json::json!({"restore_id": restore_id, "metadata": meta_b64}),
     ));
-    assert_rpc_error(&commit, "RESTORE_INVALID_FORMAT");
+    assert_rpc_error_message(&commit, "RESTORE_INVALID_FORMAT", "Missing chunks");
 }
 
 #[test]
@@ -823,16 +1396,14 @@ fn test_restore_local_commit_rejects_invalid_metadata_aad() {
         .to_string();
 
     let chunk0 = b"chunk-bytes-0".to_vec();
-    let upload0 = router.handle(&RpcRequest::new(
-        "restore:local:uploadChunk",
-        serde_json::json!({
-            "restore_id": restore_id.as_str(),
-            "chunk_index": 0,
-            "chunk_name": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            "data": general_purpose::STANDARD.encode(chunk0),
-            "is_last": true
-        }),
-    ));
+    let upload0 = upload_synthetic_restore_pack(
+        &mut router,
+        &restore_id,
+        &[(
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            chunk0.as_slice(),
+        )],
+    );
     assert_rpc_ok(&upload0);
 
     let backup_key = derive_backup_key_v2(temp_dir.path(), MASTER_PASSWORD);
@@ -885,16 +1456,14 @@ fn test_restore_local_commit_rejects_unsupported_version() {
         .to_string();
 
     let chunk0 = b"chunk-bytes-0".to_vec();
-    let upload0 = router.handle(&RpcRequest::new(
-        "restore:local:uploadChunk",
-        serde_json::json!({
-            "restore_id": restore_id.as_str(),
-            "chunk_index": 0,
-            "chunk_name": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            "data": general_purpose::STANDARD.encode(chunk0),
-            "is_last": true
-        }),
-    ));
+    let upload0 = upload_synthetic_restore_pack(
+        &mut router,
+        &restore_id,
+        &[(
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            chunk0.as_slice(),
+        )],
+    );
     assert_rpc_ok(&upload0);
 
     let backup_key = derive_backup_key_v2(temp_dir.path(), MASTER_PASSWORD);
@@ -923,7 +1492,11 @@ fn test_restore_local_commit_rejects_unsupported_version() {
         "restore:local:commit",
         serde_json::json!({"restore_id": restore_id, "metadata": meta_b64}),
     ));
-    assert_rpc_error(&commit, "RESTORE_VERSION_NOT_SUPPORTED");
+    assert_rpc_error_message(
+        &commit,
+        "RESTORE_VERSION_NOT_SUPPORTED",
+        "Restore version not supported",
+    );
 }
 
 #[test]
@@ -956,16 +1529,14 @@ fn test_restore_local_commit_rejects_wrong_master_password() {
         .to_string();
 
     let chunk0 = b"chunk-bytes-0".to_vec();
-    let upload0 = router.handle(&RpcRequest::new(
-        "restore:local:uploadChunk",
-        serde_json::json!({
-            "restore_id": restore_id.as_str(),
-            "chunk_index": 0,
-            "chunk_name": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            "data": general_purpose::STANDARD.encode(chunk0),
-            "is_last": true
-        }),
-    ));
+    let upload0 = upload_synthetic_restore_pack(
+        &mut router,
+        &restore_id,
+        &[(
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            chunk0.as_slice(),
+        )],
+    );
     assert_rpc_ok(&upload0);
 
     // Encrypt metadata with the correct backup key (derived from MASTER_PASSWORD).
@@ -996,10 +1567,11 @@ fn test_restore_local_commit_rejects_wrong_master_password() {
         serde_json::json!({"restore_id": restore_id, "metadata": meta_b64}),
     ));
     assert_rpc_error(&commit, "INVALID_MASTER_PASSWORD");
+    assert_eq!(commit.error_message(), Some("Invalid master password"));
 }
 
 #[test]
-fn test_restore_local_upload_chunk_roundtrip_progress_counts() {
+fn test_restore_local_upload_pack_roundtrip_progress_counts() {
     let (mut router, _temp_dir) = create_router_with_master();
 
     let backup_dir = TempDir::new().expect("backup dir");
@@ -1016,32 +1588,24 @@ fn test_restore_local_upload_chunk_roundtrip_progress_counts() {
         .expect("restore_id")
         .to_string();
 
-    // Upload two chunks and expect received_chunks to progress.
+    // Upload two chunks and expect received_chunks to match the manifest.
     let chunk0 = b"chunk0".to_vec();
     let chunk1 = b"chunk1".to_vec();
 
-    let upload0 = router.handle(&RpcRequest::new(
-        "restore:local:uploadChunk",
-        serde_json::json!({
-            "restore_id": restore_id,
-            "chunk_index": 0,
-            "chunk_name": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            "data": general_purpose::STANDARD.encode(chunk0),
-            "is_last": false
-        }),
-    ));
-    assert_rpc_ok(&upload0);
-
-    let upload1 = router.handle(&RpcRequest::new(
-        "restore:local:uploadChunk",
-        serde_json::json!({
-            "restore_id": restore_id,
-            "chunk_index": 1,
-            "chunk_name": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
-            "data": general_purpose::STANDARD.encode(chunk1),
-            "is_last": true
-        }),
-    ));
+    let upload1 = upload_synthetic_restore_pack(
+        &mut router,
+        &restore_id,
+        &[
+            (
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                chunk0.as_slice(),
+            ),
+            (
+                "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+                chunk1.as_slice(),
+            ),
+        ],
+    );
     assert_rpc_ok(&upload1);
 
     let r1 = upload1.result().unwrap();
@@ -1057,11 +1621,7 @@ fn test_backup_local_finish_rejects_unknown_backup_id() {
         "backup:local:finish",
         serde_json::json!({"backup_id": "backup-does-not-exist"}),
     ));
-    assert!(!response.is_ok(), "unknown backup_id should be rejected");
-    assert!(
-        response.code().is_some(),
-        "unknown backup_id should be a typed error"
-    );
+    assert_rpc_error_message(&response, "NODE_NOT_FOUND", "backup_id not found");
 }
 
 #[test]
@@ -1082,9 +1642,15 @@ fn test_backup_local_cancel_releases_session() {
         .expect("backup_id")
         .to_string();
 
+    let metadata = router.handle(&RpcRequest::new(
+        "backup:local:getMetadata",
+        serde_json::json!({"backup_id": backup_id.clone()}),
+    ));
+    assert_rpc_ok(&metadata);
+
     let cancel = router.handle(&RpcRequest::new(
         "backup:local:cancel",
-        serde_json::json!({"backup_id": backup_id}),
+        serde_json::json!({"backup_id": backup_id.clone()}),
     ));
     assert_rpc_ok(&cancel);
     let cancel_result = cancel.result().unwrap();
@@ -1092,6 +1658,12 @@ fn test_backup_local_cancel_releases_session() {
         cancel_result.get("cancelled").and_then(|v| v.as_bool()),
         Some(true)
     );
+
+    let after_cancel = router.handle(&RpcRequest::new(
+        "backup:local:getMetadata",
+        serde_json::json!({"backup_id": backup_id}),
+    ));
+    assert_rpc_error_message(&after_cancel, "NODE_NOT_FOUND", "backup_id not found");
 
     let restart = router.handle(&RpcRequest::new(
         "backup:local:start",
@@ -1119,16 +1691,8 @@ fn test_restore_local_cancel_rolls_back_uploaded_chunks() {
         .to_string();
 
     let chunk_name = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-    let upload = router.handle(&RpcRequest::new(
-        "restore:local:uploadChunk",
-        serde_json::json!({
-            "restore_id": restore_id.clone(),
-            "chunk_index": 0,
-            "chunk_name": chunk_name,
-            "data": general_purpose::STANDARD.encode(b"chunk-data"),
-            "is_last": true
-        }),
-    ));
+    let upload =
+        upload_synthetic_restore_pack(&mut router, &restore_id, &[(chunk_name, b"chunk-data")]);
     assert_rpc_ok(&upload);
 
     let storage = Storage::new(temp_dir.path()).expect("storage");
@@ -1136,6 +1700,18 @@ fn test_restore_local_cancel_rolls_back_uploaded_chunks() {
         storage
             .chunk_exists(chunk_name)
             .expect("chunk_exists before cancel"),
+        true
+    );
+
+    let wrong_cancel = router.handle(&RpcRequest::new(
+        "restore:local:cancel",
+        serde_json::json!({"restore_id": "restore-wrong"}),
+    ));
+    assert_rpc_error_message(&wrong_cancel, "NODE_NOT_FOUND", "restore_id not found");
+    assert_eq!(
+        storage
+            .chunk_exists(chunk_name)
+            .expect("chunk still exists after wrong cancel"),
         true
     );
 
@@ -1168,5 +1744,5 @@ fn test_restore_local_cancel_rolls_back_uploaded_chunks() {
             "metadata": general_purpose::STANDARD.encode("invalid"),
         }),
     ));
-    assert_rpc_error(&commit, "NODE_NOT_FOUND");
+    assert_rpc_error_message(&commit, "NODE_NOT_FOUND", "restore_id not found");
 }

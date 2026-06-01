@@ -1,6 +1,30 @@
-import {state} from '@statx/core'
+import {atom} from '@reatom/core'
 
-import type {TransportEventHandler, TransportLike} from '../transport'
+import type {
+  AndroidAudioCommand,
+  AndroidAudioCommandResult,
+  AndroidAudioPlayerEvent,
+  ImagePhotoMetadata,
+  MediaStreamErrorEvent,
+  NativeAudioCommand,
+  NativeAudioCommandResult,
+  NativeAudioPlayerEvent,
+  NativeUploadOptions,
+  PreparedMediaStreamSource,
+  PreparedAndroidVideoSource,
+  PreparedPreviewFileSource,
+  PreparedPreviewFileVariant,
+  PreviewCachePurgeReason,
+  PreviewCachePurgeResult,
+  TransportEventHandler,
+  TransportLike,
+} from '../transport'
+import type {
+  CatalogFileReplaceOptions,
+  CatalogFileReplaceResult,
+  CatalogSourceMetadata,
+} from '../../catalog/catalog'
+import {normalizeFileMediaInfo} from '../../catalog/media-info'
 import {defaultLogger} from '../../logger'
 import {tauriInvoke, tauriListen} from './ipc'
 import type {RpcCommandResult, RpcResult} from '@chromvoid/scheme'
@@ -11,17 +35,50 @@ import {
   setRuntimeCapabilities,
   type RuntimeCapabilities,
 } from '../../runtime/runtime-capabilities'
+import {
+  runtimeModeModel,
+  type RuntimeCoreMode,
+  type RuntimeModeSwitchResult,
+} from '../../runtime/runtime-mode.model'
 import {dispatchTauriCatalogCommand} from './tauri-catalog-command-dispatcher'
+import {moduleAccessModel} from '../../pro/module-access.model'
 import {
   downloadFilePathViaTauri,
   downloadFileViaTauri,
+  imageMetadataViaTauri,
+  openExternalViaTauri,
+  prepareMediaStreamViaTauri,
+  preparePreviewFileViaTauri,
+  previewImageViaTauri,
+  purgePreviewSourcesViaTauri,
   readSecretViaTauri,
+  replaceFileViaTauri,
+  releaseMediaStreamViaTauri,
+  releasePreviewFileViaTauri,
+  cancelAndroidSharedFilesViaTauri,
+  cancelNativeOtpQrScanViaTauri,
+  cancelSharedFilesViaTauri,
+  sendAndroidAudioCommandViaTauri,
+  sendNativeAudioCommandViaTauri,
   statPathViaTauri,
+  startNativeOtpQrScanViaTauri,
+  thumbnailImageViaTauri,
+  startAndroidVideoViaTauri,
+  stopAndroidVideoViaTauri,
+  uploadAndroidSharedFilesViaTauri,
+  uploadSharedFilesViaTauri,
   uploadFilePathViaTauri,
   uploadFileViaTauri,
+  uploadNativeFilesViaTauri,
+  warmupAndroidAudioViaTauri,
   writeSecretViaTauri,
 } from './tauri-binary-ops'
 import type {RpcCmdData, RpcCmdName, RpcCmdResult} from './tauri-rpc-types'
+
+type RuntimeModeInfo = {
+  mode?: RuntimeCoreMode
+  remote_core_features?: unknown
+}
 
 function isRpcCommandResult<T extends RpcCmdName>(
   command: T,
@@ -32,12 +89,57 @@ function isRpcCommandResult<T extends RpcCmdName>(
 
 type HandlerSet = Set<TransportEventHandler>
 
+function isPassmanagerMutatingCommand(command: string): boolean {
+  return (
+    command.startsWith('passmanager:') &&
+    !command.endsWith(':read') &&
+    !command.endsWith(':list') &&
+    !command.endsWith(':export') &&
+    !command.endsWith(':generate') &&
+    !command.endsWith(':subscribe') &&
+    !command.endsWith(':unsubscribe')
+  )
+}
+
+function normalizeNodeType(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (value === 'Dir') return 0
+  if (value === 'File') return 1
+  if (value === 'Symlink') return 2
+  return Number(value)
+}
+
+function normalizeCatalogSourceMetadata(value: unknown): CatalogSourceMetadata {
+  const payload = value as Record<string, unknown>
+  const sourceRevision = payload['sourceRevision'] ?? payload['source_revision']
+  const mediaInspectedRevision = payload['mediaInspectedRevision'] ?? payload['media_inspected_revision']
+  return {
+    nodeId: Number(payload['nodeId'] ?? payload['node_id']),
+    nodeType: normalizeNodeType(payload['nodeType'] ?? payload['node_type']),
+    name: String(payload['name'] ?? ''),
+    mimeType:
+      typeof payload['mimeType'] === 'string'
+        ? payload['mimeType']
+        : typeof payload['mime_type'] === 'string'
+          ? payload['mime_type']
+          : null,
+    size: Number(payload['size']),
+    sourceRevision:
+      typeof sourceRevision === 'number' && Number.isFinite(sourceRevision) ? sourceRevision : null,
+    mediaInspectedRevision:
+      typeof mediaInspectedRevision === 'number' && Number.isFinite(mediaInspectedRevision)
+        ? mediaInspectedRevision
+        : null,
+    mediaInfo: normalizeFileMediaInfo(payload['mediaInfo'] ?? payload['media_info']),
+  }
+}
+
 export class TauriTransport implements TransportLike {
   readonly kind = 'tauri' as const
 
-  connected = state(false)
-  connecting = state(false)
-  lastError = state<string | undefined>(undefined)
+  connected = atom(false)
+  connecting = atom(false)
+  lastError = atom<string | undefined>(undefined)
 
   private handlers = new Map<string, HandlerSet>()
   private unlisten: Array<() => void> = []
@@ -63,6 +165,11 @@ export class TauriTransport implements TransportLike {
         this.unlisten.push(
           await tauriListen('catalog:event', (payload) => this.emit('catalog:event', payload)),
         )
+        this.unlisten.push(
+          await tauriListen('catalog:event:batch', (payload) =>
+            this.emit('catalog:event:batch', payload),
+          ),
+        )
         this.unlisten.push(await tauriListen('vault:locked', (payload) => this.emit('vault:locked', payload)))
         this.unlisten.push(
           await tauriListen('volume:status', (payload) => this.emit('volume:status', payload)),
@@ -70,9 +177,41 @@ export class TauriTransport implements TransportLike {
         this.unlisten.push(await tauriListen('ping', (payload) => this.emit('ping', payload)))
         this.unlisten.push(await tauriListen('pong', (payload) => this.emit('pong', payload)))
         this.unlisten.push(
+          await tauriListen<MediaStreamErrorEvent>('media-stream:error', (payload) =>
+            this.emit('media-stream:error', payload),
+          ),
+        )
+        this.unlisten.push(
           await tauriListen('ssh-agent:sign-request', (payload) =>
             this.emit('ssh-agent:sign-request', payload),
           ),
+        )
+        this.unlisten.push(
+          await tauriListen('android-media-session:action', (payload) =>
+            this.emit('android-media-session:action', payload),
+          ),
+        )
+        this.unlisten.push(
+          await tauriListen('android-video-player:event', (payload) =>
+            this.emit('android-video-player:event', payload),
+          ),
+        )
+        this.unlisten.push(
+          await tauriListen<AndroidAudioPlayerEvent>('android-audio-player:event', (payload) =>
+            this.emit('android-audio-player:event', payload),
+          ),
+        )
+        this.unlisten.push(
+          await tauriListen<NativeAudioPlayerEvent>('native-audio-player:event', (payload) =>
+            this.emit('native-audio-player:event', payload),
+          ),
+        )
+        this.unlisten.push(
+          await tauriListen<RuntimeModeSwitchResult>('mode:changed', (payload) => {
+            runtimeModeModel.handleModeChanged(payload)
+            void moduleAccessModel.refresh()
+            this.emit('mode:changed', payload)
+          }),
         )
 
         console.info('[dashboard][tauri] connect(): subscribed to events', {
@@ -80,11 +219,18 @@ export class TauriTransport implements TransportLike {
           events: [
             'update:state',
             'catalog:event',
+            'catalog:event:batch',
             'vault:locked',
             'volume:status',
             'ping',
             'pong',
+            'media-stream:error',
             'ssh-agent:sign-request',
+            'android-media-session:action',
+            'android-video-player:event',
+            'android-audio-player:event',
+            'native-audio-player:event',
+            'mode:changed',
           ],
         })
 
@@ -100,9 +246,30 @@ export class TauriTransport implements TransportLike {
         try {
           const capabilities = await tauriInvoke<RuntimeCapabilities>('runtime_capabilities')
           setRuntimeCapabilities(capabilities)
+          void moduleAccessModel.refresh()
         } catch (error) {
           console.warn('[dashboard][tauri] runtime_capabilities invoke failed', error)
           setRuntimeCapabilities(null)
+        }
+
+        try {
+          const modeInfo = await tauriInvoke<RuntimeModeInfo>('mode_status')
+          runtimeModeModel.setCoreMode(modeInfo.mode, modeInfo.remote_core_features)
+          void moduleAccessModel.refresh()
+        } catch (modeStatusError) {
+          try {
+            const mode = await tauriInvoke<RpcResult<RuntimeCoreMode>>('get_current_mode')
+            if (isSuccess(mode)) {
+              runtimeModeModel.setCoreMode(mode.result)
+            } else {
+              runtimeModeModel.setCoreMode('switching')
+              console.warn('[dashboard][tauri] get_current_mode failed', mode.error)
+            }
+          } catch (error) {
+            runtimeModeModel.setCoreMode('switching')
+            console.warn('[dashboard][tauri] get_current_mode invoke failed', error)
+          }
+          console.warn('[dashboard][tauri] mode_status invoke failed', modeStatusError)
         }
 
         this.connected.set(true)
@@ -127,6 +294,7 @@ export class TauriTransport implements TransportLike {
 
     this.unlisten = []
     setRuntimeCapabilities(null)
+    runtimeModeModel.handleTransportDisconnect()
     this.connected.set(false)
     this.connecting.set(false)
   }
@@ -242,6 +410,9 @@ export class TauriTransport implements TransportLike {
   }
 
   async sendCatalog(command: string, data: Record<string, unknown>): Promise<unknown> {
+    if (command.startsWith('passmanager:')) {
+      return this.sendPassmanager(command, data)
+    }
     return dispatchTauriCatalogCommand({
       command,
       data,
@@ -252,8 +423,27 @@ export class TauriTransport implements TransportLike {
     })
   }
 
+  async sendPassmanager(command: string, data: Record<string, unknown>): Promise<unknown> {
+    const result = await dispatchTauriCatalogCommand({
+      command,
+      data,
+      logger: defaultLogger,
+      rpc: <T extends RpcCmdName>(cmd: T, payload: RpcCmdData<T>) => this.rpc(cmd, payload),
+      rpcDispatch: (cmd, payload) => this.rpcDispatch(cmd, payload),
+      rpcDispatchRaw: (cmd, payload) => this.rpcDispatchRaw(cmd, payload),
+    })
+
+    if (isPassmanagerMutatingCommand(command)) {
+      queueMicrotask(() => {
+        this.emit('passmanager:changed', {command})
+      })
+    }
+
+    return result
+  }
+
   async uploadFile(
-    nodeId: number,
+    target: number | {parentPath?: string; name: string},
     file: File,
     opts?: {
       chunkSize?: number
@@ -261,8 +451,8 @@ export class TauriTransport implements TransportLike {
       type?: string
       onProgress?: (c: number, t: number, p: number) => void
     },
-  ): Promise<void> {
-    return uploadFileViaTauri(nodeId, file, opts)
+  ): Promise<{nodeId: number}> {
+    return uploadFileViaTauri(target, file, opts)
   }
 
   async statPath(path: string): Promise<{name: string; size: number}> {
@@ -270,7 +460,7 @@ export class TauriTransport implements TransportLike {
   }
 
   async uploadFilePath(
-    nodeId: number,
+    target: number | {parentPath?: string; name: string},
     path: string,
     opts?: {
       uploadId?: string
@@ -278,12 +468,162 @@ export class TauriTransport implements TransportLike {
       totalBytes?: number
       onProgress?: (c: number, t: number, p: number) => void
     },
+  ): Promise<{nodeId: number}> {
+    return uploadFilePathViaTauri(target, path, opts)
+  }
+
+  async uploadNativeFiles(
+    parentPath: string,
+    opts?: NativeUploadOptions,
   ): Promise<void> {
-    return uploadFilePathViaTauri(nodeId, path, opts)
+    return uploadNativeFilesViaTauri(parentPath, opts)
+  }
+
+  async uploadSharedFiles(
+    parentPath: string,
+    sharedSessionId: string,
+    opts?: NativeUploadOptions,
+  ): Promise<void> {
+    return uploadSharedFilesViaTauri(parentPath, sharedSessionId, opts)
+  }
+
+  async uploadAndroidSharedFiles(
+    parentPath: string,
+    shareSessionId: string,
+    opts?: NativeUploadOptions,
+  ): Promise<void> {
+    return uploadAndroidSharedFilesViaTauri(parentPath, shareSessionId, opts)
+  }
+
+  async cancelSharedFiles(sharedSessionId: string): Promise<void> {
+    return cancelSharedFilesViaTauri(sharedSessionId)
+  }
+
+  async cancelAndroidSharedFiles(shareSessionId: string): Promise<void> {
+    return cancelAndroidSharedFilesViaTauri(shareSessionId)
+  }
+
+  async startNativeOtpQrScan(scanId: string): Promise<void> {
+    return startNativeOtpQrScanViaTauri(scanId)
+  }
+
+  async cancelNativeOtpQrScan(scanId: string): Promise<void> {
+    return cancelNativeOtpQrScanViaTauri(scanId)
   }
 
   async downloadFile(nodeId: number): Promise<AsyncIterable<Uint8Array>> {
     return downloadFileViaTauri(nodeId)
+  }
+
+  async sourceMetadata(nodeId: number): Promise<CatalogSourceMetadata> {
+    const result = await this.rpc('catalog:source:metadata', {node_id: nodeId})
+    return normalizeCatalogSourceMetadata(result)
+  }
+
+  async replaceFile(
+    nodeId: number,
+    bytes: Uint8Array,
+    options: CatalogFileReplaceOptions,
+  ): Promise<CatalogFileReplaceResult> {
+    return replaceFileViaTauri(nodeId, bytes, options)
+  }
+
+  async previewImage(
+    nodeId: number,
+    opts: {
+      fileName: string
+      mimeType?: string | null
+      lastModified?: number | null
+      refreshDerivativeCache?: boolean
+    },
+  ): Promise<{bytes: Uint8Array; mimeType: string; name: string; chunkSize: number}> {
+    return previewImageViaTauri(nodeId, opts)
+  }
+
+  async thumbnailImage(
+    nodeId: number,
+    opts: {
+      fileName: string
+      mimeType?: string | null
+      lastModified?: number | null
+      refreshDerivativeCache?: boolean
+    },
+  ): Promise<{bytes: Uint8Array; mimeType: string; name: string; chunkSize: number}> {
+    return thumbnailImageViaTauri(nodeId, opts)
+  }
+
+  async imageMetadata(
+    nodeId: number,
+    opts: {
+      fileName: string
+      mimeType?: string | null
+      lastModified?: number | null
+    },
+  ): Promise<ImagePhotoMetadata> {
+    return imageMetadataViaTauri(nodeId, opts)
+  }
+
+  async preparePreviewFile(
+    nodeId: number,
+    opts: {
+      fileName: string
+      mimeType?: string | null
+      lastModified?: number | null
+      variant: PreparedPreviewFileVariant
+      refreshDerivativeCache?: boolean
+    },
+  ): Promise<PreparedPreviewFileSource> {
+    return preparePreviewFileViaTauri(nodeId, opts)
+  }
+
+  async releasePreviewFile(source: PreparedPreviewFileSource): Promise<void> {
+    return releasePreviewFileViaTauri(source)
+  }
+
+  async purgePreviewSources(reason: PreviewCachePurgeReason): Promise<PreviewCachePurgeResult> {
+    return purgePreviewSourcesViaTauri(reason)
+  }
+
+  async prepareMediaStream(
+    nodeId: number,
+    opts: {
+      fileName: string
+      mimeType?: string | null
+      lastModified?: number | null
+    },
+  ): Promise<PreparedMediaStreamSource> {
+    return prepareMediaStreamViaTauri(nodeId, opts)
+  }
+
+  async releaseMediaStream(source: PreparedMediaStreamSource): Promise<void> {
+    return releaseMediaStreamViaTauri(source)
+  }
+
+  async startAndroidVideo(
+    nodeId: number,
+    opts: {
+      fileName: string
+      mimeType?: string | null
+      lastModified?: number | null
+    },
+  ): Promise<PreparedAndroidVideoSource> {
+    return startAndroidVideoViaTauri(nodeId, opts)
+  }
+
+  async stopAndroidVideo(source: PreparedAndroidVideoSource): Promise<void> {
+    return stopAndroidVideoViaTauri(source)
+  }
+
+  async sendAndroidAudioCommand(command: AndroidAudioCommand): Promise<AndroidAudioCommandResult> {
+    return sendAndroidAudioCommandViaTauri(command)
+  }
+
+  async sendNativeAudioCommand(command: NativeAudioCommand): Promise<NativeAudioCommandResult> {
+    return sendNativeAudioCommandViaTauri(command)
+  }
+
+  async warmupAndroidAudio(): Promise<boolean> {
+    return warmupAndroidAudioViaTauri()
   }
 
   async downloadFilePath(
@@ -296,6 +636,16 @@ export class TauriTransport implements TransportLike {
     },
   ): Promise<{bytes_written: number; name: string; mime_type: string}> {
     return downloadFilePathViaTauri(nodeId, targetPath, opts)
+  }
+
+  async openExternal(
+    nodeId: number,
+    opts?: {
+      openId?: string
+      onProgress?: (writtenBytes: number, totalBytes: number, percent: number) => void
+    },
+  ): Promise<{path: string}> {
+    return openExternalViaTauri(nodeId, opts)
   }
 
   async readSecret(nodeId: number): Promise<AsyncIterable<Uint8Array>> {
@@ -324,7 +674,7 @@ export class TauriTransport implements TransportLike {
       throw new Error('generateOTP requires otpId or entryId')
     }
 
-    const response = (await this.sendCatalog('passmanager:otp:generate', {
+    const response = (await this.sendPassmanager('passmanager:otp:generate', {
       otp_id,
       entry_id,
       ts: params.ts ?? null,
@@ -349,7 +699,7 @@ export class TauriTransport implements TransportLike {
     digits?: number
     period?: number
   }): Promise<void> {
-    await this.sendCatalog('passmanager:otp:setSecret', {
+    await this.sendPassmanager('passmanager:otp:setSecret', {
       otp_id: params.otpId,
       entry_id: params.entryId ?? null,
       secret: params.secret,
@@ -361,7 +711,7 @@ export class TauriTransport implements TransportLike {
   }
 
   async removeOTPSecret(params: {otpId: string; entryId?: string}): Promise<void> {
-    await this.sendCatalog('passmanager:otp:removeSecret', {
+    await this.sendPassmanager('passmanager:otp:removeSecret', {
       otp_id: params.otpId,
       entry_id: params.entryId ?? null,
     })

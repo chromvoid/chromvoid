@@ -1,5 +1,7 @@
 use crate::core_adapter::{CoreAdapter, CoreMode};
-use crate::credential_provider_contract::CREDENTIAL_PROVIDER_STATUS_COMMAND;
+use crate::credential_provider_contract::{
+    credential_provider_status_bool, CREDENTIAL_PROVIDER_STATUS_COMMAND,
+};
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 use serde_json::{json, Value};
 
@@ -69,14 +71,10 @@ pub fn provider_policy_preflight(
 ) -> Result<PasskeyProviderPolicy, PasskeyRuntimeError> {
     let status = dispatch_provider_rpc(adapter, CREDENTIAL_PROVIDER_STATUS_COMMAND, json!({}))?;
 
-    let provider_enabled = status
-        .get("enabled")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let vault_open = status
-        .get("vault_open")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let provider_enabled =
+        credential_provider_status_bool(&status, "enabled", "credential_provider_passkey");
+    let vault_open =
+        credential_provider_status_bool(&status, "vault_open", "credential_provider_passkey");
 
     if !provider_enabled {
         return Err(PasskeyRuntimeError {

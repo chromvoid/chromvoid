@@ -1,22 +1,27 @@
-import type {TemplateResult} from 'lit'
+import {html, type TemplateResult} from 'lit'
 import {announce, InertManager, findFirstFocusableElement} from '@chromvoid/ui'
 import {
   createDialogController,
   type CustomDialogOptions as ControllerCustomDialogOptions,
   type DialogController,
-} from '@chromvoid/uikit'
+} from '@chromvoid/uikit/dialog'
+import {i18n} from 'root/i18n'
 import type {
   InputDialogOptions,
   ConfirmDialogOptions,
+  AlertDialogOptions,
   SelectDialogOptions,
   InputDialogResult,
   ConfirmDialogResult,
   SelectDialogResult,
   DialogServiceInterface,
+  ValidationResult,
   ValidatorFunction,
 } from './dialog-types.js'
 import {CvInputDialog} from './cv-input-dialog.js'
 import {CvConfirmDialog} from './cv-confirm-dialog.js'
+import {transientBackModel} from './transient-back.model.js'
+import {AdaptiveModalSurface} from '../ui/adaptive-modal-surface.js'
 
 type DialogResult<T> = T | null
 
@@ -32,114 +37,142 @@ interface CustomDialogOptions {
   dialogClass?: string
 }
 
-// Локальные стили-оверрайды для showCustomDialog поверх generic controller из uikit.
-const customDialogStyles = `
-  cv-dialog.cv-managed-dialog {
-    --cv-color-surface-elevated: var(--cv-color-surface, #ffffff);
-    --cv-color-border: var(--cv-color-border, var(--cv-alpha-black-10));
-    --cv-color-text: var(--cv-color-text, #1f2937);
-    --cv-color-text-muted: var(--cv-color-text-muted, #64748b);
-    --cv-color-primary: var(--cv-color-primary, #6366f1);
-    --cv-dialog-border-radius: var(--cv-radius-2, 12px);
-    --cv-dialog-max-height: calc(100dvh - 32px);
-    --cv-dialog-title-font-size: var(--cv-font-size-lg, 1.125rem);
+function getSelectDialogResult(options: SelectDialogOptions, selectedValues: ReadonlySet<string>): SelectDialogResult {
+  const orderedValues = options.options
+    .filter((option) => !option.disabled && selectedValues.has(option.value))
+    .map((option) => option.value)
+
+  if (options.multiple) {
+    return orderedValues
   }
 
-  cv-dialog.cv-managed-dialog::part(header) {
-    padding: var(--app-spacing-4, 1rem) var(--app-spacing-5, 1.25rem) 0;
-  }
-
-  cv-dialog.cv-managed-dialog::part(title) {
-    margin: 0;
-    font-size: var(--cv-font-size-lg, 1.125rem);
-    color: var(--cv-color-text, #1f2937);
-  }
-
-  cv-dialog.cv-managed-dialog::part(description) {
-    display: none;
-  }
-
-  cv-dialog.cv-managed-dialog > .cv-dialog-controller-body {
-    padding: var(--app-spacing-5, 1.25rem);
-    line-height: var(--line-height-relaxed, 1.625);
-  }
-
-  cv-dialog.cv-managed-dialog > .cv-dialog-controller-footer {
-    display: flex;
-    gap: var(--app-spacing-3, 0.75rem);
-    justify-content: flex-end;
-    padding: var(--app-spacing-4, 1rem) var(--app-spacing-5, 1.25rem);
-    border-top: 1px solid var(--cv-color-border, var(--cv-alpha-black-10));
-    background: var(--cv-color-surface-2, #f8fafc);
-  }
-
-  @media (max-width: 640px) {
-    cv-dialog.cv-managed-dialog > .cv-dialog-controller-footer {
-      flex-direction: row;
-      gap: var(--app-spacing-2, 0.5rem);
-      width: 100%;
-    }
-
-    cv-dialog.cv-managed-dialog > .cv-dialog-controller-footer > * {
-      flex: 1 1 0;
-    }
-  }
-
-  @media (max-width: 660px) {
-    cv-dialog.cv-managed-dialog.pm-move-sheet::part(overlay) {
-      place-items: end center;
-      padding: 0 6px 6px;
-    }
-
-    cv-dialog.cv-managed-dialog.pm-move-sheet::part(content) {
-      inline-size: calc(100vw - 12px);
-      max-height: 82vh;
-      border-radius: 16px 16px 10px 10px;
-    }
-  }
-`
-
-let stylesInjected = false
-function injectStyles() {
-  if (stylesInjected || typeof document === 'undefined') return
-  const style = document.createElement('style')
-  style.textContent = customDialogStyles
-  style.id = 'chromvoid-dialog-styles'
-  document.head.appendChild(style)
-  stylesInjected = true
+  return orderedValues[0] ?? null
 }
 
-/**
- * Сервис для работы с диалогами.
- * showInputDialog / showConfirmDialog — используют веб-компоненты (cv-input-dialog, cv-confirm-dialog).
- * showCustomDialog — thin wrapper над generic dialog controller из uikit.
- */
+const INVALID_CATALOG_NAME_CHARS = /[<>:"/\\|?*\u0000-\u001f]/
+
+function validateCatalogRenameName(value: string, isFolder: boolean): ValidationResult {
+  const trimmed = value.trim()
+  if (trimmed.length === 0) {
+    return {
+      valid: false,
+      message: i18n(isFolder ? 'dialogs:folder-name-empty' : 'dialogs:file-name-empty'),
+    }
+  }
+
+  if (INVALID_CATALOG_NAME_CHARS.test(trimmed)) {
+    return {
+      valid: false,
+      message: i18n(isFolder ? 'dialogs:folder-name-invalid' : 'dialogs:file-name-invalid'),
+    }
+  }
+
+  return {valid: true}
+}
+
+async function waitForElementUpdate(element: Element | null | undefined): Promise<void> {
+  const updateComplete = (element as {updateComplete?: unknown} | null | undefined)?.updateComplete
+  if (updateComplete && typeof (updateComplete as Promise<unknown>).then === 'function') {
+    await updateComplete
+  }
+}
+
+export function validateRenameFileName(value: string): ValidationResult {
+  return validateCatalogRenameName(value, false)
+}
+
+export function validateRenameFolderName(value: string): ValidationResult {
+  return validateCatalogRenameName(value, true)
+}
+
+
+/*** Service for working with dialogues.
+* showInputDialog / showConfirmDialog - use web components (cv-input-dialog, cv-confirm-dialog).
+showCustomDialog - thin wrapper over generic dialog controller from uikit.
+*/
 export class DialogService implements DialogServiceInterface {
   private readonly inertManager = new InertManager()
   private readonly dialogController: DialogController
+  private inputDialogPrewarmed = false
+  private inputDialogPrewarmPromise: Promise<void> | null = null
 
   constructor() {
+    AdaptiveModalSurface.define()
     this.dialogController = createDialogController({
       announce,
       setInertExcept: (element) => this.inertManager.setInertExcept(element),
       restoreInert: () => this.inertManager.restoreAll(),
       findFirstFocusable: findFirstFocusableElement,
+      createCustomDialogElement: () => document.createElement('adaptive-modal-surface') as AdaptiveModalSurface,
     })
-    injectStyles()
+    transientBackModel.register(() => this.closeTopDialog(), {priority: 100})
     CvInputDialog.define()
     CvConfirmDialog.define()
   }
 
-  // ========== Основные методы ==========
+  // ================================================================================================================================================================================================================================================================ Basic methods =======
+
+  prewarmInputDialog(options: Partial<InputDialogOptions> = {}): Promise<void> {
+    if (this.inputDialogPrewarmed) {
+      return Promise.resolve()
+    }
+    if (this.inputDialogPrewarmPromise) {
+      return this.inputDialogPrewarmPromise
+    }
+    if (typeof document === 'undefined') {
+      return Promise.resolve()
+    }
+
+    this.inputDialogPrewarmPromise = this.runInputDialogPrewarm(options)
+      .then(() => {
+        this.inputDialogPrewarmed = true
+      })
+      .finally(() => {
+        this.inputDialogPrewarmPromise = null
+      })
+
+    return this.inputDialogPrewarmPromise
+  }
+
+  private async runInputDialogPrewarm(options: Partial<InputDialogOptions>): Promise<void> {
+    const dialog = new CvInputDialog()
+    dialog.configure({
+      title: options.title ?? '',
+      label: options.label ?? '',
+      placeholder: options.placeholder ?? '',
+      value: options.value ?? '',
+      type: options.type ?? 'text',
+      required: options.required ?? false,
+      size: options.size,
+      closable: options.closable,
+      noHeader: options.noHeader,
+    })
+
+    document.body.append(dialog)
+
+    try {
+      await waitForElementUpdate(dialog)
+      const surface = dialog.shadowRoot?.querySelector('adaptive-modal-surface')
+      await waitForElementUpdate(surface)
+      const sheet = surface?.shadowRoot?.querySelector('cv-bottom-sheet')
+      const directDialog = surface?.shadowRoot?.querySelector('cv-dialog')
+      await waitForElementUpdate(sheet)
+      await waitForElementUpdate(directDialog)
+      await waitForElementUpdate(sheet?.shadowRoot?.querySelector('cv-dialog'))
+    } finally {
+      dialog.remove()
+    }
+  }
 
   async showInputDialog(options: InputDialogOptions): Promise<InputDialogResult> {
     const dialog = new CvInputDialog()
     dialog.configure(options)
     return this.dialogController.present({
       element: dialog,
-      title: options.title || 'Ввод данных',
+      title: options.title || i18n('dialogs:input-title'),
       show: () => dialog.show(),
       close: () => dialog.close(),
+      autoFocus: false,
     })
   }
 
@@ -148,22 +181,148 @@ export class DialogService implements DialogServiceInterface {
     dialog.configure(options)
     const result = await this.dialogController.present({
       element: dialog,
-      title: options.title || 'Подтверждение',
+      title: options.title || i18n('dialogs:confirm-title'),
       show: () => dialog.show(),
       close: () => dialog.close(),
     })
     return result ?? false
   }
 
-  async showSelectDialog(_options: SelectDialogOptions): Promise<SelectDialogResult> {
-    // TODO: Реализовать select диалог
-    return null
+  async showAlertDialog(options: AlertDialogOptions): Promise<void> {
+    const dialog = new CvConfirmDialog()
+    dialog.configure({...options, mode: 'alert'})
+    await this.dialogController.present({
+      element: dialog,
+      title: options.title || i18n('dialogs:confirm-title'),
+      show: () => dialog.show(),
+      close: () => dialog.close(),
+    })
   }
 
-  /**
-   * Показывает кастомный диалог с произвольным контентом.
-   * Для сложных случаев, когда нужен querySelector по содержимому.
-   */
+  async showSelectDialog(options: SelectDialogOptions): Promise<SelectDialogResult> {
+    const selectionMode = options.multiple ? 'multiple' : 'single'
+    const inputName = `cv-select-dialog-${Math.random().toString(36).slice(2)}`
+
+    const content = html`
+      <div class="select-dialog">
+        ${options.placeholder
+          ? html`<p class="select-dialog-placeholder">${options.placeholder}</p>`
+          : null}
+        <div class="select-dialog-options" role=${selectionMode === 'multiple' ? 'group' : 'radiogroup'}>
+          ${options.options.map(
+            (option) => html`
+              <label class="select-dialog-option ${option.disabled ? 'disabled' : ''}">
+                <input
+                  class="select-dialog-option-input"
+                  type=${selectionMode === 'multiple' ? 'checkbox' : 'radio'}
+                  name=${inputName}
+                  value=${option.value}
+                  ?disabled=${option.disabled}
+                />
+                <span class="select-dialog-option-label">${option.label}</span>
+              </label>
+            `,
+          )}
+        </div>
+      </div>
+    `
+
+    const footer = html`
+      <div class="select-dialog-actions">
+        <cv-button unstyled type="button" class="select-dialog-action" data-action="cancel">
+          ${options.cancelText || i18n('button:cancel')}
+        </cv-button>
+        <cv-button unstyled type="button" class="select-dialog-action primary" data-action="confirm">
+          ${options.confirmText || i18n('button:ok')}
+        </cv-button>
+      </div>
+    `
+
+    const result = await this.showCustomDialog<SelectDialogResult>(
+      {
+        title: options.title || i18n('dialogs:confirm-title'),
+        content,
+        footer,
+        size: options.size,
+        closable: options.closable,
+        noHeader: options.noHeader,
+        noFooter: options.noFooter,
+        dialogClass: 'cv-select-sheet',
+      },
+      (dialog, resolve) => {
+        const selectedValues = new Set<string>()
+
+        const getConfirmButton = () =>
+          dialog.querySelector<HTMLButtonElement>('.select-dialog-action[data-action="confirm"]')
+
+        const updateConfirmState = () => {
+          const confirmButton = getConfirmButton()
+          const selection = getSelectDialogResult(options, selectedValues)
+          const hasSelection = Array.isArray(selection) ? selection.length > 0 : selection !== null
+          if (confirmButton) {
+            confirmButton.disabled = !hasSelection
+          }
+        }
+
+        updateConfirmState()
+
+        dialog.addEventListener('change', (event) => {
+          const target = event.target
+          if (!(target instanceof HTMLInputElement) || !target.classList.contains('select-dialog-option-input')) {
+            return
+          }
+
+          if (selectionMode === 'multiple') {
+            if (target.checked) {
+              selectedValues.add(target.value)
+            } else {
+              selectedValues.delete(target.value)
+            }
+          } else {
+            selectedValues.clear()
+            if (target.checked) {
+              selectedValues.add(target.value)
+            }
+          }
+
+          updateConfirmState()
+        })
+
+        dialog.addEventListener('click', (event) => {
+          const target = event.target
+          if (!(target instanceof Element)) {
+            return
+          }
+
+          const actionButton = target.closest<HTMLButtonElement>('.select-dialog-action')
+          if (!actionButton) {
+            return
+          }
+
+          const action = actionButton.dataset['action']
+          if (action === 'cancel') {
+            resolve(null)
+            return
+          }
+
+          if (action === 'confirm') {
+            const selection = getSelectDialogResult(options, selectedValues)
+            if (selection === null || (Array.isArray(selection) && selection.length === 0)) {
+              return
+            }
+
+            resolve(selection)
+          }
+        })
+      },
+    )
+
+    return result
+  }
+
+  /*** Shows custom dialogue with arbitrary content.
+* For complex cases where you need a content querySelector.
+*/
   async showCustomDialog<T>(
     options: CustomDialogOptions,
     resultHandler: (dialog: HTMLElement, resolve: (value: DialogResult<T>) => void) => void,
@@ -182,7 +341,7 @@ export class DialogService implements DialogServiceInterface {
     return this.dialogController.showCustom(controllerOptions, resultHandler)
   }
 
-  // ========== Удобные методы ==========
+  // ================================================================================================================================================================================================================================================================ Convenient methods =========
 
   async showRenameFileDialog(currentName: string, currentPath = ''): Promise<string | null> {
     return this.showRenameDialog(currentName, false, currentPath)
@@ -196,24 +355,24 @@ export class DialogService implements DialogServiceInterface {
     const folderNameValidator: ValidatorFunction = (value: string) => {
       const trimmed = value.trim()
       if (trimmed.length === 0) {
-        return {valid: false, message: 'Имя папки не может быть пустым'}
+        return {valid: false, message: i18n('dialogs:folder-name-empty')}
       }
       const invalidChars = /[<>:"/\\|?*\u0000-\u001f]/
       if (invalidChars.test(trimmed)) {
-        return {valid: false, message: 'Имя папки содержит недопустимые символы'}
+        return {valid: false, message: i18n('dialogs:folder-name-invalid')}
       }
       return {valid: true}
     }
 
     return this.showInputDialog({
-      title: 'Создание новой папки',
-      label: 'Имя папки',
-      placeholder: 'Введите имя папки...',
+      title: i18n('dialogs:create-folder-title'),
+      label: i18n('dialogs:folder-name-label'),
+      placeholder: i18n('dialogs:folder-name-placeholder'),
       helpText: currentPath
-        ? `Папка будет создана в: ${currentPath}`
-        : 'Папка будет создана в корневом каталоге',
-      confirmText: 'Создать',
-      cancelText: 'Отмена',
+        ? i18n('dialogs:folder-created-in', {path: currentPath})
+        : i18n('dialogs:folder-created-root'),
+      confirmText: i18n('button:create'),
+      cancelText: i18n('button:cancel'),
       required: true,
       maxLength: 100,
       validator: folderNameValidator,
@@ -222,30 +381,59 @@ export class DialogService implements DialogServiceInterface {
     })
   }
 
-  async showRenameDialog(currentName: string, isFolder: boolean, currentPath = ''): Promise<string | null> {
-    const nameValidator: ValidatorFunction = (value: string) => {
+  async showCreateMarkdownNoteDialog(currentPath = ''): Promise<string | null> {
+    const markdownNameValidator: ValidatorFunction = (value: string) => {
       const trimmed = value.trim()
       if (trimmed.length === 0) {
-        return {valid: false, message: `Имя ${isFolder ? 'папки' : 'файла'} не может быть пустым`}
+        return {valid: false, message: i18n('dialogs:file-name-empty')}
       }
       const invalidChars = /[<>:"/\\|?*\u0000-\u001f]/
       if (invalidChars.test(trimmed)) {
-        return {valid: false, message: `Имя ${isFolder ? 'папки' : 'файла'} содержит недопустимые символы`}
+        return {valid: false, message: i18n('dialogs:file-name-invalid')}
+      }
+      const dotIndex = trimmed.lastIndexOf('.')
+      if (dotIndex > 0 && trimmed.slice(dotIndex).toLowerCase() !== '.md') {
+        return {valid: false, message: i18n('dialogs:markdown-note-extension-invalid')}
       }
       return {valid: true}
     }
 
-    const displayPath = currentPath ? ` в ${currentPath}` : ''
-    const helpText = `${isFolder ? 'Папка' : 'Файл'} будет переименован${displayPath}`
+    return this.showInputDialog({
+      title: i18n('dialogs:create-markdown-note-title'),
+      label: i18n('dialogs:markdown-note-name-label'),
+      placeholder: i18n('dialogs:markdown-note-name-placeholder'),
+      helpText: currentPath
+        ? i18n('dialogs:markdown-note-created-in', {path: currentPath})
+        : i18n('dialogs:markdown-note-created-root'),
+      confirmText: i18n('button:create'),
+      cancelText: i18n('button:cancel'),
+      required: true,
+      maxLength: 100,
+      validator: markdownNameValidator,
+      size: 'm',
+      variant: 'default',
+    })
+  }
+
+  async showRenameDialog(currentName: string, isFolder: boolean, currentPath = ''): Promise<string | null> {
+    const nameValidator: ValidatorFunction = (value: string) => {
+      return validateCatalogRenameName(value, isFolder)
+    }
+
+    const displayPath = currentPath ? i18n('dialogs:path-suffix', {path: currentPath}) : ''
+    const helpText = i18n(
+      isFolder ? 'dialogs:rename-folder-help' : 'dialogs:rename-file-help',
+      {suffix: displayPath},
+    )
 
     return this.showInputDialog({
-      title: `Переименование ${isFolder ? 'папки' : 'файла'}`,
-      label: 'Новое имя',
+      title: i18n(isFolder ? 'dialogs:rename-folder-title' : 'dialogs:rename-file-title'),
+      label: i18n('dialogs:new-name-label'),
       value: currentName,
-      placeholder: `Введите новое имя ${isFolder ? 'папки' : 'файла'}...`,
+      placeholder: i18n(isFolder ? 'dialogs:new-name-folder-placeholder' : 'dialogs:new-name-file-placeholder'),
       helpText,
-      confirmText: 'Переименовать',
-      cancelText: 'Отмена',
+      confirmText: i18n('button:rename'),
+      cancelText: i18n('button:cancel'),
       required: true,
       maxLength: 255,
       validator: nameValidator,
@@ -256,35 +444,36 @@ export class DialogService implements DialogServiceInterface {
 
   async showDeleteConfirmDialog(itemNames: string[], isFolder = false): Promise<boolean> {
     const count = itemNames.length
-    const itemType = isFolder ? 'папку' : 'файл'
-    const itemTypePlural = isFolder ? 'папки' : 'файлы'
-
-    let message: string
-    let title: string
-
-    if (count === 1) {
-      title = `Удаление ${itemType}`
-      message = `Вы действительно хотите удалить ${itemType} "${itemNames[0]}"?\n\nЭто действие необратимо.`
-    } else {
-      title = `Удаление ${count} ${count < 5 ? itemTypePlural : isFolder ? 'папок' : 'файлов'}`
-      message = `Вы действительно хотите удалить ${count} ${count < 5 ? itemTypePlural : isFolder ? 'папок' : 'файлов'}?\n\nЭто действие необратимо.`
-    }
+    const title =
+      count === 1
+        ? i18n(isFolder ? 'dialogs:delete-folder-title' : 'dialogs:delete-file-title')
+        : i18n('dialogs:delete-items-title')
+    const message =
+      count === 1
+        ? i18n(isFolder ? 'dialogs:delete-folder-message' : 'dialogs:delete-file-message', {
+            name: itemNames[0] ?? '',
+          })
+        : i18n('dialogs:delete-items-message', {count: String(count)})
 
     return this.showConfirmDialog({
       title,
       message,
-      confirmText: 'Удалить',
-      cancelText: 'Отмена',
+      confirmText: i18n('button:delete'),
+      cancelText: i18n('button:cancel'),
       confirmVariant: 'danger',
       size: 'm',
       variant: 'danger',
     })
   }
 
-  // ========== Управление ==========
+  // ================================================================================================================================================================================================================================================================
 
   closeAllDialogs() {
     this.dialogController.closeAll()
+  }
+
+  closeTopDialog(): boolean {
+    return this.dialogController.closeTop()
   }
 
   getActiveDialogsCount(): number {

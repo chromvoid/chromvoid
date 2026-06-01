@@ -4,17 +4,21 @@ mod catalog;
 mod command;
 mod credential_provider;
 mod otp;
+mod passkeys;
 mod result;
 mod sync;
 mod vault;
+mod wallet;
 
 pub use catalog::*;
 pub use command::*;
 pub use credential_provider::*;
 pub use otp::*;
+pub use passkeys::*;
 pub use result::*;
 pub use sync::*;
 pub use vault::*;
+pub use wallet::*;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -24,6 +28,32 @@ use ts_rs::TS;
 
 /// RPC protocol version
 pub const PROTOCOL_VERSION: u8 = 1;
+
+pub const CORE_FEATURE_MEDIA_INSPECTION_CACHE_V1: &str = "media_inspection_cache_v1";
+pub const CORE_FEATURE_REMOTE_MEDIA_INSPECTION_SPLIT_V1: &str = "remote_media_inspection_split_v1";
+pub const CORE_FEATURE_REMOTE_RPC_JSON_MULTIPLEX_V1: &str = "remote_rpc_json_multiplex_v1";
+pub const CORE_FEATURE_REMOTE_RPC_PRIORITY_LOCK_V1: &str = "remote_rpc_priority_lock_v1";
+pub const CORE_FEATURE_PRO_ENTITLEMENTS_SNAPSHOT_V1: &str = "pro_entitlements_snapshot_v1";
+pub const CORE_FEATURE_WALLET_CORE_BTC_ETH_V1: &str = "wallet_core_btc_eth_v1";
+
+pub fn core_capability_features() -> Vec<String> {
+    vec![
+        CORE_FEATURE_MEDIA_INSPECTION_CACHE_V1.to_string(),
+        CORE_FEATURE_REMOTE_MEDIA_INSPECTION_SPLIT_V1.to_string(),
+        CORE_FEATURE_REMOTE_RPC_JSON_MULTIPLEX_V1.to_string(),
+        CORE_FEATURE_REMOTE_RPC_PRIORITY_LOCK_V1.to_string(),
+        CORE_FEATURE_PRO_ENTITLEMENTS_SNAPSHOT_V1.to_string(),
+        CORE_FEATURE_WALLET_CORE_BTC_ETH_V1.to_string(),
+    ]
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+pub struct CoreCapabilitiesResponse {
+    pub protocol_version: u8,
+    pub features: Vec<String>,
+}
 
 /// RPC Request
 #[derive(Debug, Clone, Serialize, Deserialize)]

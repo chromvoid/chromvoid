@@ -1,7 +1,7 @@
 import {css} from 'lit'
-import {ReatomLitElement, html} from '@chromvoid/uikit'
+import {ReatomLitElement, html} from '@chromvoid/uikit/reatom-lit'
 
-import type {Entry} from '@project/passmanager'
+import type {Entry} from '@project/passmanager/core'
 
 import {i18n} from '../i18n'
 import {store} from '../store'

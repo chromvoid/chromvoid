@@ -41,25 +41,28 @@ fn test_v2_upload_download_uses_blob_chunk_naming() {
     assert_rpc_ok(&unlock_vault(&mut router, password));
 
     let bytes = b"hello blob naming".to_vec();
-    let prepare = router.handle(&RpcRequest::new(
-        "catalog:prepareUpload",
-        serde_json::json!({
-            "name": "blob.txt",
-            "size": bytes.len() as u64,
-            "chunk_size": 4,
-        }),
-    ));
-    assert_rpc_ok(&prepare);
-    let node_id = get_node_id(&prepare);
-
     let upload_req = RpcRequest::new(
         "catalog:upload",
-        serde_json::json!({"node_id": node_id, "size": bytes.len() as u64, "offset": 0}),
+        serde_json::json!({
+            "parent_path": "/",
+            "name": "blob.txt",
+            "total_size": bytes.len() as u64,
+            "size": bytes.len() as u64,
+            "offset": 0,
+            "chunk_size": 4,
+        }),
     );
-    match router.handle_with_stream(&upload_req, Some(RpcInputStream::from_bytes(bytes.clone()))) {
-        RpcReply::Json(r) => assert_rpc_ok(&r),
-        RpcReply::Stream(_) => panic!("catalog:upload must return JSON"),
-    }
+    let node_id = match router
+        .handle_with_stream(&upload_req, Some(RpcInputStream::from_bytes(bytes.clone())))
+    {
+        RpcReply::Json(r) => {
+            assert_rpc_ok(&r);
+            get_node_id(&r)
+        }
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:upload must return JSON")
+        }
+    };
 
     // Verify the first blob chunk name exists.
     let salt_bytes = fs::read(temp_dir.path().join("salt")).expect("read salt");
@@ -93,5 +96,6 @@ fn test_v2_upload_download_uses_blob_chunk_naming() {
             assert_eq!(downloaded, bytes);
         }
         RpcReply::Json(r) => panic!("expected stream, got JSON: {r:?}"),
+        RpcReply::RangeStream(_) => panic!("expected full file stream"),
     }
 }

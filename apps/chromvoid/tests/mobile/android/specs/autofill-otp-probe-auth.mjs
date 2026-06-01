@@ -28,7 +28,7 @@ export async function runAutofillOtpProbeAuthSmoke({
     },
   ]
 
-  await ensureChromvoidAutofillService({adb, serial, env})
+  await ensureChromvoidAutofillService({adb, serial, env, packageName})
   await seedOtpEntry(driver, {
     entryId: 'otp-probe-entry',
     title: 'OTP Probe Entry',
@@ -41,7 +41,7 @@ export async function runAutofillOtpProbeAuthSmoke({
     adb,
     serial,
     env,
-    component: `${packageName}/.AutofillProbeActivity`,
+    component: `${packageName}/com.chromvoid.app.AutofillProbeActivity`,
     extras: ['--es', 'probe_mode', 'otp'],
   })
 
@@ -103,6 +103,7 @@ export async function runAutofillOtpProbeAuthSmoke({
     env,
     artifactRoot,
     label: 'otp-probe',
+    packageName,
   })
   if (!diagnostics.hasOtpDatasetOffered) {
     throw new Error(`OTP probe never offered a ChromVoid OTP dataset: ${JSON.stringify(diagnostics)}`)

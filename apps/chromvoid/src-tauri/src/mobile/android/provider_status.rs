@@ -4,6 +4,8 @@ use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 use serde::Serialize;
 use serde_json::{json, Value};
 
+use crate::credential_provider_contract::credential_provider_status_bool;
+
 use super::runtime;
 
 pub const ANDROID_CREDENTIAL_PROVIDER_MIN_API: u64 = 28;
@@ -82,22 +84,27 @@ fn provider_runtime_status_for_api(api_level: u64) -> AndroidProviderRuntimeStat
     let mut enabled = false;
     let mut vault_open = false;
 
-    if let Some(adapter_handle) = runtime::shared_app_adapter() {
-        if let Ok(mut adapter) = adapter_handle.lock() {
-            let response = adapter.handle(&RpcRequest::new(
-                "credential_provider:status".to_string(),
-                json!({}),
-            ));
-            if let RpcResponse::Success { result, .. } = response {
-                enabled = result
-                    .get("enabled")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                vault_open = result
-                    .get("vault_open")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
+    if let Some(adapter_handle) = runtime::provider_adapter() {
+        match adapter_handle.lock() {
+            Ok(mut adapter) => {
+                let response = adapter.handle(&RpcRequest::new(
+                    "credential_provider:status".to_string(),
+                    json!({}),
+                ));
+                if let RpcResponse::Success { result, .. } = response {
+                    enabled = credential_provider_status_bool(
+                        &result,
+                        "enabled",
+                        "android_provider_status",
+                    );
+                    vault_open = credential_provider_status_bool(
+                        &result,
+                        "vault_open",
+                        "android_provider_status",
+                    );
+                }
             }
+            Err(_) => tracing::warn!("android_provider_status: adapter mutex poisoned"),
         }
     }
 

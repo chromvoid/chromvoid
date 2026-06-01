@@ -1,4 +1,4 @@
-import {computed, state} from '@statx/core'
+import {atom, computed, wrap} from '@reatom/core'
 
 import {tauriInvoke} from 'root/core/transport/tauri/ipc'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
@@ -84,15 +84,15 @@ export interface ActiveGrants {
 // ---------------------------------------------------------------------------
 
 export class GatewayModel {
-  readonly config = state<GatewayConfig | null>(null)
-  readonly pairingPhase = state<PairingPhase>('idle')
-  readonly pairingInfo = state<GatewayPairingInfo | null>(null)
-  readonly pairingError = state<string | null>(null)
-  readonly pinSecondsLeft = state(0)
-  readonly tokenSecondsLeft = state(0)
+  readonly config = atom<GatewayConfig | null>(null)
+  readonly pairingPhase = atom<PairingPhase>('idle')
+  readonly pairingInfo = atom<GatewayPairingInfo | null>(null)
+  readonly pairingError = atom<string | null>(null)
+  readonly pinSecondsLeft = atom(0)
+  readonly tokenSecondsLeft = atom(0)
 
-  readonly selectedExtensionPolicy = state<CapabilityPolicy | null>(null)
-  readonly activeGrants = state<ActiveGrants | null>(null)
+  readonly selectedExtensionPolicy = atom<CapabilityPolicy | null>(null)
+  readonly activeGrants = atom<ActiveGrants | null>(null)
 
   readonly pairedExtensions = computed<PairedExtension[]>(() => {
     const cfg = this.config()
@@ -116,7 +116,7 @@ export class GatewayModel {
       return
     }
     try {
-      const res = await tauriInvoke<RpcResult<GatewayConfig>>('gateway_get_config')
+      const res = await wrap(tauriInvoke<RpcResult<GatewayConfig>>('gateway_get_config'))
       this.config.set(unwrap(res))
     } catch (e) {
       console.warn('[gateway] loadConfig failed', e)
@@ -126,7 +126,7 @@ export class GatewayModel {
   async setEnabled(enabled: boolean): Promise<void> {
     if (!this.isSupported()) return
     try {
-      const res = await tauriInvoke<RpcResult<GatewayConfig>>('gateway_set_enabled', {enabled})
+      const res = await wrap(tauriInvoke<RpcResult<GatewayConfig>>('gateway_set_enabled', {enabled}))
       this.config.set(unwrap(res))
     } catch (e) {
       console.warn('[gateway] setEnabled failed', e)
@@ -136,7 +136,9 @@ export class GatewayModel {
   async setAccessDuration(duration: AccessDuration): Promise<void> {
     if (!this.isSupported()) return
     try {
-      const res = await tauriInvoke<RpcResult<GatewayConfig>>('gateway_set_access_duration', {duration})
+      const res = await wrap(
+        tauriInvoke<RpcResult<GatewayConfig>>('gateway_set_access_duration', {duration}),
+      )
       this.config.set(unwrap(res))
     } catch (e) {
       console.warn('[gateway] setAccessDuration failed', e)
@@ -146,7 +148,7 @@ export class GatewayModel {
   async setSessionDuration(mins: number): Promise<void> {
     if (!this.isSupported()) return
     try {
-      const res = await tauriInvoke<RpcResult<number>>('gateway_set_session_duration', {mins})
+      const res = await wrap(tauriInvoke<RpcResult<number>>('gateway_set_session_duration', {mins}))
       const clamped = unwrap(res)
       const cfg = this.config()
       if (cfg) {
@@ -160,7 +162,9 @@ export class GatewayModel {
   async revokeExtension(id: string): Promise<void> {
     if (!this.isSupported()) return
     try {
-      const res = await tauriInvoke<RpcResult<PairedExtension[]>>('gateway_revoke_extension', {id})
+      const res = await wrap(
+        tauriInvoke<RpcResult<PairedExtension[]>>('gateway_revoke_extension', {id}),
+      )
       const list = unwrap(res)
       const cfg = this.config()
       if (cfg) {
@@ -176,9 +180,11 @@ export class GatewayModel {
   async loadCapabilityPolicy(extensionId: string): Promise<void> {
     if (!this.isSupported()) return
     try {
-      const res = await tauriInvoke<RpcResult<CapabilityPolicy>>('gateway_get_capability_policy', {
-        extensionId,
-      })
+      const res = await wrap(
+        tauriInvoke<RpcResult<CapabilityPolicy>>('gateway_get_capability_policy', {
+          extensionId,
+        }),
+      )
       this.selectedExtensionPolicy.set(unwrap(res))
     } catch (e) {
       console.warn('[gateway] loadCapabilityPolicy failed', e)
@@ -188,9 +194,11 @@ export class GatewayModel {
   async saveCapabilityPolicy(policy: CapabilityPolicy): Promise<void> {
     if (!this.isSupported()) return
     try {
-      const res = await tauriInvoke<RpcResult<CapabilityPolicy>>('gateway_set_capability_policy', {
-        policy,
-      })
+      const res = await wrap(
+        tauriInvoke<RpcResult<CapabilityPolicy>>('gateway_set_capability_policy', {
+          policy,
+        }),
+      )
       this.selectedExtensionPolicy.set(unwrap(res))
     } catch (e) {
       console.warn('[gateway] saveCapabilityPolicy failed', e)
@@ -204,11 +212,13 @@ export class GatewayModel {
   ): Promise<ActionGrant | null> {
     if (!this.isSupported()) return null
     try {
-      const res = await tauriInvoke<RpcResult<ActionGrant>>('gateway_issue_action_grant', {
-        extensionId,
-        command,
-        nodeId: nodeId ?? null,
-      })
+      const res = await wrap(
+        tauriInvoke<RpcResult<ActionGrant>>('gateway_issue_action_grant', {
+          extensionId,
+          command,
+          nodeId: nodeId ?? null,
+        }),
+      )
       return unwrap(res)
     } catch (e) {
       console.warn('[gateway] issueActionGrant failed', e)
@@ -219,10 +229,12 @@ export class GatewayModel {
   async issueSiteGrant(extensionId: string, origin: string): Promise<SiteGrant | null> {
     if (!this.isSupported()) return null
     try {
-      const res = await tauriInvoke<RpcResult<SiteGrant>>('gateway_issue_site_grant', {
-        extensionId,
-        origin,
-      })
+      const res = await wrap(
+        tauriInvoke<RpcResult<SiteGrant>>('gateway_issue_site_grant', {
+          extensionId,
+          origin,
+        }),
+      )
       return unwrap(res)
     } catch (e) {
       console.warn('[gateway] issueSiteGrant failed', e)
@@ -233,9 +245,11 @@ export class GatewayModel {
   async loadActiveGrants(extensionId: string): Promise<void> {
     if (!this.isSupported()) return
     try {
-      const res = await tauriInvoke<RpcResult<ActiveGrants>>('gateway_list_active_grants', {
-        extensionId,
-      })
+      const res = await wrap(
+        tauriInvoke<RpcResult<ActiveGrants>>('gateway_list_active_grants', {
+          extensionId,
+        }),
+      )
       this.activeGrants.set(unwrap(res))
     } catch (e) {
       console.warn('[gateway] loadActiveGrants failed', e)
@@ -245,9 +259,11 @@ export class GatewayModel {
   async revokeAllGrants(extensionId?: string): Promise<void> {
     if (!this.isSupported()) return
     try {
-      await tauriInvoke<RpcResult<unknown>>('gateway_revoke_all_grants', {
-        extensionId: extensionId ?? null,
-      })
+      await wrap(
+        tauriInvoke<RpcResult<unknown>>('gateway_revoke_all_grants', {
+          extensionId: extensionId ?? null,
+        }),
+      )
       this.activeGrants.set({action_grants: [], site_grants: []})
     } catch (e) {
       console.warn('[gateway] revokeAllGrants failed', e)
@@ -264,7 +280,7 @@ export class GatewayModel {
     this.pairingPhase.set('starting')
     this.pairingError.set(null)
     try {
-      const res = await tauriInvoke<RpcResult<GatewayPairingInfo>>('gateway_start_pairing')
+      const res = await wrap(tauriInvoke<RpcResult<GatewayPairingInfo>>('gateway_start_pairing'))
       const info = unwrap(res)
       this.pairingInfo.set(info)
 
@@ -284,7 +300,7 @@ export class GatewayModel {
   async cancelPairing(): Promise<void> {
     if (!this.isSupported()) return
     try {
-      await tauriInvoke<RpcResult<unknown>>('gateway_cancel_pairing')
+      await wrap(tauriInvoke<RpcResult<unknown>>('gateway_cancel_pairing'))
     } catch {
       // best-effort
     }

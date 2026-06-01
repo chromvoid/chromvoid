@@ -1,28 +1,25 @@
 import {expect, test} from 'vitest'
 
-import {waitForAuthenticated} from './utils'
+import {createFolder, createUniqueName, openFilesRoot, waitForCatalogItem, waitForCurrentPath} from './utils'
 
 declare global {
   var __E2E_PAGE__: import('playwright').Page | undefined
 }
 
-test('S5: навигация по папкам', async () => {
+test('S5: Navigating folders', async () => {
   const page = globalThis.__E2E_PAGE__!
-  await page.goto('http://localhost:4400/index.html')
-  await waitForAuthenticated(page)
+  await openFilesRoot(page)
 
-  // открываем папку docs/ (ожидается по умолчанию в backend)
-  await page.getByText('docs').click()
+  const folderName = createUniqueName('e2e-nav-folder')
+  await createFolder(page, folderName)
+  await waitForCatalogItem(page, folderName, {path: '/'})
 
-  // можно проверить, что в breadcrumbs появился сегмент docs
-  // и вернуться назад (в корень)
-  await page.getByText('docs').waitFor({timeout: 10_000})
-  // вернуться в корень через первый сегмент " / " или специальную кнопку в breadcrumbs
-  // для простоты — нажмём на сегмент корня
-  const rootCrumb = await page.locator('breadcrumbs-nav').first()
-  await rootCrumb.click()
+  await page.goto(`http://localhost:4400/index.html?surface=files&path=%2F${encodeURIComponent(folderName)}`)
+  await waitForCurrentPath(page, `/${folderName}`)
 
-  // ожидаем, что снова виден элемент docs в корне
-  await page.getByText('docs').waitFor({timeout: 10_000})
-  expect(await page.getByText('docs').isVisible()).toBe(true)
+  await page.goto('http://localhost:4400/index.html?surface=files&path=%2F')
+  await waitForCurrentPath(page, '/')
+
+  const result = await page.evaluate(() => ({rootPath: new URL(window.location.href).searchParams.get('path')}))
+  expect(result).toEqual({rootPath: '/'})
 })

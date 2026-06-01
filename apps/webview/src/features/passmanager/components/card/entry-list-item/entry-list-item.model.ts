@@ -1,8 +1,14 @@
-import {computed, state} from '@statx/core'
+import {atom, computed, peek} from '@reatom/core'
 
-import {Entry} from '@project/passmanager'
-import {copyWithAutoWipe, DEFAULT_CLIPBOARD_WIPE_MS} from '@project/passmanager'
+import {Entry} from '@project/passmanager/core'
+import {i18n} from '@project/passmanager/i18n'
+import {copyWithAutoWipe, DEFAULT_CLIPBOARD_WIPE_MS} from '@project/passmanager/password-utils'
+import {credentialTagKey, normalizeCredentialTags} from '@project/passmanager/tags'
+import {defaultLogger} from 'root/core/logger'
+import {pmCredentialSecurityAuditModel} from '../../../models/pm-credential-security-audit.model'
 import {pmEntryMoveModel} from '../../../models/pm-entry-move-model'
+import {isPassmanagerReadOnlyOrMissing} from '../../../models/pm-root.adapter'
+import {pmSelectionModeModel} from '../../../models/pm-selection-mode.model'
 import {pmModel} from '../../../password-manager.model'
 
 export type SwipeState = 'idle' | 'tracking' | 'open-left' | 'open-right'
@@ -19,10 +25,68 @@ export interface SwipeFinishResult {
   emitSwipeOpen: boolean
 }
 
+export type PMEntryListBadgeFamily = 'attribute' | 'risk' | 'meta'
+
+export type PMEntryListBadgeSeverity = 'neutral' | 'warning' | 'critical'
+
+export type PMEntryListBadge = {
+  id: string
+  family: PMEntryListBadgeFamily
+  severity: PMEntryListBadgeSeverity
+  label: string
+  icon: string
+  priority: number
+}
+
+export type PMEntryListPresentation = {
+  title: string
+  subtitle: string
+  badges: PMEntryListBadge[]
+  visibleBadges: PMEntryListBadge[]
+  overflowCount: number
+  rowActionLabel: string
+  rowActionIcon: string
+}
+
+export type PMEntryListMobilePresentation = PMEntryListPresentation & {
+  statusBadges: PMEntryListBadge[]
+  visibleTextBadges: PMEntryListBadge[]
+  textOverflowCount: number
+}
+
 export class PMEntryListItemModel {
-  readonly entry = state<Entry | undefined>(undefined)
+  readonly entry = atom<Entry | undefined>(undefined)
+  private readonly logger = defaultLogger
 
   readonly isSelected = computed(() => this.entry()?.isSelected() || false)
+  readonly areSecondaryActionsVisible = atom(false)
+  readonly activeRow = atom(false, 'passmanager.entryListItem.activeRow')
+  readonly rowTabIndex = atom(0, 'passmanager.entryListItem.rowTabIndex')
+  readonly manageActiveRowState = atom(false, 'passmanager.entryListItem.manageActiveRowState')
+  readonly selectionStateManaged = atom(false, 'passmanager.entryListItem.selectionStateManaged')
+  readonly selectionActive = atom(false, 'passmanager.entryListItem.selectionActive')
+  readonly selectedInSelectionMode = atom(false, 'passmanager.entryListItem.selectedInSelectionMode')
+
+  readonly isRowSelected = computed(() => {
+    if (this.selectionStateManaged()) {
+      return this.selectedInSelectionMode()
+    }
+
+    const entry = this.entry()
+    if (pmSelectionModeModel.active() && entry) {
+      return pmSelectionModeModel.isEntrySelected(entry.id)
+    }
+
+    return this.isSelected()
+  }, 'passmanager.entryListItem.isRowSelected')
+
+  readonly effectiveRowTabIndex = computed(() => {
+    return this.manageActiveRowState() ? this.rowTabIndex() : 0
+  }, 'passmanager.entryListItem.effectiveRowTabIndex')
+
+  readonly effectiveActionTabIndex = computed(() => {
+    return this.manageActiveRowState() ? (this.activeRow() ? 0 : -1) : 0
+  }, 'passmanager.entryListItem.effectiveActionTabIndex')
 
   readonly hasUsername = computed(() => {
     const username = this.entry()?.username
@@ -35,10 +99,10 @@ export class PMEntryListItemModel {
 
   // ── Swipe state ──
 
-  readonly swipeOffsetX = state(0)
-  readonly swipeState = state<SwipeState>('idle')
+  readonly swipeOffsetX = atom(0, 'passmanager.entryListItem.swipeOffsetX')
+  readonly swipeState = atom<SwipeState>('idle', 'passmanager.entryListItem.swipeState')
+  readonly swipeSettling = atom(false, 'passmanager.entryListItem.swipeSettling')
 
-  private longPressTimer?: ReturnType<typeof setTimeout>
   private swipeStartX = 0
   private swipeStartY = 0
   private swipeBaseOffset = 0
@@ -48,8 +112,6 @@ export class PMEntryListItemModel {
   static readonly SWIPE_SNAP_THRESHOLD = 28
   static readonly SWIPE_DRAG_FACTOR = 0.84
   private static readonly SWIPE_MOVE_GUARD = 10
-  private static readonly LONG_PRESS_DELAY_MS = 500
-
   get isSwipeOpen() {
     return this.swipeState() === 'open-left' || this.swipeState() === 'open-right'
   }
@@ -62,6 +124,166 @@ export class PMEntryListItemModel {
     this.entry.set(entry)
   }
 
+  setSecondaryActionsVisible(visible: boolean): void {
+    this.areSecondaryActionsVisible.set(visible)
+  }
+
+  setActiveRow(value: boolean): void {
+    this.activeRow.set(Boolean(value))
+  }
+
+  setRowTabIndex(value: number): void {
+    this.rowTabIndex.set(Number(value))
+  }
+
+  setManageActiveRowState(value: boolean): void {
+    this.manageActiveRowState.set(Boolean(value))
+  }
+
+  setSelectionStateManaged(value: boolean): void {
+    this.selectionStateManaged.set(Boolean(value))
+  }
+
+  setSelectionActive(value: boolean): void {
+    this.selectionActive.set(Boolean(value))
+  }
+
+  setSelectedInSelectionMode(value: boolean): void {
+    this.selectedInSelectionMode.set(Boolean(value))
+  }
+
+  shouldRenderSecondaryActions(): boolean {
+    return this.isSelected() || this.areSecondaryActionsVisible() || this.shouldAlwaysShowActions()
+  }
+
+  getPresentation(entry: Entry): PMEntryListPresentation {
+    const badges = this.getEntryBadges(entry)
+    const {visibleBadges, overflowCount} = this.getVisibleBadges(badges)
+
+    return {
+      title: entry.title || i18n('no_title'),
+      subtitle: this.getSubtitle(entry),
+      badges,
+      visibleBadges,
+      overflowCount,
+      rowActionLabel: i18n('button:more_actions'),
+      rowActionIcon: 'more-vertical',
+    }
+  }
+
+  getMobilePresentation(entry: Entry): PMEntryListMobilePresentation {
+    const presentation = this.getPresentation(entry)
+    const textBadges = presentation.badges.filter((badge) => badge.family === 'meta')
+    const visibleTextBadges = textBadges.slice(0, 2)
+
+    return {
+      ...presentation,
+      statusBadges: presentation.badges.filter((badge) => badge.family !== 'meta'),
+      visibleTextBadges,
+      textOverflowCount: Math.max(0, textBadges.length - visibleTextBadges.length),
+    }
+  }
+
+  getEntryBadges(entry: Entry): PMEntryListBadge[] {
+    const tagBadges = this.getTagBadges(entry)
+
+    if (entry.entryType === 'payment_card') {
+      return [
+        {
+          id: 'card',
+          family: 'attribute',
+          severity: 'neutral',
+          label: i18n('entry:badge:card'),
+          icon: 'credit-card',
+          priority: 32,
+        },
+        ...tagBadges,
+      ]
+    }
+
+    const badges: PMEntryListBadge[] = []
+    const auditState = pmCredentialSecurityAuditModel.getEntryState(entry)
+
+    if (auditState?.weakPassword) {
+      badges.push({
+        id: 'weak_password',
+        family: 'risk',
+        severity: 'critical',
+        label: i18n('entry:badge:weak_password'),
+        icon: 'alert-triangle',
+        priority: 10,
+      })
+    }
+
+    if (auditState?.reusedPassword) {
+      badges.push({
+        id: 'reused_password',
+        family: 'risk',
+        severity: 'warning',
+        label: i18n('entry:badge:reused_password'),
+        icon: 'arrow-repeat',
+        priority: 20,
+      })
+    }
+
+    if (entry.otps().length > 0) {
+      badges.push({
+        id: 'two_factor',
+        family: 'attribute',
+        severity: 'neutral',
+        label: i18n('entry:badge:two_factor'),
+        icon: 'shield-check',
+        priority: 30,
+      })
+    }
+
+    if (entry.sshKeys.length > 0) {
+      badges.push({
+        id: 'ssh',
+        family: 'attribute',
+        severity: 'neutral',
+        label: i18n('entry:badge:ssh'),
+        icon: 'key',
+        priority: 32,
+      })
+    }
+
+    badges.push(...tagBadges)
+
+    return badges.sort((left, right) => left.priority - right.priority)
+  }
+
+  private getTagBadges(entry: Entry): PMEntryListBadge[] {
+    return normalizeCredentialTags(entry.tags)
+      .slice(0, 2)
+      .map((tag, index) => ({
+        id: `tag:${credentialTagKey(tag)}`,
+        family: 'meta' as const,
+        severity: 'neutral' as const,
+        label: tag,
+        icon: 'tag',
+        priority: 80 + index,
+      }))
+  }
+
+  getVisibleBadges(badges: PMEntryListBadge[]): {visibleBadges: PMEntryListBadge[]; overflowCount: number} {
+    const sorted = [...badges].sort((left, right) => left.priority - right.priority)
+    const visibleBadges = sorted.slice(0, 2)
+    return {
+      visibleBadges,
+      overflowCount: Math.max(0, sorted.length - visibleBadges.length),
+    }
+  }
+
+  getSubtitle(entry: Entry): string {
+    if (entry.entryType === 'payment_card') {
+      const last4 = entry.paymentCard?.last4?.trim()
+      return last4 ? `•••• ${last4}` : ''
+    }
+
+    return entry.username ?? ''
+  }
+
   openEntry(event: Event): void {
     event.preventDefault()
 
@@ -70,7 +292,7 @@ export class PMEntryListItemModel {
       return
     }
 
-    const entry = this.entry.peek()
+    const entry = peek(this.entry)
     if (!entry) {
       return
     }
@@ -78,40 +300,69 @@ export class PMEntryListItemModel {
     pmModel.openItem(entry)
   }
 
-  copyUsername(event: Event): void {
+  async copyUsername(event: Event): Promise<void> {
     event.stopPropagation()
 
-    const username = this.entry.peek()?.username
+    const username = peek(this.entry)?.username
     if (!username) {
       return
     }
 
-    copyWithAutoWipe(username, DEFAULT_CLIPBOARD_WIPE_MS)
+    await this.copyText(username, 'copyUsername')
+  }
+
+  showRowActions(event: Event): void {
+    event.preventDefault()
+    event.stopPropagation()
+    this.setSecondaryActionsVisible(true)
   }
 
   async copyPassword(event: Event): Promise<void> {
     event.stopPropagation()
 
-    const entry = this.entry.peek()
+    const entry = peek(this.entry)
     if (!entry) {
+      return
+    }
+
+    if (entry.entryType === 'payment_card') {
+      const cardPan = await entry.cardPan()
+      if (cardPan != null) {
+        await this.copyText(cardPan, 'copyPassword.cardPan')
+      }
       return
     }
 
     const pwd = await entry.password()
     if (pwd != null) {
-      await copyWithAutoWipe(pwd, DEFAULT_CLIPBOARD_WIPE_MS)
+      await this.copyText(pwd, 'copyPassword')
+    }
+  }
+
+  private async copyText(text: string, context: string): Promise<boolean> {
+    if (!text) return false
+
+    try {
+      await copyWithAutoWipe(text, DEFAULT_CLIPBOARD_WIPE_MS)
+      return true
+    } catch (error) {
+      this.logger.warn('[PassManager][EntryListItem] copy failed', {
+        context,
+        errorName: error instanceof Error ? error.name : typeof error,
+      })
+      return false
     }
   }
 
   isDragEnabled(entry: Entry): boolean {
-    if (window.passmanager.isReadOnly()) return false
+    if (isPassmanagerReadOnlyOrMissing()) return false
     if (!pmEntryMoveModel.isDesktopDragEnabled()) return false
 
     return Boolean(entry.id)
   }
 
   startDrag(event: DragEvent): void {
-    const entry = this.entry.peek()
+    const entry = peek(this.entry)
     if (!(entry instanceof Entry)) {
       event.preventDefault()
       return
@@ -140,13 +391,7 @@ export class PMEntryListItemModel {
 
   // ── Touch / swipe / long-press ──
 
-  clearLongPressTimer() {
-    if (!this.longPressTimer) return
-    clearTimeout(this.longPressTimer)
-    this.longPressTimer = undefined
-  }
-
-  startTouch(event: TouchEvent, onLongPress: (event: TouchEvent) => void) {
+  startTouch(event: TouchEvent) {
     const touch = event.touches[0]
     if (!touch) return
 
@@ -156,12 +401,6 @@ export class PMEntryListItemModel {
     this.swipeBaseOffset = this.swipeOffsetX()
 
     if (this.isSwipeOpen) return
-
-    this.clearLongPressTimer()
-    this.longPressTimer = setTimeout(() => {
-      this.longPressTimer = undefined
-      onLongPress(event)
-    }, PMEntryListItemModel.LONG_PRESS_DELAY_MS)
   }
 
   onTouchMove(event: TouchEvent): SwipeMoveResult | null {
@@ -180,18 +419,14 @@ export class PMEntryListItemModel {
       this.swipeDirection = absDx > absDy ? 'horizontal' : 'vertical'
 
       if (this.swipeDirection === 'horizontal') {
-        this.clearLongPressTimer()
         this.swipeBaseOffset = this.swipeOffsetX()
       }
-    }
-
-    if (this.longPressTimer && (absDx > PMEntryListItemModel.SWIPE_MOVE_GUARD || absDy > PMEntryListItemModel.SWIPE_MOVE_GUARD)) {
-      this.clearLongPressTimer()
     }
 
     if (this.swipeDirection !== 'horizontal') return null
 
     this.swipeState.set('tracking')
+    this.swipeSettling.set(false)
 
     const W = PMEntryListItemModel.SWIPE_ACTION_WIDTH
     let offset = this.swipeBaseOffset + dx * PMEntryListItemModel.SWIPE_DRAG_FACTOR
@@ -201,10 +436,20 @@ export class PMEntryListItemModel {
     return {offset, preventDefault: true}
   }
 
-  onTouchEnd(): SwipeFinishResult | null {
-    if (!this.isSwipeTracking) return null
+  shouldCancelLongPress(event: TouchEvent): boolean {
+    const touch = event.touches[0]
+    if (!touch) return false
 
-    this.clearLongPressTimer()
+    const dx = Math.abs(touch.clientX - this.swipeStartX)
+    const dy = Math.abs(touch.clientY - this.swipeStartY)
+    return dx > PMEntryListItemModel.SWIPE_MOVE_GUARD || dy > PMEntryListItemModel.SWIPE_MOVE_GUARD
+  }
+
+  onTouchEnd(): SwipeFinishResult | null {
+    if (!this.isSwipeTracking) {
+      this.swipeDirection = null
+      return null
+    }
 
     const W = PMEntryListItemModel.SWIPE_ACTION_WIDTH
     const T = PMEntryListItemModel.SWIPE_SNAP_THRESHOLD
@@ -213,17 +458,20 @@ export class PMEntryListItemModel {
     if (offset < -T) {
       this.swipeOffsetX.set(-W)
       this.swipeState.set('open-left')
+      this.swipeSettling.set(true)
       return {state: 'open-left', offset: -W, emitSwipeOpen: true}
     }
 
     if (offset > T) {
       this.swipeOffsetX.set(W)
       this.swipeState.set('open-right')
+      this.swipeSettling.set(true)
       return {state: 'open-right', offset: W, emitSwipeOpen: true}
     }
 
     this.swipeOffsetX.set(0)
     this.swipeState.set('idle')
+    this.swipeSettling.set(true)
     this.swipeDirection = null
     return {state: 'idle', offset: 0, emitSwipeOpen: false}
   }
@@ -234,15 +482,29 @@ export class PMEntryListItemModel {
     this.swipeOffsetX.set(0)
     this.swipeBaseOffset = 0
     this.swipeState.set('idle')
+    this.swipeSettling.set(true)
     this.swipeDirection = null
     return true
   }
 
+  finishSwipeTransition(): void {
+    this.swipeSettling.set(false)
+  }
+
   dispose() {
-    this.clearLongPressTimer()
     this.closeSwipe()
+    this.areSecondaryActionsVisible.set(false)
     this.swipeStartX = 0
     this.swipeStartY = 0
     this.swipeDirection = null
+    this.swipeSettling.set(false)
+  }
+
+  private shouldAlwaysShowActions(): boolean {
+    try {
+      return window.matchMedia('(hover: none) and (pointer: coarse)').matches
+    } catch {
+      return false
+    }
   }
 }

@@ -1,0 +1,427 @@
+import {atom} from '@reatom/core'
+import {Entry, Group, ManagerRoot} from '@project/passmanager/core'
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+
+import {PMEntryMoveSheet} from '../../src/features/passmanager/components/card/pm-entry-move'
+import {PMEntryModel} from '../../src/features/passmanager/components/card/entry/entry.model'
+import {PMGroupModel} from '../../src/features/passmanager/components/group/group/group.model'
+import {PasswordManagerLayoutModel} from '../../src/features/passmanager/components/password-manager-layout/password-manager-layout.model'
+import {pmComponentLoaderModel} from '../../src/features/passmanager/models/pm-component-loader.model'
+import {pmEntryEditorModel} from '../../src/features/passmanager/models/pm-entry-editor.model'
+import {pmEntryMoveModel} from '../../src/features/passmanager/models/pm-entry-move-model'
+import {pmMobileChromeModel} from '../../src/features/passmanager/models/pm-mobile-chrome.model'
+import {pmMobileSelectionModel} from '../../src/features/passmanager/models/pm-mobile-selection.model'
+import {pmDeleteMotionModel} from '../../src/features/passmanager/models/pm-delete-motion.model'
+import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
+import {pmSelectionModeModel} from '../../src/features/passmanager/models/pm-selection-mode.model'
+import {dialogService} from '../../src/shared/services/dialog-service'
+import {pmModel} from '../../src/features/passmanager/password-manager.model'
+import type {ManagerSaver} from '@project/passmanager/core/service/types'
+
+type PassmanagerMock = {
+  id: string
+  showElement: ReturnType<typeof atom<any>>
+  isLoading: ReturnType<typeof atom<boolean>>
+  isReadOnly: ReturnType<typeof atom<boolean>>
+  isEditMode: ReturnType<typeof atom<boolean>>
+  entriesList: () => Array<Entry | Group>
+  getCardByID: (id: string) => Entry | Group | undefined
+  getEntry: (id: string) => Entry | undefined
+  getGroup: (id: string) => Group | undefined
+}
+
+let previousPassmanager: typeof window.passmanager
+let previousPassmanagerDescriptor: PropertyDescriptor | undefined
+let currentPassmanager: typeof window.passmanager
+
+function createGroup(id: string, name = 'Group A') {
+  return new Group({
+    id,
+    name,
+    entries: [],
+    createdTs: Date.now(),
+    updatedTs: Date.now(),
+  } as any)
+}
+
+function createEntry(group: Group, id: string, title = 'Entry A') {
+  return new Entry(
+    group as any,
+    {
+      id,
+      title,
+      username: '',
+      urls: [],
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+      otps: [],
+    } as any,
+  )
+}
+
+function createPassmanager(showElement: unknown, items: Array<Entry | Group> = []): PassmanagerMock {
+  return {
+    id: 'selection-passmanager-root',
+    showElement: atom(showElement),
+    isLoading: atom(false),
+    isReadOnly: atom(false),
+    isEditMode: atom(false),
+    entriesList: () => items,
+    getCardByID: (id: string) => items.find((item) => item.id === id),
+    getEntry: (id: string) => items.find((item): item is Entry => item instanceof Entry && item.id === id),
+    getGroup: (id: string) => items.find((item): item is Group => item instanceof Group && item.id === id),
+  }
+}
+
+function createMockSaver(overrides: Partial<ManagerSaver> = {}): ManagerSaver {
+  return {
+    save: vi.fn(async () => true),
+    read: vi.fn(async () => undefined),
+    remove: vi.fn(async () => true),
+    getOTP: vi.fn(async () => undefined),
+    getOTPSeckey: vi.fn(async () => undefined),
+    removeOTP: vi.fn(async () => true),
+    saveOTP: vi.fn(async () => true),
+    readEntryPassword: vi.fn(async () => undefined),
+    readEntryNote: vi.fn(async () => undefined),
+    saveEntryPassword: vi.fn(async () => true),
+    saveEntryNote: vi.fn(async () => true),
+    removeEntryPassword: vi.fn(async () => true),
+    removeEntryNote: vi.fn(async () => true),
+    readEntrySshPrivateKey: vi.fn(async () => undefined),
+    readEntrySshPublicKey: vi.fn(async () => undefined),
+    saveEntrySshPrivateKey: vi.fn(async () => true),
+    saveEntrySshPublicKey: vi.fn(async () => true),
+    removeEntrySshPrivateKey: vi.fn(async () => true),
+    removeEntrySshPublicKey: vi.fn(async () => true),
+    saveEntryMeta: vi.fn(async () => true),
+    moveEntryToGroup: vi.fn(async () => true),
+    removeEntry: vi.fn(async () => true),
+    ...overrides,
+  }
+}
+
+describe('PasswordManagerLayoutModel selection actions', () => {
+  beforeEach(() => {
+    previousPassmanager = window.passmanager
+    previousPassmanagerDescriptor = Object.getOwnPropertyDescriptor(window, 'passmanager')
+    currentPassmanager = previousPassmanager
+    Object.defineProperty(window, 'passmanager', {
+      configurable: true,
+      get() {
+        return currentPassmanager
+      },
+      set(value) {
+        currentPassmanager = value
+        setPassmanagerRoot(value as any)
+      },
+    })
+    setPassmanagerRoot(previousPassmanager as any)
+  })
+
+  afterEach(() => {
+    currentPassmanager = previousPassmanager
+    setPassmanagerRoot(previousPassmanager as any)
+    if (previousPassmanagerDescriptor) {
+      Object.defineProperty(window, 'passmanager', previousPassmanagerDescriptor)
+    } else {
+      delete (window as {passmanager?: typeof window.passmanager}).passmanager
+    }
+    pmSelectionModeModel.exit()
+    pmDeleteMotionModel.reset()
+    new PMGroupModel().exitEditMode()
+    vi.restoreAllMocks()
+  })
+
+  it('routes moveCurrentSelection to the shared entry move launcher', async () => {
+    const group = createGroup('launcher-entry-group')
+    const entry = createEntry(group, 'launcher-entry')
+    ;(window as any).passmanager = createPassmanager(entry)
+
+    const moveSpy = vi.spyOn(PMEntryModel.prototype, 'moveEntryCard').mockResolvedValue(undefined)
+    const model = new PasswordManagerLayoutModel()
+
+    await model.moveCurrentSelection()
+
+    expect(moveSpy).toHaveBeenCalledTimes(1)
+    expect(moveSpy).toHaveBeenCalledWith(entry)
+  })
+
+  it('routes moveCurrentSelection to the shared group move launcher', async () => {
+    const group = createGroup('launcher-group')
+    ;(window as any).passmanager = createPassmanager(group)
+
+    const moveSpy = vi.spyOn(PMGroupModel.prototype, 'moveGroup').mockResolvedValue(undefined)
+    const model = new PasswordManagerLayoutModel()
+
+    await model.moveCurrentSelection()
+
+    expect(moveSpy).toHaveBeenCalledTimes(1)
+    expect(moveSpy).toHaveBeenCalledWith(group)
+  })
+
+  it('exposes and dispatches the desktop OTP quick view action', () => {
+    const root = new ManagerRoot(createMockSaver())
+    root.entries.set([])
+    root.showElement.set(root)
+    ;(window as any).passmanager = root
+
+    const model = new PasswordManagerLayoutModel()
+    const openSpy = vi.spyOn(pmModel, 'openOtpView').mockImplementation(() => {})
+    const actions = model.getDesktopToolbarSections().flatMap((section) => section.actions)
+
+    expect(actions.find((action) => action.id === 'pm-otp-view')).toMatchObject({
+      icon: 'shield-check',
+      disabled: false,
+    })
+    expect(model.isDesktopToolbarAction('pm-otp-view')).toBe(true)
+
+    model.executeDesktopToolbarAction('pm-otp-view')
+
+    expect(openSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not expose or dispatch the mobile passwords-list OTP quick view action', () => {
+    const root = new ManagerRoot(createMockSaver())
+    root.entries.set([])
+    root.showElement.set(root)
+    ;(window as any).passmanager = root
+
+    const openSpy = vi.spyOn(pmModel, 'openOtpView').mockImplementation(() => {})
+
+    expect(pmMobileChromeModel.getToolbarActions().map((action) => action.id)).not.toContain('pm-otp-view')
+    expect(pmMobileChromeModel.executeCommand('pm-otp-view')).toBe(false)
+    expect(openSpy).not.toHaveBeenCalled()
+  })
+
+  it('reports passwords-selection context and exits selection mode on mobile back', () => {
+    const group = createGroup('selection-back-group')
+    ;(window as any).passmanager = createPassmanager(group, [group])
+    pmSelectionModeModel.enterWithGroup(group.id)
+
+    expect(pmMobileChromeModel.getCommandContext().kind).toBe('passwords-selection')
+    expect((window as any).passmanager.showElement()).toBe(group)
+
+    const handled = pmMobileChromeModel.handleBack()
+
+    expect(handled).toBe(true)
+    expect(pmSelectionModeModel.active()).toBe(false)
+    expect(pmMobileSelectionModel.selectedEntryIds()).toEqual([])
+    expect(pmMobileSelectionModel.selectedGroupIds()).toEqual([])
+    expect((window as any).passmanager.showElement()).toBe(group)
+  })
+
+  it('routes single selected entry edit through openItem and entry edit mode', () => {
+    const group = createGroup('selection-entry-edit-group')
+    const entry = createEntry(group, 'selection-entry-edit')
+    ;(window as any).passmanager = createPassmanager(group, [group, entry])
+    pmSelectionModeModel.enterWithEntry(entry.id)
+
+    const openItemSpy = vi.spyOn(pmModel, 'openItem').mockImplementation(() => {})
+    const editSpy = vi.spyOn(pmEntryEditorModel, 'openSurface')
+    expect(pmMobileChromeModel.executeCommand('pm-selection-edit')).toBe(true)
+
+    expect(openItemSpy).toHaveBeenCalledWith(entry)
+    expect(editSpy).toHaveBeenCalledWith(entry.id, 'entry')
+    expect(pmSelectionModeModel.active()).toBe(false)
+  })
+
+  it('routes single selected group move through the shared group move launcher and exits selection on success', async () => {
+    const root = new ManagerRoot(createMockSaver())
+    const parent = createGroup('selection-group-move-parent', 'Selection Move Parent')
+    const child = createGroup('selection-group-move-child', 'Selection Move Parent/Child')
+    const target = createGroup('selection-group-move-target', 'Selection Move Target')
+
+    root.entries.set([parent, child, target])
+    root.showElement.set(parent)
+    ;(window as any).passmanager = root
+    pmSelectionModeModel.enterWithGroup(child.id)
+
+    vi.spyOn(pmComponentLoaderModel, 'ensureExtendedComponents').mockImplementation(async () => {
+      PMEntryMoveSheet.define()
+    })
+    vi.spyOn(window, 'matchMedia').mockReturnValue({matches: true} as MediaQueryList)
+    const moveSpy = vi.spyOn(pmEntryMoveModel, 'moveGroupById')
+
+    expect(pmMobileChromeModel.executeCommand('pm-selection-move')).toBe(true)
+
+    await Promise.resolve()
+    const sheet = document.querySelector('pm-entry-move-sheet')
+    expect(sheet).not.toBeNull()
+    sheet?.dispatchEvent(
+      new CustomEvent('pm-entry-move-sheet-confirm', {
+        detail: {targetId: target.id},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(moveSpy).toHaveBeenCalledTimes(1)
+    expect(moveSpy).toHaveBeenCalledWith(child.id, target.id)
+    expect(child.name).toBe('Selection Move Target/Child')
+    await vi.waitFor(() => {
+      expect(pmSelectionModeModel.active()).toBe(false)
+    })
+  })
+
+  it('enables move and delete for mixed multi-selection and clears selection after bulk delete', async () => {
+    const parent = createGroup('selection-delete-parent', 'Selection Delete Parent')
+    const child = createGroup('selection-delete-child', 'Selection Delete Parent/Child')
+    const entry = createEntry(parent, 'selection-delete-entry')
+    ;(window as any).passmanager = createPassmanager(parent, [parent, child, entry])
+    pmSelectionModeModel.enterWithEntry(entry.id)
+    pmSelectionModeModel.toggleGroup(child.id)
+
+    entry.remove = vi.fn().mockResolvedValue(undefined) as typeof entry.remove
+    child.remove = vi.fn().mockResolvedValue(undefined) as typeof child.remove
+    const confirmSpy = vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(true)
+
+    expect(pmMobileChromeModel.getCommandContext()).toMatchObject({
+      kind: 'passwords-selection',
+      selectedCount: 2,
+      singleSelectionKind: null,
+    })
+
+    expect(pmMobileChromeModel.executeCommand('pm-selection-edit')).toBe(false)
+
+    expect(pmMobileChromeModel.executeCommand('pm-selection-delete')).toBe(true)
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        confirmVariant: 'danger',
+        variant: 'danger',
+      }),
+    )
+    await vi.waitFor(() => {
+      expect(entry.remove).toHaveBeenCalledTimes(1)
+      expect(entry.remove).toHaveBeenCalledWith({silent: true})
+      expect(pmMobileSelectionModel.selectedEntryIds()).toEqual([])
+      expect(pmMobileSelectionModel.selectedGroupIds()).toEqual([])
+    })
+  })
+
+  it('routes mixed multi-selection move through the shared bulk move launcher and exits selection on success', async () => {
+    const root = new ManagerRoot(createMockSaver())
+    const parent = createGroup('selection-move-parent', 'Selection Move Parent')
+    const child = createGroup('selection-move-child', 'Selection Move Parent/Child')
+    const entry = createEntry(parent, 'selection-move-entry')
+
+    parent.addEntry(entry)
+    root.entries.set([parent, child])
+    root.showElement.set(parent)
+    ;(window as any).passmanager = root
+    pmSelectionModeModel.enterWithEntry(entry.id)
+    pmSelectionModeModel.toggleGroup(child.id)
+
+    vi.spyOn(pmComponentLoaderModel, 'ensureExtendedComponents').mockImplementation(async () => {
+      PMEntryMoveSheet.define()
+    })
+    vi.spyOn(pmEntryMoveModel, 'getDisabledSelectionTargetIds').mockReturnValue([])
+    vi.spyOn(pmEntryMoveModel, 'listTargets').mockReturnValue([
+      {id: root.id, path: '/', label: '/', isRoot: true},
+    ])
+    const moveSpy = vi.spyOn(pmEntryMoveModel, 'moveSelection')
+    vi.spyOn(window, 'matchMedia').mockReturnValue({matches: true} as MediaQueryList)
+
+    expect(pmMobileChromeModel.executeCommand('pm-selection-move')).toBe(true)
+
+    await Promise.resolve()
+    const sheet = document.querySelector('pm-entry-move-sheet')
+    expect(sheet).not.toBeNull()
+    sheet?.dispatchEvent(
+      new CustomEvent('pm-entry-move-sheet-confirm', {
+        detail: {targetId: root.id},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(moveSpy).toHaveBeenCalledWith([entry], [child], root.id)
+    await vi.waitFor(() => {
+      expect(pmSelectionModeModel.active()).toBe(false)
+    })
+  })
+
+  it('bulk deletes selected top-level groups with one confirmation', async () => {
+    const root = new ManagerRoot(createMockSaver())
+    const alpha = createGroup('delete-group-alpha', 'Delete Group Alpha')
+    const beta = createGroup('delete-group-beta', 'Delete Group Beta')
+    root.entries.set([alpha, beta])
+    root.showElement.set(root)
+
+    ;(window as any).passmanager = root as any
+    pmSelectionModeModel.enterWithGroup(alpha.id)
+    pmSelectionModeModel.toggleGroup(beta.id)
+
+    const confirmSpy = vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(true)
+    expect(pmMobileChromeModel.executeCommand('pm-selection-delete')).toBe(true)
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => {
+      expect(root.entriesList().filter((item) => item instanceof Group)).toHaveLength(0)
+    })
+  })
+
+  it('keeps mobile selection when bulk delete confirmation is cancelled', async () => {
+    const parent = createGroup('selection-delete-cancel-parent', 'Selection Delete Cancel Parent')
+    const entry = createEntry(parent, 'selection-delete-cancel-entry')
+    ;(window as any).passmanager = createPassmanager(parent, [parent, entry])
+    pmSelectionModeModel.enterWithEntry(entry.id)
+
+    entry.remove = vi.fn().mockResolvedValue(undefined) as typeof entry.remove
+    vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(false)
+
+    expect(pmMobileChromeModel.executeCommand('pm-selection-delete')).toBe(true)
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(entry.remove).not.toHaveBeenCalled()
+    expect(pmSelectionModeModel.active()).toBe(true)
+    expect(pmMobileSelectionModel.selectedEntryIds()).toEqual([entry.id])
+  })
+
+  it('clears pending delete motion when selected entry delete fails', async () => {
+    const parent = createGroup('selection-delete-fail-parent', 'Selection Delete Fail Parent')
+    const entry = createEntry(parent, 'selection-delete-fail-entry')
+    ;(window as any).passmanager = createPassmanager(parent, [parent, entry])
+    pmSelectionModeModel.enterWithEntry(entry.id)
+
+    entry.remove = vi.fn().mockRejectedValue(new Error('entry remove failed')) as typeof entry.remove
+    vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(true)
+    const clearSpy = vi.spyOn(pmDeleteMotionModel, 'clearPending')
+    const deleteSelection = (pmMobileChromeModel as unknown as {deleteSelection: () => Promise<void>}).deleteSelection.bind(
+      pmMobileChromeModel,
+    )
+
+    await expect(deleteSelection()).rejects.toThrow('entry remove failed')
+
+    expect(clearSpy).toHaveBeenCalledWith([entry.id])
+    expect(pmSelectionModeModel.active()).toBe(true)
+  })
+
+  it('clears pending delete motion when selected group persistence fails', async () => {
+    const root = new ManagerRoot(createMockSaver())
+    const group = createGroup('selection-group-delete-fail', 'Selection Group Delete Fail')
+    root.entries.set([group])
+    root.showElement.set(root)
+    root.save = vi.fn().mockRejectedValue(new Error('root save failed')) as typeof root.save
+    ;(window as any).passmanager = root as any
+    pmSelectionModeModel.enterWithGroup(group.id)
+
+    vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(true)
+    const clearSpy = vi.spyOn(pmDeleteMotionModel, 'clearPending')
+    const deleteSelection = (pmMobileChromeModel as unknown as {deleteSelection: () => Promise<void>}).deleteSelection.bind(
+      pmMobileChromeModel,
+    )
+
+    await expect(deleteSelection()).rejects.toThrow('root save failed')
+
+    expect(clearSpy).toHaveBeenCalledWith([group.id])
+    expect(pmSelectionModeModel.active()).toBe(true)
+  })
+})

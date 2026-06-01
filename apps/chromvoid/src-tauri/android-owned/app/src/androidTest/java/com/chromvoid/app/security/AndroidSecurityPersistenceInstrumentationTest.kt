@@ -3,7 +3,6 @@ package com.chromvoid.app.security
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.chromvoid.app.PasskeyMetadata
 import com.chromvoid.app.PendingPasskeyRequest
 import com.chromvoid.app.main.DefaultPasswordSaveRequestStore
 import com.chromvoid.app.passkey.PersistentPasskeyRequestRegistry
@@ -20,13 +19,11 @@ import org.junit.runner.RunWith
 class AndroidSecurityPersistenceInstrumentationTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
     private val pepperStore = SystemPepperStore(context)
-    private val metadataStore = SystemPasskeyMetadataStore(context)
     private val clock = MutableClock()
 
     @After
     fun tearDown() {
         pepperStore.deletePepper()
-        metadataStore.clearForTests()
         PersistentPasskeyRequestRegistry(context, clock).clear()
         DefaultPasswordSaveRequestStore(context, clock).clear()
     }
@@ -36,26 +33,6 @@ class AndroidSecurityPersistenceInstrumentationTest {
         pepperStore.storePepper(byteArrayOf(1, 2, 3, 4))
 
         assertArrayEquals(byteArrayOf(1, 2, 3, 4), pepperStore.loadPepper())
-    }
-
-    @Test
-    fun passkeyMetadataStore_roundTripsOnDeviceRuntime() {
-        val metadata =
-            PasskeyMetadata(
-                credentialIdB64Url = "cred-device-1",
-                rpId = "example.com",
-                userIdB64Url = "user-device-1",
-                userName = "alice@example.com",
-                userDisplayName = "Alice",
-                keyAlias = "chromvoid.passkey.cred-device-1",
-                signCount = 1,
-                createdAtEpochMs = 10L,
-                lastUsedEpochMs = 20L,
-            )
-
-        metadataStore.saveNew(metadata)
-
-        assertEquals(metadata, metadataStore.findByCredentialId("cred-device-1"))
     }
 
     @Test

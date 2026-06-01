@@ -1,8 +1,8 @@
 export type {PasswordsRepository} from './passwords-repository'
 export type {OTPSecretsGateway} from './otp-secrets-gateway'
 
-// Минимальный контракт CatalogService, который нужен PassManager
-// Не тянем зависимости из apps; этот тип будет расширяться по мере миграции
+// Minimum Catalog Service contract required by PassManager
+// Don’t pull addictions out of apps; this type will expand as you migrate
 export type CatalogClientProtocolLike = unknown
 
 export type CatalogSecretsLike = {

@@ -23,10 +23,25 @@ internal class EncryptedBlobStore(
     private val gcmTagLengthBits: Int,
     private val version: Int,
 ) {
+    data class BlobStamp(
+        val exists: Boolean,
+        val length: Long,
+        val lastModified: Long,
+    )
+
     data class EncryptedBlob(
         val iv: ByteArray,
         val ciphertext: ByteArray,
     )
+
+    fun stamp(): BlobStamp {
+        val exists = file.isFile
+        return BlobStamp(
+            exists = exists,
+            length = if (exists) file.length() else 0L,
+            lastModified = if (exists) file.lastModified() else 0L,
+        )
+    }
 
     fun load(): ByteArray? {
         if (!file.isFile) {

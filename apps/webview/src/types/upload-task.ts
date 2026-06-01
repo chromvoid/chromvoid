@@ -1,8 +1,9 @@
-import {state} from '@statx/core'
+import {atom} from '@reatom/core'
 
-export type UploadTaskStatus = 'uploading' | 'done' | 'error' | 'paused'
+export type UploadTaskStatus = 'queued' | 'uploading' | 'done' | 'error' | 'paused'
 
 export type UploadTaskDirection = 'upload' | 'download'
+export type UploadTaskKind = 'transfer' | 'open-external'
 
 export type UploadStats = {
   total: number
@@ -19,25 +20,49 @@ export type UploadTaskParams = {
   name: string
   total: number
   direction?: UploadTaskDirection
+  kind?: UploadTaskKind
+  initialStatus?: UploadTaskStatus
+  autoRemoveDoneMs?: number
+  batchId?: string
+  batchIndex?: number
+  batchCount?: number
 }
 
 export class UploadTask {
   readonly id: string
   readonly name: string
   readonly direction: UploadTaskDirection
+  readonly kind: UploadTaskKind
+  readonly autoRemoveDoneMs: number | null
+  readonly batchId: string
+  readonly batchIndex: number
+  readonly batchCount: number
 
-  // Реактивные поля прогресса
-  readonly loaded = state(0)
-  readonly total = state(0)
-  readonly status = state<UploadTaskStatus>('uploading')
-  readonly speed = state(0)
-  readonly eta = state(0)
+  // Progress reactive fields
+  readonly loaded = atom(0)
+  readonly total = atom(0)
+  readonly status = atom<UploadTaskStatus>('uploading')
+  readonly speed = atom(0)
+  readonly eta = atom(0)
 
   constructor(params: UploadTaskParams) {
     this.id = params.id
     this.name = params.name
     this.direction = params.direction ?? 'upload'
+    this.kind = params.kind ?? 'transfer'
+    this.batchId = params.batchId ?? params.id
+    this.batchIndex = Math.max(0, Math.floor(params.batchIndex ?? 0))
+    this.batchCount = Math.max(1, Math.floor(params.batchCount ?? 1))
+    this.autoRemoveDoneMs =
+      typeof params.autoRemoveDoneMs === 'number' && params.autoRemoveDoneMs > 0
+        ? params.autoRemoveDoneMs
+        : null
     this.total.set(Math.max(0, params.total))
+    this.status.set(params.initialStatus ?? 'uploading')
+  }
+
+  setTotal(totalBytes: number): void {
+    this.total.set(Math.max(0, totalBytes))
   }
 
   setProgress(loadedBytes: number, speedBytesPerSec?: number, etaSeconds?: number): void {
@@ -54,7 +79,7 @@ export class UploadTask {
 
   markDone(): void {
     const total = this.total()
-    // Гарантируем, что loaded совпадает с total по завершении
+    // We guarantee that loaded matches total at completion.
     if (Number.isFinite(total) && total > 0) this.loaded.set(total)
     this.status.set('done')
     this.speed.set(0)
@@ -63,6 +88,10 @@ export class UploadTask {
 
   markError(): void {
     this.status.set('error')
+  }
+
+  markQueued(): void {
+    this.status.set('queued')
   }
 
   pause(): void {

@@ -1,6 +1,9 @@
 package com.chromvoid.app.credentialprovider
 
 import com.chromvoid.app.passkey.EmptyPasskeyPreflightPayload
+import com.chromvoid.app.PasskeyCoreOperationResult
+import com.chromvoid.app.PasskeyCoreQueryResult
+import com.chromvoid.app.PasskeyCoreRequestPayload
 import com.chromvoid.app.passkey.PasskeyPreflightPayload
 
 internal data class ProviderStatus(
@@ -33,6 +36,18 @@ internal data class AutofillCandidate(
     val label: String,
     val domain: String?,
     val otpOptions: List<OtpOption>,
+)
+
+internal data class AutofillDiagnostics(
+    val entryCount: Int?,
+    val candidateCount: Int?,
+    val rawJson: String,
+)
+
+internal data class AutofillListPayload(
+    val sessionId: String,
+    val candidates: List<AutofillCandidate>,
+    val diagnostics: AutofillDiagnostics?,
 )
 
 internal data class PasswordSecret(
@@ -73,12 +88,16 @@ internal interface NativeCredentialProviderRuntime {
     fun runtimeReady(): Boolean
     fun currentApiLevel(): Int
     fun providerStatus(): String
-    fun autofillList(origin: String, domain: String): String
+    fun autofillList(origin: String, domain: String, includeDiagnostics: Boolean): String
+    fun autofillCloseSession(sessionId: String): String
     fun autofillGetSecret(sessionId: String, credentialId: String, otpId: String): String
     fun passwordSaveStart(payloadJson: String): String
     fun passwordSaveRequest(token: String): String
     fun passwordSaveMarkLaunched(token: String): String
     fun passkeyPreflight(command: String, payloadJson: String): String
+    fun passkeyQuery(payloadJson: String): String
+    fun passkeyCreate(payloadJson: String): String
+    fun passkeyGet(payloadJson: String): String
 }
 
 internal interface AndroidBridgeGateway {
@@ -86,12 +105,19 @@ internal interface AndroidBridgeGateway {
     fun runtimeReady(): Boolean
     fun currentApiLevel(): Int
     fun providerStatus(): BridgeResult<ProviderStatus>
-    fun autofillList(origin: String, domain: String): BridgeResult<Pair<String, List<AutofillCandidate>>>
+    fun autofillList(
+        origin: String,
+        domain: String,
+        includeDiagnostics: Boolean = false,
+    ): BridgeResult<AutofillListPayload>
+
     fun autofillGetSecret(
         sessionId: String,
         credentialId: String,
         otpId: String? = null,
     ): BridgeResult<AutofillSecret>
+
+    fun autofillCloseSession(sessionId: String): BridgeResult<Boolean>
 
     fun passwordList(origin: String, domain: String): BridgeResult<Pair<String, List<PasswordCandidate>>>
     fun passwordGetSecret(sessionId: String, credentialId: String): BridgeResult<PasswordSecret>
@@ -102,4 +128,7 @@ internal interface AndroidBridgeGateway {
         command: String,
         payload: PasskeyPreflightPayload = EmptyPasskeyPreflightPayload,
     ): BridgeResult<String>
+    fun passkeyQuery(payload: PasskeyCoreRequestPayload): BridgeResult<PasskeyCoreQueryResult>
+    fun passkeyCreate(payload: PasskeyCoreRequestPayload): BridgeResult<PasskeyCoreOperationResult>
+    fun passkeyGet(payload: PasskeyCoreRequestPayload): BridgeResult<PasskeyCoreOperationResult>
 }

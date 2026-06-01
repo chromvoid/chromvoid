@@ -5,7 +5,6 @@ import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.OutcomeReceiver
 import androidx.credentials.exceptions.CreateCredentialException
-import androidx.credentials.exceptions.CreateCredentialInterruptedException
 import androidx.credentials.exceptions.CreateCredentialNoCreateOptionException
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.GetCredentialInterruptedException
@@ -22,7 +21,6 @@ import androidx.credentials.provider.ProviderClearCredentialStateRequest
 import com.chromvoid.app.credentialprovider.BridgeError
 import com.chromvoid.app.credentialprovider.BridgeResult
 import com.chromvoid.app.credentialprovider.PasswordCandidate
-import com.chromvoid.app.security.PasskeyMetadataStore
 import com.chromvoid.app.shared.BaseFakeBridgeGateway
 import com.chromvoid.app.shared.TestAndroidAppGraph
 import com.chromvoid.app.shared.installTestAppGraph
@@ -43,19 +41,16 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 class ChromVoidCredentialProviderServiceTest {
     private lateinit var fakeBridge: FakeBridge
-    private lateinit var fakeStore: FakeStore
     private lateinit var requestRegistry: com.chromvoid.app.passkey.InMemoryPasskeyRequestRegistry
     private lateinit var service: ChromVoidCredentialProviderService
 
     @Before
     fun setUp() {
         fakeBridge = FakeBridge()
-        fakeStore = FakeStore()
         requestRegistry = com.chromvoid.app.passkey.InMemoryPasskeyRequestRegistry(com.chromvoid.app.shared.SystemAndroidClock)
         installTestAppGraph(
             TestAndroidAppGraph(
                 bridgeGateway = fakeBridge,
-                passkeyMetadataStore = fakeStore,
                 passkeyRequestRegistry = requestRegistry,
             ),
         )
@@ -69,20 +64,19 @@ class ChromVoidCredentialProviderServiceTest {
     }
 
     @Test
-    fun beginGet_mapsVaultRequiredAndDoesNotQueryStore() {
-        fakeBridge.preflightResponse = BridgeResult.Failure(BridgeError("VAULT_REQUIRED", "Unlock ChromVoid first."))
+    fun beginGet_mapsVaultRequired() {
+        fakeBridge.queryResponse = BridgeResult.Failure(BridgeError("VAULT_REQUIRED", "Unlock ChromVoid first."))
         val callback = CapturingGetCallback()
 
         service.onBeginGetCredentialRequest(getRequest(), CancellationSignal(), callback)
 
         assertNull(callback.result)
         assertTrue(callback.error is GetCredentialInterruptedException)
-        assertEquals(0, fakeStore.listCalls)
     }
 
     @Test
-    fun beginGet_mapsUnsupportedToNoCredentialAndDoesNotQueryStore() {
-        fakeBridge.preflightResponse =
+    fun beginGet_mapsUnsupportedToNoCredential() {
+        fakeBridge.queryResponse =
             BridgeResult.Failure(BridgeError("UNSUPPORTED", "No Android passkey candidates are available."))
         val callback = CapturingGetCallback()
 
@@ -90,16 +84,16 @@ class ChromVoidCredentialProviderServiceTest {
 
         assertNull(callback.result)
         assertTrue(callback.error is NoCredentialException)
-        assertEquals(0, fakeStore.listCalls)
     }
 
     @Test
     fun beginGet_successReturnsEntriesAndTracksRequest() {
-        fakeBridge.preflightResponse = BridgeResult.Success("req-get-1")
-        fakeStore.candidates =
-            listOf(
-                sampleMetadata("cred-a", "alice"),
-                sampleMetadata("cred-b", "bob"),
+        fakeBridge.queryResponse =
+            BridgeResult.Success(
+                PasskeyCoreQueryResult(
+                    requestId = "req-get-1",
+                    passkeys = listOf(sampleSummary("cred-a", "alice"), sampleSummary("cred-b", "bob")),
+                ),
             )
         val callback = CapturingGetCallback()
 
@@ -111,14 +105,56 @@ class ChromVoidCredentialProviderServiceTest {
         assertEquals(2, result!!.credentialEntries.size)
         assertEquals("req-get-1", requestRegistry.get("req-get-1")?.requestId)
         assertEquals("example.com", requestRegistry.get("req-get-1")?.rpId)
-        assertEquals("example.com", fakeStore.lastRpId)
-        assertEquals(setOf("cred-a", "cred-b"), fakeStore.lastAllowCredentialIds)
+        assertEquals(1, fakeBridge.queryCalls)
+    }
+
+    @Test
+    fun beginGet_discoverableRequestCollapsesDuplicateLocalPasskeysToNewestPerAccountLabel() {
+        fakeBridge.queryResponse =
+            BridgeResult.Success(
+                PasskeyCoreQueryResult(
+                    requestId = "req-get-dedupe",
+                    passkeys = listOf(
+                sampleSummary(
+                    "cred-old",
+                    "alice",
+                    createdAtEpochMs = 10,
+                    lastUsedEpochMs = 1_000,
+                ),
+                sampleSummary(
+                    "cred-new",
+                    "alice",
+                    createdAtEpochMs = 20,
+                    lastUsedEpochMs = 20,
+                ),
+                sampleSummary(
+                    "cred-bob",
+                    "bob",
+                    createdAtEpochMs = 15,
+                    lastUsedEpochMs = 15,
+                ),
+                    ),
+                ),
+            )
+        val callback = CapturingGetCallback()
+
+        service.onBeginGetCredentialRequest(
+            getRequest("""{"challenge":"challenge-b64","rpId":"example.com","allowCredentials":[]}"""),
+            CancellationSignal(),
+            callback,
+        )
+
+        assertNull(callback.error)
+        val result = callback.result
+        assertNotNull(result)
+        assertEquals(2, result!!.credentialEntries.size)
+        assertEquals(1, fakeBridge.queryCalls)
     }
 
     @Test
     fun beginGet_emptyCandidatesReturnsEmptyResponseWithoutTrackingRequest() {
-        fakeBridge.preflightResponse = BridgeResult.Success("req-get-empty")
-        fakeStore.candidates = emptyList()
+        fakeBridge.queryResponse =
+            BridgeResult.Success(PasskeyCoreQueryResult(requestId = "req-get-empty", passkeys = emptyList()))
         val callback = CapturingGetCallback()
 
         service.onBeginGetCredentialRequest(getRequest(), CancellationSignal(), callback)
@@ -133,7 +169,7 @@ class ChromVoidCredentialProviderServiceTest {
     @Test
     fun beginGet_passwordOption_doesNotInvokePasskeyPreflight_andMustReturnPasswordEntries() {
         // SPEC-216: Credential Manager password retrieval is a separate surface from passkeys.
-        // Passkey preflight/store must not be invoked for password-only requests.
+        // Passkey preflight/query must not be invoked for password-only requests.
         fakeBridge.passwordListResponse =
             BridgeResult.Success(
                 "pwd-session-1" to
@@ -153,14 +189,14 @@ class ChromVoidCredentialProviderServiceTest {
         assertNull(callback.error)
         assertNotNull(callback.result)
         assertEquals(0, fakeBridge.preflightCalls)
-        assertEquals(0, fakeStore.listCalls)
+        assertEquals(0, fakeBridge.queryCalls)
         assertEquals(1, fakeBridge.passwordListCalls)
         assertEquals(1, callback.result!!.credentialEntries.size)
     }
 
     @Test
     fun beginGet_blankRequestIdFailsClosed() {
-        fakeBridge.preflightResponse = BridgeResult.Success("")
+        fakeBridge.queryResponse = BridgeResult.Success(PasskeyCoreQueryResult(requestId = "", passkeys = emptyList()))
         val callback = CapturingGetCallback()
 
         service.onBeginGetCredentialRequest(getRequest(), CancellationSignal(), callback)
@@ -170,14 +206,13 @@ class ChromVoidCredentialProviderServiceTest {
     }
 
     @Test
-    fun beginCreate_excludeCollisionReturnsNoCreateOptionWithoutPreflight() {
-        fakeStore.hasExcludedCredential = true
+    fun beginCreate_excludeCollisionIsDeferredToCoreFinalization() {
         val callback = CapturingCreateCallback()
 
         service.onBeginCreateCredentialRequest(createRequest(), CancellationSignal(), callback)
 
-        assertNull(callback.result)
-        assertTrue(callback.error is CreateCredentialNoCreateOptionException)
+        assertNull(callback.error)
+        assertNotNull(callback.result)
         assertEquals(0, fakeBridge.preflightCalls)
     }
 
@@ -219,7 +254,6 @@ class ChromVoidCredentialProviderServiceTest {
 
     @Test
     fun beginCreate_successReturnsSingleCreateEntryAndTracksRequest() {
-        fakeBridge.preflightResponse = BridgeResult.Success("req-create-1")
         val callback = CapturingCreateCallback()
 
         service.onBeginCreateCredentialRequest(createRequest(), CancellationSignal(), callback)
@@ -228,11 +262,15 @@ class ChromVoidCredentialProviderServiceTest {
         val result = callback.result
         assertNotNull(result)
         assertEquals(1, result!!.createEntries.size)
-        assertEquals("req-create-1", requestRegistry.get("req-create-1")?.requestId)
+        assertEquals(0, fakeBridge.preflightCalls)
+        val pendingRequest = requestRegistry.values().single()
+        assertTrue(pendingRequest.requestId.isNotBlank())
+        assertEquals("create", pendingRequest.command)
+        assertEquals("example.com", pendingRequest.rpId)
     }
 
     @Test
-    fun beginCreate_mapsPreflightFailuresToInterrupted() {
+    fun beginCreate_providerRuntimeFailureStillReturnsEntryWithoutPreflight() {
         fakeBridge.preflightResponse =
             BridgeResult.Failure(
                 BridgeError("PROVIDER_UNAVAILABLE", "Android provider runtime is unavailable."),
@@ -241,19 +279,10 @@ class ChromVoidCredentialProviderServiceTest {
 
         service.onBeginCreateCredentialRequest(createRequest(), CancellationSignal(), callback)
 
-        assertNull(callback.result)
-        assertTrue(callback.error is CreateCredentialInterruptedException)
-    }
-
-    @Test
-    fun beginCreate_blankRequestIdFailsClosed() {
-        fakeBridge.preflightResponse = BridgeResult.Success("")
-        val callback = CapturingCreateCallback()
-
-        service.onBeginCreateCredentialRequest(createRequest(), CancellationSignal(), callback)
-
-        assertNull(callback.result)
-        assertTrue(callback.error is CreateCredentialNoCreateOptionException)
+        assertNull(callback.error)
+        assertNotNull(callback.result)
+        assertEquals(1, callback.result!!.createEntries.size)
+        assertEquals(0, fakeBridge.preflightCalls)
     }
 
     @Test
@@ -289,16 +318,15 @@ class ChromVoidCredentialProviderServiceTest {
             },
         )
 
-        assertTrue(fakeStore.clearTransientStateCalled)
         assertNull(requestRegistry.get("req-clear"))
     }
 
-    private fun getRequest(): BeginGetCredentialRequest {
+    private fun getRequest(requestJson: String = GET_REQUEST_JSON): BeginGetCredentialRequest {
         val option =
             BeginGetPublicKeyCredentialOption(
                 Bundle(),
                 "option-1",
-                GET_REQUEST_JSON,
+                requestJson,
                 byteArrayOf(0x01, 0x02),
             )
         return BeginGetCredentialRequest(listOf(option), callingAppInfo())
@@ -327,23 +355,29 @@ class ChromVoidCredentialProviderServiceTest {
         return BeginGetCredentialRequest(listOf(option), callingAppInfo())
     }
 
-    private fun sampleMetadata(credentialId: String, userName: String): PasskeyMetadata {
-        return PasskeyMetadata(
+    private fun sampleSummary(
+        credentialId: String,
+        userName: String,
+        createdAtEpochMs: Long = 10,
+        lastUsedEpochMs: Long = 20,
+    ): AndroidPasskeySummary {
+        return AndroidPasskeySummary(
             credentialIdB64Url = credentialId,
             rpId = "example.com",
-            userIdB64Url = "user-b64",
             userName = userName,
             userDisplayName = userName.replaceFirstChar { it.uppercase() },
-            keyAlias = "chromvoid.passkey.$credentialId",
             signCount = 0,
-            createdAtEpochMs = 10,
-            lastUsedEpochMs = 20,
+            createdAtEpochMs = createdAtEpochMs,
+            lastUsedEpochMs = lastUsedEpochMs,
         )
     }
 
     private class FakeBridge : BaseFakeBridgeGateway() {
         var preflightResponse: BridgeResult<String> = BridgeResult.Success("req-default")
         var preflightCalls: Int = 0
+        var queryResponse: BridgeResult<PasskeyCoreQueryResult> =
+            BridgeResult.Success(PasskeyCoreQueryResult("req-default", emptyList()))
+        var queryCalls: Int = 0
         var passwordListCalls: Int = 0
         var passwordListResponse: BridgeResult<Pair<String, List<PasswordCandidate>>> =
             BridgeResult.Success("pwd-session-default" to emptyList())
@@ -356,54 +390,17 @@ class ChromVoidCredentialProviderServiceTest {
             return preflightResponse
         }
 
+        override fun passkeyQuery(payload: PasskeyCoreRequestPayload): BridgeResult<PasskeyCoreQueryResult> {
+            queryCalls += 1
+            return queryResponse
+        }
+
         override fun passwordList(
             origin: String,
             domain: String,
         ): BridgeResult<Pair<String, List<PasswordCandidate>>> {
             passwordListCalls += 1
             return passwordListResponse
-        }
-    }
-
-    private class FakeStore : PasskeyMetadataStore {
-        var listCalls: Int = 0
-        var hasExcludedCredential: Boolean = false
-        var clearTransientStateCalled: Boolean = false
-        var candidates: List<PasskeyMetadata> = emptyList()
-        var lastRpId: String? = null
-        var lastAllowCredentialIds: Set<String> = emptySet()
-
-        override fun listForRpId(
-            rpId: String,
-            allowCredentialIds: Set<String>,
-        ): List<PasskeyMetadata> {
-            listCalls += 1
-            lastRpId = rpId
-            lastAllowCredentialIds = allowCredentialIds
-            return candidates.filter {
-                it.rpId == rpId && (allowCredentialIds.isEmpty() || allowCredentialIds.contains(it.credentialIdB64Url))
-            }
-        }
-
-        override fun findByCredentialId(credentialId: String): PasskeyMetadata? = candidates.firstOrNull {
-            it.credentialIdB64Url == credentialId
-        }
-
-        override fun hasExcludedCredential(excludedCredentialIds: Set<String>): Boolean {
-            return hasExcludedCredential
-        }
-
-        override fun saveNew(metadata: PasskeyMetadata) {
-            error("saveNew should not be called from provider service tests")
-        }
-
-        override fun updateUsage(credentialId: String, signCount: Long, lastUsedEpochMs: Long) {
-            error("updateUsage should not be called from provider service tests")
-        }
-
-        override fun clearTransientState(passkeyRequestRegistry: com.chromvoid.app.passkey.PasskeyRequestRegistry) {
-            clearTransientStateCalled = true
-            passkeyRequestRegistry.clear()
         }
     }
 

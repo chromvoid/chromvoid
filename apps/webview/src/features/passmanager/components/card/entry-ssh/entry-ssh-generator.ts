@@ -1,12 +1,15 @@
-import type {State} from '@statx/core'
-import {XLitElement} from '@statx/lit'
-import {css, html, nothing} from 'lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {css, nothing} from 'lit'
 
-import {i18n} from '@project/passmanager'
-import type {SshKeyType} from '@project/passmanager'
-import type {CVInputInputEvent} from '@chromvoid/uikit'
+import {i18n} from '@project/passmanager/i18n'
+import type {SshKeyType} from '@project/passmanager/types'
+import type {CVInputInputEvent} from '@chromvoid/uikit/components/cv-input'
+import type {CVSelectChangeEvent} from '@chromvoid/uikit/components/cv-select'
 
 import {entrySshSharedStyles} from './entry-ssh.styles'
+import {renderPMCopyButton} from '../../pm-copy-button'
+
+type PMEntrySshLayout = 'default' | 'card'
 
 export interface PMEntrySshGeneratorResult {
   fingerprint: string
@@ -32,7 +35,7 @@ export type PMEntrySshCommentInputEvent = CustomEvent<PMEntrySshCommentInputDeta
 export type PMEntrySshGenerateEvent = CustomEvent<Record<string, never>>
 export type PMEntrySshCancelEvent = CustomEvent<Record<string, never>>
 
-export class PMEntrySshGenerator extends XLitElement {
+export class PMEntrySshGenerator extends ReatomLitElement {
   static elementName = 'pm-entry-ssh-generator' as const
 
   static properties = {
@@ -44,6 +47,7 @@ export class PMEntrySshGenerator extends XLitElement {
     showCancel: {type: Boolean, attribute: 'show-cancel'},
     allowCopy: {type: Boolean, attribute: 'allow-copy'},
     hideGenerateWhenResult: {type: Boolean, attribute: 'hide-generate-when-result'},
+    layout: {type: String, reflect: true},
     onKeyTypeChange: {type: Function, attribute: false},
     onCommentInput: {type: Function, attribute: false},
     onGenerate: {type: Function, attribute: false},
@@ -60,10 +64,21 @@ export class PMEntrySshGenerator extends XLitElement {
         padding: 8px 0;
       }
 
+      :host([layout='card']) .entry-ssh-generator {
+        gap: 0.875rem;
+        padding: 0;
+      }
+
       .entry-ssh-generator-title {
         margin: 0;
         font-size: 0.75rem;
         font-weight: 500;
+        color: var(--cv-color-text);
+      }
+
+      :host([layout='card']) .entry-ssh-generator-title {
+        font-size: 0.9375rem;
+        font-weight: 600;
         color: var(--cv-color-text);
       }
 
@@ -82,6 +97,15 @@ export class PMEntrySshGenerator extends XLitElement {
         font-size: 13px;
       }
 
+      .entry-ssh-key-type-field {
+        display: grid;
+        gap: 0.375rem;
+      }
+
+      :host([layout='card']) .entry-ssh-key-type-field cv-select {
+        --cv-select-inline-size: 100%;
+      }
+
       .entry-ssh-result {
         gap: 8px;
         padding: 4px 0;
@@ -98,17 +122,41 @@ export class PMEntrySshGenerator extends XLitElement {
       .entry-ssh-generator-actions {
         justify-content: flex-end;
       }
+
+      :host([layout='card']) .entry-ssh-generator-actions {
+        justify-content: stretch;
+      }
+
+      :host([layout='card']) .entry-ssh-generator-actions cv-button {
+        inline-size: 100%;
+      }
+
+      :host([layout='card']) .entry-ssh-generator-actions cv-button::part(base) {
+        inline-size: 100%;
+        min-block-size: 2.625rem;
+        border-radius: 0.875rem;
+        border-color: var(--cv-color-primary-border-strong);
+        background: transparent;
+        color: var(--cv-color-primary);
+        font-weight: 600;
+      }
+
+      :host([layout='card']) .entry-ssh-generator-actions cv-button::part(base):hover {
+        border-color: var(--cv-color-primary);
+        box-shadow: 0 0 0 3px var(--cv-color-primary-ring);
+      }
     `,
   ]
 
-  declare keyType: SshKeyType | State<SshKeyType>
-  declare comment: string | State<string>
-  declare generating: boolean | State<boolean>
-  declare result: PMEntrySshGeneratorResult | null | State<PMEntrySshGeneratorResult | null>
+  declare keyType: SshKeyType
+  declare comment: string
+  declare generating: boolean
+  declare result: PMEntrySshGeneratorResult | null
   declare radioGroup: string
   declare showCancel: boolean
   declare allowCopy: boolean
   declare hideGenerateWhenResult: boolean
+  declare layout: PMEntrySshLayout
   declare onKeyTypeChange?: PMEntrySshGeneratorOnKeyTypeChange
   declare onCommentInput?: PMEntrySshGeneratorOnCommentInput
   declare onGenerate?: PMEntrySshGeneratorOnGenerate
@@ -124,6 +172,7 @@ export class PMEntrySshGenerator extends XLitElement {
     this.showCancel = false
     this.allowCopy = false
     this.hideGenerateWhenResult = false
+    this.layout = 'default'
   }
 
   static define() {
@@ -132,42 +181,23 @@ export class PMEntrySshGenerator extends XLitElement {
     }
   }
 
-  private isStateValue<T>(value: T | State<T>): value is State<T> {
-    return typeof value === 'function' && 'set' in value && typeof value.set === 'function'
-  }
-
-  private readValue<T>(value: T | State<T>): T {
-    if (this.isStateValue(value)) {
-      return value()
-    }
-
-    return value
-  }
-
-  private setStateValue<T>(source: T | State<T>, value: T): void {
-    if (this.isStateValue(source)) {
-      source.set(value)
-    }
-  }
-
   private keyTypeValue(): SshKeyType {
-    return this.readValue(this.keyType)
+    return this.keyType
   }
 
   private commentValue(): string {
-    return this.readValue(this.comment)
+    return this.comment
   }
 
   private generatingValue(): boolean {
-    return this.readValue(this.generating)
+    return this.generating
   }
 
   private resultValue(): PMEntrySshGeneratorResult | null {
-    return this.readValue(this.result)
+    return this.result
   }
 
   private emitKeyTypeChange(keyType: SshKeyType) {
-    this.setStateValue(this.keyType, keyType)
     this.onKeyTypeChange?.(keyType)
     this.dispatchEvent(
       new CustomEvent<PMEntrySshKeyTypeChangeDetail>('pm-entry-ssh-key-type-change', {
@@ -179,7 +209,6 @@ export class PMEntrySshGenerator extends XLitElement {
   }
 
   private emitCommentInput(value: string) {
-    this.setStateValue(this.comment, value)
     this.onCommentInput?.(value)
     this.dispatchEvent(
       new CustomEvent<PMEntrySshCommentInputDetail>('pm-entry-ssh-comment-input', {
@@ -216,6 +245,12 @@ export class PMEntrySshGenerator extends XLitElement {
     const target = event.target as HTMLInputElement
     if (!target.checked) return
     this.emitKeyTypeChange(target.value as SshKeyType)
+  }
+
+  private handleSelectKeyTypeChange(event: CVSelectChangeEvent) {
+    const value = event.detail.value
+    if (!value) return
+    this.emitKeyTypeChange(value as SshKeyType)
   }
 
   private handleCommentInput(event: CVInputInputEvent) {
@@ -256,23 +291,47 @@ export class PMEntrySshGenerator extends XLitElement {
           ? html`<cv-badge size="small" variant="warning">${result.keyType.toUpperCase()}</cv-badge>`
           : html`<span class="entry-ssh-result-value entry-ssh-mono">${result.fingerprint}</span>`}
         ${this.allowCopy && result.fingerprint
-          ? html`<cv-copy-button .value=${result.fingerprint} size="small"></cv-copy-button>`
+          ? renderPMCopyButton({value: result.fingerprint, size: 'small'})
           : nothing}
+      </div>
+    `
+  }
+
+  private renderKeyTypeSelect() {
+    return html`
+      <div class="entry-ssh-key-type-field">
+        <cv-select
+          size="small"
+          .value=${this.keyTypeValue()}
+          aria-label=${i18n('ssh:key_type')}
+          @cv-change=${this.handleSelectKeyTypeChange}
+        >
+          <cv-select-option value="ed25519">${i18n('ssh:key_type:ed25519')}</cv-select-option>
+          <cv-select-option value="rsa">${i18n('ssh:key_type:rsa')}</cv-select-option>
+          <cv-select-option value="ecdsa">${i18n('ssh:key_type:ecdsa')}</cv-select-option>
+        </cv-select>
       </div>
     `
   }
 
   protected override render() {
     const hideGenerate = this.hideGenerateWhenResult && this.resultValue() != null
+    const isCard = this.layout === 'card'
+    const generateVariant = isCard ? 'default' : 'primary'
+
     return html`
       <div class="entry-ssh-generator">
         <label class="entry-ssh-generator-title">${i18n('ssh:key_type')}</label>
 
-        <div class="entry-ssh-options">
-          ${this.renderOption('ed25519', i18n('ssh:key_type:ed25519'))}
-          ${this.renderOption('rsa', i18n('ssh:key_type:rsa'))}
-          ${this.renderOption('ecdsa', i18n('ssh:key_type:ecdsa'))}
-        </div>
+        ${isCard
+          ? this.renderKeyTypeSelect()
+          : html`
+              <div class="entry-ssh-options">
+                ${this.renderOption('ed25519', i18n('ssh:key_type:ed25519'))}
+                ${this.renderOption('rsa', i18n('ssh:key_type:rsa'))}
+                ${this.renderOption('ecdsa', i18n('ssh:key_type:ecdsa'))}
+              </div>
+            `}
 
         <cv-input
           size="small"
@@ -299,8 +358,8 @@ export class PMEntrySshGenerator extends XLitElement {
                   ? nothing
                   : html`
                       <cv-button
-                        size="small"
-                        variant="primary"
+                        size=${isCard ? 'medium' : 'small'}
+                        variant=${generateVariant}
                         @click=${this.handleGenerate}
                         ?disabled=${this.generatingValue()}
                       >

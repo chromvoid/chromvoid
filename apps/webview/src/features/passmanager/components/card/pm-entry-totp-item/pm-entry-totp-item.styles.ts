@@ -1,87 +1,138 @@
 import {css} from 'lit'
 
 import {
+  functionalMotionStyles,
   hostLayoutPaintContainStyles,
   motionPrimitiveStyles,
   pulseIndicatorStyles,
 } from 'root/shared/ui/shared-styles'
 
-const ARC_RADIUS = 16
+const ARC_RADIUS = 17.5
 const ARC_CIRCUMFERENCE = 2 * Math.PI * ARC_RADIUS
 
 export const pmEntryTOTPItemSharedStyles = [
   hostLayoutPaintContainStyles,
   motionPrimitiveStyles,
+  functionalMotionStyles,
   pulseIndicatorStyles,
   css`
     :host {
       position: relative;
       display: block;
+      container-type: inline-size;
+      --totp-color: var(--cv-color-success);
+      --totp-color-soft: var(--cv-color-success-surface-strong);
+      --arc-offset: 0;
+      --pm-otp-action-size: 32px;
     }
 
     .totp-card {
       display: grid;
-      gap: calc(var(--cv-space-2) * 0.75);
-      padding: 8px;
-      background: var(--cv-color-surface);
-      border: 1px solid color-mix(in oklch, var(--cv-color-border) 85%, transparent);
-      border-radius: var(--cv-radius-2);
+      grid-template-columns: minmax(0, 1fr) var(--totp-timer-size, 72px);
+      grid-template-areas: var(--totp-card-template-areas, 'main timer' 'main actions');
+      gap: var(--cv-space-3) var(--cv-space-4);
+      align-items: center;
+      padding: var(--totp-card-padding, var(--cv-space-4));
       font-family: var(--cv-font-family-sans, sans-serif);
       position: relative;
       overflow: hidden;
       min-inline-size: 0;
+      border: var(--totp-card-border-width, 1px) solid
+        var(--totp-card-border-color, var(--totp-color, var(--cv-color-success)));
+      border-radius: var(--cv-radius-3);
+      background: var(--totp-card-background, var(--cv-color-surface-2));
+      box-shadow: var(--totp-card-shadow, var(--cv-shadow-sm));
+      cursor: pointer;
+      user-select: none;
+      transition:
+        border-color 0.2s ease,
+        background 0.2s ease,
+        box-shadow 0.2s ease,
+        transform 0.2s ease;
     }
 
-    .totp-header {
+    .totp-card:hover {
+      background: var(--totp-card-background, var(--cv-color-surface-2));
+      box-shadow: var(--totp-card-hover-shadow, var(--cv-shadow-md));
+    }
+
+    .totp-card:active {
+      transform: translateY(1px);
+    }
+
+    .totp-card:focus-visible {
+      outline: 2px solid var(--totp-color, var(--cv-color-success));
+      outline-offset: 2px;
+    }
+
+    .totp-main {
+      grid-area: main;
       display: flex;
-      align-items: center;
-      gap: var(--cv-space-2);
+      flex-direction: column;
+      gap: var(--cv-space-1);
       min-inline-size: 0;
-    }
-
-    .totp-card:hover,
-    .totp-card:focus-within {
-      border-color: color-mix(
-        in oklch,
-        var(--totp-color, var(--cv-color-primary)) 45%,
-        var(--cv-color-border)
-      );
-      box-shadow: 0 2px 10px color-mix(in oklch, var(--totp-color, var(--cv-color-primary)) 16%, transparent);
     }
 
     .totp-label {
-      display: inline-flex;
-      align-items: center;
-      gap: calc(var(--cv-space-2) * 0.75);
-      font-size: 11px;
+      display: var(--totp-label-display, block);
+      font-size: 0.6875rem;
       font-weight: var(--cv-font-weight-semibold);
-      color: var(--cv-color-text);
+      color: var(--totp-label-color, var(--cv-color-text-muted));
       min-inline-size: 0;
       text-overflow: ellipsis;
       overflow: hidden;
       white-space: nowrap;
-      flex: 1;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-
-      cv-icon {
-        font-size: 12px;
-        opacity: 0.7;
-      }
+      letter-spacing: 0;
+      text-transform: none;
     }
 
-    .totp-label-text {
+    .totp-code {
+      display: flex;
+      align-items: center;
+      gap: var(--totp-code-group-gap, var(--cv-space-5));
       min-inline-size: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      font-family: var(--cv-font-family-code, monospace);
+      font-variant-numeric: tabular-nums;
+      color: var(--totp-code-color, var(--cv-color-text));
+    }
+
+    .totp-code-placeholder {
+      font-family: var(--cv-font-family-sans, sans-serif);
+      font-size: var(--cv-font-size-sm);
+      color: var(--cv-color-text-muted);
+    }
+
+    .totp-digit-group {
+      display: inline-flex;
+      gap: 0.06em;
+      min-inline-size: 0;
+    }
+
+    .totp-digit {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-inline-size: 1.08ch;
+      font-size: var(--totp-code-font-size, 3.25rem);
+      line-height: 1;
+      font-weight: var(--cv-font-weight-semibold);
+    }
+
+    .totp-feedback {
+      margin-block-start: var(--cv-space-1);
+      font-size: var(--cv-font-size-sm);
+      font-weight: var(--cv-font-weight-semibold);
+      color: var(--totp-feedback-color, var(--totp-color, var(--cv-color-success)));
     }
 
     .totp-arc-timer {
+      grid-area: timer;
       position: relative;
-      width: 32px;
-      height: 32px;
+      width: var(--totp-timer-size, 72px);
+      height: var(--totp-timer-size, 72px);
       flex-shrink: 0;
+      align-self: var(--totp-timer-align-self, center);
+      justify-self: center;
 
       svg {
         width: 100%;
@@ -90,190 +141,96 @@ export const pmEntryTOTPItemSharedStyles = [
 
       .arc-track {
         fill: none;
-        stroke: color-mix(in oklch, var(--cv-color-border) 75%, transparent);
-        stroke-width: 3;
+        stroke: var(--cv-color-border-muted);
+        stroke-width: var(--totp-arc-stroke-width, 3.25);
       }
 
       .arc-indicator {
         fill: none;
         stroke: var(--totp-color, var(--cv-color-success));
-        stroke-width: 3;
+        stroke-width: var(--totp-arc-stroke-width, 3.25);
         stroke-linecap: round;
         stroke-dasharray: ${ARC_CIRCUMFERENCE};
         stroke-dashoffset: var(--arc-offset, 0);
         transform: rotate(-90deg);
         transform-origin: center;
         transition: stroke-dashoffset 1s linear;
-        filter: drop-shadow(
-          0 0 3px color-mix(in oklch, var(--totp-color, var(--cv-color-success)) 50%, transparent)
-        );
       }
 
       .arc-value {
         position: absolute;
         inset: 0;
         display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
-        font-size: 11px;
         font-weight: var(--cv-font-weight-bold);
         font-variant-numeric: tabular-nums;
         color: var(--totp-color, var(--cv-color-success));
       }
-    }
 
-    .totp-content {
-      display: grid;
-      grid-template-columns: 1fr auto auto;
-      align-items: center;
-      gap: var(--cv-space-3);
-      min-inline-size: 0;
-    }
-
-    .totp-digits {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-inline-size: 0;
-      cursor: pointer;
-      user-select: none;
-      padding: 2px 4px;
-      border-radius: var(--cv-radius-2);
-      transition: background 0.2s ease;
-
-      &:hover .totp-digit {
-        border-color: color-mix(
-          in oklch,
-          var(--totp-color, var(--cv-color-success)) 45%,
-          var(--cv-color-border)
-        );
+      .arc-seconds {
+        font-size: var(--totp-timer-seconds-font-size, 1.35rem);
+        line-height: 1;
       }
 
-      &[data-hidden] .totp-digit {
-        background: color-mix(in oklch, var(--cv-color-text) 8%, var(--cv-color-surface-2));
+      .arc-unit {
+        margin-block-start: 2px;
+        font-size: var(--totp-timer-unit-font-size, 0.625rem);
+        line-height: 1;
         color: var(--cv-color-text-muted);
-        border-color: color-mix(in oklch, var(--cv-color-border) 80%, transparent);
-        position: relative;
-        overflow: hidden;
       }
-
-      &[data-hidden] .totp-digit::after {
-        content: '';
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(
-          90deg,
-          transparent 0%,
-          color-mix(in oklch, var(--cv-color-text) 6%, transparent) 50%,
-          transparent 100%
-        );
-        background-size: 200% 100%;
-        animation: digitShimmer 2s ease-in-out infinite;
-      }
-
-      &:not([data-hidden]) .totp-digit {
-        color: var(--totp-color, var(--cv-color-success));
-        background: color-mix(
-          in oklch,
-          var(--totp-color-soft, var(--cv-color-surface-2)) 24%,
-          var(--cv-color-surface-2)
-        );
-        border-color: color-mix(in oklch, var(--totp-color, var(--cv-color-success)) 40%, transparent);
-      }
-    }
-
-    .totp-digit-group {
-      display: flex;
-      gap: 2px;
-      min-inline-size: 0;
-    }
-
-    .totp-digit {
-      min-width: 28px;
-      height: 32px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-family: var(--cv-font-family-code, monospace);
-      font-weight: var(--cv-font-weight-bold);
-      font-size: calc(var(--cv-font-size-base) * 1.05);
-      background: var(--cv-color-surface-2);
-      border: 1px solid color-mix(in oklch, var(--cv-color-border) 80%, transparent);
-      border-radius: var(--cv-radius-1);
-      transition:
-        color 0.3s ease,
-        background 0.3s ease,
-        border-color 0.3s ease;
     }
 
     .totp-actions {
-      display: flex;
-      flex-direction: row;
-      gap: 4px;
+      grid-area: actions;
+      display: var(--totp-actions-display, flex);
+      gap: var(--cv-space-1);
       justify-content: flex-end;
       align-items: center;
 
-      cv-copy-button {
-        --cv-copy-button-size: 32px;
-        flex-shrink: 0;
-      }
-
-      cv-button::part(base) {
-        display: inline-flex;
+      slot[name='otp-action'] {
+        display: flex;
+        flex: 0 0 auto;
         align-items: center;
         justify-content: center;
-        block-size: 32px;
-        inline-size: 32px;
-        padding: 0;
-        min-inline-size: 32px;
-        background: transparent;
-        border: 1px solid transparent;
-        color: var(--cv-color-text-muted);
-        border-radius: var(--cv-radius-2);
-        transition: all 0.2s ease;
       }
 
-      cv-button:hover::part(base) {
-        background: color-mix(in oklch, var(--cv-color-text) 5%, transparent);
-        color: var(--cv-color-text);
-      }
-
-      cv-icon {
-        font-size: 18px;
+      ::slotted([slot='otp-action']) {
+        flex-shrink: 0;
       }
     }
 
-    @keyframes digitShimmer {
-      0% {
-        background-position: 200% 0;
+    @container (width < 400px) {
+      .totp-card {
+        grid-template-columns: minmax(0, 1fr) var(--totp-timer-size-compact, 66px);
+        grid-template-areas: var(--totp-card-template-areas-compact, var(--totp-card-template-areas, 'main timer' 'main actions'));
+        column-gap: var(--cv-space-3);
+        padding: var(--totp-card-padding, var(--cv-space-3));
       }
-      100% {
-        background-position: -200% 0;
-      }
-    }
 
-    @keyframes cardUrgency {
-      0%,
-      100% {
-        box-shadow: 0 0 0 0 transparent;
+      .totp-code {
+        gap: var(--cv-space-3);
       }
-      50% {
-        box-shadow: 0 0 12px color-mix(in oklch, var(--totp-color) 25%, transparent);
+
+      .totp-digit {
+        font-size: var(--totp-code-font-size-compact, 2.85rem);
       }
-    }
 
-    .totp-card[data-urgent] {
-      animation: cardUrgency 2s ease-in-out infinite;
-    }
+      .totp-arc-timer {
+        width: var(--totp-timer-size-compact, 66px);
+        height: var(--totp-timer-size-compact, 66px);
+      }
 
-    .totp-card[data-urgent] .arc-indicator {
-      filter: drop-shadow(0 0 6px var(--totp-color, var(--cv-color-success)));
+      .totp-arc-timer .arc-seconds {
+        font-size: 1.2rem;
+      }
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .totp-digits[data-hidden] .totp-digit::after,
-      .totp-card[data-urgent] {
-        animation: none;
+      .totp-card,
+      .arc-indicator {
+        transition: none;
       }
     }
 

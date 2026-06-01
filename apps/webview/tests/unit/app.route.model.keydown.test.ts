@@ -1,26 +1,28 @@
-import {state} from '@statx/core'
-
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 vi.mock('root/app/bootstrap/Initialize', () => ({
   init: vi.fn(),
 }))
 
+import {navigationModel} from '../../src/app/navigation/navigation.model'
 import {ChromVoidAppModel} from '../../src/routes/app.route.model'
-import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
+import {atom} from '@reatom/core'
+import {clearAppContext, createMockAppContext, getAppContext, initAppContext} from '../../src/shared/services/app-context'
 
 type RouteName = 'dashboard' | 'welcome' | 'no-connection' | 'no-license'
 
 function setupContext() {
+  navigationModel.disconnect()
+  window.history.replaceState({}, '', '/dashboard?surface=files&path=%2F')
+
   const store = {
-    showRemoteStoragePage: state(false),
-    showGatewayPage: state(false),
-    showRemotePage: state(false),
-    showSettingsPage: state(false),
-    showNetworkPairPage: state(false),
-    isShowPasswordManager: state(false),
-    sidebarOpen: state(false),
-    selectedNodeIds: state<number[]>([]),
+    showRemoteStoragePage: atom(false),
+    showGatewayPage: atom(false),
+    showRemotePage: atom(false),
+    showSettingsPage: atom(false),
+    isShowPasswordManager: atom(false),
+    sidebarOpen: atom(false),
+    selectedNodeIds: atom<number[]>([]),
     setSidebarOpen: vi.fn(),
     setSelectedItems: vi.fn(),
   }
@@ -31,13 +33,19 @@ function setupContext() {
     }),
   )
 
+  navigationModel.reset()
   return store
 }
 
 function setRoute(route: RouteName) {
-  ;(window as unknown as {router: {route: () => RouteName}}).router = {
-    route: () => route,
-  }
+  initAppContext(
+    createMockAppContext({
+      ...getAppContext(),
+      router: {
+        route: atom(route),
+      } as never,
+    }),
+  )
 }
 
 function createTabEvent() {
@@ -53,30 +61,25 @@ function createTabEvent() {
 }
 
 describe('ChromVoidAppModel handleKeydown Tab redirect guard', () => {
-  const originalRouter = (window as unknown as {router?: unknown}).router
-
   afterEach(() => {
+    navigationModel.disconnect()
     clearAppContext()
-    ;(window as unknown as {router?: unknown}).router = originalRouter
     vi.restoreAllMocks()
   })
 
   it('does not run dashboard Tab redirect when password manager is open', () => {
-    const store = setupContext()
+    setupContext()
     setRoute('dashboard')
-    store.isShowPasswordManager.set(true)
+    navigationModel.navigateToSurface('passwords')
 
     const model = new ChromVoidAppModel(
       () => {},
       async () => {},
     )
     const focusRedirectSpy = vi.fn(() => true)
-    ;(
-      model as unknown as {focusDashboardNewFolderButton: (root: Document) => boolean}
-    ).focusDashboardNewFolderButton = focusRedirectSpy
 
     const event = createTabEvent()
-    model.handleKeydown(event, document.body)
+    model.handleKeydown(event, focusRedirectSpy)
 
     expect(focusRedirectSpy).not.toHaveBeenCalled()
     expect(event.preventDefault).not.toHaveBeenCalled()
@@ -91,12 +94,9 @@ describe('ChromVoidAppModel handleKeydown Tab redirect guard', () => {
       async () => {},
     )
     const focusRedirectSpy = vi.fn(() => true)
-    ;(
-      model as unknown as {focusDashboardNewFolderButton: (root: Document) => boolean}
-    ).focusDashboardNewFolderButton = focusRedirectSpy
 
     const event = createTabEvent()
-    model.handleKeydown(event, document.body)
+    model.handleKeydown(event, focusRedirectSpy)
 
     expect(focusRedirectSpy).toHaveBeenCalledTimes(1)
     expect(event.preventDefault).toHaveBeenCalledTimes(1)

@@ -1,15 +1,15 @@
-import {XLitElement} from '@statx/lit'
-import {html, nothing} from 'lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {nothing} from 'lit'
 import {defaultLogger} from 'root/core/logger'
 
-import {i18n} from '@project/passmanager'
-import type {SshKeyEntry} from '@project/passmanager'
-import type {CVIcon} from '@chromvoid/uikit'
+import {i18n} from '@project/passmanager/i18n'
+import type {SshKeyEntry} from '@project/passmanager/types'
+import type {CVIcon} from '@chromvoid/uikit/components/cv-icon'
 
 import {PMEntrySshKey} from './entry-ssh-key'
 import {entrySshKeysCardStyles} from './entry-ssh.styles'
 
-export class PMEntrySshKeys extends XLitElement {
+export class PMEntrySshKeys extends ReatomLitElement {
   static properties = {
     keys: {attribute: false},
     publicKeys: {attribute: false},
@@ -54,10 +54,10 @@ export class PMEntrySshKeys extends XLitElement {
   private renderKeyItem(key: SshKeyEntry) {
     return html`
       <pm-entry-ssh-key
-        .mode=${'view'}
         .keyId=${key.id}
         .keyType=${key.type}
         .fingerprint=${key.fingerprint}
+        .name=${key.name}
         .comment=${key.comment}
         .publicKey=${this.publicKeys[key.id] ?? ''}
       ></pm-entry-ssh-key>

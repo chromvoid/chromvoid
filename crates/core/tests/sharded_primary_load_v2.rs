@@ -27,7 +27,7 @@ fn set_storage_format_v2(base_path: &Path) {
 }
 
 #[test]
-fn test_v2_unlock_loads_from_shards_when_monolithic_missing() {
+fn test_v2_unlock_loads_from_shards_when_legacy_recovery_chunk_missing() {
     let temp_dir = TempDir::new().expect("temp dir");
     let storage_path = temp_dir.path();
 
@@ -51,7 +51,7 @@ fn test_v2_unlock_loads_from_shards_when_monolithic_missing() {
         assert_rpc_ok(&lock_vault(&mut router));
     }
 
-    // Delete monolithic catalog chunk to ensure sharded path is used.
+    // Delete legacy recovery catalog chunk to ensure sharded path is used.
     {
         let storage = Storage::new(storage_path).expect("storage");
 
@@ -66,10 +66,10 @@ fn test_v2_unlock_loads_from_shards_when_monolithic_missing() {
             .expect("pepper must exist");
         let v2_key = derive_vault_key_v2(password, &vault_salt, &pepper).expect("derive v2 key");
 
-        let monolithic = catalog_chunk_name(&*v2_key, 0);
+        let legacy_recovery = catalog_chunk_name(&*v2_key, 0);
         storage
-            .delete_chunk(&monolithic)
-            .expect("delete monolithic chunk");
+            .delete_chunk(&legacy_recovery)
+            .expect("delete legacy recovery chunk");
     }
 
     // Unlock should still see data (loaded from RootIndex + shard snapshots).

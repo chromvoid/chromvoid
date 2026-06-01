@@ -121,6 +121,8 @@ internal data class AutofillAuthArgs(
     val otpOptions: List<OtpOption>,
 )
 
+internal fun AutofillAuthArgs.hasCredentialTargets(): Boolean = usernameIds.isNotEmpty() || passwordIds.isNotEmpty()
+
 internal sealed interface AutofillAuthResult {
     data class Success(
         val dataset: Dataset.Builder,

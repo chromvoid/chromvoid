@@ -54,7 +54,7 @@ export type OTPGetParams = {
   entryGroupPath?: string
 }
 
-type OTPEntry = {
+export type OTPEntry = {
   id: OTPId
   label: string
   period: number
@@ -71,33 +71,87 @@ export type SshKeyEntry = {
   id: string
   type: SshKeyType
   fingerprint: string
+  name?: string
   comment?: string
 }
 
-export type IEntry = {
+export type PassManagerEntryType = 'login' | 'payment_card'
+
+export type PaymentCardBrand = 'visa' | 'mastercard' | 'amex' | 'mir' | 'unionpay' | 'unknown'
+
+export type PaymentCardMeta = {
+  cardholderName: string
+  expMonth: number
+  expYear: number
+  brand?: PaymentCardBrand
+  last4?: string
+}
+
+export type PassManagerSecretSlot = 'password' | 'note' | 'card_pan' | 'card_cvv'
+
+type EntryBase = {
   id: string
   createdTs: number
   updatedTs: number
   title: string
+  tags?: string[]
+  iconRef?: string
+}
+
+export type LoginEntry = EntryBase & {
+  entryType?: 'login'
   urls: UrlRule[]
   username: string
   otps: Array<OTPEntry>
-  iconRef?: string
   sshKeys: Array<SshKeyEntry>
+  paymentCard?: undefined
 }
 
-export type IEntryExternal = {
+export type PaymentCardEntry = EntryBase & {
+  entryType: 'payment_card'
+  urls: UrlRule[]
+  username: string
+  otps: Array<OTPEntry>
+  sshKeys: Array<SshKeyEntry>
+  paymentCard: PaymentCardMeta
+}
+
+export type IEntry = LoginEntry | PaymentCardEntry
+
+export type LoginEntryExternal = {
   id: string
+  entryType?: 'login'
   createdTs: number
   updatedTs: number
   exportedTs: number
   title: string
+  folderPath?: string | null
   urls: UrlRule[]
   username: string
   password?: string
+  note?: string
   otps: Array<OTPEntry & {secret: string}>
+  tags?: string[]
   iconRef?: string
 }
+
+export type PaymentCardEntryExternal = {
+  id: string
+  entryType: 'payment_card'
+  createdTs: number
+  updatedTs: number
+  exportedTs: number
+  title: string
+  folderPath?: string | null
+  paymentCard: PaymentCardMeta
+  cardPan: string
+  cardCvv?: string
+  note?: string
+  tags?: string[]
+  iconRef?: string
+}
+
+export type IEntryExternal = LoginEntryExternal | PaymentCardEntryExternal
 
 export type IGroupExternal = {
   id: string
@@ -106,10 +160,11 @@ export type IGroupExternal = {
   exportedTs: number
   name: string
   iconRef?: string
+  description?: string
   entries: IEntryExternal[]
 }
 
-// --- SAVE_KEY root payload (v2) ---
+// --- Legacy SAVE_KEY root payload (v2) ---
 
 export type PassManagerRootV2Encoding = 'base32' | 'base64' | 'hex'
 
@@ -133,24 +188,129 @@ export type PassManagerRootV2Entry = {
   /** null = root (/.passmanager/<entry>) */
   folderPath: string | null
   iconRef?: string
-  sshKeys?: Array<{id: string; type: string; fingerprint: string; comment?: string}>
+  sshKeys?: Array<{id: string; type: string; fingerprint: string; name?: string; comment?: string}>
 }
 
 export type PassManagerRootV2FolderMeta = {
   path: string
   iconRef?: string
+  description?: string
 }
 
 export interface PassManagerRootV2 {
   version: 2
   createdTs: number
   updatedTs: number
-  /** List of folders that must exist (including empty). Root is not included. */
   folders: string[]
   foldersMeta?: PassManagerRootV2FolderMeta[]
-  /** Flat list of entries. */
   entries: PassManagerRootV2Entry[]
 }
+
+// --- Runtime persistence payload (v3) ---
+
+export type PassManagerRootV3Encoding = PassManagerRootV2Encoding
+export type PassManagerRootV3OTP = PassManagerRootV2OTP
+export type PassManagerRootV3FolderMeta = PassManagerRootV2FolderMeta
+
+type PassManagerRootV3EntryTimestamps = {
+  createdTs?: number
+  updatedTs?: number
+}
+
+export type PassManagerRootV3LoginEntry = PassManagerRootV3EntryTimestamps & {
+  id: string
+  entryType?: 'login'
+  title: string
+  username: string
+  urls: UrlRule[]
+  otps: PassManagerRootV3OTP[]
+  folderPath: string | null
+  tags?: string[]
+  iconRef?: string
+  sshKeys?: Array<{id: string; type: string; fingerprint: string; name?: string; comment?: string}>
+}
+
+export type PassManagerRootV3PaymentCardEntry = PassManagerRootV3EntryTimestamps & {
+  id: string
+  entryType: 'payment_card'
+  title: string
+  paymentCard: PaymentCardMeta
+  folderPath: string | null
+  tags?: string[]
+  iconRef?: string
+}
+
+export type PassManagerRootV3Entry = PassManagerRootV3LoginEntry | PassManagerRootV3PaymentCardEntry
+
+export interface PassManagerRootV3 {
+  version: 3
+  createdTs: number
+  updatedTs: number
+  folders: string[]
+  foldersMeta?: PassManagerRootV3FolderMeta[]
+  entries: PassManagerRootV3Entry[]
+}
+
+// --- Full-backup export payload (v1) ---
+
+export type PassManagerExportV1Entry = LoginEntryExternal | PaymentCardEntryExternal
+
+export interface PassManagerExportV1 {
+  version: 1
+  createdTs: number
+  updatedTs: number
+  folders: string[]
+  foldersMeta?: PassManagerRootV3FolderMeta[]
+  entries: PassManagerExportV1Entry[]
+}
+
+type PassManagerSaveEntryOtpPayload = {
+  id?: string
+  label?: string
+  algorithm?: Algorithm
+  digits?: number
+  period?: number
+  encoding?: Encoding
+  type?: OTPType
+  counter?: number
+}
+
+type PassManagerSaveEntryMetaTimestamps = {
+  createdTs?: number
+  updatedTs?: number
+}
+
+export type PassManagerSaveLoginEntryMetaPayload = PassManagerSaveEntryMetaTimestamps & {
+  id: string
+  entryType?: 'login'
+  title: string
+  urls: UrlRule[]
+  username: string
+  otps: Array<PassManagerSaveEntryOtpPayload>
+  groupPath?: string
+  tags?: string[]
+  iconRef?: string
+  sshKeys?: Array<{id: string; type: string; fingerprint: string; name?: string; comment?: string}>
+  paymentCard?: undefined
+}
+
+export type PassManagerSavePaymentCardEntryMetaPayload = PassManagerSaveEntryMetaTimestamps & {
+  id: string
+  entryType: 'payment_card'
+  title: string
+  paymentCard: PaymentCardMeta
+  groupPath?: string
+  tags?: string[]
+  iconRef?: string
+  urls?: undefined
+  username?: undefined
+  otps?: undefined
+  sshKeys?: undefined
+}
+
+export type PassManagerSaveEntryMetaPayload =
+  | PassManagerSaveLoginEntryMetaPayload
+  | PassManagerSavePaymentCardEntryMetaPayload
 
 export interface ManagerSaver {
   save(key: string, value: File): Promise<boolean>
@@ -160,7 +320,9 @@ export interface ManagerSaver {
   getOTPSeckey(id: string): Promise<string | undefined>
   removeOTP(id: OTPId): Promise<boolean>
   saveOTP(id: OTPId, secret: string): Promise<boolean>
-  /** Секреты записи (пароль/заметка) поверх каталога */
+  readEntrySecret(entryId: string, slot: PassManagerSecretSlot): Promise<string | undefined>
+  saveEntrySecret(entryId: string, slot: PassManagerSecretSlot, value: string | null): Promise<boolean>
+  removeEntrySecret(entryId: string, slot: PassManagerSecretSlot): Promise<boolean>
   readEntryPassword(entryId: string): Promise<string | undefined>
   readEntryNote(entryId: string): Promise<string | undefined>
   saveEntryPassword(entryId: string, password: string | null): Promise<boolean>
@@ -171,41 +333,29 @@ export interface ManagerSaver {
   readEntrySshPublicKey(entryId: string, keyId: string): Promise<string | undefined>
   saveEntrySshPrivateKey(entryId: string, keyId: string, key: string | null): Promise<boolean>
   saveEntrySshPublicKey(entryId: string, keyId: string, key: string | null): Promise<boolean>
-  getIcon?(iconRef: string): Promise<{iconRef: string; mimeType: string; contentBase64: string}>
+  getIcon?(iconRef: string): Promise<{
+    iconRef: string
+    mimeType: string
+    backgroundColor?: string
+    contentBase64: string
+  }>
   removeEntrySshPrivateKey(entryId: string, keyId: string): Promise<boolean>
   removeEntrySshPublicKey(entryId: string, keyId: string): Promise<boolean>
-  /** Точечная запись/обновление meta.json для одной записи */
-  saveEntryMeta(data: {
-    id: string
-    title: string
-    urls: UrlRule[]
-    username: string
-    otps: Array<{
-      id?: string
-      label?: string
-      algorithm?: Algorithm
-      digits?: number
-      period?: number
-      encoding?: Encoding
-      type?: OTPType
-      counter?: number
-    }>
-    groupPath?: string
-    iconRef?: string
-    sshKeys?: Array<{id: string; type: string; fingerprint: string; comment?: string}>
-  }): Promise<boolean>
-  /** Удаление директории записи по её id */
+  saveEntryMeta(data: PassManagerSaveEntryMetaPayload): Promise<boolean>
+  moveEntryToGroup(entryId: string, targetGroupPath: string | undefined): Promise<boolean>
   removeEntry(id: string): Promise<boolean>
 }
 
 export interface TGroupActions {
   createEntry(data: Partial<IEntry>, password: string, note: string, otp: OTPOptions | undefined): Entry
+  rename?(nextPath: string): boolean
   updateData(data: Partial<IGroup>): void
 }
 
-// Типы для сортировки и группировки записей
 export type SortField = 'name' | 'username' | 'modified' | 'created' | 'website'
 
 export type SortDirection = 'asc' | 'desc'
 
-export type GroupBy = 'none' | 'folder' | 'website' | 'modified' | 'security'
+export type GroupBy = 'none' | 'website' | 'modified' | 'security'
+
+export type ViewMode = 'default' | 'compact' | 'dense'

@@ -1,33 +1,18 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html} from 'lit'
+import {css, nothing} from 'lit'
 
 import {i18n} from 'root/i18n'
-import {getAppContext} from 'root/shared/services/app-context'
-import {openCommandPalette} from 'root/shared/services/command-palette'
-import {tauriInvoke} from 'root/core/transport/tauri/ipc'
-import {isTauriRuntime} from 'root/core/runtime/runtime'
-import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
-import {navigationModel} from 'root/app/navigation/navigation.model'
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 import {moon, sun} from 'root/features/media/components/icons'
+import {navigationRailModel} from './navigation-rail.model'
 
-type RpcOk<T> = {ok: true; result: T}
-type RpcErr = {ok: false; error: string; code?: string | null}
-type RpcResult<T> = RpcOk<T> | RpcErr
-
-function isOk<T>(res: RpcResult<T>): res is RpcOk<T> {
-  return typeof res === 'object' && res !== null && 'ok' in res && (res as {ok: unknown}).ok === true
-}
-
-export class NavigationRail extends XLitElement {
+export class NavigationRail extends ReatomLitElement {
   static define() {
     if (!customElements.get('navigation-rail')) {
       customElements.define('navigation-rail', this as unknown as CustomElementConstructor)
     }
   }
-
-  private isExpanded = false
 
   static styles = [
     sharedStyles,
@@ -51,10 +36,24 @@ export class NavigationRail extends XLitElement {
         inline-size: var(--nav-rail-width-expanded, 240px);
       }
 
+      :host(.mobile-nav-rail) {
+        min-block-size: 0;
+        overflow: auto;
+        overscroll-behavior: contain;
+      }
+
+      :host(.mobile-nav-actions) {
+        inline-size: 100%;
+        block-size: auto;
+        min-block-size: 0;
+        border-inline-end: 0;
+        overflow: visible;
+      }
+
       .brand {
         display: flex;
         align-items: center;
-        gap: var(--space-3, 12px);
+        gap: var(--space-0);
         padding: var(--space-4, 16px);
         min-block-size: 64px;
       }
@@ -67,13 +66,23 @@ export class NavigationRail extends XLitElement {
         align-items: center;
         justify-content: center;
         border-radius: var(--cv-radius-lg, 12px);
-        background: var(--accent-muted, color-mix(in oklch, var(--cv-color-accent) 15%, transparent));
         color: var(--accent, #ff7a00);
         cursor: pointer;
 
         cv-icon {
           font-size: 20px;
         }
+      }
+
+      .brand-icon__image {
+        display: block;
+        inline-size: 28px;
+        block-size: 28px;
+        object-fit: contain;
+      }
+
+      .brand-icon--static {
+        cursor: default;
       }
 
       .brand-text {
@@ -108,14 +117,26 @@ export class NavigationRail extends XLitElement {
         padding-inline: var(--space-3, 12px);
       }
 
-      .spacer {
-        flex: 1;
+      .main-nav {
+        flex: 0 0 auto;
       }
 
-      .divider {
-        margin: var(--space-3, 12px) var(--space-3, 12px);
+      .secondary-actions {
+        flex: 0 0 auto;
+        margin-block-start: auto;
+        padding-block: var(--space-3, 12px);
+      }
+
+      .secondary-actions::before {
+        content: '';
+        display: block;
         block-size: 1px;
+        margin-block-end: var(--space-3, 12px);
         background: var(--border-subtle, var(--cv-alpha-white-6));
+      }
+
+      :host(.mobile-nav-actions) .secondary-actions {
+        margin-block-start: 0;
       }
 
       .item {
@@ -176,13 +197,19 @@ export class NavigationRail extends XLitElement {
         }
 
         &.active {
-          background: var(--accent-muted, color-mix(in oklch, var(--cv-color-accent) 15%, transparent));
+          background: var(--accent-muted, var(--cv-color-accent-surface));
           color: var(--accent, #ff7a00);
+        }
+
+        &[disabled] {
+          opacity: 0.55;
+          cursor: wait;
+          pointer-events: none;
         }
 
         &.danger {
           &:hover {
-            background: var(--error-muted, color-mix(in oklch, var(--error, #ff4757) 15%, transparent));
+            background: var(--error-muted, var(--cv-color-danger-surface));
             color: var(--error, #ff4757);
           }
         }
@@ -191,6 +218,12 @@ export class NavigationRail extends XLitElement {
       :host([expanded]) .item .label {
         opacity: 1;
         transform: translateX(0);
+      }
+
+      :host([expanded]) .item::part(base),
+      :host([expanded]) .theme-toggle::part(base) {
+        justify-content: flex-start;
+        text-align: start;
       }
 
       :host([expanded]) .item .hint {
@@ -274,218 +307,290 @@ export class NavigationRail extends XLitElement {
     super.connectedCallback()
   }
 
-  private toggleExpanded = () => {
-    this.isExpanded = !this.isExpanded
-    if (this.isExpanded) {
-      this.setAttribute('expanded', '')
-    } else {
-      this.removeAttribute('expanded')
+  override updated(changed: Map<string, unknown>) {
+    super.updated(changed)
+    this.toggleAttribute('expanded', navigationRailModel.isExpanded())
+  }
+
+  private handleExpandedToggle() {
+    navigationRailModel.toggleExpanded()
+  }
+
+  private handleExpandedToggleKeydown(e: KeyboardEvent) {
+    if (e.key !== 'Enter' && e.key !== ' ') {
+      return
     }
-    this.requestUpdate()
+
+    e.preventDefault()
+    this.handleExpandedToggle()
   }
 
-  private closeSidebarOnMobile = () => {
-    const {store} = getAppContext()
-    if (store.layoutMode() === 'mobile' && store.sidebarOpen()) {
-      store.setSidebarOpen(false)
-    }
+  private handleThemeToggle() {
+    navigationRailModel.toggleTheme()
   }
 
-  private toggleTheme = () => {
-    getAppContext().store.switchTheme()
-    this.closeSidebarOnMobile()
+  private handleSettingsClick() {
+    navigationRailModel.openSettings()
   }
 
-  private onSettings = () => {
-    navigationModel.navigateToSurface('settings')
-    this.closeSidebarOnMobile()
+  private handleCommandPaletteClick() {
+    navigationRailModel.openCommandPalette()
   }
 
-  private openCommandPalette = () => {
-    openCommandPalette({mode: 'all', source: 'rail'})
-    this.closeSidebarOnMobile()
+  private getCommandPaletteGuidanceSurface(): 'files' | 'notes' | 'passwords' | null {
+    if (navigationRailModel.isFilesActive()) return 'files'
+    if (navigationRailModel.isNotesActive()) return 'notes'
+    if (navigationRailModel.isPasswordsActive()) return 'passwords'
+    return null
   }
 
-  private onFiles = () => {
-    navigationModel.navigateToSurface('files')
-    this.closeSidebarOnMobile()
+  private handleFilesClick() {
+    navigationRailModel.openFiles()
   }
 
-  private onPasswords = () => {
-    navigationModel.navigateToSurface('passwords')
-    this.closeSidebarOnMobile()
+  private handleNotesClick() {
+    navigationRailModel.openNotes()
   }
 
-  private onStorage = () => {
-    if (!getRuntimeCapabilities().supports_volume) return
-    navigationModel.navigateToSurface('remote-storage')
-    this.closeSidebarOnMobile()
+  private handlePasswordsClick() {
+    navigationRailModel.openPasswords()
   }
 
-  private onRemote = () => {
-    const caps = getRuntimeCapabilities()
-    if (!caps.supports_usb_remote && !caps.supports_network_remote) return
-    navigationModel.navigateToSurface('remote')
-    this.closeSidebarOnMobile()
+  private handleOtpCodesClick() {
+    navigationRailModel.openOtpCodes()
   }
 
-  private onExtensions = () => {
-    if (!getRuntimeCapabilities().supports_gateway) return
-    navigationModel.navigateToSurface('gateway')
-    this.closeSidebarOnMobile()
+  private handlePasskeysClick() {
+    navigationRailModel.openPasskeys()
   }
 
-  private onNetworkPair = () => {
-    if (!getRuntimeCapabilities().supports_network_remote) return
-    navigationModel.navigateToSurface('network-pair')
-    this.closeSidebarOnMobile()
+  private handleStorageClick() {
+    navigationRailModel.openStorage()
   }
 
-  private onLock = () => {
-    this.closeSidebarOnMobile()
-    if (!isTauriRuntime()) return
-
-    void (async () => {
-      try {
-        const res = await tauriInvoke<RpcResult<unknown>>('rpc_dispatch', {
-          args: {
-            v: 1,
-            command: 'vault:lock',
-            data: {},
-          },
-        })
-        if (!isOk(res)) {
-          throw new Error(res.error)
-        }
-        getAppContext().store.pushNotification('success', i18n('notification:vault-locked' as any))
-        getAppContext().store.setSelectedItems([])
-      } catch (e) {
-        getAppContext().store.pushNotification(
-          'error',
-          e instanceof Error ? e.message : i18n('error:lock-failed' as any),
-        )
-      }
-    })()
+  private handleRemoteClick() {
+    navigationRailModel.openRemote()
   }
 
-  protected render() {
-    const {store} = getAppContext()
-    const caps = getRuntimeCapabilities()
-    const surface = navigationModel.snapshot().surface
-    const isPasswords = surface === 'passwords'
-    const isStorage = surface === 'remote-storage'
-    const isRemote = surface === 'remote'
-    const isExtensions = surface === 'gateway'
-    const isSettings = surface === 'settings'
-    const isNetworkPair = surface === 'network-pair'
-    const isFiles = surface === 'files'
-    const theme = store.theme()
+  private handleExtensionsClick() {
+    navigationRailModel.openExtensions()
+  }
+
+  private handleLockClick() {
+    void navigationRailModel.lockVault()
+  }
+
+  private renderBrand() {
+    const isExpanded = navigationRailModel.isExpanded()
+    const canToggleExpanded = navigationRailModel.canToggleExpanded()
+    const brandIcon = html`<cv-icon name="shield"></cv-icon>`
+    const staticBrandIcon = html`<img
+      class="brand-icon__image"
+      src="/assets/icon.png"
+      alt=""
+      decoding="async"
+    />`
 
     return html`
       <div class="brand">
-        <div
-          class="brand-icon"
-          @click=${this.toggleExpanded}
-          title=${i18n(
-            this.isExpanded ? ('navigation:collapse-sidebar' as any) : ('navigation:expand-sidebar' as any),
-          )}
-          aria-label=${i18n(
-            this.isExpanded ? ('navigation:collapse-sidebar' as any) : ('navigation:expand-sidebar' as any),
-          )}
-          role="button"
-          tabindex="0"
-          @keydown=${(e: KeyboardEvent) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              this.toggleExpanded()
-            }
-          }}
-        >
-          <cv-icon name="shield"></cv-icon>
-        </div>
+        ${canToggleExpanded
+          ? html`
+              <div
+                class="brand-icon"
+                @click=${this.handleExpandedToggle}
+                title=${i18n(isExpanded ? 'navigation:collapse-sidebar' : 'navigation:expand-sidebar')}
+                aria-label=${i18n(isExpanded ? 'navigation:collapse-sidebar' : 'navigation:expand-sidebar')}
+                role="button"
+                tabindex="0"
+                @keydown=${this.handleExpandedToggleKeydown}
+              >
+                ${brandIcon}
+              </div>
+            `
+          : html`<div class="brand-icon brand-icon--static" aria-hidden="true">${staticBrandIcon}</div>`}
         <div class="brand-text">ChromVoid</div>
       </div>
+    `
+  }
 
-      <nav class="nav" aria-label=${i18n('navigation:main' as any)}>
-        <button class="item ${isFiles ? 'active' : ''}" @click=${this.onFiles} aria-current=${isFiles}>
-          <cv-icon name="folder"></cv-icon>
-          <span class="label">${i18n('navigation:files' as any)}</span>
-        </button>
-        <button
+  private renderMainNavigation() {
+    const isPasswords = navigationRailModel.isPasswordsActive()
+    const isFiles = navigationRailModel.isFilesActive()
+    const isNotes = navigationRailModel.isNotesActive()
+    const isOtp = navigationRailModel.isOtpActive()
+    const isPasskeys = navigationRailModel.isPasskeysActive()
+    const supportsPasskeys = navigationRailModel.supportsPasskeys()
+
+    return html`
+      <nav class="nav main-nav" aria-label=${i18n('navigation:main')}>
+        <cv-button unstyled class="item ${isFiles ? 'active' : ''}" @click=${this.handleFilesClick} aria-current=${isFiles}>
+          <cv-icon slot="prefix" name="folder"></cv-icon>
+          <span class="label">${i18n('navigation:files')}</span>
+        </cv-button>
+        <cv-button unstyled class="item ${isNotes ? 'active' : ''}" @click=${this.handleNotesClick} aria-current=${isNotes}>
+          <cv-icon slot="prefix" name="file-text"></cv-icon>
+          <span class="label">${i18n('navigation:notes' as never)}</span>
+        </cv-button>
+        <cv-button unstyled
           class="item ${isPasswords ? 'active' : ''}"
-          @click=${this.onPasswords}
+          @click=${this.handlePasswordsClick}
           aria-current=${isPasswords}
         >
-          <cv-icon name="key"></cv-icon>
-          <span class="label">${i18n('navigation:passwords' as any)}</span>
-        </button>
-      </nav>
-
-      <div class="spacer"></div>
-      <div class="divider"></div>
-
-      <nav class="nav" aria-label=${i18n('navigation:actions' as any)}>
-        <button class="item" @click=${this.openCommandPalette}>
-          <cv-icon name="search"></cv-icon>
-          <span class="label">${i18n('navigation:command-palette' as any)}</span>
-          <span class="hint">⌘K</span>
-        </button>
-
-        <button class="theme-toggle" @click=${this.toggleTheme} title=${i18n('theme:toggle' as any)}>
-          <span class="theme-icon">${theme === 'light' ? sun : moon}</span>
-          <span class="label"
-            >${theme === 'light'
-              ? i18n('theme:mode:light' as any)
-              : theme === 'dark'
-                ? i18n('theme:mode:dark' as any)
-                : i18n('theme:mode:system' as any)}</span
-          >
-        </button>
-
-        ${caps.supports_volume
+          <cv-icon slot="prefix" name="key"></cv-icon>
+          <span class="label">${i18n('navigation:passwords')}</span>
+        </cv-button>
+        <cv-button unstyled
+          class="item ${isOtp ? 'active' : ''}"
+          @click=${this.handleOtpCodesClick}
+          aria-current=${isOtp}
+        >
+          <cv-icon slot="prefix" name="shield-check"></cv-icon>
+          <span class="label">${i18n('navigation:otp-codes' as any)}</span>
+        </cv-button>
+        ${supportsPasskeys
           ? html`
-              <button class="item ${isStorage ? 'active' : ''}" @click=${this.onStorage}>
-                <cv-icon name="hard-drive"></cv-icon>
-                <span class="label">${i18n('navigation:storage' as any)}</span>
-              </button>
+              <cv-button unstyled
+                class="item ${isPasskeys ? 'active' : ''}"
+                @click=${this.handlePasskeysClick}
+                aria-current=${isPasskeys}
+              >
+                <cv-icon slot="prefix" name="octicons:passkey-fill" fill></cv-icon>
+                <span class="label">${i18n('navigation:passkeys')}</span>
+              </cv-button>
             `
-          : ''}
-        ${caps.supports_usb_remote || caps.supports_network_remote
-          ? html`
-              <button class="item ${isRemote ? 'active' : ''}" @click=${this.onRemote}>
-                <cv-icon name="usb"></cv-icon>
-                <span class="label">${i18n('navigation:remote' as any)}</span>
-              </button>
-            `
-          : ''}
-        ${caps.supports_gateway
-          ? html`
-              <button class="item ${isExtensions ? 'active' : ''}" @click=${this.onExtensions}>
-                <cv-icon name="puzzle"></cv-icon>
-                <span class="label">${i18n('navigation:extensions' as any)}</span>
-              </button>
-            `
-          : ''}
-        ${caps.supports_network_remote
-          ? html`
-              <button class="item ${isNetworkPair ? 'active' : ''}" @click=${this.onNetworkPair}>
-                <cv-icon name="wifi"></cv-icon>
-                <span class="label">${i18n('navigation:network-pair' as any)}</span>
-              </button>
-            `
-          : ''}
-
-        <button class="item ${isSettings ? 'active' : ''}" @click=${this.onSettings}>
-          <cv-icon name="settings"></cv-icon>
-          <span class="label">${i18n('navigation:settings' as any)}</span>
-        </button>
-
-        <button class="item danger" @click=${this.onLock}>
-          <cv-icon name="lock"></cv-icon>
-          <span class="label">${i18n('navigation:lock' as any)}</span>
-          <span class="hint">⌘L</span>
-        </button>
+          : nothing}
       </nav>
     `
+  }
+
+  protected renderSecondaryActions() {
+    const supportsStorage = navigationRailModel.supportsStorage()
+    const supportsRemote = navigationRailModel.supportsRemote()
+    const supportsExtensions = navigationRailModel.supportsExtensions()
+    const storageAccess = navigationRailModel.storageAccess()
+    const remoteAccess = navigationRailModel.remoteAccess()
+    const extensionsAccess = navigationRailModel.extensionsAccess()
+    const isStorage = navigationRailModel.isStorageActive()
+    const isRemote = navigationRailModel.isRemoteActive()
+    const isExtensions = navigationRailModel.isExtensionsActive()
+    const isSettings = navigationRailModel.isSettingsActive()
+    const theme = navigationRailModel.theme()
+    const commandPaletteShortcutLabel = navigationRailModel.commandPaletteShortcutLabel()
+    const vaultLockShortcutLabel = navigationRailModel.vaultLockShortcutLabel()
+    const vaultLockPending = navigationRailModel.isVaultLockPending()
+    const isMobileLayout = navigationRailModel.isMobileLayout()
+    const commandGuidanceSurface = this.getCommandPaletteGuidanceSurface()
+    const commandPaletteButton = html`
+      <cv-button unstyled class="item" @click=${this.handleCommandPaletteClick}>
+        <cv-icon slot="prefix" name="search"></cv-icon>
+        <span class="label">${i18n('navigation:command-palette')}</span>
+        ${commandPaletteShortcutLabel
+          ? html`<span slot="suffix" class="hint">${commandPaletteShortcutLabel}</span>`
+          : ''}
+      </cv-button>
+    `
+
+    return html`
+      <nav class="nav secondary-actions" aria-label=${i18n('navigation:actions')}>
+        ${isMobileLayout
+          ? ''
+          : commandGuidanceSurface
+            ? html`
+                <cv-guidance-anchor
+                  anchor-id="shell.command-palette"
+                  surface=${commandGuidanceSurface}
+                  owner="shell"
+                >
+                  ${commandPaletteButton}
+                </cv-guidance-anchor>
+              `
+            : commandPaletteButton}
+
+        <cv-button unstyled class="theme-toggle" @click=${this.handleThemeToggle} title=${i18n('theme:toggle')}>
+          <span slot="prefix" class="theme-icon">${theme === 'light' ? sun : moon}</span>
+          <span class="label"
+            >${theme === 'light'
+              ? i18n('theme:mode:light')
+              : theme === 'dark'
+                ? i18n('theme:mode:dark')
+                : i18n('theme:mode:system')}</span
+          >
+        </cv-button>
+
+        ${supportsStorage
+          ? html`
+              <cv-button unstyled class="item ${isStorage ? 'active' : ''}" @click=${this.handleStorageClick}>
+                <cv-icon slot="prefix" name="hard-drive"></cv-icon>
+                <span class="label">${i18n('navigation:storage')}</span>
+                ${navigationRailModel.isLocked(storageAccess) ? html`<cv-icon slot="suffix" name="lock"></cv-icon>` : ''}
+              </cv-button>
+            `
+          : ''}
+        ${supportsRemote
+          ? html`
+              <cv-button unstyled class="item ${isRemote ? 'active' : ''}" @click=${this.handleRemoteClick}>
+                <cv-icon slot="prefix" name="usb"></cv-icon>
+                <span class="label">${i18n('navigation:remote')}</span>
+                ${navigationRailModel.isLocked(remoteAccess) ? html`<cv-icon slot="suffix" name="lock"></cv-icon>` : ''}
+              </cv-button>
+            `
+          : ''}
+        ${supportsExtensions
+          ? html`
+              <cv-button unstyled class="item ${isExtensions ? 'active' : ''}" @click=${this.handleExtensionsClick}>
+                <cv-icon slot="prefix" name="puzzle"></cv-icon>
+                <span class="label">${i18n('navigation:extensions')}</span>
+                ${navigationRailModel.isLocked(extensionsAccess) ? html`<cv-icon slot="suffix" name="lock"></cv-icon>` : ''}
+              </cv-button>
+            `
+          : ''}
+
+        <cv-button unstyled class="item ${isSettings ? 'active' : ''}" @click=${this.handleSettingsClick}>
+          <cv-icon slot="prefix" name="settings"></cv-icon>
+          <span class="label">${i18n('navigation:settings')}</span>
+        </cv-button>
+
+        <cv-button
+          unstyled
+          class="item danger"
+          ?disabled=${vaultLockPending}
+          aria-busy=${vaultLockPending ? 'true' : 'false'}
+          @click=${this.handleLockClick}
+        >
+          <cv-icon slot="prefix" name="lock"></cv-icon>
+          <span class="label">${i18n('navigation:lock')}</span>
+          ${vaultLockShortcutLabel ? html`<span slot="suffix" class="hint">${vaultLockShortcutLabel}</span>` : ''}
+        </cv-button>
+      </nav>
+    `
+  }
+
+  protected render() {
+    const isMobileLayout = navigationRailModel.isMobileLayout()
+
+    return html`
+      ${this.renderBrand()}
+      ${this.renderMainNavigation()}
+      ${isMobileLayout ? '' : this.renderSecondaryActions()}
+    `
+  }
+}
+
+export class NavigationRailActions extends NavigationRail {
+  static define() {
+    if (!customElements.get('navigation-rail-actions')) {
+      customElements.define('navigation-rail-actions', this as unknown as CustomElementConstructor)
+    }
+  }
+
+  protected override render() {
+    return this.renderSecondaryActions()
+  }
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    'navigation-rail': NavigationRail
+    'navigation-rail-actions': NavigationRailActions
   }
 }

@@ -3,23 +3,87 @@ use std::time::Duration;
 
 use chromvoid_core::rpc::stream::{RpcInputStream, RpcReply};
 use chromvoid_core::rpc::types::RpcRequest;
+use chromvoid_core::rpc::RpcResponse;
 use futures_util::{SinkExt, StreamExt};
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use tracing::{debug, warn};
+
+use crate::core_adapter::CoreAdapter;
 
 use super::super::handshake::check_capability;
 use super::super::protocol::{
     error_codes, frame_continuation, frame_from_event, frame_from_heartbeat,
-    frame_from_rpc_response, frame_stream_meta_response, validate_timestamp, AntiReplay, Frame,
-    FrameType,
+    frame_from_rpc_response, frame_stream_meta_response, parse_upload_stream_metadata,
+    upload_stream_chunk_data, validate_timestamp, AntiReplay, Frame, FrameType,
 };
 use super::super::rate_limit::RateLimiter;
 use super::{
-    is_download_stream_command, is_upload_stream_command, ConnectionPhase,
-    DEFAULT_SESSION_MAX_DURATION, HEARTBEAT_INTERVAL, IDLE_TIMEOUT, MAX_REQUESTS_PER_MINUTE,
-    MAX_WS_MESSAGE_SIZE, STREAM_CHUNK_SIZE,
+    is_download_stream_command, is_full_upload_stream_command, is_upload_stream_command,
+    ConnectionPhase, DEFAULT_SESSION_MAX_DURATION, HEARTBEAT_INTERVAL, IDLE_TIMEOUT,
+    MAX_REQUESTS_PER_MINUTE, MAX_WS_MESSAGE_SIZE, STREAM_CHUNK_SIZE,
 };
+
+fn read_stream_chunk(reader: &mut dyn std::io::Read, buf: &mut [u8]) -> Result<usize, String> {
+    reader.read(buf).map_err(|e| format!("stream read: {}", e))
+}
+
+async fn read_gateway_stream_chunk(
+    app_handle: &tauri::AppHandle,
+    mut reader: Box<dyn std::io::Read + Send>,
+    label: &'static str,
+) -> Result<(Box<dyn std::io::Read + Send>, Vec<u8>), String> {
+    let vault_background_io_runtime = app_handle
+        .state::<crate::AppState>()
+        .vault_background_io_runtime
+        .clone();
+
+    match vault_background_io_runtime
+        .spawn_blocking(move || {
+            let mut buf = vec![0_u8; STREAM_CHUNK_SIZE];
+            let n = read_stream_chunk(reader.as_mut(), &mut buf)?;
+            buf.truncate(n);
+            Ok((reader, buf))
+        })
+        .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            let (error, _code) = error.into_rpc_error(label);
+            Err(error)
+        }
+    }
+}
+
+async fn run_gateway_adapter_task<T, F>(
+    app_handle: &tauri::AppHandle,
+    label: &'static str,
+    task: F,
+) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&mut dyn CoreAdapter) -> Result<T, String> + Send + 'static,
+{
+    let state = app_handle.state::<crate::AppState>();
+    let adapter = state.adapter.clone();
+    let vault_background_io_runtime = state.vault_background_io_runtime.clone();
+
+    match vault_background_io_runtime
+        .spawn_blocking(move || {
+            let mut adapter = adapter
+                .lock()
+                .map_err(|_| "Adapter mutex poisoned".to_string())?;
+            task(adapter.as_mut())
+        })
+        .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            let (error, _code) = error.into_rpc_error(label);
+            Err(error)
+        }
+    }
+}
 
 /// Run the post-handshake extension session: RPC loop, streaming, heartbeats.
 pub(in crate::gateway) async fn handle_extension_session(
@@ -229,26 +293,62 @@ pub(in crate::gateway) async fn handle_extension_session(
               }
             }
 
+            let pro_denied: Option<String> = {
+              let state = app_handle.state::<crate::AppState>();
+              crate::pro::guard_pro_feature_async(
+                &state,
+                chromvoid_core::license::PRO_FEATURE_BROWSER_EXTENSION,
+              ).await.err().map(|error| match error {
+                crate::types::RpcResult::Error { error, code, .. } => {
+                  format!("{}: {}", code.unwrap_or_else(|| "PRO_REQUIRED".to_string()), error)
+                }
+                crate::types::RpcResult::Success { .. } => "PRO_REQUIRED: Pro license required".to_string(),
+              })
+            };
+            if let Some(reason) = pro_denied {
+              debug!(
+                "[gateway] pro access denied for extension_id={ext_id}, command={}: {reason}",
+                req.command
+              );
+              try_send_request_error!(
+                transport, write, frame.message_id,
+                error_codes::CAPABILITY_DENIED, &reason
+              );
+              continue;
+            }
+
             // --- Capability grant enforcement ---
-            let capability_denied: Option<String> = {
+            let (capability_denied, capability_save_snapshot) = {
               let grant_id = req.data.get("_grant_id").and_then(|v| v.as_str());
               let origin = req.data.get("_origin").and_then(|v| v.as_str());
               let node_id_val = req.data.get("node_id").and_then(|v| v.as_u64());
 
               let state = app_handle.state::<crate::AppState>();
+              let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
               let mut st = match state.gateway.lock() {
                 Ok(g) => g,
                 Err(_) => break,
               };
-              check_capability(
+              let (capability_result, save_snapshot) = check_capability(
                 &mut st,
                 &ext_id,
                 &req.command,
                 grant_id,
                 origin,
                 node_id_val,
-              ).err()
+              );
+              (
+                capability_result.err(),
+                save_snapshot.map(|snapshot| (catalog_blocking_io_runtime, snapshot)),
+              )
             };
+            if let Some((catalog_blocking_io_runtime, save_snapshot)) = capability_save_snapshot {
+              crate::gateway::save_config_snapshot_best_effort(
+                catalog_blocking_io_runtime,
+                save_snapshot,
+                "Gateway capability policy save",
+              ).await;
+            }
             if let Some(reason) = capability_denied {
               debug!(
                 "[gateway] capability denied for extension_id={ext_id}, command={}: {reason}",
@@ -263,10 +363,124 @@ pub(in crate::gateway) async fn handle_extension_session(
 
             // --- Upload stream ---
             if is_upload_stream_command(&req.command) && frame.has_continuation() {
+              if is_full_upload_stream_command(&req.command) {
+                anti_replay.set_active_stream(frame.message_id);
+                let stream_msg_id = frame.message_id;
+                let mut body = Vec::new();
+                let mut stream_ok = true;
+
+                loop {
+                  let chunk_frame = recv_encrypted_frame!(transport, read, IDLE_TIMEOUT, MAX_WS_MESSAGE_SIZE);
+                  let chunk_frame = match chunk_frame {
+                    Ok(f) => f,
+                    Err(_) => { stream_ok = false; break; }
+                  };
+
+                  if chunk_frame.frame_type != FrameType::RpcRequest {
+                    stream_ok = false;
+                    break;
+                  }
+                  if chunk_frame.message_id != stream_msg_id {
+                    warn!(
+                      "[gateway] closing upload stream for extension_id={ext_id}: message_id mismatch stream_id={} chunk_id={}",
+                      stream_msg_id,
+                      chunk_frame.message_id
+                    );
+                    try_send_request_error!(transport, write, stream_msg_id,
+                      error_codes::INVALID_FORMAT, "stream message_id mismatch");
+                    stream_ok = false;
+                    break;
+                  }
+                  if anti_replay.check(chunk_frame.message_id).is_err() {
+                    warn!(
+                      "[gateway] closing upload stream for extension_id={ext_id}: replay detected for stream_id={stream_msg_id}"
+                    );
+                    try_send_request_error!(transport, write, stream_msg_id,
+                      error_codes::REPLAY_DETECTED, "replay detected");
+                    stream_ok = false;
+                    break;
+                  }
+
+                  body.extend_from_slice(&chunk_frame.payload);
+
+                  if !chunk_frame.has_continuation() {
+                    break;
+                  }
+                }
+
+                anti_replay.clear_active_stream();
+
+                if !stream_ok {
+                  break;
+                }
+
+                let full_upload_req = req.clone();
+                let reply = match run_gateway_adapter_task(
+                  &app_handle,
+                  "gateway full upload stream",
+                  move |adapter| {
+                    let r = adapter.handle_with_stream(
+                      &full_upload_req,
+                      Some(RpcInputStream::from_bytes(body)),
+                    );
+                    let save_error = adapter.save().err();
+                    let events = adapter.take_events();
+                    Ok((r, save_error, events))
+                  },
+                ).await {
+                  Ok(reply) => reply,
+                  Err(error) => {
+                    warn!(
+                      "[gateway] closing session for extension_id={ext_id}: full upload adapter task failed: {error}"
+                    );
+                    break;
+                  }
+                };
+
+                for evt in reply.2 {
+                  let Some(obj) = evt.as_object() else { continue };
+                  let Some(cmd) = obj.get("command").and_then(|v| v.as_str()) else { continue };
+                  let payload = obj.get("data").cloned().unwrap_or(serde_json::Value::Null);
+                  server_msg_id = server_msg_id.wrapping_add(1).max(1);
+                  let ev_frame = frame_from_event(server_msg_id, cmd, payload);
+                  if send_encrypted_frame!(transport, write, ev_frame).is_err() {
+                    stream_ok = false;
+                    break;
+                  }
+                }
+
+                if !stream_ok {
+                  break;
+                }
+
+                let response = if let Some(err) = reply.1 {
+                  RpcResponse::error(err, Some("INTERNAL"))
+                } else {
+                  match reply.0 {
+                    RpcReply::Json(resp) => resp,
+                    RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+                      RpcResponse::error("unexpected streaming response for upload", Some("STREAM_UNEXPECTED"))
+                    }
+                  }
+                };
+                let resp_frame = frame_from_rpc_response(stream_msg_id, &response);
+                if send_encrypted_frame!(transport, write, resp_frame).is_err() {
+                  break;
+                }
+                continue;
+              }
+
               // First frame is JSON metadata. Extract offset/size for per-chunk routing.
-              let node_id = req.data.get("node_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-              let total_size = req.data.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
-              let mut offset = req.data.get("offset").and_then(|v| v.as_u64()).unwrap_or(0);
+              let upload_metadata = match parse_upload_stream_metadata(&req.data) {
+                Ok(metadata) => metadata,
+                Err(response) => {
+                  let response_frame = frame_from_rpc_response(frame.message_id, &response);
+                  let _ = send_encrypted_frame!(transport, write, response_frame);
+                  continue;
+                }
+              };
+              let stream_size = upload_metadata.size;
+              let mut offset = upload_metadata.offset;
               let command = req.command.clone();
 
               anti_replay.set_active_stream(frame.message_id);
@@ -306,32 +520,52 @@ pub(in crate::gateway) async fn handle_extension_session(
                   break;
                 }
 
-                let chunk_data = chunk_frame.payload.clone();
-                let chunk_len = chunk_data.len() as u64;
+                let chunk_bytes = chunk_frame.payload.clone();
+                let chunk_len = chunk_bytes.len() as u64;
+                let is_final_chunk = !chunk_frame.has_continuation();
 
                 // Build per-chunk RpcRequest for the adapter.
+                let chunk_data = match upload_stream_chunk_data(
+                  &req.data,
+                  offset,
+                  chunk_len,
+                  stream_size,
+                  is_final_chunk,
+                ) {
+                  Ok(chunk_data) => chunk_data,
+                  Err(response) => {
+                    let err_frame = frame_from_rpc_response(stream_msg_id, &response);
+                    let _ = send_encrypted_frame!(transport, write, err_frame);
+                    stream_ok = false;
+                    break;
+                  }
+                };
                 let chunk_req = RpcRequest {
                   v: chromvoid_core::rpc::types::PROTOCOL_VERSION,
                   command: command.clone(),
-                  data: serde_json::json!({
-                    "node_id": node_id,
-                    "offset": offset,
-                    "size": total_size,
-                  }),
+                  data: chunk_data,
                 };
 
-                let reply = {
-                  let state = app_handle.state::<crate::AppState>();
-                  let mut adapter = match state.adapter.lock() {
-                    Ok(g) => g,
-                    Err(_) => { stream_ok = false; break; }
-                  };
-                  let r = adapter.handle_with_stream(
-                    &chunk_req,
-                    Some(RpcInputStream::from_bytes(chunk_data)),
-                  );
-                  let events = adapter.take_events();
-                  (r, events)
+                let reply = match run_gateway_adapter_task(
+                  &app_handle,
+                  "gateway upload stream chunk",
+                  move |adapter| {
+                    let r = adapter.handle_with_stream(
+                      &chunk_req,
+                      Some(RpcInputStream::from_bytes(chunk_bytes)),
+                    );
+                    let events = adapter.take_events();
+                    Ok((r, events))
+                  },
+                ).await {
+                  Ok(reply) => reply,
+                  Err(error) => {
+                    warn!(
+                      "[gateway] closing upload stream for extension_id={ext_id}: chunk adapter task failed: {error}"
+                    );
+                    stream_ok = false;
+                    break;
+                  }
                 };
 
                 // Flush events from this chunk.
@@ -361,20 +595,20 @@ pub(in crate::gateway) async fn handle_extension_session(
                 offset += chunk_len;
 
                 // Last chunk: continuation flag cleared.
-                if !chunk_frame.has_continuation() {
+                if is_final_chunk {
                   break;
                 }
               }
 
               anti_replay.clear_active_stream();
 
-              let save_error = {
-                let state = app_handle.state::<crate::AppState>();
-                let save_error = match state.adapter.lock() {
-                  Ok(mut adapter) => adapter.save().err(),
-                  Err(_) => Some("Adapter mutex poisoned".to_string()),
-                };
-                save_error
+              let save_error = match run_gateway_adapter_task(
+                &app_handle,
+                "gateway upload stream save",
+                move |adapter| Ok(adapter.save().err()),
+              ).await {
+                Ok(save_error) => save_error,
+                Err(error) => Some(error),
               };
               if let Some(err) = save_error {
                 if stream_ok {
@@ -400,16 +634,24 @@ pub(in crate::gateway) async fn handle_extension_session(
             }
             // --- Download stream ---
             else if is_download_stream_command(&req.command) {
-              let reply = {
-                let state = app_handle.state::<crate::AppState>();
-                let mut adapter = match state.adapter.lock() {
-                  Ok(g) => g,
-                  Err(_) => break,
-                };
-                let r = adapter.handle_with_stream(&req, None);
-                let _ = adapter.save();
-                let events = adapter.take_events();
-                (r, events)
+              let download_req = req.clone();
+              let reply = match run_gateway_adapter_task(
+                &app_handle,
+                "gateway download stream",
+                move |adapter| {
+                  let r = adapter.handle_with_stream(&download_req, None);
+                  let _ = adapter.save();
+                  let events = adapter.take_events();
+                  Ok((r, events))
+                },
+              ).await {
+                Ok(reply) => reply,
+                Err(error) => {
+                  warn!(
+                    "[gateway] closing session for extension_id={ext_id}: download adapter task failed: {error}"
+                  );
+                  break;
+                }
               };
 
               // Flush events.
@@ -433,11 +675,16 @@ pub(in crate::gateway) async fn handle_extension_session(
                   }
 
                   // 2. Read and send binary chunks using double-buffer for EOF detection.
-                  let mut reader = output.reader;
-                  let mut current_buf = vec![0u8; STREAM_CHUNK_SIZE];
-                  let mut n = match reader.read(&mut current_buf) {
-                    Ok(n) => n,
-                    Err(_) => {
+                  let (mut reader, mut current_buf) = match read_gateway_stream_chunk(
+                    &app_handle,
+                    output.reader,
+                    "gateway download stream first read",
+                  ).await {
+                    Ok(result) => result,
+                    Err(error) => {
+                      warn!(
+                        "[gateway] download stream read failed before first chunk for extension_id={ext_id}: {error}"
+                      );
                       // Send empty final frame on read error.
                       let final_frame = frame_continuation(
                         FrameType::RpcResponse, frame.message_id, vec![], false,
@@ -447,23 +694,40 @@ pub(in crate::gateway) async fn handle_extension_session(
                     }
                   };
 
-                  while n > 0 {
-                    let mut next_buf = vec![0u8; STREAM_CHUNK_SIZE];
-                    let next_n = reader.read(&mut next_buf).unwrap_or(0);
-                    let has_more = next_n > 0;
+                  while !current_buf.is_empty() {
+                    let next_read = read_gateway_stream_chunk(
+                      &app_handle,
+                      reader,
+                      "gateway download stream next read",
+                    ).await;
+                    let (has_more, next_reader, next_buf) = match next_read {
+                      Ok((next_reader, next_buf)) => {
+                        let has_more = !next_buf.is_empty();
+                        (has_more, Some(next_reader), next_buf)
+                      }
+                      Err(error) => {
+                        warn!(
+                          "[gateway] download stream read failed after chunk for extension_id={ext_id}: {error}"
+                        );
+                        (false, None, Vec::new())
+                      }
+                    };
 
                     let chunk_frame = frame_continuation(
                       FrameType::RpcResponse,
                       frame.message_id,
-                      current_buf[..n].to_vec(),
+                      current_buf,
                       has_more,
                     );
                     if send_encrypted_frame!(transport, write, chunk_frame).is_err() {
                       break;
                     }
 
+                    let Some(next_reader) = next_reader else {
+                      break;
+                    };
+                    reader = next_reader;
                     current_buf = next_buf;
-                    n = next_n;
                   }
                 }
                 RpcReply::Json(resp) => {
@@ -473,30 +737,54 @@ pub(in crate::gateway) async fn handle_extension_session(
                     break;
                   }
                 }
+                RpcReply::RangeStream(_) => {
+                  let resp = RpcResponse::Error {
+                    ok: false,
+                    error: "Range streaming is not supported by remote gateway".to_string(),
+                    code: Some("STREAM_UNEXPECTED".to_string()),
+                  };
+                  let response_frame = frame_from_rpc_response(frame.message_id, &resp);
+                  if send_encrypted_frame!(transport, write, response_frame).is_err() {
+                    break;
+                  }
+                }
               }
             }
             // --- Normal (non-streaming) RPC ---
             else {
-              let resp = {
-                let state = app_handle.state::<crate::AppState>();
-                let mut adapter = match state.adapter.lock() {
-                  Ok(g) => g,
-                  Err(_) => break,
-                };
-
-                let rpc = adapter.handle(&req);
-                let _ = adapter.save();
-                let events = adapter.take_events();
-                (rpc, events)
+              let generic_req = req.clone();
+              let (rpc, events, lock_transition) = match run_gateway_adapter_task(
+                &app_handle,
+                "gateway rpc",
+                move |adapter| {
+                  let was_unlocked = if generic_req.command == "vault:lock" {
+                    Some(adapter.is_unlocked())
+                  } else {
+                    None
+                  };
+                  let rpc = adapter.handle(&generic_req);
+                  let now_unlocked = was_unlocked.map(|_| adapter.is_unlocked());
+                  let _ = adapter.save();
+                  let events = adapter.take_events();
+                  Ok((rpc, events, was_unlocked.zip(now_unlocked)))
+                },
+              ).await {
+                Ok(result) => result,
+                Err(error) => {
+                  warn!(
+                    "[gateway] closing session for extension_id={ext_id}: rpc adapter task failed: {error}"
+                  );
+                  break;
+                }
               };
 
-              let response_frame = frame_from_rpc_response(frame.message_id, &resp.0);
+              let response_frame = frame_from_rpc_response(frame.message_id, &rpc);
               if send_encrypted_frame!(transport, write, response_frame).is_err() {
                 break;
               }
 
               // Push events.
-              for evt in resp.1 {
+              for evt in events {
                 let Some(obj) = evt.as_object() else { continue };
                 let Some(cmd) = obj.get("command").and_then(|v| v.as_str()) else { continue };
                 let payload = obj.get("data").cloned().unwrap_or(serde_json::Value::Null);
@@ -507,42 +795,44 @@ pub(in crate::gateway) async fn handle_extension_session(
                 }
               }
 
-              if req.command == "vault:lock" {
+              if let Some((was_unlocked, now_unlocked)) = lock_transition {
                 let app_state = app_handle.state::<crate::AppState>();
-                let gw_arc = app_state.gateway.clone();
-                let vm_arc = app_state.volume_manager.clone();
-                let ssh_arc = app_state.ssh_agent.clone();
-                drop(app_state);
-                {
-                  let mut gw = match gw_arc.lock() {
-                    Ok(g) => g,
-                    Err(_) => continue,
-                  };
-                  gw.revoke_all_grants();
-                }
-                if let Ok(mut agent) = ssh_arc.lock() {
-                    agent.stop();
-                }
-                crate::credential_provider_bridge::on_vault_locked();
-                let _ = app_handle.emit("vault:locked", serde_json::json!({"reason": "gateway"}));
-                let backend = match vm_arc.lock() {
-                  Ok(mut vm) => {
-                    let _ = vm.notify_locked();
-                    let st = crate::commands::volume_ops::volume_status_from_vm(&vm);
-                    let _ = app_handle.emit("volume:status", &st);
-                    vm.take_backend()
-                  }
-                  Err(_) => None,
-                };
-
-                if let Some(h) = backend {
-                  tauri::async_runtime::spawn(async move {
-                    let _ = tokio::time::timeout(std::time::Duration::from_secs(3), h.join()).await;
-                  });
-                }
+                crate::commands::vault::handle_lock_transition_with_reason(
+                  &app_handle,
+                  &app_state,
+                  was_unlocked,
+                  now_unlocked,
+                  "gateway",
+                );
               }
             }
           }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct FailingReader;
+
+    impl std::io::Read for FailingReader {
+        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "gateway stream failed",
+            ))
+        }
+    }
+
+    #[test]
+    fn read_stream_chunk_maps_io_error() {
+        let mut reader = FailingReader;
+        let mut buf = [0_u8; 8];
+
+        let error = read_stream_chunk(&mut reader, &mut buf).expect_err("read must fail");
+
+        assert_eq!(error, "stream read: gateway stream failed");
     }
 }

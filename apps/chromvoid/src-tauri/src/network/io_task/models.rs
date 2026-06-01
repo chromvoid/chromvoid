@@ -6,11 +6,15 @@ use chromvoid_core::rpc::RpcReply;
 use chromvoid_protocol::{Frame, NoiseTransport, RemoteTransport, TransportType};
 use tokio::sync::oneshot;
 
+use crate::core_adapter::{RemoteCancelGroup, RemoteRpcPriority};
+
 /// Request sent from the adapter to the I/O task.
 pub struct IoRequest {
     pub request: RpcRequest,
     pub stream: Option<RpcInputStream>,
     pub reply_tx: oneshot::Sender<RpcReply>,
+    pub priority: RemoteRpcPriority,
+    pub cancel_group: Option<RemoteCancelGroup>,
 }
 
 /// Event sent from the I/O task to the UI/adapter.

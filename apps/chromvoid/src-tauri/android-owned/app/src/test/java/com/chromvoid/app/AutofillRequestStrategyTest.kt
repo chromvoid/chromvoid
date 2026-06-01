@@ -57,6 +57,35 @@ class AutofillRequestStrategyTest {
     }
 
     @Test
+    fun nativeStrategy_treatsUsernameOnlyPageAsCredentialStep() {
+        val usernameId = AutofillTestUtils.newAutofillId(context)
+
+        val parsed =
+            AutofillRequestResolver().resolve(
+                context =
+                    AutofillRequestContext(
+                        requestId = 1,
+                        compatMode = false,
+                        activityComponent = ComponentName("com.android.chrome", "Main"),
+                        normalizedDomain = "github.com",
+                        focusedId = usernameId,
+                        previousFocusedIds = emptyList(),
+                        usernameFieldIds = listOf(usernameId),
+                        passwordFieldIds = emptyList(),
+                        otpCandidates = emptyList(),
+                        focusedFieldCandidates = emptyList(),
+                        pageHintBlobs = listOf("sign in to github"),
+                    ),
+                sessionStore = InMemoryAutofillSessionStore(SystemAndroidClock),
+            )
+
+        assertEquals(ParsedStepKind.PASSWORD, parsed!!.stepKind)
+        assertEquals(listOf(usernameId), parsed.usernameFieldIds)
+        assertEquals(emptyList<android.view.autofill.AutofillId>(), parsed.passwordFieldIds)
+        assertEquals(listOf(usernameId), parsed.credentialAnchorFieldIds)
+    }
+
+    @Test
     fun nativeStrategy_resolvesOnlyExplicitOtp_andDoesNotUseProxyFallback() {
         val passwordId = AutofillTestUtils.newAutofillId(context)
         val focusedProxyId = AutofillTestUtils.newAutofillId(context)
@@ -172,6 +201,36 @@ class AutofillRequestStrategyTest {
         assertEquals(listOf(usernameId), parsed.usernameFieldIds)
         assertEquals(listOf(passwordId, focusedProxyId), parsed.passwordFieldIds)
         assertEquals(listOf(focusedProxyId), parsed.credentialAnchorFieldIds)
+    }
+
+    @Test
+    fun compatStrategy_treatsUsernameOnlyPageAsCredentialStep() {
+        val activityComponent = ComponentName("org.mozilla.firefox", "org.mozilla.fenix.App")
+        val usernameId = AutofillTestUtils.newAutofillId(context)
+
+        val parsed =
+            AutofillRequestResolver().resolve(
+                context =
+                    AutofillRequestContext(
+                        requestId = 1,
+                        compatMode = true,
+                        activityComponent = activityComponent,
+                        normalizedDomain = "github.com",
+                        focusedId = usernameId,
+                        previousFocusedIds = emptyList(),
+                        usernameFieldIds = listOf(usernameId),
+                        passwordFieldIds = emptyList(),
+                        otpCandidates = emptyList(),
+                        focusedFieldCandidates = emptyList(),
+                        pageHintBlobs = listOf("sign in to github"),
+                    ),
+                sessionStore = InMemoryAutofillSessionStore(SystemAndroidClock),
+            )
+
+        assertEquals(ParsedStepKind.PASSWORD, parsed!!.stepKind)
+        assertEquals(listOf(usernameId), parsed.usernameFieldIds)
+        assertEquals(emptyList<android.view.autofill.AutofillId>(), parsed.passwordFieldIds)
+        assertEquals(listOf(usernameId), parsed.credentialAnchorFieldIds)
     }
 
     @Test

@@ -173,7 +173,7 @@ export const createPointerHandlers = (
     },
     onTouchStart: (item, event) => startTouchLongPressFromTouch(event, item),
     onTouchMove: (_event?: TouchEvent) => {
-      // Touch swipe and drag are handled inside <file-item>.
+      // Touch swipe and drag are handled inside the file item host element.
     },
     onTouchEnd: (_event?: TouchEvent) => {
       cancelTouchLongPress()

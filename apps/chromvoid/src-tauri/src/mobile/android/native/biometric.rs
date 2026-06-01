@@ -1,6 +1,4 @@
 use std::os::raw::c_void;
-use std::sync::mpsc;
-use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use crate::mobile::BiometricAuthError;
@@ -8,39 +6,38 @@ use crate::mobile::BiometricAuthError;
 const AUTH_TIMEOUT: Duration = Duration::from_secs(30);
 const BIOMETRIC_NATIVE_SHELL_CLASS: &str = "com/chromvoid/app/nativebridge/BiometricNativeShell";
 
-struct PendingAuth {
-    tx: mpsc::SyncSender<Result<(), BiometricAuthError>>,
-}
-
-static PENDING_AUTH: LazyLock<Mutex<Option<PendingAuth>>> = LazyLock::new(|| Mutex::new(None));
-
-pub fn authenticate_with_biometric(reason: &str) -> Result<(), BiometricAuthError> {
+pub async fn authenticate_with_biometric(
+    runtime: &super::super::AndroidBiometricRuntimeState,
+    reason: &str,
+) -> Result<(), BiometricAuthError> {
     if !biometric_bridge_available() {
         return Err(BiometricAuthError::unavailable(
             "Android BiometricPrompt bridge is unavailable",
         ));
     }
 
-    let (tx, rx) = mpsc::sync_channel(1);
-    {
-        let mut guard = PENDING_AUTH
-            .lock()
-            .map_err(|_| BiometricAuthError::internal("Biometric bridge state is unavailable"))?;
-        *guard = Some(PendingAuth { tx });
-    }
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    runtime.start(tx)?;
 
     tracing::info!("android biometric app gate: launching prompt");
     let start_code = jni_biometric_prompt_start(reason).map_err(BiometricAuthError::internal)?;
     if start_code != 0 {
-        let mut guard = PENDING_AUTH
-            .lock()
-            .map_err(|_| BiometricAuthError::internal("Biometric bridge state is unavailable"))?;
-        *guard = None;
+        runtime.clear()?;
         return Err(super::super::biometric::map_android_error_code(start_code));
     }
 
-    rx.recv_timeout(AUTH_TIMEOUT)
-        .map_err(|_| BiometricAuthError::cancelled("Biometric authentication timed out"))?
+    match tokio::time::timeout(AUTH_TIMEOUT, rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err(BiometricAuthError::cancelled(
+            "Biometric authentication completed without a result",
+        )),
+        Err(_) => {
+            let _ = runtime.clear();
+            Err(BiometricAuthError::cancelled(
+                "Biometric authentication timed out",
+            ))
+        }
+    }
 }
 
 pub fn biometric_bridge_available() -> bool {
@@ -59,15 +56,12 @@ fn complete_authentication(state: i32, error_code: i32) {
         state,
         error_code
     );
-    let sender = match PENDING_AUTH.lock() {
-        Ok(mut guard) => guard.take().map(|pending| pending.tx),
-        Err(_) => None,
+    let Some(runtime) = super::super::runtime::app_android_biometric_runtime() else {
+        tracing::warn!("android biometric app gate: runtime unavailable for completion");
+        return;
     };
-
-    if let Some(tx) = sender {
-        let _ = tx.send(super::super::biometric::map_prompt_result(
-            state, error_code,
-        ));
+    if !runtime.complete(state, error_code) {
+        tracing::warn!("android biometric app gate: completion had no pending prompt");
     }
 }
 

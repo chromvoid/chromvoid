@@ -9,18 +9,33 @@ use serde_json::{json, Value};
 pub const CREDENTIAL_PROVIDER_LIST_COMMAND: &str = "credential_provider:list";
 pub const CREDENTIAL_PROVIDER_STATUS_COMMAND: &str = "credential_provider:status";
 
+pub fn credential_provider_status_bool(status: &Value, field: &str, context: &str) -> bool {
+    match status.get(field).and_then(|value| value.as_bool()) {
+        Some(value) => value,
+        None => {
+            tracing::warn!(
+                context = %context,
+                field = field,
+                "credential provider status missing boolean field"
+            );
+            false
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PasskeyLiteCommand {
     Create,
     Get,
+    Query,
 }
 
 impl PasskeyLiteCommand {
-    #[cfg(any(test, not(target_os = "android")))]
     pub fn rpc_command(self) -> &'static str {
         match self {
             Self::Create => "credential_provider:passkey:create",
             Self::Get => "credential_provider:passkey:get",
+            Self::Query => "credential_provider:passkey:query",
         }
     }
 
@@ -28,6 +43,7 @@ impl PasskeyLiteCommand {
         match self {
             Self::Create => "create",
             Self::Get => "get",
+            Self::Query => "query",
         }
     }
 
@@ -35,6 +51,7 @@ impl PasskeyLiteCommand {
         match command.trim() {
             "create" | "credential_provider:passkey:create" => Some(Self::Create),
             "get" | "credential_provider:passkey:get" => Some(Self::Get),
+            "query" | "credential_provider:passkey:query" => Some(Self::Query),
             _ => None,
         }
     }
@@ -44,6 +61,7 @@ impl PasskeyLiteCommand {
         match event.trim() {
             "passkey_create" => Some(Self::Create),
             "passkey_get" => Some(Self::Get),
+            "passkey_query" => Some(Self::Query),
             _ => None,
         }
     }
@@ -135,6 +153,17 @@ mod tests {
         match passkeys {
             CredentialProviderRoute::PasskeysLite { command, .. } => {
                 assert_eq!(command, "credential_provider:passkey:create");
+            }
+            other => panic!("unexpected route: {other:?}"),
+        }
+
+        let passkey_query = CredentialProviderRoute::passkeys_lite(
+            PasskeyLiteCommand::Query,
+            json!({"platform":"android"}),
+        );
+        match passkey_query {
+            CredentialProviderRoute::PasskeysLite { command, .. } => {
+                assert_eq!(command, "credential_provider:passkey:query");
             }
             other => panic!("unexpected route: {other:?}"),
         }

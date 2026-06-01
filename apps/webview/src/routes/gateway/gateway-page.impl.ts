@@ -1,7 +1,9 @@
-import {XLitElement} from '@statx/lit'
-import {html, nothing} from 'lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {nothing} from 'lit'
 
 import {navigationModel} from 'root/app/navigation/navigation.model'
+import {guidanceCompletionBridge} from 'root/core/guidance'
+import {i18n} from 'root/i18n'
 
 import {GatewayModel, type AccessDuration} from './gateway.model'
 import {gatewayPageStyles} from './gateway-page.styles'
@@ -10,7 +12,7 @@ import {renderGatewayPairingSection} from './components/gateway-pairing-section'
 import {renderGatewayPolicySection} from './components/gateway-policy-section'
 import {renderGatewaySettingsSection} from './components/gateway-settings-section'
 
-export class GatewayPage extends XLitElement {
+export class GatewayPage extends ReatomLitElement {
   static define() {
     if (!customElements.get('gateway-page')) {
       customElements.define('gateway-page', this)
@@ -26,6 +28,7 @@ export class GatewayPage extends XLitElement {
   static styles = gatewayPageStyles
 
   private readonly model = new GatewayModel()
+  private guidanceCompletionUnsubscribe?: () => void
 
   constructor() {
     super()
@@ -34,12 +37,27 @@ export class GatewayPage extends XLitElement {
 
   connectedCallback(): void {
     super.connectedCallback()
+    this.guidanceCompletionUnsubscribe = guidanceCompletionBridge.bindGatewayPairedExtensions(
+      this.model.pairedExtensions,
+    )
     this.model.loadConfig()
   }
 
   disconnectedCallback(): void {
+    this.guidanceCompletionUnsubscribe?.()
+    this.guidanceCompletionUnsubscribe = undefined
     this.model.dispose()
     super.disconnectedCallback()
+  }
+
+  override updated(changed: Map<string, unknown>) {
+    super.updated(changed)
+    const progress = this.renderRoot.querySelector<HTMLElement>('.progress-bar-fill[data-progress]')
+    if (!progress) {
+      return
+    }
+
+    progress.style.setProperty('--gateway-pairing-progress', `${progress.dataset['progress'] ?? '0'}%`)
   }
 
   private onBack = () => {
@@ -136,14 +154,14 @@ export class GatewayPage extends XLitElement {
     return html`
       <div class="page">
         <header class="header">
-          ${this.hideBackLink
+        ${this.hideBackLink
             ? nothing
-            : html`<button class="back-link" @click=${this.onBack}>
-                <cv-icon name="arrow-left"></cv-icon>
-                Back to files
-              </button>`}
-          <h1 class="title">Browser Extension Gateway</h1>
-          <p class="subtitle">Manage browser extension connections to your vault</p>
+            : html`<cv-button unstyled class="back-link" @click=${this.onBack}>
+                <cv-icon slot="prefix" name="arrow-left"></cv-icon>
+                ${i18n('gateway:back-to-files')}
+              </cv-button>`}
+          <h1 class="title">${i18n('gateway:page-title')}</h1>
+          <p class="subtitle">${i18n('gateway:page-subtitle')}</p>
         </header>
 
         <div class="grid">

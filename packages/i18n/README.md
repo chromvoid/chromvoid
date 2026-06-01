@@ -4,7 +4,7 @@ Minimal i18n package on Reatom v1000.
 
 ## Goals
 
-- API close to `@statx/i18n` for easy migration.
+- API close to the legacy i18n surface for easy migration.
 - Reactive language state via Reatom atom.
 - Template interpolation with `${name}` placeholders.
 - Optional fallback language.

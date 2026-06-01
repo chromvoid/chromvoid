@@ -32,7 +32,7 @@ class ProviderManifestInstrumentationTest {
     fun credentialProviderService_isRegisteredWithExpectedBindingPermission() {
         assumePasskeyBucket()
         val serviceInfo =
-            getServiceInfo(componentName("ChromVoidCredentialProviderService"))
+            getServiceInfo(componentName(ChromVoidCredentialProviderService::class.java))
 
         assertTrue(serviceInfo.exported)
         assertEquals(
@@ -46,8 +46,8 @@ class ProviderManifestInstrumentationTest {
     @Test
     fun passkeyActivities_arePresentAndNonExported() {
         assumePasskeyBucket()
-        val getInfo = getActivityInfo(componentName("ChromVoidPasskeyGetActivity"))
-        val createInfo = getActivityInfo(componentName("ChromVoidPasskeyCreateActivity"))
+        val getInfo = getActivityInfo(componentName(ChromVoidPasskeyGetActivity::class.java))
+        val createInfo = getActivityInfo(componentName(ChromVoidPasskeyCreateActivity::class.java))
 
         assertFalse(getInfo.exported)
         assertFalse(createInfo.exported)
@@ -56,8 +56,8 @@ class ProviderManifestInstrumentationTest {
     @Test
     fun passwordProviderActivities_arePresentAndNonExported() {
         assumePasskeyBucket()
-        val getInfo = getActivityInfo(componentName("ChromVoidPasswordGetActivity"))
-        val saveInfo = getActivityInfo(componentName("ChromVoidPasswordSaveActivity"))
+        val getInfo = getActivityInfo(componentName(ChromVoidPasswordGetActivity::class.java))
+        val saveInfo = getActivityInfo(componentName(ChromVoidPasswordSaveActivity::class.java))
 
         assertFalse(getInfo.exported)
         assertFalse(saveInfo.exported)
@@ -66,7 +66,7 @@ class ProviderManifestInstrumentationTest {
     @Test
     fun autofillService_isRegisteredWithExpectedBindingPermissionAndSettingsActivity() {
         val serviceInfo =
-            getServiceInfo(componentName("ChromVoidAutofillService"))
+            getServiceInfo(componentName(ChromVoidAutofillService::class.java))
 
         assertTrue(serviceInfo.exported)
         assertEquals(
@@ -77,25 +77,58 @@ class ProviderManifestInstrumentationTest {
         val xmlResId = serviceInfo.metaData.getInt("android.autofill")
         assertTrue(xmlResId != 0)
         assertEquals(
-            "com.chromvoid.app.MainActivity",
+            MainActivity::class.java.name,
             parseRootAttribute(xmlResId, "autofill-service", "settingsActivity"),
         )
         assertEquals(
-            "true",
+            "false",
             parseRootAttribute(xmlResId, "autofill-service", "supportsInlineSuggestions"),
         )
     }
 
     @Test
     fun autofillAuthActivity_isPresentAndNonExported() {
-        val info = getActivityInfo(componentName("ChromVoidAutofillAuthActivity"))
+        val info = getActivityInfo(componentName(ChromVoidAutofillAuthActivity::class.java))
 
         assertFalse(info.exported)
     }
 
     @Test
+    fun mediaPlaybackForegroundService_isRegisteredWithMediaPlaybackType() {
+        val serviceInfo =
+            getServiceInfo(componentName(MediaPlaybackForegroundService::class.java))
+
+        assertFalse(serviceInfo.exported)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            assertTrue(
+                serviceInfo.foregroundServiceType and
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK != 0,
+            )
+        }
+    }
+
+    @Test
+    fun vaultQuickSettingsTileService_isRegisteredWithSystemPermission() {
+        val serviceInfo =
+            getServiceInfo(componentName(VaultQuickSettingsTileService::class.java))
+
+        assertTrue(serviceInfo.exported)
+        assertEquals("android.permission.BIND_QUICK_SETTINGS_TILE", serviceInfo.permission)
+    }
+
+    @Test
+    fun appDeclaresPostNotificationsPermission() {
+        val packageInfo = getPackageInfoWithPermissions()
+
+        assertTrue(
+            packageInfo.requestedPermissions?.contains("android.permission.POST_NOTIFICATIONS")
+                == true,
+        )
+    }
+
+    @Test
     fun debugAutofillProbeActivity_isPresentAndNonExported() {
-        val info = getActivityInfo(componentName("AutofillProbeActivity"))
+        val info = getActivityInfo(componentName(AutofillProbeActivity::class.java))
 
         assertFalse(info.exported)
     }
@@ -103,7 +136,7 @@ class ProviderManifestInstrumentationTest {
     @Test
     fun autofillServiceXml_declaresChromeCompatibilityPackages() {
         val serviceInfo =
-            getServiceInfo(componentName("ChromVoidAutofillService"))
+            getServiceInfo(componentName(ChromVoidAutofillService::class.java))
         val xmlResId = serviceInfo.metaData.getInt("android.autofill")
 
         assertEquals(
@@ -124,13 +157,17 @@ class ProviderManifestInstrumentationTest {
     fun credentialProviderXml_advertisesPasswordAndPublicKeyCapabilities() {
         assumePasskeyBucket()
         val serviceInfo =
-            getServiceInfo(componentName("ChromVoidCredentialProviderService"))
+            getServiceInfo(componentName(ChromVoidCredentialProviderService::class.java))
         val xmlResId = serviceInfo.metaData.getInt("android.credentials.provider")
 
         assertEquals(
+            MainActivity::class.java.name,
+            parseRootAttribute(xmlResId, "credential-provider", "settingsActivity"),
+        )
+        assertEquals(
             listOf(
                 "android.credentials.TYPE_PASSWORD_CREDENTIAL",
-                "android.credentials.TYPE_PUBLIC_KEY_CREDENTIAL",
+                "androidx.credentials.TYPE_PUBLIC_KEY_CREDENTIAL",
             ),
             parseCapabilityNames(xmlResId),
         )
@@ -210,9 +247,20 @@ class ProviderManifestInstrumentationTest {
         )
     }
 
-    private fun componentName(simpleName: String): ComponentName {
-        return ComponentName(packageName, "$packageName.$simpleName")
+    private fun componentName(componentClass: Class<*>): ComponentName {
+        return ComponentName(packageName, componentClass.name)
     }
+
+    @Suppress("DEPRECATION")
+    private fun getPackageInfoWithPermissions() =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager().getPackageInfo(
+                packageName,
+                PackageManager.PackageInfoFlags.of(PackageManager.GET_PERMISSIONS.toLong()),
+            )
+        } else {
+            packageManager().getPackageInfo(packageName, PackageManager.GET_PERMISSIONS)
+        }
 
     @Suppress("DEPRECATION")
     private fun getServiceInfo(componentName: ComponentName) =

@@ -1,15 +1,18 @@
-import {state} from '@statx/core'
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html, nothing} from 'lit'
+import {css, nothing} from 'lit'
 
 import {getLang, i18n} from 'root/i18n'
 import {sharedStyles} from 'root/shared/ui/shared-styles'
-import {isImageFile, isVideoFile} from 'root/utils/mime-type'
+import {atom} from '@reatom/core'
 import {ImagePreview} from 'root/features/media/components/image-preview'
+import {AudioArtworkPreview} from 'root/features/media/components/audio-artwork-preview'
 import {VideoPreview} from 'root/features/media/components/video-preview'
 import {canShareFiles} from 'root/shared/services/share'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
+import {getOpenActionPresentation, isAudioFile, resolveFileFormat} from 'root/utils/file-format-registry'
+import {keyboardShortcutsModel} from 'root/shared/keyboard'
+import type {FileMediaInfo} from 'root/core/catalog/media-info'
 
 type FileDetails = {
   mode: 'single'
@@ -19,11 +22,15 @@ type FileDetails = {
   size?: number
   path: string
   lastModified?: number
+  sourceRevision?: number
+  mimeType?: string
+  mediaInfo?: FileMediaInfo | null
 }
 
-export class FileDetailsPanel extends XLitElement {
+export class FileDetailsPanel extends ReatomLitElement {
   static define() {
     ImagePreview.define()
+    AudioArtworkPreview.define()
     VideoPreview.define()
     if (!customElements.get('file-details-panel')) {
       customElements.define('file-details-panel', this as unknown as CustomElementConstructor)
@@ -33,11 +40,19 @@ export class FileDetailsPanel extends XLitElement {
   static get properties() {
     return {
       data: {type: Object},
+      externalOpenPending: {type: Boolean, attribute: 'external-open-pending'},
     }
   }
   declare data: FileDetails | null
+  declare externalOpenPending: boolean
 
-  private imageDimensions = state<{width: number; height: number} | null>(null)
+  private imageDimensions = atom<{width: number; height: number} | null>(null)
+
+  constructor() {
+    super()
+    this.data = null
+    this.externalOpenPending = false
+  }
 
   updated(changedProperties: Map<string, unknown>) {
     super.updated(changedProperties)
@@ -54,7 +69,7 @@ export class FileDetailsPanel extends XLitElement {
         flex-direction: column;
         block-size: 100%;
         contain: content;
-        background: var(--glass-bg, color-mix(in oklch, var(--cv-color-bg) 35%, transparent));
+        background: var(--glass-bg, var(--cv-color-overlay));
         backdrop-filter: blur(20px) saturate(1.2);
         -webkit-backdrop-filter: blur(20px) saturate(1.2);
         border-inline-start: 1px solid var(--glass-border, var(--cv-alpha-white-10));
@@ -74,7 +89,7 @@ export class FileDetailsPanel extends XLitElement {
         transform: translateX(0) scale(1);
         box-shadow:
           var(--glass-shadow, -4px 0 32px var(--cv-alpha-black-35)),
-          var(--glass-glow, 0 0 40px color-mix(in oklch, var(--cv-color-accent) 8%, transparent)),
+          var(--glass-glow, 0 0 40px var(--cv-color-accent-ring)),
           inset 1px 0 0 var(--cv-alpha-white-4);
       }
 
@@ -84,7 +99,7 @@ export class FileDetailsPanel extends XLitElement {
         justify-content: space-between;
         padding: var(--app-spacing-3) var(--app-spacing-4);
         border-block-end: 1px solid var(--cv-color-border-muted);
-        background: color-mix(in oklch, var(--cv-color-surface-2) 80%, transparent);
+        background: var(--cv-color-surface-secondary-glass-strong);
         backdrop-filter: blur(8px);
         -webkit-backdrop-filter: blur(8px);
       }
@@ -120,11 +135,7 @@ export class FileDetailsPanel extends XLitElement {
         align-items: center;
         justify-content: center;
         padding: var(--app-spacing-6);
-        background: linear-gradient(
-          180deg,
-          color-mix(in oklch, var(--cv-color-accent) 5%, transparent) 0%,
-          transparent 100%
-        );
+        background: linear-gradient(180deg, var(--cv-color-accent-surface) 0%, transparent 100%);
         border-block-end: 1px solid var(--cv-color-border-muted);
       }
 
@@ -135,9 +146,15 @@ export class FileDetailsPanel extends XLitElement {
         inline-size: 80px;
         block-size: 80px;
         border-radius: var(--cv-radius-4);
-        background: color-mix(in oklch, var(--cv-color-surface-3) 60%, transparent);
+        background: var(--cv-color-surface-tertiary-glass);
         color: var(--cv-color-accent);
         font-size: 40px;
+      }
+
+      .details-audio-artwork {
+        inline-size: 100%;
+        max-inline-size: 320px;
+        block-size: 250px;
       }
 
       .file-info {
@@ -165,7 +182,7 @@ export class FileDetailsPanel extends XLitElement {
         display: inline-flex;
         align-items: center;
         padding: var(--app-spacing-1) var(--app-spacing-2);
-        background: color-mix(in oklch, var(--cv-color-accent) 15%, transparent);
+        background: var(--cv-color-accent-surface);
         border-radius: var(--cv-radius-2);
         font-size: var(--cv-font-size-xs);
         font-weight: var(--cv-font-weight-medium);
@@ -205,7 +222,7 @@ export class FileDetailsPanel extends XLitElement {
         padding: 2px 6px;
         border-radius: var(--cv-radius-1);
         border: 1px solid var(--cv-color-border);
-        background: color-mix(in oklch, var(--cv-color-surface-2) 70%, transparent);
+        background: var(--cv-color-surface-secondary-glass);
         font-family: var(
           --cv-font-family-code,
           ui-monospace,
@@ -223,7 +240,7 @@ export class FileDetailsPanel extends XLitElement {
         justify-content: center;
         gap: var(--app-spacing-2);
         padding: var(--app-spacing-3);
-        background: color-mix(in oklch, var(--cv-color-surface-3) 60%, transparent);
+        background: var(--cv-color-surface-tertiary-glass);
         border: 1px solid var(--cv-color-border-muted);
         border-radius: var(--cv-radius-3);
         color: var(--cv-color-text);
@@ -232,13 +249,18 @@ export class FileDetailsPanel extends XLitElement {
         cursor: pointer;
         transition: background-color var(--cv-duration-fast) var(--cv-easing-standard);
 
+        &:disabled {
+          opacity: 0.6;
+          cursor: default;
+        }
+
         &:hover {
           background: var(--cv-color-hover);
           border-color: var(--cv-color-border);
         }
 
         &.danger:hover {
-          background: color-mix(in oklch, var(--cv-color-danger) 15%, transparent);
+          background: var(--cv-color-danger-surface);
           border-color: var(--cv-color-danger);
           color: var(--cv-color-danger);
         }
@@ -282,20 +304,36 @@ export class FileDetailsPanel extends XLitElement {
     const d = this.data
     if (!d || d.mode !== 'single') return nothing
 
-    const ext = this.getFileExtension(d.name)
-    const fileType = this.getFileType(d.name, d.isDir)
-    const icon = this.getFileIcon(d.name)
-    const showImagePreview = isImageFile(d.name)
-    const showVideoPreview = isVideoFile(d.name)
+    const format = resolveFileFormat(d)
+    const openPresentation = getOpenActionPresentation(format)
+    const ext = format.displayExtension
+    const fileType = i18n(format.fileTypeLabelKey)
+    const icon = format.icon
+    const showImagePreview = format.openBehavior.kind === 'gallery'
+    const showVideoPreview = format.openBehavior.kind === 'video'
+    const showAudioArtworkPreview = !d.isDir && isAudioFile(d.name, d.mimeType)
     const isMobile = getRuntimeCapabilities().mobile
+    const platform = getRuntimeCapabilities().platform
+    const primaryOpenUsesSystem =
+      format.openBehavior.kind === 'preview' &&
+      format.openBehavior.mode === 'fallback' &&
+      (platform === 'macos' || platform === 'android')
     const showShareButton = isMobile && canShareFiles()
+    const openButtonLabel =
+      primaryOpenUsesSystem && this.externalOpenPending
+        ? i18n('file-manager:preparing-file')
+        : i18n(openPresentation.labelKey)
+    const externalOpenButtonLabel = this.externalOpenPending
+      ? i18n('file-manager:preparing-file')
+      : i18n('action:open-external')
+    const openExternalShortcutLabel = keyboardShortcutsModel.label('files.openExternal')
 
     return html`
       <div class="panel-header">
-        <span class="panel-title">${i18n('details:title' as any)}</span>
-        <button class="close-btn" @click=${this.handleClose} aria-label=${i18n('button:close' as any)}>
+        <span class="panel-title">${i18n('details:title')}</span>
+        <cv-button unstyled class="close-btn" @click=${this.handleClose} aria-label=${i18n('button:close')}>
           <cv-icon name="x" size="s"></cv-icon>
-        </button>
+        </cv-button>
       </div>
 
       <div class="preview-area">
@@ -304,6 +342,8 @@ export class FileDetailsPanel extends XLitElement {
               <image-preview
                 .fileId=${d.id}
                 .fileName=${d.name}
+                .mimeType=${d.mimeType}
+                .lastModified=${d.lastModified}
                 @dimensions-loaded=${this.handleDimensionsLoaded}
                 @click=${this.handleImageDoubleClick}
                 @dblclick=${this.handleImageDoubleClick}
@@ -314,9 +354,27 @@ export class FileDetailsPanel extends XLitElement {
                 <video-preview
                   .fileId=${d.id}
                   .fileName=${d.name}
+                  .mimeType=${d.mimeType}
+                  .mediaInfo=${d.mediaInfo}
+                  .lastModified=${d.lastModified}
+                  .sourceSize=${d.size}
                   @open-video=${this.handleVideoOpen}
                 ></video-preview>
               `
+            : showAudioArtworkPreview
+              ? html`
+                  <audio-artwork-preview
+                    class="details-audio-artwork"
+                    .fileId=${d.id}
+                    .fileName=${d.name}
+                    .mimeType=${d.mimeType}
+                    .lastModified=${d.lastModified}
+                    .sourceSize=${d.size}
+                    .sourceRevision=${d.sourceRevision}
+                    variant="preview-image"
+                    .fallbackIcon=${icon}
+                  ></audio-artwork-preview>
+                `
             : html`
                 <div class="preview-icon">
                   <cv-icon name=${icon}></cv-icon>
@@ -335,53 +393,73 @@ export class FileDetailsPanel extends XLitElement {
       </div>
 
       <div class="actions-section">
-        <div class="section-label">${i18n('details:actions' as any)}</div>
+        <div class="section-label">${i18n('details:actions')}</div>
         <div class="actions-grid">
-          <button class="action-btn" @click=${() => this.handleAction('open-external')}>
-            <cv-icon name="box-arrow-up-right" size="s"></cv-icon>
-            <span class="action-label">
-              ${i18n('action:open-external' as any)}
-              <span class="action-shortcut">Ctrl+O</span>
-            </span>
-          </button>
-          <button class="action-btn" @click=${() => this.handleAction('download')}>
-            <cv-icon name="download" size="s"></cv-icon>
-            <span>${i18n('action:download' as any)}</span>
-          </button>
-          <button class="action-btn" @click=${() => this.handleAction('rename')}>
-            <cv-icon name="pencil" size="s"></cv-icon>
-            <span>${i18n('action:rename' as any)}</span>
-          </button>
-          <button class="action-btn" @click=${() => this.handleAction('copy')}>
-            <cv-icon name="copy" size="s"></cv-icon>
-            <span>${i18n('action:copy' as any)}</span>
-          </button>
-          <button class="action-btn danger" @click=${() => this.handleAction('delete')}>
-            <cv-icon name="trash" size="s"></cv-icon>
-            <span>${i18n('action:delete' as any)}</span>
-          </button>
+          <cv-button unstyled
+            class="action-btn"
+            ?disabled=${primaryOpenUsesSystem && this.externalOpenPending}
+            @click=${() => this.handleAction('open')}
+          >
+            ${primaryOpenUsesSystem && this.externalOpenPending
+              ? html`<cv-spinner slot="prefix" size="xs" label=${openButtonLabel}></cv-spinner>`
+              : html`<cv-icon slot="prefix" name=${openPresentation.icon} size="s"></cv-icon>`}
+            <span>${openButtonLabel}</span>
+          </cv-button>
+          <cv-button unstyled
+            class="action-btn"
+            ?disabled=${this.externalOpenPending}
+            @click=${() => this.handleAction('open-external')}
+          >
+            ${this.externalOpenPending
+              ? html`<cv-spinner slot="prefix" size="xs" label=${externalOpenButtonLabel}></cv-spinner>`
+              : html`<cv-icon slot="prefix" name="box-arrow-up-right" size="s"></cv-icon>`}
+            <span class="action-label">${externalOpenButtonLabel}</span>
+            ${openExternalShortcutLabel
+              ? html`<span slot="suffix" class="action-shortcut">${openExternalShortcutLabel}</span>`
+              : nothing}
+          </cv-button>
+          <cv-button unstyled class="action-btn" @click=${() => this.handleAction('download')}>
+            <cv-icon slot="prefix" name="download" size="s"></cv-icon>
+            <span>${i18n('action:download')}</span>
+          </cv-button>
+          <cv-button unstyled class="action-btn" @click=${() => this.handleAction('rename')}>
+            <cv-icon slot="prefix" name="pencil" size="s"></cv-icon>
+            <span>${i18n('action:rename')}</span>
+          </cv-button>
+          <cv-button unstyled class="action-btn" @click=${this.handleMoveAction}>
+            <cv-icon slot="prefix" name="folder-symlink" size="s"></cv-icon>
+            <span>${i18n('file-manager:move:action')}</span>
+          </cv-button>
+          <cv-button unstyled class="action-btn" @click=${() => this.handleAction('copy')}>
+            <cv-icon slot="prefix" name="copy" size="s"></cv-icon>
+            <span>${i18n('action:copy')}</span>
+          </cv-button>
+          <cv-button unstyled class="action-btn danger" @click=${() => this.handleAction('delete')}>
+            <cv-icon slot="prefix" name="trash" size="s"></cv-icon>
+            <span>${i18n('action:delete')}</span>
+          </cv-button>
           ${showShareButton
             ? html`
-                <button class="action-btn" @click=${() => this.handleAction('share')}>
-                  <cv-icon name="share" size="s"></cv-icon>
-                  <span>${i18n('action:share' as any)}</span>
-                </button>
+                <cv-button unstyled class="action-btn" @click=${() => this.handleAction('share')}>
+                  <cv-icon slot="prefix" name="share-2" size="s"></cv-icon>
+                  <span>${i18n('action:share')}</span>
+                </cv-button>
               `
             : nothing}
         </div>
       </div>
 
       <div class="details-section">
-        <div class="section-label">${i18n('details:metadata' as any)}</div>
+        <div class="section-label">${i18n('details:metadata')}</div>
         <div class="details-list">
           <div class="detail-row">
-            <span class="detail-label">${i18n('details:path' as any)}</span>
+            <span class="detail-label">${i18n('details:path')}</span>
             <span class="detail-value">${d.path}</span>
           </div>
           ${d.lastModified
             ? html`
                 <div class="detail-row">
-                  <span class="detail-label">${i18n('details:modified' as any)}</span>
+                  <span class="detail-label">${i18n('details:modified')}</span>
                   <span class="detail-value">${this.formatDate(d.lastModified)}</span>
                 </div>
               `
@@ -389,10 +467,10 @@ export class FileDetailsPanel extends XLitElement {
           ${typeof d.size === 'number'
             ? html`
                 <div class="detail-row">
-                  <span class="detail-label">${i18n('details:size' as any)}</span>
+                  <span class="detail-label">${i18n('details:size')}</span>
                   <span class="detail-value"
                     >${this.formatSize(d.size)} (${d.size.toLocaleString(getLang())}
-                    ${i18n('details:bytes' as any)})</span
+                    ${i18n('details:bytes')})</span
                   >
                 </div>
               `
@@ -400,7 +478,7 @@ export class FileDetailsPanel extends XLitElement {
           ${this.imageDimensions()
             ? html`
                 <div class="detail-row">
-                  <span class="detail-label">${i18n('details:dimensions' as any)}</span>
+                  <span class="detail-label">${i18n('details:dimensions')}</span>
                   <span class="detail-value"
                     >${this.imageDimensions()!.width} × ${this.imageDimensions()!.height}</span
                   >
@@ -426,6 +504,10 @@ export class FileDetailsPanel extends XLitElement {
         composed: true,
       }),
     )
+  }
+
+  private handleMoveAction() {
+    this.handleAction('move')
   }
 
   private handleDimensionsLoaded = (e: CustomEvent) => {
@@ -454,88 +536,6 @@ export class FileDetailsPanel extends XLitElement {
         composed: true,
       }),
     )
-  }
-
-  private getFileExtension(name: string): string {
-    const lastDot = name.lastIndexOf('.')
-    if (lastDot === -1 || lastDot === 0) return ''
-    return name.slice(lastDot + 1).toLowerCase()
-  }
-
-  private getFileType(name: string, isDir: boolean): string {
-    if (isDir) return i18n('node:dir')
-
-    const ext = this.getFileExtension(name)
-    const typeMap: Record<string, string> = {
-      pdf: 'file-type:document',
-      doc: 'file-type:document',
-      docx: 'file-type:document',
-      xls: 'file-type:spreadsheet',
-      xlsx: 'file-type:spreadsheet',
-      ppt: 'file-type:presentation',
-      pptx: 'file-type:presentation',
-      txt: 'file-type:text',
-      md: 'file-type:text',
-      json: 'file-type:code',
-      xml: 'file-type:code',
-      html: 'file-type:code',
-      css: 'file-type:code',
-      js: 'file-type:code',
-      ts: 'file-type:code',
-      png: 'file-type:image',
-      jpg: 'file-type:image',
-      jpeg: 'file-type:image',
-      gif: 'file-type:image',
-      svg: 'file-type:image',
-      webp: 'file-type:image',
-      mp3: 'file-type:audio',
-      mp4: 'file-type:video',
-      zip: 'file-type:archive',
-      rar: 'file-type:archive',
-      '7z': 'file-type:archive',
-      password: 'file-type:password',
-      note: 'file-type:secure-note',
-      seed: 'file-type:seed-phrase',
-      'private-key': 'file-type:private-key',
-    }
-    return i18n((typeMap[ext] ?? 'node:file') as any)
-  }
-
-  private getFileIcon(name: string): string {
-    const ext = this.getFileExtension(name)
-    const iconMap: Record<string, string> = {
-      pdf: 'file-earmark-pdf',
-      doc: 'file-earmark-word',
-      docx: 'file-earmark-word',
-      xls: 'file-earmark-excel',
-      xlsx: 'file-earmark-excel',
-      ppt: 'file-earmark-ppt',
-      pptx: 'file-earmark-ppt',
-      txt: 'file-earmark-text',
-      md: 'file-earmark-text',
-      json: 'file-earmark-code',
-      xml: 'file-earmark-code',
-      html: 'file-earmark-code',
-      css: 'file-earmark-code',
-      js: 'file-earmark-code',
-      ts: 'file-earmark-code',
-      png: 'file-earmark-image',
-      jpg: 'file-earmark-image',
-      jpeg: 'file-earmark-image',
-      gif: 'file-earmark-image',
-      svg: 'file-earmark-image',
-      webp: 'file-earmark-image',
-      mp3: 'file-earmark-music',
-      mp4: 'file-earmark-play',
-      zip: 'file-earmark-zip',
-      rar: 'file-earmark-zip',
-      '7z': 'file-earmark-zip',
-      password: 'key',
-      note: 'file-earmark-lock',
-      seed: 'shield-lock',
-      'private-key': 'key-fill',
-    }
-    return iconMap[ext] || 'file-earmark'
   }
 
   private formatSize(bytes?: number): string {

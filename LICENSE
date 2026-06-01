@@ -1,0 +1,13 @@
+ChromVoid uses a mixed-license model.
+
+Open-source components in this repository are licensed under either:
+
+- GNU Affero General Public License v3.0 only (`AGPL-3.0-only`)
+- MIT
+
+Commercial and proprietary components in this repository are not covered by an
+open-source license grant.
+
+See `LICENSING.md` for the path-level matrix, `LICENSES/AGPL-3.0.txt` for the
+AGPL reference, `LICENSES/MIT.txt` for the MIT text, and
+`LICENSES/COMMERCIAL.txt` for the proprietary notice.

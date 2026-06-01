@@ -1,8 +1,10 @@
 package com.chromvoid.app
 
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Looper
 import android.view.autofill.AutofillManager
 import androidx.test.core.app.ApplicationProvider
 import com.chromvoid.app.autofill.AutofillSessionKeys
@@ -15,7 +17,6 @@ import com.chromvoid.app.credentialprovider.BridgeResult
 import com.chromvoid.app.shared.SystemAndroidClock
 import com.chromvoid.app.shared.BaseFakeBridgeGateway
 import com.chromvoid.app.shared.TestAndroidAppGraph
-import com.chromvoid.app.shared.UnsupportedPasskeyMetadataStore
 import com.chromvoid.app.shared.installTestAppGraph
 import com.chromvoid.app.shared.resetTestAppGraph
 import org.junit.After
@@ -44,7 +45,7 @@ class ChromVoidAutofillAuthActivityTest {
     fun success_returnsAuthenticatedDatasetWithUsernameAndPasswordValues() {
         val fake = FakeBridge()
         fake.secretResponse = BridgeResult.Success(AutofillSecret("alice@example.com", "pw-123", null))
-        installTestAppGraph(TestAndroidAppGraph(fake, UnsupportedPasskeyMetadataStore))
+        installTestAppGraph(TestAndroidAppGraph(fake))
 
         val usernameId = AutofillTestUtils.newAutofillId(context)
         val passwordId = AutofillTestUtils.newAutofillId(context)
@@ -92,7 +93,7 @@ class ChromVoidAutofillAuthActivityTest {
     fun success_returnsAuthenticatedDatasetWithResolvedCredentialTargetsOnly() {
         val fake = FakeBridge()
         fake.secretResponse = BridgeResult.Success(AutofillSecret("alice@example.com", "pw-123", null))
-        installTestAppGraph(TestAndroidAppGraph(fake, UnsupportedPasskeyMetadataStore))
+        installTestAppGraph(TestAndroidAppGraph(fake))
 
         val usernameId = AutofillTestUtils.newAutofillId(context)
         val passwordId = AutofillTestUtils.newAutofillId(context)
@@ -136,7 +137,6 @@ class ChromVoidAutofillAuthActivityTest {
         installTestAppGraph(
             TestAndroidAppGraph(
                 bridgeGateway = fake,
-                passkeyMetadataStore = UnsupportedPasskeyMetadataStore,
                 autofillSessionStore = sessionStore,
             ),
         )
@@ -179,10 +179,125 @@ class ChromVoidAutofillAuthActivityTest {
     }
 
     @Test
+    fun successfulUsernameOnlyPasswordStep_doesNotMarkPasswordFilled() {
+        val fake = FakeBridge()
+        fake.secretResponse = BridgeResult.Success(AutofillSecret("alice@example.com", "pw-123", null))
+        val sessionStore = InMemoryAutofillSessionStore(SystemAndroidClock)
+        installTestAppGraph(
+            TestAndroidAppGraph(
+                bridgeGateway = fake,
+                autofillSessionStore = sessionStore,
+            ),
+        )
+
+        val usernameId = AutofillTestUtils.newAutofillId(context)
+        val activityComponent = ComponentName("org.mozilla.firefox", "org.mozilla.fenix.App")
+        val sessionKey = AutofillSessionKeys.create(activityComponent, "github.com")!!
+        sessionStore.rememberRequestContext(
+            sessionKey = sessionKey,
+            metadata =
+                AutofillSessionMetadata(
+                    activityComponent = activityComponent,
+                    normalizedDomain = "github.com",
+                    strategyKind = AutofillStrategyKind.COMPAT,
+                ),
+            recentFocusedCredentialIds = emptyList(),
+        )
+        val intent =
+            Intent(context, ChromVoidAutofillAuthActivity::class.java).apply {
+                putExtra(ChromVoidAutofillService.EXTRA_SESSION_ID, "sess-1")
+                putExtra(ChromVoidAutofillService.EXTRA_CREDENTIAL_ID, "cred-1")
+                putExtra(ChromVoidAutofillService.EXTRA_DOMAIN, "github.com")
+                putExtra(ChromVoidAutofillService.EXTRA_STEP_KIND, ChromVoidAutofillService.STEP_PASSWORD)
+                putExtra(ChromVoidAutofillService.EXTRA_AUTOFILL_SESSION_KEY, sessionKey)
+                putExtra(
+                    ChromVoidAutofillService.EXTRA_AUTOFILL_STRATEGY_KIND,
+                    AutofillStrategyKind.COMPAT.wireValue,
+                )
+                putParcelableArrayListExtra(
+                    ChromVoidAutofillService.EXTRA_USERNAME_IDS,
+                    arrayListOf(usernameId),
+                )
+            }
+
+        Robolectric.buildActivity(ChromVoidAutofillAuthActivity::class.java, intent)
+            .setup()
+            .get()
+
+        assertTrue(sessionStore.read(sessionKey)?.lastSuccessfulPasswordFillAtMs == null)
+    }
+
+    @Test
+    fun successfulCompatPasswordStep_copiesSingleTotpToClipboard() {
+        val fake = FakeBridge()
+        fake.secretResponse = BridgeResult.Success(AutofillSecret("alice@example.com", "pw-123", "123456"))
+        installTestAppGraph(TestAndroidAppGraph(fake))
+
+        val passwordId = AutofillTestUtils.newAutofillId(context)
+        val intent =
+            Intent(context, ChromVoidAutofillAuthActivity::class.java).apply {
+                putExtra(ChromVoidAutofillService.EXTRA_SESSION_ID, "sess-1")
+                putExtra(ChromVoidAutofillService.EXTRA_CREDENTIAL_ID, "cred-1")
+                putExtra(ChromVoidAutofillService.EXTRA_DOMAIN, "github.com")
+                putExtra(ChromVoidAutofillService.EXTRA_STEP_KIND, ChromVoidAutofillService.STEP_PASSWORD)
+                putExtra(
+                    ChromVoidAutofillService.EXTRA_AUTOFILL_STRATEGY_KIND,
+                    AutofillStrategyKind.COMPAT.wireValue,
+                )
+                putParcelableArrayListExtra(
+                    ChromVoidAutofillService.EXTRA_PASSWORD_IDS,
+                    arrayListOf(passwordId),
+                )
+                putOtpOptions(listOf("otp-1" to ("Main" to "TOTP")))
+            }
+
+        Robolectric.buildActivity(ChromVoidAutofillAuthActivity::class.java, intent)
+            .setup()
+            .get()
+
+        val clipboard = context.getSystemService(ClipboardManager::class.java)
+        assertEquals("123456", clipboard?.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString())
+    }
+
+    @Test
+    fun successfulCompatPasswordStep_doesNotCopyHotpToClipboard() {
+        val fake = FakeBridge()
+        fake.secretResponse = BridgeResult.Success(AutofillSecret("alice@example.com", "pw-123", "123456"))
+        installTestAppGraph(TestAndroidAppGraph(fake))
+
+        val clipboard = context.getSystemService(ClipboardManager::class.java)
+        clipboard?.clearPrimaryClip()
+
+        val passwordId = AutofillTestUtils.newAutofillId(context)
+        val intent =
+            Intent(context, ChromVoidAutofillAuthActivity::class.java).apply {
+                putExtra(ChromVoidAutofillService.EXTRA_SESSION_ID, "sess-1")
+                putExtra(ChromVoidAutofillService.EXTRA_CREDENTIAL_ID, "cred-1")
+                putExtra(ChromVoidAutofillService.EXTRA_DOMAIN, "github.com")
+                putExtra(ChromVoidAutofillService.EXTRA_STEP_KIND, ChromVoidAutofillService.STEP_PASSWORD)
+                putExtra(
+                    ChromVoidAutofillService.EXTRA_AUTOFILL_STRATEGY_KIND,
+                    AutofillStrategyKind.COMPAT.wireValue,
+                )
+                putParcelableArrayListExtra(
+                    ChromVoidAutofillService.EXTRA_PASSWORD_IDS,
+                    arrayListOf(passwordId),
+                )
+                putOtpOptions(listOf("otp-1" to ("Counter" to "HOTP")))
+            }
+
+        Robolectric.buildActivity(ChromVoidAutofillAuthActivity::class.java, intent)
+            .setup()
+            .get()
+
+        assertTrue(clipboard?.primaryClip == null)
+    }
+
+    @Test
     fun blankPassword_failsClosed() {
         val fake = FakeBridge()
         fake.secretResponse = BridgeResult.Success(AutofillSecret("alice@example.com", "", null))
-        installTestAppGraph(TestAndroidAppGraph(fake, UnsupportedPasskeyMetadataStore))
+        installTestAppGraph(TestAndroidAppGraph(fake))
 
         val passwordId = AutofillTestUtils.newAutofillId(context)
         val intent =
@@ -210,7 +325,7 @@ class ChromVoidAutofillAuthActivityTest {
     fun otpStep_singleTotp_fillsOtpField() {
         val fake = FakeBridge()
         fake.secretResponse = BridgeResult.Success(AutofillSecret("", null, "123456"))
-        installTestAppGraph(TestAndroidAppGraph(fake, UnsupportedPasskeyMetadataStore))
+        installTestAppGraph(TestAndroidAppGraph(fake))
 
         val otpId = AutofillTestUtils.newAutofillId(context)
         val intent =
@@ -245,7 +360,7 @@ class ChromVoidAutofillAuthActivityTest {
     fun otpStep_multipleOptions_showsSelector_andFillsChosenOtp() {
         val fake = FakeBridge()
         fake.secretResponse = BridgeResult.Success(AutofillSecret("", null, "654321"))
-        installTestAppGraph(TestAndroidAppGraph(fake, UnsupportedPasskeyMetadataStore))
+        installTestAppGraph(TestAndroidAppGraph(fake))
 
         val otpId = AutofillTestUtils.newAutofillId(context)
         val intent =
@@ -283,9 +398,47 @@ class ChromVoidAutofillAuthActivityTest {
     }
 
     @Test
+    fun otpStep_selectorCancel_closesPendingSession() {
+        val fake = FakeBridge()
+        installTestAppGraph(TestAndroidAppGraph(fake))
+
+        val otpId = AutofillTestUtils.newAutofillId(context)
+        val intent =
+            Intent(context, ChromVoidAutofillAuthActivity::class.java).apply {
+                putExtra(ChromVoidAutofillService.EXTRA_SESSION_ID, "sess-cancel")
+                putExtra(ChromVoidAutofillService.EXTRA_CREDENTIAL_ID, "cred-otp")
+                putExtra(ChromVoidAutofillService.EXTRA_STEP_KIND, ChromVoidAutofillService.STEP_OTP)
+                putParcelableArrayListExtra(
+                    ChromVoidAutofillService.EXTRA_OTP_IDS,
+                    arrayListOf(otpId),
+                )
+                putOtpOptions(
+                    listOf(
+                        "otp-1" to ("Main" to "TOTP"),
+                        "otp-2" to ("Backup" to "TOTP"),
+                    ),
+                )
+            }
+
+        val activity =
+            Robolectric.buildActivity(ChromVoidAutofillAuthActivity::class.java, intent)
+                .setup()
+                .get()
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        assertNotNull(dialog)
+        dialog!!.cancel()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        val shadow = shadowOf(activity)
+        assertEquals(android.app.Activity.RESULT_CANCELED, shadow.resultCode)
+        assertEquals(1, fake.closeSessionCalls)
+        assertEquals("sess-cancel", fake.lastClosedSessionId)
+    }
+
+    @Test
     fun otpStep_hotp_failsClosed() {
         val fake = FakeBridge()
-        installTestAppGraph(TestAndroidAppGraph(fake, UnsupportedPasskeyMetadataStore))
+        installTestAppGraph(TestAndroidAppGraph(fake))
 
         val otpId = AutofillTestUtils.newAutofillId(context)
         val intent =
@@ -312,7 +465,7 @@ class ChromVoidAutofillAuthActivityTest {
     @Test
     fun otpStep_hotp_failsClosed_whenOtpTypeKeyIsUsed() {
         val fake = FakeBridge()
-        installTestAppGraph(TestAndroidAppGraph(fake, UnsupportedPasskeyMetadataStore))
+        installTestAppGraph(TestAndroidAppGraph(fake))
 
         val otpId = AutofillTestUtils.newAutofillId(context)
         val intent =
@@ -343,6 +496,8 @@ class ChromVoidAutofillAuthActivityTest {
             )
         var getSecretCalls = 0
         var lastOtpId: String? = null
+        var closeSessionCalls = 0
+        var lastClosedSessionId: String? = null
 
         override fun autofillGetSecret(
             sessionId: String,
@@ -352,6 +507,12 @@ class ChromVoidAutofillAuthActivityTest {
             getSecretCalls += 1
             lastOtpId = otpId
             return secretResponse
+        }
+
+        override fun autofillCloseSession(sessionId: String): BridgeResult<Boolean> {
+            closeSessionCalls += 1
+            lastClosedSessionId = sessionId
+            return BridgeResult.Success(true)
         }
     }
 

@@ -25,15 +25,8 @@ impl PairedDeviceStore {
     /// Load paired devices from a JSON file at `path`.
     /// If the file does not exist or is unreadable, returns an empty store.
     pub fn load(path: &Path) -> Self {
-        let devices = if path.exists() {
-            match std::fs::read_to_string(path) {
-                Ok(contents) => serde_json::from_str::<HashMap<String, PairedDevice>>(&contents)
-                    .unwrap_or_default(),
-                Err(_) => HashMap::new(),
-            }
-        } else {
-            HashMap::new()
-        };
+        let devices =
+            crate::helpers::storage::read_json_or_default(path, "usb: paired device store");
 
         Self {
             path: path.to_path_buf(),
@@ -43,9 +36,7 @@ impl PairedDeviceStore {
 
     /// Persist the current device list to the JSON file on disk.
     pub fn save(&self) -> Result<(), String> {
-        let json =
-            serde_json::to_string_pretty(&self.devices).map_err(|e| format!("serialize: {e}"))?;
-        std::fs::write(&self.path, json).map_err(|e| format!("write: {e}"))
+        crate::helpers::storage::write_json_pretty_atomic(&self.path, &self.devices)
     }
 
     /// Look up a paired device by serial number.

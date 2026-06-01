@@ -9,6 +9,7 @@ export const pmEntryHOTPItemSharedStyles = [
     :host {
       position: relative;
       display: block;
+      --pm-otp-action-size: var(--hotp-action-size, 36px);
     }
 
     @supports (-webkit-touch-callout: none) {
@@ -21,10 +22,10 @@ export const pmEntryHOTPItemSharedStyles = [
 
     .hotp-card {
       display: grid;
-      gap: var(--cv-space-3);
-      padding: 10px;
+      gap: var(--hotp-card-gap, var(--cv-space-3));
+      padding: var(--hotp-card-padding, 10px);
       background: var(--cv-color-surface);
-      border: 1px solid color-mix(in oklch, var(--cv-color-border) 85%, transparent);
+      border: 1px solid var(--cv-color-border-strong);
       border-radius: var(--cv-radius-2);
       font-family: var(--cv-font-family-sans, sans-serif);
       position: relative;
@@ -32,10 +33,14 @@ export const pmEntryHOTPItemSharedStyles = [
       min-inline-size: 0;
     }
 
-    .hotp-card:hover,
+    .hotp-card:hover {
+      border-color: var(--pm-otp-warning-border);
+    }
+
     .hotp-card:focus-within {
-      border-color: color-mix(in oklch, var(--cv-color-warning, #f59e0b) 42%, var(--cv-color-border));
-      box-shadow: 0 2px 10px color-mix(in oklch, var(--cv-color-warning, #f59e0b) 18%, transparent);
+      border-color: var(--pm-otp-warning-border);
+      outline: 2px solid var(--pm-otp-warning-ring);
+      outline-offset: -2px;
     }
 
     .hotp-header {
@@ -46,6 +51,7 @@ export const pmEntryHOTPItemSharedStyles = [
     }
 
     .hotp-label {
+      display: var(--hotp-label-display, block);
       font-size: 11px;
       font-weight: var(--cv-font-weight-semibold);
       color: var(--cv-color-text);
@@ -65,11 +71,11 @@ export const pmEntryHOTPItemSharedStyles = [
       font-weight: var(--cv-font-weight-bold);
       text-transform: uppercase;
       letter-spacing: 0.1em;
-      color: var(--cv-color-warning, #f59e0b);
-      background: color-mix(in oklch, var(--cv-color-warning, #f59e0b) 14%, transparent);
+      color: var(--cv-color-warning);
+      background: var(--cv-color-warning-surface);
       padding: 2px 7px;
       border-radius: var(--cv-radius-pill, 999px);
-      border: 1px solid color-mix(in oklch, var(--cv-color-warning, #f59e0b) 40%, transparent);
+      border: 1px solid var(--cv-color-warning-border);
 
       cv-icon {
         font-size: 11px;
@@ -85,29 +91,29 @@ export const pmEntryHOTPItemSharedStyles = [
 
     .hotp-code-section {
       display: grid;
-      gap: var(--cv-space-2);
+      gap: var(--hotp-card-gap, var(--cv-space-2));
     }
 
     .hotp-code {
       font-family: var(--cv-font-family-code, monospace);
       font-weight: var(--cv-font-weight-bold);
-      font-size: calc(var(--cv-font-size-base) * 1.2);
+      font-size: var(--hotp-code-font-size, calc(var(--cv-font-size-base) * 1.2));
       letter-spacing: 0.12em;
-      color: var(--cv-color-warning, #f59e0b);
+      color: var(--cv-color-warning);
       text-align: center;
-      padding: 9px 10px;
-      background: color-mix(in oklch, var(--cv-color-warning, #f59e0b) 8%, var(--cv-color-surface-2));
+      padding: var(--hotp-code-padding, 9px 10px);
+      background: var(--cv-color-warning-surface);
       border-radius: var(--cv-radius-2);
-      border: 1px solid color-mix(in oklch, var(--cv-color-warning, #f59e0b) 38%, transparent);
+      border: 1px solid var(--cv-color-warning-border);
       cursor: pointer;
       user-select: none;
 
       &:hover {
-        border-color: color-mix(in oklch, var(--cv-color-warning, #f59e0b) 55%, transparent);
+        border-color: var(--cv-color-warning-border-strong);
       }
 
       &[data-hidden] {
-        background: color-mix(in oklch, var(--cv-color-text) 9%, var(--cv-color-surface-2));
+        background: var(--cv-color-surface-highlight);
         color: var(--cv-color-text-muted);
         letter-spacing: 0.1em;
       }
@@ -116,7 +122,7 @@ export const pmEntryHOTPItemSharedStyles = [
     .hotp-counter-section {
       display: grid;
       grid-template-columns: 1fr auto;
-      gap: var(--cv-space-2);
+      gap: var(--hotp-card-gap, var(--cv-space-2));
       align-items: center;
     }
 
@@ -134,19 +140,11 @@ export const pmEntryHOTPItemSharedStyles = [
       align-items: center;
 
       cv-number {
-        inline-size: 100px;
+        inline-size: var(--hotp-counter-width, 100px);
 
         &::part(base) {
-          border-color: color-mix(
-            in oklch,
-            var(--cv-color-warning, #f59e0b) 36%,
-            var(--cv-color-border)
-          );
-          background: color-mix(
-            in oklch,
-            var(--cv-color-surface-2) 90%,
-            var(--cv-color-warning, #f59e0b) 10%
-          );
+          border-color: var(--cv-color-warning-border);
+          background: var(--cv-color-warning-surface);
         }
 
         &::part(input) {
@@ -163,19 +161,19 @@ export const pmEntryHOTPItemSharedStyles = [
         align-items: center;
         justify-content: center;
         gap: calc(var(--cv-space-2) * 0.75);
-        block-size: 38px;
-        padding-inline: var(--cv-space-3);
-        background: color-mix(in oklch, var(--cv-color-warning, #f59e0b) 26%, var(--cv-color-surface-2));
-        border: 1px solid color-mix(in oklch, var(--cv-color-warning, #f59e0b) 45%, transparent);
-        color: var(--cv-color-warning, #f59e0b);
+        block-size: var(--hotp-action-size, 38px);
+        padding-inline: var(--hotp-generate-padding-inline, var(--cv-space-3));
+        background: var(--cv-color-warning-surface-strong);
+        border: 1px solid var(--cv-color-warning-border-strong);
+        color: var(--cv-color-warning);
         font-weight: var(--cv-font-weight-semibold);
         border-radius: var(--cv-radius-2);
       }
 
       &:hover::part(base) {
-        background: color-mix(in oklch, var(--cv-color-warning, #f59e0b) 36%, var(--cv-color-surface-2));
-        border-color: color-mix(in oklch, var(--cv-color-warning, #f59e0b) 65%, transparent);
-        color: color-mix(in oklch, var(--cv-color-warning, #f59e0b) 85%, white);
+        background: var(--cv-color-warning);
+        border-color: var(--cv-color-warning);
+        color: var(--cv-color-warning-text);
       }
 
       &:active::part(base) {
@@ -189,36 +187,57 @@ export const pmEntryHOTPItemSharedStyles = [
 
     .hotp-actions {
       display: flex;
-      flex-direction: column;
+      flex-direction: row;
       gap: calc(var(--cv-space-2) * 0.75);
       justify-content: center;
+      align-items: center;
 
       cv-tooltip {
-        block-size: 36px;
+        order: 1;
+      }
+
+      cv-button {
+        order: 2;
+      }
+
+      slot[name='otp-action'] {
+        display: flex;
+        order: 3;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+      }
+
+      ::slotted([slot='otp-action']) {
+        flex-shrink: 0;
+      }
+
+      cv-tooltip {
+        block-size: var(--hotp-action-size, 36px);
       }
 
       cv-button::part(base) {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        block-size: 36px;
-        inline-size: 36px;
+        block-size: var(--hotp-action-size, 36px);
+        inline-size: var(--hotp-action-size, 36px);
         padding: 0;
-        min-inline-size: 36px;
+        min-inline-size: var(--hotp-action-size, 36px);
         background: var(--cv-color-surface-2);
-        border: 1px solid color-mix(in oklch, var(--cv-color-border) 85%, transparent);
+        border: 1px solid var(--cv-color-border-strong);
         color: var(--cv-color-text);
         border-radius: var(--cv-radius-2);
       }
 
       cv-button:hover::part(base) {
-        border-color: color-mix(in oklch, var(--cv-color-warning, #f59e0b) 55%, transparent);
-        color: var(--cv-color-warning, #f59e0b);
+        border-color: var(--cv-color-warning-border-strong);
+        color: var(--cv-color-warning);
       }
 
       cv-copy-button {
         flex-shrink: 0;
-        --cv-copy-button-size: 36px;
+        --cv-copy-button-size: var(--hotp-action-size, 36px);
       }
 
       cv-icon {
@@ -227,6 +246,10 @@ export const pmEntryHOTPItemSharedStyles = [
     }
 
     @container (width < 400px) {
+      :host {
+        --pm-otp-action-size: 32px;
+      }
+
       .hotp-card {
         padding: var(--cv-space-2);
         gap: var(--cv-space-2);
@@ -242,7 +265,6 @@ export const pmEntryHOTPItemSharedStyles = [
       }
 
       .hotp-actions {
-        flex-direction: row;
         justify-content: flex-end;
 
         cv-tooltip {
@@ -267,43 +289,3 @@ export const pmEntryHOTPItemSharedStyles = [
     }
   `,
 ]
-
-export const pmEntryHOTPItemMobileStyles = css`
-  .hotp-card {
-    padding: var(--cv-space-2);
-    gap: var(--cv-space-2);
-  }
-
-  .hotp-content {
-    grid-template-columns: 1fr;
-  }
-
-  .hotp-code {
-    font-size: calc(var(--cv-font-size-base) * 1.125);
-    letter-spacing: 0.1em;
-  }
-
-  .hotp-actions {
-    flex-direction: row;
-    justify-content: flex-end;
-
-    cv-tooltip {
-      block-size: 32px;
-    }
-
-    cv-button::part(base) {
-      block-size: 32px;
-      inline-size: 32px;
-      min-inline-size: 32px;
-    }
-  }
-
-  .hotp-counter-section {
-    grid-template-columns: 1fr;
-    gap: calc(var(--cv-space-2) * 0.75);
-  }
-
-  .counter-input-wrapper {
-    justify-content: flex-start;
-  }
-`

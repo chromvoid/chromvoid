@@ -11,6 +11,14 @@ fn classify_sensitive_commands() {
         CommandCategory::Sensitive
     );
     assert_eq!(
+        classify_command("catalog:derivative:read"),
+        CommandCategory::Sensitive
+    );
+    assert_eq!(
+        classify_command("catalog:derivative:write"),
+        CommandCategory::Sensitive
+    );
+    assert_eq!(
         classify_command("catalog:download"),
         CommandCategory::Sensitive
     );
@@ -44,6 +52,10 @@ fn classify_catalog_write_commands() {
     );
     assert_eq!(
         classify_command("catalog:move"),
+        CommandCategory::CatalogWrite
+    );
+    assert_eq!(
+        classify_command("catalog:file:replace"),
         CommandCategory::CatalogWrite
     );
 }

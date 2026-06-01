@@ -6,14 +6,18 @@ import org.json.JSONObject
 internal class BridgeAutofillPayloadParser(
     private val envelopeParser: BridgeEnvelopeParser,
 ) {
-    fun parseList(response: JSONObject): BridgeResult<Pair<String, List<AutofillCandidate>>> {
+    fun parseList(response: JSONObject): BridgeResult<AutofillListPayload> {
         if (!response.optBoolean("ok")) {
             return BridgeResult.Failure(
                 envelopeParser.parseError(response, "ChromVoid AutoFill is temporarily unavailable."),
             )
         }
         return BridgeResult.Success(
-            response.optString("session_id") to parseAutofillCandidates(response.optJSONArray("candidates")),
+            AutofillListPayload(
+                sessionId = response.optString("session_id"),
+                candidates = parseAutofillCandidates(response.optJSONArray("candidates")),
+                diagnostics = parseAutofillDiagnostics(response.optJSONObject("debug")),
+            ),
         )
     }
 
@@ -32,6 +36,15 @@ internal class BridgeAutofillPayloadParser(
                 otp = result.optString("otp").takeIf { result.has("otp") && !result.isNull("otp") }?.trim(),
             ),
         )
+    }
+
+    fun parseClosed(response: JSONObject): BridgeResult<Boolean> {
+        if (!response.optBoolean("ok")) {
+            return BridgeResult.Failure(
+                envelopeParser.parseError(response, "ChromVoid could not close the autofill request session."),
+            )
+        }
+        return BridgeResult.Success(response.optBoolean("closed"))
     }
 
     private fun parseAutofillCandidates(array: JSONArray?): List<AutofillCandidate> {
@@ -80,5 +93,23 @@ internal class BridgeAutofillPayloadParser(
                 )
             }
         }
+    }
+
+    private fun parseAutofillDiagnostics(debug: JSONObject?): AutofillDiagnostics? {
+        if (debug == null) {
+            return null
+        }
+        return AutofillDiagnostics(
+            entryCount = debug.optIntOrNull("entry_count"),
+            candidateCount = debug.optIntOrNull("candidate_count"),
+            rawJson = debug.toString(),
+        )
+    }
+
+    private fun JSONObject.optIntOrNull(key: String): Int? {
+        if (!has(key) || isNull(key)) {
+            return null
+        }
+        return optInt(key)
     }
 }

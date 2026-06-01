@@ -5,12 +5,10 @@ import android.service.autofill.AutofillService
 import android.service.autofill.FillCallback
 import android.service.autofill.FillContext
 import android.service.autofill.FillRequest
-import android.service.autofill.FillResponse
 import android.service.autofill.SaveCallback
 import android.service.autofill.SaveRequest
-import com.chromvoid.app.autofill.AutofillFieldClassifier
 import com.chromvoid.app.autofill.AutofillDatasetFactory
-import com.chromvoid.app.autofill.AutofillRequestContext
+import com.chromvoid.app.autofill.AutofillRequestContextFactory
 import com.chromvoid.app.autofill.AutofillRequestResolver
 import com.chromvoid.app.autofill.AutofillSessionMetadata
 import com.chromvoid.app.autofill.AutofillStructureParser
@@ -19,6 +17,25 @@ import com.chromvoid.app.autofill.ParsedPasswordSaveRequest
 import com.chromvoid.app.autofill.ParsedStepKind
 import com.chromvoid.app.autofill.PasswordSaveLauncher
 import com.chromvoid.app.credentialprovider.BridgeResult
+
+internal object AutofillCompatModeDetector {
+    private val firefoxPackages =
+        setOf(
+            "org.mozilla.firefox",
+            "org.mozilla.firefox_beta",
+            "org.mozilla.fenix",
+        )
+
+    fun isCompatRequest(
+        flags: Int,
+        activityComponent: android.content.ComponentName?,
+    ): Boolean {
+        if (flags and FillRequest.FLAG_COMPATIBILITY_MODE_REQUEST != 0) {
+            return true
+        }
+        return activityComponent?.packageName in firefoxPackages
+    }
+}
 
 class ChromVoidAutofillService : AutofillService() {
     override fun onFillRequest(
@@ -32,11 +49,13 @@ class ChromVoidAutofillService : AutofillService() {
 
         val appGraph = applicationContext.androidAppGraph()
         val bridgeGateway = appGraph.bridgeGateway
+        val activityComponent = request.fillContexts.lastOrNull()?.structure?.activityComponent
+        val compatMode = AutofillCompatModeDetector.isCompatRequest(request.flags, activityComponent)
         AutofillTrace.important(
             "onFillRequest",
             "requestId" to request.id,
             "flags" to request.flags,
-            "compat" to (request.flags and FillRequest.FLAG_COMPATIBILITY_MODE_REQUEST != 0),
+            "compat" to compatMode,
             "contexts" to request.fillContexts.size,
         )
         if (!bridgeGateway.runtimeReady()) {
@@ -45,12 +64,28 @@ class ChromVoidAutofillService : AutofillService() {
             return
         }
 
-        val requestContext = parseRequestContext(request)
-        if (requestContext == null) {
+        val requestContextResult = AutofillRequestContextFactory.fromFillRequest(request)
+        if (requestContextResult == null) {
             AutofillTrace.important("fillFailure", "reason" to "missing_request_context", "requestId" to request.id)
             callback.onFailure(getString(R.string.autofill_unsupported_request))
             return
         }
+        val requestContext = requestContextResult.context
+        val latestStructure = request.fillContexts.lastOrNull()?.structure
+        val snapshot = requestContextResult.snapshot
+        AutofillTrace.important(
+            "requestSnapshot",
+            "requestId" to request.id,
+            "activity" to requestContext.activityComponent?.flattenToShortString(),
+            "windowCount" to latestStructure?.windowNodeCount,
+            "focusedId" to AutofillTrace.id(requestContext.focusedId),
+            "snapshotDomain" to snapshot.webDomain,
+            "usernameIds" to AutofillTrace.ids(snapshot.usernameFieldIds),
+            "passwordIds" to AutofillTrace.ids(snapshot.passwordFieldIds),
+            "otpCandidates" to AutofillTrace.otpCandidates(snapshot.otpCandidates),
+            "focusedCandidates" to AutofillTrace.focusedCandidates(snapshot.focusedFieldCandidates),
+            "pageHints" to AutofillTrace.pageHints(snapshot.pageHintBlobs),
+        )
 
         AutofillTrace.important(
             "requestContext",
@@ -115,8 +150,21 @@ class ChromVoidAutofillService : AutofillService() {
                 callback.onFailure(response.error.message)
             }
             is BridgeResult.Success -> {
-                val sessionId = response.value.first
-                val candidates = response.value.second
+                val sessionId = response.value.sessionId
+                val candidates = response.value.candidates
+                val diagnostics = response.value.diagnostics
+                if (diagnostics != null) {
+                    AutofillTrace.important(
+                        "fillDiagnostics",
+                        "requestId" to requestContext.requestId,
+                        "domain" to parsed.domain,
+                        "strategy" to parsed.strategyKind.wireValue,
+                        "stepKind" to parsed.stepKind.wireValue,
+                        "entryCount" to diagnostics.entryCount,
+                        "candidateCount" to diagnostics.candidateCount,
+                        "payload" to diagnostics.rawJson.take(2048),
+                    )
+                }
                 AutofillTrace.important(
                     "fillCandidates",
                     "requestId" to requestContext.requestId,
@@ -125,6 +173,8 @@ class ChromVoidAutofillService : AutofillService() {
                     "sessionKey" to parsed.sessionKey,
                     "stepKind" to parsed.stepKind.wireValue,
                     "session" to sessionId,
+                    "entryCount" to diagnostics?.entryCount,
+                    "candidateCount" to diagnostics?.candidateCount,
                     "count" to candidates.size,
                 )
                 if (sessionId.isBlank() || candidates.isEmpty()) {
@@ -139,23 +189,28 @@ class ChromVoidAutofillService : AutofillService() {
                 }
 
                 val datasetFactory = AutofillDatasetFactory(this)
-                val fillResponse = FillResponse.Builder()
-                var addedDatasets = 0
-                candidates.forEach { candidate ->
-                    if (parsed.stepKind == ParsedStepKind.OTP && candidate.otpOptions.isEmpty()) {
-                        return@forEach
-                    }
-                    fillResponse.addDataset(
-                        datasetFactory.buildAuthenticatedDataset(
-                            parsed = parsed,
-                            sessionId = sessionId,
-                            candidate = candidate,
-                        ),
+                val fillResponse =
+                    datasetFactory.buildAuthenticatedFillResponse(
+                        parsed = parsed,
+                        sessionId = sessionId,
+                        candidates = candidates,
                     )
-                    addedDatasets += 1
+                if (fillResponse == null) {
+                    val sessionClosed =
+                        when (val closeResult = bridgeGateway.autofillCloseSession(sessionId)) {
+                            is BridgeResult.Success -> closeResult.value
+                            is BridgeResult.Failure -> false
+                        }
+                    AutofillTrace.important(
+                        "fillEmptySessionClosed",
+                        "session" to sessionId,
+                        "closed" to sessionClosed,
+                        "reason" to "no_bindable_candidates",
+                    )
+                    callback.onSuccess(null)
+                    return
                 }
-                datasetFactory.maybeConfigureFillDialog(fillResponse, parsed)
-                callback.onSuccess(fillResponse.build())
+                callback.onSuccess(fillResponse)
             }
         }
     }
@@ -188,51 +243,6 @@ class ChromVoidAutofillService : AutofillService() {
                 callback.onSuccess(result.value.intentSender)
             }
         }
-    }
-
-    private fun parseRequestContext(request: FillRequest): AutofillRequestContext? {
-        val fillContexts = request.fillContexts
-        val latestFillContext = fillContexts.lastOrNull() ?: return null
-        val focusedAutofillId = latestFillContext.focusedId
-        val previousFocusedAutofillIds = fillContexts.dropLast(1).mapNotNull { it.focusedId }.distinct()
-        val parser = AutofillStructureParser()
-        val latestStructure = latestFillContext.structure
-        val activityComponent =
-            latestStructure.activityComponent
-                ?: fillContexts
-                    .asReversed()
-                    .mapNotNull { it.structure.activityComponent }
-                    .firstOrNull()
-        for (windowIndex in 0 until latestStructure.windowNodeCount) {
-            parser.visit(latestStructure.getWindowNodeAt(windowIndex).rootViewNode)
-        }
-        val snapshot = parser.buildSnapshot()
-        AutofillTrace.important(
-            "requestSnapshot",
-            "requestId" to request.id,
-            "activity" to activityComponent?.flattenToShortString(),
-            "windowCount" to latestStructure.windowNodeCount,
-            "focusedId" to AutofillTrace.id(focusedAutofillId),
-            "snapshotDomain" to snapshot.webDomain,
-            "usernameIds" to AutofillTrace.ids(snapshot.usernameFieldIds),
-            "passwordIds" to AutofillTrace.ids(snapshot.passwordFieldIds),
-            "otpCandidates" to AutofillTrace.otpCandidates(snapshot.otpCandidates),
-            "focusedCandidates" to AutofillTrace.focusedCandidates(snapshot.focusedFieldCandidates),
-            "pageHints" to AutofillTrace.pageHints(snapshot.pageHintBlobs),
-        )
-        return AutofillRequestContext(
-            requestId = request.id,
-            compatMode = request.flags and FillRequest.FLAG_COMPATIBILITY_MODE_REQUEST != 0,
-            activityComponent = activityComponent,
-            normalizedDomain = AutofillFieldClassifier.normalizeDomain(snapshot.webDomain),
-            focusedId = focusedAutofillId,
-            previousFocusedIds = previousFocusedAutofillIds,
-            usernameFieldIds = snapshot.usernameFieldIds,
-            passwordFieldIds = snapshot.passwordFieldIds,
-            otpCandidates = snapshot.otpCandidates,
-            focusedFieldCandidates = snapshot.focusedFieldCandidates,
-            pageHintBlobs = snapshot.pageHintBlobs,
-        )
     }
 
     private fun parseSaveRequest(fillContexts: List<FillContext>): ParsedPasswordSaveRequest? {

@@ -44,6 +44,23 @@ fn cached_transport_reorders_first_attempt() {
     );
 }
 
+#[tokio::test]
+async fn cache_save_blocking_persists_snapshot() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cache_path = dir.path().join("network_transport_cache.json");
+    let context = NetworkContext {
+        ssid: Some("office-wifi".to_string()),
+        cellular_carrier: None,
+    };
+
+    let mut cache = LastKnownGoodTransportCache::load(&cache_path);
+    cache.set(&context, TransportType::TcpStealth);
+    cache.save_blocking().await.expect("save cache");
+
+    let loaded = LastKnownGoodTransportCache::load(&cache_path);
+    assert_eq!(loaded.get(&context), Some(TransportType::TcpStealth));
+}
+
 #[test]
 fn p95_fallback_transition_stays_under_budget_in_harness() {
     let mut metrics = TransportMetrics::new();

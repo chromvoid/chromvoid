@@ -4,14 +4,18 @@ mod native {
 
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
-    use objc2::{define_class, msg_send, sel, AnyThread, DefinedClass, MainThreadOnly};
+    use objc2::{define_class, msg_send, sel, AnyThread, DefinedClass};
+    use objc2_core_foundation::CGRect;
     use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol};
 
     use tauri::{AppHandle, Emitter};
+    use tracing::warn;
 
     #[derive(Debug, serde::Serialize, Clone)]
+    #[serde(rename_all = "camelCase")]
     pub struct KeyboardVisibilityEvent {
         pub visible: bool,
+        pub bottom_inset: Option<f64>,
     }
 
     struct KeyboardObserverIvars {
@@ -26,16 +30,18 @@ mod native {
 
         impl KeyboardObserver {
             #[unsafe(method(onKeyboardWillShow:))]
-            fn on_keyboard_will_show(&self, _notification: &NSObject) {
-                self.emit_visibility(true);
+            fn on_keyboard_will_show(&self, notification: &NSObject) {
+                self.emit_visibility(true, keyboard_bottom_inset(notification));
             }
 
             #[unsafe(method(onKeyboardWillHide:))]
             fn on_keyboard_will_hide(&self, _notification: &NSObject) {
-                self.emit_visibility(false);
+                self.emit_visibility(false, Some(0.0));
             }
         }
 
+        // SAFETY: NSObjectProtocol has no methods; KeyboardObserver is an objc2 ObjC subclass of NSObject
+        // so the protocol is structurally satisfied.
         unsafe impl NSObjectProtocol for KeyboardObserver {}
     );
 
@@ -45,18 +51,60 @@ mod native {
             let this = this.set_ivars(KeyboardObserverIvars {
                 app: Mutex::new(Some(app)),
             });
+            // SAFETY: this is an alloc'd KeyboardObserver with ivars set; calling -[NSObject init] via
+            // msg_send is the standard objc2 designated-initializer pattern.
             unsafe { msg_send![super(this), init] }
         }
 
-        fn emit_visibility(&self, visible: bool) {
-            let app_guard = self.ivars().app.lock().unwrap();
+        fn emit_visibility(&self, visible: bool, bottom_inset: Option<f64>) {
+            let app_guard = match self.ivars().app.lock() {
+                Ok(guard) => guard,
+                Err(_) => {
+                    warn!("keyboard: app ivar lock poisoned");
+                    return;
+                }
+            };
             let Some(app) = app_guard.as_ref() else {
                 return;
             };
             let _: Result<(), _> = app.emit(
                 "keyboard:visibility-changed",
-                KeyboardVisibilityEvent { visible },
+                KeyboardVisibilityEvent {
+                    visible,
+                    bottom_inset,
+                },
             );
+        }
+    }
+
+    fn keyboard_bottom_inset(notification: &NSObject) -> Option<f64> {
+        unsafe {
+            let user_info: *const AnyObject = msg_send![notification, userInfo];
+            if user_info.is_null() {
+                return None;
+            }
+
+            let keyboard_frame_value: *const AnyObject =
+                msg_send![user_info, objectForKey: UIKeyboardFrameEndUserInfoKey];
+            if keyboard_frame_value.is_null() {
+                return None;
+            }
+
+            let keyboard_frame: CGRect = msg_send![keyboard_frame_value, CGRectValue];
+            let screen: *const AnyObject = msg_send![objc2::class!(UIScreen), mainScreen];
+            if screen.is_null() {
+                return Some(keyboard_frame.size.height.max(0.0).round());
+            }
+
+            let screen_bounds: CGRect = msg_send![screen, bounds];
+            let screen_bottom = screen_bounds.origin.y + screen_bounds.size.height;
+            let keyboard_top = keyboard_frame.origin.y;
+            let inset = (screen_bottom - keyboard_top)
+                .max(0.0)
+                .min(screen_bounds.size.height)
+                .round();
+
+            Some(inset)
         }
     }
 
@@ -64,6 +112,7 @@ mod native {
     extern "C" {
         static UIKeyboardWillShowNotification: *const AnyObject;
         static UIKeyboardWillHideNotification: *const AnyObject;
+        static UIKeyboardFrameEndUserInfoKey: *const AnyObject;
     }
 
     pub fn setup(app: AppHandle) {
@@ -78,6 +127,9 @@ mod native {
 
         let observer = KeyboardObserver::new_with(app, mtm);
 
+        // SAFETY: defaultCenter is a +0 singleton; observer is retained for the app lifetime via
+        // std::mem::forget below; UIKeyboardWill*Notification globals are 'static NSStrings provided by
+        // UIKit.
         unsafe {
             // [NSNotificationCenter defaultCenter]
             let center: *const AnyObject =

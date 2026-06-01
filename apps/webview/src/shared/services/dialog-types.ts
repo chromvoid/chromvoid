@@ -1,9 +1,11 @@
-// Базовые типы для диалоговых компонентов
+import {i18n} from 'root/i18n'
+
+// Basic types for dialogue components
 
 export type DialogSize = 's' | 'm' | 'l' | 'xl'
 export type DialogVariant = 'default' | 'success' | 'warning' | 'danger' | 'info'
 
-// Валидаторы (определены раньше для использования в InputDialogOptions)
+// Validators (defined earlier for use in InputDialogOptions)
 export interface ValidationResult {
   valid: boolean
   message?: string
@@ -40,6 +42,11 @@ export interface ConfirmDialogOptions extends BaseDialogOptions {
   confirmVariant?: 'primary' | 'danger' | 'success'
 }
 
+export interface AlertDialogOptions extends BaseDialogOptions {
+  message?: string
+  confirmText?: string
+}
+
 export interface SelectDialogOptions extends BaseDialogOptions {
   options: Array<{
     value: string
@@ -52,7 +59,7 @@ export interface SelectDialogOptions extends BaseDialogOptions {
   cancelText?: string
 }
 
-// События диалогов
+// Developments of dialogues
 export interface DialogShowEvent extends CustomEvent<void> {
   type: 'dialog-show'
 }
@@ -70,58 +77,61 @@ export interface DialogCancelEvent extends CustomEvent<void> {
   type: 'dialog-cancel'
 }
 
-// Результаты диалогов
+// Results of the dialogues
 export type InputDialogResult = string | null
 export type ConfirmDialogResult = boolean
 export type SelectDialogResult = string | string[] | null
 
-// Интерфейс для сервиса диалогов
+// Interface for dialogue service
 export interface DialogServiceInterface {
+  prewarmInputDialog(options?: Partial<InputDialogOptions>): Promise<void>
   showInputDialog(options: InputDialogOptions): Promise<InputDialogResult>
   showConfirmDialog(options: ConfirmDialogOptions): Promise<ConfirmDialogResult>
+  showAlertDialog(options: AlertDialogOptions): Promise<void>
   showSelectDialog(options: SelectDialogOptions): Promise<SelectDialogResult>
+  closeTopDialog(): boolean
 }
 
-// Общие валидаторы для имен файлов/папок
+// Common validators for file names/folders
 export const FileValidators = {
   required: (value: string): ValidationResult => ({
     valid: value.trim().length > 0,
-    message: value.trim().length === 0 ? 'Это поле обязательно для заполнения' : undefined,
+    message: value.trim().length === 0 ? i18n('dialogs:field-required') : undefined,
   }),
 
   maxLength:
     (max: number) =>
     (value: string): ValidationResult => ({
       valid: value.length <= max,
-      message: value.length > max ? `Максимальная длина: ${max} символов` : undefined,
+      message: value.length > max ? i18n('dialogs:max-length', {max}) : undefined,
     }),
 
   fileName: (value: string): ValidationResult => {
     const trimmed = value.trim()
 
     if (trimmed.length === 0) {
-      return {valid: false, message: 'Имя файла не может быть пустым'}
+      return {valid: false, message: i18n('dialogs:file-name-empty')}
     }
 
-    // Запрещенные символы для имен файлов
+    // Prohibited characters for file names
     const invalidChars = /[<>:"/\\|?*\u0000-\u001f]/
     if (invalidChars.test(trimmed)) {
       return {
         valid: false,
-        message: 'Имя файла содержит недопустимые символы: < > : " / \\ | ? *',
+        message: i18n('dialogs:file-name-invalid'),
       }
     }
 
-    // Запрещенные имена в Windows
+    // Prohibited names in Windows
     const reservedNames = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i
     if (reservedNames.test(trimmed)) {
       return {
         valid: false,
-        message: 'Это имя зарезервировано системой и не может быть использовано',
+        message: i18n('dialogs:file-name-reserved'),
       }
     }
 
-    // Нельзя начинать или заканчивать точкой или пробелом
+    // You cannot start or end with a point or a gap.
     if (
       trimmed.startsWith('.') ||
       trimmed.endsWith('.') ||
@@ -130,7 +140,7 @@ export const FileValidators = {
     ) {
       return {
         valid: false,
-        message: 'Имя файла не может начинаться или заканчиваться точкой или пробелом',
+        message: i18n('dialogs:file-name-dot-space'),
       }
     }
 
@@ -138,24 +148,24 @@ export const FileValidators = {
   },
 
   folderName: (value: string): ValidationResult => {
-    // Валидация папки такая же как для файла
+    // Validation of the folder is the same as for the file
     return FileValidators.fileName(value)
   },
 }
 
-// Комбинированный валидатор
+// Combined validator
 export function combineValidators(...validators: ValidatorFunction[]): ValidatorFunction {
   return (value: string) => {
     for (const validator of validators) {
       const result = validator(value)
 
-      // Поддержка как ValidationResult, так и string | null
+      // Support for both ValidationResult and string | null
       if (typeof result === 'string') {
         return {valid: false, message: result}
       } else if (result && !result.valid) {
         return result
       } else if (result === null && validators.indexOf(validator) === 0) {
-        // Если первый валидатор возвращает null, считаем что это ошибка
+        // If the first validator returns the null, we assume it is a mistake.
         return {valid: false}
       }
     }

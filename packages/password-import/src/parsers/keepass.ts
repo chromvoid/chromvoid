@@ -34,6 +34,16 @@ export class KeePassParseError extends Error {
   }
 }
 
+type KeePassModule = {
+  Credentials: new (...args: any[]) => unknown
+  ProtectedValue: {
+    fromString: (value: string) => unknown
+  }
+  Kdbx: {
+    load: (arrayBuffer: ArrayBuffer, credentials: unknown) => Promise<any>
+  }
+}
+
 function isProtectedValue(val: unknown): val is {getText(): string} {
   return typeof val === 'object' && val !== null && typeof (val as any).getText === 'function'
 }
@@ -324,133 +334,129 @@ function resolveItemIcon(
   return undefined
 }
 
-export async function parseKeePass(
-  file: File,
-  password: string,
-  keyFile?: ArrayBuffer,
-): Promise<ImportResult> {
-  // Validate file size
-  if (file.size > IMPORT_LIMITS_MAX_FILE_SIZE) {
-    throw new KeePassParseError(
-      `File too large: ${(file.size / 1024 / 1024).toFixed(1)}MB (max ${IMPORT_LIMITS_MAX_FILE_SIZE / 1024 / 1024}MB)`,
-      'IMPORT_FILE_TOO_LARGE',
+export function createKeePassParser(kdbxwebImpl: KeePassModule = kdbxweb as unknown as KeePassModule) {
+  return async function parseKeePass(file: File, password: string, keyFile?: ArrayBuffer): Promise<ImportResult> {
+    if (file.size > IMPORT_LIMITS_MAX_FILE_SIZE) {
+      throw new KeePassParseError(
+        `File too large: ${(file.size / 1024 / 1024).toFixed(1)}MB (max ${IMPORT_LIMITS_MAX_FILE_SIZE / 1024 / 1024}MB)`,
+        'IMPORT_FILE_TOO_LARGE',
+      )
+    }
+
+    const arrayBuffer = await file.arrayBuffer()
+    const credentials = new kdbxwebImpl.Credentials(
+      kdbxwebImpl.ProtectedValue.fromString(password),
+      keyFile ? new Uint8Array(keyFile) : undefined,
     )
-  }
 
-  const arrayBuffer = await file.arrayBuffer()
-  const credentials = new kdbxweb.Credentials(
-    kdbxweb.ProtectedValue.fromString(password),
-    keyFile ? new Uint8Array(keyFile) : undefined,
-  )
+    let db: any
+    try {
+      db = await kdbxwebImpl.Kdbx.load(arrayBuffer, credentials)
+    } catch (err) {
+      if (err instanceof KeePassParseError) throw err
+      const code = classifyLoadError(err)
+      throw new KeePassParseError(err instanceof Error ? err.message : 'Failed to open KeePass database', code)
+    }
 
-  let db: any
-  try {
-    db = await kdbxweb.Kdbx.load(arrayBuffer, credentials)
-  } catch (err) {
-    if (err instanceof KeePassParseError) throw err
-    const code = classifyLoadError(err)
-    throw new KeePassParseError(err instanceof Error ? err.message : 'Failed to open KeePass database', code)
-  }
+    const entries: ImportedEntry[] = []
+    const folders: ImportedFolder[] = []
+    const warnings: string[] = []
+    const customIcons = extractCustomIconsMap(db, warnings)
+    let entryLimitReached = false
 
-  const entries: ImportedEntry[] = []
-  const folders: ImportedFolder[] = []
-  const warnings: string[] = []
-  const customIcons = extractCustomIconsMap(db, warnings)
-  let entryLimitReached = false
-
-  function processEntries(groupEntries: any[] | undefined, path: string): void {
-    if (!groupEntries || entryLimitReached) return
-    for (const entry of groupEntries) {
-      if (entries.length >= IMPORT_LIMITS_MAX_ENTRIES) {
-        if (!entryLimitReached) {
-          warnings.push(`Import limit reached: only first ${IMPORT_LIMITS_MAX_ENTRIES} entries were imported`)
-          entryLimitReached = true
+    function processEntries(groupEntries: any[] | undefined, path: string): void {
+      if (!groupEntries || entryLimitReached) return
+      for (const entry of groupEntries) {
+        if (entries.length >= IMPORT_LIMITS_MAX_ENTRIES) {
+          if (!entryLimitReached) {
+            warnings.push(`Import limit reached: only first ${IMPORT_LIMITS_MAX_ENTRIES} entries were imported`)
+            entryLimitReached = true
+          }
+          return
         }
+
+        const title = getFieldValue(entry, 'Title')
+        const username = getFieldValue(entry, 'UserName')
+        const passwordVal = getFieldValue(entry, 'Password')
+        const url = getFieldValue(entry, 'URL')
+        const notes = getFieldValue(entry, 'Notes')
+
+        if (!title && !passwordVal) {
+          warnings.push(`Skipped entry without title or password${username ? ` (username: ${username})` : ''}`)
+          continue
+        }
+
+        const otp = extractOtpSecret(entry, warnings)
+        const customFields = extractCustomFields(entry)
+        const icon = resolveItemIcon(entry, customIcons, warnings)
+
+        const importedEntry: ImportedEntry = {
+          id: entry.uuid ? entry.uuid.toString() : crypto.randomUUID(),
+          type: passwordVal ? 'login' : 'secure_note',
+          name: title || 'Untitled',
+          ...(username && {username}),
+          ...(passwordVal && {password: passwordVal}),
+          ...(url && {urls: [{value: url, match: 'base_domain' as const}]}),
+          ...(notes && {notes}),
+          ...(path && {folder: path}),
+          ...(customFields && {customFields}),
+          ...(icon && {icon}),
+          ...(otp && {otp}),
+        }
+
+        entries.push(importedEntry)
+      }
+    }
+
+    function processGroup(group: any, parentPath: string): void {
+      if (entryLimitReached) return
+
+      const name: string = (group.name ?? '').replace(/\//g, '\u2215')
+
+      if (name === 'Recycle Bin' || group.enableSearching === false) {
         return
       }
 
-      const title = getFieldValue(entry, 'Title')
-      const username = getFieldValue(entry, 'UserName')
-      const passwordVal = getFieldValue(entry, 'Password')
-      const url = getFieldValue(entry, 'URL')
-      const notes = getFieldValue(entry, 'Notes')
+      const path = parentPath ? `${parentPath}/${name}` : name
 
-      // Skip entries without title AND password
-      if (!title && !passwordVal) {
-        warnings.push(`Skipped entry without title or password${username ? ` (username: ${username})` : ''}`)
-        continue
+      if (name) {
+        const icon = resolveItemIcon(group, customIcons, warnings)
+        folders.push({
+          id: group.uuid ? group.uuid.toString() : crypto.randomUUID(),
+          name,
+          path,
+          ...(icon && {icon}),
+        })
       }
 
-      const otp = extractOtpSecret(entry, warnings)
-      const customFields = extractCustomFields(entry)
-      const icon = resolveItemIcon(entry, customIcons, warnings)
+      processEntries(group.entries, path)
 
-      const importedEntry: ImportedEntry = {
-        id: entry.uuid ? entry.uuid.toString() : crypto.randomUUID(),
-        type: passwordVal ? 'login' : 'secure_note',
-        name: title || 'Untitled',
-        ...(username && {username}),
-        ...(passwordVal && {password: passwordVal}),
-        ...(url && {urls: [{value: url, match: 'base_domain' as const}]}),
-        ...(notes && {notes}),
-        ...(path && {folder: path}),
-        ...(customFields && {customFields}),
-        ...(icon && {icon}),
-        ...(otp && {otp}),
-      }
-
-      entries.push(importedEntry)
-    }
-  }
-
-  function processGroup(group: any, parentPath: string): void {
-    if (entryLimitReached) return
-
-    const name: string = (group.name ?? '').replace(/\//g, '\u2215')
-
-    // Skip Recycle Bin and non-searchable groups
-    if (name === 'Recycle Bin' || group.enableSearching === false) {
-      return
-    }
-
-    const path = parentPath ? `${parentPath}/${name}` : name
-
-    if (name) {
-      const icon = resolveItemIcon(group, customIcons, warnings)
-      folders.push({
-        id: group.uuid ? group.uuid.toString() : crypto.randomUUID(),
-        name,
-        path,
-        ...(icon && {icon}),
-      })
-    }
-
-    processEntries(group.entries, path)
-
-    // Recursively process subgroups
-    if (group.groups) {
-      for (const subGroup of group.groups) {
-        if (entryLimitReached) return
-        processGroup(subGroup, path)
+      if (group.groups) {
+        for (const subGroup of group.groups) {
+          if (entryLimitReached) return
+          processGroup(subGroup, path)
+        }
       }
     }
-  }
 
-  const root = db.groups?.[0] ?? db.getDefaultGroup?.()
-  if (root) {
-    processEntries(root.entries, '')
-    if (root.groups) {
-      for (const subGroup of root.groups) {
-        if (entryLimitReached) break
-        processGroup(subGroup, '')
+    const root = db.groups?.[0] ?? db.getDefaultGroup?.()
+    if (root) {
+      processEntries(root.entries, '')
+      if (root.groups) {
+        for (const subGroup of root.groups) {
+          if (entryLimitReached) break
+          processGroup(subGroup, '')
+        }
       }
     }
-  }
 
-  return {
-    entries,
-    folders,
-    conflicts: [],
-    warnings,
+    return {
+      entries,
+      folders,
+      conflicts: [],
+      warnings,
+    }
   }
 }
+
+export const parseKeePass = createKeePassParser()

@@ -1,10 +1,10 @@
-import {XLitElement} from '@statx/lit'
-import {html, css, nothing} from 'lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {css, nothing} from 'lit'
 import {i18n} from 'root/i18n'
 import {ImagePreviewModel, type ImageDimensions} from './image-preview.model'
 import {motionPrimitiveStyles, skeletonShimmerStyles} from 'root/shared/ui/shared-styles'
 
-export class ImagePreview extends XLitElement {
+export class ImagePreview extends ReatomLitElement {
   static define() {
     if (!customElements.get('image-preview')) {
       customElements.define('image-preview', this)
@@ -15,11 +15,15 @@ export class ImagePreview extends XLitElement {
     return {
       fileId: {type: Number},
       fileName: {type: String},
+      mimeType: {type: String},
+      lastModified: {type: Number, attribute: 'last-modified'},
     }
   }
 
   declare fileId: number
   declare fileName: string
+  declare mimeType?: string
+  declare lastModified?: number
 
   private model = new ImagePreviewModel()
 
@@ -27,6 +31,8 @@ export class ImagePreview extends XLitElement {
     super()
     this.fileId = 0
     this.fileName = ''
+    this.mimeType = undefined
+    this.lastModified = undefined
   }
 
   static styles = [
@@ -105,7 +111,7 @@ export class ImagePreview extends XLitElement {
 
   connectedCallback() {
     super.connectedCallback()
-    this.model.setFile(this.fileId, this.fileName)
+    this.model.setFile(this.fileId, this.fileName, this.mimeType, this.lastModified)
   }
 
   disconnectedCallback() {
@@ -115,18 +121,25 @@ export class ImagePreview extends XLitElement {
 
   updated(changedProperties: Map<string, unknown>) {
     super.updated(changedProperties)
-    if (changedProperties.has('fileId') || changedProperties.has('fileName')) {
-      this.model.setFile(this.fileId, this.fileName)
+    if (
+      changedProperties.has('fileId') ||
+      changedProperties.has('fileName') ||
+      changedProperties.has('mimeType') ||
+      changedProperties.has('lastModified')
+    ) {
+      this.model.setFile(this.fileId, this.fileName, this.mimeType, this.lastModified)
     }
   }
 
-  private handleImageLoad = (e: Event) => {
-    const img = e.target as HTMLImageElement
+  private handleImageLoad(e: Event) {
+    const img = e.currentTarget as HTMLImageElement
     const dims: ImageDimensions = {
       width: img.naturalWidth,
       height: img.naturalHeight,
     }
-    this.model.setDimensions(dims)
+    if (!this.model.handleImageLoad(img.currentSrc || img.src, dims)) {
+      return
+    }
 
     this.dispatchEvent(
       new CustomEvent('dimensions-loaded', {
@@ -137,11 +150,12 @@ export class ImagePreview extends XLitElement {
     )
   }
 
-  private handleImageError = () => {
-    this.model.setError(i18n('media:image-display-failed' as any))
+  private handleImageError(e: Event) {
+    const img = e.currentTarget as HTMLImageElement
+    this.model.handleImageRenderError(img.currentSrc || img.src)
   }
 
-  private handleRetry = () => {
+  private handleRetry() {
     this.model.retry()
   }
 
@@ -171,9 +185,9 @@ export class ImagePreview extends XLitElement {
                   <div class="error-state">
                     <cv-icon name="file-earmark-image" size="l"></cv-icon>
                     <div class="error-message">${errorMessage}</div>
-                    <button class="retry-button" @click=${this.handleRetry}>
+                    <cv-button unstyled class="retry-button" @click=${this.handleRetry}>
                       ${i18n('button:retry' as any)}
-                    </button>
+                    </cv-button>
                   </div>
                 `
               : nothing}

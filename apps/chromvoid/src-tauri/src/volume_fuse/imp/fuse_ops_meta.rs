@@ -2,21 +2,21 @@ use super::helpers::*;
 use super::*;
 
 pub(super) fn handle_init(
-    _fs: &mut PrivyFilesystem,
-    _req: &Request<'_>,
+    _fs: &PrivyFilesystem,
+    _req: &Request,
     _config: &mut fuser::KernelConfig,
-) -> Result<(), c_int> {
+) -> std::io::Result<()> {
     info!("FUSE: filesystem initialized");
     Ok(())
 }
 
-pub(super) fn handle_destroy(_fs: &mut PrivyFilesystem) {
+pub(super) fn handle_destroy(_fs: &PrivyFilesystem) {
     info!("FUSE: filesystem destroyed");
 }
 
 pub(super) fn handle_access(
-    _fs: &mut PrivyFilesystem,
-    _req: &Request<'_>,
+    _fs: &PrivyFilesystem,
+    _req: &Request,
     _ino: u64,
     _mask: i32,
     reply: ReplyEmpty,
@@ -25,18 +25,17 @@ pub(super) fn handle_access(
     reply.ok();
 }
 
-pub(super) fn handle_statfs(
-    fs: &mut PrivyFilesystem,
-    _req: &Request<'_>,
-    _ino: u64,
-    reply: ReplyStatfs,
-) {
+pub(super) fn handle_statfs(fs: &PrivyFilesystem, _req: &Request, _ino: u64, reply: ReplyStatfs) {
     // Finder checks filesystem stats before copy; if this is missing/zero it may report
     // "not enough free space" even when the backing disk has space.
     let (blocks, bfree, bavail, files, ffree, bsize, namelen, frsize) = {
+        // SAFETY: libc::statvfs is a C-POD struct; zeroed bytes are a valid representation that
+        // statvfs() will fully overwrite on success.
         let mut st: libc::statvfs = unsafe { mem::zeroed() };
         let c_path = CString::new(fs.staging_dir.as_os_str().as_bytes());
         if let Ok(c_path) = c_path {
+            // SAFETY: c_path is a freshly-built CString that lives for the call; &mut st points to a
+            // stack-allocated statvfs.
             let rc = unsafe { libc::statvfs(c_path.as_ptr(), &mut st) };
             if rc == 0 {
                 (
@@ -70,8 +69,8 @@ pub(super) fn handle_statfs(
 }
 
 pub(super) fn handle_getattr(
-    fs: &mut PrivyFilesystem,
-    _req: &Request<'_>,
+    fs: &PrivyFilesystem,
+    _req: &Request,
     ino: u64,
     _fh: Option<u64>,
     reply: ReplyAttr,
@@ -90,11 +89,16 @@ pub(super) fn handle_getattr(
             // If file is open with a staged temp file, prefer its current size.
             let mut size = entry.size;
             if !entry.is_dir {
-                if let Ok(map) = fs.open_files.lock() {
-                    if let Some((_, st)) = map.iter().find(|(_, st)| st.ino == ino) {
-                        if let Ok(m) = std::fs::metadata(&st.tmp_path) {
-                            size = m.len();
-                        }
+                let map = match fs.open_files.lock() {
+                    Ok(map) => map,
+                    Err(_) => {
+                        reply.error(fuse_errno(libc::EIO));
+                        return;
+                    }
+                };
+                if let Some((_, st)) = map.iter().find(|(_, st)| st.ino == ino) {
+                    if let Ok(m) = std::fs::metadata(&st.tmp_path) {
+                        size = m.len();
                     }
                 }
             }
@@ -104,13 +108,13 @@ pub(super) fn handle_getattr(
             apply_trash_mode_overrides(&fs.inode_table, ino, &mut attr);
             reply.attr(&ATTR_TTL, &attr);
         }
-        None => reply.error(libc::ENOENT),
+        None => reply.error(fuse_errno(libc::ENOENT)),
     }
 }
 
 pub(super) fn handle_setattr(
-    fs: &mut PrivyFilesystem,
-    _req: &Request<'_>,
+    fs: &PrivyFilesystem,
+    _req: &Request,
     ino: u64,
     _mode: Option<u32>,
     _uid: Option<u32>,
@@ -145,23 +149,32 @@ pub(super) fn handle_setattr(
         let target_fh = if let Some(fh) = fh {
             Some(fh)
         } else {
-            fs.open_files
-                .lock()
-                .ok()
-                .and_then(|map| map.iter().find(|(_, st)| st.ino == ino).map(|(k, _)| *k))
+            let map = match fs.open_files.lock() {
+                Ok(map) => map,
+                Err(_) => {
+                    reply.error(fuse_errno(libc::EIO));
+                    return;
+                }
+            };
+            map.iter().find(|(_, st)| st.ino == ino).map(|(k, _)| *k)
         };
 
         if let Some(fh) = target_fh {
-            if let Ok(mut map) = fs.open_files.lock() {
-                if let Some(st) = map.get_mut(&fh) {
-                    if let Ok(f) = OpenOptions::new().write(true).open(&st.tmp_path) {
-                        if f.set_len(new_size).is_ok() {
-                            st.dirty = true;
-                            if let Some(mut entry) = fs.inode_table.get(ino) {
-                                entry.size = new_size;
-                                entry.modified = Some(SystemTime::now());
-                                fs.inode_table.upsert(entry);
-                            }
+            let mut map = match fs.open_files.lock() {
+                Ok(map) => map,
+                Err(_) => {
+                    reply.error(fuse_errno(libc::EIO));
+                    return;
+                }
+            };
+            if let Some(st) = map.get_mut(&fh) {
+                if let Ok(f) = OpenOptions::new().write(true).open(&st.tmp_path) {
+                    if f.set_len(new_size).is_ok() {
+                        st.dirty = true;
+                        if let Some(mut entry) = fs.inode_table.get(ino) {
+                            entry.size = new_size;
+                            entry.modified = Some(SystemTime::now());
+                            fs.inode_table.upsert(entry);
                         }
                     }
                 }
@@ -177,6 +190,6 @@ pub(super) fn handle_setattr(
             apply_trash_mode_overrides(&fs.inode_table, ino, &mut attr);
             reply.attr(&ATTR_TTL, &attr);
         }
-        None => reply.error(libc::ENOENT),
+        None => reply.error(fuse_errno(libc::ENOENT)),
     }
 }

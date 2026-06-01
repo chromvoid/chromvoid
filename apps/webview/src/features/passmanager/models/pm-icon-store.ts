@@ -1,14 +1,19 @@
-import {normalizeIconFromFile} from '../service/icon-normalizer'
+import {deriveIconBackgroundColorFromBase64, normalizeIconFromFile} from '../service/icon-normalizer'
+import {getAppContext} from 'root/shared/services/app-context'
+
+const HEX_PREFIX = String.fromCharCode(35)
 
 type IconGetResult = {
   icon_ref?: unknown
   mime_type?: unknown
+  background_color?: unknown
   content_base64?: unknown
 }
 
 type IconListRecord = {
   icon_ref?: unknown
   mime_type?: unknown
+  background_color?: unknown
   width?: unknown
   height?: unknown
   bytes?: unknown
@@ -23,11 +28,18 @@ type IconListResult = {
 export type PMStoredIcon = {
   iconRef: string
   mimeType: string
+  backgroundColor?: string
   width: number
   height: number
   bytes: number
   createdAt: number
   updatedAt: number
+}
+
+export type PMIconUploadPhase = 'preparing' | 'uploading'
+
+export type PMIconUploadOptions = {
+  onPhase?: (phase: PMIconUploadPhase) => void
 }
 
 type DomainEnvelope<T> = {
@@ -40,8 +52,11 @@ const ICON_MISS_CACHE_TTL_MS = 60_000
 
 class PMIconStore {
   private readonly urlByRef = new Map<string, string>()
+  private readonly backgroundColorByRef = new Map<string, string>()
   private readonly pendingByRef = new Map<string, Promise<string | undefined>>()
   private readonly missingByRef = new Map<string, number>()
+  private readonly pendingBackgroundBackfillByRef = new Map<string, Promise<void>>()
+  private readonly attemptedBackgroundBackfillByRef = new Set<string>()
   private readonly listeners = new Set<() => void>()
 
   subscribe(listener: () => void): () => void {
@@ -54,6 +69,11 @@ class PMIconStore {
   getCachedUrl(iconRef: string | undefined): string | undefined {
     if (!iconRef) return undefined
     return this.urlByRef.get(iconRef)
+  }
+
+  getCachedBackgroundColor(iconRef: string | undefined): string | undefined {
+    if (!iconRef) return undefined
+    return this.backgroundColorByRef.get(iconRef)
   }
 
   async loadIconUrl(iconRef: string | undefined): Promise<string | undefined> {
@@ -89,14 +109,24 @@ class PMIconStore {
     return request
   }
 
-  async uploadIcon(file: File): Promise<string> {
+  async uploadIcon(file: File, options?: PMIconUploadOptions): Promise<string> {
+    options?.onPhase?.('preparing')
     const normalized = await normalizeIconFromFile(file)
-    const raw = await this.sendDomain<{icon_ref?: unknown}>('passmanager:icon:put', {
+    options?.onPhase?.('uploading')
+    const payload: Record<string, unknown> = {
       content_base64: normalized.contentBase64,
       mime_type: normalized.mimeType,
-    })
+    }
+    if (normalized.backgroundColor) {
+      payload['background_color'] = normalized.backgroundColor
+    }
+    const raw = await this.sendDomain<{icon_ref?: unknown; background_color?: unknown}>(
+      'passmanager:icon:put',
+      payload,
+    )
     const iconRef = typeof raw?.icon_ref === 'string' ? raw.icon_ref : ''
     if (!iconRef) throw new Error('passmanager:icon:put did not return icon_ref')
+    this.cacheBackgroundColor(iconRef, raw?.background_color ?? normalized.backgroundColor)
     this.missingByRef.delete(iconRef)
     return iconRef
   }
@@ -127,8 +157,11 @@ class PMIconStore {
       URL.revokeObjectURL(url)
     }
     this.urlByRef.clear()
+    this.backgroundColorByRef.clear()
     this.pendingByRef.clear()
     this.missingByRef.clear()
+    this.pendingBackgroundBackfillByRef.clear()
+    this.attemptedBackgroundBackfillByRef.clear()
     this.listeners.clear()
   }
 
@@ -148,6 +181,16 @@ class PMIconStore {
     const mimeType = typeof raw?.mime_type === 'string' ? raw.mime_type : 'image/png'
     if (!contentBase64) return undefined
 
+    const backgroundColor =
+      this.cacheBackgroundColor(iconRef, raw?.background_color) ??
+      (await deriveIconBackgroundColorFromBase64(contentBase64, mimeType))
+    if (backgroundColor) {
+      this.cacheBackgroundColor(iconRef, backgroundColor)
+      if (!this.parseBackgroundColor(raw?.background_color)) {
+        this.backfillBackgroundColor(iconRef, backgroundColor)
+      }
+    }
+
     const bytes = this.base64ToBytes(contentBase64)
     const blob = new Blob([this.toArrayBuffer(bytes)], {type: mimeType})
     const url = URL.createObjectURL(blob)
@@ -164,15 +207,60 @@ class PMIconStore {
     const mimeType =
       typeof icon?.mime_type === 'string' && icon.mime_type.trim().length > 0 ? icon.mime_type : 'image/png'
 
+    const backgroundColor = this.cacheBackgroundColor(iconRef, icon?.background_color)
+
     return {
       iconRef,
       mimeType,
+      ...(backgroundColor ? {backgroundColor} : {}),
       width: this.toNonNegativeInteger(icon?.width),
       height: this.toNonNegativeInteger(icon?.height),
       bytes: this.toNonNegativeInteger(icon?.bytes),
       createdAt: this.toNonNegativeInteger(icon?.created_at),
       updatedAt: this.toNonNegativeInteger(icon?.updated_at),
     }
+  }
+
+  private cacheBackgroundColor(iconRef: string, value: unknown): string | undefined {
+    const backgroundColor = this.parseBackgroundColor(value)
+    if (!backgroundColor) return undefined
+    this.backgroundColorByRef.set(iconRef, backgroundColor)
+    return backgroundColor
+  }
+
+  private parseBackgroundColor(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined
+    const color = value.trim().toLowerCase()
+    if (color.length !== 7 || color.charAt(0) !== HEX_PREFIX) return undefined
+    for (let index = 1; index < color.length; index += 1) {
+      if (!this.isHexDigit(color.charCodeAt(index))) return undefined
+    }
+    return color
+  }
+
+  private isHexDigit(code: number): boolean {
+    return (code >= 48 && code <= 57) || (code >= 97 && code <= 102)
+  }
+
+  private backfillBackgroundColor(iconRef: string, backgroundColor: string): void {
+    if (
+      this.attemptedBackgroundBackfillByRef.has(iconRef) ||
+      this.pendingBackgroundBackfillByRef.has(iconRef)
+    ) {
+      return
+    }
+
+    this.attemptedBackgroundBackfillByRef.add(iconRef)
+    const request = this.sendDomain('passmanager:icon:setMeta', {
+      icon_ref: iconRef,
+      background_color: backgroundColor,
+    })
+      .catch(() => undefined)
+      .then(() => undefined)
+      .finally(() => {
+        this.pendingBackgroundBackfillByRef.delete(iconRef)
+      })
+    this.pendingBackgroundBackfillByRef.set(iconRef, request)
   }
 
   private isRecentMissing(iconRef: string): boolean {
@@ -196,12 +284,17 @@ class PMIconStore {
   }
 
   private async sendDomain<T = unknown>(command: string, data: Record<string, unknown>): Promise<T> {
-    const transport = window.catalog?.transport
-    if (!transport || typeof transport.sendCatalog !== 'function') {
+    const transport = getAppContext().ws
+    if (
+      !transport ||
+      (typeof transport.sendPassmanager !== 'function' && typeof transport.sendCatalog !== 'function')
+    ) {
       throw new Error('passmanager transport not available')
     }
 
-    const raw = (await transport.sendCatalog(command, data)) as DomainEnvelope<T> | T
+    const raw = (await (transport.sendPassmanager
+      ? transport.sendPassmanager(command, data)
+      : transport.sendCatalog(command, data))) as DomainEnvelope<T> | T
     if (raw && typeof raw === 'object' && 'ok' in (raw as Record<string, unknown>)) {
       const envelope = raw as DomainEnvelope<T>
       if (envelope.ok === false) {

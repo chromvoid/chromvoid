@@ -1,4 +1,5 @@
 import {tauriInvoke} from '../../core/transport/tauri/ipc'
+import {i18n} from '../../i18n'
 import {dialogService} from '../../shared/services/dialog-service'
 import type {TransportLike} from '../../core/transport/transport'
 
@@ -21,41 +22,66 @@ export const setupSshAgentHandler = (ws: TransportLike) => {
     const requestId = typeof data?.request_id === 'string' ? data.request_id : ''
     if (!requestId) return
 
-    const fingerprint = typeof data?.fingerprint === 'string' ? data.fingerprint : 'unknown'
-    const comment = typeof data?.comment === 'string' && data.comment ? data.comment : 'SSH key'
+    const fingerprint =
+      typeof data?.fingerprint === 'string' ? data.fingerprint : i18n('ssh-agent:unknown-fingerprint')
+    const comment = typeof data?.comment === 'string' && data.comment ? data.comment : i18n('ssh-agent:default-key')
     const peerProcess =
       typeof data?.peer_process === 'string' && data.peer_process ? data.peer_process : undefined
     const peerPid = typeof data?.peer_pid === 'number' ? data.peer_pid : undefined
     const hostHint = typeof data?.host_hint === 'string' && data.host_hint ? data.host_hint : undefined
 
-    const processLabel = peerProcess ?? (peerPid !== undefined ? `PID ${peerPid}` : 'Unknown process')
+    const processLabel =
+      peerProcess ?? (peerPid !== undefined ? `PID ${peerPid}` : i18n('ssh-agent:unknown-process'))
     const unknownProcessWarning =
       peerProcess || peerPid !== undefined
         ? ''
-        : '\n\nИсточник запроса не удалось определить. Разрешайте только если вы уверены в действии.'
-    const hostLine = hostHint ? `\nХост (best-effort): ${hostHint}` : ''
+        : i18n('ssh-agent:unknown-source-warning')
+    const hostLine = hostHint ? i18n('ssh-agent:host-line', {host: hostHint}) : ''
 
     const resolveApproval = async (approved: boolean) => {
-      const args = {request_id: requestId, approved}
+      const args = {requestId, approved}
+      console.info('[ssh-agent] resolving approval', {
+        requestId,
+        approved,
+        fingerprint,
+        comment,
+      })
       try {
         await tauriInvoke<void>('ssh_agent_sign_approval_resolve', args)
+        console.info('[ssh-agent] approval resolved', {requestId, approved})
         return
       } catch (error) {
         console.warn('[ssh-agent] failed to resolve sign approval, retrying once', error)
       }
       try {
         await tauriInvoke<void>('ssh_agent_sign_approval_resolve', args)
+        console.info('[ssh-agent] approval resolved after retry', {requestId, approved})
       } catch (error) {
         console.warn('[ssh-agent] failed to resolve sign approval after retry', error)
       }
     }
 
+    console.info('[ssh-agent] sign request received', {
+      requestId,
+      fingerprint,
+      comment,
+      peerProcess,
+      peerPid,
+      hostHint,
+    })
+
     void dialogService
       .showConfirmDialog({
-        title: 'Запрос подписи SSH',
-        message: `Процесс: ${processLabel}\nКлюч: ${comment}\nFingerprint: ${fingerprint}${hostLine}${unknownProcessWarning}`,
-        confirmText: 'Разрешить',
-        cancelText: 'Отклонить',
+        title: i18n('ssh-agent:title'),
+        message: i18n('ssh-agent:message', {
+          process: processLabel,
+          key: comment,
+          fingerprint,
+          hostLine,
+          warning: unknownProcessWarning,
+        }),
+        confirmText: i18n('button:allow'),
+        cancelText: i18n('button:deny'),
         confirmVariant: 'danger',
         variant: 'warning',
         size: 'm',

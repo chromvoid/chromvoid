@@ -36,4 +36,8 @@ fn test_unlock_rejects_v1_storage_format() {
         serde_json::json!({"password": "test_password"}),
     ));
     assert_rpc_error(&response, "STORAGE_VERSION_NOT_SUPPORTED");
+    assert_eq!(
+        response.error_message(),
+        Some("Unsupported storage version: 1")
+    );
 }

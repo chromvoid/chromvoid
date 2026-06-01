@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-native-otp-qr-scan-start"
+description = "Enables the native_otp_qr_scan_start command without any pre-configured scope."
+commands.allow = ["native_otp_qr_scan_start"]
+
+[[permission]]
+identifier = "deny-native-otp-qr-scan-start"
+description = "Denies the native_otp_qr_scan_start command without any pre-configured scope."
+commands.deny = ["native_otp_qr_scan_start"]

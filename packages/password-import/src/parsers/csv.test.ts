@@ -51,8 +51,8 @@ Banking,,login,Chase,,,,https://chase.com,bankuser,bankpass,`
 
   describe('Generic format', () => {
     it('should parse generic CSV with title/username/password/url/notes', async () => {
-      const csv = `title,username,password,url,notes,folder
-GitHub,user@test.com,secret123,https://github.com,my notes,Dev`
+      const csv = `title,username,password,url,notes,folder,tags
+GitHub,user@test.com,secret123,https://github.com,my notes,Dev,"Work, Client; Work"`
 
       const result = await parseCSV(createCSVFile(csv))
 
@@ -60,6 +60,7 @@ GitHub,user@test.com,secret123,https://github.com,my notes,Dev`
       expect(result.entries[0]!.name).toBe('GitHub')
       expect(result.entries[0]!.password).toBe('secret123')
       expect(result.entries[0]!.folder).toBe('Dev')
+      expect(result.entries[0]!.tags).toEqual(['Work', 'Client'])
     })
   })
 

@@ -112,12 +112,30 @@ internal class AutofillDatasetFactory(
         return builder.build()
     }
 
-    @Suppress("UNUSED_PARAMETER")
-    fun maybeConfigureFillDialog(
-        _responseBuilder: FillResponse.Builder,
-        _parsed: ParsedAutofillRequest,
-    ) {
-        return
+    fun buildAuthenticatedFillResponse(
+        parsed: ParsedAutofillRequest,
+        sessionId: String,
+        candidates: List<AutofillCandidate>,
+    ): FillResponse? {
+        val fillResponse = FillResponse.Builder()
+        var addedDatasets = 0
+        candidates.forEach { candidate ->
+            if (parsed.stepKind == ParsedStepKind.OTP && candidate.otpOptions.isEmpty()) {
+                return@forEach
+            }
+            fillResponse.addDataset(
+                buildAuthenticatedDataset(
+                    parsed = parsed,
+                    sessionId = sessionId,
+                    candidate = candidate,
+                ),
+            )
+            addedDatasets += 1
+        }
+        if (addedDatasets == 0) {
+            return null
+        }
+        return fillResponse.build()
     }
 
     private fun setDatasetField(

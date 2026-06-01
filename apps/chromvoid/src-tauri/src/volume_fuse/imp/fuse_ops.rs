@@ -1,7 +1,7 @@
 use super::*;
 
 impl Filesystem for PrivyFilesystem {
-    fn init(&mut self, _req: &Request<'_>, _config: &mut fuser::KernelConfig) -> Result<(), c_int> {
+    fn init(&mut self, _req: &Request, _config: &mut fuser::KernelConfig) -> std::io::Result<()> {
         fuse_ops_meta::handle_init(self, _req, _config)
     }
 
@@ -9,177 +9,195 @@ impl Filesystem for PrivyFilesystem {
         fuse_ops_meta::handle_destroy(self)
     }
 
-    fn access(&mut self, _req: &Request<'_>, _ino: u64, _mask: i32, reply: ReplyEmpty) {
-        fuse_ops_meta::handle_access(self, _req, _ino, _mask, reply)
+    fn access(&self, _req: &Request, _ino: INodeNo, _mask: AccessFlags, reply: ReplyEmpty) {
+        fuse_ops_meta::handle_access(self, _req, _ino.into(), _mask.bits(), reply)
     }
 
-    fn statfs(&mut self, _req: &Request<'_>, _ino: u64, reply: ReplyStatfs) {
-        fuse_ops_meta::handle_statfs(self, _req, _ino, reply)
+    fn statfs(&self, _req: &Request, _ino: INodeNo, reply: ReplyStatfs) {
+        fuse_ops_meta::handle_statfs(self, _req, _ino.into(), reply)
     }
 
-    fn getxattr(
-        &mut self,
-        _req: &Request<'_>,
-        ino: u64,
-        name: &OsStr,
-        size: u32,
-        reply: ReplyXattr,
-    ) {
-        fuse_ops_xattr::handle_getxattr(self, _req, ino, name, size, reply)
+    fn getxattr(&self, _req: &Request, ino: INodeNo, name: &OsStr, size: u32, reply: ReplyXattr) {
+        fuse_ops_xattr::handle_getxattr(self, _req, ino.into(), name, size, reply)
     }
 
-    fn listxattr(&mut self, _req: &Request<'_>, ino: u64, size: u32, reply: ReplyXattr) {
-        fuse_ops_xattr::handle_listxattr(self, _req, ino, size, reply)
+    fn listxattr(&self, _req: &Request, ino: INodeNo, size: u32, reply: ReplyXattr) {
+        fuse_ops_xattr::handle_listxattr(self, _req, ino.into(), size, reply)
     }
 
     fn setxattr(
-        &mut self,
-        _req: &Request<'_>,
-        ino: u64,
+        &self,
+        _req: &Request,
+        ino: INodeNo,
         name: &OsStr,
         value: &[u8],
         flags: i32,
         _position: u32,
         reply: ReplyEmpty,
     ) {
-        fuse_ops_xattr::handle_setxattr(self, _req, ino, name, value, flags, _position, reply)
+        fuse_ops_xattr::handle_setxattr(
+            self,
+            _req,
+            ino.into(),
+            name,
+            value,
+            flags,
+            _position,
+            reply,
+        )
     }
 
-    fn removexattr(&mut self, _req: &Request<'_>, ino: u64, name: &OsStr, reply: ReplyEmpty) {
-        fuse_ops_xattr::handle_removexattr(self, _req, ino, name, reply)
+    fn removexattr(&self, _req: &Request, ino: INodeNo, name: &OsStr, reply: ReplyEmpty) {
+        fuse_ops_xattr::handle_removexattr(self, _req, ino.into(), name, reply)
     }
 
-    fn lookup(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        fuse_ops_dir::handle_lookup(self, _req, parent, name, reply)
+    fn lookup(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
+        fuse_ops_dir::handle_lookup(self, _req, parent.into(), name, reply)
     }
 
-    fn getattr(&mut self, _req: &Request<'_>, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
-        fuse_ops_meta::handle_getattr(self, _req, ino, _fh, reply)
+    fn getattr(&self, _req: &Request, ino: INodeNo, _fh: Option<FileHandle>, reply: ReplyAttr) {
+        fuse_ops_meta::handle_getattr(self, _req, ino.into(), _fh.map(Into::into), reply)
     }
 
     fn readdir(
-        &mut self,
-        _req: &Request<'_>,
-        ino: u64,
-        _fh: u64,
-        offset: i64,
+        &self,
+        _req: &Request,
+        ino: INodeNo,
+        _fh: FileHandle,
+        offset: u64,
         reply: ReplyDirectory,
     ) {
-        fuse_ops_dir::handle_readdir(self, _req, ino, _fh, offset, reply)
+        fuse_ops_dir::handle_readdir(self, _req, ino.into(), _fh.into(), offset, reply)
     }
 
     fn read(
-        &mut self,
-        _req: &Request<'_>,
-        ino: u64,
-        _fh: u64,
-        offset: i64,
+        &self,
+        _req: &Request,
+        ino: INodeNo,
+        _fh: FileHandle,
+        offset: u64,
         size: u32,
-        _flags: i32,
-        _lock_owner: Option<u64>,
+        _flags: OpenFlags,
+        _lock_owner: Option<LockOwner>,
         reply: ReplyData,
     ) {
         fuse_ops_file::handle_read(
             self,
             _req,
-            ino,
-            _fh,
+            ino.into(),
+            _fh.into(),
             offset,
             size,
-            _flags,
-            _lock_owner,
+            _flags.0,
+            _lock_owner.map(|owner| owner.0),
             reply,
         )
     }
 
-    fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
-        fuse_ops_file::handle_open(self, _req, ino, flags, reply)
+    fn open(&self, _req: &Request, ino: INodeNo, flags: OpenFlags, reply: ReplyOpen) {
+        fuse_ops_file::handle_open(self, _req, ino.into(), flags.0, reply)
     }
 
     fn create(
-        &mut self,
-        _req: &Request<'_>,
-        parent: u64,
+        &self,
+        _req: &Request,
+        parent: INodeNo,
         name: &OsStr,
         _mode: u32,
         _umask: u32,
         flags: i32,
         reply: ReplyCreate,
     ) {
-        fuse_ops_file::handle_create(self, _req, parent, name, _mode, _umask, flags, reply)
+        fuse_ops_file::handle_create(self, _req, parent.into(), name, _mode, _umask, flags, reply)
     }
 
     fn mknod(
-        &mut self,
-        _req: &Request<'_>,
-        parent: u64,
+        &self,
+        _req: &Request,
+        parent: INodeNo,
         name: &OsStr,
         mode: u32,
         _umask: u32,
         _rdev: u32,
         reply: ReplyEntry,
     ) {
-        fuse_ops_file::handle_mknod(self, _req, parent, name, mode, _umask, _rdev, reply)
+        fuse_ops_file::handle_mknod(self, _req, parent.into(), name, mode, _umask, _rdev, reply)
     }
 
     fn write(
-        &mut self,
-        _req: &Request<'_>,
-        ino: u64,
-        fh: u64,
-        offset: i64,
+        &self,
+        _req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        offset: u64,
         data: &[u8],
-        _write_flags: u32,
-        _flags: i32,
-        _lock_owner: Option<u64>,
+        _write_flags: WriteFlags,
+        _flags: OpenFlags,
+        _lock_owner: Option<LockOwner>,
         reply: ReplyWrite,
     ) {
         fuse_ops_file::handle_write(
             self,
             _req,
-            ino,
-            fh,
+            ino.into(),
+            fh.into(),
             offset,
             data,
-            _write_flags,
-            _flags,
-            _lock_owner,
+            _write_flags.bits(),
+            _flags.0,
+            _lock_owner.map(|owner| owner.0),
             reply,
         )
     }
 
     fn flush(
-        &mut self,
-        _req: &Request<'_>,
-        ino: u64,
-        fh: u64,
-        _lock_owner: u64,
+        &self,
+        _req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        _lock_owner: LockOwner,
         reply: ReplyEmpty,
     ) {
-        fuse_ops_file::handle_flush(self, _req, ino, fh, _lock_owner, reply)
+        fuse_ops_file::handle_flush(self, _req, ino.into(), fh.into(), _lock_owner.0, reply)
     }
 
-    fn fsync(&mut self, _req: &Request<'_>, ino: u64, fh: u64, _datasync: bool, reply: ReplyEmpty) {
-        fuse_ops_file::handle_fsync(self, _req, ino, fh, _datasync, reply)
+    fn fsync(
+        &self,
+        _req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        _datasync: bool,
+        reply: ReplyEmpty,
+    ) {
+        fuse_ops_file::handle_fsync(self, _req, ino.into(), fh.into(), _datasync, reply)
     }
 
     fn release(
-        &mut self,
-        _req: &Request<'_>,
-        ino: u64,
-        fh: u64,
-        _flags: i32,
-        _lock_owner: Option<u64>,
+        &self,
+        _req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        _flags: OpenFlags,
+        _lock_owner: Option<LockOwner>,
         _flush: bool,
         reply: ReplyEmpty,
     ) {
-        fuse_ops_file::handle_release(self, _req, ino, fh, _flags, _lock_owner, _flush, reply)
+        fuse_ops_file::handle_release(
+            self,
+            _req,
+            ino.into(),
+            fh.into(),
+            _flags.0,
+            _lock_owner.map(|owner| owner.0),
+            _flush,
+            reply,
+        )
     }
 
     fn setattr(
-        &mut self,
-        _req: &Request<'_>,
-        ino: u64,
+        &self,
+        _req: &Request,
+        ino: INodeNo,
         _mode: Option<u32>,
         _uid: Option<u32>,
         _gid: Option<u32>,
@@ -187,49 +205,66 @@ impl Filesystem for PrivyFilesystem {
         _atime: Option<fuser::TimeOrNow>,
         _mtime: Option<fuser::TimeOrNow>,
         _ctime: Option<SystemTime>,
-        fh: Option<u64>,
+        fh: Option<FileHandle>,
         _crtime: Option<SystemTime>,
         _chgtime: Option<SystemTime>,
         _bkuptime: Option<SystemTime>,
-        _flags: Option<u32>,
+        _flags: Option<BsdFileFlags>,
         reply: ReplyAttr,
     ) {
         fuse_ops_meta::handle_setattr(
-            self, _req, ino, _mode, _uid, _gid, size, _atime, _mtime, _ctime, fh, _crtime,
-            _chgtime, _bkuptime, _flags, reply,
+            self,
+            _req,
+            ino.into(),
+            _mode,
+            _uid,
+            _gid,
+            size,
+            _atime,
+            _mtime,
+            _ctime,
+            fh.map(Into::into),
+            _crtime,
+            _chgtime,
+            _bkuptime,
+            _flags.map(|flags| flags.bits()),
+            reply,
         )
     }
 
     fn mkdir(
-        &mut self,
-        _req: &Request<'_>,
-        parent: u64,
+        &self,
+        _req: &Request,
+        parent: INodeNo,
         name: &OsStr,
         _mode: u32,
         _umask: u32,
         reply: ReplyEntry,
     ) {
-        fuse_ops_dir::handle_mkdir(self, _req, parent, name, _mode, _umask, reply)
+        fuse_ops_dir::handle_mkdir(self, _req, parent.into(), name, _mode, _umask, reply)
     }
 
-    fn unlink(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        fuse_ops_dir::handle_unlink(self, _req, parent, name, reply)
+    fn unlink(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
+        fuse_ops_dir::handle_unlink(self, _req, parent.into(), name, reply)
     }
 
-    fn rmdir(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        fuse_ops_dir::handle_rmdir(self, _req, parent, name, reply)
+    fn rmdir(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
+        fuse_ops_dir::handle_rmdir(self, _req, parent.into(), name, reply)
     }
 
     fn rename(
-        &mut self,
-        _req: &Request<'_>,
-        parent: u64,
+        &self,
+        _req: &Request,
+        parent: INodeNo,
         name: &OsStr,
-        newparent: u64,
+        newparent: INodeNo,
         newname: &OsStr,
-        flags: u32,
+        flags: RenameFlags,
         reply: ReplyEmpty,
     ) {
+        let parent = u64::from(parent);
+        let newparent = u64::from(newparent);
+        let flags = flags.bits();
         let name_str = match name.to_str() {
             Some(n) => n,
             None => {
@@ -240,7 +275,7 @@ impl Filesystem for PrivyFilesystem {
                     flags,
                     "FUSE rename: early abort"
                 );
-                reply.error(libc::EINVAL);
+                reply.error(fuse_errno(libc::EINVAL));
                 return;
             }
         };
@@ -254,7 +289,7 @@ impl Filesystem for PrivyFilesystem {
                     flags,
                     "FUSE rename: early abort"
                 );
-                reply.error(libc::EINVAL);
+                reply.error(fuse_errno(libc::EINVAL));
                 return;
             }
         };

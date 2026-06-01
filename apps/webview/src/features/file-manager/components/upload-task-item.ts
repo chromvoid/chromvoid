@@ -1,6 +1,7 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html, nothing} from 'lit'
+import {css, nothing} from 'lit'
+import type {PropertyValues} from 'lit'
 
 import {i18n} from 'root/i18n'
 import {getAppContext} from 'root/shared/services/app-context'
@@ -12,11 +13,14 @@ import {
 } from 'root/shared/ui/shared-styles'
 import type {UploadTask, UploadTaskStatus} from 'root/types/upload-task'
 
+import {AnimatedTransferValueModel} from './upload-progress-animation.model'
 import {formatFileSize} from './upload-progress.model'
 
-export class UploadTaskItem extends XLitElement {
+export class UploadTaskItem extends ReatomLitElement {
   static define() {
-    customElements.define('upload-task-item', this)
+    if (!customElements.get('upload-task-item')) {
+      customElements.define('upload-task-item', this)
+    }
   }
 
   static get properties() {
@@ -28,6 +32,8 @@ export class UploadTaskItem extends XLitElement {
 
   declare task: UploadTask | null
   declare compact: boolean
+
+  private readonly progressDisplay = new AnimatedTransferValueModel()
 
   static styles = [
     sharedStyles,
@@ -50,8 +56,8 @@ export class UploadTaskItem extends XLitElement {
         max-height: 1.3em;
       }
 
-      :host([compact]) .progress-bar {
-        block-size: 4px;
+      :host([compact]) .task-progress-bar {
+        --cv-progress-height: 4px;
         margin-block-end: 6px;
       }
 
@@ -106,6 +112,10 @@ export class UploadTaskItem extends XLitElement {
           color: var(--cv-color-primary);
         }
 
+        &.queued {
+          color: var(--cv-color-text-muted);
+        }
+
         &.done {
           color: var(--cv-color-success);
         }
@@ -119,39 +129,27 @@ export class UploadTaskItem extends XLitElement {
         }
       }
 
-      .progress-bar {
-        inline-size: 100%;
-        block-size: 6px;
-        background: var(--cv-color-border);
-        border-radius: 3px;
-        overflow: hidden;
+      .task-progress-bar {
+        --cv-progress-height: 6px;
+        --cv-progress-track-color: var(--cv-color-border);
+        --cv-progress-indicator-background: var(--gradient-primary);
         margin-block-end: 8px;
       }
 
-      .progress-fill {
-        block-size: 100%;
-        inline-size: 100%;
-        border-radius: 3px;
-        transform-origin: left center;
-        will-change: transform;
-        transition: transform var(--cv-duration-fast) linear;
+      .task-progress-bar.queued {
+        --cv-progress-indicator-background: var(--cv-color-border-strong);
+      }
 
-        &.uploading {
-          background: var(--gradient-primary);
-          --motion-pulse-mid-opacity: 0.7;
-        }
+      .task-progress-bar.done {
+        --cv-progress-indicator-background: var(--cv-color-success);
+      }
 
-        &.done {
-          background: var(--cv-color-success);
-        }
+      .task-progress-bar.error {
+        --cv-progress-indicator-background: var(--cv-color-danger);
+      }
 
-        &.error {
-          background: var(--cv-color-danger);
-        }
-
-        &.paused {
-          background: var(--cv-color-warning);
-        }
+      .task-progress-bar.paused {
+        --cv-progress-indicator-background: var(--cv-color-warning);
       }
 
       .task-details {
@@ -174,7 +172,7 @@ export class UploadTaskItem extends XLitElement {
         align-items: center;
       }
 
-      .task-progress {
+      .task-progress-value {
         font-weight: 600;
         color: var(--cv-color-primary);
       }
@@ -201,18 +199,32 @@ export class UploadTaskItem extends XLitElement {
   ]
 
   private formatSpeed(bytesPerSecond: number): string {
-    return i18n('upload:speed' as any, {speed: formatFileSize(bytesPerSecond)})
+    return i18n('upload:speed', {speed: formatFileSize(bytesPerSecond)})
   }
 
   private formatTime(seconds: number): string {
-    if (seconds < 60) return i18n('upload:eta:seconds' as any, {value: String(Math.round(seconds))})
-    if (seconds < 3600) return i18n('upload:eta:minutes' as any, {value: String(Math.round(seconds / 60))})
-    return i18n('upload:eta:hours' as any, {value: String(Math.round(seconds / 3600))})
+    if (seconds < 60) return i18n('upload:eta:seconds', {value: String(Math.round(seconds))})
+    if (seconds < 3600) return i18n('upload:eta:minutes', {value: String(Math.round(seconds / 60))})
+    return i18n('upload:eta:hours', {value: String(Math.round(seconds / 3600))})
   }
 
-  private getStatusIcon(status: UploadTaskStatus, direction: UploadTask['direction']) {
-    if (status === 'uploading') return direction === 'download' ? 'download' : 'upload'
+  override willUpdate(changedProperties: PropertyValues): void {
+    super.willUpdate(changedProperties)
+    this.syncProgressDisplay()
+  }
+
+  override disconnectedCallback(): void {
+    super.disconnectedCallback()
+    this.progressDisplay.dispose()
+  }
+
+  private getStatusIcon(task: UploadTask, status: UploadTaskStatus) {
+    if (status === 'uploading') {
+      if (task.kind === 'open-external') return 'box-arrow-up-right'
+      return task.direction === 'download' ? 'download' : 'upload'
+    }
     const icons: Record<Exclude<UploadTaskStatus, 'uploading'>, string> = {
+      queued: 'clock',
       done: 'check-circle-fill',
       error: 'x-circle-fill',
       paused: 'pause-circle-fill',
@@ -220,14 +232,29 @@ export class UploadTaskItem extends XLitElement {
     return icons[status]
   }
 
-  private getStatusText(status: UploadTaskStatus, direction: UploadTask['direction']) {
+  private getStatusText(task: UploadTask, status: UploadTaskStatus) {
+    if (task.kind === 'open-external') {
+      if (status === 'uploading') {
+        return i18n('file-manager:preparing-file')
+      }
+      const texts: Record<Exclude<UploadTaskStatus, 'uploading'>, string> = {
+        queued: i18n('upload:queued'),
+        done: i18n('file-manager:opened-in-system'),
+        error: i18n('file-manager:open-failed-status'),
+        paused: i18n('upload:paused'),
+      }
+      return texts[status]
+    }
     if (status === 'uploading') {
-      return direction === 'download' ? i18n('upload:downloading' as any) : i18n('upload:uploading' as any)
+      return task.direction === 'download'
+        ? i18n('upload:downloading')
+        : i18n('upload:uploading')
     }
     const texts: Record<Exclude<UploadTaskStatus, 'uploading'>, string> = {
-      done: i18n('upload:done' as any),
-      error: i18n('upload:error' as any),
-      paused: i18n('upload:paused' as any),
+      queued: i18n('upload:queued'),
+      done: i18n('upload:done'),
+      error: i18n('upload:error'),
+      paused: i18n('upload:paused'),
     }
     return texts[status]
   }
@@ -242,60 +269,92 @@ export class UploadTaskItem extends XLitElement {
     getAppContext().store.cancelUploadTask(this.task.id)
   }
 
+  private getProgressSnapshot(task: UploadTask) {
+    const total = task.total()
+    const status = task.status()
+    const loaded = status === 'done' ? total : task.loaded()
+    const isIndeterminate = status === 'queued' || (status === 'uploading' && total <= 0)
+    const denom = total && total > 0 ? total : 1
+    const rawProgress = status === 'done' ? 100 : Math.max(0, Math.min(100, (loaded / denom) * 100))
+    const progress = status === 'done' ? 100 : Math.min(99, rawProgress)
+
+    return {total, status, loaded, isIndeterminate, rawProgress, progress}
+  }
+
+  private syncProgressDisplay() {
+    const task = this.task
+    if (!task) {
+      this.progressDisplay.reset('empty-task')
+      return
+    }
+
+    const snapshot = this.getProgressSnapshot(task)
+    this.progressDisplay.setTargets({
+      key: task.id,
+      progress: snapshot.progress,
+      loadedBytes: snapshot.loaded,
+      active: snapshot.status === 'uploading' || snapshot.status === 'done',
+      done: snapshot.status === 'done',
+    })
+  }
+
   render() {
     const t = this.task
     if (!t) return nothing
-    const total = t.total()
-    const status = t.status()
-    const direction = t.direction
-    // Если статус уже done — принудительно показываем 100% и total
-    const loaded = status === 'done' ? total : t.loaded()
-    const denom = total && total > 0 ? total : 1
-    const rawProgress = status === 'done' ? 100 : Math.max(0, Math.min(100, (loaded / denom) * 100))
-    // Не показываем 100% до подтверждения сервера: визуально ограничим 99%
-    const progress = status === 'done' ? 100 : Math.min(99, rawProgress)
+    const {total, status, loaded, isIndeterminate, rawProgress} = this.getProgressSnapshot(t)
+    const displayedProgress = status === 'done' ? 100 : this.progressDisplay.progress()
+    const displayedLoaded = status === 'done' ? total : Math.min(this.progressDisplay.loadedBytes(), loaded)
     const statusText =
-      status === 'uploading' && rawProgress >= 99
-        ? i18n('upload:finalizing' as any)
-        : this.getStatusText(status, direction)
+      t.kind === 'transfer' && status === 'uploading' && rawProgress >= 99
+        ? i18n('upload:finalizing')
+        : this.getStatusText(t, status)
 
     return html`
       <div class="upload-task">
         <div class="task-header">
           <div class="task-name" title=${t.name}>${t.name}</div>
           <div class="task-status ${status}">
-            <cv-icon name=${this.getStatusIcon(status, direction)}></cv-icon>
+            <cv-icon name=${this.getStatusIcon(t, status)}></cv-icon>
             <span>${statusText}</span>
           </div>
         </div>
 
-        <div class="progress-bar">
-          <div class="progress-fill ${status}" style="transform: scaleX(${progress / 100})"></div>
-        </div>
+        <cv-progress
+          class="task-progress-bar ${status}"
+          value=${displayedProgress}
+          ?indeterminate=${isIndeterminate}
+          aria-label=${statusText}
+        ></cv-progress>
 
         <div class="task-details">
-          <div class="task-size-row">
-            <div class="task-size">
-              <span>${formatFileSize(loaded)} / ${formatFileSize(total)}</span>
-            </div>
-            <div class="task-progress">${Math.round(progress)}%</div>
-          </div>
+          ${isIndeterminate
+            ? nothing
+            : html`
+                <div class="task-size-row">
+                  <div class="task-size">
+                    <span>${formatFileSize(displayedLoaded)} / ${formatFileSize(total)}</span>
+                  </div>
+                  <div class="task-progress-value">${Math.round(displayedProgress)}%</div>
+                </div>
+              `}
           <div class="task-meta">
             <div class="task-meta-info">
-              ${t.speed() ? html`<span>${this.formatSpeed(t.speed())}</span>` : nothing}
-              ${t.eta() && status === 'uploading'
-                ? html`<span>${i18n('upload:remaining' as any, {time: this.formatTime(t.eta())})}</span>`
+              ${t.kind === 'transfer' && t.speed()
+                ? html`<span>${this.formatSpeed(t.speed())}</span>`
+                : nothing}
+              ${t.kind === 'transfer' && t.eta() && status === 'uploading'
+                ? html`<span>${i18n('upload:remaining', {time: this.formatTime(t.eta())})}</span>`
                 : nothing}
             </div>
             <div class="task-meta-actions">
-              ${status === 'error'
+              ${t.kind === 'transfer' && status === 'error'
                 ? html`<cv-button size="small" variant="ghost" @click=${this.onRetryClick}
-                    >${i18n('button:retry' as any)}</cv-button
+                    >${i18n('button:retry')}</cv-button
                   >`
                 : nothing}
-              ${status !== 'done'
+              ${t.kind === 'transfer' && status !== 'done'
                 ? html`<cv-button size="small" variant="ghost" @click=${this.onCancelClick}
-                    >${i18n('button:cancel' as any)}</cv-button
+                    >${i18n('button:cancel')}</cv-button
                   >`
                 : nothing}
             </div>

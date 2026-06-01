@@ -25,6 +25,10 @@
     "ja": "タイトル",
     "vi": "Tiêu đề"
   },
+  "title:placeholder": {
+    "en": "Enter title",
+    "ru": "Введите название"
+  },
   "title_or_url": {
     "en": "Title or website",
     "ru": "Название или вебсайт",
@@ -160,8 +164,8 @@
     "vi": "Chỉnh sửa"
   },
   "entry:search": {
-    "en": "Search entry",
-    "ru": "Поиск записи",
+    "en": "Search credentials, cards, groups, and sites",
+    "ru": "Поиск по паролям, картам, группам и сайтам",
     "uk": "Пошук запису",
     "es": "Buscar entrada",
     "tr": "Giriş ara",
@@ -171,6 +175,19 @@
     "zh": "搜索条目",
     "ja": "エントリを検索",
     "vi": "Tìm mục"
+  },
+  "entry:mobile_search": {
+    "en": "Search entries and logins",
+    "ru": "Поиск по записям и логинам",
+    "uk": "Пошук за записами та логінами",
+    "es": "Buscar entradas e inicios de sesión",
+    "tr": "Kayıtlarda ve kullanıcı adlarında ara",
+    "fr": "Rechercher des entrées et identifiants",
+    "it": "Cerca voci e accessi",
+    "id": "Cari entri dan login",
+    "zh": "搜索条目和登录名",
+    "ja": "エントリとログインを検索",
+    "vi": "Tìm mục và thông tin đăng nhập"
   },
   "quick:recent": {
     "en": "Recent",
@@ -184,6 +201,82 @@
     "en": "No password",
     "ru": "Без пароля"
   },
+  "quick:ssh": {
+    "en": "SSH",
+    "ru": "SSH"
+  },
+  "quick:card": {
+    "en": "Cards",
+    "ru": "Карты"
+  },
+  "tags:title": {
+    "en": "Tags",
+    "ru": "Теги"
+  },
+  "tags:filter_placeholder": {
+    "en": "Search tags",
+    "ru": "Поиск тегов"
+  },
+  "tags:clear_filters": {
+    "en": "Clear tag filters",
+    "ru": "Сбросить теги"
+  },
+  "tags:filter_sheet_title": {
+    "en": "Filter by tags",
+    "ru": "Фильтр по тегам"
+  },
+  "tags:all": {
+    "en": "All",
+    "ru": "Все"
+  },
+  "tags:all_tags": {
+    "en": "All tags",
+    "ru": "Все теги"
+  },
+  "tags:filter_open": {
+    "en": "Open tag filters",
+    "ru": "Открыть фильтр по тегам"
+  },
+  "tags:filter_add_chip": {
+    "en": "tag",
+    "ru": "тег"
+  },
+  "tags:add_filter": {
+    "en": "Filter by ${tag}",
+    "ru": "Фильтровать по тегу ${tag}"
+  },
+  "tags:remove_filter": {
+    "en": "Remove ${tag} tag filter",
+    "ru": "Убрать фильтр по тегу ${tag}"
+  },
+  "tags:empty_filter": {
+    "en": "No tags found",
+    "ru": "Теги не найдены"
+  },
+  "tags:existing_placeholder": {
+    "en": "Find existing tag",
+    "ru": "Найти тег"
+  },
+  "tags:add": {
+    "en": "Add tag",
+    "ru": "Добавить тег"
+  },
+  "tags:new_placeholder": {
+    "en": "New tag",
+    "ru": "Новый тег"
+  },
+  "tags:placeholder": {
+    "en": "Add tags",
+    "ru": "Добавить теги"
+  },
+  "tags:empty": {
+    "en": "No tags",
+    "ru": "Нет тегов"
+  },
+  "tags:too_long": {
+    "en": "Tag is too long",
+    "ru": "Тег слишком длинный"
+  },
   "entry:files": {
     "en": "Files",
     "ru": "Файлы",
@@ -196,6 +289,42 @@
     "zh": "文件",
     "ja": "ファイル",
     "vi": "Tập tin"
+  },
+  "entry:type": {
+    "en": "Entry type",
+    "ru": "Тип записи"
+  },
+  "entry:type:login": {
+    "en": "Login",
+    "ru": "Логин"
+  },
+  "entry:type:payment_card": {
+    "en": "Payment card",
+    "ru": "Платёжная карта"
+  },
+  "entry:create-login-title": {
+    "en": "Create login",
+    "ru": "Создать логин"
+  },
+  "entry:create-card-title": {
+    "en": "Create card",
+    "ru": "Создать карту"
+  },
+  "entry:create-login-subtitle": {
+    "en": "Save website credentials",
+    "ru": "Сохраните учётные данные сайта"
+  },
+  "entry:create-card-subtitle": {
+    "en": "Save payment details",
+    "ru": "Сохраните платёжные данные"
+  },
+  "entry:details": {
+    "en": "Details",
+    "ru": "Детали"
+  },
+  "entry:creating": {
+    "en": "Creating...",
+    "ru": "Создаём..."
   },
   "createNedCard": {
     "en": "Create card",
@@ -405,6 +534,46 @@
     "ja": "OTPを追加",
     "vi": "Thêm OTP"
   },
+  "otp:qr:scan": {
+    "en": "Scan QR",
+    "ru": "Сканировать QR"
+  },
+  "otp:qr:helper": {
+    "en": "Fastest setup path",
+    "ru": "Самый быстрый способ"
+  },
+  "otp:manual_divider": {
+    "en": "or enter the key manually",
+    "ru": "или введите ключ вручную"
+  },
+  "otp:qr:scanning": {
+    "en": "Scanning...",
+    "ru": "Сканирование..."
+  },
+  "otp:qr:choose_image": {
+    "en": "Choose image",
+    "ru": "Выбрать изображение"
+  },
+  "otp:qr:error:camera_unavailable": {
+    "en": "Camera is unavailable. Choose an image with a QR code.",
+    "ru": "Камера недоступна. Выберите изображение с QR-кодом."
+  },
+  "otp:qr:error:permission": {
+    "en": "Camera permission is denied. Choose an image with a QR code.",
+    "ru": "Доступ к камере запрещён. Выберите изображение с QR-кодом."
+  },
+  "otp:qr:error:not_found": {
+    "en": "No QR code found in the image.",
+    "ru": "QR-код на изображении не найден."
+  },
+  "otp:qr:error:invalid": {
+    "en": "This QR code does not contain a valid OTP setup link.",
+    "ru": "Этот QR-код не содержит корректную ссылку настройки OTP."
+  },
+  "otp:qr:error:missing_secret": {
+    "en": "This OTP QR code does not contain a secret key.",
+    "ru": "В этом OTP QR-коде нет секретного ключа."
+  },
   "otp:save": {
     "en": "Save OTP",
     "ru": "Сохранить OTP",
@@ -443,6 +612,86 @@
     "zh": "删除",
     "ja": "削除",
     "vi": "Xóa"
+  },
+  "otp:quick_view:title": {
+    "en": "OTP codes",
+    "ru": "OTP коды"
+  },
+  "otp:quick_view:support": {
+    "en": "Live codes from saved login entries.",
+    "ru": "Актуальные коды из сохранённых login-записей."
+  },
+  "otp:quick_view:open": {
+    "en": "Open entry",
+    "ru": "Открыть запись"
+  },
+  "otp:quick_view:from_entry": {
+    "en": "OTP codes",
+    "ru": "OTP коды"
+  },
+  "otp:quick_view:search": {
+    "en": "Search OTP codes",
+    "ru": "Искать OTP коды"
+  },
+  "otp:quick_view:filter:all": {
+    "en": "All",
+    "ru": "Все"
+  },
+  "otp:quick_view:filter:totp": {
+    "en": "TOTP",
+    "ru": "TOTP"
+  },
+  "otp:quick_view:filter:hotp": {
+    "en": "HOTP",
+    "ru": "HOTP"
+  },
+  "otp:quick_view:summary:total": {
+    "en": "Total",
+    "ru": "Всего"
+  },
+  "otp:quick_view:summary:visible": {
+    "en": "Visible",
+    "ru": "Показано"
+  },
+  "otp:quick_view:summary:totp": {
+    "en": "TOTP",
+    "ru": "TOTP"
+  },
+  "otp:quick_view:summary:hotp": {
+    "en": "HOTP",
+    "ru": "HOTP"
+  },
+  "otp:quick_view:empty:title": {
+    "en": "No saved OTP codes",
+    "ru": "Нет сохранённых OTP кодов"
+  },
+  "otp:quick_view:empty:description": {
+    "en": "Add an OTP to a login entry and it will appear here.",
+    "ru": "Добавьте OTP к login-записи, и он появится здесь."
+  },
+  "otp:quick_view:empty_filtered:title": {
+    "en": "No matching OTP codes",
+    "ru": "Нет подходящих OTP кодов"
+  },
+  "otp:quick_view:empty_filtered:description": {
+    "en": "Adjust search to show more codes.",
+    "ru": "Измените поиск, чтобы увидеть больше кодов."
+  },
+  "otp:quick_view:unavailable:title": {
+    "en": "Credentials unavailable",
+    "ru": "Пароли недоступны"
+  },
+  "otp:quick_view:unavailable:description": {
+    "en": "Open Credentials after the vault finishes loading.",
+    "ru": "Откройте Пароли после загрузки vault."
+  },
+  "otp:quick_view:clear_filters": {
+    "en": "Clear filters",
+    "ru": "Сбросить фильтры"
+  },
+  "otp:quick_view:entry_group": {
+    "en": "Group",
+    "ru": "Группа"
   },
   "otp:remove:ask:title": {
     "en": "Remove OTP?",
@@ -980,6 +1229,14 @@
     "ja": "グループを作成",
     "vi": "Tạo nhóm"
   },
+  "group:create:mobile-title": {
+    "en": "New group",
+    "ru": "Новая группа"
+  },
+  "group:create:mobile-subtitle": {
+    "en": "Create a group to organize entries",
+    "ru": "Создайте группу для удобной организации элементов"
+  },
   "group:name": {
     "en": "Name",
     "ru": "Название",
@@ -993,6 +1250,10 @@
     "ja": "名前",
     "vi": "Tên"
   },
+  "group:name:label": {
+    "en": "Group name",
+    "ru": "Название группы"
+  },
   "group:name:placeholder": {
     "en": "Enter a name for the group",
     "ru": "Введите название для группы",
@@ -1005,6 +1266,48 @@
     "zh": "输入群组名称",
     "ja": "グループ名を入力",
     "vi": "Nhập tên cho nhóm"
+  },
+  "group:name:placeholder:example": {
+    "en": "For example, project team",
+    "ru": "Например, команда проекта"
+  },
+  "group:description": {
+    "en": "Description",
+    "ru": "Описание",
+    "uk": "Опис",
+    "es": "Descripción",
+    "tr": "Açıklama",
+    "fr": "Description",
+    "it": "Descrizione",
+    "id": "Deskripsi",
+    "zh": "描述",
+    "ja": "説明",
+    "vi": "Mô tả"
+  },
+  "group:description:placeholder": {
+    "en": "Enter a description for the group",
+    "ru": "Введите описание для группы",
+    "uk": "Введіть опис для групи",
+    "es": "Introduzca una descripción para el grupo",
+    "tr": "Grup için bir açıklama girin",
+    "fr": "Entrez une description pour le groupe",
+    "it": "Inserisci una descrizione per il gruppo",
+    "id": "Masukkan deskripsi untuk grup",
+    "zh": "输入群组描述",
+    "ja": "グループの説明を入力",
+    "vi": "Nhập mô tả cho nhóm"
+  },
+  "group:description:placeholder:short": {
+    "en": "Briefly describe what this group is for",
+    "ru": "Кратко опишите назначение группы"
+  },
+  "group:icon:hint": {
+    "en": "An icon helps you find this group faster",
+    "ru": "Иконка поможет быстрее находить группу"
+  },
+  "group:access:hint": {
+    "en": "The group is available only inside the current vault",
+    "ru": "Группа будет доступна только внутри текущего хранилища"
   },
   "import:error:title": {
     "en": "Import error",
@@ -1164,9 +1467,17 @@
     "en": "Recent destinations",
     "ru": "Недавние группы"
   },
-  "root:title": {
+  "dialog:move:root_label": {
     "en": "Root",
-    "ru": "Корень",
+    "ru": "Корень"
+  },
+  "dialog:move:root_subtitle": {
+    "en": "/",
+    "ru": "/"
+  },
+  "root:title": {
+    "en": "Credentials",
+    "ru": "Пароли",
     "uk": "Корінь",
     "es": "Raíz",
     "tr": "Koşuk",
@@ -1257,9 +1568,17 @@
     "en": "Sort by",
     "ru": "Сортировать по"
   },
+  "sort-by-short": {
+    "en": "Sort",
+    "ru": "Сортировать"
+  },
   "group-by": {
     "en": "Group by",
     "ru": "Группировать по"
+  },
+  "group-by-short": {
+    "en": "Group",
+    "ru": "Группировать"
   },
   "sort:name": {
     "en": "Name",
@@ -1268,6 +1587,10 @@
   "sort:username": {
     "en": "Username",
     "ru": "Имя пользователя"
+  },
+  "sort:username-short": {
+    "en": "Login",
+    "ru": "Логин"
   },
   "sort:modified": {
     "en": "Modified",
@@ -1285,6 +1608,10 @@
     "en": "No grouping",
     "ru": "Без группировки"
   },
+  "group:none-short": {
+    "en": "None",
+    "ru": "Нет"
+  },
   "group:folder": {
     "en": "By folder",
     "ru": "По папкам"
@@ -1293,13 +1620,25 @@
     "en": "By website",
     "ru": "По сайтам"
   },
+  "group:website-short": {
+    "en": "Websites",
+    "ru": "Сайты"
+  },
   "group:modified": {
     "en": "By modification date",
     "ru": "По дате изменения"
   },
+  "group:modified-short": {
+    "en": "Modified",
+    "ru": "Изменение"
+  },
   "group:security": {
     "en": "By security level",
     "ru": "По уровню безопасности"
+  },
+  "group:security-short": {
+    "en": "Security",
+    "ru": "Безопасность"
   },
   "modified": {
     "en": "Modified",
@@ -1354,8 +1693,28 @@
     "ru": "Индикатор силы пароля"
   },
   "password:strength": {
-    "en": "Strength: {0}",
-    "ru": "Сила: {0}"
+    "en": "Strength: ${label}",
+    "ru": "Сила: ${label}"
+  },
+  "password:strength:very_weak": {
+    "en": "Very weak",
+    "ru": "Очень слабый"
+  },
+  "password:strength:weak": {
+    "en": "Weak",
+    "ru": "Слабый"
+  },
+  "password:strength:medium": {
+    "en": "Medium",
+    "ru": "Средний"
+  },
+  "password:strength:good": {
+    "en": "Good",
+    "ru": "Хороший"
+  },
+  "password:strength:strong": {
+    "en": "Strong",
+    "ru": "Сильный"
   },
   "password:strength_progress": {
     "en": "Password strength progress: {0}%",
@@ -1368,6 +1727,14 @@
   "button:copy-password": {
     "en": "Copy password",
     "ru": "Копировать пароль"
+  },
+  "entry:quick_action_open_website": {
+    "en": "Open website",
+    "ru": "Открыть сайт"
+  },
+  "entry:edit_entry": {
+    "en": "Edit entry",
+    "ru": "Редактировать запись"
   },
   "button:more_actions": {
     "en": "More actions",
@@ -1414,8 +1781,152 @@
     "ru": "Тип OTP"
   },
   "otp:preset": {
-    "en": "Preset",
-    "ru": "Пресет"
+    "en": "Provider preset",
+    "ru": "Пресет провайдера"
+  },
+  "otp:preset:helper": {
+    "en": "Applies common settings for the selected provider",
+    "ru": "Применяет настройки выбранного провайдера"
+  },
+  "otp:secret:helper": {
+    "en": "Paste the setup key or scan a QR code",
+    "ru": "Вставьте ключ настройки или отсканируйте QR-код"
+  },
+  "otp:secret:placeholder": {
+    "en": "Paste setup key",
+    "ru": "Вставьте ключ"
+  },
+  "otp:secret:paste": {
+    "en": "Paste",
+    "ru": "Вставить"
+  },
+  "otp:secret:valid": {
+    "en": "Key looks correct",
+    "ru": "Ключ выглядит корректно"
+  },
+  "otp:secret:error:base32_chars": {
+    "en": "Key can contain only A-Z and digits 2-7",
+    "ru": "Ключ должен содержать только буквы A–Z и цифры 2–7"
+  },
+  "otp:secret:error:invalid": {
+    "en": "This key cannot be used for OTP",
+    "ru": "Этот ключ не подходит для OTP"
+  },
+  "otp:advanced": {
+    "en": "Advanced settings",
+    "ru": "Расширенные настройки"
+  },
+  "otp:description": {
+    "en": "Add one-time password generation",
+    "ru": "Добавить генерацию одноразового кода"
+  },
+  "otp:display_as": {
+    "en": "Display as",
+    "ru": "Отображать как"
+  },
+  "otp:preview": {
+    "en": "Preview",
+    "ru": "Предпросмотр"
+  },
+  "otp:preview:seconds": {
+    "en": "${seconds} sec",
+    "ru": "${seconds} сек"
+  },
+  "otp:configured": {
+    "en": "OTP configured",
+    "ru": "OTP настроен"
+  },
+  "otp:sheet:description": {
+    "en": "One-time codes for ${title}",
+    "ru": "Одноразовые коды для ${title}"
+  },
+  "ssh:description": {
+    "en": "Store or generate an SSH key",
+    "ru": "Сохраните или сгенерируйте SSH-ключ"
+  },
+  "ssh:sheet:description:entry": {
+    "en": "New key for ${title}",
+    "ru": "Новый ключ для ${title}"
+  },
+  "ssh:sheet:description:create": {
+    "en": "Key will be generated when ${title} is created",
+    "ru": "Ключ будет создан при сохранении ${title}"
+  },
+  "ssh:name": {
+    "en": "Name",
+    "ru": "Название"
+  },
+  "ssh:name:default": {
+    "en": "SSH key",
+    "ru": "SSH-ключ"
+  },
+  "ssh:name:placeholder": {
+    "en": "OpenAI SSH",
+    "ru": "OpenAI SSH"
+  },
+  "ssh:error:name_required": {
+    "en": "Enter a key name",
+    "ru": "Введите название ключа"
+  },
+  "ssh:comment:public_key": {
+    "en": "Public key comment",
+    "ru": "Комментарий public key"
+  },
+  "ssh:comment:helper": {
+    "en": "Used to recognize this key at the end of the public key",
+    "ru": "Используется для узнаваемости ключа"
+  },
+  "ssh:advanced": {
+    "en": "Advanced settings",
+    "ru": "Дополнительные настройки"
+  },
+  "ssh:key_type:recommended": {
+    "en": "Recommended",
+    "ru": "Рекомендуется"
+  },
+  "ssh:key_type:ed25519:description": {
+    "en": "Modern and fast key for most cases",
+    "ru": "Современный и быстрый ключ"
+  },
+  "ssh:key_type:rsa:description": {
+    "en": "For older servers and compatibility",
+    "ru": "Для старых серверов и совместимости"
+  },
+  "ssh:key_type:ecdsa:description": {
+    "en": "For specific SSH configurations",
+    "ru": "Для специфичных конфигураций"
+  },
+  "ssh:configured:on_create": {
+    "en": "${type} · will generate on create",
+    "ru": "${type} · будет создан при сохранении"
+  },
+  "ssh:result": {
+    "en": "SSH key result",
+    "ru": "Результат SSH-ключа"
+  },
+  "ssh:result:title": {
+    "en": "SSH key created",
+    "ru": "SSH-ключ создан"
+  },
+  "ssh:result:description": {
+    "en": "Private key saved in encrypted storage",
+    "ru": "Приватный ключ сохранён в зашифрованном хранилище"
+  },
+  "ssh:result:pending": {
+    "en": "Pending generation",
+    "ru": "Ожидает генерации"
+  },
+  "note:use": {
+    "en": "Notes",
+    "ru": "Заметки"
+  },
+  "note:description": {
+    "en": "Add a note for this entry",
+    "ru": "Добавьте заметку к записи"
+  },
+  "optional:title": {
+    "en": "Optional",
+    "ru": "Опционально"
   },
   "otp:type:totp": {
     "en": "TOTP (Time-based)",
@@ -1436,6 +1947,14 @@
   "button:copy-otp": {
     "en": "Copy OTP code",
     "ru": "Скопировать OTP код"
+  },
+  "otp:tap_to_copy": {
+    "en": "Tap to copy",
+    "ru": "Нажмите, чтобы скопировать"
+  },
+  "otp:seconds_short": {
+    "en": "SEC",
+    "ru": "СЕК"
   },
   "error:required": {
     "en": "This field is required",
@@ -1458,7 +1977,7 @@
     "ru": "Метка слишком длинная (макс. 64 символа)"
   },
   "import:dialog:title": {
-    "en": "Import Passwords",
+    "en": "Import Credentials",
     "ru": "Импорт паролей"
   },
   "import:dialog:drop_zone": {
@@ -1613,17 +2132,21 @@
     "en": "Generate SSH Key",
     "ru": "Сгенерировать SSH ключ"
   },
+  "ssh:add": {
+    "en": "Add SSH Key",
+    "ru": "Добавить SSH ключ"
+  },
   "ssh:remove": {
-    "en": "Remove SSH Keys",
-    "ru": "Удалить SSH ключи"
+    "en": "Remove SSH Key",
+    "ru": "Удалить SSH ключ"
   },
   "ssh:remove:confirm:title": {
-    "en": "Remove SSH Keys?",
-    "ru": "Удалить SSH ключи?"
+    "en": "Remove SSH Key?",
+    "ru": "Удалить SSH ключ?"
   },
   "ssh:remove:confirm:text": {
-    "en": "Private and public keys will be permanently deleted from this entry.",
-    "ru": "Приватный и публичный ключи будут безвозвратно удалены из этой записи."
+    "en": "The selected private and public key will be permanently deleted from this entry.",
+    "ru": "Выбранные приватный и публичный ключ будут безвозвратно удалены из этой записи."
   },
   "ssh:key_type:ed25519": {
     "en": "Ed25519",
@@ -1661,6 +2184,74 @@
     "en": "Copy SSH public key",
     "ru": "Скопировать публичный SSH ключ"
   },
+  "payment-card:stored-card": {
+    "en": "Stored card",
+    "ru": "Сохранённая карта"
+  },
+  "payment-card:untitled": {
+    "en": "Untitled card",
+    "ru": "Карта без названия"
+  },
+  "payment-card:number": {
+    "en": "Card number",
+    "ru": "Номер карты"
+  },
+  "payment-card:cardholder": {
+    "en": "Cardholder",
+    "ru": "Держатель карты"
+  },
+  "payment-card:cardholder-placeholder": {
+    "en": "CARD HOLDER",
+    "ru": "ДЕРЖАТЕЛЬ КАРТЫ"
+  },
+  "payment-card:expires": {
+    "en": "Expires",
+    "ru": "Срок действия"
+  },
+  "payment-card:exp-month": {
+    "en": "Exp. month",
+    "ru": "Месяц"
+  },
+  "payment-card:exp-year": {
+    "en": "Exp. year",
+    "ru": "Год"
+  },
+  "payment-card:error-cardholder-required": {
+    "en": "Cardholder name is required",
+    "ru": "Укажите держателя карты"
+  },
+  "payment-card:error-number-required": {
+    "en": "Card number is required",
+    "ru": "Укажите номер карты"
+  },
+  "payment-card:error-exp-month": {
+    "en": "Expiry month must be between 1 and 12",
+    "ru": "Месяц должен быть от 1 до 12"
+  },
+  "payment-card:error-exp-year": {
+    "en": "Expiry year is invalid",
+    "ru": "Некорректный год"
+  },
+  "payment-card:error-save-number": {
+    "en": "Failed to save card number",
+    "ru": "Не удалось сохранить номер карты"
+  },
+  "payment-card:error-save-cvv": {
+    "en": "Failed to save card CVV",
+    "ru": "Не удалось сохранить CVV карты"
+  },
+  "payment-card:copy-cardholder": {
+    "en": "Cardholder",
+    "ru": "Держатель карты"
+  },
+  "payment-card:copy-number": {
+    "en": "Card number",
+    "ru": "Номер карты"
+  },
+  "payment-card:copy-expiry": {
+    "en": "Expiry",
+    "ru": "Срок действия"
+  },
   "button:back": {
     "en": "Back",
     "ru": "Назад"
@@ -1681,6 +2272,10 @@
     "en": "Reset",
     "ru": "Сбросить"
   },
+  "button:done": {
+    "en": "Done",
+    "ru": "Готово"
+  },
   "button:show_filters": {
     "en": "Show filters",
     "ru": "Показать фильтры"
@@ -1688,6 +2283,14 @@
   "button:hide_filters": {
     "en": "Hide filters",
     "ru": "Скрыть фильтры"
+  },
+  "filters:title": {
+    "en": "Filters",
+    "ru": "Фильтры"
+  },
+  "sort-group:title": {
+    "en": "Sort and group",
+    "ru": "Сортировка и группировка"
   },
   "button:expand_group": {
     "en": "Expand group",
@@ -1705,6 +2308,10 @@
     "en": "Filters and sorting",
     "ru": "Фильтры и сортировка"
   },
+  "details:selected": {
+    "en": "Selected",
+    "ru": "Выбрано"
+  },
   "loading": {
     "en": "Loading",
     "ru": "Загрузка"
@@ -1721,9 +2328,25 @@
     "en": "Loading icons...",
     "ru": "Загрузка иконок..."
   },
+  "icon:upload:preparing": {
+    "en": "Preparing icon...",
+    "ru": "Подготовка иконки..."
+  },
+  "icon:upload:uploading": {
+    "en": "Uploading icon...",
+    "ru": "Загрузка иконки..."
+  },
+  "icon:upload:refreshing": {
+    "en": "Updating saved icons...",
+    "ru": "Обновление сохранённых иконок..."
+  },
   "icon:choose": {
     "en": "Choose",
     "ru": "Выбрать"
+  },
+  "icon:choose-image": {
+    "en": "Choose image",
+    "ru": "Выбрать изображение"
   },
   "icon:empty": {
     "en": "No saved icons yet",
@@ -1741,17 +2364,57 @@
     "en": "Parent group: ${parent}",
     "ru": "Родительская группа: ${parent}"
   },
+  "group:scope-root": {
+    "en": "Vault root",
+    "ru": "Корень хранилища"
+  },
+  "group:scope-parent": {
+    "en": "Parent / ${parent}",
+    "ru": "Родитель / ${parent}"
+  },
+  "group:scope-top-level": {
+    "en": "Top-level group",
+    "ru": "Группа верхнего уровня"
+  },
+  "group:support-root": {
+    "en": "Visible folders and entries across the current vault scope.",
+    "ru": "Видимые папки и записи в текущей области хранилища."
+  },
+  "group:support-branch": {
+    "en": "Direct children and entries inside the selected branch.",
+    "ru": "Прямые дочерние элементы и записи выбранной ветки."
+  },
+  "group:support-group": {
+    "en": "Direct children and entries inside this group.",
+    "ru": "Прямые дочерние элементы и записи этой группы."
+  },
+  "root:title-short": {
+    "en": "Root",
+    "ru": "Корень"
+  },
   "sort:direction": {
     "en": "Direction",
     "ru": "Направление"
+  },
+  "sort:order": {
+    "en": "Order",
+    "ru": "Порядок"
   },
   "sort:direction:asc": {
     "en": "Ascending",
     "ru": "По возрастанию"
   },
+  "sort:direction:asc-short": {
+    "en": "Ascending",
+    "ru": "Возрастание"
+  },
   "sort:direction:desc": {
     "en": "Descending",
     "ru": "По убыванию"
+  },
+  "sort:direction:desc-short": {
+    "en": "Descending",
+    "ru": "Убывание"
   },
   "entry:no_info": {
     "en": "No info",
@@ -1785,9 +2448,97 @@
     "en": "Encrypted",
     "ru": "Зашифровано"
   },
+  "entry:badges": {
+    "en": "Entry attributes",
+    "ru": "Атрибуты записи"
+  },
+  "entry:badge:otp": {
+    "en": "OTP",
+    "ru": "OTP"
+  },
+  "entry:badge:ssh": {
+    "en": "SSH",
+    "ru": "SSH"
+  },
+  "entry:badge:card": {
+    "en": "Card",
+    "ru": "Карта"
+  },
+  "entry:badge:tag": {
+    "en": "Tag",
+    "ru": "Тег"
+  },
+  "entry:badge:overflow_label": {
+    "en": "${count} more badges",
+    "ru": "Ещё бейджей: ${count}"
+  },
+  "entry:badge:reused_password": {
+    "en": "Reused",
+    "ru": "Повторяется"
+  },
+  "entry:badge:weak_password": {
+    "en": "Weak password",
+    "ru": "Слабый пароль"
+  },
   "entry:badge:two_factor": {
     "en": "2FA",
     "ru": "2FA"
+  },
+  "entry:badge:two_factor_enabled": {
+    "en": "2FA enabled",
+    "ru": "2FA включена"
+  },
+  "metrics:title": {
+    "en": "Group metrics",
+    "ru": "Метрики группы"
+  },
+  "metrics:entries": {
+    "en": "records",
+    "ru": "записей"
+  },
+  "metrics:entry_one": {
+    "en": "record",
+    "ru": "запись"
+  },
+  "metrics:reused_passwords": {
+    "en": "reused",
+    "ru": "повторяются"
+  },
+  "metrics:weak_passwords": {
+    "en": "weak",
+    "ru": "слабые"
+  },
+  "metrics:two_factor": {
+    "en": "2FA",
+    "ru": "2FA"
+  },
+  "metrics:otp": {
+    "en": "OTP",
+    "ru": "OTP"
+  },
+  "metrics:ssh": {
+    "en": "SSH",
+    "ru": "SSH"
+  },
+  "metrics:cards": {
+    "en": "cards",
+    "ru": "карт"
+  },
+  "metrics:loading": {
+    "en": "Loading",
+    "ru": "Загрузка"
+  },
+  "metrics:degraded": {
+    "en": "Some secure values could not be checked",
+    "ru": "Часть защищённых значений не удалось проверить"
+  },
+  "group:risk:reused_passwords": {
+    "en": "${count} reused passwords",
+    "ru": "Повторяющихся паролей: ${count}"
+  },
+  "group:risk:weak_passwords": {
+    "en": "${count} weak passwords",
+    "ru": "Слабых паролей: ${count}"
   },
   "file:no_file": {
     "en": "No file",
@@ -1844,6 +2595,18 @@
   "error:title_required": {
     "en": "Title is required",
     "ru": "Название обязательно"
+  },
+  "error:valid_website_required": {
+    "en": "Enter a valid website",
+    "ru": "Введите корректный сайт"
+  },
+  "error:username_or_website_required": {
+    "en": "Username or website is required",
+    "ru": "Укажите имя пользователя или сайт"
+  },
+  "error:password_required": {
+    "en": "Password is required",
+    "ru": "Пароль обязателен"
   },
   "error:invalid_url_rule": {
     "en": "Invalid value: \"${invalid}\". Examples: google.com, www.google.com, https://google.com or a regex pattern.",

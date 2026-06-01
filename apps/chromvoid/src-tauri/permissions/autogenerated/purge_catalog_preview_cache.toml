@@ -1,0 +1,9 @@
+[[permission]]
+identifier = "allow-purge-catalog-preview-cache"
+description = "Enables the purge_catalog_preview_cache command without any pre-configured scope."
+commands.allow = ["purge_catalog_preview_cache"]
+
+[[permission]]
+identifier = "deny-purge-catalog-preview-cache"
+description = "Denies the purge_catalog_preview_cache command without any pre-configured scope."
+commands.deny = ["purge_catalog_preview_cache"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vault-rekey"
+description = "Enables the vault_rekey command without any pre-configured scope."
+commands.allow = ["vault_rekey"]
+
+[[permission]]
+identifier = "deny-vault-rekey"
+description = "Denies the vault_rekey command without any pre-configured scope."
+commands.deny = ["vault_rekey"]

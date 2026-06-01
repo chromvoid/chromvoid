@@ -1,9 +1,8 @@
 import type {OTPGetParams} from '../service/types'
 
-/**
- * Порт для работы с OTP и секретами записей PassManager.
- * Изолирует детали каталога/транспорта от слоя UI.
- */
+/**Port to work with OTP and PassManager record secrets
+Isolates catalog/transport details from the UI layer.
+*/
 export interface OTPSecretsGateway {
   getOTP(data: OTPGetParams): Promise<string | undefined>
   getOTPSeckey(id: string): Promise<string | undefined>

@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use tauri::Emitter;
+use tracing::warn;
 
 use crate::types::*;
 use crate::volume_manager::{self, FuseDriverStatus, VolumeState};
@@ -89,33 +90,32 @@ pub(crate) fn volume_status_from_vm(vm: &volume_manager::VolumeManager) -> Volum
     }
 }
 
-pub(crate) fn volume_take_backend_on_vault_lock(
+fn volume_take_backend_on_vault_lock(
     app: &tauri::AppHandle,
     vm: &Arc<Mutex<volume_manager::VolumeManager>>,
-) -> Option<volume_manager::VolumeBackendHandle> {
+) -> Option<(
+    Arc<volume_manager::VolumeBackendJoinRuntimeState>,
+    volume_manager::VolumeBackendHandle,
+)> {
     match vm.lock() {
         Ok(mut vm) => {
             let _ = vm.notify_locked();
             let st = volume_status_from_vm(&vm);
             let _ = app.emit("volume:status", &st);
-            vm.take_backend()
+            let runtime = vm.backend_join_runtime();
+            vm.take_backend().map(|backend| (runtime, backend))
         }
         Err(_) => None,
     }
 }
 
-pub(crate) fn volume_spawn_join_backend(handle: volume_manager::VolumeBackendHandle) {
-    tauri::async_runtime::spawn(async move {
-        let fuse_staging_dir = handle.fuse_staging_dir();
-        if tokio::time::timeout(Duration::from_secs(3), handle.join())
-            .await
-            .is_err()
-        {
-            if let Some(dir) = fuse_staging_dir {
-                let _ = std::fs::remove_dir_all(dir);
-            }
-        }
-    });
+pub(crate) fn volume_schedule_backend_join(
+    runtime: Arc<volume_manager::VolumeBackendJoinRuntimeState>,
+    handle: volume_manager::VolumeBackendHandle,
+) -> Result<(), String> {
+    runtime
+        .spawn_join_backend(handle, volume_manager::VOLUME_BACKGROUND_JOIN_TIMEOUT)
+        .map(|_| ())
 }
 
 pub(crate) fn perform_volume_teardown(
@@ -123,9 +123,11 @@ pub(crate) fn perform_volume_teardown(
     vm: &Arc<Mutex<volume_manager::VolumeManager>>,
 ) {
     let backend = volume_take_backend_on_vault_lock(app, vm);
-    if let Some(mut h) = backend {
+    if let Some((runtime, mut h)) = backend {
         h.shutdown();
-        volume_spawn_join_backend(h);
+        if let Err(error) = volume_schedule_backend_join(runtime, h) {
+            warn!("volume: failed to schedule backend join after vault lock: {error}");
+        }
     }
 }
 

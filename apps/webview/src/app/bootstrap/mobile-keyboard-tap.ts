@@ -1,4 +1,19 @@
 import type {Store} from '../state/store'
+import {
+  applyMobileKeyboardVisibilityPayload,
+  setupAndroidKeyboardInsetsEventListener,
+  type MobileKeyboardVisibilityPayload,
+} from './mobile-keyboard-insets'
+import {subscribeToSignalChanges} from '../../shared/services/subscribed-signal'
+
+export {
+  applyMobileKeyboardInsetsPayload,
+  applyMobileKeyboardVisibilityPayload,
+  getMobileKeyboardPayloadBottomInset,
+  setupAndroidKeyboardInsetsEventListener,
+  type MobileKeyboardInsetsPayload,
+  type MobileKeyboardVisibilityPayload,
+} from './mobile-keyboard-insets'
 
 /**
  * Workaround for mobile keyboards swallowing taps on action elements.
@@ -9,11 +24,13 @@ import type {Store} from '../state/store'
  * synthetic `.click()` when the trusted click never arrives.
  */
 export const setupMobileKeyboardTapWorkaround = (store: Store) => {
+  setupAndroidKeyboardInsetsEventListener(document.documentElement)
+
   import('root/core/transport/tauri/ipc')
     .then(({tauriInvoke, tauriListen}) => {
       // --- keyboard visibility attribute ---
-      tauriListen<{visible: boolean}>('keyboard:visibility-changed', (payload) => {
-        document.documentElement.toggleAttribute('data-mobile-keyboard-expanded', payload.visible)
+      tauriListen<MobileKeyboardVisibilityPayload>('keyboard:visibility-changed', (payload) => {
+        applyMobileKeyboardVisibilityPayload(document.documentElement, payload)
       }).catch(() => {})
 
       // --- action target resolution ---
@@ -173,7 +190,7 @@ export const setupMobileKeyboardTapWorkaround = (store: Store) => {
         tauriInvoke('setup_native_gestures').catch(() => {})
       }
       tryNativeSetup()
-      store.isMobile.subscribe(tryNativeSetup)
+      subscribeToSignalChanges(store.isMobile, tryNativeSetup)
     })
     .catch(() => {})
 }

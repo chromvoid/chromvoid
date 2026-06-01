@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-catalog-save-image-to-gallery"
+description = "Enables the catalog_save_image_to_gallery command without any pre-configured scope."
+commands.allow = ["catalog_save_image_to_gallery"]
+
+[[permission]]
+identifier = "deny-catalog-save-image-to-gallery"
+description = "Denies the catalog_save_image_to_gallery command without any pre-configured scope."
+commands.deny = ["catalog_save_image_to_gallery"]

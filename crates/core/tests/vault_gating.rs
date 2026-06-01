@@ -17,9 +17,7 @@ fn test_vault_gating_for_catalog_commands() {
         "catalog:rename",
         "catalog:delete",
         "catalog:move",
-        "catalog:prepareUpload",
-        "catalog:sync:init",
-        "catalog:sync:delta",
+        "catalog:sync:manifest",
         "catalog:shard:list",
         "catalog:shard:load",
         "catalog:sync:shard",
@@ -44,13 +42,15 @@ fn test_vault_gating_for_catalog_commands() {
     );
     match router.handle_with_stream(&upload, Some(RpcInputStream::from_bytes(vec![0u8]))) {
         RpcReply::Json(r) => assert_rpc_error(&r, "VAULT_REQUIRED"),
-        RpcReply::Stream(_) => panic!("catalog:upload must return JSON response"),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:upload must return JSON response")
+        }
     }
 
     let download = RpcRequest::new("catalog:download", serde_json::json!({"node_id": 1}));
     match router.handle_with_stream(&download, None) {
         RpcReply::Json(r) => assert_rpc_error(&r, "VAULT_REQUIRED"),
-        RpcReply::Stream(_) => panic!("expected JSON error response"),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => panic!("expected JSON error response"),
     }
 
     let secret_write = RpcRequest::new(
@@ -59,13 +59,15 @@ fn test_vault_gating_for_catalog_commands() {
     );
     match router.handle_with_stream(&secret_write, Some(RpcInputStream::from_bytes(vec![0u8]))) {
         RpcReply::Json(r) => assert_rpc_error(&r, "VAULT_REQUIRED"),
-        RpcReply::Stream(_) => panic!("catalog:secret:write must return JSON response"),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:secret:write must return JSON response")
+        }
     }
 
     let secret_read = RpcRequest::new("catalog:secret:read", serde_json::json!({"node_id": 1}));
     match router.handle_with_stream(&secret_read, None) {
         RpcReply::Json(r) => assert_rpc_error(&r, "VAULT_REQUIRED"),
-        RpcReply::Stream(_) => panic!("expected JSON error response"),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => panic!("expected JSON error response"),
     }
 }
 

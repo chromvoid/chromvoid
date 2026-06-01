@@ -1,7 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
-import {state} from '@statx/core'
 
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
+import {atom} from '@reatom/core'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 
 const tauriInvoke = vi.fn()
@@ -13,7 +13,7 @@ vi.mock('root/core/transport/tauri/ipc', () => {
   }
 })
 
-describe('WelcomeModel remote entry', () => {
+describe('WelcomeSetupModel remote entry', () => {
   beforeEach(() => {
     tauriInvoke.mockReset()
     clearAppContext()
@@ -70,7 +70,7 @@ describe('WelcomeModel remote entry', () => {
       createMockAppContext({
         store: {
           pushNotification,
-          remoteSessionState: state<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive'),
+          remoteSessionState: atom<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive'),
         } as never,
         state: {
           data: () => stateData,
@@ -80,11 +80,11 @@ describe('WelcomeModel remote entry', () => {
     )
 
     const mod = await import('../../src/routes/welcome/welcome.model')
-    const model = new mod.WelcomeModel()
+    const model = new mod.WelcomeSetupModel()
     model.onSelectRemoteMode()
     await Promise.resolve()
 
-    expect(model.setupStep()).toBe('remote-connect')
+    expect(model.effectiveStep()).toBe('remote-connect')
     expect(pushNotification).not.toHaveBeenCalled()
   })
 
@@ -105,7 +105,7 @@ describe('WelcomeModel remote entry', () => {
       createMockAppContext({
         store: {
           pushNotification,
-          remoteSessionState: state<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive'),
+          remoteSessionState: atom<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive'),
         } as never,
         state: {
           data: () => stateData,
@@ -115,10 +115,10 @@ describe('WelcomeModel remote entry', () => {
     )
 
     const mod = await import('../../src/routes/welcome/welcome.model')
-    const model = new mod.WelcomeModel()
+    const model = new mod.WelcomeSetupModel()
     model.onSelectRemoteMode()
 
-    expect(model.setupStep()).toBe(null)
+    expect(model.effectiveStep()).toBe('mode-select')
     expect(pushNotification).toHaveBeenCalledWith('info', 'Remote mode is not available on this device')
   })
 })

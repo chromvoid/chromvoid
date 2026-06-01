@@ -79,14 +79,32 @@ pub fn blob_chunk_name(vault_key: &[u8; KEY_SIZE], node_id: u32, part_index: u32
 }
 
 pub const ROOT_INDEX_CONTEXT: &[u8] = b"catalog:root";
+pub const CATALOG_COMMIT_CONTEXT: &[u8] = b"catalog:commit";
 
 pub fn root_index_chunk_name(vault_key: &[u8; KEY_SIZE], index: u32) -> String {
     chunk_name(vault_key, ROOT_INDEX_CONTEXT, index)
 }
 
+pub fn catalog_commit_chunk_name(vault_key: &[u8; KEY_SIZE]) -> String {
+    chunk_name(vault_key, CATALOG_COMMIT_CONTEXT, 0)
+}
+
 pub fn shard_chunk_name(vault_key: &[u8; KEY_SIZE], shard_id: &str, index: u32) -> String {
     let context = format!("shard:{}", shard_id);
     chunk_name(vault_key, context.as_bytes(), index)
+}
+
+pub fn shard_snapshot_chunk_name(
+    vault_key: &[u8; KEY_SIZE],
+    shard_id: &str,
+    snapshot_seq: u64,
+) -> String {
+    if snapshot_seq == 0 {
+        return shard_chunk_name(vault_key, shard_id, 0);
+    }
+
+    let context = format!("shard:{}", shard_id);
+    chunk_name_u64(vault_key, context.as_bytes(), snapshot_seq)
 }
 
 pub fn delta_chunk_name(vault_key: &[u8; KEY_SIZE], shard_id: &str, sequence: u64) -> String {
@@ -100,6 +118,40 @@ pub const OTP_CONTEXT: &[u8] = b"otp";
 pub fn otp_chunk_name(vault_key: &[u8; KEY_SIZE], node_id: u64) -> String {
     let context = [OTP_CONTEXT, &node_id.to_le_bytes()].concat();
     chunk_name(vault_key, &context, 0)
+}
+
+pub fn derivative_chunk_name(
+    vault_key: &[u8; KEY_SIZE],
+    node_id: u64,
+    source_version: u64,
+    tier: &str,
+    version: u32,
+    part_index: u32,
+) -> String {
+    let context = format!("derivative:{node_id}:{source_version}:{tier}:{version}");
+    chunk_name(vault_key, context.as_bytes(), part_index)
+}
+
+pub fn derivative_meta_chunk_name(
+    vault_key: &[u8; KEY_SIZE],
+    node_id: u64,
+    source_version: u64,
+    tier: &str,
+    version: u32,
+) -> String {
+    let context = format!("derivative-meta:{node_id}:{source_version}:{tier}:{version}");
+    chunk_name(vault_key, context.as_bytes(), 0)
+}
+
+pub const DERIVATIVE_INDEX_CONTEXT: &[u8] = b"derivative-index";
+pub const DERIVATIVE_WRITE_TX_CONTEXT: &[u8] = b"derivative-write-tx";
+
+pub fn derivative_index_chunk_name(vault_key: &[u8; KEY_SIZE]) -> String {
+    chunk_name(vault_key, DERIVATIVE_INDEX_CONTEXT, 0)
+}
+
+pub fn derivative_write_tx_marker_name(vault_key: &[u8; KEY_SIZE]) -> String {
+    chunk_name(vault_key, DERIVATIVE_WRITE_TX_CONTEXT, 0)
 }
 
 #[cfg(test)]

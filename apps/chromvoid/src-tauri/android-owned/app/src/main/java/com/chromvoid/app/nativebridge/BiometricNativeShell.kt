@@ -1,18 +1,12 @@
 package com.chromvoid.app.nativebridge
 
 import android.content.Context
-import android.util.Log
 import com.chromvoid.app.security.AppGateBiometricBridgeController
+import com.chromvoid.app.shared.NativeBridgeTaskDispatcher
+import com.chromvoid.app.shared.NativeRuntimeLoader
 
 internal object BiometricNativeShell {
     private const val TAG = "ChromVoid/Biometric"
-
-    init {
-        runCatching { System.loadLibrary("chromvoid_lib") }
-            .onFailure { error ->
-                Log.w(TAG, "Native biometric library is not available in this process", error)
-            }
-    }
 
     @JvmStatic
     fun biometricPromptAvailable(context: Context): Int {
@@ -26,18 +20,33 @@ internal object BiometricNativeShell {
             callbacks =
                 object : AppGateBiometricBridgeController.NativeCallbacks {
                     override fun onAuthSuccess() {
-                        nativeOnAuthSuccess()
+                        dispatchNativeCallback("biometric.auth_success") {
+                            nativeOnAuthSuccess()
+                        }
                     }
 
                     override fun onAuthCancelled() {
-                        nativeOnAuthCancelled()
+                        dispatchNativeCallback("biometric.auth_cancelled") {
+                            nativeOnAuthCancelled()
+                        }
                     }
 
                     override fun onAuthError(errorCode: Int) {
-                        nativeOnAuthError(errorCode)
+                        dispatchNativeCallback("biometric.auth_error") {
+                            nativeOnAuthError(errorCode)
+                        }
                     }
                 },
         )
+    }
+
+    private fun dispatchNativeCallback(
+        owner: String,
+        callback: () -> Unit,
+    ) {
+        NativeBridgeTaskDispatcher.execute(owner) {
+            NativeRuntimeLoader.runWhenLoaded(TAG, callback)
+        }
     }
 
     @JvmStatic

@@ -1,17 +1,41 @@
-import {Entry} from '@project/passmanager'
-import type {CatalogService} from '../../core/catalog/catalog'
+import {Entry} from '@project/passmanager/core'
+import type {PassmanagerBackend} from '../../core/state/passmanager'
 import type {TransportLike} from '../../core/transport/transport'
+import {
+  getPassmanagerRoot,
+  getPassmanagerShowElement,
+  getPassmanagerShowElementSignal,
+} from '../../features/passmanager/models/pm-root.adapter'
+import {writeAndroidUnlockDebug} from '../../shared/services/android-unlock-debug'
+import {subscribeToSignalChanges, type SubscribedSignal} from '../../shared/services/subscribed-signal'
+import {navigationModel} from '../navigation/navigation.model'
 import type {Store} from '../state/store'
 
 /**
- * Debounced PassManager reload triggered by catalog mirror changes
- * and remote push updates. Defers reload while an entry detail view is open.
+ * Debounced PassManager reload triggered by dedicated passmanager backend
+ * changes and remote push updates. Defers reload while an entry detail view
+ * is open.
  */
-export const setupPassmanagerReload = (ws: TransportLike, store: Store, catalog: CatalogService) => {
+const configuredBackends = new WeakSet<object>()
+
+export const setupPassmanagerReload = (ws: TransportLike, store: Store, backend: PassmanagerBackend) => {
+  if (configuredBackends.has(backend as object)) return
+  configuredBackends.add(backend as object)
+
   let inFlight = false
   let pending = false
-  let showElementSubscribed = false
+  let showElementSource: SubscribedSignal<unknown> | undefined
+  let showElementUnsubscribe: (() => void) | undefined
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
+  let lastRevision = ''
+  let revisionInFlight = false
+
+  void backend
+    .getRevision()
+    .then((revision) => {
+      lastRevision = revision
+    })
+    .catch(() => {})
 
   const isEntryView = (value: unknown): boolean => {
     if (value instanceof Entry) return true
@@ -22,17 +46,33 @@ export const setupPassmanagerReload = (ws: TransportLike, store: Store, catalog:
 
   const shouldDefer = () => {
     try {
-      return isEntryView(window.passmanager?.showElement?.())
+      return isEntryView(getPassmanagerShowElement())
+    } catch {
+      return false
+    }
+  }
+
+  const isPasswordsSurfaceActive = () => {
+    try {
+      if (navigationModel.isConnected()) {
+        return navigationModel.currentSurface() === 'passwords'
+      }
+      return store.isShowPasswordManager() === true
     } catch {
       return false
     }
   }
 
   const run = () => {
-    if (!window.passmanager) return
+    const root = getPassmanagerRoot()
+    if (!root) return
 
-    if (inFlight || shouldDefer()) {
-      console.info('[debug][pm] runPassmanagerReload: deferred (inFlight=%s deferred=%s)', inFlight, shouldDefer())
+    if (!isPasswordsSurfaceActive() || inFlight || shouldDefer()) {
+      writeAndroidUnlockDebug('passmanager-reload', 'deferred', {
+        surface: isPasswordsSurfaceActive(),
+        inFlight,
+        deferred: shouldDefer(),
+      })
       pending = true
       return
     }
@@ -40,15 +80,20 @@ export const setupPassmanagerReload = (ws: TransportLike, store: Store, catalog:
     inFlight = true
     pending = false
     const t0 = performance.now()
-    console.info('[debug][pm] runPassmanagerReload: start')
+    writeAndroidUnlockDebug('passmanager-reload', 'load:start')
 
-    void window.passmanager
+    void root
       .load()
       .then(() => {
-        console.info('[debug][pm] runPassmanagerReload: done dt_ms=%d', Math.round(performance.now() - t0))
+        writeAndroidUnlockDebug('passmanager-reload', 'load:done', {
+          dt_ms: Math.round(performance.now() - t0),
+        })
       })
       .catch((err) => {
-        console.warn('[debug][pm] runPassmanagerReload: error dt_ms=%d error=%s', Math.round(performance.now() - t0), err)
+        writeAndroidUnlockDebug('passmanager-reload', 'load:error', {
+          dt_ms: Math.round(performance.now() - t0),
+          error: err instanceof Error ? err.message : String(err),
+        })
       })
       .finally(() => {
         inFlight = false
@@ -60,15 +105,18 @@ export const setupPassmanagerReload = (ws: TransportLike, store: Store, catalog:
   }
 
   const ensureShowElementSubscription = () => {
-    if (showElementSubscribed) return
-    const showElement = window.passmanager?.showElement
-    if (!showElement || typeof showElement.subscribe !== 'function') return
+    const showElement = getPassmanagerShowElementSignal() as SubscribedSignal<unknown> | undefined
+    if (showElement === showElementSource) return
 
-    showElement.subscribe(() => {
+    showElementUnsubscribe?.()
+    showElementUnsubscribe = undefined
+    showElementSource = showElement
+    if (typeof showElement !== 'function') return
+
+    showElementUnsubscribe = subscribeToSignalChanges(showElement, () => {
       if (!pending || shouldDefer()) return
       run()
     })
-    showElementSubscribed = true
   }
 
   const scheduleReload = () => {
@@ -81,19 +129,34 @@ export const setupPassmanagerReload = (ws: TransportLike, store: Store, catalog:
     }, 150)
   }
 
-  // Remote push updates trigger reload via update:state
-  ws.on('update:state', () => {
-    if (store.remoteSessionState() !== 'ready') return
+  const refreshRevisionAndSchedule = () => {
+    if (revisionInFlight) return
+    revisionInFlight = true
+    void backend
+      .getRevision()
+      .then((nextRevision) => {
+        if (nextRevision === lastRevision) return
+        lastRevision = nextRevision
+        scheduleReload()
+      })
+      .catch(() => {})
+      .finally(() => {
+        revisionInFlight = false
+      })
+  }
+
+  ws.on('passmanager:changed', () => {
     scheduleReload()
   })
 
-  // Catalog mirror changes
-  let changeCount = 0
-  catalog.catalog.subscribe(() => {
-    changeCount++
-    if (changeCount <= 20 || changeCount % 50 === 0) {
-      console.info('[debug][pm] catalog.mirror changed (#%d) -> reloadPassManager', changeCount)
-    }
+  // Remote pushes may not emit dedicated passmanager change events in all runtimes.
+  ws.on('update:state', () => {
+    if (store.remoteSessionState() !== 'ready') return
+    refreshRevisionAndSchedule()
+  })
+
+  subscribeToSignalChanges(navigationModel.currentSurface, () => {
+    if (!pending || !isPasswordsSurfaceActive()) return
     scheduleReload()
   })
 }

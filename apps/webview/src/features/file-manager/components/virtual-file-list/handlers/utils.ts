@@ -1,12 +1,9 @@
 import type {FileListItem} from 'root/shared/contracts/file-manager'
+import {FILE_ITEM_HOST_WITH_DATA_ID_SELECTOR} from '../item-host-selectors'
 import type {VirtualFileListHandlerContext, VirtualFileListPointerState, VirtualFileListSelectionState} from './types'
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => {
   return typeof value === 'object' && value != null
-}
-
-const hasNumericId = (value: unknown): value is {id: number} => {
-  return isPlainObject(value) && typeof value['id'] === 'number'
 }
 
 const hasFileListItemShape = (value: unknown): value is FileListItem => {
@@ -59,7 +56,7 @@ export const getFocusedItemId = (event?: Event): number | null => {
   const path = event?.composedPath?.() ?? []
   for (const el of path) {
     if (!(el instanceof HTMLElement)) continue
-    if (el.matches?.('file-item[data-id], .file-item-wrapper[data-id]')) {
+    if (el.matches?.(FILE_ITEM_HOST_WITH_DATA_ID_SELECTOR)) {
       const raw = el.getAttribute('data-id')
       const id = raw ? Number(raw) : NaN
       if (!Number.isNaN(id)) return id
@@ -72,7 +69,7 @@ export const getFocusedItemId = (event?: Event): number | null => {
   }
 
   if (active instanceof HTMLElement) {
-    const host = active.closest?.('file-item[data-id], .file-item-wrapper[data-id]') as HTMLElement | null
+    const host = active.closest?.(FILE_ITEM_HOST_WITH_DATA_ID_SELECTOR) as HTMLElement | null
     const raw = host?.getAttribute('data-id')
     const id = raw ? Number(raw) : NaN
     if (!Number.isNaN(id)) return id

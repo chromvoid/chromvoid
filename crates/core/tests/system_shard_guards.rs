@@ -2,6 +2,7 @@ mod test_helpers;
 
 use chromvoid_core::rpc::commands::set_bypass_system_shard_guards;
 use chromvoid_core::rpc::types::RpcRequest;
+use chromvoid_core::rpc::{RpcInputStream, RpcReply};
 use test_helpers::*;
 
 #[test]
@@ -19,6 +20,15 @@ fn test_list_wallet_denied() {
     unlock_vault(&mut router, "pw");
 
     let resp = list_dir(&mut router, "/.wallet");
+    assert_rpc_error(&resp, "ACCESS_DENIED");
+}
+
+#[test]
+fn test_list_passkeys_denied() {
+    let (mut router, _td) = create_test_router();
+    unlock_vault(&mut router, "pw");
+
+    let resp = list_dir(&mut router, "/.passkeys");
     assert_rpc_error(&resp, "ACCESS_DENIED");
 }
 
@@ -42,6 +52,7 @@ fn test_list_root_filters_system_shards() {
     let names = get_item_names(&get_items(&resp));
     assert!(!names.contains(&".passmanager".to_string()));
     assert!(!names.contains(&".wallet".to_string()));
+    assert!(!names.contains(&".passkeys".to_string()));
 }
 
 #[test]
@@ -73,12 +84,22 @@ fn test_create_dir_inside_wallet_denied() {
 }
 
 #[test]
+fn test_create_dir_inside_passkeys_denied() {
+    let (mut router, _td) = create_test_router();
+    unlock_vault(&mut router, "pw");
+
+    let resp = create_dir_at(&mut router, "/.passkeys", "github");
+    assert_rpc_error(&resp, "ACCESS_DENIED");
+}
+
+#[test]
 fn test_create_system_shard_root_denied() {
     let (mut router, _td) = create_test_router();
     unlock_vault(&mut router, "pw");
 
     assert_rpc_error(&create_dir(&mut router, ".passmanager"), "ACCESS_DENIED");
     assert_rpc_error(&create_dir(&mut router, ".wallet"), "ACCESS_DENIED");
+    assert_rpc_error(&create_dir(&mut router, ".passkeys"), "ACCESS_DENIED");
 }
 
 #[test]
@@ -90,27 +111,58 @@ fn test_create_dir_user_shard_allowed() {
 }
 
 #[test]
-fn test_prepare_upload_in_passmanager_denied() {
+fn test_upload_create_in_passmanager_denied() {
     let (mut router, _td) = create_test_router();
     unlock_vault(&mut router, "pw");
 
-    let resp = router.handle(&RpcRequest::new(
-        "catalog:prepareUpload",
-        serde_json::json!({"name": "file.txt", "size": 10, "parent_path": "/.passmanager"}),
-    ));
+    let resp = upload_create_response(&mut router, "/.passmanager", "file.txt", 10);
     assert_rpc_error(&resp, "ACCESS_DENIED");
 }
 
 #[test]
-fn test_prepare_upload_in_wallet_denied() {
+fn test_upload_create_in_wallet_denied() {
     let (mut router, _td) = create_test_router();
     unlock_vault(&mut router, "pw");
 
-    let resp = router.handle(&RpcRequest::new(
-        "catalog:prepareUpload",
-        serde_json::json!({"name": "key.dat", "size": 32, "parent_path": "/.wallet"}),
-    ));
+    let resp = upload_create_response(&mut router, "/.wallet", "key.dat", 32);
     assert_rpc_error(&resp, "ACCESS_DENIED");
+    assert_eq!(resp.error_message(), Some("Access denied"));
+}
+
+#[test]
+fn test_upload_create_in_passkeys_denied() {
+    let (mut router, _td) = create_test_router();
+    unlock_vault(&mut router, "pw");
+
+    let resp = upload_create_response(&mut router, "/.passkeys", "credential.json", 64);
+    assert_rpc_error(&resp, "ACCESS_DENIED");
+    assert_eq!(resp.error_message(), Some("Access denied"));
+}
+
+fn upload_create_response(
+    router: &mut chromvoid_core::rpc::RpcRouter,
+    parent_path: &str,
+    name: &str,
+    size: u64,
+) -> chromvoid_core::rpc::types::RpcResponse {
+    match router.handle_with_stream(
+        &RpcRequest::new(
+            "catalog:upload",
+            serde_json::json!({
+                "parent_path": parent_path,
+                "name": name,
+                "total_size": size,
+                "size": size,
+                "offset": 0,
+            }),
+        ),
+        Some(RpcInputStream::from_bytes(vec![0; size as usize])),
+    ) {
+        RpcReply::Json(response) => response,
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:upload must return JSON response")
+        }
+    }
 }
 
 fn get_system_shard_node_id(router: &mut chromvoid_core::rpc::RpcRouter) -> Option<u64> {
@@ -190,6 +242,7 @@ fn test_download_system_node_denied() {
         serde_json::json!({"node_id": nid}),
     ));
     assert_rpc_error(&resp, "ACCESS_DENIED");
+    assert_eq!(resp.error_message(), Some("Access denied"));
 }
 
 #[test]

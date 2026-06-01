@@ -1,4 +1,5 @@
 export * from './password-manager-layout-base'
+export * from './password-manager-desktop-toolbar'
 export * from './password-manager-desktop-layout'
 export * from './password-manager-mobile-layout'
 export * from './password-manager-layout.model'

@@ -1,5 +1,5 @@
 import {PasswordManagerElement} from './components/main'
-import type {ManagerSaver} from '@project/passmanager'
+import type {ManagerSaver} from '@project/passmanager/types'
 
 export {PasswordManagerElement, type ManagerSaver}
 

@@ -1,57 +1,89 @@
-import {XLitElement} from '@statx/lit'
+import {nothing} from 'lit'
+import {keyed} from 'lit/directives/keyed.js'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {html, nothing} from 'lit'
-
-import {i18n} from '@project/passmanager'
-import type {OTP} from '@project/passmanager'
+import type {OTP} from '@project/passmanager/core'
+import {i18n} from '@project/passmanager/i18n'
 import {PMEntryTOTPItemModel} from './pm-entry-totp-item.model'
 
-/**
- * TOTP (Time-based One-Time Password) компонент
- *
- * Особенности:
- * - Автоматическое обновление кода каждые N секунд
- * - SVG arc timer с круговым прогрессом
- * - Сегментированные ячейки для цифр с shimmer-анимацией
- * - Цветовая индикация оставшегося времени (зелёный → жёлтый → красный)
- * - Urgency pulse при <=20% оставшегося времени
- */
-export class PMEntryTOTPItemBase extends XLitElement {
+/**TOTP (Time-based One-Time Password)
+*
+* Features:
+Automatically update the code every N seconds
+SVG arc timer with circular progression
+Segmented cells for numbers with shimmer animation
+* - Color indication of the remaining time (green → yellow → red)
+* - Urgency pulse at <=20% of remaining time
+*/
+export class PMEntryTOTPItemBase extends ReatomLitElement {
   protected readonly model = new PMEntryTOTPItemModel()
 
-  constructor() {
-    super()
-    this.copyOtpValue = this.copyOtpValue.bind(this)
-  }
-
   get otp(): OTP | undefined {
-    return this.model.otp()
+    return this.model.state.otp()
   }
 
   set otp(value: OTP | undefined) {
-    this.model.setOtp(value)
+    this.model.actions.setOtp(value)
   }
 
   connectedCallback(): void {
     super.connectedCallback()
-    this.model.connect()
+    this.model.actions.connect()
   }
 
   disconnectedCallback(): void {
-    this.model.disconnect()
+    this.model.actions.disconnect()
     super.disconnectedCallback()
   }
 
-  protected onCodeClick(): void {
-    this.model.toggleCode()
+  protected onCopyCode(event: Event): void {
+    if (this.isOtpActionEvent(event)) {
+      return
+    }
+
+    void this.model.actions.copyCode()
   }
 
-  protected copyOtpValue(): Promise<string> {
-    return this.model.loadCodeForCopy()
+  protected onCopyKeyDown(event: KeyboardEvent): void {
+    if (this.isOtpActionEvent(event)) {
+      return
+    }
+
+    if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') {
+      return
+    }
+
+    event.preventDefault()
+    void this.model.actions.copyCode()
+  }
+
+  protected renderDigitGroups(groups: readonly (readonly string[])[], codeText: string) {
+    return groups.map(
+      (group, index) => html`
+        <span class="totp-digit-group" data-group=${index}>
+          ${group.map((digit, digitIndex) =>
+            keyed(
+              `${codeText}:${index}:${digitIndex}:${digit}`,
+              html`<span class="totp-digit motion-number-pop__digit">${digit}</span>`,
+            ),
+          )}
+        </span>
+      `,
+    )
+  }
+
+  private isOtpActionEvent(event: Event): boolean {
+    return event.composedPath().some((target) => {
+      if (target instanceof HTMLSlotElement) {
+        return target.name === 'otp-action'
+      }
+
+      return target instanceof Element && target.getAttribute('slot') === 'otp-action'
+    })
   }
 
   render() {
-    const view = this.model.getViewState()
+    const view = this.model.state.view()
     if (!view) {
       return nothing
     }
@@ -60,57 +92,41 @@ export class PMEntryTOTPItemBase extends XLitElement {
     this.style.setProperty('--totp-color-soft', view.lightColor)
     this.style.setProperty('--arc-offset', String(view.arcOffset))
     const label = view.label || i18n('otp:item')
+    const feedbackLabel = view.copyFeedback === 'copied' ? i18n('button:copied') : i18n('otp:tap_to_copy')
 
     return html`
       <div
         class="totp-card"
-        role="group"
-        aria-label=${`${i18n('otp:totp_short')} ${label}`}
+        role="button"
+        tabindex="0"
+        aria-label=${i18n('button:copy-otp')}
+        @click=${this.onCopyCode}
+        @keydown=${this.onCopyKeyDown}
         ?data-urgent=${view.isUrgent}
       >
-        <div class="totp-header">
-          <span class="totp-label">
-            <cv-icon name="shield-check" aria-hidden="true"></cv-icon>
-            <span class="totp-label-text">${label}</span>
+        <div class="totp-main">
+          <span class="totp-label">${label}</span>
+          <div class="totp-code" aria-live="polite">
+            ${view.digitGroups.length > 0
+              ? this.renderDigitGroups(view.digitGroups, view.codeText)
+              : html`<span class="totp-code-placeholder">${i18n('loading')}</span>`}
+          </div>
+          <span class="totp-feedback" aria-live="polite">
+            ${keyed(view.copyFeedback, html`<span class="motion-text-swap">${feedbackLabel}</span>`)}
           </span>
         </div>
-
-        <div class="totp-content">
-          <div
-            class="totp-digits"
-            ?data-hidden=${!view.isVisible}
-            @click=${this.onCodeClick}
-            tabindex="-1"
-            role="button"
-            aria-label=${view.isVisible ? i18n('button:hide') : i18n('button:show')}
-          >
-            <div class="totp-digit-group">
-              ${view.firstHalf.map((digit) => html`<span class="totp-digit">${digit}</span>`)}
-            </div>
-            <div class="totp-digit-group">
-              ${view.secondHalf.map((digit) => html`<span class="totp-digit">${digit}</span>`)}
-            </div>
-          </div>
-
-          <div class="totp-arc-timer">
-            <svg viewBox="0 0 44 44" aria-hidden="true">
-              <circle class="arc-track" cx="22" cy="22" r="16" />
-              <circle class="arc-indicator" cx="22" cy="22" r="16" />
-            </svg>
-            <span class="arc-value">${view.leftSeconds}</span>
-          </div>
-
-          <div class="totp-actions">
-            <cv-copy-button .value=${this.copyOtpValue} aria-label=${i18n('button:copy')}></cv-copy-button>
-            <cv-button
-              size="small"
-              variant="ghost"
-              @click=${this.onCodeClick}
-              aria-label=${view.isVisible ? i18n('button:hide') : i18n('button:show')}
-            >
-              <cv-icon name=${view.isVisible ? 'eye-off' : 'eye'} aria-hidden="true"></cv-icon>
-            </cv-button>
-          </div>
+        <div class="totp-arc-timer" aria-label=${`${view.leftSeconds} ${i18n('otp:seconds_short')}`}>
+          <svg viewBox="0 0 44 44" aria-hidden="true">
+            <circle class="arc-track" cx="22" cy="22" r="17.5" />
+            <circle class="arc-indicator" cx="22" cy="22" r="17.5" />
+          </svg>
+          <span class="arc-value">
+            <span class="arc-seconds">${view.leftSeconds}</span>
+            <span class="arc-unit">${i18n('otp:seconds_short')}</span>
+          </span>
+        </div>
+        <div class="totp-actions">
+          <slot name="otp-action"></slot>
         </div>
       </div>
     `

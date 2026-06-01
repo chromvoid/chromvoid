@@ -1,6 +1,8 @@
 #![cfg_attr(not(target_os = "android"), allow(dead_code))]
 
 use crate::mobile::BiometricAuthError;
+use std::sync::Mutex;
+use tokio::sync::oneshot;
 
 pub const AUTH_STATE_SUCCESS: i32 = 0;
 pub const AUTH_STATE_DENIED: i32 = 1;
@@ -23,6 +25,81 @@ const BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED: i32 = 15;
 const BIOMETRIC_INTERNAL_NO_ACTIVITY: i32 = -1001;
 const BIOMETRIC_INTERNAL_PROMPT_IN_PROGRESS: i32 = -1002;
 const BIOMETRIC_INTERNAL_PROMPT_EXCEPTION: i32 = -1003;
+
+struct PendingAuth {
+    tx: oneshot::Sender<Result<(), BiometricAuthError>>,
+}
+
+pub(crate) struct AndroidBiometricRuntimeState {
+    pending_auth: Mutex<Option<PendingAuth>>,
+}
+
+impl AndroidBiometricRuntimeState {
+    pub(crate) fn new() -> Self {
+        Self {
+            pending_auth: Mutex::new(None),
+        }
+    }
+
+    pub(crate) fn start(
+        &self,
+        tx: oneshot::Sender<Result<(), BiometricAuthError>>,
+    ) -> Result<(), BiometricAuthError> {
+        let mut guard = self
+            .pending_auth
+            .lock()
+            .map_err(|_| BiometricAuthError::internal("Biometric bridge state is unavailable"))?;
+        *guard = Some(PendingAuth { tx });
+        Ok(())
+    }
+
+    pub(crate) fn clear(&self) -> Result<(), BiometricAuthError> {
+        let mut guard = self
+            .pending_auth
+            .lock()
+            .map_err(|_| BiometricAuthError::internal("Biometric bridge state is unavailable"))?;
+        *guard = None;
+        Ok(())
+    }
+
+    pub(crate) fn complete(&self, state: i32, error_code: i32) -> bool {
+        let sender = match self.pending_auth.lock() {
+            Ok(mut guard) => guard.take().map(|pending| pending.tx),
+            Err(_) => None,
+        };
+
+        if let Some(tx) = sender {
+            let _ = tx.send(map_prompt_result(state, error_code));
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl Default for AndroidBiometricRuntimeState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod runtime_tests {
+    use super::*;
+
+    #[test]
+    fn runtime_instances_do_not_share_pending_auth() {
+        let first = AndroidBiometricRuntimeState::new();
+        let second = AndroidBiometricRuntimeState::new();
+        let (tx, rx) = oneshot::channel();
+
+        first.start(tx).expect("start");
+
+        assert!(!second.complete(AUTH_STATE_SUCCESS, 0));
+        assert!(first.complete(AUTH_STATE_SUCCESS, 0));
+        assert!(rx.blocking_recv().expect("result").is_ok());
+    }
+}
 
 pub fn map_android_error_code(error_code: i32) -> BiometricAuthError {
     match error_code {

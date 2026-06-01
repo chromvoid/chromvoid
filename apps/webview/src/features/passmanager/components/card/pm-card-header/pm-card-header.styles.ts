@@ -41,8 +41,18 @@ export const pmCardHeaderDesktopStyles = [
         position: absolute;
         inset-block-start: 0;
         inset-inline: 0;
-        block-size: 3px;
-        background: var(--cv-header-accent, var(--cv-color-primary));
+        block-size: 2px;
+        background: var(--cv-gradient-brand);
+        background-size: 200% 100%;
+      }
+
+      &::after {
+        content: '';
+        position: absolute;
+        inset-block-end: 0;
+        inset-inline: var(--cv-space-6);
+        block-size: 1px;
+        background: var(--cv-gradient-divider-subtle);
       }
     }
 
@@ -53,6 +63,7 @@ export const pmCardHeaderDesktopStyles = [
       flex-shrink: 0;
       inline-size: 48px;
       block-size: 48px;
+      filter: drop-shadow(0 0 8px var(--cv-color-primary-ring));
       ::slotted(*) {
         inline-size: 100%;
         block-size: 100%;
@@ -155,12 +166,8 @@ export const pmCardHeaderMobileStyles = [
       align-items: flex-start;
       gap: 10px;
       padding: 10px 12px;
-      background: color-mix(
-        in oklch,
-        var(--cv-color-surface-2) 92%,
-        var(--cv-header-accent, var(--cv-color-primary)) 8%
-      );
-      border: 1px solid color-mix(in oklch, var(--cv-color-border) 78%, transparent);
+      background: var(--cv-color-primary-surface);
+      border: 1px solid var(--cv-color-border-strong);
       border-radius: var(--cv-radius-2);
       box-shadow: var(--cv-shadow-1);
     }

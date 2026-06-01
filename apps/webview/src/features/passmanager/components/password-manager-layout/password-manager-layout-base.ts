@@ -1,7 +1,4 @@
-import {XLitElement} from '@statx/lit'
-import {html} from 'lit'
-
-import {Entry, i18n} from '@project/passmanager'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {PasswordManagerLayoutModel, type PMGlobalShortcutAction} from './password-manager-layout.model'
 
 export interface SearchElement {
@@ -9,32 +6,13 @@ export interface SearchElement {
   clear?(): void
 }
 
-export abstract class PMLayoutBase extends XLitElement implements EventListenerObject {
+export abstract class PMLayoutBase extends ReatomLitElement implements EventListenerObject {
   protected readonly model = new PasswordManagerLayoutModel()
 
   protected abstract getSearchElement(): SearchElement | null
 
-  protected shouldHideCreateBackButton(): boolean {
-    return false
-  }
-
   protected handleExtraKeys(_event: KeyboardEvent, _shortcutBlocked: boolean): boolean {
     return false
-  }
-
-  protected renderEntry(entry: Entry, editing: boolean) {
-    return html`<pm-entry class="card" .entry=${entry} .editing=${editing}></pm-entry>`
-  }
-
-  protected renderGroup() {
-    return html`<pm-group class="card"></pm-group>`
-  }
-
-  protected renderCreateEntry() {
-    return html`<pm-entry-create
-      class="card"
-      ?hide-back=${this.shouldHideCreateBackButton()}
-    ></pm-entry-create>`
   }
 
   protected onCreateEntry() {
@@ -58,11 +36,23 @@ export abstract class PMLayoutBase extends XLitElement implements EventListenerO
   }
 
   protected handleImportComplete(event: Event) {
+    event.stopPropagation()
     this.model.handleImportComplete(event)
   }
 
-  protected handleImportClose() {
+  protected handleImportClose(event?: Event) {
+    event?.stopPropagation()
     this.model.handleImportClose()
+  }
+
+  protected renderImportDialog() {
+    return html`
+      <pm-import-dialog
+        class="card"
+        @import-complete=${this.handleImportComplete}
+        @import-close=${this.handleImportClose}
+      ></pm-import-dialog>
+    `
   }
 
   protected async onGlobalKeyDown(event: KeyboardEvent): Promise<void> {
@@ -131,37 +121,6 @@ export abstract class PMLayoutBase extends XLitElement implements EventListenerO
     active?.blur?.()
   }
 
-  protected renderMain() {
-    const showElement = this.model.getCurrentShowElement()
-
-    if (this.model.isLoading()) {
-      return html`<div class="spinner-wrapper">
-        <cv-spinner class="spinner" label=${i18n('loading')}></cv-spinner>
-      </div>`
-    }
-
-    if (showElement === 'createEntry') {
-      return this.renderCreateEntry()
-    }
-
-    if (showElement === 'createGroup') {
-      return html`<pm-group-create
-        class="card"
-        ?hide-back=${this.shouldHideCreateBackButton()}
-      ></pm-group-create>`
-    }
-
-    if (showElement instanceof Entry) {
-      return this.renderEntry(showElement, this.model.isEditingEntry())
-    }
-
-    if (showElement === 'importDialog') {
-      return html`<pm-import-dialog class="card"></pm-import-dialog>`
-    }
-
-    return this.renderGroup()
-  }
-
   override connectedCallback(): void {
     super.connectedCallback()
     window.addEventListener('keydown', this, {capture: true})
@@ -185,7 +144,7 @@ export abstract class PMLayoutBase extends XLitElement implements EventListenerO
         this.handleImportComplete(event)
         return
       case 'import-close':
-        this.handleImportClose()
+        this.handleImportClose(event)
         return
       default:
         return

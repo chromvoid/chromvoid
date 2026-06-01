@@ -9,12 +9,6 @@ export const entrySharedStyles = css`
     contain: layout style paint;
   }
 
-  pm-entry-edit,
-  pm-entry-edit-mobile {
-    flex: 1;
-    min-block-size: 0;
-  }
-
   .wrapper {
     display: flex;
     flex-direction: column;
@@ -38,7 +32,7 @@ export const entrySharedStyles = css`
     align-items: center;
     justify-content: center;
     gap: var(--cv-space-2);
-    color: color-mix(in oklch, var(--cv-color-text-muted) 60%, transparent);
+    color: var(--cv-color-text-subtle);
     font-size: var(--cv-font-size-sm);
     font-weight: 500;
     padding: var(--cv-space-4);
@@ -58,7 +52,7 @@ export const entrySharedStyles = css`
   }
 
   .empty-state-action:hover:not(:disabled) {
-    background-color: color-mix(in oklch, var(--cv-color-text) 4%, transparent);
+    background-color: var(--cv-color-surface-highlight);
     color: var(--cv-color-text);
   }
 
@@ -76,7 +70,7 @@ export const entrySharedStyles = css`
     display: inline-block;
     width: 12px;
     height: 12px;
-    border: 2px solid color-mix(in oklch, var(--cv-color-text) 20%, transparent);
+    border: 2px solid var(--cv-color-text-subtle);
     border-block-start-color: var(--cv-color-primary);
     border-radius: 50%;
     animation: spin 0.6s linear infinite;
@@ -84,7 +78,7 @@ export const entrySharedStyles = css`
   }
 
   .note-content-error {
-    color: var(--cv-color-danger, #ef4444);
+    color: var(--cv-color-danger);
     font-style: italic;
   }
 

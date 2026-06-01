@@ -5,10 +5,18 @@ export interface VirtualFileListHandlerContext {
   getFilters: () => SearchFilters
   getSelectedItems: () => number[]
   isSelectionMode: () => boolean
+  isMobileLayout: () => boolean
   emitSelectionModeRequested: (enabled: boolean) => void
   emitSelectionChange: (selectedItems: number[]) => void
-  emitItemAction: (action: string, item?: FileListItem, event?: Event, source?: FileListItem, target?: FileListItem) => void
-  emitFiltersChange: (next: SearchFilters) => void
+  emitItemAction: (
+    action: string,
+    item?: FileListItem,
+    event?: Event,
+    source?: FileListItem,
+    target?: FileListItem,
+    payload?: unknown,
+  ) => void
+  applyTableSort: (option: SortOption) => void
   emitNavigate: (path: string) => void
   getActiveItemId: () => number | null
   setActiveItemId: (id: number | null) => void

@@ -108,7 +108,7 @@ describe('CatalogPasswordsRepository + TauriTransport integration', () => {
     const out = await repo.readRoot<{version: number; entries: unknown[]; folders: string[]}>()
 
     expect(out).toBeDefined()
-    expect(out?.version).toBe(2)
+    expect(out?.version).toBe(3)
     expect(out?.entries).toEqual([])
     expect(out?.folders).toEqual([])
     expect(catalog.lastError.set).not.toHaveBeenCalled()

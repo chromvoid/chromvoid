@@ -37,7 +37,7 @@ describe('tauri catalog command dispatcher passmanager icons payloads', () => {
 
     const out = await dispatchTauriCatalogCommand({
       command: 'passmanager:group:setMeta',
-      data: {path: '/Work', icon_ref: iconRef},
+      data: {path: '/Work', icon_ref: iconRef, description: 'Runbooks'},
       logger,
       rpc: vi.fn(async () => ({}) as never),
       rpcDispatch,
@@ -48,6 +48,7 @@ describe('tauri catalog command dispatcher passmanager icons payloads', () => {
     expect(rpcDispatch).toHaveBeenCalledWith('passmanager:group:setMeta', {
       path: '/Work',
       icon_ref: iconRef,
+      description: 'Runbooks',
     })
   })
 
@@ -65,5 +66,24 @@ describe('tauri catalog command dispatcher passmanager icons payloads', () => {
 
     expect(out).toEqual({ok: true, result: {ok: true, result: {icons: []}}})
     expect(rpcDispatch).toHaveBeenCalledWith('passmanager:icon:list', {})
+  })
+
+  it('passes through passmanager:icon:setMeta payload to rpcDispatch', async () => {
+    const rpcDispatch = vi.fn(async () => ({ok: true, result: null}))
+
+    const out = await dispatchTauriCatalogCommand({
+      command: 'passmanager:icon:setMeta',
+      data: {icon_ref: iconRef, background_color: '#102030'},
+      logger,
+      rpc: vi.fn(async () => ({}) as never),
+      rpcDispatch,
+      rpcDispatchRaw: vi.fn(async () => ({ok: true, result: null})),
+    })
+
+    expect(out).toEqual({ok: true, result: {ok: true, result: null}})
+    expect(rpcDispatch).toHaveBeenCalledWith('passmanager:icon:setMeta', {
+      icon_ref: iconRef,
+      background_color: '#102030',
+    })
   })
 })

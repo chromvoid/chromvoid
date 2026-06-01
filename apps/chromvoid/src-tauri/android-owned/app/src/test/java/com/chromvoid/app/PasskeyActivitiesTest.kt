@@ -19,8 +19,6 @@ import com.chromvoid.app.credentialprovider.ProviderStatus
 import com.chromvoid.app.passkey.PasskeyCreateCoordinator
 import com.chromvoid.app.passkey.PasskeyGetCoordinator
 import com.chromvoid.app.passkey.PasskeyRequestRegistry
-import com.chromvoid.app.security.PasskeyMetadataStore
-import com.chromvoid.app.shared.AndroidClock
 import com.chromvoid.app.shared.BaseFakeBridgeGateway
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -31,7 +29,6 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import java.security.Signature
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -70,6 +67,7 @@ class ChromVoidPasskeyGetActivityTest {
                     GetRequestResolution.Success(
                         ResolvedGetPasskeyRequest(
                             requestData = GetPasskeyRequestData("example.com", "challenge-b64", setOf("cred-a")),
+                            requestJson = sampleGetRequestJson(),
                             origin = "https://app.example",
                             clientDataHash = byteArrayOf(0x01),
                         ),
@@ -120,25 +118,15 @@ class ChromVoidPasskeyGetActivityTest {
                     GetRequestResolution.Success(
                         ResolvedGetPasskeyRequest(
                             requestData = GetPasskeyRequestData("example.com", "challenge-b64", setOf("cred-a")),
+                            requestJson = sampleGetRequestJson(),
                             origin = "https://app.example",
                             clientDataHash = byteArrayOf(0x01, 0x02),
                         ),
                     )
             }
-        val store =
-            FakeStore().apply {
-                metadata = sampleMetadata("cred-a")
-            }
-        val biometric =
-            FakeBiometric().apply {
-                getSuccessSignature = Signature.getInstance("SHA256withECDSA")
-            }
-
         val capture =
             runGetFlow(
                 requestStore = requestStore,
-                store = store,
-                biometric = biometric,
                 resolver = resolver,
                 intent = getIntent("req-get-2", "cred-a"),
             )
@@ -146,8 +134,6 @@ class ChromVoidPasskeyGetActivityTest {
         val response = PendingIntentHandler.retrieveGetCredentialResponse(capture.resultIntent)
         assertNotNull(response)
         assertNull(requestStore.get("req-get-2"))
-        assertEquals(1L, store.updatedSignCount)
-        assertEquals(1234L, store.updatedLastUsedEpochMs)
     }
 
     @Test
@@ -161,14 +147,11 @@ class ChromVoidPasskeyGetActivityTest {
                     GetRequestResolution.Success(
                         ResolvedGetPasskeyRequest(
                             requestData = GetPasskeyRequestData("example.com", "challenge-b64", emptySet()),
+                            requestJson = sampleGetRequestJson(),
                             origin = "https://app.example",
                             clientDataHash = byteArrayOf(0x03),
                         ),
                     )
-            }
-        val store =
-            FakeStore().apply {
-                metadata = sampleMetadata("cred-a")
             }
         val biometric =
             FakeBiometric().apply {
@@ -178,7 +161,6 @@ class ChromVoidPasskeyGetActivityTest {
         val capture =
             runGetFlow(
                 requestStore = requestStore,
-                store = store,
                 biometric = biometric,
                 resolver = resolver,
                 intent = getIntent("req-get-3", "cred-a"),
@@ -199,14 +181,11 @@ class ChromVoidPasskeyGetActivityTest {
                     GetRequestResolution.Success(
                         ResolvedGetPasskeyRequest(
                             requestData = GetPasskeyRequestData("example.com", "challenge-b64", emptySet()),
+                            requestJson = sampleGetRequestJson(),
                             origin = "https://app.example",
                             clientDataHash = byteArrayOf(0x05),
                         ),
                     )
-            }
-        val store =
-            FakeStore().apply {
-                metadata = sampleMetadata("cred-a")
             }
         val biometric =
             FakeBiometric().apply {
@@ -216,7 +195,6 @@ class ChromVoidPasskeyGetActivityTest {
         val capture =
             runGetFlow(
                 requestStore = requestStore,
-                store = store,
                 biometric = biometric,
                 resolver = resolver,
                 intent = getIntent("req-get-biometric-error", "cred-a"),
@@ -227,35 +205,31 @@ class ChromVoidPasskeyGetActivityTest {
     }
 
     @Test
-    fun signingFailure_mapsToUnknown() {
+    fun coreGetFailure_mapsToUnknown() {
         val requestStore = FakeRequestStore().apply {
             put(PendingPasskeyRequest("req-get-4", "get", "example.com"))
         }
+        val bridge =
+            FakeBridge().apply {
+                getResponse = BridgeResult.Failure(BridgeError("NO_MATCH", "No matching passkey"))
+            }
         val resolver =
             FakeResolver().apply {
                 getResolution =
                     GetRequestResolution.Success(
                         ResolvedGetPasskeyRequest(
                             requestData = GetPasskeyRequestData("example.com", "challenge-b64", emptySet()),
+                            requestJson = sampleGetRequestJson(),
                             origin = "https://app.example",
                             clientDataHash = byteArrayOf(0x04),
                         ),
                     )
             }
-        val store =
-            FakeStore().apply {
-                metadata = sampleMetadata("cred-a")
-            }
-        val crypto =
-            FakeCrypto().apply {
-                failSignAssertion = true
-            }
 
         val capture =
             runGetFlow(
+                bridge = bridge,
                 requestStore = requestStore,
-                store = store,
-                crypto = crypto,
                 resolver = resolver,
                 intent = getIntent("req-get-4", "cred-a"),
             )
@@ -275,14 +249,11 @@ class ChromVoidPasskeyGetActivityTest {
                     GetRequestResolution.Success(
                         ResolvedGetPasskeyRequest(
                             requestData = GetPasskeyRequestData("example.com", "challenge-b64", emptySet()),
+                            requestJson = sampleGetRequestJson(),
                             origin = "https://app.example",
                             clientDataHash = byteArrayOf(0x06),
                         ),
                     )
-            }
-        val store =
-            FakeStore().apply {
-                metadata = sampleMetadata("cred-a")
             }
         val responseWriter =
             FakeResponseWriter().apply {
@@ -292,7 +263,6 @@ class ChromVoidPasskeyGetActivityTest {
         val capture =
             runGetFlow(
                 requestStore = requestStore,
-                store = store,
                 resolver = resolver,
                 responseWriter = responseWriter,
                 intent = getIntent("req-get-5", "cred-a"),
@@ -382,16 +352,16 @@ class ChromVoidPasskeyCreateActivityTest {
                     CreateRequestResolution.Success(
                         ResolvedCreatePasskeyRequest(
                             requestData = sampleCreateRequestData(),
+                            requestJson = sampleCreateRequestJson(),
                             origin = "https://app.example",
+                            clientDataHash = null,
                         ),
                     )
             }
 
-        val store = FakeStore()
         val capture =
             runCreateFlow(
                 requestStore = requestStore,
-                store = store,
                 resolver = resolver,
                 intent = createIntent("req-create-3"),
             )
@@ -400,7 +370,6 @@ class ChromVoidPasskeyCreateActivityTest {
             PendingIntentHandler.retrieveCreateCredentialResponse("public-key", capture.resultIntent)
         assertNotNull(response)
         assertNull(requestStore.get("req-create-3"))
-        assertEquals(1, store.savedMetadata.size)
     }
 
     @Test
@@ -412,7 +381,7 @@ class ChromVoidPasskeyCreateActivityTest {
             FakeResolver().apply {
                 createResolution =
                     CreateRequestResolution.Success(
-                        ResolvedCreatePasskeyRequest(sampleCreateRequestData(), "https://app.example"),
+                        ResolvedCreatePasskeyRequest(sampleCreateRequestData(), sampleCreateRequestJson(), "https://app.example", null),
                     )
             }
         val biometric =
@@ -441,7 +410,7 @@ class ChromVoidPasskeyCreateActivityTest {
             FakeResolver().apply {
                 createResolution =
                     CreateRequestResolution.Success(
-                        ResolvedCreatePasskeyRequest(sampleCreateRequestData(), "https://app.example"),
+                        ResolvedCreatePasskeyRequest(sampleCreateRequestData(), sampleCreateRequestJson(), "https://app.example", null),
                     )
             }
         val biometric =
@@ -462,27 +431,27 @@ class ChromVoidPasskeyCreateActivityTest {
     }
 
     @Test
-    fun storageFailure_mapsToUnknown() {
+    fun coreCreateFailure_mapsToUnknown() {
         val requestStore = FakeRequestStore().apply {
             put(PendingPasskeyRequest("req-create-5", "create", "example.com"))
         }
+        val bridge =
+            FakeBridge().apply {
+                createResponse = BridgeResult.Failure(BridgeError("ACCESS_DENIED", "Excluded credential already exists"))
+            }
         val resolver =
             FakeResolver().apply {
                 createResolution =
                     CreateRequestResolution.Success(
-                        ResolvedCreatePasskeyRequest(sampleCreateRequestData(), "https://app.example"),
+                        ResolvedCreatePasskeyRequest(sampleCreateRequestData(), sampleCreateRequestJson(), "https://app.example", null),
                     )
-            }
-        val store =
-            FakeStore().apply {
-                failSaveNew = true
             }
 
         val capture =
             runCreateFlow(
+                bridge = bridge,
                 requestStore = requestStore,
                 resolver = resolver,
-                store = store,
                 intent = createIntent("req-create-5"),
             )
 
@@ -499,7 +468,7 @@ class ChromVoidPasskeyCreateActivityTest {
             FakeResolver().apply {
                 createResolution =
                     CreateRequestResolution.Success(
-                        ResolvedCreatePasskeyRequest(sampleCreateRequestData(), "https://app.example"),
+                        ResolvedCreatePasskeyRequest(sampleCreateRequestData(), sampleCreateRequestJson(), "https://app.example", null),
                     )
             }
         val responseWriter =
@@ -527,8 +496,6 @@ class ChromVoidPasskeyCreateActivityTest {
 private fun runGetFlow(
     bridge: FakeBridge = FakeBridge(),
     requestStore: FakeRequestStore = FakeRequestStore(),
-    store: FakeStore = FakeStore(),
-    crypto: FakeCrypto = FakeCrypto(),
     biometric: FakeBiometric = FakeBiometric(),
     resolver: FakeResolver = FakeResolver(),
     responseWriter: FakeResponseWriter = FakeResponseWriter(),
@@ -539,11 +506,8 @@ private fun runGetFlow(
     PasskeyGetCoordinator(
         bridgeGateway = bridge,
         requestRegistry = requestStore,
-        passkeyStore = store,
-        clock = FixedClock(1234L),
         requestResolver = resolver,
         responseWriter = responseWriter,
-        crypto = crypto,
     ).execute(
         activity = activity,
         intent = intent,
@@ -565,8 +529,6 @@ private fun runGetFlow(
 private fun runCreateFlow(
     bridge: FakeBridge = FakeBridge(),
     requestStore: FakeRequestStore = FakeRequestStore(),
-    store: FakeStore = FakeStore(),
-    crypto: FakeCrypto = FakeCrypto(),
     biometric: FakeBiometric = FakeBiometric(),
     resolver: FakeResolver = FakeResolver(),
     responseWriter: FakeResponseWriter = FakeResponseWriter(),
@@ -577,10 +539,8 @@ private fun runCreateFlow(
     PasskeyCreateCoordinator(
         bridgeGateway = bridge,
         requestRegistry = requestStore,
-        passkeyStore = store,
         requestResolver = resolver,
         responseWriter = responseWriter,
-        crypto = crypto,
     ).execute(
         activity = activity,
         intent = intent,
@@ -642,8 +602,18 @@ private class FakeBridge : BaseFakeBridgeGateway() {
                 unsupportedReason = null,
             ),
         )
+    var getResponse: BridgeResult<PasskeyCoreOperationResult> =
+        BridgeResult.Success(PasskeyCoreOperationResult("cred-a", sampleAssertionResponseJson()))
+    var createResponse: BridgeResult<PasskeyCoreOperationResult> =
+        BridgeResult.Success(PasskeyCoreOperationResult("cred-created", sampleRegistrationResponseJson()))
 
     override fun providerStatus(): BridgeResult<ProviderStatus> = statusResult
+
+    override fun passkeyGet(payload: PasskeyCoreRequestPayload): BridgeResult<PasskeyCoreOperationResult> =
+        getResponse
+
+    override fun passkeyCreate(payload: PasskeyCoreRequestPayload): BridgeResult<PasskeyCoreOperationResult> =
+        createResponse
 }
 
 private class FakeRequestStore : PasskeyRequestRegistry {
@@ -664,89 +634,13 @@ private class FakeRequestStore : PasskeyRequestRegistry {
     }
 }
 
-private class FakeStore : PasskeyMetadataStore {
-    var metadata: PasskeyMetadata? = null
-    var failSaveNew: Boolean = false
-    val savedMetadata = mutableListOf<PasskeyMetadata>()
-    var updatedSignCount: Long? = null
-    var updatedLastUsedEpochMs: Long? = null
-
-    override fun listForRpId(rpId: String, allowCredentialIds: Set<String>): List<PasskeyMetadata> =
-        listOfNotNull(metadata).filter {
-            it.rpId == rpId && (allowCredentialIds.isEmpty() || allowCredentialIds.contains(it.credentialIdB64Url))
-        }
-
-    override fun findByCredentialId(credentialId: String): PasskeyMetadata? = metadata
-
-    override fun hasExcludedCredential(excludedCredentialIds: Set<String>): Boolean = false
-
-    override fun saveNew(metadata: PasskeyMetadata) {
-        if (failSaveNew) {
-            error("saveNew failed")
-        }
-        savedMetadata += metadata
-    }
-
-    override fun updateUsage(credentialId: String, signCount: Long, lastUsedEpochMs: Long) {
-        updatedSignCount = signCount
-        updatedLastUsedEpochMs = lastUsedEpochMs
-    }
-
-    override fun clearTransientState(passkeyRequestRegistry: PasskeyRequestRegistry) {
-        passkeyRequestRegistry.clear()
-    }
-}
-
-private class FakeCrypto : PasskeyActivityCryptoRuntime {
-    var failSignAssertion: Boolean = false
-
-    override fun beginAssertionSignature(metadata: PasskeyMetadata): Signature =
-        Signature.getInstance("SHA256withECDSA")
-
-    override fun signAssertion(
-        signature: Signature,
-        authenticatorData: ByteArray,
-        clientDataHash: ByteArray,
-    ): ByteArray {
-        if (failSignAssertion) {
-            error("sign failed")
-        }
-        return byteArrayOf(0x44, 0x55)
-    }
-
-    override fun credentialIdBytes(metadata: PasskeyMetadata): ByteArray = byteArrayOf(0x01, 0x02)
-
-    override fun userIdBytes(metadata: PasskeyMetadata): ByteArray = byteArrayOf(0x03, 0x04)
-
-    override fun createCredential(request: CreatePasskeyRequestData): CreatedPasskeyMaterial {
-        return CreatedPasskeyMaterial(
-            metadata =
-                PasskeyMetadata(
-                    credentialIdB64Url = "cred-created",
-                    rpId = request.rpId,
-                    userIdB64Url = request.userIdB64Url,
-                    userName = request.userName,
-                    userDisplayName = request.userDisplayName,
-                    keyAlias = "chromvoid.passkey.cred-created",
-                    signCount = 0,
-                    createdAtEpochMs = 100L,
-                    lastUsedEpochMs = 100L,
-                ),
-            credentialId = byteArrayOf(0x09, 0x0A),
-            cosePublicKey = byteArrayOf(0x0B, 0x0C),
-        )
-    }
-}
-
 private class FakeBiometric : PasskeyActivityBiometricRuntime {
-    var getSuccessSignature: Signature? = null
     var getError: GetCredentialException? = null
     var createError: CreateCredentialException? = null
 
     override fun authenticateAssertion(
         activity: FragmentActivity,
-        signature: Signature,
-        onSuccess: (Signature?) -> Unit,
+        onSuccess: () -> Unit,
         onError: (GetCredentialException) -> Unit,
     ) {
         val error = getError
@@ -754,7 +648,7 @@ private class FakeBiometric : PasskeyActivityBiometricRuntime {
             onError(error)
             return
         }
-        onSuccess(getSuccessSignature)
+        onSuccess()
     }
 
     override fun authenticateCreate(
@@ -809,26 +703,6 @@ private class FakeResponseWriter : PasskeyActivityResponseWriterRuntime {
     }
 }
 
-private class FixedClock(
-    private val now: Long,
-) : AndroidClock {
-    override fun now(): Long = now
-}
-
-private fun sampleMetadata(credentialId: String): PasskeyMetadata {
-    return PasskeyMetadata(
-        credentialIdB64Url = credentialId,
-        rpId = "example.com",
-        userIdB64Url = "user-b64",
-        userName = "alice",
-        userDisplayName = "Alice",
-        keyAlias = "chromvoid.passkey.$credentialId",
-        signCount = 0,
-        createdAtEpochMs = 10L,
-        lastUsedEpochMs = 20L,
-    )
-}
-
 private fun sampleCreateRequestData(): CreatePasskeyRequestData {
     return CreatePasskeyRequestData(
         rpId = "example.com",
@@ -842,3 +716,15 @@ private fun sampleCreateRequestData(): CreatePasskeyRequestData {
         attestationPreference = "none",
     )
 }
+
+private fun sampleGetRequestJson(): String =
+    """{"challenge":"challenge-b64","rpId":"example.com","allowCredentials":[{"type":"public-key","id":"cred-a"}]}"""
+
+private fun sampleCreateRequestJson(): String =
+    """{"challenge":"challenge-b64","rp":{"id":"example.com","name":"Example"},"user":{"id":"user-b64","name":"alice","displayName":"Alice"},"pubKeyCredParams":[{"type":"public-key","alg":-7}],"excludeCredentials":[],"attestation":"none"}"""
+
+private fun sampleAssertionResponseJson(): String =
+    """{"id":"cred-a","rawId":"cred-a","type":"public-key","response":{"authenticatorData":"YXV0aA","clientDataJSON":"Y2xpZW50","signature":"c2ln","userHandle":"dXNlcg"},"clientExtensionResults":{}}"""
+
+private fun sampleRegistrationResponseJson(): String =
+    """{"id":"cred-created","rawId":"cred-created","type":"public-key","response":{"clientDataJSON":"Y2xpZW50","attestationObject":"YXR0","authenticatorData":"YXV0aA","publicKey":"cHVi","publicKeyAlgorithm":-7,"transports":["internal","hybrid"]},"clientExtensionResults":{"credProps":{"rk":true}}}"""

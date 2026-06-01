@@ -6,12 +6,14 @@ const MAX_ENTRIES = 10_000
 interface BitwardenExport {
   encrypted: boolean
   folders?: Array<{id: string; name: string}>
+  collections?: Array<{id?: string; name?: string}>
   items?: Array<BitwardenItem>
 }
 
 interface BitwardenItem {
   id: string
   folderId?: string | null
+  collectionIds?: string[] | null
   type: number
   name: string
   login?: {
@@ -50,6 +52,7 @@ export async function parseBitwardenJson(file: File): Promise<ImportResult> {
   const warnings: string[] = []
 
   const folderMap = new Map<string, string>()
+  const collectionMap = new Map<string, string>()
   const folders: ImportedFolder[] = []
 
   if (data.folders) {
@@ -60,6 +63,11 @@ export async function parseBitwardenJson(file: File): Promise<ImportResult> {
         name: folder.name,
         path: folder.name,
       })
+    }
+  }
+  for (const collection of data.collections ?? []) {
+    if (collection.id && collection.name) {
+      collectionMap.set(collection.id, collection.name)
     }
   }
 
@@ -98,10 +106,6 @@ export async function parseBitwardenJson(file: File): Promise<ImportResult> {
     }
 
     let notes = item.notes || undefined
-    if (item.type === 3 && item.card) {
-      const cardNotes = `--- Card Details ---\n${formatCardAsNotes(item.card)}`
-      notes = notes ? `${notes}\n\n${cardNotes}` : cardNotes
-    }
     if (item.type === 4 && item.identity) {
       const identityNotes = `--- Identity Details ---\n${formatIdentityAsNotes(item.identity)}`
       notes = notes ? `${notes}\n\n${identityNotes}` : identityNotes
@@ -119,16 +123,20 @@ export async function parseBitwardenJson(file: File): Promise<ImportResult> {
         }
       : undefined
 
+    const paymentCard = item.type === 3 ? parsePaymentCard(item.card) : undefined
+
     entries.push({
       id: item.id,
       type: entryType,
       name: item.name || 'Untitled',
       username: item.login?.username || undefined,
       password: item.login?.password || undefined,
+      paymentCard,
       urls: urls.length > 0 ? urls : undefined,
       notes,
       folder: folderName,
       customFields: customFields.length > 0 ? customFields : undefined,
+      tags: collectCollectionTags(item.collectionIds, collectionMap),
       otp,
     })
   }
@@ -136,14 +144,36 @@ export async function parseBitwardenJson(file: File): Promise<ImportResult> {
   return {entries, folders, conflicts: [], warnings}
 }
 
+function collectCollectionTags(
+  collectionIds: string[] | null | undefined,
+  collectionMap: Map<string, string>,
+): string[] | undefined {
+  if (!collectionIds || collectionMap.size === 0) return undefined
+
+  const tags: string[] = []
+  const seen = new Set<string>()
+  for (const collectionId of collectionIds) {
+    const tag = collectionMap.get(collectionId)?.trim()
+    if (!tag) continue
+    const key = tag.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    tags.push(tag)
+  }
+
+  return tags.length > 0 ? tags : undefined
+}
+
 function mapEntryType(type: number): ImportedEntry['type'] {
   switch (type) {
     case 1:
       return 'login'
     case 2:
-    case 3:
-    case 4:
       return 'secure_note'
+    case 3:
+      return 'card'
+    case 4:
+      return 'identity'
     default:
       return 'unknown'
   }
@@ -170,14 +200,30 @@ function mapUriMatch(match: number | null | undefined): UrlMatch {
   }
 }
 
-function formatCardAsNotes(card: Record<string, string | null>): string {
-  const lines: string[] = []
-  if (card['cardholderName']) lines.push(`Cardholder: ${card['cardholderName']}`)
-  if (card['number']) lines.push(`Number: ${card['number']}`)
-  if (card['expMonth'] && card['expYear']) lines.push(`Expires: ${card['expMonth']}/${card['expYear']}`)
-  if (card['code']) lines.push(`CVV: ${card['code']}`)
-  if (card['brand']) lines.push(`Brand: ${card['brand']}`)
-  return lines.join('\n')
+function normalizeCardDigits(value: string | null | undefined): string | undefined {
+  if (!value) return undefined
+  const digits = value.replace(/\D+/g, '')
+  return digits.length > 0 ? digits : undefined
+}
+
+function parsePaymentCard(card: Record<string, string | null> | null | undefined) {
+  if (!card) return undefined
+
+  const cardholderName = card['cardholderName']?.trim()
+  const expMonth = Number(card['expMonth'] ?? '')
+  const expYear = Number(card['expYear'] ?? '')
+  if (!cardholderName || !Number.isInteger(expMonth) || !Number.isInteger(expYear)) {
+    return undefined
+  }
+
+  return {
+    cardholderName,
+    expMonth,
+    expYear,
+    ...(card['brand']?.trim() ? {brand: card['brand'].trim()} : {}),
+    ...(normalizeCardDigits(card['number']) ? {number: normalizeCardDigits(card['number'])} : {}),
+    ...(normalizeCardDigits(card['code']) ? {cvv: normalizeCardDigits(card['code'])} : {}),
+  }
 }
 
 function formatIdentityAsNotes(identity: Record<string, string | null>): string {

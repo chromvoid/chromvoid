@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-catalog-share-files"
+description = "Enables the catalog_share_files command without any pre-configured scope."
+commands.allow = ["catalog_share_files"]
+
+[[permission]]
+identifier = "deny-catalog-share-files"
+description = "Denies the catalog_share_files command without any pre-configured scope."
+commands.deny = ["catalog_share_files"]

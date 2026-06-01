@@ -1,7 +1,7 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {css} from 'lit'
 
 import type {FileItemEventType} from './file-item/handlers'
-import {html} from 'lit'
 
 import {i18n} from 'root/i18n'
 import type {FileItemData, ViewMode} from 'root/shared/contracts/file-manager'
@@ -30,12 +30,12 @@ import {
   setupTouchDragDrop,
   type TouchDragDropBinding,
 } from './file-item/handlers'
-import {renderFileItem} from './file-item/render'
+import type {FileItemRenderData} from './file-item/render'
 import {FileItemModel} from '../models/file-item.model'
 
 export type {FileItemData} from 'root/shared/contracts/file-manager'
 
-export class FileItemBase extends XLitElement {
+export abstract class FileItemBase extends ReatomLitElement {
   static get properties() {
     return {
       item: {type: Object},
@@ -43,6 +43,9 @@ export class FileItemBase extends XLitElement {
       active: {type: Boolean, reflect: true},
       selectionMode: {type: Boolean, attribute: 'selection-mode', reflect: true},
       dragOver: {type: Boolean, attribute: 'drag-over', reflect: true},
+      pendingExternalOpen: {type: Boolean, attribute: 'pending-external-open', reflect: true},
+      mediaActive: {type: Boolean, attribute: 'media-active', reflect: true},
+      mediaPlaying: {type: Boolean, attribute: 'media-playing', reflect: true},
       viewMode: {type: String, attribute: 'view-mode', reflect: true},
     }
   }
@@ -52,9 +55,21 @@ export class FileItemBase extends XLitElement {
   declare active: boolean
   declare selectionMode: boolean
   declare dragOver: boolean
+  declare pendingExternalOpen: boolean
+  declare mediaActive: boolean
+  declare mediaPlaying: boolean
   declare viewMode: ViewMode
 
-  static styles = fileItemStyles
+  static styles = [
+    fileItemStyles,
+    css`
+      .missing-item {
+        padding: 12px;
+        color: var(--cv-color-danger);
+        border: 1px solid var(--cv-color-danger);
+      }
+    `,
+  ]
 
   protected readonly model = new FileItemModel()
   protected touchDropBinding?: TouchDragDropBinding
@@ -65,6 +80,9 @@ export class FileItemBase extends XLitElement {
     this.active = false
     this.selectionMode = false
     this.dragOver = false
+    this.pendingExternalOpen = false
+    this.mediaActive = false
+    this.mediaPlaying = false
     this.viewMode = 'list'
   }
 
@@ -170,6 +188,11 @@ export class FileItemBase extends XLitElement {
     onDrop(this.item, this.emitItemDropEvent, event)
   }
 
+  protected onThumbnailError(event: Event) {
+    const image = event.currentTarget as HTMLImageElement | null
+    this.model.handleThumbnailRenderError(image?.currentSrc || image?.src || null)
+  }
+
   protected readonly emitItemDropEvent: <T>(type: FileItemEventType, detail: T, _composed?: boolean) => void =
     <T>(type: FileItemEventType, detail: T) => {
       this.emitEvent(type, detail)
@@ -181,20 +204,15 @@ export class FileItemBase extends XLitElement {
   }
 
   protected setupTouchDragDrop() {
-    const itemElement = this.shadowRoot?.querySelector('.file-item') as HTMLElement | null
     const dragHandle = this.shadowRoot?.querySelector('.drag-handle') as HTMLElement | null
-    if (!itemElement || !dragHandle) return
+    if (!dragHandle) return
 
     this.touchDropBinding = setupTouchDragDrop({
       item: this.item,
-      itemElement,
       dragHandle,
       model: this.model,
       onTouchDragStateChange: (value) => {
         this.classList.toggle('touch-dragging', value)
-      },
-      emitDrop: (source) => {
-        this.emitItemDropEvent('item-drop', {target: this.item, source})
       },
     })
   }
@@ -211,20 +229,31 @@ export class FileItemBase extends XLitElement {
     this.model.dispose()
   }
 
+  protected abstract renderItem(data: FileItemRenderData): unknown
+
+  override willUpdate(changedProperties: Map<string, unknown>) {
+    super.willUpdate(changedProperties)
+    if (changedProperties.has('item') || changedProperties.has('viewMode')) {
+      this.model.setThumbnailTarget(this.item, this.viewMode)
+    }
+  }
+
   render() {
     if (!this.item) {
-      return html`<div style="padding: 12px; color: red; border: 1px solid red;">
-        ${i18n('file-manager:file-item-missing' as any)}
-      </div>`
+      return html`<div class="missing-item">${i18n('file-manager:file-item-missing')}</div>`
     }
 
-    return renderFileItem({
+    return this.renderItem({
       item: this.item,
       selected: this.selected,
       selectionMode: this.selectionMode,
+      pendingExternalOpen: this.pendingExternalOpen,
+      mediaActive: this.mediaActive,
+      mediaPlaying: this.mediaPlaying,
       viewMode: this.viewMode,
       dragEnabled: this.dragEnabled ? 'true' : 'false',
       showSwipeActions: this.showSwipeActions,
+      thumbnailUrl: this.model.thumbnailUrl(),
       callbacks: {
         onClick: this.onClick,
         onDoubleClick: this.onDoubleClick,
@@ -244,6 +273,7 @@ export class FileItemBase extends XLitElement {
         onDeleteClick: this.onDelete,
         onSwipeRename: this.onSwipeRename,
         onSwipeDelete: this.onSwipeDelete,
+        onThumbnailError: this.onThumbnailError,
       },
     })
   }

@@ -230,11 +230,11 @@ fn test_shard_sync_system_shard_denied() {
     ));
     assert_rpc_error(&resp, "ACCESS_DENIED");
 
-    let resp = router.handle(&RpcRequest::new(
+    let legacy_resp = router.handle(&RpcRequest::new(
         "catalog:shard:sync",
         serde_json::json!({"shard_id": ".wallet", "from_version": 0}),
     ));
-    assert_rpc_error(&resp, "ACCESS_DENIED");
+    assert_rpc_error(&legacy_resp, "UNKNOWN_COMMAND");
 }
 
 #[test]

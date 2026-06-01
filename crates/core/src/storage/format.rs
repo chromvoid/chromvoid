@@ -30,3 +30,7 @@ impl FormatVersionFile {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "format_tests.rs"]
+mod tests;

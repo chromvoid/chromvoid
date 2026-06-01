@@ -23,15 +23,8 @@ pub struct PairedIosPeerStore {
 
 impl PairedIosPeerStore {
     pub fn load(path: &Path) -> Self {
-        let peers = if path.exists() {
-            match std::fs::read_to_string(path) {
-                Ok(contents) => serde_json::from_str::<HashMap<String, PairedIosPeer>>(&contents)
-                    .unwrap_or_default(),
-                Err(_) => HashMap::new(),
-            }
-        } else {
-            HashMap::new()
-        };
+        let peers =
+            crate::helpers::storage::read_json_or_default(path, "network: paired iOS peer store");
 
         Self {
             path: path.to_path_buf(),
@@ -40,9 +33,7 @@ impl PairedIosPeerStore {
     }
 
     pub fn save(&self) -> Result<(), String> {
-        let json =
-            serde_json::to_string_pretty(&self.peers).map_err(|e| format!("serialize: {e}"))?;
-        std::fs::write(&self.path, json).map_err(|e| format!("write: {e}"))
+        crate::helpers::storage::write_json_pretty_atomic(&self.path, &self.peers)
     }
 
     pub fn get(&self, peer_id: &str) -> Option<&PairedIosPeer> {

@@ -1,20 +1,30 @@
-import {computed, state} from '@statx/core'
+import {atom, computed, wrap} from '@reatom/core'
 
-import {Entry, Group, filterRule, filterValue, i18n} from '@project/passmanager'
+import {Entry, Group} from '@project/passmanager/core'
+import {i18n} from '@project/passmanager/i18n'
 
 import {dialogService} from '../../../shared/services/dialog-service'
 import type {GroupTree} from './group-tree'
 import {buildGroupTreeNodes} from './group-tree-builder'
+import {pmRootSearchProjectionModel} from './pm-root-search-projection'
 import {pmModel} from '../password-manager.model'
 
 type SelectedPath = string | null
 
 class PMGroupTreeModel {
-  readonly expandedPaths = state<Set<string>>(new Set(), {name: 'pm_group_tree_expanded'})
+  readonly expandedPaths = atom<Set<string>>(new Set<string>(), 'pm_group_tree_expanded')
+
+  readonly allEntries = computed(
+    () => {
+      const root = pmModel.root()
+      return root ? root.allEntries : []
+    },
+    'pm_group_tree_all_entries',
+  )
 
   readonly selectedPath = computed<SelectedPath>(
     () => {
-      const root = window.passmanager
+      const root = pmModel.root()
       if (!root) return null
 
       const current = root.showElement()
@@ -26,17 +36,14 @@ class PMGroupTreeModel {
       }
       return null
     },
-    {name: 'pm_group_tree_selected_path'},
+    'pm_group_tree_selected_path',
   )
 
   readonly tree = computed<GroupTree<Entry>>(
     () => {
-      const root = window.passmanager
+      const root = pmModel.root()
       if (!root) return {rootEntries: [], groups: [], allEntries: []}
-
-      const q = filterValue()
-
-      const rootEntries = root.topLevelEntries.filter((e) => filterRule(e, q))
+      const rootProjection = pmRootSearchProjectionModel.getSnapshot()
 
       const groups = root
         .entriesList()
@@ -45,7 +52,7 @@ class PMGroupTreeModel {
           const nodeId = Number.isFinite(Number(g.id)) ? Number(g.id) : undefined
           return {
             path: g.name,
-            entryCount: g.searched().length,
+            entryCount: rootProjection.groupMatchCounts.get(g.id) ?? 0,
             nodeId,
             iconRef: g.iconRef,
           }
@@ -54,12 +61,12 @@ class PMGroupTreeModel {
       const expanded = this.expandedPaths()
 
       return {
-        rootEntries,
+        rootEntries: rootProjection.rootEntries,
         groups: buildGroupTreeNodes(groups, expanded),
-        allEntries: root.allEntries,
+        allEntries: this.allEntries(),
       }
     },
-    {name: 'pm_group_tree'},
+    'pm_group_tree',
   )
 
   toggleExpanded(path: string): void {
@@ -71,7 +78,7 @@ class PMGroupTreeModel {
   }
 
   select(path: string | null): void {
-    const root = window.passmanager
+    const root = pmModel.root()
     if (!root) return
 
     if (!path) {
@@ -87,38 +94,43 @@ class PMGroupTreeModel {
   }
 
   async createGroupUnder(parentPath: string | null): Promise<void> {
-    const root = window.passmanager
-    if (!root) return
-    if (root.isReadOnly()) return
+    const initialRoot = pmModel.root()
+    if (!initialRoot) return
+    if (initialRoot.isReadOnly()) return
 
     const parentLabel = parentPath ?? '/'
     const isSubgroup = Boolean(parentPath)
     const title = isSubgroup ? i18n('group:create:subgroup') : i18n('group:create:title')
 
-    const name = await dialogService.showInputDialog({
-      title,
-      label: i18n('group:name'),
-      placeholder: i18n('group:name:placeholder'),
-      helpText: i18n('group:parent', {parent: parentLabel}),
-      confirmText: i18n('group:create:button'),
-      cancelText: i18n('button:cancel'),
-      required: true,
-      maxLength: 100,
-      validator: (value) => {
-        const trimmed = String(value ?? '').trim()
-        if (!trimmed) return {valid: false, message: i18n('error:group_name_required')}
-        if (trimmed.includes('/') || trimmed.includes('\\')) {
-          return {valid: false, message: i18n('error:group_name_invalid_chars')}
-        }
-        return {valid: true}
-      },
-    })
+    const name = await wrap(
+      dialogService.showInputDialog({
+        title,
+        label: i18n('group:name'),
+        placeholder: i18n('group:name:placeholder'),
+        helpText: i18n('group:parent', {parent: parentLabel}),
+        confirmText: i18n('group:create:button'),
+        cancelText: i18n('button:cancel'),
+        required: true,
+        maxLength: 100,
+        validator: (value) => {
+          const trimmed = String(value ?? '').trim()
+          if (!trimmed) return {valid: false, message: i18n('error:group_name_required')}
+          if (trimmed.includes('/') || trimmed.includes('\\')) {
+            return {valid: false, message: i18n('error:group_name_invalid_chars')}
+          }
+          return {valid: true}
+        },
+      }),
+    )
 
     const trimmed = String(name ?? '').trim()
     if (!trimmed) return
 
+    const currentRoot = pmModel.root()
+    if (!currentRoot || currentRoot !== initialRoot || currentRoot.isReadOnly()) return
+
     const fullPath = parentPath ? `${parentPath}/${trimmed}` : trimmed
-    root.createGroup({name: fullPath, icon: undefined, entries: []})
+    currentRoot.createGroup({name: fullPath, icon: undefined, entries: []})
 
     // Expand parent so the new group is visible.
     if (parentPath) {

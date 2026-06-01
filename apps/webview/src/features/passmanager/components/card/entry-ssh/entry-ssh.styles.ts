@@ -6,9 +6,9 @@ export const entrySshSharedStyles = css`
   }
 
   .entry-ssh-surface {
-    border: 1px solid color-mix(in oklch, var(--cv-color-border) 82%, transparent);
+    border: 1px solid var(--cv-color-border-strong);
     border-radius: var(--cv-radius-2);
-    background: color-mix(in oklch, var(--cv-color-surface) 90%, black 10%);
+    background: var(--cv-color-surface-2);
   }
 
   .entry-ssh-inline {
@@ -22,10 +22,10 @@ export const entrySshSharedStyles = css`
     display: grid;
     gap: var(--cv-space-2);
     padding: 0.75rem;
-    border: 1px solid color-mix(in oklch, var(--cv-color-border) 54%, transparent);
+    border: 1px solid var(--cv-color-border-muted);
     border-radius: calc(var(--cv-radius-2) - 2px);
-    background: color-mix(in oklch, var(--cv-color-surface-2) 32%, var(--cv-color-surface));
-    box-shadow: inset 0 1px 0 color-mix(in oklch, white 4%, transparent);
+    background: var(--cv-color-surface);
+    box-shadow: inset 0 1px 0 var(--cv-alpha-white-4);
   }
 
   .entry-ssh-field-flat {
@@ -35,7 +35,7 @@ export const entrySshSharedStyles = css`
     border-radius: 0;
     background: transparent;
     box-shadow: none;
-    border-block-start: 1px solid color-mix(in oklch, var(--cv-color-border) 30%, transparent);
+    border-block-start: 1px solid var(--cv-color-border-muted);
   }
 
   .entry-ssh-field-flat::before {
@@ -46,7 +46,7 @@ export const entrySshSharedStyles = css`
     inset-block-end: 0;
     inline-size: 2px;
     border-radius: 999px;
-    background: color-mix(in oklch, var(--cv-color-warning) 40%, var(--cv-color-border));
+    background: var(--cv-color-warning-surface-strong);
   }
 
   .entry-ssh-field-flat .entry-ssh-field-head,
@@ -104,7 +104,7 @@ export const entrySshSharedStyles = css`
 export const entrySshKeysCardStyles = css`
   .entry-ssh-keys-card {
     background: var(--cv-color-surface-2);
-    border: 1px solid color-mix(in oklch, var(--cv-color-border) 60%, transparent);
+    border: 1px solid var(--cv-color-border-muted);
     border-radius: var(--cv-radius-3);
     overflow: hidden;
     display: flex;
@@ -116,7 +116,7 @@ export const entrySshKeysCardStyles = css`
     align-items: center;
     justify-content: space-between;
     padding: 12px 14px;
-    border-block-end: 1px solid color-mix(in oklch, var(--cv-color-border) 35%, transparent);
+    border-block-end: 1px solid var(--cv-color-border-muted);
   }
 
   .entry-ssh-keys-title {
@@ -143,7 +143,7 @@ export const entrySshKeysCardStyles = css`
   }
 
   .entry-ssh-keys-content pm-entry-ssh-key + pm-entry-ssh-key {
-    border-block-start: 1px solid color-mix(in oklch, var(--cv-color-border) 30%, transparent);
+    border-block-start: 1px solid var(--cv-color-border-muted);
   }
 
   @media (width < 720px) {

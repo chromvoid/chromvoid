@@ -32,10 +32,17 @@ internal object AndroidPasskeyRequestResolver : PasskeyActivityRequestResolverRu
             ?: return GetRequestResolution.Failure(
                 GetCredentialUnknownException("ChromVoid could not parse the passkey retrieval request."),
             )
+        PasskeyTrace.file(
+            "get_request_json",
+            "rpId" to parsedRequest.rpId,
+            "clientDataHashB64Url" to option.clientDataHash?.let { PasskeyEncoding.base64UrlEncode(it) },
+            "requestJsonB64Url" to PasskeyEncoding.base64UrlEncode(option.requestJson.toByteArray(Charsets.UTF_8)),
+        )
 
         return GetRequestResolution.Success(
             ResolvedGetPasskeyRequest(
                 requestData = parsedRequest,
+                requestJson = option.requestJson,
                 origin = PasskeyOriginResolver.originForCallingApp(providerRequest.callingAppInfo),
                 clientDataHash = option.clientDataHash,
             ),
@@ -59,11 +66,19 @@ internal object AndroidPasskeyRequestResolver : PasskeyActivityRequestResolverRu
             ?: return CreateRequestResolution.Failure(
                 CreateCredentialUnknownException("ChromVoid could not parse the passkey create request."),
             )
+        PasskeyTrace.file(
+            "create_request_json",
+            "rpId" to parsedRequest.rpId,
+            "clientDataHashB64Url" to createRequest.clientDataHash?.let { PasskeyEncoding.base64UrlEncode(it) },
+            "requestJsonB64Url" to PasskeyEncoding.base64UrlEncode(createRequest.requestJson.toByteArray(Charsets.UTF_8)),
+        )
 
         return CreateRequestResolution.Success(
             ResolvedCreatePasskeyRequest(
                 requestData = parsedRequest,
+                requestJson = createRequest.requestJson,
                 origin = PasskeyOriginResolver.originForCallingApp(providerRequest.callingAppInfo),
+                clientDataHash = createRequest.clientDataHash,
             ),
         )
     }

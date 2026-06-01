@@ -6,6 +6,7 @@ use chromvoid_core::crypto::keystore::InMemoryKeystore;
 use chromvoid_core::rpc::types::RpcRequest;
 use chromvoid_core::rpc::types::RpcResponse;
 use chromvoid_core::rpc::RpcRouter;
+use chromvoid_core::rpc::{RpcInputStream, RpcReply};
 use chromvoid_core::storage::Storage;
 use std::sync::{Arc, Once};
 use tempfile::TempDir;
@@ -89,8 +90,10 @@ pub fn move_node(router: &mut RpcRouter, node_id: u64, new_parent_path: &str) ->
 }
 
 pub fn sync_init(router: &mut RpcRouter) -> RpcResponse {
-    // ADR-004 (v2): canonical command name
-    router.handle(&RpcRequest::new("catalog:sync:init", serde_json::json!({})))
+    router.handle(&RpcRequest::new(
+        "catalog:sync:manifest",
+        serde_json::json!({}),
+    ))
 }
 
 pub fn assert_rpc_ok(response: &RpcResponse) {
@@ -124,6 +127,51 @@ pub fn get_node_id(response: &RpcResponse) -> u64 {
         .expect("result should have node_id")
         .as_u64()
         .expect("node_id should be u64")
+}
+
+pub fn upload_file(
+    router: &mut RpcRouter,
+    parent_path: Option<&str>,
+    name: &str,
+    bytes: Vec<u8>,
+    mime_type: Option<&str>,
+) -> u64 {
+    upload_file_with_chunk_size(router, parent_path, name, bytes, mime_type, None)
+}
+
+pub fn upload_file_with_chunk_size(
+    router: &mut RpcRouter,
+    parent_path: Option<&str>,
+    name: &str,
+    bytes: Vec<u8>,
+    mime_type: Option<&str>,
+    chunk_size: Option<u32>,
+) -> u64 {
+    let mut data = serde_json::json!({
+        "parent_path": parent_path.unwrap_or("/"),
+        "name": name,
+        "total_size": bytes.len() as u64,
+        "size": bytes.len() as u64,
+        "offset": 0,
+    });
+    if let Some(mime_type) = mime_type {
+        data["mime_type"] = serde_json::json!(mime_type);
+    }
+    if let Some(chunk_size) = chunk_size {
+        data["chunk_size"] = serde_json::json!(chunk_size);
+    }
+    let reply = router.handle_with_stream(
+        &RpcRequest::new("catalog:upload", data),
+        Some(RpcInputStream::from_bytes(bytes)),
+    );
+    let response = match reply {
+        RpcReply::Json(response) => response,
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:upload must return JSON response")
+        }
+    };
+    assert_rpc_ok(&response);
+    get_node_id(&response)
 }
 
 pub fn get_items(response: &RpcResponse) -> Vec<serde_json::Value> {

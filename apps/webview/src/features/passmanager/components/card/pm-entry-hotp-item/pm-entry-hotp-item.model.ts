@@ -1,74 +1,29 @@
-import {computed, state} from '@statx/core'
+import {action, atom, computed, isAbort, withAbort, withAsync, wrap} from '@reatom/core'
 
-import {i18n} from '@project/passmanager'
-import type {OTP} from '@project/passmanager'
+import type {OTP} from '@project/passmanager/core'
+import {i18n} from '@project/passmanager/i18n'
 
 export class PMEntryHOTPItemModel {
-  readonly otp = state<OTP | undefined>(undefined)
-  readonly counter = state(0)
+  private readonly otpState = atom<OTP | undefined>(undefined, 'passmanager.entryHotp.otp')
+  private readonly counterState = atom(0, 'passmanager.entryHotp.counter')
 
-  private readonly refreshVersion = state(0)
+  private readonly refreshVersionState = atom(0, 'passmanager.entryHotp.refreshVersion')
+  private generateCodePromise: Promise<void> | undefined
+  private loadCodeForCopyPromise: Promise<string> | undefined
 
-  readonly isVisible = computed(() => {
-    this.refreshVersion()
-    return this.otp()?.isShow() ?? false
-  })
-
-  readonly code = computed(() => {
-    this.refreshVersion()
-    return this.otp()?.currentOtp() ?? ''
-  })
-
-  readonly label = computed(() => this.otp()?.data.label || i18n('otp:hotp_short'))
-
-  setOtp(value: OTP | undefined): void {
-    this.otp.set(value)
-    this.counter.set(this.readCounter(value))
-    this.touch()
-  }
-
-  disconnect(): void {
-    this.otp.peek()?.hide()
-  }
-
-  setCounter(value: number): void {
-    const nextValue = Math.max(0, Number.isFinite(value) ? value : 0)
-    this.counter.set(nextValue)
-
-    const otp = this.otp.peek()
-    if (otp && (otp.data as Record<string, unknown>)['counter'] !== undefined) {
-      ;(otp.data as Record<string, unknown>)['counter'] = nextValue
-    }
-  }
-
-  async generateCode(): Promise<void> {
-    const otp = this.otp.peek()
+  private readonly generateCodeAction = action(async (): Promise<void> => {
+    const otp = this.otpState()
     if (!otp) {
       return
     }
 
     otp.show()
-    await otp.loadCode(this.counter.peek())
+    await wrap(otp.loadCode(this.counterState()))
     this.touch()
-  }
+  }, 'passmanager.entryHotp.generateCode').extend(withAbort('first-in-win'), withAsync({status: true}))
 
-  async toggleCode(): Promise<void> {
-    const otp = this.otp.peek()
-    if (!otp) {
-      return
-    }
-
-    if (!otp.isShow()) {
-      await this.generateCode()
-      return
-    }
-
-    otp.hide()
-    this.touch()
-  }
-
-  async loadCodeForCopy(): Promise<string> {
-    const otp = this.otp.peek()
+  private readonly loadCodeForCopyAction = action(async (): Promise<string> => {
+    const otp = this.otpState()
     if (!otp) {
       return ''
     }
@@ -78,7 +33,95 @@ export class PMEntryHOTPItemModel {
       return current
     }
 
-    return (await otp.loadCode()) ?? ''
+    return (await wrap(otp.loadCode())) ?? ''
+  }, 'passmanager.entryHotp.loadCodeForCopy').extend(withAsync({status: true}))
+
+  readonly state = {
+    otp: this.otpState,
+    counter: this.counterState,
+    isVisible: computed(() => {
+      this.refreshVersionState()
+      return this.otpState()?.isShow() ?? false
+    }, 'passmanager.entryHotp.isVisible'),
+    code: computed(() => {
+      this.refreshVersionState()
+      return this.otpState()?.currentOtp() ?? ''
+    }, 'passmanager.entryHotp.code'),
+    label: computed(() => this.otpState()?.data.label || i18n('otp:hotp_short'), 'passmanager.entryHotp.label'),
+  }
+
+  readonly actions = {
+    setOtp: action((value: OTP | undefined) => {
+      this.otpState.set(value)
+      this.counterState.set(this.readCounter(value))
+      this.touch()
+    }, 'passmanager.entryHotp.setOtp'),
+
+    disconnect: action(() => {
+      this.generateCodeAction.abort('entry-hotp disconnect')
+      this.otpState()?.hide()
+    }, 'passmanager.entryHotp.disconnect'),
+
+    setCounter: action((value: number) => {
+      const nextValue = Math.max(0, Number.isFinite(value) ? value : 0)
+      this.counterState.set(nextValue)
+
+      const otp = this.otpState()
+      if (otp && (otp.data as Record<string, unknown>)['counter'] !== undefined) {
+        ;(otp.data as Record<string, unknown>)['counter'] = nextValue
+      }
+    }, 'passmanager.entryHotp.setCounter'),
+
+    generateCode: action(async () => {
+      if (this.generateCodePromise) {
+        return this.generateCodePromise
+      }
+
+      const promise = this.generateCodeAction()
+        .catch((error) => {
+          if (!isAbort(error)) {
+            throw error
+          }
+        })
+        .finally(() => {
+          if (this.generateCodePromise === promise) {
+            this.generateCodePromise = undefined
+          }
+        })
+
+      this.generateCodePromise = promise
+      return promise
+    }, 'passmanager.entryHotp.generateCodeProxy'),
+
+    toggleCode: action(async () => {
+      const otp = this.otpState()
+      if (!otp) {
+        return
+      }
+
+      if (!otp.isShow()) {
+        await this.actions.generateCode()
+        return
+      }
+
+      otp.hide()
+      this.touch()
+    }, 'passmanager.entryHotp.toggleCode'),
+
+    loadCodeForCopy: action(async () => {
+      if (this.loadCodeForCopyPromise) {
+        return this.loadCodeForCopyPromise
+      }
+
+      const promise = this.loadCodeForCopyAction().finally(() => {
+        if (this.loadCodeForCopyPromise === promise) {
+          this.loadCodeForCopyPromise = undefined
+        }
+      })
+
+      this.loadCodeForCopyPromise = promise
+      return promise
+    }, 'passmanager.entryHotp.loadCodeForCopyProxy'),
   }
 
   private readCounter(otp: OTP | undefined): number {
@@ -91,6 +134,6 @@ export class PMEntryHOTPItemModel {
   }
 
   private touch(): void {
-    this.refreshVersion.set(this.refreshVersion.peek() + 1)
+    this.refreshVersionState.set(this.refreshVersionState() + 1)
   }
 }

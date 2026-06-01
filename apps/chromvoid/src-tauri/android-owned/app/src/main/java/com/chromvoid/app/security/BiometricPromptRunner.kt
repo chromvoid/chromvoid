@@ -18,6 +18,10 @@ internal class BiometricPromptRunner(
     private val currentActivityRegistry: CurrentActivityRegistry<FragmentActivity>,
 ) {
     private val promptActive = AtomicBoolean(false)
+    @Volatile
+    private var activePrompt: BiometricPrompt? = null
+    @Volatile
+    private var activePromptActivity: FragmentActivity? = null
 
     fun availabilityCode(activity: FragmentActivity): Int {
         return BiometricManager.from(activity.applicationContext)
@@ -40,6 +44,19 @@ internal class BiometricPromptRunner(
 
     fun finishPrompt() {
         promptActive.compareAndSet(true, false)
+        activePrompt = null
+        activePromptActivity = null
+    }
+
+    fun cancelActivePrompt(activity: FragmentActivity? = null): Boolean {
+        val prompt = activePrompt ?: return false
+        if (activity != null && activePromptActivity !== activity) {
+            return false
+        }
+
+        finishPrompt()
+        prompt.cancelAuthentication()
+        return true
     }
 
     fun authenticate(
@@ -72,6 +89,8 @@ internal class BiometricPromptRunner(
                     }
                 },
             )
+        activePrompt = prompt
+        activePromptActivity = activity
 
         val promptInfo =
             BiometricPrompt.PromptInfo.Builder()

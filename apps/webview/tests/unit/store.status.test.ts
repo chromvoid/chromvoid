@@ -1,20 +1,19 @@
-import {state} from '@statx/core'
-
 import {describe, expect, it} from 'vitest'
 
 import {ChromVoidState} from '../../src/core/state/app-state'
 import {Store} from '../../src/app/state/store'
+import {atom} from '@reatom/core'
 import {UploadTask} from '../../src/types/upload-task'
 
 describe('Store status and upload selectors', () => {
   const createWsStub = () => {
     return {
       ws: {},
-      connected: state(false),
-      connecting: state(false),
-      authenticated: state(false),
-      authenticating: state(false),
-      lastError: state<string | undefined>(undefined),
+      connected: atom(false),
+      connecting: atom(false),
+      authenticated: atom(false),
+      authenticating: atom(false),
+      lastError: atom<string | undefined>(undefined),
     } as any
   }
 

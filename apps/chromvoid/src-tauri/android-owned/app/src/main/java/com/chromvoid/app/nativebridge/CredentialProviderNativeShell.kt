@@ -1,19 +1,12 @@
 package com.chromvoid.app.nativebridge
 
 import android.os.Build
-import android.util.Log
 import com.chromvoid.app.credentialprovider.AutofillProviderSettingsBridge
 import com.chromvoid.app.shared.AndroidRuntimeAccess
+import com.chromvoid.app.shared.NativeRuntimeLoader
 
 internal object CredentialProviderNativeShell {
     private const val TAG = "ChromVoid/CredentialProvider"
-
-    init {
-        runCatching { System.loadLibrary("chromvoid_lib") }
-            .onFailure { error ->
-                Log.w(TAG, "Native bridge library is not available in this process", error)
-            }
-    }
 
     @JvmStatic
     fun appAutofillProviderSelected(): Boolean {
@@ -29,29 +22,57 @@ internal object CredentialProviderNativeShell {
 
     fun currentApiLevel(): Int = Build.VERSION.SDK_INT
 
-    internal fun ensureRuntime(dataDir: String): Boolean = nativeEnsureRuntime(dataDir)
+    internal fun ensureRuntime(dataDir: String): Boolean =
+        NativeRuntimeLoader.callWhenLoaded(TAG, false) { nativeEnsureRuntime(dataDir) }
 
-    internal fun runtimeReady(): Boolean = nativeRuntimeReady()
+    internal fun runtimeReady(): Boolean =
+        NativeRuntimeLoader.callWhenLoaded(TAG, false) { nativeRuntimeReady() }
 
-    internal fun providerStatus(): String = nativeProviderStatus()
+    internal fun providerStatus(): String =
+        callNativeString { nativeProviderStatus() }
 
-    internal fun autofillList(origin: String, domain: String): String =
-        nativeAutofillList(origin, domain)
+    internal fun autofillList(
+        origin: String,
+        domain: String,
+        includeDiagnostics: Boolean = false,
+    ): String =
+        callNativeString {
+            if (includeDiagnostics) {
+                nativeAutofillListWithDiagnostics(origin, domain)
+            } else {
+                nativeAutofillList(origin, domain)
+            }
+        }
+
+    internal fun autofillCloseSession(sessionId: String): String =
+        callNativeString { nativeAutofillCloseSession(sessionId) }
 
     internal fun autofillGetSecret(sessionId: String, credentialId: String, otpId: String): String =
-        nativeAutofillGetSecret(sessionId, credentialId, otpId)
+        callNativeString { nativeAutofillGetSecret(sessionId, credentialId, otpId) }
 
     internal fun passwordSaveStart(payloadJson: String): String =
-        nativePasswordSaveStart(payloadJson)
+        callNativeString { nativePasswordSaveStart(payloadJson) }
 
     internal fun passwordSaveRequest(token: String): String =
-        nativePasswordSaveRequest(token)
+        callNativeString { nativePasswordSaveRequest(token) }
 
     internal fun passwordSaveMarkLaunched(token: String): String =
-        nativePasswordSaveMarkLaunched(token)
+        callNativeString { nativePasswordSaveMarkLaunched(token) }
 
     internal fun passkeyPreflight(command: String, payloadJson: String): String =
-        nativePasskeyPreflight(command, payloadJson)
+        callNativeString { nativePasskeyPreflight(command, payloadJson) }
+
+    internal fun passkeyQuery(payloadJson: String): String =
+        callNativeString { nativePasskeyQuery(payloadJson) }
+
+    internal fun passkeyCreate(payloadJson: String): String =
+        callNativeString { nativePasskeyCreate(payloadJson) }
+
+    internal fun passkeyGet(payloadJson: String): String =
+        callNativeString { nativePasskeyGet(payloadJson) }
+
+    private fun callNativeString(block: () -> String): String =
+        NativeRuntimeLoader.callWhenLoaded(TAG, "", block)
 
     @JvmStatic
     private external fun nativeEnsureRuntime(dataDir: String): Boolean
@@ -64,6 +85,12 @@ internal object CredentialProviderNativeShell {
 
     @JvmStatic
     private external fun nativeAutofillList(origin: String, domain: String): String
+
+    @JvmStatic
+    private external fun nativeAutofillListWithDiagnostics(origin: String, domain: String): String
+
+    @JvmStatic
+    private external fun nativeAutofillCloseSession(sessionId: String): String
 
     @JvmStatic
     private external fun nativeAutofillGetSecret(sessionId: String, credentialId: String, otpId: String): String
@@ -79,4 +106,13 @@ internal object CredentialProviderNativeShell {
 
     @JvmStatic
     private external fun nativePasskeyPreflight(command: String, payloadJson: String): String
+
+    @JvmStatic
+    private external fun nativePasskeyQuery(payloadJson: String): String
+
+    @JvmStatic
+    private external fun nativePasskeyCreate(payloadJson: String): String
+
+    @JvmStatic
+    private external fun nativePasskeyGet(payloadJson: String): String
 }

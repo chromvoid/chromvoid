@@ -40,6 +40,7 @@ impl PrivyFilesystem {
                     }
                     _ => return Err(libc::EIO),
                 },
+                RpcReply::RangeStream(_) => return Err(libc::EIO),
             }
         };
 
@@ -66,6 +67,7 @@ impl PrivyFilesystem {
                     }
                     _ => return Err(libc::EIO),
                 },
+                RpcReply::RangeStream(_) => return Err(libc::EIO),
             }
         };
         Ok(out.reader)
@@ -73,7 +75,9 @@ impl PrivyFilesystem {
 
     pub(super) fn upload_from_path(
         &self,
-        node_id: u64,
+        mut node_id: Option<u64>,
+        parent_path: Option<&str>,
+        name: Option<&str>,
         file_path: &Path,
         total_size: u64,
     ) -> Result<(), i32> {
@@ -84,10 +88,24 @@ impl PrivyFilesystem {
         if total_size == 0 {
             let req = RpcRequest::new(
                 "catalog:upload".to_string(),
-                json!({"node_id": node_id, "size": 0, "offset": 0}),
+                match node_id {
+                    Some(node_id) => json!({"node_id": node_id, "size": 0, "offset": 0}),
+                    None => json!({
+                        "parent_path": parent_path.unwrap_or("/"),
+                        "name": name.ok_or(libc::EINVAL)?,
+                        "total_size": 0,
+                        "size": 0,
+                        "offset": 0,
+                        "mime_type": serde_json::Value::Null,
+                        "chunk_size": serde_json::Value::Null,
+                    }),
+                },
             );
             match adapter.handle_with_stream(&req, Some(RpcInputStream::from_bytes(Vec::new()))) {
-                RpcReply::Json(RpcResponse::Success { .. }) => return Ok(()),
+                RpcReply::Json(RpcResponse::Success { result, .. }) => {
+                    node_id = node_id.or_else(|| upload_node_id_from_value(&result));
+                    return node_id.map(|_| ()).ok_or(libc::EIO);
+                }
                 _ => return Err(libc::EIO),
             }
         }
@@ -103,10 +121,27 @@ impl PrivyFilesystem {
 
             let req = RpcRequest::new(
                 "catalog:upload".to_string(),
-                json!({"node_id": node_id, "size": part, "offset": offset}),
+                match node_id {
+                    Some(node_id) => json!({"node_id": node_id, "size": part, "offset": offset}),
+                    None => json!({
+                        "parent_path": parent_path.unwrap_or("/"),
+                        "name": name.ok_or(libc::EINVAL)?,
+                        "total_size": total_size,
+                        "size": part,
+                        "offset": offset,
+                        "mime_type": serde_json::Value::Null,
+                        "chunk_size": serde_json::Value::Null,
+                    }),
+                },
             );
             match adapter.handle_with_stream(&req, Some(RpcInputStream::new(Box::new(reader)))) {
-                RpcReply::Json(RpcResponse::Success { .. }) => {
+                RpcReply::Json(RpcResponse::Success { result, .. }) => {
+                    if node_id.is_none() {
+                        node_id = upload_node_id_from_value(&result);
+                        if node_id.is_none() {
+                            return Err(libc::EIO);
+                        }
+                    }
                     offset = offset.saturating_add(part);
                 }
                 _ => return Err(libc::EIO),
@@ -132,42 +167,26 @@ impl PrivyFilesystem {
         let _guard = self.write_lock.lock().map_err(|_| libc::EIO)?;
 
         // 1) Ensure catalog node exists and declared size matches.
-        let parent_val = if parent_path == "/" {
-            serde_json::Value::Null
-        } else {
-            serde_json::Value::String(parent_path)
-        };
-
-        let node_id = {
-            let mut adapter = self.adapter.lock().map_err(|_| libc::EIO)?;
-            let value = rpc_json(
-                adapter.as_mut(),
-                "catalog:prepareUpload",
-                json!({
-                    "parent_path": parent_val,
-                    "name": name,
-                    "size": size,
-                    "mime_type": serde_json::Value::Null,
-                    "chunk_size": serde_json::Value::Null,
-                }),
-            )?;
-
-            let prep: PrepareUploadResponse =
-                serde_json::from_value(value).map_err(|_| libc::EIO)?;
-            prep.node_id
-        };
-
         // 2) Upload in parts to keep memory bounded.
-        self.upload_from_path(node_id, &state.tmp_path, size)?;
+        self.upload_from_path(
+            Some(state.node_id),
+            Some(if parent_path == "/" {
+                "/"
+            } else {
+                parent_path.as_str()
+            }),
+            Some(name.as_str()),
+            &state.tmp_path,
+            size,
+        )?;
 
         // 3) Persist.
         {
             let mut adapter = self.adapter.lock().map_err(|_| libc::EIO)?;
-            let emitted = save_and_flush(adapter.as_mut())?;
+            let emitted = save_and_flush(&self.event_sink, adapter.as_mut())?;
             info!(
                 target: "chromvoid_lib::volume_fuse::imp",
                 ino,
-                node_id,
                 size,
                 events_emitted = emitted,
                 "FUSE flush_open_file: persisted"
@@ -181,7 +200,6 @@ impl PrivyFilesystem {
             self.inode_table.upsert(entry);
         }
 
-        state.node_id = node_id;
         state.dirty = false;
         Ok(())
     }
@@ -194,6 +212,9 @@ impl PrivyFilesystem {
         } else {
             build_catalog_path(&self.inode_table, parent_ino).ok_or(libc::ENOENT)?
         };
+        if is_platform_metadata_child(&parent_path, name) {
+            return Err(libc::EACCES);
+        }
         let child_path = if parent_path == "/" {
             format!("/{}", name)
         } else {

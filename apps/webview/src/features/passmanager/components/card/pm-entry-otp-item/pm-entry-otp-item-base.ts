@@ -1,29 +1,39 @@
-import {XLitElement} from '@statx/lit'
+import {ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import type {OTP} from '@project/passmanager'
+import type {OTP} from '@project/passmanager/core'
 import {PMEntryOTPItemModel} from './pm-entry-otp-item.model'
 
-/**
- * Фасад для OTP компонентов.
- * Автоматически выбирает нужный компонент в зависимости от типа OTP:
- * - TOTP → pm-entry-totp-item / pm-entry-totp-item-mobile
- * - HOTP → pm-entry-hotp-item / pm-entry-hotp-item-mobile
- */
-export class PMEntryOTPItemBase extends XLitElement {
+/*** Facade for OTP components.
+Automatically selects the desired component depending on the type of OTP:
+* - TOTP → pm-entry-totp-item
+* - HOTP → pm-entry-hotp-item
+*/
+export class PMEntryOTPItemBase extends ReatomLitElement {
+  static properties = {
+    removable: {type: Boolean},
+  }
+
   protected readonly model = new PMEntryOTPItemModel()
 
-  hasSelector = true
+  hasSelector: boolean
+  declare removable: boolean
+
+  constructor() {
+    super()
+    this.hasSelector = true
+    this.removable = false
+  }
 
   get otp(): OTP | undefined {
-    return this.model.otp()
+    return this.model.state.otp()
   }
 
   set otp(value: OTP | undefined) {
-    this.model.setOtp(value)
+    this.model.actions.setOtp(value)
   }
 
   disconnectedCallback(): void {
-    this.model.disconnect()
+    this.model.actions.disconnect()
     super.disconnectedCallback()
   }
 }

@@ -10,16 +10,21 @@ mod models;
 pub use models::{IoEvent, IoRequest, IoTaskConfig};
 
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+
+pub struct NetworkIoTaskHandle {
+    pub req_tx: mpsc::Sender<IoRequest>,
+    pub evt_rx: mpsc::Receiver<IoEvent>,
+    pub task_handle: JoinHandle<()>,
+}
 
 /// Spawn the network I/O background task.
 /// Returns channel handles for sending requests and receiving events.
-pub fn spawn_network_io_task(
-    config: IoTaskConfig,
-) -> (mpsc::Sender<IoRequest>, mpsc::Receiver<IoEvent>) {
+pub fn spawn_network_io_task(config: IoTaskConfig) -> NetworkIoTaskHandle {
     let (req_tx, mut req_rx) = mpsc::channel::<IoRequest>(32);
     let (evt_tx, evt_rx) = mpsc::channel::<IoEvent>(64);
 
-    tokio::spawn(async move {
+    let task_handle = tokio::spawn(async move {
         let result = io_loop::io_loop(config, &mut req_rx, &evt_tx).await;
         if let Err(e) = result {
             let _ = evt_tx
@@ -30,5 +35,9 @@ pub fn spawn_network_io_task(
         }
     });
 
-    (req_tx, evt_rx)
+    NetworkIoTaskHandle {
+        req_tx,
+        evt_rx,
+        task_handle,
+    }
 }

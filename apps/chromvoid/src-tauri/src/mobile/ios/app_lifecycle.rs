@@ -33,6 +33,8 @@ mod native {
             }
         }
 
+        // SAFETY: NSObjectProtocol has no methods; AppLifecycleObserver is an objc2 ObjC subclass of
+        // NSObject so the protocol is structurally satisfied.
         unsafe impl NSObjectProtocol for AppLifecycleObserver {}
     );
 
@@ -47,17 +49,26 @@ mod native {
                 app: Mutex::new(Some(app)),
                 storage_root: Mutex::new(Some(storage_root)),
             });
+            // SAFETY: this is an alloc'd AppLifecycleObserver with ivars set; calling -[NSObject init] via
+            // msg_send is the standard objc2 designated-initializer pattern.
             unsafe { msg_send![super(this), init] }
         }
 
         fn handle_foreground(&self) {
-            let app = self.ivars().app.lock().ok().and_then(|guard| guard.clone());
-            let storage_root = self
-                .ivars()
-                .storage_root
-                .lock()
-                .ok()
-                .and_then(|guard| guard.clone());
+            let app = match self.ivars().app.lock() {
+                Ok(guard) => guard.clone(),
+                Err(_) => {
+                    tracing::warn!("ios_app_lifecycle: app handle mutex poisoned");
+                    None
+                }
+            };
+            let storage_root = match self.ivars().storage_root.lock() {
+                Ok(guard) => guard.clone(),
+                Err(_) => {
+                    tracing::warn!("ios_app_lifecycle: storage root mutex poisoned");
+                    None
+                }
+            };
 
             let (Some(app), Some(storage_root)) = (app, storage_root) else {
                 return;
@@ -67,7 +78,14 @@ mod native {
         }
 
         fn handle_background(&self) {
-            crate::network::ios_lifecycle::handle_background_suspend();
+            let app = match self.ivars().app.lock() {
+                Ok(guard) => guard.clone(),
+                Err(_) => {
+                    tracing::warn!("ios_app_lifecycle: app handle mutex poisoned");
+                    None
+                }
+            };
+            crate::network::ios_lifecycle::handle_background_suspend(app.as_ref());
         }
     }
 
@@ -88,6 +106,9 @@ mod native {
 
         let observer = AppLifecycleObserver::new_with(app, storage_root, mtm);
 
+        // SAFETY: defaultCenter is a +0 singleton; observer is retained for the app lifetime via
+        // std::mem::forget below; UIApplicationDid*Notification globals are 'static NSStrings provided
+        // by UIKit.
         unsafe {
             let center: *const AnyObject =
                 msg_send![objc2::class!(NSNotificationCenter), defaultCenter];

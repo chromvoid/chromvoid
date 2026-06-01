@@ -1,11 +1,12 @@
 //! Delta encoding for incremental catalog updates
 
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
+use std::fmt;
 
 #[cfg(feature = "ts-bindings")]
 use ts_rs::TS;
 
-use super::CatalogNode;
+use super::{CatalogMediaInfo, CatalogNode};
 
 pub const MAX_DELTAS: u32 = 100;
 pub const MAX_DELTA_SIZE: usize = 256 * 1024; // 256KB
@@ -39,9 +40,61 @@ pub struct PartialNode {
     pub size: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_media_info_update",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub media_info: Option<Option<CatalogMediaInfo>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts-bindings", ts(type = "number | null"))]
+    pub media_inspected_revision: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts-bindings", ts(type = "number | null"))]
     pub modtime: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts-bindings", ts(type = "number | null"))]
+    pub source_revision: Option<u64>,
+}
+
+fn deserialize_media_info_update<'de, D>(
+    deserializer: D,
+) -> Result<Option<Option<CatalogMediaInfo>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct MediaInfoUpdateVisitor;
+
+    impl<'de> de::Visitor<'de> for MediaInfoUpdateVisitor {
+        type Value = Option<Option<CatalogMediaInfo>>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("null or a catalog media info object")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(None))
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(None))
+        }
+
+        fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            CatalogMediaInfo::deserialize(deserializer).map(|media_info| Some(Some(media_info)))
+        }
+    }
+
+    deserializer.deserialize_option(MediaInfoUpdateVisitor)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,6 +219,13 @@ pub fn apply_delta(root: &mut CatalogNode, delta: &DeltaEntry) -> bool {
         DeltaOp::Create { node } => {
             if let Some(parent) = find_node_mut(root, &delta.path) {
                 if parent.is_dir() {
+                    if parent
+                        .children()
+                        .iter()
+                        .any(|child| child.node_id == node.node_id && child.name == node.name)
+                    {
+                        return true;
+                    }
                     parent.add_child(node.clone());
                     return true;
                 }
@@ -174,6 +234,13 @@ pub fn apply_delta(root: &mut CatalogNode, delta: &DeltaEntry) -> bool {
         }
         DeltaOp::Update { fields } => {
             if let Some(node) = find_node_mut(root, &delta.path) {
+                if delta
+                    .node_id
+                    .map(|node_id| node.node_id != node_id)
+                    .unwrap_or(false)
+                {
+                    return false;
+                }
                 if let Some(ref name) = fields.name {
                     node.name = name.clone();
                 }
@@ -183,8 +250,17 @@ pub fn apply_delta(root: &mut CatalogNode, delta: &DeltaEntry) -> bool {
                 if let Some(ref mime_type) = fields.mime_type {
                     node.mime_type = Some(mime_type.clone());
                 }
+                if let Some(media_info) = &fields.media_info {
+                    node.media_info = media_info.clone();
+                }
+                if let Some(media_inspected_revision) = fields.media_inspected_revision {
+                    node.media_inspected_revision = media_inspected_revision;
+                }
                 if let Some(modtime) = fields.modtime {
                     node.modtime = modtime;
+                }
+                if let Some(source_revision) = fields.source_revision {
+                    node.source_revision = source_revision;
                 }
                 return true;
             }
@@ -202,7 +278,15 @@ pub fn apply_delta(root: &mut CatalogNode, delta: &DeltaEntry) -> bool {
                 if let Some(parent) = find_node_mut(root, parent_path) {
                     if let Some(children) = parent.children_mut() {
                         let original_len = children.len();
-                        children.retain(|c| c.name != name);
+                        children.retain(|child| {
+                            if child.name != name {
+                                return true;
+                            }
+                            delta
+                                .node_id
+                                .map(|node_id| child.node_id != node_id)
+                                .unwrap_or(false)
+                        });
                         return children.len() < original_len;
                     }
                 }
@@ -224,6 +308,7 @@ pub fn apply_delta(root: &mut CatalogNode, delta: &DeltaEntry) -> bool {
                 old_parent_path
             };
 
+            let target_name = new_name.as_deref().unwrap_or(name);
             let mut node_to_move: Option<CatalogNode> = None;
             if let Some(old_parent) = find_node_mut(root, old_parent_path) {
                 if let Some(children) = old_parent.children_mut() {
@@ -240,6 +325,14 @@ pub fn apply_delta(root: &mut CatalogNode, delta: &DeltaEntry) -> bool {
                 if let Some(new_parent_node) = find_node_mut(root, new_parent) {
                     return new_parent_node.add_child(node);
                 }
+            } else if let Some(new_parent_node) = find_node_mut(root, new_parent) {
+                return new_parent_node.children().iter().any(|child| {
+                    child.name == target_name
+                        && delta
+                            .node_id
+                            .map(|node_id| child.node_id == node_id)
+                            .unwrap_or(true)
+                });
             }
             false
         }

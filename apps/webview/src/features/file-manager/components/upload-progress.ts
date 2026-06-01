@@ -1,15 +1,17 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html, nothing} from 'lit'
+import {css, nothing} from 'lit'
 
 import {UploadProgressModel} from './upload-progress.model'
 
 import './upload-progress.desktop'
 import './upload-progress.mobile'
 
-export class UploadProgress extends XLitElement {
+export class UploadProgress extends ReatomLitElement {
   static define() {
-    customElements.define('upload-progress', this)
+    if (!customElements.get('upload-progress')) {
+      customElements.define('upload-progress', this)
+    }
   }
 
   private model = new UploadProgressModel()
@@ -30,7 +32,7 @@ export class UploadProgress extends XLitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback()
-    this.model.cancelAutoHideClear()
+    this.model.dispose()
   }
 
   updated(changedProperties: Map<string, unknown>) {

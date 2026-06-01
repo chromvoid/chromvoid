@@ -1,79 +1,115 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
-import {render} from 'lit'
 
 import {CVInput} from '@chromvoid/uikit'
-import {renderWelcomeVaultContent} from '../../src/routes/welcome/sections/steps'
+import {atom} from '@reatom/core'
+import {guidanceCompletionBridge} from '../../src/core/guidance'
+import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
+import {dialogService} from '../../src/shared/services/dialog'
+import {WelcomeSetupSection} from '../../src/routes/welcome/sections/steps'
+import {WelcomeSetupModel} from '../../src/routes/welcome/welcome.model'
 
-function createProps(onCreateMasterSubmit: (event: Event) => void) {
+const welcomeRpcMocks = vi.hoisted(() => ({
+  estimatePasswordStrength: vi.fn(),
+  tauriRpc: vi.fn(),
+}))
+
+vi.mock('../../src/routes/welcome/welcome-rpc', async () => {
+  const actual = await vi.importActual<typeof import('../../src/routes/welcome/welcome-rpc')>(
+    '../../src/routes/welcome/welcome-rpc',
+  )
+
   return {
-    isNeedInit: true,
-    busy: false,
-    setupStep: 'create-master' as const,
-    creationP1: 'correct horse battery staple',
-    creationP2: 'correct horse battery staple',
-    passwordStrength: {
+    ...actual,
+    estimatePasswordStrength: welcomeRpcMocks.estimatePasswordStrength,
+    tauriRpc: welcomeRpcMocks.tauriRpc,
+  }
+})
+
+vi.mock('../../src/core/runtime/runtime', async () => {
+  const actual = await vi.importActual<typeof import('../../src/core/runtime/runtime')>(
+    '../../src/core/runtime/runtime',
+  )
+
+  return {
+    ...actual,
+    isTauriRuntime: () => true,
+  }
+})
+
+describe('welcome create-master submit', () => {
+  let section: WelcomeSetupSection
+  let model: WelcomeSetupModel
+  let pushNotification: ReturnType<typeof vi.fn>
+  let stateUpdate: ReturnType<typeof vi.fn>
+
+  const settle = async () => {
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+  }
+
+  beforeEach(() => {
+    CVInput.define()
+    WelcomeSetupSection.define()
+    pushNotification = vi.fn()
+    stateUpdate = vi.fn()
+    welcomeRpcMocks.estimatePasswordStrength.mockReset()
+    welcomeRpcMocks.estimatePasswordStrength.mockResolvedValue({
       score: 4,
       feedback: {
         warning: '',
         suggestions: [],
       },
-    },
-    isDesktopRemoteSupported: false,
-    remotePeers: [],
-    remoteLoadingPeers: false,
-    remoteRemovingPeerId: null,
-    remoteActivePeerId: null,
-    remoteStatusText: null,
-    remoteErrorText: null,
-    remoteConnectedPeerLabel: 'iPhone vault',
-    remotePairPhase: 'idle' as const,
-    remotePairError: null,
-    remotePairOffer: '',
-    remotePairPin: '',
-    remotePairDeviceLabel: '',
-    onUnlock: vi.fn(),
-    onSelectLocalMode: vi.fn(),
-    onSelectRemoteMode: vi.fn(),
-    onBackToModeSelect: vi.fn(),
-    onOpenRemotePair: vi.fn(),
-    onBackFromRemoteConnect: vi.fn(),
-    onBackFromRemotePair: vi.fn(),
-    onBackFromRemoteWait: vi.fn(),
-    onMasterPasswordInput: vi.fn(),
-    onMasterPasswordConfirmInput: vi.fn(),
-    onCreateMasterSubmit,
-    onRefreshRemotePeers: vi.fn(),
-    onConnectRemotePeer: vi.fn(),
-    onRemoveRemotePeer: vi.fn(),
-    onRemoteOfferInput: vi.fn(),
-    onRemotePinInput: vi.fn(),
-    onRemoteDeviceLabelInput: vi.fn(),
-    onSubmitRemotePair: vi.fn(),
-  }
-}
+    })
+    welcomeRpcMocks.tauriRpc.mockReset()
+    welcomeRpcMocks.tauriRpc.mockResolvedValue(undefined)
+    initAppContext(
+      createMockAppContext({
+        store: {
+          remoteSessionState: atom<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive'),
+          pushNotification,
+        } as never,
+        state: {
+          data: () => ({
+            NeedUserInitialization: true,
+            StorageOpened: false,
+          }),
+          update: stateUpdate,
+        } as never,
+      }),
+    )
 
-describe('welcome create-master submit', () => {
-  let container: HTMLDivElement
-
-  beforeEach(() => {
-    CVInput.define()
-    container = document.createElement('div')
-    document.body.append(container)
+    section = document.createElement('welcome-setup-section') as WelcomeSetupSection
+    section.layout = 'desktop'
+    model = new WelcomeSetupModel()
+    section.model = model
+    document.body.append(section)
+    model.setupStep.set('create-master')
+    model.creationState.set({
+      p1: 'correct horse battery staple',
+      p2: 'correct horse battery staple',
+    })
+    model.passwordStrength.set({
+      score: 4,
+      feedback: {
+        warning: '',
+        suggestions: [],
+      },
+    })
   })
 
   afterEach(() => {
-    container.remove()
+    section.remove()
+    clearAppContext()
+    vi.restoreAllMocks()
   })
 
   it('requests submit on Enter in confirm input', async () => {
-    const onCreateMasterSubmit = vi.fn((event: Event) => {
-      event.preventDefault()
-    })
+    const submitSpy = vi.spyOn(model, 'submitMasterSetup').mockResolvedValue()
+    await section.updateComplete
+    await settle()
 
-    render(renderWelcomeVaultContent(createProps(onCreateMasterSubmit)), container)
-    await Promise.resolve()
-
-    const form = container.querySelector('form')
+    const form = section.shadowRoot?.querySelector('form')
     expect(form).toBeInstanceOf(HTMLFormElement)
 
     const submitButton = form?.querySelector('cv-button')
@@ -92,7 +128,7 @@ describe('welcome create-master submit', () => {
     const enterEvent = new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, cancelable: true})
 
     nativeInput.dispatchEvent(enterEvent)
-    await Promise.resolve()
+    await settle()
 
     expect(enterEvent.defaultPrevented).toBe(true)
     expect(requestSubmitSpy).toHaveBeenCalledTimes(1)
@@ -101,6 +137,74 @@ describe('welcome create-master submit', () => {
     form!.dispatchEvent(submitEvent)
 
     expect(submitEvent.defaultPrevented).toBe(true)
-    expect(onCreateMasterSubmit).toHaveBeenCalledTimes(1)
+    expect(submitSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('creates the master vault and commits setup state after the RPC resolves', async () => {
+    const markVaultCreatedSpy = vi.spyOn(guidanceCompletionBridge, 'markVaultCreated').mockImplementation(() => {})
+
+    await model.submitMasterSetup()
+
+    expect(welcomeRpcMocks.tauriRpc).toHaveBeenCalledWith('master:setup', {
+      master_password: 'correct horse battery staple',
+    })
+    expect(markVaultCreatedSpy).toHaveBeenCalledTimes(1)
+    expect(stateUpdate).toHaveBeenCalledWith({NeedUserInitialization: false})
+    expect(pushNotification).toHaveBeenCalledWith('success', 'Storage created! Now unlock your vault.')
+    expect(model.creationState()).toEqual({p1: '', p2: ''})
+    expect(model.setupInProgress()).toBe(false)
+    expect(model.shared.busy()).toBe(false)
+  })
+
+  it('unlocks the vault through the password dialog and commits opened state after the RPC resolves', async () => {
+    vi.spyOn(dialogService, 'showInputDialog').mockResolvedValue('vault-password')
+
+    await model.onUnlock()
+
+    expect(welcomeRpcMocks.tauriRpc).toHaveBeenCalledWith('vault:unlock', {
+      password: 'vault-password',
+    })
+    expect(stateUpdate).toHaveBeenCalledWith({StorageOpened: true})
+    expect(pushNotification).toHaveBeenCalledWith('success', 'Vault unlocked')
+    expect(model.setupInProgress()).toBe(false)
+    expect(model.shared.busy()).toBe(false)
+  })
+
+  it('ignores stale password strength completions', async () => {
+    section.remove()
+    welcomeRpcMocks.estimatePasswordStrength.mockReset()
+    let resolveFirst: ((value: {score: number; feedback: {warning: string; suggestions: string[]}}) => void) | null =
+      null
+    let resolveSecond: ((value: {score: number; feedback: {warning: string; suggestions: string[]}}) => void) | null =
+      null
+
+    welcomeRpcMocks.estimatePasswordStrength
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFirst = resolve
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveSecond = resolve
+        }),
+      )
+
+    model.handleMasterPasswordInput(
+      new CustomEvent('cv-input', {detail: {value: 'first password value'}}),
+    )
+    model.handleMasterPasswordInput(
+      new CustomEvent('cv-input', {detail: {value: 'second password value'}}),
+    )
+
+    resolveSecond?.({score: 4, feedback: {warning: '', suggestions: ['second']}})
+    await settle()
+    expect(model.passwordStrength().score).toBe(4)
+    expect(model.passwordStrength().feedback.suggestions).toEqual(['second'])
+
+    resolveFirst?.({score: 1, feedback: {warning: 'first', suggestions: ['first']}})
+    await settle()
+    expect(model.passwordStrength().score).toBe(4)
+    expect(model.passwordStrength().feedback.suggestions).toEqual(['second'])
   })
 })

@@ -1,5 +1,12 @@
 {
   "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "paths": {
+      "@project/i18n": ["../i18n/src/index.ts"],
+      "@project/i18n/*": ["../i18n/src/*"]
+    }
+  },
   "include": ["src/**/*"],
   "exclude": ["node_modules/*"]
 }

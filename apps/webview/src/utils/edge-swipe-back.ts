@@ -44,7 +44,6 @@ export class EdgeSwipeBack {
   private readonly onBack: () => void
   private readonly isDisabled: () => boolean
 
-  private tracking = false
   /** True once horizontal movement exceeds confirmDistance — only then we show indicator and preventDefault */
   private confirmed = false
   private startX = 0
@@ -61,6 +60,7 @@ export class EdgeSwipeBack {
 
   private nativeUnlisten: (() => void) | null = null
   private nativeSetupDone = false
+  private nativeGestureDisabled = false
 
   constructor(
     private readonly element: HTMLElement,
@@ -95,32 +95,41 @@ export class EdgeSwipeBack {
         }
 
         this.nativeUnlisten = (await tauriListen<NativeSwipeEvent>('edge-swipe:progress', (payload) => {
-          if (this.isDisabled()) {
-            if (payload.state === 'began' || payload.state === 'changed') {
-              // Still animateOut in case indicator was shown
-              this.animateOut()
-            }
-            return
-          }
-
           switch (payload.state) {
-            case 'began':
+            case 'began': {
+              this.nativeGestureDisabled = this.isDisabled()
+              if (this.nativeGestureDisabled) {
+                this.animateOut()
+                return
+              }
+
               this.lastY = payload.y
               this.lastDeltaX = 0
               this.showIndicator()
               break
+            }
             case 'changed':
+              if (this.isDisabled()) {
+                this.nativeGestureDisabled = true
+              }
+              if (this.nativeGestureDisabled) {
+                this.animateOut()
+                return
+              }
+
               this.lastDeltaX = Math.max(payload.deltaX, 0)
               this.lastY = payload.y
               this.scheduleUpdate()
               break
             case 'ended':
-              if (this.lastDeltaX >= this.triggerDistance) {
+              if (!this.nativeGestureDisabled && !this.isDisabled() && this.lastDeltaX >= this.triggerDistance) {
                 this.onBack()
               }
+              this.nativeGestureDisabled = false
               this.animateOut()
               break
             case 'cancelled':
+              this.nativeGestureDisabled = false
               this.animateOut()
               break
           }
@@ -144,7 +153,6 @@ export class EdgeSwipeBack {
     const touch = e.touches[0]
     if (!touch || touch.clientX >= this.edgeThreshold) return
 
-    this.tracking = true
     this.confirmed = false
     this.startX = touch.clientX
     this.startY = touch.clientY
@@ -208,7 +216,6 @@ export class EdgeSwipeBack {
       cancelAnimationFrame(this.rafId)
       this.rafId = 0
     }
-    this.tracking = false
     this.confirmed = false
   }
 

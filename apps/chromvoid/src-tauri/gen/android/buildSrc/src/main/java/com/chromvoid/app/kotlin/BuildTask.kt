@@ -1,23 +1,89 @@
 import java.io.File
+import java.security.MessageDigest
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import javax.inject.Inject
 import org.apache.tools.ant.taskdefs.condition.Os
+import org.gradle.api.file.FileCollection
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.logging.LogLevel
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.OutputFile
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+import org.gradle.process.ExecOperations
 
-open class BuildTask : DefaultTask() {
+const val LICENSE_PUBLIC_KEY_ENV = "CHROMVOID_LICENSE_PUBLIC_KEY_ED25519_2026_01"
+const val LICENSE_PUBLIC_KEY_FILE = ".license-public-key"
+const val SKIP_FRESH_TAURI_PREBUILD_PROPERTY = "chromvoidSkipFreshTauriPrebuild"
+
+abstract class BuildTask @Inject constructor(
+    private val execOperations: ExecOperations,
+) : DefaultTask() {
     @Input
     var rootDirRel: String? = null
+    @Input
+    var projectDirPath: String? = null
     @Input
     var target: String? = null
     @Input
     var release: Boolean? = null
+    @get:Input
+    val licensePublicKey: String
+        get() = readLicensePublicKey()
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    val rustInputFiles: FileCollection
+        get() {
+            val root = resolveProjectRoot()
+            val workspaceRoot = File(root, "../../..").canonicalFile
+            return project.files(
+                project.fileTree(root).matching {
+                    include("Cargo.toml")
+                    include("Cargo.lock")
+                    include("build.rs")
+                    include("src/**/*.rs")
+                    include("capabilities/**")
+                    include("permissions/**")
+                    include("tauri*.conf.json")
+                    exclude("target/**")
+                    exclude("gen/**")
+                },
+                project.fileTree(File(workspaceRoot, "crates/core")).matching {
+                    include("Cargo.toml")
+                    include("build.rs")
+                    include("src/**/*.rs")
+                },
+                project.fileTree(File(workspaceRoot, "crates/protocol")).matching {
+                    include("Cargo.toml")
+                    include("src/**/*.rs")
+                },
+            )
+        }
+    @get:OutputFile
+    val outputLibrary: File
+        get() {
+            val release = release ?: throw GradleException("release cannot be null")
+            val target = target ?: throw GradleException("target cannot be null")
+            val spec = targetSpec(target)
+            val profile = if (release) "release" else "debug"
+            return File(resolveProjectRoot(), "target/${spec.rustTarget}/$profile/libchromvoid_lib.so")
+        }
 
     @TaskAction
     fun assemble() {
+        if (release == true) {
+            requireLicensePublicKeyForRelease()
+        }
+
+        if (shouldSkipFreshTauriPrebuild() && isOutputFreshFromTauriPrebuild()) {
+            logger.lifecycle("Skipping $this because ${outputLibrary.path} is already newer than Android Rust inputs")
+            return
+        }
+
         val executable = """npm""";
         try {
             runTauriCli(executable)
@@ -35,7 +101,7 @@ open class BuildTask : DefaultTask() {
                         runTauriCli(fallback)
                         return
                     } catch (fallbackException: Exception) {
-                        project.logger.info("Tauri CLI fallback executable $fallback failed", fallbackException)
+                        logger.info("Tauri CLI fallback executable $fallback failed", fallbackException)
                     }
                 }
                 try {
@@ -64,14 +130,28 @@ open class BuildTask : DefaultTask() {
         val target = target ?: throw GradleException("target cannot be null")
         val release = release ?: throw GradleException("release cannot be null")
         val args = listOf("run", "--", "tauri", "android", "android-studio-script");
+        val projectDir = projectDir()
+        val androidHome = resolveAndroidHome()
+        val ndkHome = resolveNdkHome(androidHome)
+        val spec = targetSpec(target)
+        val toolchain = resolveToolchain(ndkHome, spec)
+        logLicensePublicKeySource()
 
-        project.exec {
-            workingDir(File(project.projectDir, rootDirRel))
+        execOperations.exec {
+            workingDir(File(projectDir, rootDirRel))
             executable(executable)
+            environment("ANDROID_HOME", androidHome.path)
+            environment("ANDROID_SDK_ROOT", androidHome.path)
+            environment("NDK_HOME", ndkHome.path)
+            environment("CARGO_TARGET_${spec.envTarget}_LINKER", toolchain.linker.path)
+            environment("CARGO_TARGET_${spec.envTarget}_AR", toolchain.ar.path)
+            environment("CC_${spec.ccEnvTarget}", toolchain.linker.path)
+            environment("AR_${spec.ccEnvTarget}", toolchain.ar.path)
+            environment(LICENSE_PUBLIC_KEY_ENV, licensePublicKey)
             args(args)
-            if (project.logger.isEnabled(LogLevel.DEBUG)) {
+            if (logger.isEnabled(LogLevel.DEBUG)) {
                 args("-vv")
-            } else if (project.logger.isEnabled(LogLevel.INFO)) {
+            } else if (logger.isEnabled(LogLevel.INFO)) {
                 args("-v")
             }
             if (release) {
@@ -85,12 +165,168 @@ open class BuildTask : DefaultTask() {
         return "BuildTask(target=$target, release=$release)"
     }
 
-    private fun resolveProjectRoot(): File {
-        val relative = rootDirRel ?: throw GradleException("rootDirRel cannot be null")
-        return File(project.projectDir, relative)
+    private fun projectDir(): File {
+        return File(projectDirPath ?: throw GradleException("projectDirPath cannot be null"))
     }
 
-    private fun resolveNdkHome(): File {
+    private fun readLicensePublicKey(): String {
+        val fileValue = File(projectDir().parentFile, LICENSE_PUBLIC_KEY_FILE)
+            .takeIf { it.isFile }
+            ?.readText()
+            ?.trim()
+            .orEmpty()
+        if (fileValue.isNotEmpty()) {
+            return fileValue
+        }
+        return System.getenv(LICENSE_PUBLIC_KEY_ENV)?.trim().orEmpty()
+    }
+
+    private fun licensePublicKeyFile(): File {
+        return File(projectDir().parentFile, LICENSE_PUBLIC_KEY_FILE)
+    }
+
+    private fun requireLicensePublicKeyForRelease() {
+        val value = licensePublicKey
+        if (value.isEmpty()) {
+            throw GradleException(
+                "Missing $LICENSE_PUBLIC_KEY_ENV for Android release Rust build"
+            )
+        }
+
+        val bytes = try {
+            decodeBase64OrBase64Url(value)
+        } catch (error: IllegalArgumentException) {
+            throw GradleException("$LICENSE_PUBLIC_KEY_ENV must be base64/base64url encoded", error)
+        }
+
+        if (bytes.size != 32) {
+            throw GradleException(
+                "$LICENSE_PUBLIC_KEY_ENV must decode to a 32-byte Ed25519 public key, got ${bytes.size} bytes"
+            )
+        }
+    }
+
+    private fun decodeBase64OrBase64Url(value: String): ByteArray {
+        val normalized = value.replace('-', '+').replace('_', '/')
+        val padding = (4 - (normalized.length % 4)) % 4
+        return java.util.Base64.getDecoder().decode(normalized.padEnd(normalized.length + padding, '='))
+    }
+
+    private fun nativeLibraryContainsLicensePublicKey(file: File): Boolean {
+        val key = licensePublicKey.toByteArray(Charsets.UTF_8)
+        if (key.isEmpty() || !file.isFile) {
+            return false
+        }
+        return byteArrayContains(file.readBytes(), key)
+    }
+
+    private fun byteArrayContains(haystack: ByteArray, needle: ByteArray): Boolean {
+        if (needle.isEmpty() || haystack.size < needle.size) {
+            return false
+        }
+        outer@ for (start in 0..(haystack.size - needle.size)) {
+            for (index in needle.indices) {
+                if (haystack[start + index] != needle[index]) {
+                    continue@outer
+                }
+            }
+            return true
+        }
+        return false
+    }
+
+    private fun shouldSkipFreshTauriPrebuild(): Boolean {
+        return project.findProperty(SKIP_FRESH_TAURI_PREBUILD_PROPERTY)?.toString() == "true"
+    }
+
+    private fun isOutputFreshFromTauriPrebuild(): Boolean {
+        val output = outputLibrary
+        if (!output.isFile) {
+            return false
+        }
+
+        val target = target ?: throw GradleException("target cannot be null")
+        val spec = targetSpec(target)
+        val jniLib = File(projectDir(), "src/main/jniLibs/${spec.abi}/${output.name}")
+        if (!jniLib.exists()) {
+            return false
+        }
+
+        val newestInputModified = rustInputFiles.files
+            .asSequence()
+            .filter { it.isFile }
+            .map { it.lastModified() }
+            .maxOrNull() ?: 0L
+        val licenseModified = licensePublicKeyFile()
+            .takeIf { it.isFile }
+            ?.lastModified() ?: 0L
+        val newestRelevantInputModified = maxOf(newestInputModified, licenseModified)
+
+        if (licensePublicKey.isNotEmpty() &&
+            (!nativeLibraryContainsLicensePublicKey(output) || !nativeLibraryContainsLicensePublicKey(jniLib))
+        ) {
+            return false
+        }
+
+        return output.lastModified() >= newestRelevantInputModified &&
+            jniLib.lastModified() >= newestRelevantInputModified
+    }
+
+    private fun logLicensePublicKeySource() {
+        val value = licensePublicKey
+        if (value.isEmpty()) {
+            logger.lifecycle("License public key not configured for Android Rust build")
+            return
+        }
+
+        val source = if (licensePublicKeyFile().isFile) {
+            licensePublicKeyFile().path
+        } else {
+            LICENSE_PUBLIC_KEY_ENV
+        }
+        logger.lifecycle(
+            "Using license public key from $source (decoded_sha256=${decodedSha256Prefix(value)})"
+        )
+    }
+
+    private fun decodedSha256Prefix(value: String): String {
+        return try {
+            val bytes = java.util.Base64.getUrlDecoder().decode(value)
+            MessageDigest.getInstance("SHA-256")
+                .digest(bytes)
+                .joinToString("") { "%02x".format(it) }
+                .take(16)
+        } catch (_: IllegalArgumentException) {
+            "invalid-base64url"
+        }
+    }
+
+    private fun resolveProjectRoot(): File {
+        val relative = rootDirRel ?: throw GradleException("rootDirRel cannot be null")
+        return File(projectDir(), relative)
+    }
+
+    private fun resolveAndroidHome(): File {
+        val configured =
+            sequenceOf(
+                System.getenv("ANDROID_HOME"),
+                System.getenv("ANDROID_SDK_ROOT"),
+            )
+                .firstOrNull { !it.isNullOrBlank() }
+                ?.let(::File)
+        if (configured != null && configured.isDirectory) {
+            return configured
+        }
+
+        val macOsDefault = File(System.getProperty("user.home"), "Library/Android/Sdk")
+        if (macOsDefault.isDirectory) {
+            return macOsDefault
+        }
+
+        throw GradleException("ANDROID_HOME or ANDROID_SDK_ROOT must be set")
+    }
+
+    private fun resolveNdkHome(androidHome: File = resolveAndroidHome()): File {
         val configured =
             sequenceOf(
                 System.getenv("NDK_HOME"),
@@ -102,15 +338,6 @@ open class BuildTask : DefaultTask() {
         if (configured != null && configured.isDirectory) {
             return configured
         }
-
-        val androidHome =
-            sequenceOf(
-                System.getenv("ANDROID_HOME"),
-                System.getenv("ANDROID_SDK_ROOT"),
-            )
-                .firstOrNull { !it.isNullOrBlank() }
-                ?.let(::File)
-                ?: throw GradleException("ANDROID_HOME or ANDROID_SDK_ROOT must be set")
 
         val ndkRoot = File(androidHome, "ndk")
         val candidates =
@@ -127,15 +354,7 @@ open class BuildTask : DefaultTask() {
         val ndkHome = resolveNdkHome()
         val release = release ?: throw GradleException("release cannot be null")
         val spec = targetSpec(target ?: throw GradleException("target cannot be null"))
-        val toolchainBin = File(ndkHome, "toolchains/llvm/prebuilt/darwin-x86_64/bin")
-        val linker = File(toolchainBin, spec.linkerName)
-        val ar = File(toolchainBin, "llvm-ar")
-        if (!linker.isFile) {
-            throw GradleException("Android linker not found at ${linker.path}")
-        }
-        if (!ar.isFile) {
-            throw GradleException("Android llvm-ar not found at ${ar.path}")
-        }
+        val toolchain = resolveToolchain(ndkHome, spec)
 
         val cargoArgs = mutableListOf(
             "build",
@@ -151,21 +370,22 @@ open class BuildTask : DefaultTask() {
             cargoArgs += "--release"
         }
 
-        project.logger.lifecycle(
+        logger.lifecycle(
             "Tauri android-studio-script unavailable for $spec; falling back to direct cargo build"
         )
 
-        project.exec {
+        execOperations.exec {
             workingDir(root)
             executable("cargo")
             args(cargoArgs)
             environment("ANDROID_HOME", System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT") ?: "")
             environment("ANDROID_SDK_ROOT", System.getenv("ANDROID_SDK_ROOT") ?: System.getenv("ANDROID_HOME") ?: "")
             environment("NDK_HOME", ndkHome.path)
-            environment("CARGO_TARGET_${spec.envTarget}_LINKER", linker.path)
-            environment("CARGO_TARGET_${spec.envTarget}_AR", ar.path)
-            environment("CC_${spec.ccEnvTarget}", linker.path)
-            environment("AR_${spec.ccEnvTarget}", ar.path)
+            environment("CARGO_TARGET_${spec.envTarget}_LINKER", toolchain.linker.path)
+            environment("CARGO_TARGET_${spec.envTarget}_AR", toolchain.ar.path)
+            environment("CC_${spec.ccEnvTarget}", toolchain.linker.path)
+            environment("AR_${spec.ccEnvTarget}", toolchain.ar.path)
+            environment(LICENSE_PUBLIC_KEY_ENV, licensePublicKey)
         }.assertNormalExitValue()
 
         val profile = if (release) "release" else "debug"
@@ -174,7 +394,7 @@ open class BuildTask : DefaultTask() {
             throw GradleException("Expected Rust library not found at ${sourceLib.path}")
         }
 
-        val destinationDir = File(project.projectDir, "src/main/jniLibs/${spec.abi}")
+        val destinationDir = File(projectDir(), "src/main/jniLibs/${spec.abi}")
         destinationDir.mkdirs()
         val destinationLib = File(destinationDir, sourceLib.name)
         Files.copy(
@@ -193,6 +413,30 @@ open class BuildTask : DefaultTask() {
         val ccEnvTarget: String = rustTarget.replace('-', '_')
 
         override fun toString(): String = rustTarget
+    }
+
+    data class AndroidToolchain(
+        val linker: File,
+        val ar: File,
+    )
+
+    private fun resolveToolchain(ndkHome: File, spec: TargetSpec): AndroidToolchain {
+        val hostTag = when {
+            Os.isFamily(Os.FAMILY_MAC) -> "darwin-x86_64"
+            Os.isFamily(Os.FAMILY_UNIX) -> "linux-x86_64"
+            Os.isFamily(Os.FAMILY_WINDOWS) -> "windows-x86_64"
+            else -> throw GradleException("Unsupported NDK host OS: ${System.getProperty("os.name")}")
+        }
+        val toolchainBin = File(ndkHome, "toolchains/llvm/prebuilt/$hostTag/bin")
+        val linker = File(toolchainBin, spec.linkerName)
+        val ar = File(toolchainBin, "llvm-ar")
+        if (!linker.isFile) {
+            throw GradleException("Android linker not found at ${linker.path}")
+        }
+        if (!ar.isFile) {
+            throw GradleException("Android llvm-ar not found at ${ar.path}")
+        }
+        return AndroidToolchain(linker, ar)
     }
 
     private fun targetSpec(target: String): TargetSpec {

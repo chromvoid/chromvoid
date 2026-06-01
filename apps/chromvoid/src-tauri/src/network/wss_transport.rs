@@ -7,7 +7,6 @@
 use async_trait::async_trait;
 use chromvoid_protocol::{RemoteTransport, TransportError, TransportType};
 use futures_util::{SinkExt, StreamExt};
-use std::sync::OnceLock;
 use tokio::time::{timeout, Duration};
 use tokio_tungstenite::{
     connect_async,
@@ -16,7 +15,6 @@ use tokio_tungstenite::{
 use tracing::{info, warn};
 
 const WSS_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-static CRYPTO_PROVIDER_INIT: OnceLock<Result<(), String>> = OnceLock::new();
 
 fn close_frame_error(close_frame: Option<CloseFrame>) -> String {
     let (code, reason) = match close_frame {
@@ -34,19 +32,6 @@ fn close_frame_error(close_frame: Option<CloseFrame>) -> String {
         None => ("none".to_string(), "<empty>".to_string()),
     };
     format!("wss closed code={} reason={}", code, reason)
-}
-
-fn ensure_crypto_provider_installed() -> Result<(), String> {
-    CRYPTO_PROVIDER_INIT
-        .get_or_init(|| {
-            if rustls::crypto::CryptoProvider::get_default().is_some() {
-                return Ok(());
-            }
-            rustls::crypto::ring::default_provider()
-                .install_default()
-                .map_err(|_| "install rustls crypto provider failed".to_string())
-        })
-        .clone()
 }
 
 /// WSS relay transport wrapping a tokio-tungstenite WebSocket in binary mode.
@@ -77,7 +62,7 @@ impl WssTransport {
         room_id: &str,
         context: &str,
     ) -> Result<Self, String> {
-        ensure_crypto_provider_installed()?;
+        super::rustls_crypto::ensure_rustls_crypto_provider_installed()?;
         let url = format!("{}/relay/room/{}", relay_url.trim_end_matches('/'), room_id);
         info!(
             "WSS relay transport connecting: context={} room_id={} url={}",

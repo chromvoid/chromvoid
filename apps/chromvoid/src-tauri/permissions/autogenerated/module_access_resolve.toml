@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-module-access-resolve"
+description = "Enables the module_access_resolve command without any pre-configured scope."
+commands.allow = ["module_access_resolve"]
+
+[[permission]]
+identifier = "deny-module-access-resolve"
+description = "Denies the module_access_resolve command without any pre-configured scope."
+commands.deny = ["module_access_resolve"]

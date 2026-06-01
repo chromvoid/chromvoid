@@ -1,33 +1,41 @@
-import {type State, computed, state} from '@statx/core'
+import {atom, computed, peek, type Atom} from '@reatom/core'
 
-import Swal from 'sweetalert2'
 import {v4} from 'uuid'
 
 import {i18n} from '../i18n'
+import {normalizeGroupDescription} from './group-description'
 import {normalizeTimestampMs} from '../utils'
+import {confirmPassManagerAction} from './dialog'
 import {Entry} from './entry'
 import {notify} from './notify'
 import type {IGroup, ManagerRoot} from './root'
-import {filterRule, filterValue} from './select'
+import {
+  createEntryFilterMatcher,
+  filterValue,
+  getEffectiveSelectedCredentialTagFilters,
+  quickFilters,
+} from './select'
 import type {IEntry, IGroupExternal, OTPOptions, TGroupActions} from './types'
 
 export class Group implements TGroupActions {
   static root: ManagerRoot
 
   isRoot = false
-  entries = state<Entry[]>([])
-  private rawData: State<Exclude<IGroup, 'entries'>>
+  entries = atom<Entry[]>([])
+  private rawData: Atom<Exclude<IGroup, 'entries'>>
 
   static create({
     name,
+    description,
     icon,
     iconRef,
     entries,
-  }: Pick<IGroup, 'name' | 'icon' | 'iconRef'> & {entries: (Entry | IEntry)[]}) {
+  }: Pick<IGroup, 'name' | 'description' | 'icon' | 'iconRef'> & {entries: (Entry | IEntry)[]}) {
     const now = Date.now()
 
     return new Group({
       name,
+      description: normalizeGroupDescription(description),
       icon,
       iconRef,
       entries: entries as IEntry[],
@@ -41,6 +49,7 @@ export class Group implements TGroupActions {
     const now = Date.now()
     const group = new Group({
       name: data.name,
+      description: normalizeGroupDescription(data.description),
       iconRef: data.iconRef,
       id: data.id,
       entries: [],
@@ -60,10 +69,11 @@ export class Group implements TGroupActions {
   constructor(data: IGroup) {
     const normalized: IGroup = {
       ...data,
+      description: normalizeGroupDescription(data.description),
       createdTs: normalizeTimestampMs(data.createdTs),
       updatedTs: normalizeTimestampMs(data.updatedTs),
     }
-    this.rawData = state(normalized)
+    this.rawData = atom(normalized)
     this.entries.set(
       data.entries.map((item) => {
         if (item instanceof Entry) {
@@ -74,7 +84,7 @@ export class Group implements TGroupActions {
       }),
     )
   }
-  removeEntry(entry: Entry): void {
+  removeEntry(_entry: Entry): void {
     throw new Error('Method not implemented.')
   }
 
@@ -91,7 +101,7 @@ export class Group implements TGroupActions {
   }
 
   get id() {
-    return this.rawData.peek().id
+    return peek(this.rawData).id
   }
 
   get name() {
@@ -102,6 +112,10 @@ export class Group implements TGroupActions {
     return this.rawData().icon
   }
 
+  get description() {
+    return this.rawData().description
+  }
+
   get iconRef() {
     return this.rawData().iconRef
   }
@@ -109,9 +123,12 @@ export class Group implements TGroupActions {
   searched = computed(
     () => {
       const fv = filterValue()
-      return this.entries().filter((item) => filterRule(item, fv))
+      const activeFilters = quickFilters()
+      const selectedTags = getEffectiveSelectedCredentialTagFilters(this.root?.allEntries)
+      const matches = createEntryFilterMatcher(fv, activeFilters, Date.now(), selectedTags)
+      return this.entries().filter(matches)
     },
-    {name: 'searched'},
+    'searched',
   )
 
   get updatedFormatted() {
@@ -128,10 +145,56 @@ export class Group implements TGroupActions {
     })
   }
 
+  rename(nextPath: string): boolean {
+    const normalizedNextPath = String(nextPath ?? '').trim()
+    if (!normalizedNextPath || normalizedNextPath === this.name) {
+      return false
+    }
+
+    const sourcePath = this.name
+    const movedGroups = Group.root
+      .entriesList()
+      .filter((item): item is Group => item instanceof Group)
+      .filter((group) => group.name === sourcePath || group.name.startsWith(`${sourcePath}/`))
+
+    if (movedGroups.length === 0) {
+      return false
+    }
+
+    const movedGroupIds = new Set(movedGroups.map((group) => group.id))
+    const nextPathByGroupId = new Map<string, string>()
+    const occupiedPaths = new Set<string>()
+
+    for (const item of Group.root.entriesList()) {
+      if (!(item instanceof Group)) continue
+      if (movedGroupIds.has(item.id)) continue
+      occupiedPaths.add(item.name)
+    }
+
+    for (const group of movedGroups) {
+      const suffix = group.name.slice(sourcePath.length)
+      const movedPath = `${normalizedNextPath}${suffix}`
+      if (occupiedPaths.has(movedPath)) {
+        return false
+      }
+      nextPathByGroupId.set(group.id, movedPath)
+    }
+
+    for (const group of movedGroups) {
+      const movedPath = nextPathByGroupId.get(group.id)
+      if (!movedPath || movedPath === group.name) continue
+      group.updateData({name: movedPath})
+    }
+
+    return true
+  }
+
   updateData(data: Partial<IGroup> = {}) {
     this.rawData.set({
       ...this.rawData(),
       ...data,
+      description:
+        'description' in data ? normalizeGroupDescription(data.description) : this.rawData().description,
       updatedTs: Date.now(),
     })
   }
@@ -146,6 +209,7 @@ export class Group implements TGroupActions {
   }
 
   addEntry(entry: Entry) {
+    entry.parent = this
     this.entries.set([entry, ...this.entriesList()])
   }
 
@@ -157,20 +221,20 @@ export class Group implements TGroupActions {
     ) as Group[]
 
     if (!silent) {
-      const res = await Swal.fire({
+      const confirmed = await confirmPassManagerAction({
         title: i18n('remove:dialog:title'),
-        html: i18n('remove:dialog:text'),
-        showCancelButton: true,
-        showConfirmButton: true,
+        message: i18n('remove:dialog:text'),
+        variant: 'danger',
+        confirmVariant: 'danger',
       })
-      if (!res.isConfirmed) return
+      if (!confirmed) return
     }
 
     // Collect all entries from this group + subgroups
     const allEntries = [...this.entries(), ...subgroups.flatMap((g) => g.entries())]
 
     // Clean OTP secrets (stored separately, not deleted with directories)
-    await Promise.all(allEntries.flatMap((entry) => entry.otps.peek().map((otp) => otp.clean())))
+    await Promise.all(allEntries.flatMap((entry) => peek(entry.otps).map((otp) => otp.clean())))
 
     // Remove this group + all subgroups from root.entries
     const toRemove = new Set<Group>([this, ...subgroups])
@@ -187,11 +251,12 @@ export class Group implements TGroupActions {
   }
 
   async export(): Promise<IGroupExternal> {
-    const data = this.rawData.peek()
+    const data = peek(this.rawData)
 
     return {
       id: this.id,
       name: this.name,
+      description: this.description,
       iconRef: this.iconRef,
       createdTs: data.createdTs,
       updatedTs: data.updatedTs,
@@ -202,8 +267,8 @@ export class Group implements TGroupActions {
 
   toJSON() {
     return {
-      ...this.rawData.peek(),
-      entries: this.entries.peek(),
+      ...peek(this.rawData),
+      entries: peek(this.entries),
     }
   }
 }

@@ -271,7 +271,7 @@ fn mobile_autofill_list_surfaces_degraded_state_when_provider_disabled() {
     };
 
     let mut autofill = AndroidAutofillAdapter::new(&mut adapter);
-    let listed = autofill.list(&context);
+    let listed = autofill.list(&context, false);
     assert!(
         listed.candidates.is_empty(),
         "provider-disabled flow must not return candidates"
@@ -306,7 +306,7 @@ fn mobile_autofill_lock_transition_blocks_secret_retrieval() {
     };
 
     let mut autofill = AndroidAutofillAdapter::new(&mut adapter);
-    let listed = autofill.list(&context);
+    let listed = autofill.list(&context, false);
     assert!(
         listed.degraded.is_none(),
         "initial list must succeed while unlocked"

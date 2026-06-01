@@ -8,7 +8,7 @@ use super::node::CatalogNode;
 use super::path::validate_name;
 
 /// Manager for catalog CRUD operations
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CatalogManager {
     /// Root node of the catalog
     pub(super) root: CatalogNode,
@@ -73,6 +73,14 @@ impl CatalogManager {
         let id = self.next_node_id;
         self.next_node_id += 1;
         id
+    }
+
+    /// Reserve a node ID without inserting a catalog node.
+    ///
+    /// Stream upload sessions use this to return a stable continuation ID before
+    /// the file is committed to the catalog.
+    pub fn reserve_node_id(&mut self) -> u64 {
+        self.alloc_node_id()
     }
 
     /// Update a file node's chunk size.
@@ -153,7 +161,24 @@ impl CatalogManager {
         size: u64,
         mime_type: Option<String>,
     ) -> Result<u64> {
+        let node_id = self.alloc_node_id();
+        self.create_file_with_id(parent_path, name, node_id, size, mime_type)
+    }
+
+    /// Create a new file with a previously reserved node ID.
+    pub fn create_file_with_id(
+        &mut self,
+        parent_path: &str,
+        name: &str,
+        node_id: u64,
+        size: u64,
+        mime_type: Option<String>,
+    ) -> Result<u64> {
         validate_name(name)?;
+
+        if self.node_index.contains_key(&node_id) {
+            return Err(Error::NameExists(name.to_string()));
+        }
 
         // First, check parent exists and get its info (immutable borrow)
         let parent_node_id = {
@@ -187,9 +212,8 @@ impl CatalogManager {
             parent.node_id
         };
 
-        // Allocate ID and create node
-        let node_id = self.alloc_node_id();
         let node = CatalogNode::new_file(node_id, name.to_string(), size, mime_type);
+        self.next_node_id = self.next_node_id.max(node_id.saturating_add(1));
 
         // Update index
         let mut path = self
@@ -323,6 +347,8 @@ impl CatalogManager {
         let node = old_parent
             .remove_child(node_id)
             .ok_or(Error::NodeNotFound(node_id))?;
+        let mut moved_ids = vec![node_id];
+        Self::collect_descendant_ids(&node, &mut moved_ids);
 
         // Add to new parent
         let new_parent = self
@@ -339,7 +365,18 @@ impl CatalogManager {
             .unwrap_or_default();
         new_path_prefix.push(node_name);
         let old_prefix_len = current_path.len();
-        self.update_subtree_index_prefix(node_id, old_prefix_len, &new_path_prefix);
+        for id in moved_ids {
+            if let Some(indexed_path) = self.node_index.get_mut(&id) {
+                if indexed_path.len() >= old_prefix_len {
+                    let mut updated = Vec::with_capacity(
+                        new_path_prefix.len() + indexed_path.len().saturating_sub(old_prefix_len),
+                    );
+                    updated.extend_from_slice(&new_path_prefix);
+                    updated.extend_from_slice(&indexed_path[old_prefix_len..]);
+                    *indexed_path = updated;
+                }
+            }
+        }
         self.version += 1;
 
         Ok(())

@@ -28,13 +28,8 @@ pub struct LocalDeviceIdentityStore {
 
 impl LocalDeviceIdentityStore {
     pub fn load(path: &Path) -> Self {
-        let identity = if path.exists() {
-            std::fs::read_to_string(path)
-                .ok()
-                .and_then(|contents| serde_json::from_str::<LocalDeviceIdentity>(&contents).ok())
-        } else {
-            None
-        };
+        let identity =
+            crate::helpers::storage::read_optional_json(path, "network: local device identity");
 
         Self {
             path: path.to_path_buf(),
@@ -82,8 +77,7 @@ impl LocalDeviceIdentityStore {
             .identity
             .as_ref()
             .ok_or("no local device identity to save".to_string())?;
-        let json = serde_json::to_string_pretty(identity).map_err(|e| format!("serialize: {e}"))?;
-        std::fs::write(&self.path, json).map_err(|e| format!("write: {e}"))
+        crate::helpers::storage::write_json_pretty_atomic(&self.path, identity)
     }
 }
 

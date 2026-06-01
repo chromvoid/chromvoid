@@ -1,19 +1,26 @@
 use super::*;
 use chromvoid_core::catalog::is_system_path;
 use chromvoid_core::rpc::types::{
-    CatalogListResponse, NodeCreatedResponse, PrepareUploadResponse, RpcRequest, RpcResponse,
+    CatalogListResponse, NodeCreatedResponse, RpcRequest, RpcResponse,
 };
 use chromvoid_core::rpc::{RpcInputStream, RpcReply};
 use fuser::{
-    FileAttr, FileType, Filesystem, MountOption, Notifier, ReplyAttr, ReplyCreate, ReplyData,
-    ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr,
-    Request,
+    AccessFlags, BsdFileFlags, Config, Errno, FileAttr, FileHandle, FileType, Filesystem,
+    FopenFlags, INodeNo, LockOwner, MountOption, OpenFlags, RenameFlags, ReplyAttr, ReplyCreate,
+    ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite,
+    ReplyXattr, Request, SessionACL, WriteFlags,
 };
 use serde_json::json;
 use std::ffi::OsStr;
+
+fn upload_node_id_from_value(value: &serde_json::Value) -> Option<u64> {
+    value
+        .get("node_id")
+        .and_then(serde_json::Value::as_u64)
+        .or_else(|| value.get("nodeId").and_then(serde_json::Value::as_u64))
+}
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::raw::c_int;
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -33,8 +40,21 @@ mod platform;
 mod rename;
 
 const UPLOAD_PART_BYTES: u64 = 8 * 1024 * 1024;
-static FUSE_NOTIFIER: OnceLock<RwLock<Option<Notifier>>> = OnceLock::new();
-static FUSE_MOUNT_PATH: OnceLock<PathBuf> = OnceLock::new();
+
+#[inline]
+fn fuse_errno(errno: i32) -> Errno {
+    Errno::from_i32(errno)
+}
+
+#[inline]
+fn fuse_ino(ino: u64) -> INodeNo {
+    INodeNo(ino)
+}
+
+#[inline]
+fn fuse_fh(fh: u64) -> FileHandle {
+    FileHandle(fh)
+}
 
 struct OpenFileState {
     ino: u64,
@@ -49,6 +69,8 @@ struct OpenFileState {
 
 pub struct PrivyFilesystem {
     adapter: Arc<Mutex<Box<dyn CoreAdapter>>>,
+    event_sink: helpers::FuseEventSink,
+    platform_runtime: Arc<platform::FusePlatformRuntime>,
     inode_table: InodeTable,
     staging_dir: PathBuf,
     xattrs: Mutex<HashMap<u64, HashMap<String, Vec<u8>>>>,
@@ -63,6 +85,36 @@ pub async fn start_fuse_server(
     staging_dir: std::path::PathBuf,
     adapter: Arc<Mutex<Box<dyn CoreAdapter>>>,
 ) -> Result<crate::volume_manager::FuseSessionHandle, String> {
+    start_fuse_server_with_event_sink(
+        mountpoint,
+        staging_dir,
+        adapter,
+        helpers::FuseEventSink::disabled(),
+    )
+    .await
+}
+
+pub async fn start_fuse_server_with_app(
+    mountpoint: std::path::PathBuf,
+    staging_dir: std::path::PathBuf,
+    adapter: Arc<Mutex<Box<dyn CoreAdapter>>>,
+    app: tauri::AppHandle,
+) -> Result<crate::volume_manager::FuseSessionHandle, String> {
+    start_fuse_server_with_event_sink(
+        mountpoint,
+        staging_dir,
+        adapter,
+        helpers::FuseEventSink::new(app),
+    )
+    .await
+}
+
+async fn start_fuse_server_with_event_sink(
+    mountpoint: std::path::PathBuf,
+    staging_dir: std::path::PathBuf,
+    adapter: Arc<Mutex<Box<dyn CoreAdapter>>>,
+    event_sink: helpers::FuseEventSink,
+) -> Result<crate::volume_manager::FuseSessionHandle, String> {
     // Best-effort cleanup from previous runs.
     let _ = std::fs::remove_dir_all(&staging_dir);
     if let Err(e) = std::fs::create_dir_all(&staging_dir) {
@@ -75,18 +127,6 @@ pub async fn start_fuse_server(
 
         let _ = std::fs::set_permissions(&staging_dir, std::fs::Permissions::from_mode(0o700));
     }
-
-    let staging_dir_for_handle = staging_dir.clone();
-
-    let fs = PrivyFilesystem {
-        adapter,
-        inode_table: InodeTable::default(),
-        staging_dir,
-        xattrs: Mutex::new(HashMap::new()),
-        open_files: Mutex::new(HashMap::new()),
-        next_fh: AtomicU64::new(0),
-        write_lock: Mutex::new(()),
-    };
 
     // Ensure mountpoint exists and is not already mounted.
     if mountpoint.exists() {
@@ -181,7 +221,25 @@ pub async fn start_fuse_server(
         // notify_kernel_delete / inval_entry calls + poke_finder_dir.
     }
 
+    let mut config = Config::default();
+    config.mount_options = options;
+    config.acl = SessionACL::RootAndOwner;
+
     info!("FUSE: mounting at {:?}", mountpoint);
+
+    let staging_dir_for_handle = staging_dir.clone();
+    let platform_runtime = platform::FusePlatformRuntime::new();
+    let fs = PrivyFilesystem {
+        adapter,
+        event_sink,
+        platform_runtime: platform_runtime.clone(),
+        inode_table: InodeTable::default(),
+        staging_dir,
+        xattrs: Mutex::new(HashMap::new()),
+        open_files: Mutex::new(HashMap::new()),
+        next_fh: AtomicU64::new(0),
+        write_lock: Mutex::new(()),
+    };
 
     let mp = mountpoint.clone();
     let shutdown_flag = Arc::new(AtomicBool::new(false));
@@ -189,13 +247,14 @@ pub async fn start_fuse_server(
 
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
 
-    let (shutdown_tx, _shutdown_rx) = mpsc::channel::<()>(1);
+    let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
+    let platform_runtime_for_task = platform_runtime.clone();
 
     let task = tokio::task::spawn_blocking(move || {
-        let session = match fuser::spawn_mount2(fs, &mp, &options) {
+        let session = match fuser::spawn_mount(fs, &mp, &config) {
             Ok(s) => {
-                platform::set_kernel_notifier(Some(s.notifier()));
-                let _ = FUSE_MOUNT_PATH.set(mp.clone());
+                platform_runtime_for_task.set_kernel_notifier(Some(s.notifier()));
+                platform_runtime_for_task.set_mount_path(Some(mp.clone()));
                 let _ = ready_tx.send(Ok(()));
                 s
             }
@@ -203,22 +262,24 @@ pub async fn start_fuse_server(
                 let msg = format!("{e}");
                 let _ = ready_tx.send(Err(msg.clone()));
                 error!("FUSE: mount failed: {}", msg);
+                platform_runtime_for_task.shutdown_and_join();
                 return;
             }
         };
 
         info!("FUSE: mounted successfully at {:?}", mp);
 
-        loop {
-            if flag_clone.load(Ordering::Relaxed) {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(100));
+        if !flag_clone.load(Ordering::Acquire) {
+            let _ = shutdown_rx.blocking_recv();
         }
 
         info!("FUSE: unmounting {:?}", mp);
-        platform::set_kernel_notifier(None);
-        drop(session);
+        platform_runtime_for_task.set_kernel_notifier(None);
+        platform_runtime_for_task.set_mount_path(None);
+        if let Err(e) = session.umount_and_join() {
+            warn!("FUSE: unmount failed: {}", e);
+        }
+        platform_runtime_for_task.shutdown_and_join();
     });
 
     match tokio::time::timeout(Duration::from_secs(3), ready_rx).await {
@@ -229,9 +290,22 @@ pub async fn start_fuse_server(
             shutdown_tx,
             task,
         )),
-        Ok(Ok(Err(e))) => Err(format!("FUSE mount failed: {e}")),
-        Ok(Err(_closed)) => Err("FUSE mount failed: readiness channel closed".to_string()),
-        Err(_timeout) => Err("FUSE mount timed out".to_string()),
+        Ok(Ok(Err(e))) => {
+            let _ = task.await;
+            Err(format!("FUSE mount failed: {e}"))
+        }
+        Ok(Err(_closed)) => {
+            let _ = task.await;
+            platform_runtime.shutdown_and_join();
+            Err("FUSE mount failed: readiness channel closed".to_string())
+        }
+        Err(_timeout) => {
+            shutdown_flag.store(true, Ordering::Release);
+            let _ = shutdown_tx.try_send(());
+            task.abort();
+            platform_runtime.shutdown_and_join();
+            Err("FUSE mount timed out".to_string())
+        }
     }
 }
 
@@ -284,5 +358,16 @@ mod errno_tests {
         assert!(!is_trash_parent_path("/"));
         assert!(!is_trash_parent_path("/docs"));
         assert!(!is_trash_parent_path("/.Trash-"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn platform_metadata_child_detection_blocks_macos_root_noise() {
+        assert!(is_platform_metadata_child("/", ".fseventsd"));
+        assert!(is_platform_metadata_child("/.fseventsd", "fseventsd-uuid"));
+        assert!(is_platform_metadata_child("/", ".Spotlight-V100"));
+
+        assert!(!is_platform_metadata_child("/", "docs"));
+        assert!(!is_platform_metadata_child("/docs", ".fseventsd"));
     }
 }

@@ -27,7 +27,7 @@ const pmEntryGenerateMainStyles = css`
     contain: content;
     container-type: inline-size;
     scrollbar-width: thin;
-    scrollbar-color: color-mix(in oklch, var(--cv-color-text) 25%, transparent) transparent;
+    scrollbar-color: var(--cv-color-text-subtle) transparent;
 
     &::-webkit-scrollbar {
       inline-size: 5px;
@@ -37,7 +37,7 @@ const pmEntryGenerateMainStyles = css`
       }
 
       &-thumb {
-        background: color-mix(in oklch, var(--cv-color-text) 20%, transparent);
+        background: var(--cv-color-text-subtle);
         border-radius: 3px;
 
         &:hover {
@@ -53,7 +53,7 @@ const pmEntryGenerateMainStyles = css`
     flex-direction: column;
     gap: 0.875rem;
     padding-block-end: env(safe-area-inset-bottom, 0px);
-    --pm-primary-on: color-mix(in oklch, black 84%, var(--cv-color-text));
+    --pm-primary-on: var(--cv-color-on-primary);
   }
 
   .edit-wrapper cv-button[variant='primary']::part(base) {
@@ -75,19 +75,15 @@ const pmEntryGenerateMainStyles = css`
     justify-content: space-between;
     gap: 0.625rem;
     padding: 0.625rem 0.75rem;
-    background: linear-gradient(
-      145deg,
-      color-mix(in oklch, var(--cv-color-surface-2) 88%, var(--cv-color-primary) 12%) 0%,
-      color-mix(in oklch, var(--cv-color-surface-2) 94%, var(--cv-color-primary) 6%) 100%
-    );
-    border: 1px solid color-mix(in oklch, var(--cv-color-border) 75%, var(--cv-color-primary) 25%);
+    background: var(--cv-gradient-surface-primary);
+    border: 1px solid var(--cv-color-primary-border);
     border-radius: var(--cv-radius-2);
     position: sticky;
     inset-block-start: 0;
     z-index: 10;
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    box-shadow: 0 4px 14px color-mix(in oklch, black 14%, transparent);
+    box-shadow: 0 4px 14px var(--cv-alpha-black-10);
   }
 
   .edit-title {
@@ -118,13 +114,13 @@ const pmEntryGenerateMainStyles = css`
   }
 
   .edit-cancel-btn::part(base) {
-    background: color-mix(in oklch, var(--cv-color-surface) 86%, white 14%);
-    border: 1px solid color-mix(in oklch, var(--cv-color-border) 70%, white 30%);
+    background: var(--cv-color-surface-2);
+    border: 1px solid var(--cv-color-border-strong);
     color: var(--cv-color-text);
   }
 
   .edit-save-btn::part(base) {
-    box-shadow: 0 4px 12px color-mix(in oklch, var(--cv-color-primary) 32%, transparent);
+    box-shadow: var(--cv-shadow-1);
     color: var(--pm-primary-on);
   }
 
@@ -168,8 +164,8 @@ const pmEntryGenerateMainStyles = css`
 
     cv-input::part(base),
     cv-textarea::part(base) {
-      background: color-mix(in oklch, var(--cv-color-surface) 92%, black 8%);
-      border-color: color-mix(in oklch, var(--cv-color-border) 88%, transparent);
+      background: var(--cv-color-surface);
+      border-color: var(--cv-color-border-strong);
     }
 
     cv-input::part(base) {
@@ -245,7 +241,7 @@ const pmEntryGenerateMainStyles = css`
   }
 
   .strength-row.strength-1 {
-    --strength-color: color-mix(in oklch, var(--cv-color-danger) 60%, var(--cv-color-warning));
+    --strength-color: var(--pm-strength-color-1);
   }
 
   .strength-row.strength-2 {
@@ -253,7 +249,7 @@ const pmEntryGenerateMainStyles = css`
   }
 
   .strength-row.strength-3 {
-    --strength-color: color-mix(in oklch, var(--cv-color-success) 60%, var(--cv-color-warning));
+    --strength-color: var(--pm-strength-color-3);
   }
 
   .strength-row.strength-4 {
@@ -269,7 +265,7 @@ const pmEntryGenerateMainStyles = css`
   .strength-bar {
     inline-size: 100%;
     --cv-progress-height: 4px;
-    --cv-progress-track-color: color-mix(in oklch, var(--cv-color-border) 56%, transparent);
+    --cv-progress-track-color: var(--cv-color-border-muted);
     --cv-progress-indicator-color: var(--strength-color);
   }
 
@@ -281,8 +277,8 @@ const pmEntryGenerateMainStyles = css`
     min-block-size: 1.5rem;
     padding-inline: 0.625rem;
     border-radius: 999px;
-    border: 1px solid color-mix(in oklch, var(--strength-color) 34%, transparent);
-    background: color-mix(in oklch, var(--strength-color) 16%, transparent);
+    border: 1px solid var(--cv-color-border-strong);
+    background: var(--cv-color-surface-highlight);
     font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1;
@@ -318,13 +314,13 @@ const pmEntryGenerateMainStyles = css`
     border-radius: var(--cv-radius-2);
 
     &::part(base) {
-      border-color: color-mix(in oklch, var(--cv-color-border) 82%, transparent);
+      border-color: var(--cv-color-border-strong);
       min-inline-size: 38px;
       min-block-size: 38px;
     }
 
     &:hover {
-      background: color-mix(in oklch, var(--cv-color-primary) 15%, transparent);
+      background: var(--cv-color-primary-surface);
       color: var(--cv-color-primary);
     }
   }
@@ -332,12 +328,8 @@ const pmEntryGenerateMainStyles = css`
   .generator-panel {
     grid-column: 1 / -1;
     padding: 0.625rem 0.75rem;
-    background: linear-gradient(
-      145deg,
-      color-mix(in oklch, var(--cv-color-primary) 8%, var(--cv-color-surface-2)) 0%,
-      color-mix(in oklch, var(--cv-color-primary) 3%, var(--cv-color-surface-2)) 100%
-    );
-    border: 1px solid color-mix(in oklch, var(--cv-color-primary) 25%, var(--cv-color-border));
+    background: var(--cv-gradient-surface-primary);
+    border: 1px solid var(--cv-color-primary-border);
     border-radius: var(--cv-radius-2);
   }
 
@@ -373,7 +365,7 @@ const pmEntryGenerateMainStyles = css`
     font-size: 0.75rem;
     font-family: var(--cv-font-family-code);
     font-weight: 600;
-    background: color-mix(in oklch, var(--cv-color-surface-2) 85%, black 5%);
+    background: var(--cv-color-surface-2);
     border: 1px solid var(--cv-color-border);
     color: var(--cv-color-text-muted);
     cursor: pointer;
@@ -387,7 +379,7 @@ const pmEntryGenerateMainStyles = css`
 
     &[checked] {
       border-color: var(--cv-color-primary);
-      background: color-mix(in oklch, var(--cv-color-primary) 20%, var(--cv-color-surface-2));
+      background: var(--cv-color-primary-surface-strong);
       color: var(--cv-color-primary);
       font-weight: 700;
     }
@@ -401,7 +393,7 @@ const pmEntryGenerateMainStyles = css`
     border-radius: var(--cv-radius-1);
 
     &:hover {
-      background: color-mix(in oklch, var(--cv-color-primary) 85%, black);
+      background: var(--cv-color-primary-dark);
       color: var(--pm-primary-on);
     }
 
@@ -432,18 +424,14 @@ const pmEntryGenerateMainStyles = css`
   .edit-sections-accordion cv-accordion-item::part(trigger) {
     min-block-size: 0;
     padding: 0.625rem 0.75rem;
-    border: 1px solid color-mix(in oklch, var(--cv-color-success) 28%, var(--cv-color-border));
+    border: 1px solid var(--cv-color-success-border);
     border-radius: var(--cv-radius-2);
-    background: linear-gradient(
-      145deg,
-      color-mix(in oklch, var(--cv-color-success) 11%, var(--cv-color-surface-2)) 0%,
-      color-mix(in oklch, var(--cv-color-success) 4%, var(--cv-color-surface-2)) 100%
-    );
+    background: var(--cv-color-success-surface);
     transition: background 0.15s ease;
   }
 
   .edit-sections-accordion cv-accordion-item::part(trigger):hover {
-    background: color-mix(in oklch, var(--cv-color-success) 14%, var(--cv-color-surface-2));
+    background: var(--cv-color-success-surface-strong);
   }
 
   .edit-sections-accordion cv-accordion-item[expanded]::part(trigger) {
@@ -459,7 +447,7 @@ const pmEntryGenerateMainStyles = css`
   .edit-sections-accordion cv-accordion-item::part(panel) {
     margin-block-start: -1px;
     padding: 0;
-    border: 1px solid color-mix(in oklch, var(--cv-color-success) 28%, var(--cv-color-border));
+    border: 1px solid var(--cv-color-success-border);
     border-block-start: none;
     border-start-start-radius: 0;
     border-start-end-radius: 0;
@@ -490,7 +478,7 @@ const pmEntryGenerateMainStyles = css`
     font-size: 0.6875rem;
     font-weight: 600;
     background: var(--cv-color-success);
-    color: color-mix(in oklch, black 70%, white);
+    color: var(--cv-color-success-text);
     border-radius: 999px;
   }
 
@@ -534,8 +522,8 @@ const pmEntryGenerateMainStyles = css`
     font-size: 0.6875rem;
     font-weight: 700;
     color: var(--cv-color-text);
-    background: color-mix(in oklch, var(--cv-color-surface) 86%, white 14%);
-    border: 1px solid color-mix(in oklch, var(--cv-color-border) 80%, transparent);
+    background: var(--cv-color-surface-2);
+    border: 1px solid var(--cv-color-border-strong);
   }
 
   .otp-list {
@@ -549,8 +537,8 @@ const pmEntryGenerateMainStyles = css`
     gap: 0.5rem;
     padding: 0.5rem 0.625rem;
     border-radius: var(--cv-radius-2);
-    background: color-mix(in oklch, var(--cv-color-surface) 88%, black 12%);
-    border: 1px solid color-mix(in oklch, var(--cv-color-border) 85%, transparent);
+    background: var(--cv-color-surface-2);
+    border: 1px solid var(--cv-color-border-strong);
   }
 
   .otp-item-main {
@@ -580,8 +568,8 @@ const pmEntryGenerateMainStyles = css`
     padding: 2px 8px;
     border-radius: var(--cv-radius-pill, 999px);
     color: var(--cv-color-primary);
-    background: color-mix(in oklch, var(--cv-color-primary) 14%, transparent);
-    border: 1px solid color-mix(in oklch, var(--cv-color-primary) 35%, transparent);
+    background: var(--cv-color-primary-surface);
+    border: 1px solid var(--cv-color-primary-border);
   }
 
   .otp-item-remove::part(base) {
@@ -595,15 +583,15 @@ const pmEntryGenerateMainStyles = css`
     margin: 0;
     padding: 0.625rem;
     border-radius: var(--cv-radius-2);
-    border: 1px dashed color-mix(in oklch, var(--cv-color-border) 85%, transparent);
+    border: 1px dashed var(--cv-color-border-strong);
     color: var(--cv-color-text-muted);
     font-style: italic;
   }
 
   .otp-create-panel {
     border-radius: var(--cv-radius-2);
-    border: 1px solid color-mix(in oklch, var(--cv-color-border) 82%, var(--cv-color-primary) 18%);
-    background: color-mix(in oklch, var(--cv-color-surface) 92%, transparent);
+    border: 1px solid var(--cv-color-primary-border);
+    background: var(--cv-color-surface);
     padding: 0.5rem;
   }
 
@@ -617,7 +605,7 @@ const pmEntryGenerateMainStyles = css`
     padding-block-start: max(0.75rem, env(safe-area-inset-top, 0px));
     padding-inline: 0.75rem;
     padding-block-end: max(0.75rem, env(safe-area-inset-bottom, 0px));
-    background: color-mix(in oklch, var(--cv-color-surface) 94%, black 6%);
+    background: var(--cv-color-surface-glass-strong);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
   }
@@ -629,12 +617,8 @@ const pmEntryGenerateMainStyles = css`
     gap: 0.625rem;
     padding: 0.625rem 0.75rem;
     border-radius: var(--cv-radius-2);
-    background: linear-gradient(
-      145deg,
-      color-mix(in oklch, var(--cv-color-surface-2) 87%, var(--cv-color-success) 13%) 0%,
-      color-mix(in oklch, var(--cv-color-surface-2) 93%, var(--cv-color-success) 7%) 100%
-    );
-    border: 1px solid color-mix(in oklch, var(--cv-color-border) 72%, var(--cv-color-success) 28%);
+    background: var(--cv-color-success-surface);
+    border: 1px solid var(--cv-color-success-border);
   }
 
   .otp-create-screen-title {

@@ -1,10 +1,15 @@
-import {html, nothing} from 'lit'
+import {peek} from '@reatom/core'
+import {nothing, type PropertyValues} from 'lit'
+import {html} from '@chromvoid/uikit/reatom-lit'
 
-import {Entry} from '@project/passmanager'
-import {i18n} from '@project/passmanager'
+import {Entry} from '@project/passmanager/core'
+import {i18n} from '@project/passmanager/i18n'
 
+import {pmMobileDebug} from '../../../models/pm-mobile-debug'
+import {getPassmanagerRoot} from '../../../models/pm-root.adapter'
+import {passwordManagerMobileLayoutModel} from '../../password-manager-layout/password-manager-mobile-layout.model'
 import {PMEntryListItemBase} from './entry-list-item-base'
-import {PMEntryListItemModel, type SwipeFinishResult} from './entry-list-item.model'
+import {type PMEntryListBadge} from './entry-list-item.model'
 import {pmEntryListItemBaseStyles, pmEntryListItemMobileStyles} from './styles'
 
 export class PMEntryListItemMobile extends PMEntryListItemBase {
@@ -16,98 +21,120 @@ export class PMEntryListItemMobile extends PMEntryListItemBase {
 
   static styles = [...pmEntryListItemBaseStyles, pmEntryListItemMobileStyles]
 
-  private contextMenuOpen = false
-  private contextMenuX = 0
-  private contextMenuY = 0
-  private mobileTouchMoveBound = false
+  private selectionTapToken: number | null = null
 
-  override connectedCallback() {
-    super.connectedCallback()
-    if (!this.mobileTouchMoveBound) {
-      this.updateComplete.then(() => {
-        const listItem = this.renderRoot.querySelector('.list-item')
-        listItem?.addEventListener('touchmove', this.handleTouchMove as EventListener, {passive: false})
-        this.mobileTouchMoveBound = true
-      })
-    }
+  protected override updated(changed: PropertyValues<this>): void {
+    super.updated(changed)
+    this.syncSwipeOffsetStyle()
   }
 
   override disconnectedCallback() {
-    this.mobileTouchMoveBound = false
-    const listItem = this.renderRoot.querySelector('.list-item')
-    listItem?.removeEventListener('touchmove', this.handleTouchMove as EventListener)
     this.model.dispose()
     super.disconnectedCallback()
   }
 
   // ── Touch handlers ──
 
-  private readonly handleTouchStart = (event: TouchEvent) => {
-    this.model.startTouch(event, (e) => this.openContextMenu(e))
+  private handleTouchStart(event: TouchEvent) {
+    const entry = peek(this.model.entry)
+    if (!(entry instanceof Entry)) return
+
+    if (passwordManagerMobileLayoutModel.selection.active()) {
+      pmMobileDebug('entryRow', 'touchStart.skip.selectionActive', {entryId: entry.id})
+      return
+    }
+
+    this.model.startTouch(event)
+
+    const touch = event.touches[0]
+    if (!touch) return
+
+    this.selectionTapToken = passwordManagerMobileLayoutModel.beginEntryLongPress(entry.id, {
+      x: touch.clientX,
+      y: touch.clientY,
+    }, () => {
+      try {
+        event.preventDefault?.()
+        event.stopPropagation?.()
+      } catch {}
+    })
+    pmMobileDebug('entryRow', 'touchStart.arm', {entryId: entry.id, token: this.selectionTapToken})
   }
 
-  private readonly handleTouchMove = (event: TouchEvent) => {
+  private handleTouchMove(event: TouchEvent) {
+    if (passwordManagerMobileLayoutModel.selection.active()) {
+      return
+    }
+
+    const touch = event.touches[0]
+    if (touch) {
+      passwordManagerMobileLayoutModel.moveLongPress({
+        x: touch.clientX,
+        y: touch.clientY,
+      })
+    }
+
     const result = this.model.onTouchMove(event)
     if (!result) return
     if (result.preventDefault) event.preventDefault()
-    this.applySwipeMoveVisual(result.offset)
+    this.syncSwipeOffsetStyle()
   }
 
-  private readonly handleTouchEnd = () => {
-    const result = this.model.onTouchEnd()
-    if (!result) return
-    this.applySwipeFinishVisual(result)
-  }
+  private handleTouchEnd() {
+    const token = passwordManagerMobileLayoutModel.endLongPress()
+    const entry = peek(this.model.entry)
+    pmMobileDebug('entryRow', 'touchEnd', {
+      entryId: entry instanceof Entry ? entry.id : null,
+      token,
+      selectionActive: passwordManagerMobileLayoutModel.selection.active(),
+    })
 
-  // ── Swipe visual helpers ──
-
-  private applySwipeMoveVisual(offset: number) {
-    const container = this.renderRoot.querySelector('.swipe-container') as HTMLElement | null
-    const listItem = this.renderRoot.querySelector('.list-item') as HTMLElement | null
-    if (!container || !listItem) return
-
-    container.classList.add('swipe-active')
-    container.classList.toggle('swipe-right', offset > 0)
-    container.classList.toggle('swipe-left', offset < 0)
-    listItem.classList.add('swiping')
-    listItem.classList.remove('snap-back')
-    listItem.style.transform = `translateX(${offset}px)`
-  }
-
-  private applySwipeFinishVisual(finish: SwipeFinishResult) {
-    const container = this.renderRoot.querySelector('.swipe-container') as HTMLElement | null
-    const listItem = this.renderRoot.querySelector('.list-item') as HTMLElement | null
-    if (!listItem) return
-
-    listItem.classList.remove('swiping')
-    listItem.classList.add('snap-back')
-
-    if (finish.state === 'open-left') {
-      listItem.style.transform = `translateX(-${PMEntryListItemModel.SWIPE_ACTION_WIDTH}px)`
-      container?.classList.add('swipe-left')
-      container?.classList.remove('swipe-right')
-    } else if (finish.state === 'open-right') {
-      listItem.style.transform = `translateX(${PMEntryListItemModel.SWIPE_ACTION_WIDTH}px)`
-      container?.classList.add('swipe-right')
-      container?.classList.remove('swipe-left')
-    } else {
-      listItem.style.transform = 'translateX(0)'
-      container?.classList.remove('swipe-active', 'swipe-left', 'swipe-right')
+    if (passwordManagerMobileLayoutModel.selection.active()) {
+      return
     }
 
-    listItem.addEventListener('transitionend', () => listItem.classList.remove('snap-back'), {once: true})
+    const result = this.model.onTouchEnd()
+    if (!result) return
+    this.syncSwipeOffsetStyle()
   }
 
-  private applySwipeCloseVisual() {
-    const container = this.renderRoot.querySelector('.swipe-container') as HTMLElement | null
-    const listItem = this.renderRoot.querySelector('.list-item') as HTMLElement | null
-    if (!listItem) return
+  private handlePointerDown(event: PointerEvent) {
+    if (event.pointerType !== 'touch') return
 
-    listItem.classList.remove('swiping')
-    listItem.classList.add('snap-back')
-    listItem.style.transform = 'translateX(0)'
-    container?.classList.remove('swipe-active', 'swipe-left', 'swipe-right')
-    listItem.addEventListener('transitionend', () => listItem.classList.remove('snap-back'), {once: true})
+    const entry = peek(this.model.entry)
+    if (!(entry instanceof Entry)) return
+
+    if (passwordManagerMobileLayoutModel.selection.active()) {
+      pmMobileDebug('entryRow', 'pointerDown.skip.selectionActive', {entryId: entry.id})
+      return
+    }
+
+    this.selectionTapToken = passwordManagerMobileLayoutModel.beginEntryLongPress(entry.id, {
+      x: event.clientX,
+      y: event.clientY,
+    })
+    pmMobileDebug('entryRow', 'pointerDown.arm', {entryId: entry.id, token: this.selectionTapToken})
+  }
+
+  private handlePointerMove(event: PointerEvent) {
+    if (event.pointerType !== 'touch') return
+
+    passwordManagerMobileLayoutModel.moveLongPress({
+      x: event.clientX,
+      y: event.clientY,
+    })
+  }
+
+  private handlePointerEnd(event: PointerEvent) {
+    if (event.pointerType !== 'touch') return
+
+    const token = passwordManagerMobileLayoutModel.endLongPress()
+    const entry = peek(this.model.entry)
+    pmMobileDebug('entryRow', 'pointerEnd', {
+      entryId: entry instanceof Entry ? entry.id : null,
+      token,
+      selectionActive: passwordManagerMobileLayoutModel.selection.active(),
+    })
   }
 
   // ── Swipe action handlers ──
@@ -116,183 +143,219 @@ export class PMEntryListItemMobile extends PMEntryListItemBase {
     event.stopPropagation()
     this.model.copyUsername(event)
     this.model.closeSwipe()
-    this.applySwipeCloseVisual()
   }
 
   private onSwipeCopyOtp(event: Event) {
     event.stopPropagation()
     // OTP copy is handled by the entry detail view for now
     this.model.closeSwipe()
-    this.applySwipeCloseVisual()
   }
 
   private onSwipeDelete(event: Event) {
     event.stopPropagation()
     this.model.closeSwipe()
-    this.applySwipeCloseVisual()
-    this.dispatchEvent(new CustomEvent('entry-delete', {detail: this.model.entry.peek(), bubbles: true, composed: true}))
+    this.dispatchEvent(new CustomEvent('entry-delete', {detail: peek(this.model.entry), bubbles: true, composed: true}))
   }
 
-  // ── Context menu ──
+  private enterSelectionMode(event?: Event) {
+    event?.preventDefault?.()
+    event?.stopPropagation?.()
 
-  private openContextMenu(event: TouchEvent) {
-    const touch = event.touches[0] ?? event.changedTouches[0]
-    if (!touch) return
+    const entry = peek(this.model.entry)
+    if (!(entry instanceof Entry)) return
 
-    this.contextMenuX = touch.clientX
-    this.contextMenuY = touch.clientY
-    this.contextMenuOpen = true
-    this.requestUpdate()
-  }
-
-  private closeContextMenu() {
-    this.contextMenuOpen = false
-    this.requestUpdate()
-  }
-
-  private onContextAction(action: string) {
-    this.closeContextMenu()
-    const entry = this.model.entry.peek()
-    if (!entry) return
-
-    switch (action) {
-      case 'open':
-        this.model.openEntry(new Event('click'))
-        break
-      case 'copy-username':
-        this.model.copyUsername(new Event('click'))
-        break
-      case 'copy-password':
-        void this.model.copyPassword(new Event('click'))
-        break
-      case 'delete':
-        this.dispatchEvent(new CustomEvent('entry-delete', {detail: entry, bubbles: true, composed: true}))
-        break
+    if (this.model.isSwipeOpen) {
+      this.model.closeSwipe()
     }
+
+    this.selectionTapToken = passwordManagerMobileLayoutModel.triggerEntryContextSelection(entry.id)
+    pmMobileDebug('entryRow', 'contextSelection', {entryId: entry.id, token: this.selectionTapToken})
+  }
+
+  private handleContextMenu(event: Event) {
+    if (passwordManagerMobileLayoutModel.selection.active()) {
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
+
+    this.enterSelectionMode(event)
   }
 
   // ── Click override ──
 
   protected override onClick(event: Event) {
-    if (this.model.isSwipeOpen) {
-      this.model.closeSwipe()
-      this.applySwipeCloseVisual()
+    const entry = peek(this.model.entry)
+    const decision = entry
+      ? passwordManagerMobileLayoutModel.handleEntryTap(entry.id, this.selectionTapToken)
+      : 'noop'
+    pmMobileDebug('entryRow', 'click', {
+      entryId: entry instanceof Entry ? entry.id : null,
+      token: this.selectionTapToken,
+      decision,
+      selectionActive: passwordManagerMobileLayoutModel.selection.active(),
+    })
+
+    this.selectionTapToken = null
+
+    if (decision === 'noop') {
+      event.preventDefault()
+      event.stopPropagation()
       return
     }
+
+    if (this.model.isSwipeOpen) {
+      this.model.closeSwipe()
+      return
+    }
+
+    if (decision === 'toggle' && entry) {
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
+
     super.onClick(event)
   }
 
   // ── Render ──
 
+  protected override renderBadgeIcon(_badge: PMEntryListBadge) {
+    return html``
+  }
+
+  private renderStatusDots(badges: readonly PMEntryListBadge[]) {
+    if (badges.length === 0) return nothing
+
+    return html`
+      <div class="entry-status-dots" aria-label=${i18n('entry:badges')}>
+        ${badges.map(
+          (badge) => html`
+            <span
+              class="entry-status-dot"
+              data-badge-id=${badge.id}
+              data-family=${badge.family}
+              data-severity=${badge.severity}
+              title=${badge.label}
+              aria-label=${badge.label}
+              role="img"
+            ></span>
+          `,
+        )}
+      </div>
+    `
+  }
+
   override render() {
-    if (!window.passmanager) return nothing
+    if (!getPassmanagerRoot()) return nothing
 
     const entry = this.model.entry()
     if (!(entry instanceof Entry)) return nothing
 
-    const hasUsername = this.model.hasUsername()
-    const hasOtp = this.model.hasOtp()
-    const hasSshKeys = this.model.hasSshKeys()
+    const presentation = this.model.getMobilePresentation(entry)
+    const selectionModeActive = this.selectionActive
+    const selectedClass = this.isSelected ? ' selected' : ''
+    const activeClass = this.manageActiveRowState && this.activeRow ? ' active-row' : ''
+    const swipeState = this.model.swipeState()
+    const swipeOffsetX = this.model.swipeOffsetX()
+    const swipeSettling = this.model.swipeSettling()
+    const swipeSideClass =
+      swipeState === 'open-left' || swipeOffsetX < 0
+        ? ' swipe-left'
+        : swipeState === 'open-right' || swipeOffsetX > 0
+          ? ' swipe-right'
+          : ''
+    const swipeActiveClass = swipeState !== 'idle' || swipeOffsetX !== 0 ? ' swipe-active' : ''
+    const swipeClass = `swipe-container${swipeActiveClass}${swipeSideClass}`
+    const swipeMotionClass = swipeState === 'tracking' && !swipeSettling ? ' swiping' : swipeSettling ? ' snap-back' : ''
 
     return html`
-      <div class="swipe-container">
-        ${this.renderSwipeActions(entry)}
+      <div class=${swipeClass}>
+        ${selectionModeActive ? nothing : this.renderSwipeActions()}
 
         <div
-          class="list-item ${this.isSelected ? 'selected' : ''}"
+          class="list-item mobile-list-row-surface${selectedClass}${activeClass}${swipeMotionClass}"
+          data-entry-id=${entry.id}
+          data-swipe-state=${swipeState}
           @click=${this.onClick}
           @keydown=${this.onKeyDown}
+          @focusin=${this.onFocusIn}
+          @focusout=${this.onFocusOut}
           @touchstart=${this.handleTouchStart}
+          @touchmove=${this.handleTouchMove}
           @touchend=${this.handleTouchEnd}
           @touchcancel=${this.handleTouchEnd}
+          @pointerdown=${this.handlePointerDown}
+          @pointermove=${this.handlePointerMove}
+          @pointerup=${this.handlePointerEnd}
+          @pointercancel=${this.handlePointerEnd}
+          @contextmenu=${this.handleContextMenu}
+          @transitionend=${this.handleSwipeTransitionEnd}
           role="button"
-          tabindex="0"
+          tabindex=${String(this.getRowTabIndex())}
         >
           ${this.renderIcon(entry)}
 
           <div class="item-content">
-            <div class="item-title">
-              ${entry.title || i18n('no_title')}
-              ${hasOtp ? html`<span class="otp-indicator"></span>` : nothing}
-              ${hasSshKeys ? html`<span class="ssh-indicator" title=${i18n('tooltip:has-ssh')}></span>` : nothing}
-            </div>
-            ${hasUsername ? html`<div class="item-subtitle">${entry.username}</div>` : nothing}
+            <div class="item-title">${presentation.title}</div>
+            ${presentation.subtitle ? html`<div class="item-subtitle">${presentation.subtitle}</div>` : nothing}
           </div>
 
-          <button class="action-button primary-action" @click=${this.onCopyPassword} aria-label=${i18n('tooltip:copy-password')}>
-            <cv-icon name="key"></cv-icon>
-          </button>
+          ${this.renderStatusDots(presentation.statusBadges)}
+          ${this.renderBadgeList(presentation.visibleTextBadges, presentation.textOverflowCount)}
+
+          ${selectionModeActive
+            ? nothing
+            : html`
+                <cv-button unstyled
+                  class="action-button primary-action entry-menu-button"
+                  button-tabindex=${String(this.getActionTabIndex())}
+                  @click=${this.onMoreActions}
+                  aria-label=${presentation.rowActionLabel}
+                >
+                  <cv-icon name=${presentation.rowActionIcon}></cv-icon>
+                </cv-button>
+              `}
         </div>
       </div>
-
-      ${this.contextMenuOpen ? this.renderContextMenu(entry) : nothing}
     `
   }
 
-  private renderSwipeActions(entry: Entry) {
+  private renderSwipeActions() {
     const hasUsername = this.model.hasUsername()
     const hasOtp = this.model.hasOtp()
 
     return html`
       <div class="swipe-actions-left">
-        <button class="swipe-action" @click=${(e: Event) => this.onSwipeDelete(e)} aria-label=${i18n('button:delete_entry')}>
-          <cv-icon name="trash"></cv-icon>
-        </button>
-      </div>
-      <div class="swipe-actions-right">
         ${hasUsername
           ? html`
-              <button class="swipe-action" @click=${(e: Event) => this.onSwipeCopyUsername(e)} aria-label=${i18n('tooltip:copy-username')}>
+              <cv-button unstyled class="swipe-action" @click=${this.onSwipeCopyUsername} aria-label=${i18n('tooltip:copy-username')}>
                 <cv-icon name="person-circle"></cv-icon>
-              </button>
+              </cv-button>
             `
           : nothing}
         ${hasOtp
           ? html`
-              <button class="swipe-action" @click=${(e: Event) => this.onSwipeCopyOtp(e)} aria-label=${i18n('tooltip:copy-otp')}>
+              <cv-button unstyled class="swipe-action" @click=${this.onSwipeCopyOtp} aria-label=${i18n('tooltip:copy-otp')}>
                 <cv-icon name="shield-check"></cv-icon>
-              </button>
+              </cv-button>
             `
           : nothing}
+      </div>
+      <div class="swipe-actions-right">
+        <cv-button unstyled class="swipe-action" @click=${this.onSwipeDelete} aria-label=${i18n('button:delete_entry')}>
+          <cv-icon name="trash"></cv-icon>
+        </cv-button>
       </div>
     `
   }
 
-  private renderContextMenu(entry: Entry) {
-    const hasUsername = this.model.hasUsername()
-    const hasOtp = this.model.hasOtp()
-    const isReadOnly = window.passmanager.isReadOnly()
+  private handleSwipeTransitionEnd(event: TransitionEvent) {
+    if (event.target !== event.currentTarget || event.propertyName !== 'transform') return
+    this.model.finishSwipeTransition()
+  }
 
-    return html`
-      <div class="context-menu-backdrop" @click=${() => this.closeContextMenu()}></div>
-      <div class="context-menu" style="left:${this.contextMenuX}px;top:${this.contextMenuY}px">
-        <button class="context-menu-item" @click=${() => this.onContextAction('open')}>
-          <cv-icon name="box-arrow-up-right"></cv-icon>
-          ${entry.title || i18n('no_title')}
-        </button>
-        <div class="context-menu-separator"></div>
-        <button class="context-menu-item" @click=${() => this.onContextAction('copy-username')} ?disabled=${!hasUsername}>
-          <cv-icon name="person-circle"></cv-icon>
-          ${i18n('tooltip:copy-username')}
-        </button>
-        <button class="context-menu-item" @click=${() => this.onContextAction('copy-password')}>
-          <cv-icon name="key"></cv-icon>
-          ${i18n('tooltip:copy-password')}
-        </button>
-        ${hasOtp
-          ? html`
-              <button class="context-menu-item" @click=${() => this.onContextAction('copy-otp')}>
-                <cv-icon name="shield-check"></cv-icon>
-                ${i18n('tooltip:copy-otp')}
-              </button>
-            `
-          : nothing}
-        <div class="context-menu-separator"></div>
-        <button class="context-menu-item destructive" @click=${() => this.onContextAction('delete')} ?disabled=${isReadOnly}>
-          <cv-icon name="trash"></cv-icon>
-          ${i18n('button:delete_entry')}
-        </button>
-      </div>
-    `
+  private syncSwipeOffsetStyle() {
+    this.style.setProperty('--pm-entry-swipe-offset-x', `${Math.round(this.model.swipeOffsetX())}px`)
   }
 }

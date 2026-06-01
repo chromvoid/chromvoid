@@ -1,13 +1,22 @@
-import {describe, it, expect, vi, beforeEach, type Mock} from 'vitest'
+import {afterEach, describe, it, expect, vi, beforeEach, type Mock} from 'vitest'
 
 // Mock external deps before imports
-vi.mock('sweetalert2', () => ({default: {fire: vi.fn(async () => ({isConfirmed: true}))}}))
 vi.mock('@project/utils', () => ({sha256: vi.fn(async (s: string) => `hash:${s}`)}))
 
+import {setPassManagerDialogAdapter} from '../dialog'
 import {Entry} from '../entry'
 import {Group} from '../group'
 import {ManagerRoot} from '../root'
-import type {ManagerSaver, IEntry, PassManagerRootV2} from '../types'
+import {OTP} from '../otp'
+import type {ManagerSaver, IEntry, PassManagerRootV2, PassManagerRootV3} from '../types'
+
+beforeEach(() => {
+  setPassManagerDialogAdapter({confirm: vi.fn(async () => true)})
+})
+
+afterEach(() => {
+  setPassManagerDialogAdapter(null)
+})
 
 function createMockSaver(overrides: Partial<ManagerSaver> = {}): ManagerSaver {
   return {
@@ -18,6 +27,9 @@ function createMockSaver(overrides: Partial<ManagerSaver> = {}): ManagerSaver {
     getOTPSeckey: vi.fn(async () => undefined),
     removeOTP: vi.fn(async () => true),
     saveOTP: vi.fn(async () => true),
+    readEntrySecret: vi.fn(async () => undefined),
+    saveEntrySecret: vi.fn(async () => true),
+    removeEntrySecret: vi.fn(async () => true),
     readEntryPassword: vi.fn(async () => undefined),
     readEntryNote: vi.fn(async () => undefined),
     saveEntryPassword: vi.fn(async () => true),
@@ -31,6 +43,7 @@ function createMockSaver(overrides: Partial<ManagerSaver> = {}): ManagerSaver {
     removeEntrySshPrivateKey: vi.fn(async () => true),
     removeEntrySshPublicKey: vi.fn(async () => true),
     saveEntryMeta: vi.fn(async () => true),
+    moveEntryToGroup: vi.fn(async () => true),
     removeEntry: vi.fn(async () => true),
     ...overrides,
   }
@@ -118,6 +131,95 @@ describe('load() merge behavior', () => {
     expect(entryB2.title).toBe('Beta Updated')
   })
 
+  it('loads runtime v3 entry timestamps from entry metadata', async () => {
+    const rootCreatedTs = 1_700_000_000_000
+    const rootUpdatedTs = 1_700_000_010_000
+    const entryCreatedTs = 1_690_000_000_000
+    const entryUpdatedTs = 1_700_000_005_000
+    const payload: PassManagerRootV3 = {
+      version: 3,
+      createdTs: rootCreatedTs,
+      updatedTs: rootUpdatedTs,
+      folders: [],
+      entries: [
+        {
+          id: 'a',
+          entryType: 'login',
+          createdTs: entryCreatedTs,
+          updatedTs: entryUpdatedTs,
+          title: 'Alpha',
+          username: '',
+          urls: [],
+          otps: [],
+          folderPath: null,
+        },
+      ],
+    }
+    ;(saver.read as Mock).mockResolvedValue(JSON.stringify(payload))
+
+    await root.load()
+
+    const entry = root.getEntry('a')!
+    expect(entry.createdTs).toBe(entryCreatedTs)
+    expect(entry.updatedTs).toBe(entryUpdatedTs)
+  })
+
+  it('preserves existing created timestamp when reloading legacy runtime metadata without one', async () => {
+    const entryCreatedTs = 1_690_000_000_000
+    const firstUpdatedTs = 1_700_000_000_000
+    const secondUpdatedTs = 1_700_000_020_000
+    ;(saver.read as Mock).mockResolvedValue(
+      JSON.stringify({
+        version: 3,
+        createdTs: entryCreatedTs,
+        updatedTs: firstUpdatedTs,
+        folders: [],
+        entries: [
+          {
+            id: 'a',
+            entryType: 'login',
+            createdTs: entryCreatedTs,
+            updatedTs: firstUpdatedTs,
+            title: 'Alpha',
+            username: '',
+            urls: [],
+            otps: [],
+            folderPath: null,
+          },
+        ],
+      } satisfies PassManagerRootV3),
+    )
+    await root.load()
+
+    ;(saver.read as Mock).mockResolvedValue(
+      JSON.stringify({
+        version: 3,
+        createdTs: entryCreatedTs,
+        updatedTs: secondUpdatedTs,
+        folders: [],
+        entries: [
+          {
+            id: 'a',
+            entryType: 'login',
+            updatedTs: secondUpdatedTs,
+            title: 'Alpha Updated',
+            username: '',
+            urls: [],
+            otps: [],
+            folderPath: null,
+          },
+        ],
+      } satisfies PassManagerRootV3),
+    )
+
+    await root.load()
+
+    const entry = root.getEntry('a')!
+    expect(entry.createdTs).toBe(entryCreatedTs)
+    expect(entry.updatedTs).toBe(secondUpdatedTs)
+    expect(entry.title).toBe('Alpha Updated')
+  })
+
   it('reload removes entries not present in remote data', async () => {
     // First load with 3 entries
     const payload1 = makeV2Payload([
@@ -190,6 +292,54 @@ describe('load() merge behavior', () => {
     expect(workGroup2.entries()[0]!.title).toBe('Alpha Updated')
   })
 
+  it('reload does not emit an intermediate empty group state when the group still has entries', async () => {
+    const payload1 = makeV2Payload([{id: 'a', title: 'Alpha', folderPath: 'work'}], ['work'])
+    ;(saver.read as Mock).mockResolvedValue(JSON.stringify(payload1))
+    await root.load()
+
+    const workGroup = root.getGroup('group:work')!
+    const lengths: number[] = []
+    const unsubscribe = workGroup.entries.subscribe((entries) => {
+      lengths.push(entries.length)
+    })
+
+    const payload2 = makeV2Payload(
+      [
+        {id: 'a', title: 'Alpha Updated', folderPath: 'work'},
+        {id: 'b', title: 'Beta', folderPath: 'work'},
+      ],
+      ['work'],
+    )
+    ;(saver.read as Mock).mockResolvedValue(JSON.stringify(payload2))
+    await root.load()
+    unsubscribe()
+
+    expect(root.getGroup('group:work')).toBe(workGroup)
+    expect(workGroup.entries().map((entry) => entry.id)).toEqual(['a', 'b'])
+    expect(lengths).not.toContain(0)
+  })
+
+  it('reload emits an empty group state when the group becomes empty for real', async () => {
+    const payload1 = makeV2Payload([{id: 'a', title: 'Alpha', folderPath: 'work'}], ['work'])
+    ;(saver.read as Mock).mockResolvedValue(JSON.stringify(payload1))
+    await root.load()
+
+    const workGroup = root.getGroup('group:work')!
+    const lengths: number[] = []
+    const unsubscribe = workGroup.entries.subscribe((entries) => {
+      lengths.push(entries.length)
+    })
+
+    const payload2 = makeV2Payload([], ['work'])
+    ;(saver.read as Mock).mockResolvedValue(JSON.stringify(payload2))
+    await root.load()
+    unsubscribe()
+
+    expect(root.getGroup('group:work')).toBe(workGroup)
+    expect(workGroup.entries()).toEqual([])
+    expect(lengths.at(-1)).toBe(0)
+  })
+
   it('reload handles entry moving to different group (parent migration)', async () => {
     const payload1 = makeV2Payload([{id: 'a', title: 'Alpha', folderPath: 'work'}], ['work', 'personal'])
     ;(saver.read as Mock).mockResolvedValue(JSON.stringify(payload1))
@@ -206,6 +356,81 @@ describe('load() merge behavior', () => {
     const entryA2 = root.getEntry('a')!
     expect(entryA2).toBe(entryA) // identity preserved
     expect(entryA2.parent).toBe(root.getGroup('group:personal')) // parent updated
+  })
+
+  it('reload reuses existing OTP objects by id', async () => {
+    const now = Date.now()
+    ;(saver.read as Mock).mockResolvedValue(
+      JSON.stringify({
+        version: 2,
+        createdTs: now,
+        updatedTs: now,
+        folders: [],
+        entries: [
+          {
+            id: 'a',
+            title: 'Alpha',
+            username: '',
+            urls: [],
+            folderPath: null,
+            otps: [
+              {
+                id: 'otp-1',
+                label: 'Primary',
+                algorithm: 'SHA1',
+                digits: 6,
+                period: 30,
+                encoding: 'base32',
+                type: 'TOTP',
+              },
+            ],
+          },
+        ],
+      }),
+    )
+    await root.load()
+
+    const entry = root.getEntry('a')!
+    const otp = entry.otps()[0] as OTP
+    otp.show()
+
+    ;(saver.read as Mock).mockResolvedValue(
+      JSON.stringify({
+        version: 2,
+        createdTs: now,
+        updatedTs: now + 1_000,
+        folders: [],
+        entries: [
+          {
+            id: 'a',
+            title: 'Alpha Updated',
+            username: '',
+            urls: [],
+            folderPath: null,
+            otps: [
+              {
+                id: 'otp-1',
+                label: 'Primary Updated',
+                algorithm: 'SHA1',
+                digits: 6,
+                period: 30,
+                encoding: 'base32',
+                type: 'TOTP',
+              },
+            ],
+          },
+        ],
+      }),
+    )
+    await root.load()
+
+    const reloadedEntry = root.getEntry('a')!
+    const reloadedOtp = reloadedEntry.otps()[0] as OTP
+
+    expect(reloadedEntry).toBe(entry)
+    expect(reloadedOtp).toBe(otp)
+    expect(reloadedOtp.label).toBe('Primary Updated')
+    expect(reloadedOtp.isShow()).toBe(true)
   })
 
   it('reload with empty remote data does NOT overwrite non-empty entries (guard)', async () => {

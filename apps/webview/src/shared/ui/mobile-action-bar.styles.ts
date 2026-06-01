@@ -34,8 +34,7 @@ export const mobileActionBarButtonStyles: CSSResult = css`
     padding: 0;
     justify-content: center;
     border-radius: 8px;
-    border: 1px solid
-      color-mix(in oklch, var(--cv-color-border-strong, var(--cv-color-border)) 50%, transparent);
+    border: 1px solid var(--cv-color-border-soft);
     background: var(--cv-color-surface-2);
   }
 
@@ -57,7 +56,7 @@ export const mobileActionBarButtonStyles: CSSResult = css`
   }
 
   .tb-btn:not(cv-menu-button):hover::part(base) {
-    background: color-mix(in oklch, var(--cv-color-surface-2) 78%, var(--cv-color-primary));
+    background: var(--cv-color-primary-surface);
   }
 
   .tb-btn:not(cv-menu-button):active::part(base) {
@@ -78,8 +77,7 @@ export const mobileActionBarButtonStyles: CSSResult = css`
     padding: 0;
     justify-content: center;
     border-radius: 8px;
-    border: 1px solid
-      color-mix(in oklch, var(--cv-color-border-strong, var(--cv-color-border)) 50%, transparent);
+    border: 1px solid var(--cv-color-border-soft);
     background: var(--cv-color-surface-2);
   }
 
@@ -93,7 +91,7 @@ export const mobileActionBarButtonStyles: CSSResult = css`
   }
 
   .tb-btn-more:hover::part(trigger) {
-    background: color-mix(in oklch, var(--cv-color-surface-2) 78%, var(--cv-color-primary));
+    background: var(--cv-color-primary-surface);
   }
 
   .tb-btn-more:active::part(trigger) {

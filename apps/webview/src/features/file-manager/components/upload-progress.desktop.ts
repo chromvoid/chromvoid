@@ -1,4 +1,5 @@
-import {css, html, nothing} from 'lit'
+import {css, nothing} from 'lit'
+import {html} from '@chromvoid/uikit/reatom-lit'
 
 import {i18n} from 'root/i18n'
 import {hostContentContainStyles, sharedStyles} from 'root/shared/ui/shared-styles'
@@ -10,7 +11,9 @@ import './upload-task-item'
 
 export class UploadProgressDesktop extends UploadProgressBase {
   static define() {
-    customElements.define('upload-progress-desktop', this)
+    if (!customElements.get('upload-progress-desktop')) {
+      customElements.define('upload-progress-desktop', this)
+    }
   }
 
   static styles = [
@@ -36,13 +39,13 @@ export class UploadProgressDesktop extends UploadProgressBase {
         justify-content: space-between;
         padding-block: 10px;
         padding-inline: 16px;
-        background: color-mix(in oklch, var(--cv-color-primary), transparent 10%);
+        background: var(--cv-color-primary-surface);
         color: var(--cv-color-primary);
         cursor: pointer;
         user-select: none;
 
         &:hover {
-          background: color-mix(in oklch, var(--cv-color-primary), transparent 6%);
+          background: var(--cv-color-primary-surface-strong);
         }
       }
 
@@ -73,7 +76,7 @@ export class UploadProgressDesktop extends UploadProgressBase {
         transition: background var(--cv-duration-fast) var(--cv-easing-standard);
 
         &:hover {
-          background: color-mix(in oklch, var(--cv-color-primary), transparent 90%);
+          background: var(--cv-color-primary-surface);
         }
       }
 
@@ -105,7 +108,7 @@ export class UploadProgressDesktop extends UploadProgressBase {
         }
 
         &::-webkit-scrollbar-thumb {
-          background: color-mix(in oklch, var(--cv-color-text-muted), transparent 60%);
+          background: var(--cv-color-text-subtle);
           border-radius: 4px;
         }
       }
@@ -131,6 +134,13 @@ export class UploadProgressDesktop extends UploadProgressBase {
         align-items: center;
       }
 
+      .overall-progress-bar {
+        --cv-progress-height: 6px;
+        --cv-progress-track-color: var(--cv-color-border);
+        --cv-progress-indicator-background: var(--gradient-primary);
+        margin-block: 2px 4px;
+      }
+
       .overall-size-info {
         text-align: center;
         font-size: 0.8em;
@@ -150,6 +160,9 @@ export class UploadProgressDesktop extends UploadProgressBase {
 
     const tasks = m.tasks()
     const stats = m.stats()
+    const primaryStats = m.primaryStats()
+    const displayedProgress = m.primaryDisplay.progress()
+    const displayedLoadedBytes = m.primaryDisplay.loadedBytes()
     const minimized = m.minimized()
 
     return html`
@@ -157,28 +170,28 @@ export class UploadProgressDesktop extends UploadProgressBase {
         <div class="panel-header" @click=${m.toggleMinimize}>
           <div class="header-title">
             <cv-icon name=${m.headerIcon()}></cv-icon>
-            <span>${i18n('file-manager:transfers' as any, {total: String(stats.total)})}</span>
+            <span>${i18n('file-manager:transfers', {total: String(stats.total)})}</span>
             ${m.hasActiveTransfers()
               ? html`<cv-spinner
                   class="header-spinner"
-                  label=${i18n('file-manager:transfers-progress' as any)}
+                  label=${i18n('file-manager:transfers-progress')}
                 ></cv-spinner>`
               : ''}
           </div>
           <div class="header-controls">
-            <button
+            <cv-button unstyled
               class="header-btn"
               @click=${this.onClearClick}
-              title=${i18n('button:clear-completed' as any)}
+              title=${i18n('button:clear-completed')}
             >
               <cv-icon name="trash"></cv-icon>
-            </button>
-            <button
+            </cv-button>
+            <cv-button unstyled
               class="header-btn"
-              title=${i18n(minimized ? ('button:expand' as any) : ('button:collapse' as any))}
+              title=${i18n(minimized ? ('button:expand') : ('button:collapse'))}
             >
               <cv-icon name=${minimized ? 'chevron-up' : 'chevron-down'}></cv-icon>
-            </button>
+            </cv-button>
           </div>
         </div>
 
@@ -192,19 +205,25 @@ export class UploadProgressDesktop extends UploadProgressBase {
               <div class="overall-stats">
                 <div class="overall-progress-info">
                   <span
-                    >${i18n('file-manager:overall-progress' as any, {
-                      progress: String(Math.round(stats.overallProgress)),
+                    >${i18n('file-manager:overall-progress', {
+                      progress: String(Math.round(displayedProgress)),
                     })}</span
                   >
                   <span
-                    >${i18n('file-manager:completed-of-total' as any, {
-                      completed: String(stats.completed),
-                      total: String(stats.total),
+                    >${i18n('file-manager:completed-of-total', {
+                      completed: String(primaryStats.completed),
+                      total: String(primaryStats.total),
                     })}</span
                   >
                 </div>
+                <cv-progress
+                  class="overall-progress-bar"
+                  value=${displayedProgress}
+                  ?indeterminate=${primaryStats.uploading > 0 && primaryStats.totalBytes <= 0}
+                  aria-label=${i18n('file-manager:transfers-progress')}
+                ></cv-progress>
                 <div class="overall-size-info">
-                  ${formatFileSize(stats.loadedBytes)} / ${formatFileSize(stats.totalBytes)}
+                  ${formatFileSize(displayedLoadedBytes)} / ${formatFileSize(primaryStats.totalBytes)}
                 </div>
               </div>
             </div>

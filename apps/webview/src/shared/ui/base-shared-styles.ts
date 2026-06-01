@@ -1,16 +1,32 @@
 import {type CSSResult, css} from 'lit'
 
-// Базовые общие стили для всех компонентов (Shadow DOM scope)
-// - Ресеты box-sizing
-// - Минимальные CSS‑переменные темы/токенов
-// - Утилиты (visually-hidden, text-ellipsis)
+// Basic common styles for all components (Shadow DOM scope)
+// - Box-sizing resets
+// Minimum CSS variables of topics/tokens
+// - Utilities (visually-hidden, text-ellipsis)
 export const sharedStyles: CSSResult[] = [
   css`
-    /* ========== БАЗОВЫЕ УТИЛИТЫ ========== */
+    :host {
+      --image-aspect-ratio: 16 / 9;
+      --fallback-text: var(--cv-color-text);
+      --fallback-surface: var(--cv-color-surface);
+      --fallback-font: var(--cv-font-family-sans, system-ui);
+      --fallback-radius: var(--cv-radius-2);
+      --transform-x: 0;
+      --transform-y: 0;
+      --transform-scale: 1;
+      --fade-opacity: 1;
+      --slide-x: 0;
+      --slide-y: 0;
+      --scale-factor: 1;
+      --scale-origin: center;
+    }
+
+    /*=========== Basic utilities ===========*/
     * {
       box-sizing: border-box;
     }
-    /* Флекс-контейнеры */
+    /*Flex containers*/
     .flex {
       display: flex;
     }
@@ -55,7 +71,7 @@ export const sharedStyles: CSSResult[] = [
       justify-content: flex-end;
     }
 
-    /* Грид-контейнеры */
+    /*Grid containers*/
     .grid {
       display: grid;
     }
@@ -80,7 +96,7 @@ export const sharedStyles: CSSResult[] = [
       gap: var(--app-spacing-4);
     }
 
-    /* Прокрутка */
+    /*Scrolling*/
     .scrollable {
       overflow-y: auto;
       overflow-x: hidden;
@@ -109,7 +125,7 @@ export const sharedStyles: CSSResult[] = [
       background: var(--cv-color-border-strong);
     }
 
-    /* ========== ТИПОГРАФИКА ========== */
+    /*===================*/
 
     .text-xs {
       font-size: var(--cv-font-size-xs);
@@ -163,9 +179,9 @@ export const sharedStyles: CSSResult[] = [
       text-align: right;
     }
 
-    /* ========== АНИМАЦИИ ========== */
+    /*=================*/
 
-    /* Базовые keyframes */
+    /*Basic keyframes*/
     @keyframes fadeIn {
       from {
         opacity: 0;
@@ -267,7 +283,7 @@ export const sharedStyles: CSSResult[] = [
       }
     }
 
-    /* Анимационные классы */
+    /*Animation classes*/
     .animate-fade-in {
       animation: fadeIn 0.3s ease-out;
       will-change: opacity;
@@ -313,7 +329,7 @@ export const sharedStyles: CSSResult[] = [
       animation: shake 0.5s ease-in-out;
     }
 
-    /* Скелетон загрузки */
+    /*Loading skeleton*/
     .shimmer {
       background: linear-gradient(
         90deg,
@@ -326,9 +342,9 @@ export const sharedStyles: CSSResult[] = [
       border-radius: var(--cv-radius-1);
     }
 
-    /* ========== ДОСТУПНОСТЬ ========== */
+    /*=====================*/
 
-    /* Экранный ридер только */
+    /*Screen reader only*/
     .sr-only {
       position: absolute;
       width: 1px;
@@ -341,7 +357,7 @@ export const sharedStyles: CSSResult[] = [
       border: 0;
     }
 
-    /* Кастомные фокус-ринги */
+    /*Custom focus rings*/
     .focus-ring {
       outline: none;
     }
@@ -351,7 +367,7 @@ export const sharedStyles: CSSResult[] = [
       outline-offset: 2px;
     }
 
-    /* ========== ПЕРЕХОДЫ ========== */
+    /*====================*/
 
     .transition-fast {
       transition: all var(--cv-duration-fast) var(--cv-easing-standard);
@@ -380,7 +396,7 @@ export const sharedStyles: CSSResult[] = [
       transition: opacity var(--cv-duration-fast) var(--cv-easing-standard);
     }
 
-    /* ========== HOVER ЭФФЕКТЫ ========== */
+    /*========== HOVER EFFECTS =============*/
 
     .hover-lift {
       transition: transform var(--cv-duration-fast) var(--cv-easing-spring);
@@ -403,10 +419,10 @@ export const sharedStyles: CSSResult[] = [
     }
 
     .hover-glow:hover {
-      box-shadow: 0 0 20px color-mix(in oklch, var(--cv-color-info) 50%, transparent);
+      box-shadow: 0 0 20px var(--cv-color-info-ring);
     }
 
-    /* ========== ЗАГРУЗКИ ========== */
+    /*==================*/
 
     .loading {
       position: relative;
@@ -440,7 +456,7 @@ export const sharedStyles: CSSResult[] = [
 
     /* ========== MEDIA QUERIES ========== */
 
-    /* Снижение движения для пользователей, предпочитающих минимум анимаций */
+    /*Reduced movement for users who prefer minimal animations*/
     @media (prefers-reduced-motion: reduce) {
       *,
       *::before,
@@ -477,7 +493,7 @@ export const sharedStyles: CSSResult[] = [
       }
     }
 
-    /* Улучшенный контраст для пользователей с плохим зрением */
+    /*Improved contrast for users with poor vision*/
     @media (prefers-contrast: high) {
       .animate-fade-in,
       .animate-fade-out {
@@ -486,7 +502,7 @@ export const sharedStyles: CSSResult[] = [
     }
   `,
   css`
-    /* ========== ОПТИМИЗАЦИИ ПРОИЗВОДИТЕЛЬНОСТИ АНИМАЦИЙ ========== */
+    /*========= Optimizations of production of animations ====================*/
     .will-animate {
       will-change: transform, opacity;
     }
@@ -603,7 +619,7 @@ export const sharedStyles: CSSResult[] = [
       backface-visibility: hidden;
     }
 
-    /* Остальные анимации (упрощены для оптимизации) */
+    /*Other animations (simplified for optimization)*/
     .animate-fade-in-up,
     .animate-fade-in-down,
     .animate-slide-in-left,
@@ -616,7 +632,7 @@ export const sharedStyles: CSSResult[] = [
       backface-visibility: hidden;
     }
 
-    /* ===== KEYFRAMES АНИМАЦИЙ ===== */
+    /*===== KEYFRAMES Animation =====*/
 
     @keyframes fadeIn {
       from {
@@ -681,7 +697,7 @@ export const sharedStyles: CSSResult[] = [
       animation: shake 0.5s ease-in-out;
     }
 
-    /* ===== Минимизация reflow/repaint ===== */
+    /*===== Minimize reflow/repaint ====*/
     .no-reflow,
     .no-paint,
     .composite-only {
@@ -844,21 +860,21 @@ export const sharedStyles: CSSResult[] = [
       transition: all var(--cv-duration-fast) var(--cv-easing-standard);
     }
 
-    /* ===== Оптимизация CSS custom properties ===== */
-    /* Удалены неиспользуемые --local-* переменные */
+    /*CSS custom properties optimization ====*/
+    /*Unused --local-* variables removed*/
     .optimized-transitions {
       --composite-transition:
         transform var(--cv-duration-fast) var(--cv-easing-standard),
         opacity var(--cv-duration-fast) var(--cv-easing-standard);
       transition: var(--composite-transition);
     }
-    /* Удалены неиспользуемые --static-* переменные */
+    /*Unused --static-* variables removed*/
     .shallow-cascade {
       color: var(--cv-color-text, #1f2937);
       background: var(--cv-color-surface, #ffffff);
       border: 1px solid var(--cv-color-border, var(--cv-alpha-black-10));
     }
-    /* Удалены неиспользуемые --theme-* переменные */
+    /*Unused --theme-* variables removed*/
     .animation-optimized {
       --anim-transform: translateY(0);
       --anim-opacity: 1;
@@ -925,10 +941,10 @@ export const sharedStyles: CSSResult[] = [
       font-size: var(--critical-size);
     }
     .efficient-colors {
-      --hover-bg: color-mix(in oklch, var(--cv-color-primary) 10%, transparent);
-      --active-bg: color-mix(in oklch, var(--cv-color-primary) 15%, transparent);
-      --border-subtle: color-mix(in oklch, var(--cv-color-border) 50%, transparent);
-      --text-muted: color-mix(in oklch, var(--cv-color-text) 70%, transparent);
+      --hover-bg: var(--cv-color-primary-surface);
+      --active-bg: var(--cv-color-primary-surface-strong);
+      --border-subtle: var(--cv-color-border-soft);
+      --text-muted: var(--cv-color-text-muted);
     }
     .inherit-optimized {
       color: inherit;
@@ -965,7 +981,7 @@ export const sharedStyles: CSSResult[] = [
       will-change: scroll-position;
       contain: layout paint;
     }
-    /* Убрано избыточное will-change: auto */
+    /*Removed redundant will-change: auto*/
     .composite-layer-advanced {
       position: relative;
       z-index: 0;
@@ -1119,7 +1135,7 @@ export const sharedStyles: CSSResult[] = [
       }
     }
 
-    /* ===== Расширенная поддержка reduced motion ===== */
+    /*===== Extended support for reduced motion ====*/
     @media (prefers-reduced-motion: reduce) {
       *,
       *::before,
@@ -1285,7 +1301,7 @@ export const sharedStyles: CSSResult[] = [
       }
     }
 
-    /* ===== Альтернативные Accessibility стратегии ===== */
+    /*===== Alternative Accessibility Strategies ====*/
     @media (prefers-reduced-motion: reduce) {
       .status-indicator.animated::after {
         content: ' (Active)';
@@ -1308,11 +1324,11 @@ export const sharedStyles: CSSResult[] = [
       }
       .state-transition {
         border-left: 4px solid var(--cv-color-primary) !important;
-        background: color-mix(in oklch, var(--cv-color-primary), transparent 90%) !important;
+        background: var(--cv-color-primary-surface) !important;
       }
     }
 
-    /* ===== Пользовательские настройки анимаций ===== */
+    /*===== Customized animation settings ====*/
     :root {
       --user-animation-speed: 1;
       --user-animation-enabled: 1;
@@ -1329,7 +1345,7 @@ export const sharedStyles: CSSResult[] = [
       }
     }
 
-    /* ===== A11y-first индикаторы ===== */
+    /*===== A11y-first indicators =====*/
     .sr-status-update {
       position: absolute;
       left: -9999px;
@@ -1351,7 +1367,7 @@ export const sharedStyles: CSSResult[] = [
       }
     }
 
-    /* ========== РАСШИРЕННАЯ MOBILE-FIRST АДАПТИВНОСТЬ ========== */
+    /*========= Expanded Mobile-FIRST Adaptability ==============*/
     .show-mobile-only {
       display: block;
     }
@@ -1471,7 +1487,7 @@ export const sharedStyles: CSSResult[] = [
       }
     }
 
-    /* ===== Swipe области и навигация ===== */
+    /*==== Swipe area and navigation ====*/
     .swipe-area {
       touch-action: pan-x;
       user-select: none;
@@ -1517,6 +1533,7 @@ export const sharedStyles: CSSResult[] = [
         padding: var(--app-spacing-2) var(--app-spacing-3);
       }
       .interactive:active,
+      cv-button:active,
       button:active,
       [role='button']:active {
         transform: scale(0.98);

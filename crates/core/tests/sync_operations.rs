@@ -5,16 +5,16 @@ mod test_helpers;
 use chromvoid_core::rpc::types::RpcRequest;
 use test_helpers::*;
 
-fn first_shard_id_from_sync_init(response: &chromvoid_core::rpc::types::RpcResponse) -> String {
-    let result = response.result().expect("sync.init must return result");
+fn first_shard_id_from_manifest(response: &chromvoid_core::rpc::types::RpcResponse) -> String {
+    let result = response.result().expect("sync manifest must return result");
     let shards = result
         .get("shards")
-        .expect("sync.init result must include shards")
+        .expect("sync manifest result must include shards")
         .as_array()
-        .expect("sync.init shards must be an array");
+        .expect("sync manifest shards must be an array");
     assert!(
         !shards.is_empty(),
-        "sync.init must return at least one shard"
+        "sync manifest must return at least one shard"
     );
     shards[0]
         .get("shard_id")
@@ -25,7 +25,7 @@ fn first_shard_id_from_sync_init(response: &chromvoid_core::rpc::types::RpcRespo
 }
 
 #[test]
-fn test_sync_init_returns_sharded_shape() {
+fn test_sync_manifest_returns_sharded_shape() {
     let (mut router, _temp_dir) = create_test_router();
     unlock_vault(&mut router, "test_password");
 
@@ -38,8 +38,8 @@ fn test_sync_init_returns_sharded_shape() {
     let result = response.result().unwrap();
     assert_eq!(
         result.get("format").and_then(|v| v.as_str()),
-        Some("sharded"),
-        "ADR-004 expects v2 sync.init sharded response"
+        Some("manifest"),
+        "catalog sync manifest must return the manifest response shape"
     );
     assert!(result.get("root_version").is_some());
     assert!(result.get("shards").is_some());
@@ -47,7 +47,7 @@ fn test_sync_init_returns_sharded_shape() {
 }
 
 #[test]
-fn test_sync_init_shard_meta_and_eager_data_contract() {
+fn test_sync_manifest_shard_meta_and_eager_data_contract() {
     let (mut router, _temp_dir) = create_test_router();
     unlock_vault(&mut router, "test_password");
 
@@ -70,7 +70,7 @@ fn test_sync_init_shard_meta_and_eager_data_contract() {
         .and_then(|v| v.as_object())
         .expect("eager_data object");
 
-    // ADR-028: system shards must not appear in sync:init.
+    // ADR-028: system shards must not appear in sync manifest.
     for shard in shards {
         let shard_id = shard
             .get("shard_id")
@@ -78,11 +78,11 @@ fn test_sync_init_shard_meta_and_eager_data_contract() {
             .expect("shard_id");
         assert_ne!(
             shard_id, ".passmanager",
-            "system shard must not appear in sync:init shards"
+            "system shard must not appear in sync manifest shards"
         );
         assert_ne!(
             shard_id, ".wallet",
-            "system shard must not appear in sync:init shards"
+            "system shard must not appear in sync manifest shards"
         );
 
         let _version = shard
@@ -144,7 +144,7 @@ fn test_sync_shard_returns_deltas_shape() {
 
     let init = sync_init(&mut router);
     assert_rpc_ok(&init);
-    let shard_id = first_shard_id_from_sync_init(&init);
+    let shard_id = first_shard_id_from_manifest(&init);
 
     let response = router.handle(&RpcRequest::new(
         "catalog:sync:shard",

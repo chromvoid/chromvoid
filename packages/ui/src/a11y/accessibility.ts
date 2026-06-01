@@ -1,10 +1,8 @@
-/**
- * Утилиты для accessibility диалогов
- */
+/*** Utilities for accessibility dialogues
+*/
 
-/**
- * Announce текст для screen readers
- */
+/**Announce text for screen readers
+*/
 export function announce(message: string, priority: 'polite' | 'assertive' = 'polite') {
   const announcer = document.createElement('div')
   announcer.setAttribute('aria-live', priority)
@@ -13,11 +11,11 @@ export function announce(message: string, priority: 'polite' | 'assertive' = 'po
 
   document.body.appendChild(announcer)
 
-  // Небольшая задержка чтобы screen reader успел подготовиться
+  // Short delay for screen reader to be ready
   setTimeout(() => {
     announcer.textContent = message
 
-    // Удаляем через 1 секунду
+    // Delete in 1 second.
     setTimeout(() => {
       if (document.body.contains(announcer)) {
         document.body.removeChild(announcer)
@@ -26,22 +24,20 @@ export function announce(message: string, priority: 'polite' | 'assertive' = 'po
   }, 100)
 }
 
-/**
- * Утилита для управления inert состоянием всех элементов страницы кроме диалога
- */
+/**Utility to manage the inert state of all page elements except dialog
+*/
 export class InertManager {
   private inertElements: Element[] = []
 
-  /**
-   * Делает все элементы страницы inert кроме указанного
-   */
+  /*** Makes all elements of the inert page other than specified
+*/
   setInertExcept(exceptElement: Element) {
-    this.restoreAll() // Сначала восстанавливаем предыдущее состояние
+    this.restoreAll() // First we restore the previous state.
 
     const bodyChildren = Array.from(document.body.children)
 
     for (const element of bodyChildren) {
-      // Пропускаем исключенный элемент и уже inert элементы
+      // omitted element and already inert elements
       if (element !== exceptElement && !element.hasAttribute('inert')) {
         element.setAttribute('inert', '')
         this.inertElements.push(element)
@@ -49,9 +45,8 @@ export class InertManager {
     }
   }
 
-  /**
-   * Восстанавливает все элементы из inert состояния
-   */
+  /**Restores all elements from the inert state
+*/
   restoreAll() {
     for (const element of this.inertElements) {
       element.removeAttribute('inert')

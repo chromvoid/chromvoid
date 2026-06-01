@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name">ChromVoid</string>
     <string name="main_activity_title">ChromVoid</string>
+    <string name="share_import_activity_title">ChromVoid</string>
     <string name="credential_provider_subtitle">Local-only credential provider</string>
     <string name="autofill_runtime_not_ready">ChromVoid AutoFill is temporarily unavailable.</string>
     <string name="autofill_unsupported_request">ChromVoid could not understand this autofill request.</string>
@@ -18,4 +19,27 @@
     <string name="connection_notification_title">Connected to %1$s</string>
     <string name="connection_notification_text">ChromVoid is sharing data with your desktop</string>
     <string name="connection_disconnect_action">Disconnect</string>
+    <string name="vault_status_channel_name">Vault Status</string>
+    <string name="vault_status_channel_description">Shows when the vault is unlocked</string>
+    <string name="vault_status_notification_title">Vault unlocked</string>
+    <string name="vault_status_notification_text">ChromVoid vault is open</string>
+    <string name="vault_status_lock_action">Lock</string>
+    <string name="vault_quick_lock_tile_label">ChromVoid Lock</string>
+    <string name="vault_quick_lock_tile_unlocked">Vault unlocked</string>
+    <string name="vault_quick_lock_tile_locked">Vault locked</string>
+    <string name="media_playback_channel_name">Audio Playback</string>
+    <string name="media_playback_channel_description">Audio playback controls</string>
+    <string name="media_playback_notification_text">Playing in ChromVoid</string>
+    <string name="media_playback_play_action">Play</string>
+    <string name="media_playback_pause_action">Pause</string>
+    <string name="media_playback_previous_action">Previous</string>
+    <string name="media_playback_next_action">Next</string>
+    <string name="media_playback_stop_action">Stop</string>
+    <string name="otp_qr_cancel">Cancel</string>
+    <string name="otp_qr_torch">Torch</string>
+    <string name="otp_qr_torch_on">Torch on</string>
+    <string name="otp_qr_choose_image">Choose image</string>
+    <string name="otp_qr_status_scanning">Scanning QR code</string>
+    <string name="otp_qr_status_focusing">Focusing</string>
+    <string name="otp_qr_status_image">Reading image</string>
 </resources>

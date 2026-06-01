@@ -11,25 +11,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use sha2::{Digest, Sha256};
 
 use super::paired_peers::{PairedPeer, PairedPeerStore};
-use super::signaling::SignalingClient;
+use super::signaling::{SignalingClient, SIGNALING_CLIENT_CLOSE_GRACE};
 
 const MAX_ATTEMPTS: u8 = 5;
 const SESSION_TTL_MS: u64 = 5 * 60 * 1000;
 const LOCKOUT_DURATIONS_MS: [u64; 3] = [30_000, 60_000, 120_000];
-
-static SESSIONS: Mutex<Option<HashMap<String, NetworkPairingSession>>> = Mutex::new(None);
 
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
-}
-
-fn sessions_map(
-    guard: &mut Option<HashMap<String, NetworkPairingSession>>,
-) -> &mut HashMap<String, NetworkPairingSession> {
-    guard.get_or_insert_with(HashMap::new)
 }
 
 fn generate_session_id() -> String {
@@ -156,166 +148,224 @@ pub struct NetworkPairingInfo {
     pub locked_until_ms: Option<u64>,
 }
 
-/// Create a pairing session (sync, no signaling validation).
-/// Used by tests and as the core session-creation logic.
-pub fn start_pairing(relay_url: &str) -> NetworkPairingInfo {
-    let session_id = generate_session_id();
-    let pin = generate_pin();
-    let room_id = generate_room_id();
-    let session =
-        NetworkPairingSession::new(session_id.clone(), pin, room_id, relay_url.to_string());
-    let info = NetworkPairingInfo {
-        session_id: session_id.clone(),
-        pin: session.pin.clone(),
-        room_id: session.room_id.clone(),
-        relay_url: session.relay_url.clone(),
-        state: session.state,
-        session_expires_at_ms: session.session_expires_at_ms,
-        attempts_left: session.attempts_left,
-        locked_until_ms: session.locked_until_ms,
-    };
-    if let Ok(mut guard) = SESSIONS.lock() {
-        sessions_map(&mut guard).insert(session_id, session);
+impl NetworkPairingInfo {
+    fn from_session(session: &NetworkPairingSession) -> Self {
+        Self {
+            session_id: session.session_id.clone(),
+            pin: session.pin.clone(),
+            room_id: session.room_id.clone(),
+            relay_url: session.relay_url.clone(),
+            state: session.state,
+            session_expires_at_ms: session.session_expires_at_ms,
+            attempts_left: session.attempts_left,
+            locked_until_ms: session.locked_until_ms,
+        }
     }
-    info
 }
 
-/// Create a pairing session with signaling room validation.
-///
-/// Connects to the relay signaling endpoint to verify the room is reachable.
-/// On success, drops the signaling client (actual transport happens later).
-/// On failure, returns an error and no session is created.
-pub async fn start_pairing_with_signaling(relay_url: &str) -> Result<NetworkPairingInfo, String> {
-    if relay_url.is_empty() {
-        return Err("relay_url is required".to_string());
-    }
-
-    let session_id = generate_session_id();
-    let pin = generate_pin();
-    let room_id = generate_room_id();
-
-    // Validate room connectivity by connecting to signaling.
-    // The client is dropped after validation — actual transport is established later.
-    let _signaling = SignalingClient::connect(relay_url, &room_id)
-        .await
-        .map_err(|e| format!("signaling room setup failed: {e}"))?;
-    drop(_signaling);
-
-    let session =
-        NetworkPairingSession::new(session_id.clone(), pin, room_id, relay_url.to_string());
-    let info = NetworkPairingInfo {
-        session_id: session_id.clone(),
-        pin: session.pin.clone(),
-        room_id: session.room_id.clone(),
-        relay_url: session.relay_url.clone(),
-        state: session.state,
-        session_expires_at_ms: session.session_expires_at_ms,
-        attempts_left: session.attempts_left,
-        locked_until_ms: session.locked_until_ms,
-    };
-    if let Ok(mut guard) = SESSIONS.lock() {
-        sessions_map(&mut guard).insert(session_id, session);
-    }
-    Ok(info)
+pub struct NetworkPairingRuntimeState {
+    sessions: Mutex<HashMap<String, NetworkPairingSession>>,
 }
 
-/// Confirm pairing by verifying PIN and persisting the paired peer.
-///
-/// On success, derives PSK from PIN via `pin_to_psk`, generates a Noise XXpsk0
-/// keypair, and stores a `PairedPeer` record. Transitions through states:
-/// `WaitingForPeer → PinExchanged → NoiseHandshaking → Completed`.
-pub fn confirm_pairing(
-    session_id: &str,
-    candidate_pin: &str,
-    peer_id: &str,
-    label: &str,
-    relay_url: &str,
-    peer_pubkey: Vec<u8>,
-    store: &mut PairedPeerStore,
-) -> Result<serde_json::Value, String> {
-    let mut guard = SESSIONS
-        .lock()
-        .map_err(|_| "sessions mutex poisoned".to_string())?;
-    let map = sessions_map(&mut guard);
-    let session = map
-        .get_mut(session_id)
-        .ok_or("no active pairing session for this session_id")?;
-
-    if session.is_expired() {
-        map.remove(session_id);
-        return Err("pairing session expired".to_string());
+impl NetworkPairingRuntimeState {
+    pub fn new() -> Self {
+        Self {
+            sessions: Mutex::new(HashMap::new()),
+        }
     }
 
-    // If locked but lockout expired, transition back to WaitingForPeer.
-    if session.state == PairingState::LockedOut && !session.is_locked() {
-        session.state = PairingState::WaitingForPeer;
+    /// Create a pairing session (sync, no signaling validation).
+    pub fn start_pairing(&self, relay_url: &str) -> Result<NetworkPairingInfo, String> {
+        let session_id = generate_session_id();
+        let pin = generate_pin();
+        let room_id = generate_room_id();
+        let session =
+            NetworkPairingSession::new(session_id.clone(), pin, room_id, relay_url.to_string());
+        let info = NetworkPairingInfo::from_session(&session);
+        self.sessions
+            .lock()
+            .map_err(|_| "sessions mutex poisoned".to_string())?
+            .insert(session_id, session);
+        Ok(info)
     }
 
-    if session.is_locked() {
-        return Err(format!(
-            "pairing locked until {}",
-            session.locked_until_ms.unwrap_or(0)
-        ));
+    /// Create a pairing session with signaling room validation.
+    ///
+    /// Connects to the relay signaling endpoint to verify the room is reachable.
+    /// On success, drops the signaling client (actual transport happens later).
+    /// On failure, returns an error and no session is created.
+    pub async fn start_pairing_with_signaling(
+        &self,
+        relay_url: &str,
+    ) -> Result<NetworkPairingInfo, String> {
+        if relay_url.is_empty() {
+            return Err("relay_url is required".to_string());
+        }
+
+        let session_id = generate_session_id();
+        let pin = generate_pin();
+        let room_id = generate_room_id();
+
+        // Validate room connectivity before inserting into runtime state.
+        let mut signaling = SignalingClient::connect(relay_url, &room_id)
+            .await
+            .map_err(|e| format!("signaling room setup failed: {e}"))?;
+        if let Err(error) = signaling
+            .close_with_grace(SIGNALING_CLIENT_CLOSE_GRACE)
+            .await
+        {
+            tracing::warn!("network_pairing: signaling close after validation failed: {error}");
+        }
+
+        let session =
+            NetworkPairingSession::new(session_id.clone(), pin, room_id, relay_url.to_string());
+        let info = NetworkPairingInfo::from_session(&session);
+        self.sessions
+            .lock()
+            .map_err(|_| "sessions mutex poisoned".to_string())?
+            .insert(session_id, session);
+        Ok(info)
     }
 
-    if candidate_pin != session.pin {
-        session.record_failure();
-        return Err(format!(
-            "pin mismatch ({} attempts left)",
-            session.attempts_left
-        ));
+    /// Confirm pairing by verifying PIN and persisting the paired peer.
+    ///
+    /// On success, derives PSK from PIN via `pin_to_psk`, generates a Noise XXpsk0
+    /// keypair, and stores a `PairedPeer` record. Transitions through states:
+    /// `WaitingForPeer → PinExchanged → NoiseHandshaking → Completed`.
+    pub fn confirm_pairing(
+        &self,
+        session_id: &str,
+        candidate_pin: &str,
+        peer_id: &str,
+        label: &str,
+        relay_url: &str,
+        peer_pubkey: Vec<u8>,
+        store: &mut PairedPeerStore,
+    ) -> Result<serde_json::Value, String> {
+        let peer = {
+            let mut sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| "sessions mutex poisoned".to_string())?;
+            let session = sessions
+                .get_mut(session_id)
+                .ok_or("no active pairing session for this session_id")?;
+
+            if session.is_expired() {
+                sessions.remove(session_id);
+                return Err("pairing session expired".to_string());
+            }
+
+            // If locked but lockout expired, transition back to WaitingForPeer.
+            if session.state == PairingState::LockedOut && !session.is_locked() {
+                session.state = PairingState::WaitingForPeer;
+            }
+
+            if session.is_locked() {
+                return Err(format!(
+                    "pairing locked until {}",
+                    session.locked_until_ms.unwrap_or(0)
+                ));
+            }
+
+            if candidate_pin != session.pin {
+                session.record_failure();
+                return Err(format!(
+                    "pin mismatch ({} attempts left)",
+                    session.attempts_left
+                ));
+            }
+
+            // PIN correct → PinExchanged
+            session.state = PairingState::PinExchanged;
+
+            // Derive PSK and build Noise keypair → NoiseHandshaking
+            session.state = PairingState::NoiseHandshaking;
+            let psk = &session.psk;
+
+            let params: snow::params::NoiseParams = chromvoid_protocol::NOISE_PARAMS_XXPSK0
+                .parse()
+                .map_err(|_| "invalid noise params".to_string())?;
+            let keypair = snow::Builder::new(params)
+                .psk(0, psk)
+                .map_err(|e| format!("psk setup: {e}"))?
+                .generate_keypair()
+                .map_err(|e| format!("keypair gen: {e}"))?;
+
+            session.peer_pubkey = Some(peer_pubkey.clone());
+
+            // Persist paired peer → Completed
+            session.state = PairingState::Completed;
+
+            let now_secs = now_ms() / 1000;
+            PairedPeer {
+                peer_id: peer_id.to_string(),
+                label: label.to_string(),
+                relay_url: relay_url.to_string(),
+                peer_pubkey,
+                client_pubkey: keypair.public.clone(),
+                client_privkey_hex: hex::encode(&keypair.private),
+                last_seen: now_secs,
+                paired_at: now_secs,
+                platform: "network".to_string(),
+            }
+        };
+
+        store.upsert(peer);
+        store.save().map_err(|e| format!("save: {e}"))?;
+
+        self.sessions
+            .lock()
+            .map_err(|_| "sessions mutex poisoned".to_string())?
+            .remove(session_id);
+
+        Ok(serde_json::json!({
+            "paired": true,
+            "peer_id": peer_id,
+        }))
     }
 
-    // PIN correct → PinExchanged
-    session.state = PairingState::PinExchanged;
-
-    // Derive PSK and build Noise keypair → NoiseHandshaking
-    session.state = PairingState::NoiseHandshaking;
-    let psk = &session.psk;
-
-    let params: snow::params::NoiseParams = chromvoid_protocol::NOISE_PARAMS_XXPSK0
-        .parse()
-        .map_err(|_| "invalid noise params".to_string())?;
-    let keypair = snow::Builder::new(params)
-        .psk(0, psk)
-        .map_err(|e| format!("psk setup: {e}"))?
-        .generate_keypair()
-        .map_err(|e| format!("keypair gen: {e}"))?;
-
-    session.peer_pubkey = Some(peer_pubkey.clone());
-
-    // Persist paired peer → Completed
-    session.state = PairingState::Completed;
-
-    let now_secs = now_ms() / 1000;
-    let peer = PairedPeer {
-        peer_id: peer_id.to_string(),
-        label: label.to_string(),
-        relay_url: relay_url.to_string(),
-        peer_pubkey,
-        client_pubkey: keypair.public.clone(),
-        client_privkey_hex: hex::encode(&keypair.private),
-        last_seen: now_secs,
-        paired_at: now_secs,
-    };
-
-    store.upsert(peer);
-    store.save().map_err(|e| format!("save: {e}"))?;
-
-    map.remove(session_id);
-
-    Ok(serde_json::json!({
-        "paired": true,
-        "peer_id": peer_id,
-    }))
-}
-
-pub fn cancel_pairing(session_id: &str) {
-    if let Ok(mut guard) = SESSIONS.lock() {
-        if let Some(session) = sessions_map(&mut guard).get_mut(session_id) {
+    pub fn cancel_pairing(&self, session_id: &str) -> Result<(), String> {
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| "sessions mutex poisoned".to_string())?;
+        if let Some(session) = sessions.get_mut(session_id) {
             session.state = PairingState::Failed;
         }
-        sessions_map(&mut guard).remove(session_id);
+        sessions.remove(session_id);
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn with_session<T>(
+        &self,
+        session_id: &str,
+        f: impl FnOnce(&NetworkPairingSession) -> T,
+    ) -> Result<T, String> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| "sessions mutex poisoned".to_string())?;
+        sessions
+            .get(session_id)
+            .map(f)
+            .ok_or_else(|| "session not found".to_string())
+    }
+
+    #[cfg(test)]
+    fn contains_session(&self, session_id: &str) -> Result<bool, String> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| "sessions mutex poisoned".to_string())?;
+        Ok(sessions.contains_key(session_id))
+    }
+}
+
+impl Default for NetworkPairingRuntimeState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -326,9 +376,15 @@ mod tests {
     use super::*;
 
     const TEST_RELAY: &str = "wss://relay.test";
+
+    fn runtime() -> NetworkPairingRuntimeState {
+        NetworkPairingRuntimeState::new()
+    }
+
     #[test]
     fn start_session_returns_valid_pin_and_session_id() {
-        let info = start_pairing(TEST_RELAY);
+        let runtime = runtime();
+        let info = runtime.start_pairing(TEST_RELAY).unwrap();
         assert!(!info.session_id.is_empty(), "session_id must be non-empty");
         assert_eq!(
             info.session_id.len(),
@@ -349,7 +405,7 @@ mod tests {
         assert!(info.locked_until_ms.is_none());
         assert!(info.session_expires_at_ms > now_ms());
 
-        cancel_pairing(&info.session_id);
+        runtime.cancel_pairing(&info.session_id).unwrap();
     }
 
     #[test]
@@ -422,12 +478,13 @@ mod tests {
 
     #[test]
     fn confirm_requires_matching_session_id() {
-        let info = start_pairing(TEST_RELAY);
+        let runtime = runtime();
+        let info = runtime.start_pairing(TEST_RELAY).unwrap();
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("paired_network_peers.json");
         let mut store = PairedPeerStore::load(&path);
 
-        let result = confirm_pairing(
+        let result = runtime.confirm_pairing(
             "nonexistent_session_id",
             &info.pin,
             "peer-1",
@@ -442,35 +499,33 @@ mod tests {
             "wrong session_id should be rejected"
         );
 
-        cancel_pairing(&info.session_id);
+        runtime.cancel_pairing(&info.session_id).unwrap();
     }
 
     #[test]
     fn cancel_removes_specific_session() {
-        let info1 = start_pairing(TEST_RELAY);
-        let info2 = start_pairing(TEST_RELAY);
+        let runtime = runtime();
+        let info1 = runtime.start_pairing(TEST_RELAY).unwrap();
+        let info2 = runtime.start_pairing(TEST_RELAY).unwrap();
 
-        cancel_pairing(&info1.session_id);
+        runtime.cancel_pairing(&info1.session_id).unwrap();
 
-        {
-            let guard = SESSIONS.lock().unwrap();
-            let map = guard.as_ref().unwrap();
-            assert!(
-                !map.contains_key(&info1.session_id),
-                "session1 should be gone"
-            );
-            assert!(
-                map.contains_key(&info2.session_id),
-                "session2 should remain"
-            );
-        }
+        assert!(
+            !runtime.contains_session(&info1.session_id).unwrap(),
+            "session1 should be gone"
+        );
+        assert!(
+            runtime.contains_session(&info2.session_id).unwrap(),
+            "session2 should remain"
+        );
 
-        cancel_pairing(&info2.session_id);
+        runtime.cancel_pairing(&info2.session_id).unwrap();
     }
 
     #[test]
     fn success_stores_paired_peer() {
-        let info = start_pairing(TEST_RELAY);
+        let runtime = runtime();
+        let info = runtime.start_pairing(TEST_RELAY).unwrap();
         let pin = info.pin.clone();
         let sid = info.session_id.clone();
 
@@ -479,7 +534,7 @@ mod tests {
         let mut store = PairedPeerStore::load(&path);
 
         let peer_pubkey = vec![10, 20, 30, 40];
-        let result = confirm_pairing(
+        let result = runtime.confirm_pairing(
             &sid,
             &pin,
             "net-peer-1",
@@ -507,52 +562,78 @@ mod tests {
         );
 
         // Session should be removed after success
-        {
-            let guard = SESSIONS.lock().unwrap();
-            let map = guard.as_ref().unwrap();
-            assert!(
-                !map.contains_key(&sid),
-                "session should be removed after confirm"
-            );
-        }
+        assert!(
+            !runtime.contains_session(&sid).unwrap(),
+            "session should be removed after confirm"
+        );
+    }
+
+    #[test]
+    fn save_failure_keeps_session_for_retry() {
+        let runtime = runtime();
+        let info = runtime.start_pairing(TEST_RELAY).unwrap();
+        let pin = info.pin.clone();
+        let sid = info.session_id.clone();
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir
+            .path()
+            .join("missing-parent")
+            .join("paired_network_peers.json");
+        let mut store = PairedPeerStore::load(&path);
+
+        let result = runtime.confirm_pairing(
+            &sid,
+            &pin,
+            "net-peer-1",
+            "My Phone",
+            "wss://relay.example.com",
+            vec![10, 20, 30, 40],
+            &mut store,
+        );
+
+        assert!(result.expect_err("save should fail").contains("save:"));
+        assert!(
+            runtime.contains_session(&sid).unwrap(),
+            "session should remain when persistence fails"
+        );
     }
 
     #[test]
     fn state_transitions_on_confirm() {
-        let info = start_pairing(TEST_RELAY);
+        let runtime = runtime();
+        let info = runtime.start_pairing(TEST_RELAY).unwrap();
         let pin = info.pin.clone();
         let sid = info.session_id.clone();
 
         // Verify initial state is WaitingForPeer
-        {
-            let guard = SESSIONS.lock().unwrap();
-            let map = guard.as_ref().unwrap();
-            let session = map.get(&sid).unwrap();
-            assert_eq!(session.state, PairingState::WaitingForPeer);
-            // PSK should be derived from pin
-            assert_eq!(session.psk, pin_to_psk(&pin));
-            assert!(session.peer_pubkey.is_none());
-            assert!(!session.room_id.is_empty());
-            assert!(session.created_at_ms > 0);
-        }
+        runtime
+            .with_session(&sid, |session| {
+                assert_eq!(session.state, PairingState::WaitingForPeer);
+                // PSK should be derived from pin
+                assert_eq!(session.psk, pin_to_psk(&pin));
+                assert!(session.peer_pubkey.is_none());
+                assert!(!session.room_id.is_empty());
+                assert!(session.created_at_ms > 0);
+            })
+            .unwrap();
 
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("paired_network_peers.json");
         let mut store = PairedPeerStore::load(&path);
 
         // Wrong PIN should not change state (unless lockout)
-        let _ = confirm_pairing(&sid, "000000", "p1", "L", "wss://r", vec![1], &mut store);
-        {
-            let guard = SESSIONS.lock().unwrap();
-            let map = guard.as_ref().unwrap();
-            let session = map.get(&sid).unwrap();
-            // Still WaitingForPeer (not locked out yet, only 1 failure)
-            assert_eq!(session.state, PairingState::WaitingForPeer);
-            assert_eq!(session.attempts_left, MAX_ATTEMPTS - 1);
-        }
+        let _ = runtime.confirm_pairing(&sid, "000000", "p1", "L", "wss://r", vec![1], &mut store);
+        runtime
+            .with_session(&sid, |session| {
+                // Still WaitingForPeer (not locked out yet, only 1 failure)
+                assert_eq!(session.state, PairingState::WaitingForPeer);
+                assert_eq!(session.attempts_left, MAX_ATTEMPTS - 1);
+            })
+            .unwrap();
 
         // Correct PIN → session removed (Completed then removed)
-        let result = confirm_pairing(
+        let result = runtime.confirm_pairing(
             &sid,
             &pin,
             "p1",
@@ -564,11 +645,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Session should be gone after successful confirm
-        {
-            let guard = SESSIONS.lock().unwrap();
-            let map = guard.as_ref().unwrap();
-            assert!(!map.contains_key(&sid));
-        }
+        assert!(!runtime.contains_session(&sid).unwrap());
     }
 
     #[test]
@@ -597,17 +674,29 @@ mod tests {
 
     #[test]
     fn start_pairing_stores_relay_url_in_session() {
-        let info = start_pairing("wss://custom-relay.example.com");
+        let runtime = runtime();
+        let info = runtime
+            .start_pairing("wss://custom-relay.example.com")
+            .unwrap();
         assert_eq!(info.relay_url, "wss://custom-relay.example.com");
 
         // Verify relay_url is stored in the session itself
-        {
-            let guard = SESSIONS.lock().unwrap();
-            let map = guard.as_ref().unwrap();
-            let session = map.get(&info.session_id).unwrap();
-            assert_eq!(session.relay_url, "wss://custom-relay.example.com");
-        }
+        runtime
+            .with_session(&info.session_id, |session| {
+                assert_eq!(session.relay_url, "wss://custom-relay.example.com");
+            })
+            .unwrap();
 
-        cancel_pairing(&info.session_id);
+        runtime.cancel_pairing(&info.session_id).unwrap();
+    }
+
+    #[test]
+    fn runtime_instances_do_not_share_sessions() {
+        let runtime1 = runtime();
+        let runtime2 = runtime();
+        let info = runtime1.start_pairing(TEST_RELAY).unwrap();
+
+        assert!(runtime1.contains_session(&info.session_id).unwrap());
+        assert!(!runtime2.contains_session(&info.session_id).unwrap());
     }
 }

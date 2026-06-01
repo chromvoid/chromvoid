@@ -1,11 +1,19 @@
-import {describe, it, expect, vi, beforeEach, type Mock} from 'vitest'
+import {afterEach, describe, it, expect, vi, beforeEach, type Mock} from 'vitest'
 
 // Mock external deps before imports
-vi.mock('sweetalert2', () => ({default: {fire: vi.fn(async () => ({isConfirmed: true}))}}))
 vi.mock('@project/utils', () => ({sha256: vi.fn(async (s: string) => `hash:${s}`)}))
 
+import {setPassManagerDialogAdapter} from '../dialog'
 import {ManagerRoot} from '../root'
 import type {ManagerSaver, PassManagerRootV2} from '../types'
+
+beforeEach(() => {
+  setPassManagerDialogAdapter({confirm: vi.fn(async () => true)})
+})
+
+afterEach(() => {
+  setPassManagerDialogAdapter(null)
+})
 
 function createMockSaver(overrides: Partial<ManagerSaver> = {}): ManagerSaver {
   return {
@@ -16,6 +24,9 @@ function createMockSaver(overrides: Partial<ManagerSaver> = {}): ManagerSaver {
     getOTPSeckey: vi.fn(async () => undefined),
     removeOTP: vi.fn(async () => true),
     saveOTP: vi.fn(async () => true),
+    readEntrySecret: vi.fn(async () => undefined),
+    saveEntrySecret: vi.fn(async () => true),
+    removeEntrySecret: vi.fn(async () => true),
     readEntryPassword: vi.fn(async () => undefined),
     readEntryNote: vi.fn(async () => undefined),
     saveEntryPassword: vi.fn(async () => true),
@@ -29,6 +40,7 @@ function createMockSaver(overrides: Partial<ManagerSaver> = {}): ManagerSaver {
     removeEntrySshPrivateKey: vi.fn(async () => true),
     removeEntrySshPublicKey: vi.fn(async () => true),
     saveEntryMeta: vi.fn(async () => true),
+    moveEntryToGroup: vi.fn(async () => true),
     removeEntry: vi.fn(async () => true),
     ...overrides,
   }

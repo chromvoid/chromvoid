@@ -177,16 +177,100 @@
       "description": "Permission identifier",
       "oneOf": [
         {
-          "description": "Permissions required by the ChromVoid desktop UI.\n#### This permission set includes:\n\n- `dialog:allow-open`\n- `allow-rpc-dispatch`\n- `allow-catalog-upload-chunk`\n- `allow-catalog-upload-path`\n- `allow-catalog-download`\n- `allow-passmanager-download`\n- `allow-catalog-download-path`\n- `allow-catalog-open-external`\n- `allow-catalog-secret-read`\n- `allow-passmanager-secret-read`\n- `allow-catalog-secret-write-chunk`\n- `allow-passmanager-secret-write-chunk`\n- `allow-passmanager-upload-chunk`\n- `allow-write-text-file`\n- `allow-file-stat`\n- `allow-get-current-mode`\n- `allow-init-local-storage`\n- `allow-storage-set-root`\n- `allow-backup-local-create`\n- `allow-backup-local-cancel`\n- `allow-restore-local-from-folder`\n- `allow-restore-local-cancel`\n- `allow-erase-device`\n- `allow-get-session-settings`\n- `allow-set-session-settings`\n- `allow-gateway-get-config`\n- `allow-gateway-set-enabled`\n- `allow-gateway-set-access-duration`\n- `allow-gateway-list-paired`\n- `allow-gateway-revoke-extension`\n- `allow-gateway-start-pairing`\n- `allow-gateway-cancel-pairing`\n- `allow-volume-mount`\n- `allow-volume-unmount`\n- `allow-volume-get-status`\n- `allow-volume-get-backends`\n- `allow-runtime-capabilities`\n- `allow-touch-activity`\n- `allow-master-setup`\n- `allow-get-local-device-identity`\n- `allow-mobile-notify-background`\n- `allow-mobile-notify-foreground`\n- `allow-mobile-biometric-auth`\n- `allow-usb-scan-devices`\n- `allow-usb-connection-state`\n- `allow-usb-list-paired`\n- `allow-usb-pair-device`\n- `allow-usb-connect`\n- `allow-usb-disconnect`\n- `allow-network-connection-state`\n- `allow-network-list-paired-peers`\n- `allow-network-remove-paired-peer`\n- `allow-network-transport-metrics`\n- `allow-network-generate-room-id`\n- `allow-network-list-server-profiles`\n- `allow-network-get-bootstrap-profile`\n- `allow-network-import-server-profile`\n- `allow-network-export-server-profile`\n- `allow-network-record-profile-endpoint-failure`\n- `allow-network-rollback-profile-endpoint`\n- `allow-network-pair-start`\n- `allow-network-pair-confirm`\n- `allow-network-pair-cancel`\n- `allow-sync-initial`\n- `allow-sync-delta-apply`\n- `allow-sync-reconnect`\n- `allow-sync-write`\n- `allow-mode-get`\n- `allow-mode-switch`\n- `allow-mode-status`\n- `allow-mobile-acceptor-start`\n- `allow-mobile-acceptor-stop`\n- `allow-mobile-acceptor-status`\n- `allow-start-ios-host-mode`\n- `allow-stop-ios-host-mode`\n- `allow-ios-host-status`\n- `allow-publish-ios-presence`\n- `allow-handle-ios-wake`\n- `allow-desktop-pair-ios`\n- `allow-desktop-connect-ios`\n- `allow-ssh-keygen`\n- `allow-ssh-agent-start`\n- `allow-ssh-agent-stop`\n- `allow-ssh-agent-status`\n- `allow-ssh-agent-sign-approval-resolve`",
+          "description": "Permissions required by the ChromVoid desktop UI.\n#### This permission set includes:\n\n- `dialog:allow-open`\n- `allow-rpc-dispatch`\n- `allow-license-activate`\n- `allow-license-account-cabinet-handoff`\n- `allow-license-status`\n- `allow-license-seat-status`\n- `allow-license-current-seat-deactivate`\n- `allow-module-access-snapshot`\n- `allow-module-access-resolve`\n- `allow-catalog-upload-chunk`\n- `allow-catalog-file-replace`\n- `allow-catalog-upload-path`\n- `allow-catalog-download`\n- `allow-prepare-catalog-preview-file`\n- `allow-release-catalog-preview-file`\n- `allow-purge-catalog-preview-cache`\n- `allow-catalog-preview-image`\n- `allow-catalog-thumbnail-image`\n- `allow-catalog-image-metadata`\n- `allow-catalog-save-image-to-gallery`\n- `allow-passmanager-download`\n- `allow-catalog-download-path`\n- `allow-catalog-open-external`\n- `allow-open-url-external`\n- `allow-catalog-secret-read`\n- `allow-passmanager-secret-read`\n- `allow-catalog-secret-write-chunk`\n- `allow-passmanager-secret-write-chunk`\n- `allow-passmanager-upload-chunk`\n- `allow-write-text-file`\n- `allow-file-stat`\n- `allow-get-current-mode`\n- `allow-frontend-splash-ready`\n- `allow-init-local-storage`\n- `allow-storage-set-root`\n- `allow-backup-local-create`\n- `allow-backup-local-cancel`\n- `allow-vault-rekey`\n- `allow-vault-rekey-cancel`\n- `allow-restore-local-from-folder`\n- `allow-restore-local-select-source`\n- `allow-restore-local-cancel`\n- `allow-erase-device`\n- `allow-get-session-settings`\n- `allow-set-session-settings`\n- `allow-gateway-get-config`\n- `allow-gateway-set-enabled`\n- `allow-gateway-set-access-duration`\n- `allow-gateway-list-paired`\n- `allow-gateway-revoke-extension`\n- `allow-gateway-start-pairing`\n- `allow-gateway-cancel-pairing`\n- `allow-volume-mount`\n- `allow-volume-unmount`\n- `allow-volume-get-status`\n- `allow-volume-get-backends`\n- `allow-runtime-capabilities`\n- `allow-touch-activity`\n- `allow-unlock-debug-log`\n- `allow-master-setup`\n- `allow-master-rekey`\n- `allow-get-local-device-identity`\n- `allow-mobile-notify-background`\n- `allow-mobile-notify-foreground`\n- `allow-android-media-session-update`\n- `allow-android-media-session-stop`\n- `allow-android-audio-session-command`\n- `allow-native-audio-session-command`\n- `allow-android-video-start`\n- `allow-android-video-stop`\n- `allow-mobile-biometric-auth`\n- `allow-android-password-save-finish`\n- `allow-android-passkeys-list`\n- `allow-android-passkey-delete`\n- `allow-android-quick-lock-tile-status`\n- `allow-android-request-quick-lock-tile`\n- `allow-usb-scan-devices`\n- `allow-usb-connection-state`\n- `allow-usb-list-paired`\n- `allow-usb-pair-device`\n- `allow-usb-connect`\n- `allow-usb-disconnect`\n- `allow-network-connection-state`\n- `allow-network-list-paired-peers`\n- `allow-network-remove-paired-peer`\n- `allow-network-transport-metrics`\n- `allow-network-generate-room-id`\n- `allow-network-list-server-profiles`\n- `allow-network-get-bootstrap-profile`\n- `allow-network-import-server-profile`\n- `allow-network-export-server-profile`\n- `allow-network-record-profile-endpoint-failure`\n- `allow-network-rollback-profile-endpoint`\n- `allow-network-pair-start`\n- `allow-network-pair-confirm`\n- `allow-network-pair-cancel`\n- `allow-sync-initial`\n- `allow-sync-delta-apply`\n- `allow-sync-reconnect`\n- `allow-sync-write`\n- `allow-mode-get`\n- `allow-mode-switch`\n- `allow-mode-status`\n- `allow-mobile-acceptor-start`\n- `allow-mobile-acceptor-stop`\n- `allow-mobile-acceptor-status`\n- `allow-start-ios-host-mode`\n- `allow-stop-ios-host-mode`\n- `allow-ios-host-status`\n- `allow-publish-ios-presence`\n- `allow-handle-ios-wake`\n- `allow-desktop-pair-ios`\n- `allow-desktop-connect-ios`\n- `allow-ssh-keygen`\n- `allow-ssh-agent-start`\n- `allow-ssh-agent-stop`\n- `allow-ssh-agent-status`\n- `allow-ssh-agent-sign-approval-resolve`",
           "type": "string",
           "const": "desktop",
-          "markdownDescription": "Permissions required by the ChromVoid desktop UI.\n#### This permission set includes:\n\n- `dialog:allow-open`\n- `allow-rpc-dispatch`\n- `allow-catalog-upload-chunk`\n- `allow-catalog-upload-path`\n- `allow-catalog-download`\n- `allow-passmanager-download`\n- `allow-catalog-download-path`\n- `allow-catalog-open-external`\n- `allow-catalog-secret-read`\n- `allow-passmanager-secret-read`\n- `allow-catalog-secret-write-chunk`\n- `allow-passmanager-secret-write-chunk`\n- `allow-passmanager-upload-chunk`\n- `allow-write-text-file`\n- `allow-file-stat`\n- `allow-get-current-mode`\n- `allow-init-local-storage`\n- `allow-storage-set-root`\n- `allow-backup-local-create`\n- `allow-backup-local-cancel`\n- `allow-restore-local-from-folder`\n- `allow-restore-local-cancel`\n- `allow-erase-device`\n- `allow-get-session-settings`\n- `allow-set-session-settings`\n- `allow-gateway-get-config`\n- `allow-gateway-set-enabled`\n- `allow-gateway-set-access-duration`\n- `allow-gateway-list-paired`\n- `allow-gateway-revoke-extension`\n- `allow-gateway-start-pairing`\n- `allow-gateway-cancel-pairing`\n- `allow-volume-mount`\n- `allow-volume-unmount`\n- `allow-volume-get-status`\n- `allow-volume-get-backends`\n- `allow-runtime-capabilities`\n- `allow-touch-activity`\n- `allow-master-setup`\n- `allow-get-local-device-identity`\n- `allow-mobile-notify-background`\n- `allow-mobile-notify-foreground`\n- `allow-mobile-biometric-auth`\n- `allow-usb-scan-devices`\n- `allow-usb-connection-state`\n- `allow-usb-list-paired`\n- `allow-usb-pair-device`\n- `allow-usb-connect`\n- `allow-usb-disconnect`\n- `allow-network-connection-state`\n- `allow-network-list-paired-peers`\n- `allow-network-remove-paired-peer`\n- `allow-network-transport-metrics`\n- `allow-network-generate-room-id`\n- `allow-network-list-server-profiles`\n- `allow-network-get-bootstrap-profile`\n- `allow-network-import-server-profile`\n- `allow-network-export-server-profile`\n- `allow-network-record-profile-endpoint-failure`\n- `allow-network-rollback-profile-endpoint`\n- `allow-network-pair-start`\n- `allow-network-pair-confirm`\n- `allow-network-pair-cancel`\n- `allow-sync-initial`\n- `allow-sync-delta-apply`\n- `allow-sync-reconnect`\n- `allow-sync-write`\n- `allow-mode-get`\n- `allow-mode-switch`\n- `allow-mode-status`\n- `allow-mobile-acceptor-start`\n- `allow-mobile-acceptor-stop`\n- `allow-mobile-acceptor-status`\n- `allow-start-ios-host-mode`\n- `allow-stop-ios-host-mode`\n- `allow-ios-host-status`\n- `allow-publish-ios-presence`\n- `allow-handle-ios-wake`\n- `allow-desktop-pair-ios`\n- `allow-desktop-connect-ios`\n- `allow-ssh-keygen`\n- `allow-ssh-agent-start`\n- `allow-ssh-agent-stop`\n- `allow-ssh-agent-status`\n- `allow-ssh-agent-sign-approval-resolve`"
+          "markdownDescription": "Permissions required by the ChromVoid desktop UI.\n#### This permission set includes:\n\n- `dialog:allow-open`\n- `allow-rpc-dispatch`\n- `allow-license-activate`\n- `allow-license-account-cabinet-handoff`\n- `allow-license-status`\n- `allow-license-seat-status`\n- `allow-license-current-seat-deactivate`\n- `allow-module-access-snapshot`\n- `allow-module-access-resolve`\n- `allow-catalog-upload-chunk`\n- `allow-catalog-file-replace`\n- `allow-catalog-upload-path`\n- `allow-catalog-download`\n- `allow-prepare-catalog-preview-file`\n- `allow-release-catalog-preview-file`\n- `allow-purge-catalog-preview-cache`\n- `allow-catalog-preview-image`\n- `allow-catalog-thumbnail-image`\n- `allow-catalog-image-metadata`\n- `allow-catalog-save-image-to-gallery`\n- `allow-passmanager-download`\n- `allow-catalog-download-path`\n- `allow-catalog-open-external`\n- `allow-open-url-external`\n- `allow-catalog-secret-read`\n- `allow-passmanager-secret-read`\n- `allow-catalog-secret-write-chunk`\n- `allow-passmanager-secret-write-chunk`\n- `allow-passmanager-upload-chunk`\n- `allow-write-text-file`\n- `allow-file-stat`\n- `allow-get-current-mode`\n- `allow-frontend-splash-ready`\n- `allow-init-local-storage`\n- `allow-storage-set-root`\n- `allow-backup-local-create`\n- `allow-backup-local-cancel`\n- `allow-vault-rekey`\n- `allow-vault-rekey-cancel`\n- `allow-restore-local-from-folder`\n- `allow-restore-local-select-source`\n- `allow-restore-local-cancel`\n- `allow-erase-device`\n- `allow-get-session-settings`\n- `allow-set-session-settings`\n- `allow-gateway-get-config`\n- `allow-gateway-set-enabled`\n- `allow-gateway-set-access-duration`\n- `allow-gateway-list-paired`\n- `allow-gateway-revoke-extension`\n- `allow-gateway-start-pairing`\n- `allow-gateway-cancel-pairing`\n- `allow-volume-mount`\n- `allow-volume-unmount`\n- `allow-volume-get-status`\n- `allow-volume-get-backends`\n- `allow-runtime-capabilities`\n- `allow-touch-activity`\n- `allow-unlock-debug-log`\n- `allow-master-setup`\n- `allow-master-rekey`\n- `allow-get-local-device-identity`\n- `allow-mobile-notify-background`\n- `allow-mobile-notify-foreground`\n- `allow-android-media-session-update`\n- `allow-android-media-session-stop`\n- `allow-android-audio-session-command`\n- `allow-native-audio-session-command`\n- `allow-android-video-start`\n- `allow-android-video-stop`\n- `allow-mobile-biometric-auth`\n- `allow-android-password-save-finish`\n- `allow-android-passkeys-list`\n- `allow-android-passkey-delete`\n- `allow-android-quick-lock-tile-status`\n- `allow-android-request-quick-lock-tile`\n- `allow-usb-scan-devices`\n- `allow-usb-connection-state`\n- `allow-usb-list-paired`\n- `allow-usb-pair-device`\n- `allow-usb-connect`\n- `allow-usb-disconnect`\n- `allow-network-connection-state`\n- `allow-network-list-paired-peers`\n- `allow-network-remove-paired-peer`\n- `allow-network-transport-metrics`\n- `allow-network-generate-room-id`\n- `allow-network-list-server-profiles`\n- `allow-network-get-bootstrap-profile`\n- `allow-network-import-server-profile`\n- `allow-network-export-server-profile`\n- `allow-network-record-profile-endpoint-failure`\n- `allow-network-rollback-profile-endpoint`\n- `allow-network-pair-start`\n- `allow-network-pair-confirm`\n- `allow-network-pair-cancel`\n- `allow-sync-initial`\n- `allow-sync-delta-apply`\n- `allow-sync-reconnect`\n- `allow-sync-write`\n- `allow-mode-get`\n- `allow-mode-switch`\n- `allow-mode-status`\n- `allow-mobile-acceptor-start`\n- `allow-mobile-acceptor-stop`\n- `allow-mobile-acceptor-status`\n- `allow-start-ios-host-mode`\n- `allow-stop-ios-host-mode`\n- `allow-ios-host-status`\n- `allow-publish-ios-presence`\n- `allow-handle-ios-wake`\n- `allow-desktop-pair-ios`\n- `allow-desktop-connect-ios`\n- `allow-ssh-keygen`\n- `allow-ssh-agent-start`\n- `allow-ssh-agent-stop`\n- `allow-ssh-agent-status`\n- `allow-ssh-agent-sign-approval-resolve`"
         },
         {
-          "description": "Permissions required by the ChromVoid mobile UI.\n#### This permission set includes:\n\n- `dialog:allow-open`\n- `allow-rpc-dispatch`\n- `allow-catalog-upload-chunk`\n- `allow-passmanager-upload-chunk`\n- `allow-catalog-download`\n- `allow-passmanager-download`\n- `allow-catalog-secret-read`\n- `allow-passmanager-secret-read`\n- `allow-catalog-secret-write-chunk`\n- `allow-passmanager-secret-write-chunk`\n- `allow-get-current-mode`\n- `allow-init-local-storage`\n- `allow-master-setup`\n- `allow-storage-set-root`\n- `allow-backup-local-create`\n- `allow-backup-local-cancel`\n- `allow-restore-local-from-folder`\n- `allow-restore-local-cancel`\n- `allow-erase-device`\n- `allow-get-session-settings`\n- `allow-set-session-settings`\n- `allow-touch-activity`\n- `allow-runtime-capabilities`\n- `allow-mobile-notify-background`\n- `allow-mobile-notify-foreground`\n- `allow-mobile-biometric-auth`\n- `allow-write-text-file`\n- `allow-setup-native-gestures`\n- `allow-get-local-device-identity`\n- `allow-network-list-server-profiles`\n- `allow-network-get-bootstrap-profile`\n- `allow-mobile-acceptor-start`\n- `allow-mobile-acceptor-stop`\n- `allow-mobile-acceptor-status`\n- `allow-start-ios-host-mode`\n- `allow-stop-ios-host-mode`\n- `allow-ios-host-status`\n- `allow-publish-ios-presence`\n- `allow-handle-ios-wake`",
+          "description": "Permissions required by the ChromVoid mobile UI.\n#### This permission set includes:\n\n- `dialog:allow-open`\n- `allow-rpc-dispatch`\n- `allow-license-account-cabinet-handoff`\n- `allow-license-status`\n- `allow-license-seat-status`\n- `allow-license-current-seat-deactivate`\n- `allow-module-access-snapshot`\n- `allow-module-access-resolve`\n- `allow-catalog-upload-chunk`\n- `allow-catalog-file-replace`\n- `allow-catalog-upload-native-files`\n- `allow-catalog-cancel-native-upload`\n- `allow-catalog-upload-shared-files`\n- `allow-catalog-cancel-shared-files`\n- `allow-catalog-list-shared-files`\n- `allow-catalog-upload-android-shared-files`\n- `allow-catalog-cancel-android-shared-files`\n- `allow-native-otp-qr-scan-start`\n- `allow-native-otp-qr-scan-cancel`\n- `allow-android-otp-qr-scan-start`\n- `allow-android-otp-qr-scan-cancel`\n- `allow-passmanager-upload-chunk`\n- `allow-catalog-download`\n- `allow-prepare-catalog-preview-file`\n- `allow-release-catalog-preview-file`\n- `allow-purge-catalog-preview-cache`\n- `allow-catalog-preview-image`\n- `allow-catalog-thumbnail-image`\n- `allow-catalog-image-metadata`\n- `allow-catalog-save-image-to-gallery`\n- `allow-catalog-share-files`\n- `allow-passmanager-download`\n- `allow-catalog-open-external`\n- `allow-open-url-external`\n- `allow-catalog-secret-read`\n- `allow-passmanager-secret-read`\n- `allow-catalog-secret-write-chunk`\n- `allow-passmanager-secret-write-chunk`\n- `allow-get-current-mode`\n- `allow-frontend-splash-ready`\n- `allow-init-local-storage`\n- `allow-master-setup`\n- `allow-master-rekey`\n- `allow-storage-set-root`\n- `allow-backup-local-create`\n- `allow-backup-local-cancel`\n- `allow-vault-rekey`\n- `allow-vault-rekey-cancel`\n- `allow-restore-local-from-folder`\n- `allow-restore-local-select-source`\n- `allow-restore-local-cancel`\n- `allow-erase-device`\n- `allow-get-session-settings`\n- `allow-set-session-settings`\n- `allow-touch-activity`\n- `allow-unlock-debug-log`\n- `allow-runtime-capabilities`\n- `allow-mobile-notify-background`\n- `allow-mobile-notify-foreground`\n- `allow-android-media-session-update`\n- `allow-android-media-session-stop`\n- `allow-android-audio-session-command`\n- `allow-android-video-start`\n- `allow-android-video-stop`\n- `allow-mobile-biometric-auth`\n- `allow-credential-provider-status`\n- `allow-open-credential-provider-settings`\n- `allow-credential-provider-passkeys-list`\n- `allow-credential-provider-passkey-delete`\n- `allow-android-autofill-provider-status`\n- `allow-android-open-autofill-provider-settings`\n- `allow-android-password-save-finish`\n- `allow-android-passkeys-list`\n- `allow-android-passkey-delete`\n- `allow-android-quick-lock-tile-status`\n- `allow-android-request-quick-lock-tile`\n- `allow-write-text-file`\n- `allow-setup-native-gestures`\n- `allow-get-local-device-identity`\n- `allow-network-list-server-profiles`\n- `allow-network-get-bootstrap-profile`\n- `allow-mobile-acceptor-start`\n- `allow-mobile-acceptor-stop`\n- `allow-mobile-acceptor-status`\n- `allow-start-ios-host-mode`\n- `allow-stop-ios-host-mode`\n- `allow-ios-host-status`\n- `allow-publish-ios-presence`\n- `allow-handle-ios-wake`",
           "type": "string",
           "const": "mobile",
-          "markdownDescription": "Permissions required by the ChromVoid mobile UI.\n#### This permission set includes:\n\n- `dialog:allow-open`\n- `allow-rpc-dispatch`\n- `allow-catalog-upload-chunk`\n- `allow-passmanager-upload-chunk`\n- `allow-catalog-download`\n- `allow-passmanager-download`\n- `allow-catalog-secret-read`\n- `allow-passmanager-secret-read`\n- `allow-catalog-secret-write-chunk`\n- `allow-passmanager-secret-write-chunk`\n- `allow-get-current-mode`\n- `allow-init-local-storage`\n- `allow-master-setup`\n- `allow-storage-set-root`\n- `allow-backup-local-create`\n- `allow-backup-local-cancel`\n- `allow-restore-local-from-folder`\n- `allow-restore-local-cancel`\n- `allow-erase-device`\n- `allow-get-session-settings`\n- `allow-set-session-settings`\n- `allow-touch-activity`\n- `allow-runtime-capabilities`\n- `allow-mobile-notify-background`\n- `allow-mobile-notify-foreground`\n- `allow-mobile-biometric-auth`\n- `allow-write-text-file`\n- `allow-setup-native-gestures`\n- `allow-get-local-device-identity`\n- `allow-network-list-server-profiles`\n- `allow-network-get-bootstrap-profile`\n- `allow-mobile-acceptor-start`\n- `allow-mobile-acceptor-stop`\n- `allow-mobile-acceptor-status`\n- `allow-start-ios-host-mode`\n- `allow-stop-ios-host-mode`\n- `allow-ios-host-status`\n- `allow-publish-ios-presence`\n- `allow-handle-ios-wake`"
+          "markdownDescription": "Permissions required by the ChromVoid mobile UI.\n#### This permission set includes:\n\n- `dialog:allow-open`\n- `allow-rpc-dispatch`\n- `allow-license-account-cabinet-handoff`\n- `allow-license-status`\n- `allow-license-seat-status`\n- `allow-license-current-seat-deactivate`\n- `allow-module-access-snapshot`\n- `allow-module-access-resolve`\n- `allow-catalog-upload-chunk`\n- `allow-catalog-file-replace`\n- `allow-catalog-upload-native-files`\n- `allow-catalog-cancel-native-upload`\n- `allow-catalog-upload-shared-files`\n- `allow-catalog-cancel-shared-files`\n- `allow-catalog-list-shared-files`\n- `allow-catalog-upload-android-shared-files`\n- `allow-catalog-cancel-android-shared-files`\n- `allow-native-otp-qr-scan-start`\n- `allow-native-otp-qr-scan-cancel`\n- `allow-android-otp-qr-scan-start`\n- `allow-android-otp-qr-scan-cancel`\n- `allow-passmanager-upload-chunk`\n- `allow-catalog-download`\n- `allow-prepare-catalog-preview-file`\n- `allow-release-catalog-preview-file`\n- `allow-purge-catalog-preview-cache`\n- `allow-catalog-preview-image`\n- `allow-catalog-thumbnail-image`\n- `allow-catalog-image-metadata`\n- `allow-catalog-save-image-to-gallery`\n- `allow-catalog-share-files`\n- `allow-passmanager-download`\n- `allow-catalog-open-external`\n- `allow-open-url-external`\n- `allow-catalog-secret-read`\n- `allow-passmanager-secret-read`\n- `allow-catalog-secret-write-chunk`\n- `allow-passmanager-secret-write-chunk`\n- `allow-get-current-mode`\n- `allow-frontend-splash-ready`\n- `allow-init-local-storage`\n- `allow-master-setup`\n- `allow-master-rekey`\n- `allow-storage-set-root`\n- `allow-backup-local-create`\n- `allow-backup-local-cancel`\n- `allow-vault-rekey`\n- `allow-vault-rekey-cancel`\n- `allow-restore-local-from-folder`\n- `allow-restore-local-select-source`\n- `allow-restore-local-cancel`\n- `allow-erase-device`\n- `allow-get-session-settings`\n- `allow-set-session-settings`\n- `allow-touch-activity`\n- `allow-unlock-debug-log`\n- `allow-runtime-capabilities`\n- `allow-mobile-notify-background`\n- `allow-mobile-notify-foreground`\n- `allow-android-media-session-update`\n- `allow-android-media-session-stop`\n- `allow-android-audio-session-command`\n- `allow-android-video-start`\n- `allow-android-video-stop`\n- `allow-mobile-biometric-auth`\n- `allow-credential-provider-status`\n- `allow-open-credential-provider-settings`\n- `allow-credential-provider-passkeys-list`\n- `allow-credential-provider-passkey-delete`\n- `allow-android-autofill-provider-status`\n- `allow-android-open-autofill-provider-settings`\n- `allow-android-password-save-finish`\n- `allow-android-passkeys-list`\n- `allow-android-passkey-delete`\n- `allow-android-quick-lock-tile-status`\n- `allow-android-request-quick-lock-tile`\n- `allow-write-text-file`\n- `allow-setup-native-gestures`\n- `allow-get-local-device-identity`\n- `allow-network-list-server-profiles`\n- `allow-network-get-bootstrap-profile`\n- `allow-mobile-acceptor-start`\n- `allow-mobile-acceptor-stop`\n- `allow-mobile-acceptor-status`\n- `allow-start-ios-host-mode`\n- `allow-stop-ios-host-mode`\n- `allow-ios-host-status`\n- `allow-publish-ios-presence`\n- `allow-handle-ios-wake`"
+        },
+        {
+          "description": "Enables the android_audio_session_command command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-android-audio-session-command",
+          "markdownDescription": "Enables the android_audio_session_command command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the android_autofill_provider_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-android-autofill-provider-status",
+          "markdownDescription": "Enables the android_autofill_provider_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the android_media_session_stop command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-android-media-session-stop",
+          "markdownDescription": "Enables the android_media_session_stop command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the android_media_session_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-android-media-session-update",
+          "markdownDescription": "Enables the android_media_session_update command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the android_open_autofill_provider_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-android-open-autofill-provider-settings",
+          "markdownDescription": "Enables the android_open_autofill_provider_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the android_otp_qr_scan_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-android-otp-qr-scan-cancel",
+          "markdownDescription": "Enables the android_otp_qr_scan_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the android_otp_qr_scan_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-android-otp-qr-scan-start",
+          "markdownDescription": "Enables the android_otp_qr_scan_start command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the android_passkey_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-android-passkey-delete",
+          "markdownDescription": "Enables the android_passkey_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the android_passkeys_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-android-passkeys-list",
+          "markdownDescription": "Enables the android_passkeys_list command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the android_password_save_finish command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-android-password-save-finish",
+          "markdownDescription": "Enables the android_password_save_finish command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the android_quick_lock_tile_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-android-quick-lock-tile-status",
+          "markdownDescription": "Enables the android_quick_lock_tile_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the android_request_quick_lock_tile command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-android-request-quick-lock-tile",
+          "markdownDescription": "Enables the android_request_quick_lock_tile command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the android_video_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-android-video-start",
+          "markdownDescription": "Enables the android_video_start command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the android_video_stop command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-android-video-stop",
+          "markdownDescription": "Enables the android_video_stop command without any pre-configured scope."
         },
         {
           "description": "Enables the backup_local_cancel command without any pre-configured scope.",
@@ -201,6 +285,24 @@
           "markdownDescription": "Enables the backup_local_create command without any pre-configured scope."
         },
         {
+          "description": "Enables the catalog_cancel_android_shared_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-catalog-cancel-android-shared-files",
+          "markdownDescription": "Enables the catalog_cancel_android_shared_files command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the catalog_cancel_native_upload command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-catalog-cancel-native-upload",
+          "markdownDescription": "Enables the catalog_cancel_native_upload command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the catalog_cancel_shared_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-catalog-cancel-shared-files",
+          "markdownDescription": "Enables the catalog_cancel_shared_files command without any pre-configured scope."
+        },
+        {
           "description": "Enables the catalog_download command without any pre-configured scope.",
           "type": "string",
           "const": "allow-catalog-download",
@@ -213,10 +315,40 @@
           "markdownDescription": "Enables the catalog_download_path command without any pre-configured scope."
         },
         {
+          "description": "Enables the catalog_file_replace command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-catalog-file-replace",
+          "markdownDescription": "Enables the catalog_file_replace command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the catalog_image_metadata command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-catalog-image-metadata",
+          "markdownDescription": "Enables the catalog_image_metadata command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the catalog_list_shared_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-catalog-list-shared-files",
+          "markdownDescription": "Enables the catalog_list_shared_files command without any pre-configured scope."
+        },
+        {
           "description": "Enables the catalog_open_external command without any pre-configured scope.",
           "type": "string",
           "const": "allow-catalog-open-external",
           "markdownDescription": "Enables the catalog_open_external command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the catalog_preview_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-catalog-preview-image",
+          "markdownDescription": "Enables the catalog_preview_image command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the catalog_save_image_to_gallery command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-catalog-save-image-to-gallery",
+          "markdownDescription": "Enables the catalog_save_image_to_gallery command without any pre-configured scope."
         },
         {
           "description": "Enables the catalog_secret_read command without any pre-configured scope.",
@@ -231,16 +363,64 @@
           "markdownDescription": "Enables the catalog_secret_write_chunk command without any pre-configured scope."
         },
         {
+          "description": "Enables the catalog_share_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-catalog-share-files",
+          "markdownDescription": "Enables the catalog_share_files command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the catalog_thumbnail_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-catalog-thumbnail-image",
+          "markdownDescription": "Enables the catalog_thumbnail_image command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the catalog_upload_android_shared_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-catalog-upload-android-shared-files",
+          "markdownDescription": "Enables the catalog_upload_android_shared_files command without any pre-configured scope."
+        },
+        {
           "description": "Enables the catalog_upload_chunk command without any pre-configured scope.",
           "type": "string",
           "const": "allow-catalog-upload-chunk",
           "markdownDescription": "Enables the catalog_upload_chunk command without any pre-configured scope."
         },
         {
+          "description": "Enables the catalog_upload_native_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-catalog-upload-native-files",
+          "markdownDescription": "Enables the catalog_upload_native_files command without any pre-configured scope."
+        },
+        {
           "description": "Enables the catalog_upload_path command without any pre-configured scope.",
           "type": "string",
           "const": "allow-catalog-upload-path",
           "markdownDescription": "Enables the catalog_upload_path command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the catalog_upload_shared_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-catalog-upload-shared-files",
+          "markdownDescription": "Enables the catalog_upload_shared_files command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the credential_provider_passkey_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-credential-provider-passkey-delete",
+          "markdownDescription": "Enables the credential_provider_passkey_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the credential_provider_passkeys_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-credential-provider-passkeys-list",
+          "markdownDescription": "Enables the credential_provider_passkeys_list command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the credential_provider_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-credential-provider-status",
+          "markdownDescription": "Enables the credential_provider_status command without any pre-configured scope."
         },
         {
           "description": "Enables the desktop_connect_ios command without any pre-configured scope.",
@@ -265,6 +445,12 @@
           "type": "string",
           "const": "allow-file-stat",
           "markdownDescription": "Enables the file_stat command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the frontend_splash_ready command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-frontend-splash-ready",
+          "markdownDescription": "Enables the frontend_splash_ready command without any pre-configured scope."
         },
         {
           "description": "Enables the gateway_cancel_pairing command without any pre-configured scope.",
@@ -387,6 +573,42 @@
           "markdownDescription": "Enables the ios_host_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the license_account_cabinet_handoff command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-license-account-cabinet-handoff",
+          "markdownDescription": "Enables the license_account_cabinet_handoff command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the license_activate command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-license-activate",
+          "markdownDescription": "Enables the license_activate command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the license_current_seat_deactivate command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-license-current-seat-deactivate",
+          "markdownDescription": "Enables the license_current_seat_deactivate command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the license_seat_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-license-seat-status",
+          "markdownDescription": "Enables the license_seat_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the license_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-license-status",
+          "markdownDescription": "Enables the license_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the master_rekey command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-master-rekey",
+          "markdownDescription": "Enables the master_rekey command without any pre-configured scope."
+        },
+        {
           "description": "Enables the master_setup command without any pre-configured scope.",
           "type": "string",
           "const": "allow-master-setup",
@@ -445,6 +667,36 @@
           "type": "string",
           "const": "allow-mode-switch",
           "markdownDescription": "Enables the mode_switch command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the module_access_resolve command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-module-access-resolve",
+          "markdownDescription": "Enables the module_access_resolve command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the module_access_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-module-access-snapshot",
+          "markdownDescription": "Enables the module_access_snapshot command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the native_audio_session_command command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-native-audio-session-command",
+          "markdownDescription": "Enables the native_audio_session_command command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the native_otp_qr_scan_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-native-otp-qr-scan-cancel",
+          "markdownDescription": "Enables the native_otp_qr_scan_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the native_otp_qr_scan_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-native-otp-qr-scan-start",
+          "markdownDescription": "Enables the native_otp_qr_scan_start command without any pre-configured scope."
         },
         {
           "description": "Enables the network_connection_state command without any pre-configured scope.",
@@ -531,6 +783,18 @@
           "markdownDescription": "Enables the network_transport_metrics command without any pre-configured scope."
         },
         {
+          "description": "Enables the open_credential_provider_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-credential-provider-settings",
+          "markdownDescription": "Enables the open_credential_provider_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the open_url_external command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-url-external",
+          "markdownDescription": "Enables the open_url_external command without any pre-configured scope."
+        },
+        {
           "description": "Enables the passmanager_download command without any pre-configured scope.",
           "type": "string",
           "const": "allow-passmanager-download",
@@ -555,10 +819,28 @@
           "markdownDescription": "Enables the passmanager_upload_chunk command without any pre-configured scope."
         },
         {
+          "description": "Enables the prepare_catalog_preview_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-prepare-catalog-preview-file",
+          "markdownDescription": "Enables the prepare_catalog_preview_file command without any pre-configured scope."
+        },
+        {
           "description": "Enables the publish_ios_presence command without any pre-configured scope.",
           "type": "string",
           "const": "allow-publish-ios-presence",
           "markdownDescription": "Enables the publish_ios_presence command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the purge_catalog_preview_cache command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-purge-catalog-preview-cache",
+          "markdownDescription": "Enables the purge_catalog_preview_cache command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the release_catalog_preview_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-release-catalog-preview-file",
+          "markdownDescription": "Enables the release_catalog_preview_file command without any pre-configured scope."
         },
         {
           "description": "Enables the restore_local_cancel command without any pre-configured scope.",
@@ -571,6 +853,12 @@
           "type": "string",
           "const": "allow-restore-local-from-folder",
           "markdownDescription": "Enables the restore_local_from_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the restore_local_select_source command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-restore-local-select-source",
+          "markdownDescription": "Enables the restore_local_select_source command without any pre-configured scope."
         },
         {
           "description": "Enables the rpc_dispatch command without any pre-configured scope.",
@@ -675,6 +963,12 @@
           "markdownDescription": "Enables the touch_activity command without any pre-configured scope."
         },
         {
+          "description": "Enables the unlock_debug_log command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-unlock-debug-log",
+          "markdownDescription": "Enables the unlock_debug_log command without any pre-configured scope."
+        },
+        {
           "description": "Enables the usb_connect command without any pre-configured scope.",
           "type": "string",
           "const": "allow-usb-connect",
@@ -711,6 +1005,18 @@
           "markdownDescription": "Enables the usb_scan_devices command without any pre-configured scope."
         },
         {
+          "description": "Enables the vault_rekey command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-vault-rekey",
+          "markdownDescription": "Enables the vault_rekey command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the vault_rekey_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-vault-rekey-cancel",
+          "markdownDescription": "Enables the vault_rekey_cancel command without any pre-configured scope."
+        },
+        {
           "description": "Enables the volume_get_backends command without any pre-configured scope.",
           "type": "string",
           "const": "allow-volume-get-backends",
@@ -741,6 +1047,90 @@
           "markdownDescription": "Enables the write_text_file command without any pre-configured scope."
         },
         {
+          "description": "Denies the android_audio_session_command command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-android-audio-session-command",
+          "markdownDescription": "Denies the android_audio_session_command command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the android_autofill_provider_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-android-autofill-provider-status",
+          "markdownDescription": "Denies the android_autofill_provider_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the android_media_session_stop command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-android-media-session-stop",
+          "markdownDescription": "Denies the android_media_session_stop command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the android_media_session_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-android-media-session-update",
+          "markdownDescription": "Denies the android_media_session_update command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the android_open_autofill_provider_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-android-open-autofill-provider-settings",
+          "markdownDescription": "Denies the android_open_autofill_provider_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the android_otp_qr_scan_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-android-otp-qr-scan-cancel",
+          "markdownDescription": "Denies the android_otp_qr_scan_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the android_otp_qr_scan_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-android-otp-qr-scan-start",
+          "markdownDescription": "Denies the android_otp_qr_scan_start command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the android_passkey_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-android-passkey-delete",
+          "markdownDescription": "Denies the android_passkey_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the android_passkeys_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-android-passkeys-list",
+          "markdownDescription": "Denies the android_passkeys_list command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the android_password_save_finish command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-android-password-save-finish",
+          "markdownDescription": "Denies the android_password_save_finish command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the android_quick_lock_tile_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-android-quick-lock-tile-status",
+          "markdownDescription": "Denies the android_quick_lock_tile_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the android_request_quick_lock_tile command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-android-request-quick-lock-tile",
+          "markdownDescription": "Denies the android_request_quick_lock_tile command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the android_video_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-android-video-start",
+          "markdownDescription": "Denies the android_video_start command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the android_video_stop command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-android-video-stop",
+          "markdownDescription": "Denies the android_video_stop command without any pre-configured scope."
+        },
+        {
           "description": "Denies the backup_local_cancel command without any pre-configured scope.",
           "type": "string",
           "const": "deny-backup-local-cancel",
@@ -751,6 +1141,24 @@
           "type": "string",
           "const": "deny-backup-local-create",
           "markdownDescription": "Denies the backup_local_create command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the catalog_cancel_android_shared_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-catalog-cancel-android-shared-files",
+          "markdownDescription": "Denies the catalog_cancel_android_shared_files command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the catalog_cancel_native_upload command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-catalog-cancel-native-upload",
+          "markdownDescription": "Denies the catalog_cancel_native_upload command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the catalog_cancel_shared_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-catalog-cancel-shared-files",
+          "markdownDescription": "Denies the catalog_cancel_shared_files command without any pre-configured scope."
         },
         {
           "description": "Denies the catalog_download command without any pre-configured scope.",
@@ -765,10 +1173,40 @@
           "markdownDescription": "Denies the catalog_download_path command without any pre-configured scope."
         },
         {
+          "description": "Denies the catalog_file_replace command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-catalog-file-replace",
+          "markdownDescription": "Denies the catalog_file_replace command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the catalog_image_metadata command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-catalog-image-metadata",
+          "markdownDescription": "Denies the catalog_image_metadata command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the catalog_list_shared_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-catalog-list-shared-files",
+          "markdownDescription": "Denies the catalog_list_shared_files command without any pre-configured scope."
+        },
+        {
           "description": "Denies the catalog_open_external command without any pre-configured scope.",
           "type": "string",
           "const": "deny-catalog-open-external",
           "markdownDescription": "Denies the catalog_open_external command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the catalog_preview_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-catalog-preview-image",
+          "markdownDescription": "Denies the catalog_preview_image command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the catalog_save_image_to_gallery command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-catalog-save-image-to-gallery",
+          "markdownDescription": "Denies the catalog_save_image_to_gallery command without any pre-configured scope."
         },
         {
           "description": "Denies the catalog_secret_read command without any pre-configured scope.",
@@ -783,16 +1221,64 @@
           "markdownDescription": "Denies the catalog_secret_write_chunk command without any pre-configured scope."
         },
         {
+          "description": "Denies the catalog_share_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-catalog-share-files",
+          "markdownDescription": "Denies the catalog_share_files command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the catalog_thumbnail_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-catalog-thumbnail-image",
+          "markdownDescription": "Denies the catalog_thumbnail_image command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the catalog_upload_android_shared_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-catalog-upload-android-shared-files",
+          "markdownDescription": "Denies the catalog_upload_android_shared_files command without any pre-configured scope."
+        },
+        {
           "description": "Denies the catalog_upload_chunk command without any pre-configured scope.",
           "type": "string",
           "const": "deny-catalog-upload-chunk",
           "markdownDescription": "Denies the catalog_upload_chunk command without any pre-configured scope."
         },
         {
+          "description": "Denies the catalog_upload_native_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-catalog-upload-native-files",
+          "markdownDescription": "Denies the catalog_upload_native_files command without any pre-configured scope."
+        },
+        {
           "description": "Denies the catalog_upload_path command without any pre-configured scope.",
           "type": "string",
           "const": "deny-catalog-upload-path",
           "markdownDescription": "Denies the catalog_upload_path command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the catalog_upload_shared_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-catalog-upload-shared-files",
+          "markdownDescription": "Denies the catalog_upload_shared_files command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the credential_provider_passkey_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-credential-provider-passkey-delete",
+          "markdownDescription": "Denies the credential_provider_passkey_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the credential_provider_passkeys_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-credential-provider-passkeys-list",
+          "markdownDescription": "Denies the credential_provider_passkeys_list command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the credential_provider_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-credential-provider-status",
+          "markdownDescription": "Denies the credential_provider_status command without any pre-configured scope."
         },
         {
           "description": "Denies the desktop_connect_ios command without any pre-configured scope.",
@@ -817,6 +1303,12 @@
           "type": "string",
           "const": "deny-file-stat",
           "markdownDescription": "Denies the file_stat command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the frontend_splash_ready command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-frontend-splash-ready",
+          "markdownDescription": "Denies the frontend_splash_ready command without any pre-configured scope."
         },
         {
           "description": "Denies the gateway_cancel_pairing command without any pre-configured scope.",
@@ -939,6 +1431,42 @@
           "markdownDescription": "Denies the ios_host_status command without any pre-configured scope."
         },
         {
+          "description": "Denies the license_account_cabinet_handoff command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-license-account-cabinet-handoff",
+          "markdownDescription": "Denies the license_account_cabinet_handoff command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the license_activate command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-license-activate",
+          "markdownDescription": "Denies the license_activate command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the license_current_seat_deactivate command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-license-current-seat-deactivate",
+          "markdownDescription": "Denies the license_current_seat_deactivate command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the license_seat_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-license-seat-status",
+          "markdownDescription": "Denies the license_seat_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the license_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-license-status",
+          "markdownDescription": "Denies the license_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the master_rekey command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-master-rekey",
+          "markdownDescription": "Denies the master_rekey command without any pre-configured scope."
+        },
+        {
           "description": "Denies the master_setup command without any pre-configured scope.",
           "type": "string",
           "const": "deny-master-setup",
@@ -997,6 +1525,36 @@
           "type": "string",
           "const": "deny-mode-switch",
           "markdownDescription": "Denies the mode_switch command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the module_access_resolve command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-module-access-resolve",
+          "markdownDescription": "Denies the module_access_resolve command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the module_access_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-module-access-snapshot",
+          "markdownDescription": "Denies the module_access_snapshot command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the native_audio_session_command command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-native-audio-session-command",
+          "markdownDescription": "Denies the native_audio_session_command command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the native_otp_qr_scan_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-native-otp-qr-scan-cancel",
+          "markdownDescription": "Denies the native_otp_qr_scan_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the native_otp_qr_scan_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-native-otp-qr-scan-start",
+          "markdownDescription": "Denies the native_otp_qr_scan_start command without any pre-configured scope."
         },
         {
           "description": "Denies the network_connection_state command without any pre-configured scope.",
@@ -1083,6 +1641,18 @@
           "markdownDescription": "Denies the network_transport_metrics command without any pre-configured scope."
         },
         {
+          "description": "Denies the open_credential_provider_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-credential-provider-settings",
+          "markdownDescription": "Denies the open_credential_provider_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_url_external command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-url-external",
+          "markdownDescription": "Denies the open_url_external command without any pre-configured scope."
+        },
+        {
           "description": "Denies the passmanager_download command without any pre-configured scope.",
           "type": "string",
           "const": "deny-passmanager-download",
@@ -1107,10 +1677,28 @@
           "markdownDescription": "Denies the passmanager_upload_chunk command without any pre-configured scope."
         },
         {
+          "description": "Denies the prepare_catalog_preview_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-prepare-catalog-preview-file",
+          "markdownDescription": "Denies the prepare_catalog_preview_file command without any pre-configured scope."
+        },
+        {
           "description": "Denies the publish_ios_presence command without any pre-configured scope.",
           "type": "string",
           "const": "deny-publish-ios-presence",
           "markdownDescription": "Denies the publish_ios_presence command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the purge_catalog_preview_cache command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-purge-catalog-preview-cache",
+          "markdownDescription": "Denies the purge_catalog_preview_cache command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the release_catalog_preview_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-release-catalog-preview-file",
+          "markdownDescription": "Denies the release_catalog_preview_file command without any pre-configured scope."
         },
         {
           "description": "Denies the restore_local_cancel command without any pre-configured scope.",
@@ -1123,6 +1711,12 @@
           "type": "string",
           "const": "deny-restore-local-from-folder",
           "markdownDescription": "Denies the restore_local_from_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the restore_local_select_source command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-restore-local-select-source",
+          "markdownDescription": "Denies the restore_local_select_source command without any pre-configured scope."
         },
         {
           "description": "Denies the rpc_dispatch command without any pre-configured scope.",
@@ -1227,6 +1821,12 @@
           "markdownDescription": "Denies the touch_activity command without any pre-configured scope."
         },
         {
+          "description": "Denies the unlock_debug_log command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-unlock-debug-log",
+          "markdownDescription": "Denies the unlock_debug_log command without any pre-configured scope."
+        },
+        {
           "description": "Denies the usb_connect command without any pre-configured scope.",
           "type": "string",
           "const": "deny-usb-connect",
@@ -1261,6 +1861,18 @@
           "type": "string",
           "const": "deny-usb-scan-devices",
           "markdownDescription": "Denies the usb_scan_devices command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the vault_rekey command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-vault-rekey",
+          "markdownDescription": "Denies the vault_rekey command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the vault_rekey_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-vault-rekey-cancel",
+          "markdownDescription": "Denies the vault_rekey_cancel command without any pre-configured scope."
         },
         {
           "description": "Denies the volume_get_backends command without any pre-configured scope.",

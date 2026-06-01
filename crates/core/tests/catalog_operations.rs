@@ -2,26 +2,47 @@
 
 mod test_helpers;
 
-use chromvoid_core::rpc::types::RpcRequest;
+use chromvoid_core::rpc::RpcRouter;
+use chromvoid_core::storage::Storage;
 use test_helpers::*;
-
-fn shard_root_child_names(response: &chromvoid_core::rpc::types::RpcResponse) -> Vec<String> {
-    let result = response.result().expect("response should have result");
-    let root = result.get("root").expect("result should have root");
-    root.get("c")
-        .and_then(|v| v.as_array())
-        .map(|children| {
-            children
-                .iter()
-                .filter_map(|c| c.get("n").and_then(|v| v.as_str()).map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default()
-}
 
 // ============================================================================
 // catalog:move tests
 // ============================================================================
+
+#[test]
+fn test_catalog_mutations_survive_fresh_router_without_explicit_save() {
+    let (mut router, temp_dir, keystore) = create_test_router_with_keystore();
+    assert_rpc_ok(&unlock_vault(&mut router, "test"));
+
+    let docs = create_dir(&mut router, "docs");
+    assert_rpc_ok(&docs);
+    let archive = create_dir(&mut router, "archive");
+    assert_rpc_ok(&archive);
+    let file = create_dir_at(&mut router, "/docs", "draft");
+    assert_rpc_ok(&file);
+    let file_id = get_node_id(&file);
+    assert_rpc_ok(&rename_node(&mut router, file_id, "final"));
+    assert_rpc_ok(&move_node(&mut router, file_id, "/archive"));
+    drop(router);
+
+    let storage = Storage::new(temp_dir.path()).expect("storage");
+    let mut reopened = RpcRouter::new(storage).with_keystore(keystore.clone());
+    assert_rpc_ok(&unlock_vault(&mut reopened, "test"));
+    let archive_items = get_items(&list_dir(&mut reopened, "/archive"));
+    assert!(find_item_by_name(&archive_items, "final").is_some());
+    let docs_items = get_items(&list_dir(&mut reopened, "/docs"));
+    assert!(find_item_by_name(&docs_items, "final").is_none());
+
+    assert_rpc_ok(&delete_node(&mut reopened, file_id));
+    drop(reopened);
+
+    let storage = Storage::new(temp_dir.path()).expect("storage");
+    let mut reopened_after_delete = RpcRouter::new(storage).with_keystore(keystore);
+    assert_rpc_ok(&unlock_vault(&mut reopened_after_delete, "test"));
+    let archive_items = get_items(&list_dir(&mut reopened_after_delete, "/archive"));
+    assert!(find_item_by_name(&archive_items, "final").is_none());
+}
 
 #[test]
 fn test_move_directory_basic() {

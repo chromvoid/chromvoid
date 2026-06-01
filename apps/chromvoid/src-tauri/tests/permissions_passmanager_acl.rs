@@ -49,3 +49,25 @@ fn mobile_permission_set_allows_passmanager_stream_commands() {
         );
     }
 }
+
+#[test]
+fn mobile_permission_set_allows_license_activation_commands() {
+    let mobile = set_block("mobile");
+    assert!(
+        !mobile.is_empty(),
+        "mobile permission set not found in permissions/app.toml"
+    );
+
+    for permission in [
+        "allow-license-activation-code-activate",
+        "allow-license-account-recovery-activate",
+        "allow-license-status",
+        "allow-license-seat-status",
+        "allow-license-current-seat-deactivate",
+    ] {
+        assert!(
+            mobile.contains(permission),
+            "mobile set must include {permission}"
+        );
+    }
+}

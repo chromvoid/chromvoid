@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-android-otp-qr-scan-cancel"
+description = "Enables the android_otp_qr_scan_cancel command without any pre-configured scope."
+commands.allow = ["android_otp_qr_scan_cancel"]
+
+[[permission]]
+identifier = "deny-android-otp-qr-scan-cancel"
+description = "Denies the android_otp_qr_scan_cancel command without any pre-configured scope."
+commands.deny = ["android_otp_qr_scan_cancel"]

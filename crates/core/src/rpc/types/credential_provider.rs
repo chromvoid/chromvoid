@@ -77,6 +77,8 @@ pub struct CredentialProviderCommandErrorMap {
     pub passkey_create: Vec<String>,
     #[serde(rename = "credential_provider:passkey:get")]
     pub passkey_get: Vec<String>,
+    #[serde(rename = "credential_provider:passkey:query")]
+    pub passkey_query: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -155,6 +155,21 @@ export const remoteStorageLayoutStyles = [
       color: var(--cv-color-text);
     }
 
+    .stat-card.stat-card-info {
+      --stat-bg: var(--cv-color-info-surface);
+      --stat-color: var(--cv-color-info);
+    }
+
+    .stat-card.stat-card-success {
+      --stat-bg: var(--cv-color-success-surface);
+      --stat-color: var(--cv-color-success);
+    }
+
+    .stat-card.stat-card-neutral {
+      --stat-bg: var(--cv-color-surface-2);
+      --stat-color: var(--cv-color-text-muted);
+    }
+
     /* ========== MAIN GRID ========== */
     .main-grid {
       display: grid;
@@ -211,6 +226,21 @@ export const remoteStorageLayoutStyles = [
       flex-shrink: 0;
     }
 
+    .card-icon.card-icon-primary {
+      --card-icon-bg: var(--cv-color-primary-surface);
+      --card-icon-color: var(--cv-color-brand);
+    }
+
+    .card-icon.card-icon-info {
+      --card-icon-bg: var(--cv-color-info-surface);
+      --card-icon-color: var(--cv-color-info);
+    }
+
+    .card-icon.card-icon-success {
+      --card-icon-bg: var(--cv-color-success-surface);
+      --card-icon-color: var(--cv-color-success);
+    }
+
     .card-title {
       display: grid;
       gap: 2px;
@@ -244,14 +274,14 @@ export const remoteStorageLayoutStyles = [
     }
 
     .badge.success {
-      background: color-mix(in oklch, var(--cv-color-success) 12%, var(--cv-color-surface));
-      border-color: color-mix(in oklch, var(--cv-color-success) 25%, var(--cv-color-border));
+      background: var(--cv-color-success-surface);
+      border-color: var(--cv-color-success-border-strong);
       color: var(--cv-color-success);
     }
 
     .badge.info {
-      background: color-mix(in oklch, var(--cv-color-info) 12%, var(--cv-color-surface));
-      border-color: color-mix(in oklch, var(--cv-color-info) 25%, var(--cv-color-border));
+      background: var(--cv-color-info-surface);
+      border-color: var(--cv-color-info-border-strong);
       color: var(--cv-color-info);
     }
 
@@ -270,44 +300,46 @@ export const remoteStorageLayoutStyles = [
       gap: var(--app-spacing-4);
     }
 
-    /* ========== ALERT BLOCKS ========== */
-    .alert {
+    cv-callout.remote-storage-callout {
+      --cv-callout-padding-block: var(--app-spacing-3);
+      --cv-callout-padding-inline: var(--app-spacing-4);
+      --cv-callout-border-radius: var(--cv-radius-2);
+      --cv-callout-font-size: var(--cv-font-size-sm);
+    }
+
+    cv-callout.remote-storage-callout::part(message) {
       display: grid;
       gap: var(--app-spacing-2);
-      padding: var(--app-spacing-3) var(--app-spacing-4);
-      border-radius: var(--cv-radius-2);
-      border-left: 3px solid var(--alert-accent, var(--cv-color-warning));
-      background: var(--alert-bg, color-mix(in oklch, var(--cv-color-warning) 8%, var(--cv-color-surface)));
-
-      .alert-title {
-        font-weight: var(--cv-font-weight-semibold);
-        font-size: var(--cv-font-size-sm);
-        color: var(--alert-accent, var(--cv-color-warning));
-        display: flex;
-        align-items: center;
-        gap: var(--app-spacing-2);
-      }
-
-      .alert-text {
-        color: var(--cv-color-text-muted);
-        font-size: var(--cv-font-size-sm);
-        line-height: 1.55;
-      }
+      min-inline-size: 0;
     }
 
-    .alert.info {
-      --alert-accent: var(--cv-color-info);
-      --alert-bg: color-mix(in oklch, var(--cv-color-info) 8%, var(--cv-color-surface));
+    .remote-storage-callout-title {
+      display: flex;
+      align-items: center;
+      gap: var(--app-spacing-2);
+      color: var(--cv-color-warning);
+      font-weight: var(--cv-font-weight-semibold);
     }
 
-    .alert.success {
-      --alert-accent: var(--cv-color-success);
-      --alert-bg: color-mix(in oklch, var(--cv-color-success) 8%, var(--cv-color-surface));
+    cv-callout.remote-storage-callout[variant='info'] .remote-storage-callout-title {
+      color: var(--cv-color-info);
     }
 
-    .alert.danger {
-      --alert-accent: var(--cv-color-danger);
-      --alert-bg: color-mix(in oklch, var(--cv-color-danger) 8%, var(--cv-color-surface));
+    cv-callout.remote-storage-callout[variant='success'] .remote-storage-callout-title {
+      color: var(--cv-color-success);
+    }
+
+    cv-callout.remote-storage-callout[variant='danger'] .remote-storage-callout-title {
+      color: var(--cv-color-danger);
+    }
+
+    .remote-storage-callout-title cv-icon {
+      flex-shrink: 0;
+    }
+
+    .remote-storage-callout-text {
+      color: var(--cv-color-text-muted);
+      line-height: 1.55;
     }
 
     /* ========== ACTIONS ========== */
@@ -317,6 +349,11 @@ export const remoteStorageLayoutStyles = [
       flex-wrap: wrap;
       padding-block-start: var(--app-spacing-3);
       border-block-start: 1px solid var(--cv-color-border-muted);
+    }
+
+    .inline-link {
+      color: var(--cv-color-brand);
+      text-decoration: underline;
     }
 
     /* ========== FORM CONTROLS ========== */
@@ -349,7 +386,7 @@ export const remoteStorageLayoutStyles = [
     .field-select:focus {
       outline: none;
       border-color: var(--cv-color-brand);
-      box-shadow: 0 0 0 3px color-mix(in oklch, var(--cv-color-brand) 15%, transparent);
+      box-shadow: 0 0 0 3px var(--cv-color-primary-ring);
     }
 
     .field-select:disabled {

@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.credentials.provider.BeginCreatePublicKeyCredentialRequest
 import androidx.credentials.provider.BeginGetPublicKeyCredentialOption
 import androidx.credentials.provider.CallingAppInfo
+import com.chromvoid.app.passkey.PasskeyAuthenticatorDataBuilder
 import com.chromvoid.app.passkey.PasskeyOriginResolver
 import com.chromvoid.app.passkey.PasskeyPreflightPayloadFactory
 import com.chromvoid.app.passkey.PasskeyPreflightPayloadJsonEncoder
@@ -80,10 +81,40 @@ class PasskeyComponentsTest {
     }
 
     @Test
-    fun originForCallingApp_prefersPopulatedOrigin() {
-        val origin = PasskeyOriginResolver.originForCallingApp(callingAppInfo(origin = "https://app.example"))
+    fun originForCallingApp_returnsAllowlistedBrowserOrigin() {
+        val origin =
+            PasskeyOriginResolver.originForCallingApp(
+                callingAppInfo(packageName = "com.android.chrome", origin = "https://app.example"),
+                privilegedOriginReader = { _, allowlist ->
+                    assertTrue(allowlist.contains("com.android.chrome"))
+                    assertTrue(allowlist.contains("org.mozilla.firefox"))
+                    "https://app.example"
+                },
+            )
 
         assertEquals("https://app.example", origin)
+    }
+
+    @Test
+    fun originForCallingApp_normalizesAllowlistedBrowserOrigin() {
+        val origin =
+            PasskeyOriginResolver.originForCallingApp(
+                callingAppInfo(packageName = "com.android.chrome", origin = "https://github.com/"),
+                privilegedOriginReader = { _, _ -> "https://github.com/" },
+            )
+
+        assertEquals("https://github.com", origin)
+    }
+
+    @Test
+    fun originForCallingApp_doesNotTrustBrowserOriginOutsideAllowlist() {
+        val origin =
+            PasskeyOriginResolver.originForCallingApp(
+                callingAppInfo(packageName = "com.android.chrome", origin = "https://app.example"),
+                privilegedOriginReader = { _, _ -> throw IllegalStateException("not allowlisted") },
+            )
+
+        assertTrue(origin.startsWith("android:apk-key-hash:"))
     }
 
     @Test
@@ -113,6 +144,35 @@ class PasskeyComponentsTest {
     }
 
     @Test
+    fun responseClientDataJson_usesPlaceholderWhenHashProvided() {
+        val actual =
+            PasskeyResponseAssembler.responseClientDataJson(
+                "webauthn.create",
+                "challenge-b64",
+                "https://app.example",
+                byteArrayOf(0x01),
+            )
+
+        assertEquals("{}", actual.toString(Charsets.UTF_8))
+    }
+
+    @Test
+    fun responseClientDataJson_assemblesJsonWhenHashMissing() {
+        val actual =
+            PasskeyResponseAssembler.responseClientDataJson(
+                "webauthn.create",
+                "challenge-b64",
+                "https://app.example",
+                null,
+            )
+
+        val json = JSONObject(actual.toString(Charsets.UTF_8))
+        assertEquals("webauthn.create", json.getString("type"))
+        assertEquals("challenge-b64", json.getString("challenge"))
+        assertEquals("https://app.example", json.getString("origin"))
+    }
+
+    @Test
     fun parseGetRequestJson_returnsNullWhenRequiredFieldsMissing() {
         assertNull(PasskeyRequestParser.parseGetRequestJson("""{"challenge":"challenge-b64"}"""))
         assertNull(PasskeyRequestParser.parseGetRequestJson("""{"rpId":"example.com"}"""))
@@ -126,6 +186,17 @@ class PasskeyComponentsTest {
                 """{"challenge":"challenge-b64","rp":{"id":"example.com"},"user":{"name":"alice","displayName":"Alice"},"pubKeyCredParams":[{"type":"public-key","alg":-7}]}""",
             ),
         )
+    }
+
+    @Test
+    fun parseCreateRequestJson_keepsCredentialPropertiesExtension() {
+        val request =
+            PasskeyRequestParser.parseCreateRequestJson(
+                """{"challenge":"challenge-b64","rp":{"id":"example.com","name":"Example"},"user":{"id":"user-b64","name":"alice","displayName":"Alice"},"pubKeyCredParams":[{"type":"public-key","alg":-7}],"excludeCredentials":[],"attestation":"none","authenticatorSelection":{"residentKey":"required","userVerification":"required"},"extensions":{"credProps":true}}""",
+            ) ?: error("valid create request must parse")
+
+        assertTrue(request.credPropsRequested)
+        assertTrue(request.residentKeyRequired)
     }
 
     @Test
@@ -157,6 +228,63 @@ class PasskeyComponentsTest {
     }
 
     @Test
+    fun authenticatorDataAssertionFlags_encodeUserPresenceAndVerification() {
+        val verified = PasskeyAuthenticatorDataBuilder.assertion(
+            rpId = "example.com",
+            signCount = 1,
+            userVerified = true,
+        )
+        val unverified = PasskeyAuthenticatorDataBuilder.assertion(
+            rpId = "example.com",
+            signCount = 1,
+            userVerified = false,
+        )
+
+        assertEquals(0x05, verified[32].toInt() and 0xff)
+        assertEquals(0x01, unverified[32].toInt() and 0xff)
+    }
+
+    @Test
+    fun authenticatorDataRegistrationFlags_encodeAttestedCredentialData() {
+        val verified = PasskeyAuthenticatorDataBuilder.registration(
+            rpId = "example.com",
+            credentialId = byteArrayOf(0x01),
+            cosePublicKey = byteArrayOf(0x02),
+            userVerified = true,
+        )
+        val unverified = PasskeyAuthenticatorDataBuilder.registration(
+            rpId = "example.com",
+            credentialId = byteArrayOf(0x01),
+            cosePublicKey = byteArrayOf(0x02),
+            userVerified = false,
+        )
+
+        assertEquals(0x45, verified[32].toInt() and 0xff)
+        assertEquals(0x41, unverified[32].toInt() and 0xff)
+    }
+
+    @Test
+    fun authenticatorDataRegistration_encodesAttestedCredentialShape() {
+        val credentialId = byteArrayOf(0x10, 0x11, 0x12)
+        val cosePublicKey = byteArrayOf(0xA1.toByte(), 0x01, 0x02)
+
+        val authData = PasskeyAuthenticatorDataBuilder.registration(
+            rpId = "example.com",
+            credentialId = credentialId,
+            cosePublicKey = cosePublicKey,
+            signCount = 9,
+            userVerified = true,
+        )
+
+        assertEquals(0x45, authData[32].toInt() and 0xff)
+        assertArrayEquals(byteArrayOf(0x00, 0x00, 0x00, 0x09), authData.copyOfRange(33, 37))
+        assertArrayEquals(ByteArray(16), authData.copyOfRange(37, 53))
+        assertArrayEquals(byteArrayOf(0x00, 0x03), authData.copyOfRange(53, 55))
+        assertArrayEquals(credentialId, authData.copyOfRange(55, 58))
+        assertArrayEquals(cosePublicKey, authData.copyOfRange(58, authData.size))
+    }
+
+    @Test
     fun assertionResponseJson_keepsCredentialAndSignatureFields() {
         val response =
             JSONObject(
@@ -173,14 +301,43 @@ class PasskeyComponentsTest {
         assertEquals("public-key", response.getString("type"))
         assertTrue(response.getJSONObject("response").has("signature"))
         assertTrue(response.getJSONObject("response").has("userHandle"))
+        assertTrue(response.has("clientExtensionResults"))
     }
 
-    private fun callingAppInfo(origin: String?): CallingAppInfo {
+    @Test
+    fun registrationResponseJson_includesWebAuthnLevelThreeFieldsAndCredProps() {
+        val response =
+            JSONObject(
+                PasskeyResponseAssembler.registrationResponseJson(
+                    credentialId = byteArrayOf(0x01, 0x02),
+                    clientDataJson = byteArrayOf(0x03),
+                    attestationObject = byteArrayOf(0x04),
+                    authenticatorData = byteArrayOf(0x05),
+                    publicKeyDer = byteArrayOf(0x06),
+                    credPropsRk = true,
+                ),
+            )
+
+        assertEquals("AQI", response.getString("id"))
+        assertEquals("public-key", response.getString("type"))
+        assertTrue(response.getJSONObject("clientExtensionResults").getJSONObject("credProps").getBoolean("rk"))
+        val registrationResponse = response.getJSONObject("response")
+        assertEquals("BQ", registrationResponse.getString("authenticatorData"))
+        assertEquals("Bg", registrationResponse.getString("publicKey"))
+        assertEquals(-7, registrationResponse.getInt("publicKeyAlgorithm"))
+        assertEquals("internal", registrationResponse.getJSONArray("transports").getString(0))
+        assertTrue(registrationResponse.has("attestationObject"))
+    }
+
+    private fun callingAppInfo(
+        origin: String?,
+        packageName: String = "com.chromvoid.test",
+    ): CallingAppInfo {
         val signingInfo = SigningInfo()
         return if (origin == null) {
-            CallingAppInfo("com.chromvoid.test", signingInfo)
+            CallingAppInfo(packageName, signingInfo)
         } else {
-            CallingAppInfo("com.chromvoid.test", signingInfo, origin)
+            CallingAppInfo(packageName, signingInfo, origin)
         }
     }
 

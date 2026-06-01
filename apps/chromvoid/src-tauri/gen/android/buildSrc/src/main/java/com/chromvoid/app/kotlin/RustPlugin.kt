@@ -1,5 +1,6 @@
 import com.android.build.api.dsl.ApplicationExtension
 import org.gradle.api.DefaultTask
+import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.kotlin.dsl.configure
@@ -11,19 +12,53 @@ open class Config {
     lateinit var rootDirRel: String
 }
 
+data class AndroidRustTarget(
+    val arch: String,
+    val abi: String,
+    val target: String,
+)
+
 open class RustPlugin : Plugin<Project> {
     private lateinit var config: Config
 
     override fun apply(project: Project) = with(project) {
         config = extensions.create("rust", Config::class.java)
 
-        val defaultAbiList = listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64");
-        val abiList = (findProperty("abiList") as? String)?.split(',') ?: defaultAbiList
-
-        val defaultArchList = listOf("arm64", "arm", "x86", "x86_64");
-        val archList = (findProperty("archList") as? String)?.split(',') ?: defaultArchList
-
-        val targetsList = (findProperty("targetList") as? String)?.split(',') ?: listOf("aarch64", "armv7", "i686", "x86_64")
+        val defaultTargets =
+            listOf(
+                AndroidRustTarget("arm64", "arm64-v8a", "aarch64"),
+                AndroidRustTarget("arm", "armeabi-v7a", "armv7"),
+                AndroidRustTarget("x86", "x86", "i686"),
+                AndroidRustTarget("x86_64", "x86_64", "x86_64"),
+            )
+        val defaultTargetByArch = defaultTargets.associateBy { it.arch }
+        val archList =
+            (findProperty("archList") as? String)
+                ?.split(',')
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                ?: defaultTargets.map { it.arch }
+        val abiList =
+            (findProperty("abiList") as? String)
+                ?.split(',')
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                ?: archList.map { arch ->
+                    defaultTargetByArch[arch]?.abi
+                        ?: throw GradleException("Unsupported Android arch: $arch")
+                }
+        val targetsList =
+            (findProperty("targetList") as? String)
+                ?.split(',')
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                ?: archList.map { arch ->
+                    defaultTargetByArch[arch]?.target
+                        ?: throw GradleException("Unsupported Android arch: $arch")
+                }
+        if (archList.size != abiList.size || archList.size != targetsList.size) {
+            throw GradleException("archList, abiList, and targetList must have the same number of entries")
+        }
 
         extensions.configure<ApplicationExtension> {
             @Suppress("UnstableApiUsage")
@@ -35,11 +70,11 @@ open class RustPlugin : Plugin<Project> {
                         abiFilters += abiList
                     }
                 }
-                defaultArchList.forEachIndexed { index, arch ->
+                archList.forEachIndexed { index, arch ->
                     create(arch) {
                         dimension = "abi"
                         ndk {
-                            abiFilters.add(defaultAbiList[index])
+                            abiFilters.add(abiList[index])
                         }
                     }
                 }
@@ -70,6 +105,7 @@ open class RustPlugin : Plugin<Project> {
                         group = TASK_GROUP
                         description = "Build dynamic library in $profile mode for $targetArch"
                         rootDirRel = config.rootDirRel
+                        projectDirPath = project.projectDir.path
                         target = targetName
                         release = profile == "release"
                     }

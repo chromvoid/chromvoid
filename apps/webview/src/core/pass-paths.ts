@@ -6,11 +6,10 @@ const GROUP_PATH_LIMITS = {
   MAX_PATH_LENGTH: 500,
 } as const
 
-/**
- * В отличие от sanitizeName():
- * - не подставляет 'untitled'
- * - предназначен для отдельных сегментов groupPath (не для полного пути)
- */
+/*** Unlike sanitizeName():
+* - doesn't frame 'untitled' -
+* - intended for individual groupPath segments (not for the full path)
+*/
 export function sanitizePathSegment(raw: string): string {
   return String(raw ?? '')
     .trim()
@@ -19,9 +18,9 @@ export function sanitizePathSegment(raw: string): string {
 }
 
 /**
- * Нормализует путь группы.
+ * Normalizes the band's path.
  *
- * Root entry кодируется только как undefined.
+ * Root entry is only coded as undefined.
  */
 export function normalizeGroupPath(raw?: string): string | undefined {
   const input = String(raw ?? '').trim()
@@ -35,7 +34,7 @@ export function normalizeGroupPath(raw?: string): string | undefined {
 
   if (segments.length === 0) return undefined
 
-  // Не "лечим" traversal, а считаем это ошибкой.
+  // We do not "cure" traversal, we consider it a mistake.
   if (segments.some((s) => s === '.' || s === '..')) {
     throw new Error('Invalid groupPath: traversal segments are not allowed')
   }
@@ -55,7 +54,7 @@ export function normalizeGroupPath(raw?: string): string | undefined {
 }
 
 /**
- * Построить путь директории группы (директории, содержащей entries).
+ * Build a group directory path (a directory containing entries).
  * - undefined → PASS_DIR (root)
  * - 'Banking' → PASS_DIR/Banking
  * - 'Work/Jira' → PASS_DIR/Work/Jira
@@ -66,8 +65,8 @@ export function buildGroupDirPath(groupPath?: string): string {
 }
 
 /**
- * Построить имя директории записи: <sanitizedTitle>
- * (без добавления суффикса по id — title уникален внутри группы)
+ * Build a record directory name: <sanitizedTitle >>
+ * (Without adding the id suffix, the title is unique within the group)
  */
 export function buildEntryDirName(title: string | undefined, _id: string): string {
   const safeTitle = sanitizeName(title || _id)
@@ -75,7 +74,7 @@ export function buildEntryDirName(title: string | undefined, _id: string): strin
 }
 
 /**
- * Построить полный путь директории записи.
+ * Build the full path of the record directory.
  */
 export function buildEntryPath(groupPath: string | undefined, title: string | undefined, id: string): string {
   const entryDirName = buildEntryDirName(title, id)
@@ -84,7 +83,7 @@ export function buildEntryPath(groupPath: string | undefined, title: string | un
 }
 
 /**
- * Извлечь groupPath из полного пути entry.
+ * Extract groupPath from the full entry path.
  * '/.passmanager/entry' → undefined
  * '/.passmanager/Banking/entry' → 'Banking'
  * '/.passmanager/Work/Jira/entry' → 'Work/Jira'

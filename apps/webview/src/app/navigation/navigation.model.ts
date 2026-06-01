@@ -1,135 +1,86 @@
-import {computed, state} from '@statx/core'
+import {atom, computed} from '@reatom/core'
+import type {ManagerRoot} from '@project/passmanager/core'
 
-import type {SearchFilters} from 'root/shared/contracts/file-manager'
-import {getAppContext, tryGetAppContext} from 'root/shared/services/app-context'
-import {passmanagerNavigationController} from 'root/features/passmanager/passmanager-navigation.controller'
-import {isImageFile, isVideoFile} from 'root/utils/mime-type'
-import {decodeNavigationSnapshotFromUrl, encodeNavigationSnapshotToUrl} from './navigation-url-codec'
+import {defaultLogger} from 'root/core/logger'
+import {isTauriRuntime} from 'root/core/runtime/runtime'
+import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
+import {tryGetAppContext} from 'root/shared/services/app-context'
+import {decodeNavigationSnapshotFromUrl} from './navigation-url-codec'
+import {NavigationExternalSync} from './navigation-external-sync'
+import {NavigationHistoryRuntime} from './navigation-history-runtime'
+import {
+  evaluateNavigationDocument,
+  evaluateNavigationOverlay,
+  type OverlayEvaluation,
+} from './navigation-overlay-resolver'
+import {
+  buildFallbackSnapshot,
+  buildHierarchyFallbackSnapshot,
+  DEFAULT_FILES_PATH,
+  DEFAULT_OVERLAY,
+  DEFAULT_SNAPSHOT,
+  normalizeSnapshot,
+  snapshotsEqual,
+} from './navigation-snapshot'
 import type {
   HistoryMode,
+  MarkdownDocumentRouteSource,
+  NavigationBlocker,
+  NavigationBlockerIntent,
+  NavigationIntentKind,
   NavigationSnapshot,
-  OverlayRoute,
   PassmanagerRoute,
-  ResolvedGalleryImage,
+  ResolvedFilesDocumentState,
+  RemotePanel,
   ResolvedOverlayState,
   SurfaceId,
 } from './navigation.types'
 
-type HistoryState = {
-  __chromvoidNavIndex: number
-  __chromvoidNavGeneration: number
-}
-
 type SurfaceBackHandler = () => boolean
-
-type OverlayEvaluation = {
-  resolved: ResolvedOverlayState
-  shouldCanonicalize: boolean
-}
-
-const DEFAULT_OVERLAY: OverlayRoute = {kind: 'none'}
-const DEFAULT_FILES_PATH = '/'
-const DEFAULT_SNAPSHOT: NavigationSnapshot = {
-  surface: 'files',
-  files: {path: DEFAULT_FILES_PATH},
-  overlay: DEFAULT_OVERLAY,
-}
-const CLOSED_OVERLAY: ResolvedOverlayState = {kind: 'closed'}
-const DEFAULT_SEARCH_FILTERS: SearchFilters = {
-  query: '',
-  sortBy: 'name',
-  sortDirection: 'asc',
-  viewMode: 'list',
-  showHidden: false,
-  fileTypes: [],
-}
-
-function parentPath(path: string): string {
-  if (!path || path === '/') {
-    return '/'
-  }
-
-  const trimmed = path.endsWith('/') ? path.slice(0, -1) : path
-  const next = trimmed.substring(0, trimmed.lastIndexOf('/') + 1) || '/'
-  return next
-}
-
-function parentGroupPath(path: string): string | undefined {
-  const index = path.lastIndexOf('/')
-  if (index < 0) {
-    return undefined
-  }
-
-  const value = path.slice(0, index)
-  return value || undefined
-}
-
-function normalizeSnapshot(snapshot: NavigationSnapshot): NavigationSnapshot {
-  const normalized: NavigationSnapshot = {
-    surface: snapshot.surface,
-    overlay: snapshot.overlay ?? DEFAULT_OVERLAY,
-  }
-
-  if (snapshot.surface === 'files') {
-    normalized.files = {
-      path: snapshot.files?.path || DEFAULT_FILES_PATH,
+type ResolvedAudioOverlay = Extract<ResolvedOverlayState, {kind: 'audio'}>
+type OpenMarkdownDocumentOptions =
+  | string
+  | {
+      parentPath?: string
+      source?: MarkdownDocumentRouteSource
     }
-    if (
-      normalized.overlay?.kind !== 'details' &&
-      normalized.overlay?.kind !== 'gallery' &&
-      normalized.overlay?.kind !== 'video'
-    ) {
-      normalized.overlay = DEFAULT_OVERLAY
-    }
-  } else if (snapshot.surface === 'passwords') {
-    normalized.passwords = snapshot.passwords ?? {kind: 'root'}
-    normalized.overlay = DEFAULT_OVERLAY
-  } else {
-    normalized.overlay = DEFAULT_OVERLAY
+
+const logger = defaultLogger
+
+function defaultSurfaceHistoryMode(): Exclude<HistoryMode, 'none'> {
+  return isAndroidMobileRuntime() ? 'replace' : 'push'
+}
+
+function isAndroidMobileRuntime(): boolean {
+  const caps = getRuntimeCapabilities()
+  if (caps.platform === 'android' && caps.mobile) {
+    return true
   }
 
-  return normalized
-}
-
-function snapshotsEqual(a: NavigationSnapshot, b: NavigationSnapshot): boolean {
-  return JSON.stringify(normalizeSnapshot(a)) === JSON.stringify(normalizeSnapshot(b))
-}
-
-function shouldReplaceTransientPasswordsHistoryEntry(
-  previous: NavigationSnapshot,
-  next: NavigationSnapshot,
-): boolean {
-  return (
-    previous.surface === 'passwords' &&
-    next.surface === 'passwords' &&
-    ((previous.passwords?.kind === 'entry-edit' && next.passwords?.kind === 'entry') ||
-      (previous.passwords?.kind === 'create-entry' && next.passwords?.kind === 'entry') ||
-      (previous.passwords?.kind === 'create-group' && next.passwords?.kind === 'group'))
-  )
-}
-
-function historyIndexFromState(value: unknown): number {
-  if (!value || typeof value !== 'object') {
-    return 0
-  }
-
-  const raw = (value as Partial<HistoryState>).__chromvoidNavIndex
-  return Number.isFinite(raw) ? (raw as number) : 0
-}
-
-function historyGenerationFromState(value: unknown): number {
-  if (!value || typeof value !== 'object') {
-    return 0
-  }
-
-  const raw = (value as Partial<HistoryState>).__chromvoidNavGeneration
-  return Number.isFinite(raw) ? (raw as number) : 0
+  return isTauriRuntime() && typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
 }
 
 class NavigationModel {
-  readonly snapshot = state<NavigationSnapshot>(DEFAULT_SNAPSHOT)
+  readonly snapshot = atom<NavigationSnapshot>(DEFAULT_SNAPSHOT)
   readonly currentSurface = computed<SurfaceId>(() => this.snapshot().surface)
+  readonly remotePanel = computed<RemotePanel>(() => this.snapshot().remote?.panel ?? 'hosts')
   readonly filesPath = computed<string>(() => this.snapshot().files?.path || DEFAULT_FILES_PATH)
+  readonly activeMobileTab = computed<'files' | 'notes' | 'passwords' | 'otp'>(() => {
+    const snapshot = this.snapshot()
+    if (snapshot.surface === 'passwords' && snapshot.passwords?.kind === 'otp-view') {
+      return 'otp'
+    }
+
+    if (snapshot.surface === 'passwords') {
+      return 'passwords'
+    }
+
+    if (snapshot.surface === 'notes' || snapshot.files?.document?.originSurface === 'notes') {
+      return 'notes'
+    }
+
+    return 'files'
+  })
   readonly detailsFileId = computed<number | null>(() => {
     const snapshot = this.snapshot()
     if (snapshot.surface !== 'files' || snapshot.overlay?.kind !== 'details') {
@@ -140,28 +91,57 @@ class NavigationModel {
   })
   readonly isDetailsOpen = computed<boolean>(() => this.detailsFileId() !== null)
   readonly isDetailsHidden = computed<boolean>(() => this.currentSurface() !== 'files')
-  readonly mobileCommandSurface = computed<'files' | 'passwords' | 'none'>(() => {
+  readonly mobileCommandSurface = computed<'files' | 'notes' | 'passwords' | 'none'>(() => {
     const surface = this.currentSurface()
-    if (surface === 'files' || surface === 'passwords') {
+    if (surface === 'files' || surface === 'notes' || surface === 'passwords') {
       return surface
     }
 
     return 'none'
   })
 
-  private readonly catalogRevision = state(0)
-  private readonly overlayEvaluation = computed<OverlayEvaluation>(() => this.evaluateOverlay())
+  private readonly catalogRevision = atom(0)
+  private readonly overlayEvaluation = computed<OverlayEvaluation>(() =>
+    evaluateNavigationOverlay({
+      snapshot: this.snapshot(),
+      ctx: tryGetAppContext(),
+      catalogRevision: this.catalogRevision(),
+    }),
+  )
   readonly resolvedOverlay = computed<ResolvedOverlayState>(() => this.overlayEvaluation().resolved)
+  private readonly documentEvaluation = computed(() =>
+    evaluateNavigationDocument({
+      snapshot: this.snapshot(),
+      ctx: tryGetAppContext(),
+      catalogRevision: this.catalogRevision(),
+    }),
+  )
+  readonly resolvedDocument = computed<ResolvedFilesDocumentState>(() => this.documentEvaluation().resolved)
 
   private connected = false
-  private historyIndex = 0
-  private historyGeneration = 0
   private suppressExternalSync = 0
-  private scheduledExternalSync = false
-  private scheduledHistoryMode: Exclude<HistoryMode, 'none'> = 'push'
-
-  private readonly unsubscribers: Array<() => void> = []
+  private approvedNavigationIntent: NavigationBlockerIntent | null = null
+  private readonly navigationBlockers = new Set<NavigationBlocker>()
   private readonly surfaceBackHandlers = new Map<SurfaceId, SurfaceBackHandler>()
+  private readonly historyRuntime = new NavigationHistoryRuntime({
+    logger,
+    getSnapshot: () => this.snapshot(),
+    applySnapshot: (snapshot, historyMode, intentKind, resumeEffect) =>
+      this.applySnapshot(snapshot, historyMode, intentKind, resumeEffect),
+    consumeCurrentSurfaceBack: () => this.consumeCurrentSurfaceBack(),
+  })
+  private readonly externalSync = new NavigationExternalSync({
+    logger,
+    getSnapshot: () => this.snapshot(),
+    applySnapshot: (snapshot, historyMode) => this.applySnapshot(snapshot, historyMode),
+    withSuppressedExternalSync: (fn) => this.withSuppressedExternalSync(fn),
+    isExternalSyncSuppressed: () => this.suppressExternalSync > 0,
+    incrementCatalogRevision: () => this.catalogRevision.set(this.catalogRevision() + 1),
+    subscribeOverlayEvaluation: (listener) => this.overlayEvaluation.subscribe(listener),
+    subscribeDocumentEvaluation: (listener) => this.documentEvaluation.subscribe(listener),
+    syncInvalidOverlay: () => this.syncInvalidOverlay(),
+    syncInvalidDocument: () => this.syncInvalidDocument(),
+  })
 
   isConnected(): boolean {
     return this.connected
@@ -174,13 +154,13 @@ class NavigationModel {
 
     this.connected = true
     this.catalogRevision.set(0)
-    this.subscribeToExternalState()
-    window.addEventListener('popstate', this.handlePopState)
+    this.historyRuntime.initializeFromWindow()
 
-    const initial = decodeNavigationSnapshotFromUrl(window.location.href) ?? this.readExternalSnapshot()
-    this.historyIndex = historyIndexFromState(window.history.state)
-    this.historyGeneration = historyGenerationFromState(window.history.state)
+    const initial = decodeNavigationSnapshotFromUrl(window.location.href) ?? this.externalSync.readExternalSnapshot()
     this.applySnapshot(initial, 'replace')
+
+    this.externalSync.subscribeToExternalState()
+    window.addEventListener('popstate', this.historyRuntime.handlePopState)
   }
 
   disconnect(): void {
@@ -189,42 +169,33 @@ class NavigationModel {
     }
 
     this.connected = false
-    window.removeEventListener('popstate', this.handlePopState)
-    while (this.unsubscribers.length > 0) {
-      const unsubscribe = this.unsubscribers.pop()
-      try {
-        unsubscribe?.()
-      } catch {
-        // best-effort cleanup
-      }
-    }
+    window.removeEventListener('popstate', this.historyRuntime.handlePopState)
+    this.historyRuntime.clearSession()
+    this.externalSync.cleanupSubscriptions()
   }
 
-  attachPassmanager(root: typeof window.passmanager | undefined): void {
-    passmanagerNavigationController.attach(root)
-
-    const current = this.snapshot()
-    if (current.surface === 'passwords' && root) {
-      this.withSuppressedExternalSync(() => {
-        passmanagerNavigationController.applyRoute(current.passwords ?? {kind: 'root'})
-      })
-    }
+  attachPassmanager(root: ManagerRoot | undefined): void {
+    this.externalSync.attachPassmanager(root)
   }
 
   detachPassmanager(): void {
-    passmanagerNavigationController.detach()
+    this.externalSync.detachPassmanager()
   }
 
-  navigateToSurface(surface: SurfaceId): void {
+  navigateToSurface(
+    surface: SurfaceId,
+    historyMode: Exclude<HistoryMode, 'none'> = defaultSurfaceHistoryMode(),
+  ): void {
     const current = this.snapshot()
     if (surface === 'files') {
       this.applySnapshot(
         {
           surface,
-          files: {path: current.files?.path || this.readExternalFilesPath()},
+          files: {path: current.files?.path || this.externalSync.readExternalFilesPath(this.filesPath())},
           overlay: DEFAULT_OVERLAY,
         },
-        'push',
+        historyMode,
+        'surface-change',
       )
       return
     }
@@ -236,12 +207,42 @@ class NavigationModel {
           passwords: {kind: 'root'},
           overlay: DEFAULT_OVERLAY,
         },
-        'push',
+        historyMode,
+        'surface-change',
       )
       return
     }
 
-    this.applySnapshot({surface, overlay: DEFAULT_OVERLAY}, 'push')
+    if (surface === 'notes') {
+      this.applySnapshot(
+        {
+          surface,
+          overlay: DEFAULT_OVERLAY,
+        },
+        historyMode,
+        'surface-change',
+      )
+      return
+    }
+
+    if (surface === 'remote') {
+      this.applySnapshot({surface, remote: {panel: 'hosts'}, overlay: DEFAULT_OVERLAY}, historyMode, 'surface-change')
+      return
+    }
+
+    this.applySnapshot({surface, overlay: DEFAULT_OVERLAY}, historyMode, 'surface-change')
+  }
+
+  navigateToRemotePanel(panel: RemotePanel, historyMode: Exclude<HistoryMode, 'none'> = 'push'): void {
+    this.applySnapshot(
+      {
+        surface: 'remote',
+        remote: {panel},
+        overlay: DEFAULT_OVERLAY,
+      },
+      historyMode,
+      'surface-change',
+    )
   }
 
   navigateFilesPath(path: string, historyMode: Exclude<HistoryMode, 'none'> = 'push'): void {
@@ -252,11 +253,63 @@ class NavigationModel {
         overlay: DEFAULT_OVERLAY,
       },
       historyMode,
+      'path-change',
     )
   }
 
-  openDetails(fileId: number, historyMode: Exclude<HistoryMode, 'none'> = 'push'): void {
-    const path = this.currentSurface() === 'files' ? this.filesPath() : this.readExternalFilesPath()
+  openMarkdownDocument(
+    fileId: number,
+    historyMode: Exclude<HistoryMode, 'none'> = 'push',
+    options?: OpenMarkdownDocumentOptions,
+  ): void {
+    const parentPath = typeof options === 'string' ? options : options?.parentPath
+    const source = typeof options === 'string' ? undefined : options?.source
+    const originSurface = this.currentSurface() === 'notes' ? 'notes' : undefined
+    const path =
+      parentPath ??
+      (this.currentSurface() === 'files'
+        ? this.filesPath()
+        : this.externalSync.readExternalFilesPath(this.filesPath()))
+    this.applySnapshot(
+      {
+        surface: 'files',
+        files: {
+          path,
+          document: {
+            kind: 'markdown',
+            fileId,
+            ...(originSurface ? {originSurface} : {}),
+            ...(source ? {source} : {}),
+          },
+        },
+        overlay: DEFAULT_OVERLAY,
+      },
+      historyMode,
+      'open-document',
+    )
+  }
+
+  closeFilesDocument(historyMode: Exclude<HistoryMode, 'none'> = 'push'): void {
+    const current = this.snapshot()
+    if (current.surface !== 'files' || !current.files?.document) {
+      return
+    }
+
+    this.applySnapshot(
+      {
+        surface: 'files',
+        files: {path: current.files.path || DEFAULT_FILES_PATH},
+        overlay: DEFAULT_OVERLAY,
+      },
+      historyMode,
+      'close-document',
+    )
+  }
+
+  openDetails(fileId: number, historyMode: Exclude<HistoryMode, 'none'> = 'replace'): void {
+    const path = this.currentSurface() === 'files'
+      ? this.filesPath()
+      : this.externalSync.readExternalFilesPath(this.filesPath())
     this.applySnapshot(
       {
         surface: 'files',
@@ -264,11 +317,14 @@ class NavigationModel {
         overlay: {kind: 'details', fileId},
       },
       historyMode,
+      'open-overlay',
     )
   }
 
-  openGallery(fileId: number, historyMode: Exclude<HistoryMode, 'none'> = 'push'): void {
-    const path = this.currentSurface() === 'files' ? this.filesPath() : this.readExternalFilesPath()
+  openGallery(fileId: number, historyMode: Exclude<HistoryMode, 'none'> = 'replace'): void {
+    const path = this.currentSurface() === 'files'
+      ? this.filesPath()
+      : this.externalSync.readExternalFilesPath(this.filesPath())
     this.applySnapshot(
       {
         surface: 'files',
@@ -276,11 +332,29 @@ class NavigationModel {
         overlay: {kind: 'gallery', fileId},
       },
       historyMode,
+      'open-overlay',
     )
   }
 
-  openVideo(fileId: number, historyMode: Exclude<HistoryMode, 'none'> = 'push'): void {
-    const path = this.currentSurface() === 'files' ? this.filesPath() : this.readExternalFilesPath()
+  openPreview(fileId: number, historyMode: Exclude<HistoryMode, 'none'> = 'replace'): void {
+    const path = this.currentSurface() === 'files'
+      ? this.filesPath()
+      : this.externalSync.readExternalFilesPath(this.filesPath())
+    this.applySnapshot(
+      {
+        surface: 'files',
+        files: {path},
+        overlay: {kind: 'preview', fileId},
+      },
+      historyMode,
+      'open-overlay',
+    )
+  }
+
+  openVideo(fileId: number, historyMode: Exclude<HistoryMode, 'none'> = 'replace'): void {
+    const path = this.currentSurface() === 'files'
+      ? this.filesPath()
+      : this.externalSync.readExternalFilesPath(this.filesPath())
     this.applySnapshot(
       {
         surface: 'files',
@@ -288,10 +362,43 @@ class NavigationModel {
         overlay: {kind: 'video', fileId},
       },
       historyMode,
+      'open-overlay',
     )
   }
 
-  closeOverlay(historyMode: Exclude<HistoryMode, 'none'> = 'push'): void {
+  openAudio(fileId: number, historyMode: Exclude<HistoryMode, 'none'> = 'replace'): void {
+    const path = this.currentSurface() === 'files'
+      ? this.filesPath()
+      : this.externalSync.readExternalFilesPath(this.filesPath())
+    this.applySnapshot(
+      {
+        surface: 'files',
+        files: {path},
+        overlay: {kind: 'audio', fileId},
+      },
+      historyMode,
+      'open-overlay',
+    )
+  }
+
+  resolveAudio(fileId: number): ResolvedAudioOverlay | null {
+    const path = this.currentSurface() === 'files'
+      ? this.filesPath()
+      : this.externalSync.readExternalFilesPath(this.filesPath())
+    const evaluation = evaluateNavigationOverlay({
+      snapshot: {
+        surface: 'files',
+        files: {path},
+        overlay: {kind: 'audio', fileId},
+      },
+      ctx: tryGetAppContext(),
+      catalogRevision: this.catalogRevision(),
+    })
+
+    return evaluation.resolved.kind === 'audio' ? evaluation.resolved : null
+  }
+
+  closeOverlay(historyMode: Exclude<HistoryMode, 'none'> = 'replace'): void {
     const current = this.snapshot()
     if (current.overlay?.kind === 'none') {
       return
@@ -303,7 +410,31 @@ class NavigationModel {
         overlay: DEFAULT_OVERLAY,
       },
       historyMode,
+      'close-overlay',
     )
+  }
+
+  closeOverlayFromUi(): void {
+    const current = this.snapshot()
+    if (current.overlay?.kind === 'none') {
+      return
+    }
+
+    const closed = normalizeSnapshot({
+      ...current,
+      overlay: DEFAULT_OVERLAY,
+    })
+    const previous = this.historyRuntime.getPreviousSnapshot()
+    if (
+      this.historyRuntime.hasBrowserHistoryEntry() &&
+      previous &&
+      snapshotsEqual(previous, closed)
+    ) {
+      this.historyRuntime.back()
+      return
+    }
+
+    this.applySnapshot(closed, 'replace', 'close-overlay')
   }
 
   openPassmanagerRoute(route: PassmanagerRoute): void {
@@ -314,34 +445,50 @@ class NavigationModel {
         overlay: DEFAULT_OVERLAY,
       },
       'push',
+      'surface-change',
     )
   }
 
   goBack(): boolean {
-    const currentSurface = this.snapshot().surface
-    const surfaceBackHandler = this.surfaceBackHandlers.get(currentSurface)
-    if (surfaceBackHandler?.()) {
+    if (this.consumeCurrentSurfaceBack()) {
       return true
     }
 
-    if (typeof window !== 'undefined' && this.historyIndex > 0) {
-      window.history.back()
+    if (this.historyRuntime.hasBrowserHistoryEntry()) {
+      this.historyRuntime.back()
       return true
     }
 
-    const fallback = this.buildFallbackSnapshot(this.snapshot())
-    if (!fallback || snapshotsEqual(fallback, this.snapshot())) {
+    const current = this.snapshot()
+    const fallback = buildFallbackSnapshot(
+      current,
+      () => this.externalSync.readExternalFilesPath(this.filesPath()),
+    )
+    if (!fallback || snapshotsEqual(fallback, current)) {
       return false
     }
 
-    this.applySnapshot(fallback, 'replace')
+    this.applySnapshot(fallback, 'replace', 'ui-back')
+    return true
+  }
+
+  goBackFromUi(): boolean {
+    const current = this.snapshot()
+    if (this.consumeCurrentSurfaceBack()) {
+      return true
+    }
+
+    const fallback = buildHierarchyFallbackSnapshot(current)
+    if (!fallback || snapshotsEqual(fallback, current)) {
+      return false
+    }
+
+    this.applySnapshot(fallback, 'replace', 'ui-back')
     return true
   }
 
   reset(): void {
-    this.historyGeneration += 1
-    this.historyIndex = 0
-    this.applySnapshot(DEFAULT_SNAPSHOT, 'replace')
+    this.historyRuntime.resetToSnapshot(DEFAULT_SNAPSHOT)
   }
 
   registerSurfaceBackHandler(surface: SurfaceId, handler: SurfaceBackHandler): () => void {
@@ -353,348 +500,106 @@ class NavigationModel {
     }
   }
 
+  registerNavigationBlocker(blocker: NavigationBlocker): () => void {
+    this.navigationBlockers.add(blocker)
+    return () => {
+      this.navigationBlockers.delete(blocker)
+    }
+  }
+
   syncFromExternal(historyMode: Exclude<HistoryMode, 'none'> = 'push'): void {
-    if (this.suppressExternalSync > 0) {
-      return
-    }
-
-    const current = this.snapshot()
-    const next = this.readExternalSnapshot()
-    if (snapshotsEqual(next, current)) {
-      return
-    }
-
-    const effectiveHistoryMode =
-      historyMode === 'push' && shouldReplaceTransientPasswordsHistoryEntry(current, next)
-        ? 'replace'
-        : historyMode
-
-    this.applySnapshot(next, effectiveHistoryMode)
+    this.externalSync.syncFromExternal(historyMode)
   }
 
-  private subscribeToExternalState(): void {
-    const ctx = tryGetAppContext()
-    const catalog = ctx?.catalog?.catalog
-    const schedule = (mode: Exclude<HistoryMode, 'none'> = 'push') => this.scheduleExternalSync(mode)
-
-    if (catalog?.subscribe) {
-      this.unsubscribers.push(
-        catalog.subscribe(() => {
-          this.catalogRevision.set(this.catalogRevision() + 1)
-        }),
-      )
-    }
-
-    this.unsubscribers.push(passmanagerNavigationController.subscribe(() => schedule('push')))
-    this.unsubscribers.push(
-      this.overlayEvaluation.subscribe(() => {
-        this.syncInvalidOverlay()
-      }),
-    )
-  }
-
-  private scheduleExternalSync(mode: Exclude<HistoryMode, 'none'>): void {
-    if (this.suppressExternalSync > 0) {
-      return
-    }
-
-    if (mode === 'push') {
-      this.scheduledHistoryMode = 'push'
-    }
-
-    if (this.scheduledExternalSync) {
-      return
-    }
-
-    this.scheduledExternalSync = true
-    queueMicrotask(() => {
-      this.scheduledExternalSync = false
-      const nextMode = this.scheduledHistoryMode
-      this.scheduledHistoryMode = 'push'
-      this.syncFromExternal(nextMode)
-    })
-  }
-
-  private readExternalSnapshot(): NavigationSnapshot {
-    const current = this.snapshot()
-
-    if (current.surface === 'passwords') {
-      const route: PassmanagerRoute =
-        window.passmanager != null
-          ? passmanagerNavigationController.readRoute()
-          : current.passwords ?? {kind: 'root'}
-
-      return normalizeSnapshot({
-        surface: 'passwords',
-        passwords: route,
-        overlay: DEFAULT_OVERLAY,
-      })
-    }
-
-    if (current.surface === 'files') {
-      return normalizeSnapshot({
-        surface: 'files',
-        files: {path: this.readExternalFilesPath()},
-        overlay: this.readExternalFilesOverlay(current.overlay),
-      })
-    }
-
-    return current
-  }
-
-  private readExternalFilesPath(): string {
-    const ctx = tryGetAppContext()
-    return ctx?.store.currentPath?.() || this.filesPath() || DEFAULT_FILES_PATH
-  }
-
-  private readExternalFilesOverlay(currentOverlay: OverlayRoute | undefined): OverlayRoute {
-    if (currentOverlay?.kind === 'gallery' || currentOverlay?.kind === 'video') {
-      return currentOverlay
-    }
-
-    const ctx = tryGetAppContext()
-    const fileId = ctx?.store.detailsPanelFileId?.()
-    if (typeof fileId === 'number' && Number.isFinite(fileId)) {
-      return {kind: 'details', fileId}
-    }
-
-    return DEFAULT_OVERLAY
-  }
-
-  private applySnapshot(snapshot: NavigationSnapshot, historyMode: HistoryMode): void {
+  private applySnapshot(
+    snapshot: NavigationSnapshot,
+    historyMode: HistoryMode,
+    intentKind: NavigationIntentKind = 'surface-change',
+    resumeEffect?: () => void,
+  ): boolean {
     const next = normalizeSnapshot(snapshot)
     const current = this.snapshot()
+    const intent: NavigationBlockerIntent = {
+      kind: intentKind,
+      current,
+      next,
+      historyMode,
+    }
+
+    if (this.consumeApprovedNavigationIntent(intent)) {
+      this.commitSnapshot(next, historyMode)
+      return true
+    }
+
+    if (this.consumeNavigationBlocker(intent, resumeEffect)) {
+      return false
+    }
+
+    this.commitSnapshot(next, historyMode)
+    return true
+  }
+
+  private commitSnapshot(next: NavigationSnapshot, historyMode: HistoryMode): void {
+    const previous = this.snapshot()
 
     this.withSuppressedExternalSync(() => {
-      this.applySnapshotToExternal(next)
+      this.externalSync.applySnapshotToExternal(next)
       this.snapshot.set(next)
     })
 
-    this.syncHistory(next, current, historyMode)
+    this.historyRuntime.syncHistory(next, previous, historyMode)
   }
 
-  private applySnapshotToExternal(snapshot: NavigationSnapshot): void {
-    const {store} = getAppContext()
-
-    store.showRemoteStoragePage?.set(false)
-    store.showGatewayPage?.set(false)
-    store.showRemotePage?.set(false)
-    store.showSettingsPage?.set(false)
-    store.showNetworkPairPage?.set(false)
-    store.isShowPasswordManager?.set(false)
-    store.detailsPanelFileId?.set(null)
-
-    switch (snapshot.surface) {
-      case 'files':
-        store.currentPath?.set(snapshot.files?.path || DEFAULT_FILES_PATH)
-        if (snapshot.overlay?.kind === 'details') {
-          store.detailsPanelFileId?.set(snapshot.overlay.fileId)
-        }
-        break
-      case 'passwords':
-        store.isShowPasswordManager?.set(true)
-        if (window.passmanager) {
-          passmanagerNavigationController.applyRoute(snapshot.passwords ?? {kind: 'root'})
-        }
-        break
-      case 'settings':
-        store.showSettingsPage?.set(true)
-        break
-      case 'remote':
-        store.showRemotePage?.set(true)
-        break
-      case 'gateway':
-        store.showGatewayPage?.set(true)
-        break
-      case 'remote-storage':
-        store.showRemoteStoragePage?.set(true)
-        break
-      case 'network-pair':
-        store.showNetworkPairPage?.set(true)
-        break
+  private consumeNavigationBlocker(
+    intent: NavigationBlockerIntent,
+    resumeEffect: (() => void) | undefined,
+  ): boolean {
+    if (this.navigationBlockers.size === 0) {
+      return false
     }
+
+    let resumed = false
+    const resume = () => {
+      if (resumed) {
+        return
+      }
+      resumed = true
+      this.approvedNavigationIntent = intent
+      if (resumeEffect) {
+        resumeEffect()
+        return
+      }
+      this.applySnapshot(intent.next, intent.historyMode, intent.kind)
+    }
+
+    for (const blocker of this.navigationBlockers) {
+      if (blocker(intent, resume)) {
+        return true
+      }
+    }
+
+    return false
   }
 
-  private syncHistory(next: NavigationSnapshot, previous: NavigationSnapshot, historyMode: HistoryMode): void {
-    if (typeof window === 'undefined' || historyMode === 'none') {
-      return
+  private consumeApprovedNavigationIntent(intent: NavigationBlockerIntent): boolean {
+    const approved = this.approvedNavigationIntent
+    if (
+      !approved ||
+      approved.kind !== intent.kind ||
+      approved.historyMode !== intent.historyMode ||
+      !snapshotsEqual(approved.current, intent.current) ||
+      !snapshotsEqual(approved.next, intent.next)
+    ) {
+      return false
     }
 
-    const nextUrl = encodeNavigationSnapshotToUrl(next, window.location.href)
-    const prevUrl = encodeNavigationSnapshotToUrl(previous, window.location.href)
-    const changed = !snapshotsEqual(next, previous) || nextUrl !== prevUrl
-
-    if (!changed && historyMode === 'push') {
-      return
-    }
-
-    if (historyMode === 'replace') {
-      window.history.replaceState(this.buildHistoryState(this.historyIndex), '', nextUrl)
-      return
-    }
-
-    this.historyIndex += 1
-    window.history.pushState(this.buildHistoryState(this.historyIndex), '', nextUrl)
+    this.approvedNavigationIntent = null
+    return true
   }
 
-  private buildHistoryState(index: number): HistoryState {
-    return {
-      __chromvoidNavIndex: index,
-      __chromvoidNavGeneration: this.historyGeneration,
-    }
-  }
-
-  private buildFallbackSnapshot(snapshot: NavigationSnapshot): NavigationSnapshot | null {
-    if (snapshot.overlay?.kind && snapshot.overlay.kind !== 'none') {
-      return normalizeSnapshot({
-        ...snapshot,
-        overlay: DEFAULT_OVERLAY,
-      })
-    }
-
-    if (snapshot.surface === 'files') {
-      const path = snapshot.files?.path || DEFAULT_FILES_PATH
-      if (path !== DEFAULT_FILES_PATH) {
-        return normalizeSnapshot({
-          surface: 'files',
-          files: {path: parentPath(path)},
-          overlay: DEFAULT_OVERLAY,
-        })
-      }
-      return null
-    }
-
-    if (snapshot.surface === 'passwords') {
-      const route = snapshot.passwords ?? {kind: 'root'}
-      switch (route.kind) {
-        case 'entry-edit':
-          return normalizeSnapshot({
-            surface: 'passwords',
-            passwords: {kind: 'entry', entryId: route.entryId, groupPath: route.groupPath},
-            overlay: DEFAULT_OVERLAY,
-          })
-        case 'entry':
-          return normalizeSnapshot({
-            surface: 'passwords',
-            passwords: route.groupPath ? {kind: 'group', groupPath: route.groupPath} : {kind: 'root'},
-            overlay: DEFAULT_OVERLAY,
-          })
-        case 'group': {
-          const nextParent = parentGroupPath(route.groupPath)
-          return normalizeSnapshot({
-            surface: 'passwords',
-            passwords: nextParent ? {kind: 'group', groupPath: nextParent} : {kind: 'root'},
-            overlay: DEFAULT_OVERLAY,
-          })
-        }
-        case 'create-entry':
-          return normalizeSnapshot({
-            surface: 'passwords',
-            passwords: route.targetGroupPath ? {kind: 'group', groupPath: route.targetGroupPath} : {kind: 'root'},
-            overlay: DEFAULT_OVERLAY,
-          })
-        case 'create-group':
-        case 'import':
-          return normalizeSnapshot({
-            surface: 'passwords',
-            passwords: {kind: 'root'},
-            overlay: DEFAULT_OVERLAY,
-          })
-        case 'root':
-          return normalizeSnapshot({
-            surface: 'files',
-            files: {path: this.readExternalFilesPath()},
-            overlay: DEFAULT_OVERLAY,
-          })
-      }
-    }
-
-    return normalizeSnapshot({
-      surface: 'files',
-      files: {path: this.readExternalFilesPath()},
-      overlay: DEFAULT_OVERLAY,
-    })
-  }
-
-  private withSuppressedExternalSync<T>(fn: () => T): T {
-    this.suppressExternalSync++
-    try {
-      return fn()
-    } finally {
-      this.suppressExternalSync--
-    }
-  }
-
-  private evaluateOverlay(): OverlayEvaluation {
-    const snapshot = this.snapshot()
-    const overlay = snapshot.overlay ?? DEFAULT_OVERLAY
-
-    if (snapshot.surface !== 'files' || overlay.kind === 'none') {
-      return {resolved: CLOSED_OVERLAY, shouldCanonicalize: false}
-    }
-
-    if (overlay.kind === 'details') {
-      return {
-        resolved: {kind: 'details', fileId: overlay.fileId},
-        shouldCanonicalize: false,
-      }
-    }
-
-    const ctx = tryGetAppContext()
-    const store = ctx?.store
-    const catalog = ctx?.catalog
-    const path = snapshot.files?.path || DEFAULT_FILES_PATH
-    const filters = store?.searchFilters?.() ?? DEFAULT_SEARCH_FILTERS
-    const syncing = Boolean(catalog?.syncing?.())
-    const revision = this.catalogRevision()
-    const pathKnown = this.isCatalogPathKnown(path)
-    const pending = syncing || (!pathKnown && revision === 0)
-
-    if (overlay.kind === 'gallery') {
-      const images = this.getGalleryImages(path, filters)
-      const index = images.findIndex((image) => image.id === overlay.fileId)
-      if (index >= 0) {
-        return {
-          resolved: {
-            kind: 'gallery',
-            fileId: overlay.fileId,
-            images,
-            index,
-          },
-          shouldCanonicalize: false,
-        }
-      }
-
-      if (pending) {
-        return {
-          resolved: {kind: 'pending', requestedKind: 'gallery', fileId: overlay.fileId},
-          shouldCanonicalize: false,
-        }
-      }
-
-      return {resolved: CLOSED_OVERLAY, shouldCanonicalize: true}
-    }
-
-    const fileName = this.getVideoFileName(path, overlay.fileId, filters)
-    if (fileName) {
-      return {
-        resolved: {
-          kind: 'video',
-          fileId: overlay.fileId,
-          fileName,
-        },
-        shouldCanonicalize: false,
-      }
-    }
-
-    if (pending) {
-      return {
-        resolved: {kind: 'pending', requestedKind: 'video', fileId: overlay.fileId},
-        shouldCanonicalize: false,
-      }
-    }
-
-    return {resolved: CLOSED_OVERLAY, shouldCanonicalize: true}
+  private consumeCurrentSurfaceBack(): boolean {
+    const currentSurface = this.snapshot().surface
+    return this.surfaceBackHandlers.get(currentSurface)?.() ?? false
   }
 
   private syncInvalidOverlay(): void {
@@ -704,10 +609,17 @@ class NavigationModel {
 
     const evaluation = this.overlayEvaluation()
     const current = this.snapshot()
+    if (evaluation.canonicalSnapshot) {
+      this.applySnapshot(evaluation.canonicalSnapshot, 'replace', 'open-document')
+      return
+    }
+
     if (
       !evaluation.shouldCanonicalize ||
       current.surface !== 'files' ||
-      (current.overlay?.kind !== 'gallery' && current.overlay?.kind !== 'video')
+      (current.overlay?.kind !== 'gallery' &&
+        current.overlay?.kind !== 'preview' &&
+        current.overlay?.kind !== 'video')
     ) {
       return
     }
@@ -718,82 +630,39 @@ class NavigationModel {
         overlay: DEFAULT_OVERLAY,
       },
       'replace',
+      'close-overlay',
     )
   }
 
-  private isCatalogPathKnown(path: string): boolean {
-    const catalog = tryGetAppContext()?.catalog?.catalog
-    if (!catalog) {
-      return false
+  private syncInvalidDocument(): void {
+    if (this.suppressExternalSync > 0) {
+      return
     }
 
-    if (typeof catalog.findByPath === 'function' && catalog.findByPath(path)) {
-      return true
+    const evaluation = this.documentEvaluation()
+    const current = this.snapshot()
+    if (!evaluation.shouldCanonicalize || current.surface !== 'files' || !current.files?.document) {
+      return
     }
 
-    if (path === '/' && typeof catalog.getChildren === 'function') {
-      return Array.isArray(catalog.getChildren('/'))
-    }
-
-    return false
+    this.applySnapshot(
+      {
+        surface: 'files',
+        files: {path: current.files.path || DEFAULT_FILES_PATH},
+        overlay: DEFAULT_OVERLAY,
+      },
+      'replace',
+      'close-document',
+    )
   }
 
-  private getGalleryImages(path: string, filters: SearchFilters): ResolvedGalleryImage[] {
-    const children = this.getCatalogChildren(path)
-    return children
-      .filter((node) => {
-        if (node?.isDir) return false
-        if (!isImageFile(String(node?.name ?? ''))) return false
-        if (!filters.showHidden && String(node?.name ?? '').startsWith('.')) return false
-        return true
-      })
-      .map((node) => ({
-        id: Number(node.nodeId),
-        name: String(node.name ?? ''),
-      }))
-  }
-
-  private getVideoFileName(path: string, fileId: number, filters: SearchFilters): string {
-    const children = this.getCatalogChildren(path)
-    const match = children.find((node) => {
-      if (node?.isDir) return false
-      if (Number(node?.nodeId) !== fileId) return false
-      if (!isVideoFile(String(node?.name ?? ''))) return false
-      if (!filters.showHidden && String(node?.name ?? '').startsWith('.')) return false
-      return true
-    })
-
-    return match?.name ? String(match.name) : ''
-  }
-
-  private getCatalogChildren(path: string): any[] {
+  private withSuppressedExternalSync<T>(fn: () => T): T {
+    this.suppressExternalSync++
     try {
-      const children = tryGetAppContext()?.catalog?.catalog?.getChildren?.(path)
-      return Array.isArray(children) ? children : []
-    } catch {
-      return []
+      return fn()
+    } finally {
+      this.suppressExternalSync--
     }
-  }
-
-  private restoreCurrentHistoryEntry(): void {
-    if (typeof window === 'undefined') {
-      return
-    }
-
-    const url = encodeNavigationSnapshotToUrl(this.snapshot(), window.location.href)
-    window.history.replaceState(this.buildHistoryState(this.historyIndex), '', url)
-  }
-
-  private readonly handlePopState = (event: PopStateEvent) => {
-    const stateGeneration = historyGenerationFromState(event.state)
-    if (stateGeneration !== this.historyGeneration) {
-      this.restoreCurrentHistoryEntry()
-      return
-    }
-
-    const decoded = decodeNavigationSnapshotFromUrl(window.location.href) ?? DEFAULT_SNAPSHOT
-    this.historyIndex = historyIndexFromState(event.state)
-    this.applySnapshot(decoded, 'none')
   }
 }
 

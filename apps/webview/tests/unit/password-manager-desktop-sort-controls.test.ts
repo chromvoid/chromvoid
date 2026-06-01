@@ -1,20 +1,26 @@
-import {state} from '@statx/core'
-import {XLitElement} from '@statx/lit'
 import {Entry, Group, filterValue, quickFilters} from '@project/passmanager'
+import {ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {html, nothing} from 'lit'
 
 import {afterEach, describe, expect, it} from 'vitest'
 
+import {atom} from '@reatom/core'
 import {PMGroupModel} from '../../src/features/passmanager/components/group/group'
 import {PMSearch} from '../../src/features/passmanager/components/list/search'
-import {groupBy, sortDirection, sortField, SortControls} from '../../src/features/passmanager/components/list/sort-controls'
-import {PasswordManagerDesktopLayout} from '../../src/features/passmanager/components/password-manager-desktop-layout'
+import {
+  groupBy,
+  sortDirection,
+  sortField,
+  SortControls,
+} from '../../src/features/passmanager/components/list/sort-controls'
+import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
+import {PasswordManagerDesktopLayout} from '../../src/features/passmanager/components/password-manager-layout/password-manager-desktop-layout'
 
 type PassmanagerMock = {
   id: string
-  showElement: ReturnType<typeof state<any>>
-  isLoading: ReturnType<typeof state<boolean>>
-  isReadOnly: ReturnType<typeof state<boolean>>
+  showElement: ReturnType<typeof atom<any>>
+  isLoading: ReturnType<typeof atom<boolean>>
+  isReadOnly: ReturnType<typeof atom<boolean>>
   entriesList: () => Array<Entry | Group>
   getCardByID: (id: string) => Entry | Group | undefined
 }
@@ -28,7 +34,7 @@ class FakeEntryListItem extends HTMLElement {
   focusRow() {}
 }
 
-class TestPMGroup extends XLitElement {
+class TestPMGroup extends ReatomLitElement {
   protected readonly model = new PMGroupModel()
 
   private getGroupLabel(group: Group) {
@@ -48,13 +54,17 @@ class TestPMGroup extends XLitElement {
         ${rows.map((row) => {
           switch (row.kind) {
             case 'group':
-              return html`<div class="group-row-wrap"><span class="group-name">${this.getGroupLabel(row.item)}</span></div>`
+              return html`<div class="group-row-wrap">
+                <span class="group-name">${this.getGroupLabel(row.item)}</span>
+              </div>`
             case 'header':
               return html`<div class="group-header-row">
                 <div class="group-header">${row.label} <span class="group-count">${row.count}</span></div>
               </div>`
             case 'entry':
-              return html`<div class="entry-row"><pm-entry-list-item .entry=${row.item}></pm-entry-list-item></div>`
+              return html`<div class="entry-row">
+                <pm-entry-list-item .entry=${row.item}></pm-entry-list-item>
+              </div>`
           }
         })}
       </div>
@@ -118,27 +128,27 @@ function createGroup(name: string, entries: Entry[] = []) {
   } as any)
 }
 
-function createEntry(
-  parent: unknown,
-  input: {id: string; title: string; website?: string},
-): Entry {
-  return new Entry(parent as any, {
-    id: input.id,
-    title: input.title,
-    username: '',
-    urls: input.website ? [{value: input.website, match: 'host'}] : [],
-    createdTs: Date.now(),
-    updatedTs: Date.now(),
-    otps: [],
-  } as any)
+function createEntry(parent: unknown, input: {id: string; title: string; website?: string}): Entry {
+  return new Entry(
+    parent as any,
+    {
+      id: input.id,
+      title: input.title,
+      username: '',
+      urls: input.website ? [{value: input.website, match: 'host'}] : [],
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+      otps: [],
+    } as any,
+  )
 }
 
 function createPassmanager(currentGroup: Group, items: Array<Entry | Group>): PassmanagerMock {
   return {
     id: 'pm-desktop-layout-test',
-    showElement: state<any>(currentGroup),
-    isLoading: state(false),
-    isReadOnly: state(false),
+    showElement: atom<any>(currentGroup),
+    isLoading: atom(false),
+    isReadOnly: atom(false),
     entriesList: () => items,
     getCardByID: (id: string) => items.find((item) => item.id === id),
   }
@@ -173,6 +183,7 @@ describe('PasswordManagerDesktopLayout sort controls', () => {
   afterEach(() => {
     document.querySelectorAll('password-manager-desktop-layout').forEach((el) => el.remove())
     ;(window as any).passmanager = originalPassmanager
+    setPassmanagerRoot(undefined)
     localStorage.clear()
     filterValue.set('')
     quickFilters.set([])
@@ -200,6 +211,7 @@ describe('PasswordManagerDesktopLayout sort controls', () => {
 
     const childGroup = createGroup('Parent/Child')
     ;(window as any).passmanager = createPassmanager(currentGroup, [currentGroup, childGroup])
+    setPassmanagerRoot((window as any).passmanager)
 
     const layout = document.createElement('password-manager-desktop-layout') as PasswordManagerDesktopLayout
     document.body.appendChild(layout)
@@ -231,7 +243,23 @@ describe('PasswordManagerDesktopLayout sort controls', () => {
 
     expect(getGroupRows(layout)).toEqual(['group:Child', 'entry:Zulu', 'entry:Alpha'])
 
-    ;(selects[0] as HTMLElement | undefined)?.dispatchEvent(
+    const directionButton = controls?.shadowRoot?.querySelector(
+      '.direction-button',
+    ) as HTMLButtonElement | null
+    expect(directionButton).not.toBeNull()
+
+    directionButton?.click()
+    await flush(controls!)
+    await flush(layout)
+
+    const updatedDirectionButton = controls?.shadowRoot?.querySelector(
+      '.direction-button',
+    ) as HTMLButtonElement | null
+    expect(updatedDirectionButton?.getAttribute('aria-pressed')).toBe('true')
+    expect(getGroupRows(layout)).toEqual(['group:Child', 'entry:Alpha', 'entry:Zulu'])
+
+    const updatedSelects = controls?.shadowRoot?.querySelectorAll('cv-select') ?? []
+    ;(updatedSelects[0] as HTMLElement | undefined)?.dispatchEvent(
       new CustomEvent('cv-change', {
         detail: {value: 'website'},
         bubbles: true,

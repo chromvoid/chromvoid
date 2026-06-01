@@ -20,14 +20,15 @@
 mod common;
 
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
-use chromvoid_lib::network::mobile_acceptor::{AcceptorState, MobileAcceptor};
+use chromvoid_lib::network::mobile_acceptor::{
+    AcceptorState, MobileAcceptor, MobileAcceptorRuntimeState,
+};
 use chromvoid_lib::network::paired_peers::PairedPeerStore;
 use chromvoid_lib::network::pairing;
 use chromvoid_lib::{
-    bootstrap_sync, choose_reconnect_strategy, current_cursor, is_sync_active, reset_sync_state,
-    trigger_reconnect_sync, ConnectionState, CoreAdapter, CoreMode, LocalCoreAdapter,
-    ModeTransition, ReconnectStrategy, RemoteCoreAdapter, RemoteHost, SyncCursor, SyncState,
-    WriterLockInfo,
+    choose_reconnect_strategy, ConnectionState, CoreAdapter, CoreMode, LocalCoreAdapter,
+    ModeTransition, ReconnectStrategy, RemoteCoreAdapter, RemoteHost, SyncCursor, SyncRuntimeState,
+    SyncState, WriterLockInfo,
 };
 use serde_json::json;
 use std::time::Instant;
@@ -38,6 +39,38 @@ fn now_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+fn reset_sync_state(sync_runtime: &SyncRuntimeState) {
+    sync_runtime.reset().expect("sync runtime reset");
+}
+
+fn bootstrap_sync(sync_runtime: &SyncRuntimeState, version: u64, timestamp_ms: u64) {
+    sync_runtime
+        .bootstrap(version, timestamp_ms)
+        .expect("sync runtime bootstrap");
+}
+
+fn trigger_reconnect_sync(
+    sync_runtime: &SyncRuntimeState,
+    host_version: u64,
+    host_timestamp_ms: u64,
+) -> ReconnectStrategy {
+    sync_runtime
+        .trigger_reconnect(host_version, host_timestamp_ms)
+        .expect("sync runtime reconnect")
+}
+
+fn is_sync_active(sync_runtime: &SyncRuntimeState) -> bool {
+    sync_runtime.is_active().expect("sync runtime active state")
+}
+
+fn current_cursor(sync_runtime: &SyncRuntimeState) -> Option<SyncCursor> {
+    sync_runtime.current_cursor().expect("sync runtime cursor")
+}
+
+fn pairing_runtime() -> pairing::NetworkPairingRuntimeState {
+    pairing::NetworkPairingRuntimeState::new()
 }
 
 macro_rules! phase {
@@ -58,6 +91,8 @@ macro_rules! phase {
 #[test]
 fn e2e_desktop_mobile_thin_client() {
     let _test_start = Instant::now();
+    let sync_runtime = SyncRuntimeState::new();
+    let pairing_runtime = pairing_runtime();
     println!("\n╔══════════════════════════════════════════════════════════════╗");
     println!("║  E2E: Desktop ↔ Mobile Thin Client — Full Scenario         ║");
     println!("╚══════════════════════════════════════════════════════════════╝");
@@ -84,7 +119,9 @@ fn e2e_desktop_mobile_thin_client() {
     phase!(_test_start, 1, "Pairing — session creation + PIN exchange");
     // ═══════════════════════════════════════════════════════════════════
 
-    let pair_info = pairing::start_pairing("wss://relay.e2e-test");
+    let pair_info = pairing_runtime
+        .start_pairing("wss://relay.e2e-test")
+        .unwrap();
 
     // Validate session shape.
     assert_eq!(pair_info.pin.len(), 6, "PIN must be exactly 6 digits");
@@ -120,7 +157,7 @@ fn e2e_desktop_mobile_thin_client() {
         "999999"
     };
     for attempt in 1..=3 {
-        let result = pairing::confirm_pairing(
+        let result = pairing_runtime.confirm_pairing(
             &pair_info.session_id,
             wrong_pin,
             "e2e-desktop-01",
@@ -140,7 +177,7 @@ fn e2e_desktop_mobile_thin_client() {
     println!("    ✓ 3 wrong PIN attempts correctly rejected");
 
     // ── Confirm with correct PIN ──
-    let confirm_result = pairing::confirm_pairing(
+    let confirm_result = pairing_runtime.confirm_pairing(
         &pair_info.session_id,
         &pair_info.pin,
         "e2e-desktop-01",
@@ -286,21 +323,24 @@ fn e2e_desktop_mobile_thin_client() {
     );
     // ═══════════════════════════════════════════════════════════════════
 
-    reset_sync_state();
+    reset_sync_state(&sync_runtime);
     assert!(
-        !is_sync_active(),
+        !is_sync_active(&sync_runtime),
         "sync must not be active before bootstrap"
     );
     assert!(
-        current_cursor().is_none(),
+        current_cursor(&sync_runtime).is_none(),
         "cursor must be None before bootstrap"
     );
 
     let bootstrap_ts = now_ms();
-    bootstrap_sync(0, bootstrap_ts);
+    bootstrap_sync(&sync_runtime, 0, bootstrap_ts);
 
-    assert!(is_sync_active(), "sync must be active after bootstrap");
-    let cursor = current_cursor().expect("cursor must be set after bootstrap");
+    assert!(
+        is_sync_active(&sync_runtime),
+        "sync must be active after bootstrap"
+    );
+    let cursor = current_cursor(&sync_runtime).expect("cursor must be set after bootstrap");
     assert_eq!(cursor.version, 0, "initial bootstrap version must be 0");
     assert_eq!(cursor.timestamp_ms, bootstrap_ts);
     println!("    ✓ Sync bootstrapped: version=0, subscribed=true");
@@ -312,16 +352,19 @@ fn e2e_desktop_mobile_thin_client() {
     // Simulate receiving deltas from Core Host: version advances 0 → 25 → 50 → 100.
     let delta_versions = [25u64, 50, 100];
     for &version in &delta_versions {
-        bootstrap_sync(version, now_ms());
-        let cursor = current_cursor().expect("cursor must exist");
+        bootstrap_sync(&sync_runtime, version, now_ms());
+        let cursor = current_cursor(&sync_runtime).expect("cursor must exist");
         assert_eq!(
             cursor.version, version,
             "cursor must advance to version {}",
             version
         );
     }
-    assert!(is_sync_active(), "sync must remain active during deltas");
-    let final_delta_cursor = current_cursor().unwrap();
+    assert!(
+        is_sync_active(&sync_runtime),
+        "sync must remain active during deltas"
+    );
+    let final_delta_cursor = current_cursor(&sync_runtime).unwrap();
     assert_eq!(final_delta_cursor.version, 100);
     println!("    ✓ Delta cursor advanced: 0 → 25 → 50 → 100");
 
@@ -366,30 +409,30 @@ fn e2e_desktop_mobile_thin_client() {
     // ═══════════════════════════════════════════════════════════════════
 
     // 7a: Small gap → Delta reconnect (gap = 10, well within threshold 500).
-    let strategy_delta = trigger_reconnect_sync(110, now_ms());
+    let strategy_delta = trigger_reconnect_sync(&sync_runtime, 110, now_ms());
     assert_eq!(
         strategy_delta,
         ReconnectStrategy::Delta,
         "small gap (10) must trigger Delta reconnect"
     );
-    let cursor = current_cursor().expect("cursor after delta reconnect");
+    let cursor = current_cursor(&sync_runtime).expect("cursor after delta reconnect");
     assert_eq!(cursor.version, 110);
-    assert!(is_sync_active());
+    assert!(is_sync_active(&sync_runtime));
     println!("    ✓ Reconnect with small gap (100→110): Delta strategy");
 
     // 7b: Large gap → FullResync (gap = 600, exceeds threshold 500).
-    let strategy_full = trigger_reconnect_sync(710, now_ms());
+    let strategy_full = trigger_reconnect_sync(&sync_runtime, 710, now_ms());
     assert_eq!(
         strategy_full,
         ReconnectStrategy::FullResync,
         "large gap (600) must trigger FullResync"
     );
-    let cursor = current_cursor().expect("cursor after full resync");
+    let cursor = current_cursor(&sync_runtime).expect("cursor after full resync");
     assert_eq!(cursor.version, 710);
     println!("    ✓ Reconnect with large gap (110→710): FullResync strategy");
 
     // 7c: After resync, small gap → back to Delta.
-    let strategy_after = trigger_reconnect_sync(715, now_ms());
+    let strategy_after = trigger_reconnect_sync(&sync_runtime, 715, now_ms());
     assert_eq!(strategy_after, ReconnectStrategy::Delta);
     println!("    ✓ Post-resync small gap (710→715): Delta strategy again");
 
@@ -469,7 +512,8 @@ fn e2e_desktop_mobile_thin_client() {
     // ═══════════════════════════════════════════════════════════════════
 
     // Verify acceptor can be stopped safely (idempotent).
-    let status = MobileAcceptor::stop();
+    let acceptor_runtime = MobileAcceptorRuntimeState::new();
+    let status = MobileAcceptor::stop(&acceptor_runtime).expect("acceptor stop");
     assert_eq!(
         status.state,
         AcceptorState::Idle,
@@ -481,7 +525,7 @@ fn e2e_desktop_mobile_thin_client() {
     println!("    ✓ MobileAcceptor.stop() is idempotent (Idle → Idle)");
 
     // Verify status returns valid state.
-    let status = MobileAcceptor::status();
+    let status = MobileAcceptor::status(&acceptor_runtime).expect("acceptor status");
     assert!(
         matches!(
             status.state,
@@ -517,22 +561,22 @@ fn e2e_desktop_mobile_thin_client() {
 
     // Before switching: sync is still active from phase 7.
     assert!(
-        is_sync_active(),
+        is_sync_active(&sync_runtime),
         "sync must still be active before local switch"
     );
     assert!(
-        current_cursor().is_some(),
+        current_cursor(&sync_runtime).is_some(),
         "cursor must exist before local switch"
     );
 
     // Clear sync state (simulating mode_switch to Local).
-    reset_sync_state();
+    reset_sync_state(&sync_runtime);
     assert!(
-        !is_sync_active(),
+        !is_sync_active(&sync_runtime),
         "sync must be inactive after local switch"
     );
     assert!(
-        current_cursor().is_none(),
+        current_cursor(&sync_runtime).is_none(),
         "cursor must be None after local switch"
     );
     println!("    ✓ Sync state cleared on Local switch");
@@ -592,7 +636,9 @@ fn e2e_desktop_mobile_thin_client() {
     // ═══════════════════════════════════════════════════════════════════
 
     // Pair a second device to verify the flow is re-entrant.
-    let pair_info2 = pairing::start_pairing("wss://relay.e2e-test");
+    let pair_info2 = pairing_runtime
+        .start_pairing("wss://relay.e2e-test")
+        .unwrap();
     assert_ne!(
         pair_info2.session_id, pair_info.session_id,
         "second session must have unique ID"
@@ -602,7 +648,7 @@ fn e2e_desktop_mobile_thin_client() {
         "second session must have unique room_id"
     );
 
-    let confirm2 = pairing::confirm_pairing(
+    let confirm2 = pairing_runtime.confirm_pairing(
         &pair_info2.session_id,
         &pair_info2.pin,
         "e2e-desktop-02",
@@ -638,14 +684,14 @@ fn e2e_desktop_mobile_thin_client() {
     assert!(matches!(remote2.mode(), CoreMode::Remote { .. }));
 
     // Bootstrap sync for second connection.
-    reset_sync_state();
-    bootstrap_sync(0, now_ms());
-    assert!(is_sync_active());
-    bootstrap_sync(42, now_ms());
-    assert_eq!(current_cursor().unwrap().version, 42);
+    reset_sync_state(&sync_runtime);
+    bootstrap_sync(&sync_runtime, 0, now_ms());
+    assert!(is_sync_active(&sync_runtime));
+    bootstrap_sync(&sync_runtime, 42, now_ms());
+    assert_eq!(current_cursor(&sync_runtime).unwrap().version, 42);
 
     // Clean up sync state.
-    reset_sync_state();
+    reset_sync_state(&sync_runtime);
     println!("    ✓ Second device Remote mode cycle completed");
 
     // Drop the network rx to clean up (already moved to adapter).
@@ -660,5 +706,5 @@ fn e2e_desktop_mobile_thin_client() {
     println!("╚══════════════════════════════════════════════════════════════╝\n");
 
     // Final cleanup: ensure sync state is clean for other tests.
-    reset_sync_state();
+    reset_sync_state(&sync_runtime);
 }

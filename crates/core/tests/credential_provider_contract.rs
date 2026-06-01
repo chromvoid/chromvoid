@@ -57,15 +57,15 @@ fn test_credential_provider_status_exposes_capability_matrix_for_all_platforms()
     );
     assert_eq!(
         ios.get("passkeys_lite").and_then(|v| v.as_bool()),
-        Some(false)
+        Some(true)
     );
     assert_eq!(
         ios.get("autofill_fallback").and_then(|v| v.as_bool()),
         Some(false)
     );
     assert_eq!(
-        ios.get("unsupported_reason").and_then(|v| v.as_str()),
-        Some("passkeys_lite requires iOS 17+")
+        ios.get("unsupported_reason"),
+        Some(&serde_json::Value::Null)
     );
 
     let android = matrix
@@ -99,15 +99,15 @@ fn test_credential_provider_status_exposes_capability_matrix_for_all_platforms()
     );
     assert_eq!(
         macos.get("passkeys_lite").and_then(|v| v.as_bool()),
-        Some(false)
+        Some(true)
     );
     assert_eq!(
         macos.get("autofill_fallback").and_then(|v| v.as_bool()),
         Some(false)
     );
     assert_eq!(
-        macos.get("unsupported_reason").and_then(|v| v.as_str()),
-        Some("passkeys_lite requires macOS 14+")
+        macos.get("unsupported_reason"),
+        Some(&serde_json::Value::Null)
     );
 
     let windows = matrix

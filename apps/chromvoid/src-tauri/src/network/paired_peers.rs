@@ -17,6 +17,12 @@ pub struct PairedPeer {
     pub client_privkey_hex: String,
     pub last_seen: u64,
     pub paired_at: u64,
+    #[serde(default = "default_platform")]
+    pub platform: String,
+}
+
+fn default_platform() -> String {
+    "network".to_string()
 }
 
 /// Manages the list of paired network peers on disk.
@@ -29,15 +35,8 @@ impl PairedPeerStore {
     /// Load paired peers from a JSON file at `path`.
     /// If the file does not exist or is unreadable, returns an empty store.
     pub fn load(path: &Path) -> Self {
-        let peers = if path.exists() {
-            match std::fs::read_to_string(path) {
-                Ok(contents) => serde_json::from_str::<HashMap<String, PairedPeer>>(&contents)
-                    .unwrap_or_default(),
-                Err(_) => HashMap::new(),
-            }
-        } else {
-            HashMap::new()
-        };
+        let peers =
+            crate::helpers::storage::read_json_or_default(path, "network: paired peer store");
 
         Self {
             path: path.to_path_buf(),
@@ -47,9 +46,7 @@ impl PairedPeerStore {
 
     /// Persist the current peer list to the JSON file on disk.
     pub fn save(&self) -> Result<(), String> {
-        let json =
-            serde_json::to_string_pretty(&self.peers).map_err(|e| format!("serialize: {e}"))?;
-        std::fs::write(&self.path, json).map_err(|e| format!("write: {e}"))
+        crate::helpers::storage::write_json_pretty_atomic(&self.path, &self.peers)
     }
 
     /// Look up a paired peer by peer_id.

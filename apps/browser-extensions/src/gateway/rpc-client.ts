@@ -23,6 +23,7 @@ type GatewayConnection = {
 
 const textEncoder = new TextEncoder()
 const textDecoder = new TextDecoder()
+const toArrayBuffer = (value: Uint8Array): ArrayBuffer => Uint8Array.from(value).buffer
 
 const concatChunks = (chunks: Uint8Array[]): Uint8Array => {
   const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
@@ -137,10 +138,10 @@ export class GatewayRpcClient {
           mode: 'xxpsk0',
           psk,
         })
-        ws.send(initiator.writeMessage1())
+        ws.send(toArrayBuffer(initiator.writeMessage1()))
         const message2 = await this.readBinaryHandshakeMessage(ws)
         initiator.readMessage2(message2)
-        ws.send(initiator.writeMessage3())
+        ws.send(toArrayBuffer(initiator.writeMessage3()))
         ws.close()
         this.resetConnection(new Error('Reconnect after successful pairing'))
         return true
@@ -195,7 +196,7 @@ export class GatewayRpcClient {
       })
 
       try {
-        connection.ws.send(encrypted)
+        connection.ws.send(toArrayBuffer(encrypted))
       } catch (error) {
         const pending = this.pending.get(messageId)
         if (pending) {
@@ -298,10 +299,10 @@ export class GatewayRpcClient {
 
   private async handshake(ws: WebSocket): Promise<GatewayNoiseTransport> {
     const initiator = new NoiseXXInitiator(loadOrCreateNoiseStaticKeyPair())
-    ws.send(initiator.writeMessage1())
+    ws.send(toArrayBuffer(initiator.writeMessage1()))
     const message2 = await this.readBinaryHandshakeMessage(ws)
     initiator.readMessage2(message2)
-    ws.send(initiator.writeMessage3())
+    ws.send(toArrayBuffer(initiator.writeMessage3()))
     return initiator.intoTransport()
   }
 
@@ -446,7 +447,7 @@ export class GatewayRpcClient {
           ),
         })
         const encrypted = connection.transport.encrypt(frame)
-        connection.ws.send(encrypted)
+        connection.ws.send(toArrayBuffer(encrypted))
       } catch {
         this.resetConnection(new Error('Gateway heartbeat failed'))
       }

@@ -1,18 +1,18 @@
-// Реализация SHA256 с использованием Web Crypto API в браузере
-// и встроенного модуля crypto в Node.js
+// Implementation of SHA256 using the Web Crypto API in the browser
+// and built-in crypto module in Node.js
 
-// Определяем, находимся ли мы в Node.js
-const isNode = typeof globalThis.process !== 'undefined' && globalThis.process?.versions?.node !== undefined
+// Determine if we are in Node.js
+const isNode = typeof process !== 'undefined' && process.versions?.node !== undefined
 
-// Кэш для модуля crypto в Node.js
+// Cash for the crypto module in Node.js
 let nodeCrypto: any = null
 
-// Асинхронная версия SHA256
+// Asynchronous version of SHA256
 export async function sha256(data: string): Promise<string> {
-  // В Node.js используем встроенный модуль crypto
+  // Node.js uses the built-in crypto module
   if (isNode) {
     try {
-      // Импортируем модуль только при первом вызове
+      // Import the module only on the first call
       if (!nodeCrypto) {
         nodeCrypto = await import('crypto')
       }
@@ -22,12 +22,12 @@ export async function sha256(data: string): Promise<string> {
     }
   }
 
-  // В браузере используем Web Crypto API
-  if (typeof crypto !== 'undefined' && crypto.subtle) {
+  // In the browser we use the Web Crypto API
+  if (typeof globalThis.crypto !== 'undefined' && globalThis.crypto.subtle) {
     try {
       const encoder = new TextEncoder()
       const buffer = encoder.encode(data)
-      const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
+      const hashBuffer = await globalThis.crypto.subtle.digest('SHA-256', buffer)
       const hashArray = Array.from(new Uint8Array(hashBuffer))
       return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
     } catch (_error) {

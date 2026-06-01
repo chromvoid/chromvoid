@@ -2,7 +2,7 @@ import {createI18n} from '@project/i18n'
 
 const FALLBACK_LANG = 'en' as const
 
-type BrowserExtensionLang = 'en' | 'ru'
+export type BrowserExtensionLang = 'en' | 'ru'
 
 const resolveBrowserLang = (): BrowserExtensionLang => {
   if (typeof window === 'undefined') {
@@ -37,6 +37,18 @@ const data = {
   'app.title': {
     en: 'ChromVoid Autofill',
     ru: 'ChromVoid Автозаполнение',
+  },
+  'app.lang.en': {
+    en: 'EN',
+    ru: 'EN',
+  },
+  'app.lang.ru': {
+    en: 'RU',
+    ru: 'RU',
+  },
+  'app.lang.switchTo': {
+    en: 'Switch language to ${lang}',
+    ru: 'Переключить язык на ${lang}',
   },
 
   'status.gateway': {

@@ -1,6 +1,7 @@
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use dav_server::fakels::FakeLs;
 use dav_server::DavHandler;
@@ -9,22 +10,26 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
-use tokio::task::JoinHandle;
-use tracing::{info, warn};
+use tokio::task::{JoinHandle, JoinSet};
+use tracing::{debug, info, warn};
 
 use crate::core_adapter::CoreAdapter;
 
 use super::filesystem::CatalogDavFs;
+use super::request_io::WebDavRequestIoRuntimeState;
+
+const WEBDAV_REQUEST_IO_SHUTDOWN_GRACE: Duration = Duration::from_secs(1);
 
 #[cfg(target_os = "macos")]
 fn macos_unmount_webdav_by_addr_best_effort(addr: SocketAddr) {
+    use std::ffi::OsString;
+
     let needle = format!("http://{}:{}/", addr.ip(), addr.port());
 
-    let out = match std::process::Command::new("mount")
-        .arg("-t")
-        .arg("webdav")
-        .output()
-    {
+    let out = match crate::macos_external::run_output(
+        "mount",
+        vec![OsString::from("-t"), OsString::from("webdav")],
+    ) {
         Ok(v) => v,
         Err(_) => return,
     };
@@ -49,9 +54,7 @@ fn macos_unmount_webdav_by_addr_best_effort(addr: SocketAddr) {
         if mountpoint.is_empty() {
             continue;
         }
-        let _ = std::process::Command::new("umount")
-            .arg(mountpoint)
-            .output();
+        let _ = crate::macos_external::run_output("umount", vec![OsString::from(mountpoint)]);
     }
 }
 
@@ -60,6 +63,7 @@ pub struct WebDavServerHandle {
     pub addr: SocketAddr,
     pub(super) shutdown_tx: Option<oneshot::Sender<()>>,
     pub(super) task: Option<JoinHandle<()>>,
+    pub(super) request_io_runtime: Arc<WebDavRequestIoRuntimeState>,
 }
 
 impl WebDavServerHandle {
@@ -68,6 +72,7 @@ impl WebDavServerHandle {
     }
 
     pub fn shutdown(&mut self) {
+        self.request_io_runtime.request_shutdown();
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
         }
@@ -80,6 +85,13 @@ impl WebDavServerHandle {
         self.shutdown();
         if let Some(task) = self.task.take() {
             let _ = task.await;
+        }
+        if let Err(error) = self
+            .request_io_runtime
+            .shutdown_with_grace(WEBDAV_REQUEST_IO_SHUTDOWN_GRACE)
+            .await
+        {
+            warn!("webdav: request IO runtime shutdown failed: {error}");
         }
     }
 }
@@ -97,7 +109,8 @@ pub async fn start_webdav_server<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     adapter: Arc<Mutex<Box<dyn CoreAdapter>>>,
 ) -> Result<WebDavServerHandle, String> {
-    let fs = CatalogDavFs::new(app.clone(), adapter);
+    let request_io_runtime = Arc::new(WebDavRequestIoRuntimeState::new());
+    let fs = CatalogDavFs::new(app.clone(), adapter, request_io_runtime.clone());
     let dav = DavHandler::builder()
         .filesystem(Box::new(fs))
         .locksystem(FakeLs::new())
@@ -117,6 +130,8 @@ pub async fn start_webdav_server<R: tauri::Runtime>(
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
 
     let task = tokio::spawn(async move {
+        let mut connections = JoinSet::new();
+
         loop {
             tokio::select! {
                 _ = &mut shutdown_rx => {
@@ -133,7 +148,7 @@ pub async fn start_webdav_server<R: tauri::Runtime>(
                     };
                     let dav = dav.clone();
                     let io = TokioIo::new(stream);
-                    tokio::spawn(async move {
+                    connections.spawn(async move {
                         let svc = service_fn(move |req| {
                             let dav = dav.clone();
                             async move { Ok::<_, Infallible>(dav.handle(req).await) }
@@ -141,13 +156,21 @@ pub async fn start_webdav_server<R: tauri::Runtime>(
                         let _ = http1::Builder::new().serve_connection(io, svc).await;
                     });
                 }
+                join_result = connections.join_next(), if !connections.is_empty() => {
+                    if let Some(Err(error)) = join_result {
+                        debug!("webdav: connection task failed: {}", error);
+                    }
+                }
             }
         }
+
+        connections.shutdown().await;
     });
 
     Ok(WebDavServerHandle {
         addr,
         shutdown_tx: Some(shutdown_tx),
         task: Some(task),
+        request_io_runtime,
     })
 }

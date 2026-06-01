@@ -1,5 +1,6 @@
 export * from './pm-entry-move'
 export * from './pm-entry-move-mobile'
+export * from './pm-entry-move-sheet'
 export * from './pm-entry-move-base'
 export * from './pm-entry-move.model'
 export * from './styles'

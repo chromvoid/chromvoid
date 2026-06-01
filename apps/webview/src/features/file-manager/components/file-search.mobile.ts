@@ -1,8 +1,12 @@
-import {css, html, nothing} from 'lit'
+import {css, nothing} from 'lit'
+import {CVBottomSheet} from '@chromvoid/uikit/components/cv-bottom-sheet'
+import {html} from '@chromvoid/uikit/reatom-lit'
 
 import {i18n} from 'root/i18n'
 import {FileFilterControlsMobile} from './file-filter-controls-mobile'
-import {FileSearchBase, DEFAULT_FILTERS} from './file-search.base'
+import {hasMobileFilterBadge} from '../models/file-search-filters.model'
+import {FileSearchBase} from './file-search.base'
+import {FileSearchMobileModel} from './file-search.mobile.model'
 
 /**
  * Mobile wrapper for file manager filtering.
@@ -11,6 +15,7 @@ import {FileSearchBase, DEFAULT_FILTERS} from './file-search.base'
  */
 export class FileSearchMobile extends FileSearchBase {
   static define() {
+    CVBottomSheet.define()
     FileFilterControlsMobile.define()
 
     if (!customElements.get('file-search-mobile')) {
@@ -26,6 +31,7 @@ export class FileSearchMobile extends FileSearchBase {
   }
 
   declare variant: 'inline' | 'fab'
+  private readonly mobileModel = new FileSearchMobileModel()
 
   constructor() {
     super()
@@ -35,6 +41,8 @@ export class FileSearchMobile extends FileSearchBase {
   static styles = css`
     :host {
       display: contents;
+      --fab-size: 44px;
+      --fab-icon-size: 20px;
     }
 
     .mobile-bar {
@@ -54,7 +62,7 @@ export class FileSearchMobile extends FileSearchBase {
       justify-content: center;
       width: 36px;
       height: 36px;
-      border: 1px solid color-mix(in oklch, var(--cv-color-border) 60%, transparent);
+      border: 1px solid var(--cv-color-border-soft);
       background: var(--cv-color-surface-2);
       border-radius: var(--cv-radius-1);
       cursor: pointer;
@@ -70,7 +78,7 @@ export class FileSearchMobile extends FileSearchBase {
       &:hover {
         border-color: var(--cv-color-primary);
         color: var(--cv-color-primary);
-        background: color-mix(in oklch, var(--cv-color-primary) 10%, transparent);
+        background: var(--cv-color-primary-subtle);
       }
     }
 
@@ -78,8 +86,7 @@ export class FileSearchMobile extends FileSearchBase {
       width: var(--fab-size, 44px);
       height: var(--fab-size, 44px);
       border-radius: 50%;
-      border: 1px solid
-        color-mix(in oklch, var(--cv-color-border-strong, var(--cv-color-border)) 70%, transparent);
+      border: 1px solid var(--cv-color-border-soft);
       background: var(--cv-color-surface-2);
       box-shadow: var(--cv-shadow-2);
 
@@ -89,13 +96,9 @@ export class FileSearchMobile extends FileSearchBase {
       }
 
       &:hover {
-        border-color: color-mix(
-          in oklch,
-          var(--cv-color-border-strong, var(--cv-color-border)) 70%,
-          transparent
-        );
+        border-color: var(--cv-color-border-soft);
         color: var(--cv-color-primary, var(--cv-color-brand));
-        background: color-mix(in oklch, var(--cv-color-surface-2) 78%, var(--cv-color-primary));
+        background: var(--cv-color-primary-surface);
       }
 
       &:active {
@@ -121,54 +124,42 @@ export class FileSearchMobile extends FileSearchBase {
       right: 10px;
     }
 
-    /* ===== DRAWER ===== */
-    cv-drawer {
-      --cv-drawer-size: auto;
+    /* ===== SHEET ===== */
+    cv-bottom-sheet {
       position: fixed;
+      --cv-bottom-sheet-max-height: min(82dvh, calc(100dvh - 24px));
+      --cv-bottom-sheet-border-radius: 16px 16px 0 0;
     }
 
-    cv-drawer::part(trigger) {
+    cv-bottom-sheet::part(trigger) {
       display: none;
     }
 
-    cv-drawer::part(body) {
+    cv-bottom-sheet::part(body) {
       padding: 16px 20px;
       padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
     }
 
-    cv-drawer::part(panel) {
+    cv-bottom-sheet::part(content) {
       border-radius: 16px 16px 0 0;
-    }
-
-    cv-drawer::part(footer) {
-      display: none;
     }
   `
 
-  private drawerOpen = false
-
-  private onOpenDrawer = () => {
-    this.drawerOpen = true
-    this.requestUpdate()
+  private onOpenSheet() {
+    this.mobileModel.openSheet()
   }
 
-  private onDrawerClose = () => {
-    this.drawerOpen = false
-    this.requestUpdate()
+  private onSheetChange(e: CustomEvent<{open?: boolean}>) {
+    this.mobileModel.syncSheetOpen(e.detail.open)
   }
 
-  private onFiltersChange = (e: CustomEvent) => {
+  private onFiltersChange(e: CustomEvent) {
+    e.stopPropagation()
     this.dispatchEvent(new CustomEvent('filters-change', {detail: e.detail, bubbles: true}))
   }
 
   private get hasActiveFilters(): boolean {
-    return (
-      this.filters.sortBy !== DEFAULT_FILTERS.sortBy ||
-      this.filters.sortDirection !== DEFAULT_FILTERS.sortDirection ||
-      this.filters.viewMode !== DEFAULT_FILTERS.viewMode ||
-      this.filters.showHidden ||
-      this.filters.fileTypes.length > 0
-    )
+    return hasMobileFilterBadge(this.filters)
   }
 
   private isFabVariant(): boolean {
@@ -179,24 +170,25 @@ export class FileSearchMobile extends FileSearchBase {
     const fab = this.isFabVariant()
     return html`
       <div class="mobile-bar ${fab ? 'mobile-bar--fab' : ''}">
-        <button
+        <cv-button unstyled
           class="toggle-filters ${fab ? 'toggle-filters--fab' : ''}"
           data-action="filters"
-          @click=${this.onOpenDrawer}
+          @click=${this.onOpenSheet}
           aria-label=${i18n('file-manager:filters-and-sorting' as any)}
           title=${i18n('file-manager:filters-and-sorting' as any)}
         >
           <cv-icon name="sliders"></cv-icon>
           ${this.hasActiveFilters ? html`<span class="filter-badge"></span>` : nothing}
-        </button>
+        </cv-button>
       </div>
 
-      <cv-drawer placement="bottom" ?open=${this.drawerOpen} @cv-after-hide=${this.onDrawerClose} no-header>
+      <cv-bottom-sheet .open=${this.mobileModel.sheetOpen()} no-header show-handle drag-to-close @cv-change=${this.onSheetChange}>
         <file-filter-controls-mobile
           .filters=${this.filters}
+          .filterActions=${this.filterActions}
           @filters-change=${this.onFiltersChange}
         ></file-filter-controls-mobile>
-      </cv-drawer>
+      </cv-bottom-sheet>
     `
   }
 }

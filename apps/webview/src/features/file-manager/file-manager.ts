@@ -1,12 +1,19 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html, nothing} from 'lit'
+import {css, nothing} from 'lit'
 
-import {isTauriRuntime} from 'root/core/runtime/runtime'
-import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
-import {i18n} from 'root/i18n'
 import {navigationModel} from 'root/app/navigation/navigation.model'
+import type {
+  FileListVisibleRange,
+  FileListViewportSnapshot,
+} from 'root/shared/contracts/file-manager'
 import {getAppContext} from 'root/shared/services/app-context'
+import {subscribeFileCommand, type FileCommand} from 'root/shared/services/file-command-service'
+import {writeAndroidUnlockDebug} from 'root/shared/services/android-unlock-debug'
+import {
+  beginMobileFilePickerSession,
+  type MobileFilePickerSession,
+} from 'root/shared/services/mobile-file-picker-session'
 import {
   hostLayoutPaintContainStyles,
   pageFadeInStyles,
@@ -14,7 +21,7 @@ import {
   sharedStyles,
 } from 'root/shared/ui/shared-styles'
 
-import {ContextMenu} from './components/context-menu'
+import {ContextMenu, type ContextMenuItem} from './components/context-menu'
 import {DashboardDropzone} from './components/dashboard-dropzone'
 import {DashboardFileList} from './components/dashboard-file-list'
 import {DashboardHeader} from './components/dashboard-header'
@@ -24,28 +31,33 @@ import {FileManagerDesktopLayout} from './components/file-manager-desktop-layout
 import {FileManagerMobileLayout} from './components/file-manager-mobile-layout'
 import {FileFilterControlsMobile} from './components/file-filter-controls-mobile'
 import {FileSearch} from './components/file-search'
+import {FileMove, FileMoveMobile, FileMoveSheet} from './components/file-move'
 import {UploadProgress} from './components/upload-progress'
 import {VirtualFileList} from './components/virtual-file-list'
 import {VirtualFileListMobile} from './components/virtual-file-list-mobile'
 import {isMobileTouch} from './components/file-item/utils'
 
-import {FileManagerModel} from './file-manager.model'
+import {type FileManagerModel, getFileManagerModel} from './file-manager.model'
+import type {FileDragPayload} from './models/file-move.model'
 
 export const formatFormatSpace = (value: number) => {
   return (value / 1000).toFixed(2)
 }
 
-export class FileManager extends XLitElement {
+export class FileManager extends ReatomLitElement {
   static define() {
     ContextMenu.define()
+    FileItem.define()
+    FileItemMobile.define()
     if (isMobileTouch()) {
-      FileItemMobile.define()
       VirtualFileListMobile.define()
     } else {
-      FileItem.define()
       VirtualFileList.define()
     }
     FileSearch.define()
+    FileMove.define()
+    FileMoveMobile.define()
+    FileMoveSheet.define()
     FileFilterControlsMobile.define()
     DashboardHeader.define()
 
@@ -55,15 +67,23 @@ export class FileManager extends XLitElement {
     FileManagerMobileLayout.define()
     FileManagerDesktopLayout.define()
 
-    customElements.define('chromvoid-file-manager', this)
+    if (!customElements.get('chromvoid-file-manager')) {
+      customElements.define('chromvoid-file-manager', this)
+    }
   }
 
-  private model?: FileManagerModel
+  private unregisterToolbarUploadTrigger?: () => void
+  private unregisterBackHandler?: () => void
+  private unsubscribeFileCommand?: () => void
+  private filePickerSession: MobileFilePickerSession | null = null
+
   private ensureModel(): FileManagerModel {
-    if (!this.model) {
-      this.model = new FileManagerModel(getAppContext())
-    }
-    return this.model
+    return getFileManagerModel(getAppContext())
+  }
+
+  focusDashboardCreateDirActionTarget(): boolean {
+    const header = this.renderRoot.querySelector<DashboardHeader>('dashboard-header')
+    return header?.focusCreateDirActionTarget() ?? false
   }
 
   static styles = [
@@ -75,7 +95,6 @@ export class FileManager extends XLitElement {
       :host {
         height: 100%;
         min-height: 100%;
-        background: var(--cv-color-hover);
       }
 
       password-manager {
@@ -94,23 +113,50 @@ export class FileManager extends XLitElement {
       #action-bar-file-input {
         display: none;
       }
+
+      .dropzone-content {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+      }
+
+      .dropzone-file-list {
+        flex: 1;
+        min-height: 0;
+      }
     `,
   ]
 
   connectedCallback(): void {
-    super.connectedCallback?.()
-    this.ensureModel().connect()
-    window.addEventListener('file-action', this.handleGlobalFileAction as EventListener)
+    super.connectedCallback()
+    writeAndroidUnlockDebug('file-manager', 'connectedCallback:start')
+    const model = this.ensureModel()
+    model.connect()
+    model.activatePendingDocumentReturnViewport()
+    this.unregisterBackHandler = navigationModel.registerSurfaceBackHandler('files', this.handleSurfaceBack)
+    this.unregisterToolbarUploadTrigger = model.registerToolbarUploadTrigger(() => {
+      this.openActionBarFileInput()
+    })
+    writeAndroidUnlockDebug('file-manager', 'connectedCallback:model connected')
+    this.unsubscribeFileCommand = subscribeFileCommand(this.handleFileCommand)
+    writeAndroidUnlockDebug('file-manager', 'connectedCallback:listener added')
+    void this.updateComplete.then(() => {
+      writeAndroidUnlockDebug('file-manager', 'connectedCallback:updateComplete')
+    })
   }
 
   disconnectedCallback(): void {
-    super.disconnectedCallback?.()
-    this.model?.cleanup()
-    window.removeEventListener('file-action', this.handleGlobalFileAction as EventListener)
-  }
-
-  private onErrorClose = () => {
-    this.ensureModel().clearError()
+    super.disconnectedCallback()
+    writeAndroidUnlockDebug('file-manager', 'disconnectedCallback:start')
+    this.unregisterBackHandler?.()
+    this.unregisterBackHandler = undefined
+    this.unregisterToolbarUploadTrigger?.()
+    this.unregisterToolbarUploadTrigger = undefined
+    this.endFilePickerSession()
+    this.unsubscribeFileCommand?.()
+    this.unsubscribeFileCommand = undefined
+    this.ensureModel().cleanup()
+    writeAndroidUnlockDebug('file-manager', 'disconnectedCallback:done')
   }
 
   private handleNavigate = (e: CustomEvent) => {
@@ -127,7 +173,30 @@ export class FileManager extends XLitElement {
 
   private handleSelectionModeRequested = (e: CustomEvent) => {
     const enabled = Boolean(e.detail?.enabled)
-    getAppContext().store.setSelectionMode(enabled)
+    this.ensureModel().setSelectionMode(enabled)
+  }
+
+  private handleViewportStateChange(e: CustomEvent<FileListViewportSnapshot>) {
+    this.ensureModel().saveFileListViewportSnapshot(e.detail)
+  }
+
+  private handleViewportStateRestored(e: CustomEvent<{revision?: number}>) {
+    const revision = Number(e.detail?.revision)
+    if (Number.isFinite(revision)) {
+      this.ensureModel().clearFileListViewportRestore(revision)
+    }
+  }
+
+  private handleVisibleRangeChange(e: CustomEvent<FileListVisibleRange>) {
+    this.ensureModel().ensureVisibleRangeLoaded(e.detail)
+  }
+
+  private handleSurfaceBack = () => {
+    if (navigationModel.resolvedOverlay().kind !== 'closed') {
+      return false
+    }
+
+    return this.ensureModel().handleMobileBack()
   }
 
   private handleCreateDir = () => {
@@ -148,40 +217,38 @@ export class FileManager extends XLitElement {
     }
   }
 
-  private onUploadClick = () => {
-    void this.handleUploadClick()
-  }
-
-  private async handleUploadClick() {
-    const {store} = getAppContext()
-    const canUseNative =
-      isTauriRuntime() &&
-      getRuntimeCapabilities().supports_native_path_io &&
-      store.remoteSessionState() === 'inactive'
-
-    if (canUseNative) {
-      try {
-        const {open} = await import('@tauri-apps/plugin-dialog')
-        const selected = await open({multiple: true, directory: false})
-        const paths = Array.isArray(selected) ? selected : selected ? [selected] : []
-        if (paths.length > 0) {
-          void this.ensureModel().handlePathUpload(paths)
-        }
-        return
-      } catch {
-        // fall through to file input
-      }
-    }
-
-    const input = this.renderRoot.querySelector<HTMLInputElement>('#action-bar-file-input')
-    input?.click()
+  private onNativeUploadRequested = () => {
+    void this.ensureModel().handleNativeUpload()
   }
 
   private onActionBarFileChange = (e: Event) => {
+    this.endFilePickerSession()
     const files = (e.target as HTMLInputElement).files
     if (files && files.length > 0) {
       void this.ensureModel().handleFileUpload(files)
     }
+  }
+
+  private openActionBarFileInput() {
+    const input = this.renderRoot.querySelector<HTMLInputElement>('#action-bar-file-input')
+    if (!input) return
+
+    this.beginFilePickerSession()
+    try {
+      input.click()
+    } catch {
+      this.endFilePickerSession()
+    }
+  }
+
+  private beginFilePickerSession() {
+    this.endFilePickerSession()
+    this.filePickerSession = beginMobileFilePickerSession()
+  }
+
+  private endFilePickerSession() {
+    this.filePickerSession?.end()
+    this.filePickerSession = null
   }
 
   private handleDeleteSelected = () => {
@@ -200,31 +267,25 @@ export class FileManager extends XLitElement {
       event?: Event
       source?: FileItemData
       target?: FileItemData
+      payload?: FileDragPayload
     }
 
     try {
       switch (detail.action) {
-        case 'open':
-          if (detail.item) {
-            void model.handleOpen(detail.item)
-          }
-          break
         case 'context-menu':
           if (detail.item && detail.event instanceof MouseEvent) {
             this.showContextMenu(detail.item, detail.event)
           }
           break
+        case 'open':
         case 'rename':
-          if (detail.item) void model.handleRename(detail.item)
-          break
         case 'download':
-          if (detail.item) void model.handleDownload(detail.item)
-          break
         case 'open-external':
-          if (detail.item) void model.handleOpenExternal(detail.item)
-          break
         case 'delete':
-          if (detail.item) void model.handleDelete(detail.item)
+        case 'share':
+        case 'save-to-gallery':
+        case 'info':
+          if (detail.item) model.executeFileAction(detail.action, detail.item)
           break
         case 'download-selected':
           void model.handleDownloadSelected()
@@ -233,61 +294,74 @@ export class FileManager extends XLitElement {
           void model.handleDeleteSelected()
           break
         case 'move':
-          if (detail.source && detail.target) {
+          if (detail.item) {
+            model.executeFileAction(detail.action, detail.item)
+          } else if (detail.target && detail.payload) {
+            void model.handleDroppedMove(detail.target, detail.payload)
+          } else if (detail.source && detail.target) {
             void model.handleMove(detail.source, detail.target)
           }
-          break
-        case 'share':
-          if (detail.item) void model.handleShare(detail.item)
-          break
-        case 'info':
-          if (detail.item) model.openDetailsPanel(detail.item)
           break
       }
     } catch (error) {
       getAppContext().store.pushNotification(
         'error',
-        `Ошибка: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${error instanceof Error ? error.message : String(error)}`,
       )
     }
   }
 
-  private handleGlobalFileAction = (e: Event) => {
-    const detail = (e as CustomEvent).detail as {action?: string; fileId?: number} | undefined
-    if (!detail?.action || typeof detail.fileId !== 'number') return
+  private handleFileCommand = (command: FileCommand) => {
+    if (command.kind !== 'action') return
     const model = this.ensureModel()
-    const item = model.getFileItemById(detail.fileId)
+    const item = model.getFileItemById(command.fileId)
     if (!item) return
     this.handleItemAction(
       new CustomEvent('item-action', {
-        detail: {action: detail.action, item},
+        detail: {action: command.action, item},
       }),
     )
   }
 
-  getMobileToolbarActions() {
-    return [
-      {id: 'create-dir', icon: 'folder-plus', label: i18n('file-manager:create-folder' as any)},
-      {id: 'upload', icon: 'upload', label: i18n('file-manager:upload-files' as any)},
-    ]
-  }
-
-  executeMobileCommand(actionId: string): boolean {
-    switch (actionId) {
-      case 'create-dir':
-        this.handleCreateDir()
-        return true
-      case 'upload':
-        this.onUploadClick()
-        return true
-      default:
-        return false
+  handleGlobalFileAction(event: CustomEvent<{action?: string; fileId?: number}>) {
+    const action = event.detail?.action
+    const fileId = event.detail?.fileId
+    if (typeof action !== 'string' || typeof fileId !== 'number') {
+      return
     }
+
+    this.handleFileCommand({kind: 'action', action, fileId})
   }
 
   private showContextMenu(item: FileItemData, event: MouseEvent) {
     const menu = this.renderRoot.querySelector<ContextMenu>('context-menu')
-    menu?.show(event.clientX, event.clientY, this.ensureModel().getContextMenuItems(item))
+    const model = this.ensureModel()
+    const items: ContextMenuItem[] = []
+
+    for (const descriptor of model.getActionDescriptors(item)) {
+      if (descriptor.separatorBefore) {
+        items.push({
+          id: `separator-${descriptor.id}`,
+          label: '',
+          icon: '',
+          action: () => {},
+          separator: true,
+        })
+      }
+
+      items.push({
+        id: descriptor.id,
+        label: descriptor.label,
+        icon: descriptor.icon,
+        disabled: descriptor.disabled,
+        shortcutId: descriptor.shortcutId,
+        action: () => {
+          model.executeFileAction(descriptor.id, item)
+        },
+      })
+    }
+
+    menu?.show(event.clientX, event.clientY, items)
   }
 
   private renderSlottedContent(isMobileLayout: boolean) {
@@ -297,24 +371,16 @@ export class FileManager extends XLitElement {
 
     const model = this.ensureModel()
 
-    const fileItems = model.fileItems()
+    const renderItems = model.renderItems()
     const filteredCount = model.filteredCount()
 
     return html`
-      ${model.error()
-        ? html`
-            <div class="error-banner">
-              <span>${model.error()}</span>
-              <button @click=${this.onErrorClose}>${i18n('button:close' as any)}</button>
-            </div>
-          `
-        : ''}
-
       <dashboard-header
         slot="header"
         .currentPath=${model.currentPath()}
         .filters=${model.searchFilters()}
-        .totalFiles=${fileItems.length}
+        .filterActions=${model.searchFilterActions}
+        .totalFiles=${model.totalCount()}
         .filteredFiles=${filteredCount}
         .selectedCount=${model.selectedCount()}
         @navigate=${this.handleNavigate}
@@ -322,6 +388,7 @@ export class FileManager extends XLitElement {
         @create-dir=${this.handleCreateDir}
         @upload-requested=${this.onUploadRequested}
         @upload-paths-requested=${this.onUploadPathsRequested}
+        @native-upload-requested=${this.onNativeUploadRequested}
         @delete-selected=${this.handleDeleteSelected}
         @clear-selection=${this.handleClearSelection}
         @selection-mode-requested=${this.handleSelectionModeRequested}
@@ -332,28 +399,43 @@ export class FileManager extends XLitElement {
         .active=${!isMobileLayout && model.isDragActive()}
         .loading=${model.isLoading()}
       >
-        <div style="flex:1; min-height:0; display:flex;">
+        <div class="dropzone-content">
           <dashboard-file-list
-            style="flex:1; min-height:0;"
-            .items=${fileItems}
+            class="dropzone-file-list"
+            .items=${renderItems}
             .filters=${model.searchFilters()}
+            .filterActions=${model.searchFilterActions}
             .selectedItems=${model.selectedItems()}
             .selectionMode=${store.selectionMode()}
+            .pendingExternalOpenIds=${model.externalOpenPendingIds()}
             .containerHeight=${this.getLayoutContainerHeight()}
             .currentPath=${model.currentPath()}
             .mobile=${isMobileLayout}
+            .restoreViewport=${model.fileListViewportRestore()}
+            .itemsPreFiltered=${true}
+            .deletionMotion=${model.deletionMotion}
             @selection-change=${this.handleSelectionChange}
             @selection-mode-requested=${this.handleSelectionModeRequested}
             @item-action=${this.handleItemAction}
             @filters-change=${this.handleFiltersChange}
             @navigate=${this.handleNavigate}
+            @viewport-state-change=${this.handleViewportStateChange}
+            @viewport-state-restored=${this.handleViewportStateRestored}
+            @visible-range-change=${this.handleVisibleRangeChange}
           ></dashboard-file-list>
         </div>
       </dashboard-dropzone>
 
       <context-menu slot="context-menu"></context-menu>
       <upload-progress slot="upload-progress"></upload-progress>
-      ${isMobileLayout ? html`<input id="action-bar-file-input" type="file" multiple @change=${this.onActionBarFileChange} />` : nothing}
+      ${isMobileLayout
+        ? html`<input
+            id="action-bar-file-input"
+            type="file"
+            multiple
+            @change=${this.onActionBarFileChange}
+          />`
+        : nothing}
     `
   }
 

@@ -1,7 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
-import {state} from '@statx/core'
 
 import {navigationModel} from '../../src/app/navigation/navigation.model'
+import {atom} from '@reatom/core'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 import {remoteSessionModel} from '../../src/routes/remote/remote-session.model'
 
@@ -31,8 +31,8 @@ describe('remoteSessionModel', () => {
     let remoteMode = true
     let vaultUnlocked = false
 
-    const remoteSessionState = state<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive')
-    const remoteSessionPeerId = state<string | null>(null)
+    const remoteSessionState = atom<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive')
+    const remoteSessionPeerId = atom<string | null>(null)
     const handleRemoteHostLocked = vi.fn()
     const resetSpy = vi.spyOn(navigationModel, 'reset')
 

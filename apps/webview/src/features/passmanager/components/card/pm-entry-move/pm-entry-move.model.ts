@@ -1,15 +1,18 @@
-import {state} from '@statx/core'
+import {atom} from '@reatom/core'
 
-import {Group, i18n} from '@project/passmanager'
+import {Group} from '@project/passmanager/core'
+import {i18n} from '@project/passmanager/i18n'
 
 import type {GroupTreeNode} from '../../../models/group-tree'
 import {buildGroupTreeNodes} from '../../../models/group-tree-builder'
 import {pmEntryMoveModel, type MoveTarget} from '../../../models/pm-entry-move-model'
+import {getPassmanagerRoot} from '../../../models/pm-root.adapter'
 
 export type PMEntryMoveOption = {
   key: string
   id: string
   label: string
+  subtitle?: string
   disabled: boolean
   depth: number
   hasChildren: boolean
@@ -20,7 +23,7 @@ export type PMEntryMoveOption = {
 
 export type PMEntryMoveViewState = {
   activeKey: string
-  disabledId: string
+  disabledIds: string[]
   hasSearch: boolean
   options: PMEntryMoveOption[]
 }
@@ -32,12 +35,13 @@ export type PMEntryMoveListKeyResult = {
 }
 
 export class PMEntryMovePickerModel {
-  readonly expandedPaths = state<Set<string>>(new Set(), {name: 'pm_entry_move_picker_expanded'})
-  readonly searchValue = state('', {name: 'pm_entry_move_picker_search'})
-  readonly liveMessage = state('', {name: 'pm_entry_move_picker_live'})
-  readonly selectedId = state('', {name: 'pm_entry_move_picker_selected'})
-  readonly entryId = state('', {name: 'pm_entry_move_picker_entry'})
-  readonly activeOptionKey = state('', {name: 'pm_entry_move_picker_active'})
+  readonly expandedPaths = atom<Set<string>>(new Set<string>(), 'pm_entry_move_picker_expanded')
+  readonly searchValue = atom('', 'pm_entry_move_picker_search')
+  readonly liveMessage = atom('', 'pm_entry_move_picker_live')
+  readonly selectedId = atom('', 'pm_entry_move_picker_selected')
+  readonly entryId = atom('', 'pm_entry_move_picker_entry')
+  readonly disabledIds = atom<string[]>([], 'pm_entry_move_picker_disabled_ids')
+  readonly activeOptionKey = atom('', 'pm_entry_move_picker_active')
 
   setEntryId(value: string): void {
     this.entryId.set(String(value ?? ''))
@@ -47,6 +51,18 @@ export class PMEntryMovePickerModel {
     return this.entryId()
   }
 
+  setDisabledIds(value: string[]): void {
+    this.disabledIds.set(
+      Array.isArray(value)
+        ? value.map((id) => String(id ?? '').trim()).filter((id) => id.length > 0)
+        : [],
+    )
+  }
+
+  getDisabledIds(): string[] {
+    return this.disabledIds()
+  }
+
   hydrateSelectedId(value: string): void {
     this.selectedId.set(String(value ?? ''))
   }
@@ -54,7 +70,7 @@ export class PMEntryMovePickerModel {
   getSelectedId(): string {
     const selectedId = this.selectedId()
     if (selectedId.length > 0) return selectedId
-    return window.passmanager?.id ?? ''
+    return getPassmanagerRoot()?.id ?? ''
   }
 
   setSearchValue(value: string): void {
@@ -99,17 +115,19 @@ export class PMEntryMovePickerModel {
     this.expandedPaths.set(nextPaths)
   }
 
-  getRecentTargets(disabledId: string): MoveTarget[] {
-    return pmEntryMoveModel.listRecentTargets().filter((target) => target.id !== disabledId)
+  getRecentTargets(disabledIds: string[]): MoveTarget[] {
+    const disabled = new Set(disabledIds)
+    return pmEntryMoveModel.listRecentTargets().filter((target) => !disabled.has(target.id))
   }
 
   getViewState(): PMEntryMoveViewState | null {
-    if (!window.passmanager) {
+    const root = getPassmanagerRoot()
+    if (!root) {
       return null
     }
 
-    const disabledId = this.getCurrentEntryParentId()
-    const groups = window.passmanager.entriesList().filter((item): item is Group => item instanceof Group)
+    const disabledIds = Array.from(new Set([this.getCurrentEntryParentId(), ...this.disabledIds()].filter(Boolean)))
+    const groups = root.entriesList().filter((item): item is Group => item instanceof Group)
     const groupIdByPath = new Map<string, string>()
     for (const group of groups) {
       groupIdByPath.set(group.name, group.id)
@@ -121,11 +139,11 @@ export class PMEntryMovePickerModel {
     )
 
     const hasSearch = this.searchValue().trim().length > 0
-    const options = this.buildVisibleOptions(groups, nodes, groupIdByPath, disabledId, hasSearch)
+    const options = this.buildVisibleOptions(groups, nodes, groupIdByPath, new Set(disabledIds), hasSearch)
 
     return {
       activeKey: this.resolveActiveOptionKey(options),
-      disabledId,
+      disabledIds,
       hasSearch,
       options,
     }
@@ -175,11 +193,12 @@ export class PMEntryMovePickerModel {
   }
 
   private getCurrentEntryParentId(): string {
-    if (!window.passmanager) return ''
+    const root = getPassmanagerRoot()
+    if (!root) return ''
     const currentEntryId = this.entryId()
     if (!currentEntryId) return ''
 
-    const entry = window.passmanager.getEntry(currentEntryId)
+    const entry = root.getEntry(currentEntryId)
     if (!entry) return ''
 
     return pmEntryMoveModel.getEntryParentTargetId(entry)
@@ -307,7 +326,7 @@ export class PMEntryMovePickerModel {
     node: GroupTreeNode,
     depth: number,
     groupIdByPath: Map<string, string>,
-    disabledId: string,
+    disabledIds: Set<string>,
     options: PMEntryMoveOption[],
   ): void {
     const id = groupIdByPath.get(node.path)
@@ -318,7 +337,7 @@ export class PMEntryMovePickerModel {
       key: `target:${id}`,
       id,
       label: node.name,
-      disabled: id === disabledId,
+      disabled: disabledIds.has(id),
       depth,
       hasChildren,
       expanded: node.expanded,
@@ -331,7 +350,7 @@ export class PMEntryMovePickerModel {
     }
 
     for (const child of node.children) {
-      this.appendTreeNodeOptions(child, depth + 1, groupIdByPath, disabledId, options)
+      this.appendTreeNodeOptions(child, depth + 1, groupIdByPath, disabledIds, options)
     }
   }
 
@@ -339,16 +358,17 @@ export class PMEntryMovePickerModel {
     groups: Group[],
     nodes: GroupTreeNode[],
     groupIdByPath: Map<string, string>,
-    disabledId: string,
+    disabledIds: Set<string>,
     hasSearch: boolean,
   ): PMEntryMoveOption[] {
-    const rootId = window.passmanager.id
+    const rootId = getPassmanagerRoot()?.id ?? ''
     const options: PMEntryMoveOption[] = [
       {
         key: `target:${rootId}`,
         id: rootId,
-        label: '/',
-        disabled: disabledId === rootId,
+        label: i18n('dialog:move:root_label'),
+        subtitle: i18n('dialog:move:root_subtitle'),
+        disabled: disabledIds.has(rootId),
         depth: 0,
         hasChildren: false,
         expanded: false,
@@ -361,11 +381,13 @@ export class PMEntryMovePickerModel {
       const query = this.searchValue().trim().toLowerCase()
       const filteredGroups = groups.filter((group) => group.name.toLowerCase().includes(query))
       for (const group of filteredGroups) {
+        const label = this.getLeafName(group.name)
         options.push({
           key: `target:${group.id}`,
           id: group.id,
-          label: group.name,
-          disabled: disabledId === group.id,
+          label,
+          subtitle: label === group.name ? undefined : group.name,
+          disabled: disabledIds.has(group.id),
           depth: 0,
           hasChildren: false,
           expanded: false,
@@ -377,9 +399,14 @@ export class PMEntryMovePickerModel {
     }
 
     for (const node of nodes) {
-      this.appendTreeNodeOptions(node, 0, groupIdByPath, disabledId, options)
+      this.appendTreeNodeOptions(node, 0, groupIdByPath, disabledIds, options)
     }
 
     return options
+  }
+
+  private getLeafName(path: string): string {
+    const parts = path.split('/').filter(Boolean)
+    return parts[parts.length - 1] ?? path
   }
 }

@@ -1,12 +1,18 @@
 package com.chromvoid.app.passkey
 
 import org.json.JSONObject
+import org.json.JSONArray
 
 internal object PasskeyCredentialJsonEncoder {
     fun registrationResponse(
         credentialId: ByteArray,
         clientDataJson: ByteArray,
         attestationObject: ByteArray,
+        authenticatorData: ByteArray,
+        publicKeyDer: ByteArray,
+        publicKeyAlgorithm: Int = -7,
+        transports: List<String> = listOf("internal"),
+        credPropsRk: Boolean? = null,
     ): String {
         val credentialIdB64Url = PasskeyEncoding.base64UrlEncode(credentialId)
         return PasskeyPublicKeyCredentialPayload(
@@ -16,7 +22,12 @@ internal object PasskeyCredentialJsonEncoder {
                 RegistrationCredentialResponsePayload(
                     clientDataJson = PasskeyEncoding.base64UrlEncode(clientDataJson),
                     attestationObject = PasskeyEncoding.base64UrlEncode(attestationObject),
+                    authenticatorData = PasskeyEncoding.base64UrlEncode(authenticatorData),
+                    publicKey = PasskeyEncoding.base64UrlEncode(publicKeyDer),
+                    publicKeyAlgorithm = publicKeyAlgorithm,
+                    transports = transports,
                 ),
+            clientExtensionResults = registrationClientExtensionResults(credPropsRk),
         ).toJson()
             .toString()
     }
@@ -50,6 +61,7 @@ private data class PasskeyPublicKeyCredentialPayload(
     val type: String = "public-key",
     val authenticatorAttachment: String = "platform",
     val response: PasskeyCredentialResponsePayload,
+    val clientExtensionResults: JSONObject = JSONObject(),
 )
 
 private sealed interface PasskeyCredentialResponsePayload
@@ -57,6 +69,10 @@ private sealed interface PasskeyCredentialResponsePayload
 private data class RegistrationCredentialResponsePayload(
     val clientDataJson: String,
     val attestationObject: String,
+    val authenticatorData: String,
+    val publicKey: String,
+    val publicKeyAlgorithm: Int,
+    val transports: List<String>,
 ) : PasskeyCredentialResponsePayload
 
 private data class AssertionCredentialResponsePayload(
@@ -72,6 +88,7 @@ private fun PasskeyPublicKeyCredentialPayload.toJson(): JSONObject {
         .put("rawId", rawId)
         .put("type", type)
         .put("authenticatorAttachment", authenticatorAttachment)
+        .put("clientExtensionResults", clientExtensionResults)
         .put("response", response.toJson())
 }
 
@@ -80,6 +97,10 @@ private fun PasskeyCredentialResponsePayload.toJson(): JSONObject {
         is RegistrationCredentialResponsePayload ->
             JSONObject()
                 .put("clientDataJSON", clientDataJson)
+                .put("authenticatorData", authenticatorData)
+                .put("transports", transports.toJsonArray())
+                .put("publicKey", publicKey)
+                .put("publicKeyAlgorithm", publicKeyAlgorithm)
                 .put("attestationObject", attestationObject)
         is AssertionCredentialResponsePayload ->
             JSONObject()
@@ -88,4 +109,18 @@ private fun PasskeyCredentialResponsePayload.toJson(): JSONObject {
                 .put("signature", signature)
                 .put("userHandle", userHandle)
     }
+}
+
+private fun registrationClientExtensionResults(credPropsRk: Boolean?): JSONObject {
+    val result = JSONObject()
+    if (credPropsRk != null) {
+        result.put("credProps", JSONObject().put("rk", credPropsRk))
+    }
+    return result
+}
+
+private fun List<String>.toJsonArray(): JSONArray {
+    val result = JSONArray()
+    forEach { result.put(it) }
+    return result
 }

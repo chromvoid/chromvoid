@@ -1,5 +1,5 @@
-import {XLitElement} from '@statx/lit'
-import {css, html} from 'lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {css} from 'lit'
 
 /**
  * Horizontal action bar for mobile layouts.
@@ -13,7 +13,7 @@ import {css, html} from 'lit'
  *
  * @slot - Action buttons (cv-button, cv-menu-button, .action-divider spans)
  */
-export class MobileActionBar extends XLitElement {
+export class MobileActionBar extends ReatomLitElement {
   static elementName = 'mobile-action-bar'
 
   static define() {
@@ -29,8 +29,7 @@ export class MobileActionBar extends XLitElement {
       justify-content: space-evenly;
       flex-shrink: 0;
       padding: 6px 12px;
-      border-block-start: 1px solid
-        color-mix(in oklch, var(--cv-color-border-muted, var(--cv-color-border)) 40%, transparent);
+      border-block-start: 1px solid var(--cv-color-border-soft);
       background: var(--cv-color-bg);
     }
 

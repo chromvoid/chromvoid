@@ -1,23 +1,24 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html, nothing} from 'lit'
+import {css, nothing} from 'lit'
 
 import {i18n} from 'root/i18n'
 import {animationStyles, sharedStyles} from 'root/shared/ui/shared-styles'
+import {
+  beginMobileFilePickerSession,
+  type MobileFilePickerSession,
+} from 'root/shared/services/mobile-file-picker-session'
 
 import {BreadcrumbsNav} from './breadcrumbs-nav'
 import {DashboardHeaderDesktopLayout} from './dashboard-header-desktop-layout'
-import {DashboardHeaderMobileLayout} from './dashboard-header-mobile-layout'
 import {createDefaultDashboardHeaderFilters, DashboardHeaderModel} from './dashboard-header.model'
-import {FileSearchMobile} from './file-search-mobile'
 import type {SearchFilters} from 'root/shared/contracts/file-manager'
+import type {FileSearchFilterActions} from '../models/file-search-filters.model'
 
-export class DashboardHeader extends XLitElement {
+export class DashboardHeader extends ReatomLitElement {
   static define() {
     BreadcrumbsNav.define()
     DashboardHeaderDesktopLayout.define()
-    DashboardHeaderMobileLayout.define()
-    FileSearchMobile.define()
 
     if (!customElements.get('dashboard-header')) {
       customElements.define('dashboard-header', this as unknown as CustomElementConstructor)
@@ -31,6 +32,7 @@ export class DashboardHeader extends XLitElement {
       totalFiles: {type: Number, attribute: 'total-files'},
       filteredFiles: {type: Number, attribute: 'filtered-files'},
       selectedCount: {type: Number, attribute: 'selected-count'},
+      filterActions: {attribute: false},
     }
   }
 
@@ -39,8 +41,10 @@ export class DashboardHeader extends XLitElement {
   declare totalFiles: number
   declare filteredFiles: number
   declare selectedCount: number
+  declare filterActions: FileSearchFilterActions | null
 
   private readonly model = new DashboardHeaderModel()
+  private filePickerSession: MobileFilePickerSession | null = null
 
   constructor() {
     super()
@@ -49,6 +53,7 @@ export class DashboardHeader extends XLitElement {
     this.totalFiles = 0
     this.filteredFiles = 0
     this.selectedCount = 0
+    this.filterActions = null
     this.syncModelFromProps()
   }
 
@@ -92,82 +97,6 @@ export class DashboardHeader extends XLitElement {
         color: inherit;
       }
 
-      .action-btn-mobile {
-        min-inline-size: 36px;
-        min-block-size: 36px;
-      }
-
-      .action-btn-mobile::part(base) {
-        min-inline-size: 0;
-        padding-inline: 8px;
-        justify-content: center;
-        gap: 0;
-        border: none;
-        background: transparent;
-        box-shadow: none;
-      }
-
-      .action-btn-mobile:hover::part(base) {
-        background: color-mix(in oklch, currentColor 8%, transparent);
-      }
-
-      .action-btn-mobile:active::part(base) {
-        background: color-mix(in oklch, currentColor 14%, transparent);
-      }
-
-      .action-btn-mobile::part(prefix) {
-        margin: 0;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .action-btn-mobile cv-icon {
-        width: 20px;
-        height: 20px;
-        margin: 0;
-      }
-
-      .action-btn-mobile[variant='primary'] cv-icon {
-        color: var(--cv-color-brand, #00e5ff);
-      }
-
-      .action-btn-mobile[variant='danger'] cv-icon {
-        color: var(--cv-color-danger, #ef4444);
-      }
-
-      .action-btn-mobile[variant='default'] cv-icon {
-        color: var(--cv-color-text-muted, #e5e7eb);
-      }
-
-      /* ===== Mobile selection toolbar ===== */
-      .selection-toolbar {
-        flex: 1;
-        justify-content: space-between;
-      }
-
-      .selection-done-btn {
-        background: none;
-        border: none;
-        color: var(--cv-color-brand, #00e5ff);
-        font-size: var(--cv-font-size-sm, 14px);
-        font-weight: 600;
-        cursor: pointer;
-        padding: 8px 4px;
-        white-space: nowrap;
-        -webkit-tap-highlight-color: transparent;
-      }
-
-      .selection-done-btn:active {
-        opacity: 0.7;
-      }
-
-      .selection-count {
-        color: var(--cv-color-text-secondary, #9ca3af);
-        font-size: 13px;
-        white-space: nowrap;
-      }
-
       @media (hover: none) and (pointer: coarse) {
         cv-button {
           touch-action: manipulation;
@@ -192,6 +121,7 @@ export class DashboardHeader extends XLitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback()
+    this.endFilePickerSession()
     this.model.stopResponsiveSync()
   }
 
@@ -222,6 +152,14 @@ export class DashboardHeader extends XLitElement {
     return this.renderRoot.querySelector('#file-input') as HTMLInputElement | null
   }
 
+  focusCreateDirActionTarget(): boolean {
+    const button = this.renderRoot.querySelector<HTMLElement>('[data-action="create-dir"]')
+    if (!button) return false
+
+    button.focus({preventScroll: true})
+    return true
+  }
+
   private onNavigate = (e: CustomEvent) => {
     this.dispatchEvent(new CustomEvent('navigate', {detail: e.detail, bubbles: true}))
   }
@@ -241,34 +179,55 @@ export class DashboardHeader extends XLitElement {
   private async handleUploadClick() {
     const input = this.getFileInput()
 
+    if (this.model.canUseNativeUpload()) {
+      this.dispatchEvent(new CustomEvent('native-upload-requested', {bubbles: true}))
+      return
+    }
+
     if (this.model.canUseNativePathUpload()) {
+      this.beginFilePickerSession()
       try {
         const paths = await this.model.pickNativeUploadPaths()
+        this.endFilePickerSession()
         if (paths.length > 0) {
           this.dispatchEvent(new CustomEvent('upload-paths-requested', {detail: {paths}, bubbles: true}))
         }
         return
       } catch (e) {
+        this.endFilePickerSession()
         console.warn('[dashboard][tauri] open file dialog failed, falling back to <input type=file>', e)
       }
     }
 
-    input?.click()
+    if (!input) return
+    this.beginFilePickerSession()
+    try {
+      input.click()
+    } catch {
+      this.endFilePickerSession()
+    }
   }
 
   private onFileInputChange = (e: Event) => {
+    this.endFilePickerSession()
     const files = (e.target as HTMLInputElement).files
     if (files && files.length > 0) {
       this.dispatchEvent(new CustomEvent('upload-requested', {detail: {files}, bubbles: true}))
     }
   }
 
-  private onDeleteClick = () => {
-    this.dispatchEvent(new CustomEvent('delete-selected', {bubbles: true}))
+  private beginFilePickerSession() {
+    this.endFilePickerSession()
+    this.filePickerSession = beginMobileFilePickerSession()
   }
 
-  private onClearSelection = () => {
-    this.dispatchEvent(new CustomEvent('clear-selection', {bubbles: true}))
+  private endFilePickerSession() {
+    this.filePickerSession?.end()
+    this.filePickerSession = null
+  }
+
+  private onDeleteClick = () => {
+    this.dispatchEvent(new CustomEvent('delete-selected', {bubbles: true}))
   }
 
   private onSelectionModeExit = () => {
@@ -290,69 +249,36 @@ export class DashboardHeader extends XLitElement {
     `
   }
 
-  private renderMobileSelectionToolbar() {
-    const selectedCount = this.model.selectedCount()
-    const hasSelection = this.model.hasSelection()
-
-    return html`
-      <div slot="actions" class="actions-group actions-group-mobile selection-toolbar">
-        <button class="selection-done-btn" @click=${this.onSelectionModeExit}>
-          ${i18n('button:done' as any)}
-        </button>
-        <span class="selection-count">
-          ${hasSelection
-            ? i18n('file-manager:selected-count' as any, {count: String(selectedCount)})
-            : i18n('file-manager:select-items' as any)}
-        </span>
-        ${hasSelection
-          ? html`
-              <cv-button
-                class="action-btn action-btn-mobile"
-                variant="danger"
-                size="small"
-                @click=${this.onDeleteClick}
-                aria-label=${i18n('file-manager:delete-selected' as any, {count: String(selectedCount)})}
-              >
-                <cv-icon name="trash-2" slot="prefix"></cv-icon>
-              </cv-button>
-            `
-          : nothing}
-      </div>
-    `
-  }
-
-  private renderActions(mobile: boolean, inSelection = false) {
+  private renderActions() {
     const selectedCount = this.model.selectedCount()
     const selectionModeEnabled = this.model.selectionModeEnabled()
 
-    if (mobile && inSelection) {
-      return this.renderMobileSelectionToolbar()
-    }
-
     const content = html`
-      <cv-button
-        class="action-btn"
-        data-action="create-dir"
-        variant="primary"
-        size="small"
-        @click=${this.onCreateDirClick}
-        aria-label=${i18n('file-manager:create-folder' as any)}
-      >
-        <cv-icon name="folder-plus" slot="prefix"></cv-icon>
-        <span>${i18n('node:dir')}</span>
-      </cv-button>
+      <cv-guidance-anchor anchor-id="files.create-or-upload" surface="files" owner="file-manager">
+        <cv-button
+          class="action-btn"
+          data-action="create-dir"
+          variant="primary"
+          size="small"
+          @click=${this.onCreateDirClick}
+          aria-label=${i18n('file-manager:create-folder')}
+        >
+          <cv-icon name="folder-plus" slot="prefix"></cv-icon>
+          <span>${i18n('node:dir')}</span>
+        </cv-button>
 
-      <cv-button
-        class="action-btn"
-        data-action="upload"
-        variant="primary"
-        size="small"
-        @click=${this.onUploadClick}
-        aria-label=${i18n('file-manager:upload-files' as any)}
-      >
-        <cv-icon name="upload" slot="prefix"></cv-icon>
-        <span>${i18n('file-manager:upload' as any)}</span>
-      </cv-button>
+        <cv-button
+          class="action-btn"
+          data-action="upload"
+          variant="primary"
+          size="small"
+          @click=${this.onUploadClick}
+          aria-label=${i18n('file-manager:upload-files')}
+        >
+          <cv-icon name="upload" slot="prefix"></cv-icon>
+          <span>${i18n('file-manager:upload')}</span>
+        </cv-button>
+      </cv-guidance-anchor>
 
       ${selectionModeEnabled
         ? html`
@@ -361,10 +287,10 @@ export class DashboardHeader extends XLitElement {
               variant="default"
               size="small"
               @click=${this.onSelectionModeExit}
-              aria-label=${i18n('file-manager:exit-selection-mode' as any)}
+              aria-label=${i18n('file-manager:exit-selection-mode')}
             >
               <cv-icon name="check-square" slot="prefix"></cv-icon>
-              <span>${i18n('button:done' as any)}</span>
+              <span>${i18n('button:done')}</span>
             </cv-button>
           `
         : nothing}
@@ -375,10 +301,10 @@ export class DashboardHeader extends XLitElement {
               variant="danger"
               size="small"
               @click=${this.onDeleteClick}
-              aria-label=${i18n('file-manager:delete-selected' as any, {count: String(selectedCount)})}
+              aria-label=${i18n('file-manager:delete-selected', {count: String(selectedCount)})}
             >
               <cv-icon name="trash-2" slot="prefix"></cv-icon>
-              <span>${i18n('file-manager:delete-selected' as any, {count: String(selectedCount)})}</span>
+              <span>${i18n('file-manager:delete-selected', {count: String(selectedCount)})}</span>
             </cv-button>
           `
         : nothing}
@@ -387,22 +313,12 @@ export class DashboardHeader extends XLitElement {
     return html` <div slot="actions" class="actions-group actions-group-desktop">${content}</div> `
   }
 
-  private renderFilters(compact = false) {
-    if (compact) {
-      return html`
-        <file-search-mobile
-          slot="filters"
-          .filters=${this.model.filters()}
-          .totalFiles=${this.model.totalFiles()}
-          .filteredFiles=${this.model.filteredFiles()}
-          @filters-change=${this.onFiltersChange}
-        ></file-search-mobile>
-      `
-    }
+  private renderFilters() {
     return html`
       <file-search
         slot="filters"
         .filters=${this.model.filters()}
+        .filterActions=${this.filterActions}
         .totalFiles=${this.model.totalFiles()}
         .filteredFiles=${this.model.filteredFiles()}
         @filters-change=${this.onFiltersChange}
@@ -411,18 +327,13 @@ export class DashboardHeader extends XLitElement {
   }
 
   private renderMobileLayout() {
-    const inSelection = this.model.selectionModeEnabled() || this.model.hasSelection()
-    return html`
-      <dashboard-header-mobile-layout ?selection-mode=${inSelection}>
-        ${this.renderBreadcrumbs()} ${inSelection ? this.renderActions(true, inSelection) : nothing}
-      </dashboard-header-mobile-layout>
-    `
+    return nothing
   }
 
   private renderDesktopLayout() {
     return html`
       <dashboard-header-desktop-layout>
-        ${this.renderBreadcrumbs()} ${this.renderActions(false)} ${this.renderFilters()}
+        ${this.renderBreadcrumbs()} ${this.renderActions()} ${this.renderFilters()}
       </dashboard-header-desktop-layout>
     `
   }

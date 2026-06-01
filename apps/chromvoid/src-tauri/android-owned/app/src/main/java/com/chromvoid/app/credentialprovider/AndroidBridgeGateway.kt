@@ -8,7 +8,7 @@ internal class JniAndroidBridgeGateway(
     private val parser: BridgePayloadParser = BridgePayloadParser(),
 ) : AndroidBridgeGateway {
     override fun warmUp() {
-        runtime.ensureRuntime(appContext.filesDir.absolutePath)
+        runtime.ensureRuntime(runtimeDataDir())
     }
 
     override fun runtimeReady(): Boolean {
@@ -23,9 +23,13 @@ internal class JniAndroidBridgeGateway(
         return parser.providerStatus(runtime.providerStatus(), ::currentApiLevel)
     }
 
-    override fun autofillList(origin: String, domain: String): BridgeResult<Pair<String, List<AutofillCandidate>>> {
+    override fun autofillList(
+        origin: String,
+        domain: String,
+        includeDiagnostics: Boolean,
+    ): BridgeResult<AutofillListPayload> {
         warmUp()
-        return parser.autofillList(runtime.autofillList(origin, domain))
+        return parser.autofillList(runtime.autofillList(origin, domain, includeDiagnostics))
     }
 
     override fun autofillGetSecret(
@@ -37,12 +41,17 @@ internal class JniAndroidBridgeGateway(
         return parser.autofillSecret(runtime.autofillGetSecret(sessionId, credentialId, otpId.orEmpty()))
     }
 
+    override fun autofillCloseSession(sessionId: String): BridgeResult<Boolean> {
+        warmUp()
+        return parser.autofillCloseSession(runtime.autofillCloseSession(sessionId))
+    }
+
     override fun passwordList(origin: String, domain: String): BridgeResult<Pair<String, List<PasswordCandidate>>> {
-        return when (val result = autofillList(origin, domain)) {
+        return when (val result = autofillList(origin, domain, includeDiagnostics = false)) {
             is BridgeResult.Failure -> result
             is BridgeResult.Success -> {
                 BridgeResult.Success(
-                    result.value.first to result.value.second.map { candidate ->
+                    result.value.sessionId to result.value.candidates.map { candidate ->
                         PasswordCandidate(
                             credentialId = candidate.credentialId,
                             username = candidate.username,
@@ -97,5 +106,26 @@ internal class JniAndroidBridgeGateway(
         return parser.passkeyRequestId(
             runtime.passkeyPreflight(command, BridgePayloadJsonCodec.encodePasskeyPreflight(payload)),
         )
+    }
+
+    override fun passkeyQuery(payload: com.chromvoid.app.PasskeyCoreRequestPayload): BridgeResult<com.chromvoid.app.PasskeyCoreQueryResult> {
+        warmUp()
+        return parser.passkeyQuery(runtime.passkeyQuery(BridgePayloadJsonCodec.encodePasskeyCoreRequest(payload)))
+    }
+
+    override fun passkeyCreate(payload: com.chromvoid.app.PasskeyCoreRequestPayload): BridgeResult<com.chromvoid.app.PasskeyCoreOperationResult> {
+        warmUp()
+        return parser.passkeyCreate(runtime.passkeyCreate(BridgePayloadJsonCodec.encodePasskeyCoreRequest(payload)))
+    }
+
+    override fun passkeyGet(payload: com.chromvoid.app.PasskeyCoreRequestPayload): BridgeResult<com.chromvoid.app.PasskeyCoreOperationResult> {
+        warmUp()
+        return parser.passkeyGet(runtime.passkeyGet(BridgePayloadJsonCodec.encodePasskeyCoreRequest(payload)))
+    }
+
+    private fun runtimeDataDir(): String {
+        return appContext.applicationInfo.dataDir
+            ?: appContext.filesDir.parentFile?.absolutePath
+            ?: appContext.filesDir.absolutePath
     }
 }

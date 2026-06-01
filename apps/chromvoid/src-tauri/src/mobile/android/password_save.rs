@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
@@ -56,9 +56,23 @@ impl PasswordSaveRequestState {
     }
 }
 
-static PENDING_PASSWORD_SAVE_REQUESTS: LazyLock<
-    Mutex<HashMap<String, PendingPasswordSaveRequest>>,
-> = LazyLock::new(|| Mutex::new(HashMap::new()));
+pub(crate) struct AndroidPasswordSaveRuntimeState {
+    requests: Mutex<HashMap<String, PendingPasswordSaveRequest>>,
+}
+
+impl AndroidPasswordSaveRuntimeState {
+    pub(crate) fn new() -> Self {
+        Self {
+            requests: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+impl Default for AndroidPasswordSaveRuntimeState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 fn prune_expired(requests: &mut HashMap<String, PendingPasswordSaveRequest>) {
     let now = Instant::now();
@@ -72,6 +86,7 @@ fn prune_expired(requests: &mut HashMap<String, PendingPasswordSaveRequest>) {
 }
 
 pub fn register_password_save_request(
+    runtime: &AndroidPasswordSaveRuntimeState,
     payload: AndroidPasswordSavePayload,
 ) -> Result<String, String> {
     if payload.password.trim().is_empty() {
@@ -79,7 +94,8 @@ pub fn register_password_save_request(
     }
 
     let token = Uuid::new_v4().to_string();
-    let mut requests = PENDING_PASSWORD_SAVE_REQUESTS
+    let mut requests = runtime
+        .requests
         .lock()
         .map_err(|_| "Password save request store is unavailable".to_string())?;
     prune_expired(&mut requests);
@@ -95,9 +111,11 @@ pub fn register_password_save_request(
 }
 
 pub fn get_password_save_request(
+    runtime: &AndroidPasswordSaveRuntimeState,
     token: &str,
 ) -> Result<Option<(AndroidPasswordSavePayload, PasswordSaveRequestState)>, String> {
-    let mut requests = PENDING_PASSWORD_SAVE_REQUESTS
+    let mut requests = runtime
+        .requests
         .lock()
         .map_err(|_| "Password save request store is unavailable".to_string())?;
     prune_expired(&mut requests);
@@ -106,8 +124,12 @@ pub fn get_password_save_request(
         .map(|request| (request.payload.clone(), request.state)))
 }
 
-pub fn mark_password_save_request_launched(token: &str) -> Result<bool, String> {
-    let mut requests = PENDING_PASSWORD_SAVE_REQUESTS
+pub fn mark_password_save_request_launched(
+    runtime: &AndroidPasswordSaveRuntimeState,
+    token: &str,
+) -> Result<bool, String> {
+    let mut requests = runtime
+        .requests
         .lock()
         .map_err(|_| "Password save request store is unavailable".to_string())?;
     prune_expired(&mut requests);
@@ -124,10 +146,12 @@ pub fn mark_password_save_request_launched(token: &str) -> Result<bool, String> 
 }
 
 pub fn finish_password_save_request(
+    runtime: &AndroidPasswordSaveRuntimeState,
     token: &str,
     outcome: AndroidPasswordSaveOutcome,
 ) -> Result<bool, String> {
-    let mut requests = PENDING_PASSWORD_SAVE_REQUESTS
+    let mut requests = runtime
+        .requests
         .lock()
         .map_err(|_| "Password save request store is unavailable".to_string())?;
     prune_expired(&mut requests);
@@ -150,26 +174,35 @@ pub fn finish_password_save_request(
     Ok(true)
 }
 
-pub fn invalidate_all_password_save_requests(reason: &str) -> usize {
-    if let Ok(mut requests) = PENDING_PASSWORD_SAVE_REQUESTS.lock() {
-        prune_expired(&mut requests);
-        let mut invalidated = 0usize;
-        for request in requests.values_mut() {
-            if !request.state.is_terminal() {
-                request.state = PasswordSaveRequestState::Dismissed;
-                invalidated = invalidated.saturating_add(1);
-            }
-        }
-        if !requests.is_empty() {
-            tracing::info!(
-                "android password save requests invalidated: count={} reason={}",
-                invalidated,
-                reason
+pub fn invalidate_all_password_save_requests(
+    runtime: &AndroidPasswordSaveRuntimeState,
+    reason: &str,
+) -> usize {
+    let mut requests = match runtime.requests.lock() {
+        Ok(requests) => requests,
+        Err(_) => {
+            tracing::warn!(
+                "android password save request invalidation skipped: request store mutex poisoned"
             );
+            return 0;
         }
-        return invalidated;
+    };
+    prune_expired(&mut requests);
+    let mut invalidated = 0usize;
+    for request in requests.values_mut() {
+        if !request.state.is_terminal() {
+            request.state = PasswordSaveRequestState::Dismissed;
+            invalidated = invalidated.saturating_add(1);
+        }
     }
-    0
+    if !requests.is_empty() {
+        tracing::info!(
+            "android password save requests invalidated: count={} reason={}",
+            invalidated,
+            reason
+        );
+    }
+    invalidated
 }
 
 pub fn runtime_password_save_start(payload: Value) -> Value {
@@ -183,7 +216,21 @@ pub fn runtime_password_save_start(payload: Value) -> Value {
         }
     };
 
-    match register_password_save_request(payload.clone()) {
+    let Some(runtime) = crate::mobile::android::runtime::app_android_password_save_runtime() else {
+        return json!({
+            "ok": false,
+            "message": "Password save request store is unavailable",
+        });
+    };
+
+    runtime_password_save_start_with_runtime(&runtime, payload)
+}
+
+pub(crate) fn runtime_password_save_start_with_runtime(
+    runtime: &AndroidPasswordSaveRuntimeState,
+    payload: AndroidPasswordSavePayload,
+) -> Value {
+    match register_password_save_request(runtime, payload.clone()) {
         Ok(token) => json!({
             "ok": true,
             "token": token,
@@ -197,7 +244,21 @@ pub fn runtime_password_save_start(payload: Value) -> Value {
 }
 
 pub fn runtime_password_save_request(token: &str) -> Value {
-    match get_password_save_request(token) {
+    let Some(runtime) = crate::mobile::android::runtime::app_android_password_save_runtime() else {
+        return json!({
+            "ok": false,
+            "message": "Password save request store is unavailable",
+        });
+    };
+
+    runtime_password_save_request_with_runtime(&runtime, token)
+}
+
+pub(crate) fn runtime_password_save_request_with_runtime(
+    runtime: &AndroidPasswordSaveRuntimeState,
+    token: &str,
+) -> Value {
+    match get_password_save_request(runtime, token) {
         Ok(Some((payload, state))) => {
             if state.is_terminal() {
                 json!({
@@ -225,7 +286,21 @@ pub fn runtime_password_save_request(token: &str) -> Value {
 }
 
 pub fn runtime_password_save_mark_launched(token: &str) -> Value {
-    match mark_password_save_request_launched(token) {
+    let Some(runtime) = crate::mobile::android::runtime::app_android_password_save_runtime() else {
+        return json!({
+            "ok": false,
+            "message": "Password save request store is unavailable",
+        });
+    };
+
+    runtime_password_save_mark_launched_with_runtime(&runtime, token)
+}
+
+pub(crate) fn runtime_password_save_mark_launched_with_runtime(
+    runtime: &AndroidPasswordSaveRuntimeState,
+    token: &str,
+) -> Value {
+    match mark_password_save_request_launched(runtime, token) {
         Ok(marked) => json!({
             "ok": true,
             "marked": marked,

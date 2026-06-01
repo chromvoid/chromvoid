@@ -5,10 +5,8 @@ const PASSWORD_SAVE_NATIVE_SHELL_CLASS: &str =
     "com/chromvoid/app/nativebridge/PasswordSaveNativeShell";
 
 pub fn notify_password_save_review_result(token: Option<&str>, outcome: &str, finished: bool) {
-    let _ = super::jni::with_jni_env("password_save_review_result", |env, _context| {
-        let class = env
-            .find_class(PASSWORD_SAVE_NATIVE_SHELL_CLASS)
-            .map_err(|e| format!("find_class: {e}"))?;
+    let _ = super::jni::with_jni_env("password_save_review_result", |env, context| {
+        let class = super::jni::find_class(env, &context, PASSWORD_SAVE_NATIVE_SHELL_CLASS)?;
         let token = env
             .new_string(token.unwrap_or_default())
             .map_err(|e| format!("new_string token: {e}"))?;

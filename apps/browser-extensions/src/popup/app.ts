@@ -1,10 +1,10 @@
 import {atom} from '@reatom/core'
 import {css} from 'lit'
-import {ReatomLitElement, html} from '@chromvoid/uikit'
+import {ReatomLitElement, html} from '@chromvoid/uikit/reatom-lit'
 
-import type {Entry} from '@project/passmanager'
+import type {Entry} from '@project/passmanager/core'
 
-import {i18n} from './i18n'
+import {type BrowserExtensionLang, getLang, i18n, setLang} from './i18n'
 import {store} from './store'
 
 export class AppRoot extends ReatomLitElement {
@@ -50,8 +50,52 @@ export class AppRoot extends ReatomLitElement {
     .topbar {
       display: flex;
       justify-content: space-between;
-      align-items: center;
+      align-items: flex-start;
       gap: 10px;
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .lang-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px;
+      border: 1px solid rgb(148 163 184 / 18%);
+      border-radius: 999px;
+      background: rgb(15 23 42 / 56%);
+      box-shadow: inset 0 1px 0 rgb(255 255 255 / 4%);
+    }
+
+    .lang-switch-button {
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: rgb(148 163 184 / 92%);
+      padding: 4px 8px;
+      font: inherit;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      transition:
+        background-color 140ms ease,
+        color 140ms ease;
+    }
+
+    .lang-switch-button.active {
+      background: rgb(56 189 248 / 16%);
+      color: rgb(226 232 240 / 98%);
+    }
+
+    .lang-switch-button:focus-visible {
+      outline: 2px solid rgb(125 211 252 / 72%);
+      outline-offset: 1px;
     }
 
     .count-badge {
@@ -226,12 +270,22 @@ export class AppRoot extends ReatomLitElement {
     void store.pairWithPin(event.detail.pin)
   }
 
+  private handleLanguageChange(event: Event) {
+    const button = event.currentTarget as HTMLButtonElement | null
+    const lang = button?.dataset['lang']
+    if ((lang === 'en' || lang === 'ru') && lang !== getLang()) {
+      setLang(lang)
+    }
+  }
+
   render() {
     const list = store.list()
     const error = store.error()
     const host = store.tabHost() || i18n('app.currentPage')
     const entryLabel =
       list.length === 1 ? i18n('app.entry.one') : i18n('app.entry.many', {count: list.length})
+    const currentLang = getLang()
+    const languageOptions: BrowserExtensionLang[] = ['en', 'ru']
     const copyFeedback = this.copyFeedback()
     let content
 
@@ -272,7 +326,23 @@ export class AppRoot extends ReatomLitElement {
               <span>${host}</span>
             </div>
           </div>
-          <cv-badge class="count-badge" pill variant="primary">${entryLabel}</cv-badge>
+          <div class="topbar-actions">
+            <div class="lang-switch" role="group" aria-label=${i18n('app.lang.switchTo', {lang: ''})}>
+              ${languageOptions.map(
+                (lang) => html`<button
+                  class="lang-switch-button ${currentLang === lang ? 'active' : ''}"
+                  type="button"
+                  data-lang=${lang}
+                  aria-pressed=${currentLang === lang ? 'true' : 'false'}
+                  aria-label=${i18n('app.lang.switchTo', {lang: i18n(`app.lang.${lang}`)})}
+                  @click=${this.handleLanguageChange}
+                >
+                  ${i18n(`app.lang.${lang}`)}
+                </button>`,
+              )}
+            </div>
+            <cv-badge class="count-badge" pill variant="primary">${entryLabel}</cv-badge>
+          </div>
         </header>
         <ext-status-panel></ext-status-panel>
         ${copyFeedback ? html`<div class="copy-toast">${copyFeedback}</div>` : null}

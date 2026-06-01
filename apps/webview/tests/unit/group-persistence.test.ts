@@ -1,30 +1,29 @@
 import {describe, expect, it, vi, beforeEach} from 'vitest'
 
-/**
- * Тесты для проверки персистентности групп PassManager.
- *
- * Проблема: при создании новой группы она появляется в UI,
- * но после перезагрузки страницы исчезает.
- *
- * Корневые причины:
- * 1. waitStream() в Transfer.ts не реджектился при RPC ошибках
- * 2. readSecret зависал бесконечно при NODE_NOT_FOUND
- * 3. Promise.all в apiSave прерывался при ошибке экспорта записи
- */
+/**Tests to check the persistence of PassManager groups.
+*
+Problem: When you create a new group, it appears in the UI.
+* but after reloading the page disappears.
+*
+* Root causes:
+1. waitStream() in Transfer.ts was not redacted with RPC errors
+* 2. readSecret hovered indefinitely at NODE NOT FOUND
+3. Promise.all in apiSave was interrupted when the record was exported
+*/
 
 describe('Group persistence', () => {
   describe('Entry.export error handling', () => {
     it('should return empty password when readSecret fails', async () => {
-      // Мок Entry.password который выбрасывает ошибку
+      // Mock Entry.password that throws out an error
       const mockPassword = vi.fn().mockRejectedValue(new Error('NODE_NOT_FOUND'))
 
-      // Симуляция Entry.export с обработкой ошибок
+      // Entry.export simulation with error handling
       const exportEntry = async () => {
         let password = ''
         try {
           password = (await mockPassword()) ?? ''
         } catch {
-          // Пароль недоступен — используем пустую строку
+          // Password Unavailable – Use an Empty Line
         }
         return {
           id: 'test-id',
@@ -48,7 +47,7 @@ describe('Group persistence', () => {
         try {
           password = (await mockPassword()) ?? ''
         } catch {
-          // Пароль недоступен
+          // Password unavailable
         }
         return {password}
       }
@@ -60,14 +59,14 @@ describe('Group persistence', () => {
 
   describe('apiSave with Promise.allSettled', () => {
     it('should continue saving even if some exports fail', async () => {
-      // Симуляция entriesList с одной успешной и одной проваленной записью
+      // entriesList simulation with one successful and one failed record
       const entries = [
         {export: vi.fn().mockResolvedValue({id: '1', name: 'Group1', entries: []})},
         {export: vi.fn().mockRejectedValue(new Error('Export failed'))},
         {export: vi.fn().mockResolvedValue({id: '3', name: 'Group3', entries: []})},
       ]
 
-      // Симуляция apiSave с Promise.allSettled
+      // ApiSave simulation with Promise.allSettled
       const results = await Promise.allSettled(entries.map((e) => e.export()))
       const successfulEntries = results
         .filter(
@@ -93,13 +92,13 @@ describe('Group persistence', () => {
         .map((r) => r.value)
 
       expect(successfulEntries).toHaveLength(0)
-      // Сохранение должно продолжаться с пустым массивом entries
+      // Conservation should continue with an empty array of entries
     })
   })
 
   describe('Transfer.waitStream rejection', () => {
     it('should reject waitStream when RPC returns error', async () => {
-      // Симуляция Transfer.reject с реджектом inboundStreamPromise
+      // Simulation Transfer.reject with inboundStreamPromise
       let rejectInboundStream: ((reason: unknown) => void) | undefined
       const inboundStreamPromise = new Promise<AsyncIterable<Uint8Array>>((_, reject) => {
         rejectInboundStream = reject
@@ -107,10 +106,10 @@ describe('Group persistence', () => {
 
       const waitStream = () => inboundStreamPromise
 
-      // Симуляция получения RPC ошибки
+      // Simulation of getting an RPC error
       const rpcError = {ok: false, error: 'NODE_NOT_FOUND'}
 
-      // При ошибке RPC, reject должен вызвать rejectInboundStream
+      // If an RPC error occurs, reject must cause rejectInboundStream
       if (rpcError.ok === false && rejectInboundStream) {
         rejectInboundStream(new Error(rpcError.error))
       }
@@ -126,7 +125,7 @@ describe('Group persistence', () => {
         setTimeout(() => reject(new Error('readSecret timeout')), timeoutMs),
       )
 
-      // Симуляция зависшего waitStream
+      // Simulation of the hanging waitStream
       const hangingWaitStream = new Promise<AsyncIterable<Uint8Array>>(() => {
         // Never resolves
       })
@@ -141,7 +140,7 @@ describe('saveRoot empty group handling', () => {
     const createDir = vi.fn().mockResolvedValue(undefined)
     const groupsMap = new Map<string, Array<{id: string}>>([
       ['Banking', [{id: 'entry1'}]],
-      ['EmptyGroup', []], // Пустая группа
+      ['EmptyGroup', []], // Empty group.
     ])
 
     for (const [groupName, entries] of groupsMap.entries()) {
@@ -165,11 +164,11 @@ describe('saveRoot empty group handling', () => {
         if (!msg.includes('NAME_EXIST')) {
           throw e
         }
-        // NAME_EXIST — группа уже существует, это OK
+        // NAME EXIST - The band already exists, that's OK.
       }
     }
 
-    // Не должен выбрасывать ошибку
+    // Don't throw out a mistake.
     await expect(createGroupDir('ExistingGroup')).resolves.toBeUndefined()
   })
 

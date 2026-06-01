@@ -25,6 +25,15 @@ fn test_shard_meta_passmanager() {
 }
 
 #[test]
+fn test_shard_meta_eager_system() {
+    let meta = ShardMeta::eager_system(".passkeys");
+
+    assert_eq!(meta.shard_id, ".passkeys");
+    assert_eq!(meta.context, "shard:.passkeys");
+    assert_eq!(meta.strategy, LoadStrategy::Eager);
+}
+
+#[test]
 fn test_shard_meta_record_delta() {
     let mut meta = ShardMeta::new("test", LoadStrategy::Lazy);
 

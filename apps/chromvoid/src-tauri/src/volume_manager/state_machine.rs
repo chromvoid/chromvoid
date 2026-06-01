@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use tracing::{error, info, warn};
@@ -5,6 +6,7 @@ use tracing::{error, info, warn};
 use crate::volume_webdav::WebDavServerHandle;
 
 use super::backend::VolumeBackendHandle;
+use super::backend_join::VolumeBackendJoinRuntimeState;
 use super::fuse::FuseSessionHandle;
 use super::models::{VolumeError, VolumeResult, VolumeState};
 use super::DEFAULT_OPERATION_TIMEOUT;
@@ -20,6 +22,7 @@ pub struct VolumeManager {
     operation_timeout: Duration,
 
     backend: Option<VolumeBackendHandle>,
+    backend_join_runtime: Arc<VolumeBackendJoinRuntimeState>,
     last_error: Option<String>,
 }
 
@@ -29,6 +32,7 @@ impl VolumeManager {
             state: VolumeState::Locked,
             operation_timeout: DEFAULT_OPERATION_TIMEOUT,
             backend: None,
+            backend_join_runtime: Arc::new(VolumeBackendJoinRuntimeState::new()),
             last_error: None,
         }
     }
@@ -51,6 +55,10 @@ impl VolumeManager {
 
     pub fn take_backend(&mut self) -> Option<VolumeBackendHandle> {
         self.backend.take()
+    }
+
+    pub(crate) fn backend_join_runtime(&self) -> Arc<VolumeBackendJoinRuntimeState> {
+        self.backend_join_runtime.clone()
     }
 
     pub fn set_webdav(&mut self, handle: WebDavServerHandle) {

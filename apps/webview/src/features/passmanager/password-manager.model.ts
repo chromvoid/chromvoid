@@ -1,27 +1,36 @@
-import {state} from '@statx/core'
+import {atom} from '@reatom/core'
 
-import {ManagerRoot, bindPMTheme, syncUiModeWithQuery} from '@project/passmanager'
-import type {ManagerSaver} from '@project/passmanager'
-import {Entry, Group} from '@project/passmanager'
-import {i18n, copyWithAutoWipe, DEFAULT_CLIPBOARD_WIPE_MS, notify} from '@project/passmanager'
+import {Entry, Group, ManagerRoot} from '@project/passmanager/core'
+import {syncUiModeWithQuery} from '@project/passmanager/flags'
+import {copyWithAutoWipe, DEFAULT_CLIPBOARD_WIPE_MS} from '@project/passmanager/password-utils'
+import type {ManagerSaver} from '@project/passmanager/types'
 import {announce} from '@chromvoid/ui'
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import {defaultLogger} from 'root/core/logger'
-import {
-  createCatalogOperationsAdapter,
-  buildExistingEntriesByOriginalId,
-} from './service/catalog-import-adapter'
-import type {ImportProgress} from '@chromvoid/password-import'
-import {setImportCatalogOps, setExistingEntriesMap} from '@chromvoid/password-import'
+import {i18n as appI18n} from 'root/i18n'
 import {pmIconStore} from './models/pm-icon-store'
 import {
   finishAndroidPasswordSave,
   hasActiveAndroidPasswordSaveToken,
   hasAndroidPasswordSavePrefill,
 } from './models/android-password-save-prefill'
+import {pmActiveRowModel} from './models/pm-active-row.model'
+import {pmEntryEditorModel} from './models/pm-entry-editor.model'
+import {pmMobileSelectionModel} from './models/pm-mobile-selection.model'
+import {pmCredentialSecurityAuditModel} from './models/pm-credential-security-audit.model'
+import {
+  clearPassmanagerRoot,
+  getPassmanagerRoot,
+  getPassmanagerShowElement,
+  passmanagerRoot,
+  setPassmanagerRoot,
+  type PMRootShowElement,
+} from './models/pm-root.adapter'
+import {passmanagerMaintenanceModel} from './models/passmanager-maintenance.model'
 import {passmanagerNavigationController} from './passmanager-navigation.controller'
+import {initPassmanagerDialogAdapter} from './service/passmanager-dialog-adapter'
 
-function describeShowElement(showElement: ReturnType<typeof window.passmanager.showElement> | undefined): string {
+function describeShowElement(showElement: PMRootShowElement): string {
   if (showElement instanceof Entry) return `entry:${showElement.id}`
   if (showElement instanceof Group) return `group:${showElement.id}`
   if (showElement instanceof ManagerRoot) return `root:${showElement.id}`
@@ -37,27 +46,37 @@ function describeShowElement(showElement: ReturnType<typeof window.passmanager.s
   return String(showElement)
 }
 
+function shouldExposePassmanagerRootForDebug(): boolean {
+  if (typeof window === 'undefined') return false
+  const host = window.location.hostname
+  return window.env === 'dev' || host === 'localhost' || host === '127.0.0.1'
+}
+
 export class PasswordManagerModel {
   managerSaver!: ManagerSaver
 
-  readonly alive = state(false)
+  readonly alive = atom(false)
+  readonly root = passmanagerRoot
 
   private readonly logger = defaultLogger
-  private _unbindTheme?: () => void
 
   init(): void {
     if (this.alive()) return
 
-    window.passmanager = new ManagerRoot(this.managerSaver)
-    window.passmanager.load()
+    pmActiveRowModel.clearAll()
+    pmMobileSelectionModel.exit()
+    initPassmanagerDialogAdapter()
+    const root = new ManagerRoot(this.managerSaver)
+    setPassmanagerRoot(root)
+    pmCredentialSecurityAuditModel.attachRoot(root)
+    this.exposeRootForDebug(root)
+    root.load()
     passmanagerNavigationController.reset()
-    navigationModel.attachPassmanager(window.passmanager)
+    navigationModel.attachPassmanager(root)
 
     try {
       syncUiModeWithQuery()
     } catch {}
-
-    this._unbindTheme = bindPMTheme()
 
     this.alive.set(true)
 
@@ -69,24 +88,41 @@ export class PasswordManagerModel {
   cleanup(): void {
     if (!this.alive()) return
 
+    pmActiveRowModel.clearAll()
+    pmMobileSelectionModel.exit()
     if (hasActiveAndroidPasswordSaveToken()) {
       void finishAndroidPasswordSave('dismissed')
     }
 
-    window.passmanager?.clean()
-    // @ts-ignore
-    window.passmanager = undefined
+    getPassmanagerRoot()?.clean()
+    pmCredentialSecurityAuditModel.dispose()
+    this.clearDebugRoot()
+    clearPassmanagerRoot()
     pmIconStore.dispose()
     navigationModel.detachPassmanager()
-
-    this._unbindTheme?.()
-    this._unbindTheme = undefined
 
     this.alive.set(false)
   }
 
+  private exposeRootForDebug(root: ManagerRoot): void {
+    if (!shouldExposePassmanagerRootForDebug()) return
+    ;(window as Window & {passmanager?: ManagerRoot}).passmanager = root
+  }
+
+  private clearDebugRoot(): void {
+    if (typeof window === 'undefined') return
+    const debugWindow = window as Window & {passmanager?: ManagerRoot}
+    if (debugWindow.passmanager === getPassmanagerRoot()) {
+      Reflect.deleteProperty(debugWindow, 'passmanager')
+    }
+  }
+
   openItem(item: Entry | Group): void {
     passmanagerNavigationController.openItem(item)
+  }
+
+  openOtpView(): void {
+    navigationModel.openPassmanagerRoute({kind: 'otp-view'})
   }
 
   consumeRestoreSelection(containerId: string): string | undefined {
@@ -94,18 +130,18 @@ export class PasswordManagerModel {
   }
 
   goBackFromCurrent(): boolean {
-    const current = window.passmanager.showElement()
+    const current = getPassmanagerShowElement()
     const route = passmanagerNavigationController.readRoute()
     this.logger.debug('[PassManager][Nav] goBackFromCurrent begin', {
       current: describeShowElement(current),
-      isEditMode: window.passmanager.isEditMode(),
+      hasActiveEntryEditor: pmEntryEditorModel.active(),
       route,
     })
 
     const handled = passmanagerNavigationController.goBackFromCurrent()
     this.logger.debug('[PassManager][Nav] goBackFromCurrent result', {
       handled,
-      next: describeShowElement(window.passmanager.showElement()),
+      next: describeShowElement(getPassmanagerShowElement()),
       route: passmanagerNavigationController.readRoute(),
     })
     if (handled && route.kind === 'create-entry' && hasActiveAndroidPasswordSaveToken()) {
@@ -123,50 +159,20 @@ export class PasswordManagerModel {
   }
 
   onExport(): void {
-    window.passmanager.export()
+    void passmanagerMaintenanceModel.exportRoot()
   }
 
   onFullClean(): void {
-    window.passmanager.fullClean()
+    void passmanagerMaintenanceModel.cleanRoot()
   }
 
   async onImport(): Promise<void> {
-    const catalog = window.catalog
-
-    try {
-      await catalog.refreshSilent()
-    } catch {
-      catalog.queueRefresh(150)
-    }
-
-    const catalogOps = createCatalogOperationsAdapter(catalog)
-    setImportCatalogOps(catalogOps)
-
-    const existingMap = await buildExistingEntriesByOriginalId(catalog)
-    setExistingEntriesMap(existingMap)
-
+    await passmanagerMaintenanceModel.prepareImport()
     passmanagerNavigationController.openImport()
   }
 
   async handleImportComplete(e: Event): Promise<void> {
-    const detail = (e as CustomEvent).detail as {success: boolean; progress: ImportProgress}
-    if (detail.success) {
-      pmIconStore.clearMissCache()
-      notify.success(i18n('notify:import:success'))
-    }
-
-    const catalog = window.catalog
-    if (catalog) {
-      try {
-        await catalog.refreshSilent()
-      } catch {
-        catalog.queueRefresh(150)
-      }
-    }
-
-    try {
-      await window.passmanager.load()
-    } catch {}
+    await passmanagerMaintenanceModel.handleImportComplete(e)
   }
 
   handleImportClose(): void {
@@ -174,17 +180,20 @@ export class PasswordManagerModel {
   }
 
   async copyCurrentPassword(): Promise<void> {
-    const selected = window.passmanager?.showElement()
+    const selected = getPassmanagerShowElement()
     if (!(selected instanceof Entry)) return
     try {
-      const pwd = await selected.password()
-      await copyWithAutoWipe(pwd ?? '', DEFAULT_CLIPBOARD_WIPE_MS)
+      const pwd = selected.entryType === 'payment_card' ? await selected.cardPan() : await selected.password()
+      if (!pwd) {
+        throw new Error('Secret is unavailable')
+      }
+      await copyWithAutoWipe(pwd, DEFAULT_CLIPBOARD_WIPE_MS)
       try {
-        announce('Пароль скопирован', 'polite')
+        announce(appI18n('password-manager:password-copied' as any), 'polite')
       } catch {}
     } catch {
       try {
-        announce('Не удалось скопировать пароль', 'assertive')
+        announce(appI18n('password-manager:password-copy-failed' as any), 'assertive')
       } catch {}
     }
   }

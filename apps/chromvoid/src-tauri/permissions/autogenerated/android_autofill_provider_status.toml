@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-android-autofill-provider-status"
+description = "Enables the android_autofill_provider_status command without any pre-configured scope."
+commands.allow = ["android_autofill_provider_status"]
+
+[[permission]]
+identifier = "deny-android-autofill-provider-status"
+description = "Denies the android_autofill_provider_status command without any pre-configured scope."
+commands.deny = ["android_autofill_provider_status"]

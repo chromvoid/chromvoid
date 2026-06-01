@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-catalog-list-shared-files"
+description = "Enables the catalog_list_shared_files command without any pre-configured scope."
+commands.allow = ["catalog_list_shared_files"]
+
+[[permission]]
+identifier = "deny-catalog-list-shared-files"
+description = "Denies the catalog_list_shared_files command without any pre-configured scope."
+commands.deny = ["catalog_list_shared_files"]

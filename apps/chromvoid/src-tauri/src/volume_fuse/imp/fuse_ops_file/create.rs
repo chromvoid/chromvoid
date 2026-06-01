@@ -2,8 +2,8 @@ use super::super::helpers::*;
 use super::super::*;
 
 pub(in crate::volume_fuse::imp) fn handle_create(
-    fs: &mut PrivyFilesystem,
-    _req: &Request<'_>,
+    fs: &PrivyFilesystem,
+    _req: &Request,
     parent: u64,
     name: &OsStr,
     _mode: u32,
@@ -14,7 +14,7 @@ pub(in crate::volume_fuse::imp) fn handle_create(
     let name_str = match name.to_str() {
         Some(n) => n,
         None => {
-            reply.error(libc::EINVAL);
+            reply.error(fuse_errno(libc::EINVAL));
             return;
         }
     };
@@ -22,7 +22,7 @@ pub(in crate::volume_fuse::imp) fn handle_create(
     info!(target: "chromvoid_lib::volume_fuse::imp", parent, name = name_str, flags, "FUSE create");
 
     if let Err(e) = fs.guard_system_child(parent, name_str) {
-        reply.error(e);
+        reply.error(fuse_errno(e));
         return;
     }
 
@@ -31,7 +31,7 @@ pub(in crate::volume_fuse::imp) fn handle_create(
         Ok(e) => Some(e),
         Err(e) if e == libc::ENOENT => None,
         Err(e) => {
-            reply.error(e);
+            reply.error(fuse_errno(e));
             return;
         }
     };
@@ -43,11 +43,11 @@ pub(in crate::volume_fuse::imp) fn handle_create(
 
     if let Some(existing) = existing {
         if (flags & libc::O_EXCL) != 0 {
-            reply.error(libc::EEXIST);
+            reply.error(fuse_errno(libc::EEXIST));
             return;
         }
         if existing.is_dir {
-            reply.error(libc::EISDIR);
+            reply.error(fuse_errno(libc::EISDIR));
             return;
         }
 
@@ -57,7 +57,7 @@ pub(in crate::volume_fuse::imp) fn handle_create(
         let truncate = (flags & libc::O_TRUNC) != 0;
 
         if std::fs::create_dir_all(&fs.staging_dir).is_err() {
-            reply.error(libc::EIO);
+            reply.error(fuse_errno(libc::EIO));
             return;
         }
 
@@ -69,7 +69,7 @@ pub(in crate::volume_fuse::imp) fn handle_create(
                 .open(&tmp_path)
                 .is_err()
             {
-                reply.error(libc::EIO);
+                reply.error(fuse_errno(libc::EIO));
                 return;
             }
             if let Some(mut entry) = fs.inode_table.get(ino) {
@@ -82,29 +82,40 @@ pub(in crate::volume_fuse::imp) fn handle_create(
                 .download_to_path(existing.catalog_node_id, &tmp_path)
                 .is_err()
             {
-                reply.error(libc::EIO);
+                reply.error(fuse_errno(libc::EIO));
                 return;
             }
         }
 
-        if let Ok(mut map) = fs.open_files.lock() {
-            map.insert(
-                fh,
-                OpenFileState {
-                    ino,
-                    node_id: existing.catalog_node_id,
-                    tmp_path,
-                    writeable,
-                    dirty: truncate,
-                    read_stream: None,
-                    read_pos: 0,
-                },
-            );
-        }
+        let mut map = match fs.open_files.lock() {
+            Ok(map) => map,
+            Err(_) => {
+                reply.error(fuse_errno(libc::EIO));
+                return;
+            }
+        };
+        map.insert(
+            fh,
+            OpenFileState {
+                ino,
+                node_id: existing.catalog_node_id,
+                tmp_path,
+                writeable,
+                dirty: truncate,
+                read_stream: None,
+                read_pos: 0,
+            },
+        );
 
         let size = if truncate { 0 } else { existing.size };
         let attr = make_attr(ino, size, false, SystemTime::now());
-        reply.created(&ATTR_TTL, &attr, 0, fh, 0);
+        reply.created(
+            &ATTR_TTL,
+            &attr,
+            fuser::Generation(0),
+            fuse_fh(fh),
+            FopenFlags::empty(),
+        );
         return;
     }
 
@@ -114,7 +125,7 @@ pub(in crate::volume_fuse::imp) fn handle_create(
         match build_catalog_path(&fs.inode_table, parent) {
             Some(p) => p,
             None => {
-                reply.error(libc::ENOENT);
+                reply.error(fuse_errno(libc::ENOENT));
                 return;
             }
         }
@@ -129,57 +140,61 @@ pub(in crate::volume_fuse::imp) fn handle_create(
     let _guard = match fs.write_lock.lock() {
         Ok(g) => g,
         Err(_) => {
-            reply.error(libc::EIO);
+            reply.error(fuse_errno(libc::EIO));
             return;
         }
     };
 
-    // Create placeholder file with size=0 (size will be adjusted on flush).
+    // Create an empty file through the stream upload boundary.
     let node_id = {
         let mut adapter = match fs.adapter.lock() {
             Ok(a) => a,
             Err(_) => {
-                reply.error(libc::EIO);
+                reply.error(fuse_errno(libc::EIO));
                 return;
             }
         };
-        let value = match rpc_json(
-            adapter.as_mut(),
-            "catalog:prepareUpload",
+        let req = RpcRequest::new(
+            "catalog:upload".to_string(),
             json!({
                 "parent_path": parent_val,
                 "name": name_str,
-                "size": 0,
+                "total_size": 0,
                 "mime_type": serde_json::Value::Null,
                 "chunk_size": serde_json::Value::Null,
+                "size": 0,
+                "offset": 0,
             }),
-        ) {
-            Ok(v) => v,
-            Err(e) => {
-                reply.error(e);
-                return;
-            }
+        );
+        let value =
+            match adapter.handle_with_stream(&req, Some(RpcInputStream::from_bytes(Vec::new()))) {
+                RpcReply::Json(RpcResponse::Success { result, .. }) => result,
+                RpcReply::Json(RpcResponse::Error { code, .. }) => {
+                    reply.error(fuse_errno(rpc_code_to_errno(code.as_deref())));
+                    return;
+                }
+                RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+                    reply.error(fuse_errno(libc::EIO));
+                    return;
+                }
+            };
+        let Some(node_id) = upload_node_id_from_value(&value) else {
+            reply.error(fuse_errno(libc::EIO));
+            return;
         };
-        let prep: PrepareUploadResponse = match serde_json::from_value(value) {
-            Ok(r) => r,
-            Err(_) => {
-                reply.error(libc::EIO);
-                return;
-            }
-        };
-        let emitted = save_and_flush_best_effort(adapter.as_mut());
+        let emitted = save_and_flush_best_effort(&fs.event_sink, adapter.as_mut());
         if emitted == 0 {
-            emit_catalog_create_hint_event(prep.node_id);
+            emit_catalog_create_hint_event(&fs.event_sink, node_id);
         }
         info!(
             target: "chromvoid_lib::volume_fuse::imp",
             parent,
             name = name_str,
-            node_id = prep.node_id,
+            node_id,
             events_emitted = emitted,
             "FUSE create: prepared upload placeholder"
         );
-        prep.node_id
+        node_id
     };
 
     let ino = fuse_ino_from_catalog_node_id(node_id);
@@ -187,7 +202,7 @@ pub(in crate::volume_fuse::imp) fn handle_create(
     let tmp_path = fs.fh_tmp_path(fh);
 
     if std::fs::create_dir_all(&fs.staging_dir).is_err() {
-        reply.error(libc::EIO);
+        reply.error(fuse_errno(libc::EIO));
         return;
     }
     if OpenOptions::new()
@@ -197,7 +212,7 @@ pub(in crate::volume_fuse::imp) fn handle_create(
         .open(&tmp_path)
         .is_err()
     {
-        reply.error(libc::EIO);
+        reply.error(fuse_errno(libc::EIO));
         return;
     }
 
@@ -211,28 +226,39 @@ pub(in crate::volume_fuse::imp) fn handle_create(
         modified: Some(SystemTime::now()),
     });
 
-    if let Ok(mut map) = fs.open_files.lock() {
-        map.insert(
-            fh,
-            OpenFileState {
-                ino,
-                node_id,
-                tmp_path,
-                writeable,
-                dirty: false,
-                read_stream: None,
-                read_pos: 0,
-            },
-        );
-    }
+    let mut map = match fs.open_files.lock() {
+        Ok(map) => map,
+        Err(_) => {
+            reply.error(fuse_errno(libc::EIO));
+            return;
+        }
+    };
+    map.insert(
+        fh,
+        OpenFileState {
+            ino,
+            node_id,
+            tmp_path,
+            writeable,
+            dirty: false,
+            read_stream: None,
+            read_pos: 0,
+        },
+    );
 
     let attr = make_attr(ino, 0, false, SystemTime::now());
-    reply.created(&ATTR_TTL, &attr, 0, fh, 0);
+    reply.created(
+        &ATTR_TTL,
+        &attr,
+        fuser::Generation(0),
+        fuse_fh(fh),
+        FopenFlags::empty(),
+    );
 }
 
 pub(in crate::volume_fuse::imp) fn handle_mknod(
-    fs: &mut PrivyFilesystem,
-    _req: &Request<'_>,
+    fs: &PrivyFilesystem,
+    _req: &Request,
     parent: u64,
     name: &OsStr,
     mode: u32,
@@ -244,14 +270,14 @@ pub(in crate::volume_fuse::imp) fn handle_mknod(
     // Support regular-file creation (size 0). Other special files are rejected.
     let file_type = mode & (libc::S_IFMT as u32);
     if file_type != (libc::S_IFREG as u32) {
-        reply.error(libc::EPERM);
+        reply.error(fuse_errno(libc::EPERM));
         return;
     }
 
     let name_str = match name.to_str() {
         Some(n) => n,
         None => {
-            reply.error(libc::EINVAL);
+            reply.error(fuse_errno(libc::EINVAL));
             return;
         }
     };
@@ -259,12 +285,12 @@ pub(in crate::volume_fuse::imp) fn handle_mknod(
     info!(target: "chromvoid_lib::volume_fuse::imp", parent, name = name_str, mode, "FUSE mknod");
 
     if let Err(e) = fs.guard_system_child(parent, name_str) {
-        reply.error(e);
+        reply.error(fuse_errno(e));
         return;
     }
 
     if let Ok(_) = fs.find_or_list_child(parent, name_str) {
-        reply.error(libc::EEXIST);
+        reply.error(fuse_errno(libc::EEXIST));
         return;
     }
 
@@ -274,7 +300,7 @@ pub(in crate::volume_fuse::imp) fn handle_mknod(
         match build_catalog_path(&fs.inode_table, parent) {
             Some(p) => p,
             None => {
-                reply.error(libc::ENOENT);
+                reply.error(fuse_errno(libc::ENOENT));
                 return;
             }
         }
@@ -288,7 +314,7 @@ pub(in crate::volume_fuse::imp) fn handle_mknod(
     let _guard = match fs.write_lock.lock() {
         Ok(g) => g,
         Err(_) => {
-            reply.error(libc::EIO);
+            reply.error(fuse_errno(libc::EIO));
             return;
         }
     };
@@ -297,47 +323,51 @@ pub(in crate::volume_fuse::imp) fn handle_mknod(
         let mut adapter = match fs.adapter.lock() {
             Ok(a) => a,
             Err(_) => {
-                reply.error(libc::EIO);
+                reply.error(fuse_errno(libc::EIO));
                 return;
             }
         };
-        let value = match rpc_json(
-            adapter.as_mut(),
-            "catalog:prepareUpload",
+        let req = RpcRequest::new(
+            "catalog:upload".to_string(),
             json!({
                 "parent_path": parent_val,
                 "name": name_str,
-                "size": 0,
+                "total_size": 0,
                 "mime_type": serde_json::Value::Null,
                 "chunk_size": serde_json::Value::Null,
+                "size": 0,
+                "offset": 0,
             }),
-        ) {
-            Ok(v) => v,
-            Err(e) => {
-                reply.error(e);
-                return;
-            }
+        );
+        let value =
+            match adapter.handle_with_stream(&req, Some(RpcInputStream::from_bytes(Vec::new()))) {
+                RpcReply::Json(RpcResponse::Success { result, .. }) => result,
+                RpcReply::Json(RpcResponse::Error { code, .. }) => {
+                    reply.error(fuse_errno(rpc_code_to_errno(code.as_deref())));
+                    return;
+                }
+                RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+                    reply.error(fuse_errno(libc::EIO));
+                    return;
+                }
+            };
+        let Some(node_id) = upload_node_id_from_value(&value) else {
+            reply.error(fuse_errno(libc::EIO));
+            return;
         };
-        let prep: PrepareUploadResponse = match serde_json::from_value(value) {
-            Ok(r) => r,
-            Err(_) => {
-                reply.error(libc::EIO);
-                return;
-            }
-        };
-        let emitted = save_and_flush_best_effort(adapter.as_mut());
+        let emitted = save_and_flush_best_effort(&fs.event_sink, adapter.as_mut());
         if emitted == 0 {
-            emit_catalog_create_hint_event(prep.node_id);
+            emit_catalog_create_hint_event(&fs.event_sink, node_id);
         }
         info!(
             target: "chromvoid_lib::volume_fuse::imp",
             parent,
             name = name_str,
-            node_id = prep.node_id,
+            node_id,
             events_emitted = emitted,
             "FUSE mknod: prepared upload placeholder"
         );
-        prep.node_id
+        node_id
     };
 
     let ino = fuse_ino_from_catalog_node_id(node_id);
@@ -350,5 +380,9 @@ pub(in crate::volume_fuse::imp) fn handle_mknod(
         modified: Some(SystemTime::now()),
     });
 
-    reply.entry(&ATTR_TTL, &make_attr(ino, 0, false, SystemTime::now()), 0);
+    reply.entry(
+        &ATTR_TTL,
+        &make_attr(ino, 0, false, SystemTime::now()),
+        fuser::Generation(0),
+    );
 }

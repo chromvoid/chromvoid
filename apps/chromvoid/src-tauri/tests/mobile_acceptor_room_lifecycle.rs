@@ -2,13 +2,20 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU16, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use chromvoid_lib::network::ios_pairing::{self, IosHostPhase, IosHostStatus};
-use chromvoid_lib::network::mobile_acceptor::{self, AcceptorState, AcceptorStatus};
+use chromvoid_lib::network::ios_pairing::{self, IosHostPhase, IosHostRuntimeState, IosHostStatus};
+use chromvoid_lib::network::mobile_acceptor::{
+    self, AcceptorState, AcceptorStatus, MobileAcceptorRuntimeState,
+};
+use chromvoid_lib::network::mobile_host::{
+    self, AndroidHostRuntimeState, MobileHostPhase, MobileHostStatus,
+};
 use chromvoid_lib::network::wss_transport::WssTransport;
-use chromvoid_lib::network::{fetch_host_presence, LocalDeviceIdentityStore, PairedIosPeer};
+use chromvoid_lib::network::{
+    fetch_host_presence, LocalDeviceIdentityStore, PairedIosPeer, PairedPeer, PairedPeerStore,
+};
 use chromvoid_protocol::{
     Frame, FrameType, NoiseTransport, RemoteTransport, MAX_HANDSHAKE_MSG, NOISE_PARAMS_IK,
 };
@@ -19,6 +26,23 @@ static NEXT_RELAY_PORT: AtomicU16 = AtomicU16::new(18_443);
 fn runtime_test_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
+}
+
+#[derive(Clone)]
+struct RuntimeHarness {
+    mobile_acceptor: Arc<MobileAcceptorRuntimeState>,
+    ios_host: Arc<IosHostRuntimeState>,
+    android_host: Arc<AndroidHostRuntimeState>,
+}
+
+impl RuntimeHarness {
+    fn new() -> Self {
+        Self {
+            mobile_acceptor: Arc::new(MobileAcceptorRuntimeState::new()),
+            ios_host: Arc::new(IosHostRuntimeState::new()),
+            android_host: Arc::new(AndroidHostRuntimeState::new()),
+        }
+    }
 }
 
 fn now_ms() -> u64 {
@@ -74,9 +98,9 @@ impl RelayHarness {
         let log_path = log_dir.path().join("relay.log");
         let stdout = File::create(&log_path).expect("create relay log");
         let stderr = stdout.try_clone().expect("clone relay log file");
-        let child = Command::new("bun")
+        let child = Command::new("npm")
             .arg("run")
-            .arg("src/index.ts")
+            .arg("start")
             .current_dir(repo_relay_dir())
             .env("RELAY_PORT", relay_port.to_string())
             .env("METRICS_PORT", metrics_port.to_string())
@@ -218,15 +242,26 @@ async fn terminate_connected_session(
         .map_err(|e| format!("send disconnect frame: {e}"))
 }
 
-async fn wait_for_host_ready() -> IosHostStatus {
+async fn wait_for_host_ready(runtime: &RuntimeHarness) -> IosHostStatus {
     wait_for(Duration::from_secs(10), || {
-        let status = ios_pairing::host_status();
+        let status = runtime.ios_host.host_status().ok()?;
         (status.phase == IosHostPhase::Ready && status.presence.is_some()).then_some(status)
     })
     .await
 }
 
+async fn wait_for_android_host_ready(runtime: &RuntimeHarness) -> MobileHostStatus {
+    wait_for(Duration::from_secs(10), || {
+        let status =
+            mobile_host::android_host_status(&runtime.android_host, &runtime.mobile_acceptor)
+                .ok()?;
+        (status.phase == MobileHostPhase::Ready && status.presence.is_some()).then_some(status)
+    })
+    .await
+}
+
 async fn wait_for_acceptor_state(
+    runtime: &RuntimeHarness,
     expected: AcceptorState,
     room_id: &str,
     require_peer: bool,
@@ -235,7 +270,8 @@ async fn wait_for_acceptor_state(
     let timeout = Duration::from_secs(10);
 
     loop {
-        let status = mobile_acceptor::get_status();
+        let status = mobile_acceptor::get_status(&runtime.mobile_acceptor)
+            .expect("read mobile acceptor status");
         let peer_ok = if require_peer {
             !status.connected_peers.is_empty()
         } else {
@@ -273,21 +309,94 @@ async fn wait_for<T>(timeout: Duration, mut predicate: impl FnMut() -> Option<T>
 }
 
 async fn pair_ios_host_with_desktop(
+    runtime: &RuntimeHarness,
     relay_url: &str,
     ios_storage_root: &Path,
     desktop_storage_root: &Path,
 ) -> (PairedIosPeer, IosHostStatus) {
-    let pairing = ios_pairing::start_host_mode(relay_url, ios_storage_root, "ChromVoid iPhone")
-        .await
-        .expect("start iOS host mode");
+    let pairing = ios_pairing::start_host_mode(
+        runtime.ios_host.clone(),
+        runtime.mobile_acceptor.clone(),
+        None,
+        relay_url,
+        ios_storage_root,
+        "ChromVoid iPhone",
+    )
+    .await
+    .expect("start iOS host mode");
     let offer = pairing.pairing_offer.clone().expect("pairing offer");
     let pin = pairing.pairing_pin.clone().expect("pairing pin");
     let paired_peer =
         ios_pairing::desktop_pair(&offer, &pin, desktop_storage_root, "ChromVoid Desktop")
             .await
             .expect("desktop pair with iOS host");
-    let ready = wait_for_host_ready().await;
+    let ready = wait_for_host_ready(runtime).await;
     (paired_peer, ready)
+}
+
+async fn pair_android_host_with_desktop(
+    runtime: &RuntimeHarness,
+    relay_url: &str,
+    android_storage_root: &Path,
+    desktop_storage_root: &Path,
+) -> (PairedPeer, MobileHostStatus) {
+    let pairing = mobile_host::start_android_host_mode(
+        runtime.android_host.clone(),
+        runtime.mobile_acceptor.clone(),
+        None,
+        relay_url,
+        android_storage_root,
+        "ChromVoid Android",
+    )
+    .await
+    .expect("start Android host mode");
+    let offer = pairing.pairing_offer.clone().expect("pairing offer");
+    let pin = pairing.pairing_pin.clone().expect("pairing pin");
+    let paired_peer = mobile_host::desktop_pair_android_host(
+        &offer,
+        &pin,
+        desktop_storage_root,
+        "ChromVoid Desktop",
+    )
+    .await
+    .expect("desktop pair with Android host");
+    let store = PairedPeerStore::load(&desktop_storage_root.join("paired_network_peers.json"));
+    let ready_peer = store
+        .get(&paired_peer.peer_id)
+        .cloned()
+        .expect("paired Android host stored in generic peer store");
+    let ready = wait_for_android_host_ready(runtime).await;
+    (ready_peer, ready)
+}
+
+async fn connect_ready_network_peer(
+    peer: &PairedPeer,
+) -> Result<(Box<dyn RemoteTransport>, NoiseTransport), String> {
+    let presence = fetch_host_presence(&peer.relay_url, &peer.peer_id).await?;
+    if presence.status != "ready" {
+        return Err(format!(
+            "expected ready host presence, got status={} room_id={}",
+            presence.status, presence.room_id
+        ));
+    }
+    if presence.expires_at_ms <= now_ms() {
+        return Err(format!(
+            "host presence already expired room_id={} expires_at_ms={}",
+            presence.room_id, presence.expires_at_ms
+        ));
+    }
+
+    let transport = Box::new(
+        WssTransport::connect_with_context(
+            &presence.relay_url,
+            &presence.room_id,
+            "desktop_remote_connect_android_host_test",
+        )
+        .await?,
+    ) as Box<dyn RemoteTransport>;
+    let client_privkey = hex::decode(&peer.client_privkey_hex)
+        .map_err(|e| format!("invalid client privkey: {e}"))?;
+    handshake_ik_over_transport(transport, &client_privkey, &peer.peer_pubkey).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -299,10 +408,16 @@ async fn delayed_desktop_join_beyond_one_minute_still_connects_before_expiry() {
     let relay = RelayHarness::spawn().await;
     let ios_dir = tempfile::tempdir().expect("iOS tempdir");
     let desktop_dir = tempfile::tempdir().expect("desktop tempdir");
-    let _ = mobile_acceptor::stop_listening();
+    let runtime = RuntimeHarness::new();
+    let _ = mobile_acceptor::stop_listening(&runtime.mobile_acceptor);
 
-    let (paired_peer, ready) =
-        pair_ios_host_with_desktop(&relay.relay_url, ios_dir.path(), desktop_dir.path()).await;
+    let (paired_peer, ready) = pair_ios_host_with_desktop(
+        &runtime,
+        &relay.relay_url,
+        ios_dir.path(),
+        desktop_dir.path(),
+    )
+    .await;
     let ready_presence = ready.presence.clone().expect("ready host presence");
     let room_id = ready_presence.room_id.clone();
 
@@ -318,7 +433,8 @@ async fn delayed_desktop_join_beyond_one_minute_still_connects_before_expiry() {
     let (transport, noise) = connect_ready_ios_peer(desktop_dir.path(), &paired_peer)
         .await
         .expect("desktop connect after >60s delay");
-    let connected = wait_for_acceptor_state(AcceptorState::Connected, &room_id, true).await;
+    let connected =
+        wait_for_acceptor_state(&runtime, AcceptorState::Connected, &room_id, true).await;
     assert_eq!(connected.room_id.as_deref(), Some(room_id.as_str()));
 
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -339,11 +455,15 @@ async fn delayed_desktop_join_beyond_one_minute_still_connects_before_expiry() {
     terminate_connected_session(transport, noise)
         .await
         .expect("terminate delayed join transport");
-    let _ = wait_for_acceptor_state(AcceptorState::Listening, &room_id, false).await;
-    ios_pairing::stop_host_mode(ios_dir.path())
-        .await
-        .expect("stop iOS host mode");
-    let _ = mobile_acceptor::stop_listening();
+    let _ = wait_for_acceptor_state(&runtime, AcceptorState::Listening, &room_id, false).await;
+    ios_pairing::stop_host_mode(
+        runtime.ios_host.clone(),
+        runtime.mobile_acceptor.clone(),
+        ios_dir.path(),
+    )
+    .await
+    .expect("stop iOS host mode");
+    let _ = mobile_acceptor::stop_listening(&runtime.mobile_acceptor);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -355,28 +475,37 @@ async fn disconnect_and_reconnect_reuses_same_room_without_room_full() {
     let relay = RelayHarness::spawn().await;
     let ios_dir = tempfile::tempdir().expect("iOS tempdir");
     let desktop_dir = tempfile::tempdir().expect("desktop tempdir");
-    let _ = mobile_acceptor::stop_listening();
+    let runtime = RuntimeHarness::new();
+    let _ = mobile_acceptor::stop_listening(&runtime.mobile_acceptor);
 
-    let (paired_peer, ready) =
-        pair_ios_host_with_desktop(&relay.relay_url, ios_dir.path(), desktop_dir.path()).await;
+    let (paired_peer, ready) = pair_ios_host_with_desktop(
+        &runtime,
+        &relay.relay_url,
+        ios_dir.path(),
+        desktop_dir.path(),
+    )
+    .await;
     let room_id = ready.presence.clone().expect("ready host presence").room_id;
 
     let (first_transport, first_noise) = connect_ready_ios_peer(desktop_dir.path(), &paired_peer)
         .await
         .expect("first desktop connect");
-    let first_connected = wait_for_acceptor_state(AcceptorState::Connected, &room_id, true).await;
+    let first_connected =
+        wait_for_acceptor_state(&runtime, AcceptorState::Connected, &room_id, true).await;
     assert_eq!(first_connected.room_id.as_deref(), Some(room_id.as_str()));
 
     terminate_connected_session(first_transport, first_noise)
         .await
         .expect("terminate first transport");
-    let listening = wait_for_acceptor_state(AcceptorState::Listening, &room_id, false).await;
+    let listening =
+        wait_for_acceptor_state(&runtime, AcceptorState::Listening, &room_id, false).await;
     assert_eq!(listening.room_id.as_deref(), Some(room_id.as_str()));
 
     let (second_transport, second_noise) = connect_ready_ios_peer(desktop_dir.path(), &paired_peer)
         .await
         .expect("second desktop connect on same lifecycle room");
-    let second_connected = wait_for_acceptor_state(AcceptorState::Connected, &room_id, true).await;
+    let second_connected =
+        wait_for_acceptor_state(&runtime, AcceptorState::Connected, &room_id, true).await;
     assert_eq!(second_connected.room_id.as_deref(), Some(room_id.as_str()));
 
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -397,9 +526,71 @@ async fn disconnect_and_reconnect_reuses_same_room_without_room_full() {
     terminate_connected_session(second_transport, second_noise)
         .await
         .expect("terminate second transport");
-    let _ = wait_for_acceptor_state(AcceptorState::Listening, &room_id, false).await;
-    ios_pairing::stop_host_mode(ios_dir.path())
+    let _ = wait_for_acceptor_state(&runtime, AcceptorState::Listening, &room_id, false).await;
+    ios_pairing::stop_host_mode(
+        runtime.ios_host.clone(),
+        runtime.mobile_acceptor.clone(),
+        ios_dir.path(),
+    )
+    .await
+    .expect("stop iOS host mode");
+    let _ = mobile_acceptor::stop_listening(&runtime.mobile_acceptor);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn android_host_pairs_and_accepts_desktop_remote_connection() {
+    let _guard = runtime_test_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _force_wss = ForceWssAcceptorGuard::enable();
+    let relay = RelayHarness::spawn().await;
+    let android_dir = tempfile::tempdir().expect("android tempdir");
+    let desktop_dir = tempfile::tempdir().expect("desktop tempdir");
+    let runtime = RuntimeHarness::new();
+    let _ = mobile_acceptor::stop_listening(&runtime.mobile_acceptor);
+
+    let (paired_peer, ready) = pair_android_host_with_desktop(
+        &runtime,
+        &relay.relay_url,
+        android_dir.path(),
+        desktop_dir.path(),
+    )
+    .await;
+    let ready_presence = ready.presence.clone().expect("ready host presence");
+    assert_eq!(ready.platform, "android");
+    assert_eq!(paired_peer.platform, "android");
+
+    let (transport, noise) = connect_ready_network_peer(&paired_peer)
         .await
-        .expect("stop iOS host mode");
-    let _ = mobile_acceptor::stop_listening();
+        .expect("desktop connect to Android host");
+    let connected = wait_for_acceptor_state(
+        &runtime,
+        AcceptorState::Connected,
+        &ready_presence.room_id,
+        true,
+    )
+    .await;
+    assert_eq!(
+        connected.room_id.as_deref(),
+        Some(ready_presence.room_id.as_str())
+    );
+
+    terminate_connected_session(transport, noise)
+        .await
+        .expect("terminate Android host transport");
+    let _ = wait_for_acceptor_state(
+        &runtime,
+        AcceptorState::Listening,
+        &ready_presence.room_id,
+        false,
+    )
+    .await;
+    mobile_host::stop_android_host_mode(
+        runtime.android_host.clone(),
+        runtime.mobile_acceptor.clone(),
+        android_dir.path(),
+    )
+    .await
+    .expect("stop Android host mode");
+    let _ = mobile_acceptor::stop_listening(&runtime.mobile_acceptor);
 }

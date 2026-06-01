@@ -1,6 +1,8 @@
 import {css} from 'lit'
+import {functionalMotionStyles} from 'root/shared/ui/shared-styles'
 
 export const remoteStorageWizardStyles = [
+  functionalMotionStyles,
   css`
     .wizard {
       display: grid;
@@ -39,6 +41,10 @@ export const remoteStorageWizardStyles = [
       background: var(--cv-color-success);
       color: white;
       border-color: var(--cv-color-success);
+    }
+
+    .wizard-step-check-icon {
+      font-size: 14px;
     }
 
     .wizard-step-line {
@@ -114,7 +120,7 @@ export const remoteStorageWizardStyles = [
 
     .radio-option.selected {
       border-color: var(--cv-color-brand);
-      background: color-mix(in oklch, var(--cv-color-brand) 6%, var(--cv-color-surface));
+      background: var(--cv-color-primary-surface);
       box-shadow: 0 0 0 1px var(--cv-color-brand);
     }
 
@@ -184,7 +190,8 @@ export const remoteStorageWizardStyles = [
       height: 100%;
       background: linear-gradient(90deg, var(--cv-color-brand), var(--cv-color-info));
       border-radius: 5px;
-      transition: width 0.3s ease;
+      inline-size: var(--remote-storage-progress, 0%);
+      transition: inline-size 0.3s ease;
       position: relative;
     }
 
@@ -213,15 +220,15 @@ export const remoteStorageWizardStyles = [
     }
 
     .result-icon.success {
-      background: color-mix(in oklch, var(--cv-color-success) 15%, var(--cv-color-surface));
+      background: var(--cv-color-success-surface);
       color: var(--cv-color-success);
-      box-shadow: 0 0 0 8px color-mix(in oklch, var(--cv-color-success) 8%, transparent);
+      box-shadow: 0 0 0 8px var(--cv-color-success-ring);
     }
 
     .result-icon.error {
-      background: color-mix(in oklch, var(--cv-color-danger) 15%, var(--cv-color-surface));
+      background: var(--cv-color-danger-surface);
       color: var(--cv-color-danger);
-      box-shadow: 0 0 0 8px color-mix(in oklch, var(--cv-color-danger) 8%, transparent);
+      box-shadow: 0 0 0 8px var(--cv-color-danger-ring);
     }
 
     .result-message {

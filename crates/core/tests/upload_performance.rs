@@ -82,43 +82,48 @@ fn perf_upload_100mb() {
     write_deterministic_file(&input_path, total_bytes);
     let gen_dt = gen_started.elapsed();
 
-    // Create file node with desired vault chunk size.
-    let prepare = router.handle(&RpcRequest::new(
-        "catalog:prepareUpload",
-        serde_json::json!({
-            "name": "perf.bin",
-            "size": total_bytes,
-            "chunk_size": node_chunk_size,
-        }),
-    ));
-    assert_rpc_ok(&prepare);
-    let node_id = get_node_id(&prepare);
-
     let mut f = File::open(&input_path).expect("open input file");
     let mut buf = vec![0u8; read_chunk_size];
 
     let upload_started = Instant::now();
     let mut offset: u64 = 0;
     let mut calls: u64 = 0;
+    let mut node_id: Option<u64> = None;
     while offset < total_bytes {
         let n = f.read(&mut buf).expect("read input file");
         if n == 0 {
             break;
         }
 
-        let req = RpcRequest::new(
-            "catalog:upload",
+        let data = if let Some(node_id) = node_id {
             serde_json::json!({
                 "node_id": node_id,
                 "size": n as u64,
                 "offset": offset,
-            }),
-        );
+            })
+        } else {
+            serde_json::json!({
+                "parent_path": "/",
+                "name": "perf.bin",
+                "total_size": total_bytes,
+                "size": n as u64,
+                "offset": offset,
+                "chunk_size": node_chunk_size,
+            })
+        };
+        let req = RpcRequest::new("catalog:upload", data);
 
         let bytes = buf[..n].to_vec();
         match router.handle_with_stream(&req, Some(RpcInputStream::from_bytes(bytes))) {
-            RpcReply::Json(r) => assert_rpc_ok(&r),
-            RpcReply::Stream(_) => panic!("catalog:upload must return JSON response"),
+            RpcReply::Json(r) => {
+                assert_rpc_ok(&r);
+                if node_id.is_none() {
+                    node_id = Some(get_node_id(&r));
+                }
+            }
+            RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+                panic!("catalog:upload must return JSON response")
+            }
         }
 
         offset = offset.saturating_add(n as u64);

@@ -14,9 +14,12 @@ use tauri::Manager;
 
 use crate::core_adapter::CoreAdapter;
 
+use super::request_io::WebDavRequestIoRuntimeState;
+
 pub struct CatalogDavFs<R: tauri::Runtime> {
     app: tauri::AppHandle<R>,
     adapter: Arc<Mutex<Box<dyn CoreAdapter>>>,
+    request_io_runtime: Arc<WebDavRequestIoRuntimeState>,
     /// Serialize write-ish operations (single-writer semantics).
     write_lock: Arc<Mutex<()>>,
 }
@@ -26,16 +29,22 @@ impl<R: tauri::Runtime> Clone for CatalogDavFs<R> {
         Self {
             app: self.app.clone(),
             adapter: self.adapter.clone(),
+            request_io_runtime: self.request_io_runtime.clone(),
             write_lock: self.write_lock.clone(),
         }
     }
 }
 
 impl<R: tauri::Runtime> CatalogDavFs<R> {
-    pub fn new(app: tauri::AppHandle<R>, adapter: Arc<Mutex<Box<dyn CoreAdapter>>>) -> Self {
+    pub(super) fn new(
+        app: tauri::AppHandle<R>,
+        adapter: Arc<Mutex<Box<dyn CoreAdapter>>>,
+        request_io_runtime: Arc<WebDavRequestIoRuntimeState>,
+    ) -> Self {
         Self {
             app,
             adapter,
+            request_io_runtime,
             write_lock: Arc::new(Mutex::new(())),
         }
     }
@@ -129,11 +138,29 @@ impl<R: tauri::Runtime> CatalogDavFs<R> {
             Some("NAME_EXIST") => FsError::Exists,
             Some("NOT_A_DIR") => FsError::Forbidden,
             Some("VAULT_REQUIRED") | Some("VAULT_NOT_UNLOCKED") => FsError::Forbidden,
-            _ => FsError::NotFound,
+            _ => FsError::GeneralFailure,
         }
     }
 
+    pub(super) async fn resolve_path_for_request(
+        &self,
+        full_path: String,
+    ) -> FsResult<(u64, bool, Option<u64>, u64)> {
+        let adapter = self.adapter.clone();
+        self.request_io_runtime
+            .spawn_blocking(move || Self::resolve_path_with_adapter(adapter, &full_path))
+            .await
+            .map_err(|_| FsError::GeneralFailure)?
+    }
+
     fn resolve_path(&self, full_path: &str) -> FsResult<(u64, bool, Option<u64>, u64)> {
+        Self::resolve_path_with_adapter(self.adapter.clone(), full_path)
+    }
+
+    fn resolve_path_with_adapter(
+        adapter: Arc<Mutex<Box<dyn CoreAdapter>>>,
+        full_path: &str,
+    ) -> FsResult<(u64, bool, Option<u64>, u64)> {
         // Returns: (node_id, is_dir, size, updated_at_ms)
         if full_path == "/" {
             // Root is virtual; no node_id
@@ -156,7 +183,7 @@ impl<R: tauri::Runtime> CatalogDavFs<R> {
             let list_path = current.clone();
 
             let res = {
-                let mut adapter = self.adapter.lock().map_err(|_| FsError::GeneralFailure)?;
+                let mut adapter = adapter.lock().map_err(|_| FsError::GeneralFailure)?;
                 let path_val = if list_path == "/" {
                     serde_json::Value::Null
                 } else {

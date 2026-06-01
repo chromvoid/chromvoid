@@ -1,92 +1,67 @@
 import {afterEach, describe, expect, it} from 'vitest'
 
-import '../../src/routes/remote-storage.route'
+import {remoteStorageModel} from '../../src/routes/remote-storage/remote-storage.model'
 
-type ToolbarContext = {
-  title: string
-  canGoBack: boolean
-  backDisabled: boolean
-  showCommand: boolean
-}
-
-function createStoragePage(): HTMLElement & {
-  getMobileToolbarContext: () => ToolbarContext
-  handleMobileToolbarBack: () => boolean
-  updateComplete: Promise<void>
-  transferStep: {(): string; set: (next: string) => void}
-} {
-  const page = document.createElement('remote-storage-page') as any
-  document.body.appendChild(page)
-  return page
-}
-
-describe('RemoteStoragePage mobile toolbar provider', () => {
+describe('RemoteStorageModel mobile toolbar state', () => {
   afterEach(() => {
-    document.querySelectorAll('remote-storage-page').forEach((el) => el.remove())
+    remoteStorageModel.cancelWizard()
+    remoteStorageModel.transferStep.set('idle')
   })
 
   it('maps wizard steps to toolbar context and disables back on progress', async () => {
-    const page = createStoragePage()
-    await page.updateComplete
-
-    expect(page.getMobileToolbarContext()).toEqual({
+    expect(remoteStorageModel.getMobileToolbarContext()).toEqual({
       title: 'Storage',
       canGoBack: false,
       backDisabled: false,
       showCommand: true,
     })
 
-    page.transferStep.set('select-type')
-    expect(page.getMobileToolbarContext()).toEqual({
-      title: 'Export',
+    remoteStorageModel.transferStep.set('confirm')
+    expect(remoteStorageModel.getMobileToolbarContext()).toEqual({
+      title: 'Confirm Export',
       canGoBack: true,
       backDisabled: false,
       showCommand: false,
     })
 
-    page.transferStep.set('confirm')
-    expect(page.getMobileToolbarContext().title).toBe('Confirm Export')
+    remoteStorageModel.transferStep.set('password')
+    expect(remoteStorageModel.getMobileToolbarContext()).toEqual({
+      title: 'Authorization',
+      canGoBack: true,
+      backDisabled: false,
+      showCommand: false,
+    })
 
-    page.transferStep.set('password')
-    expect(page.getMobileToolbarContext().title).toBe('Authorization')
-
-    page.transferStep.set('progress')
-    expect(page.getMobileToolbarContext()).toEqual({
+    remoteStorageModel.transferStep.set('progress')
+    expect(remoteStorageModel.getMobileToolbarContext()).toEqual({
       title: 'Export in Progress',
       canGoBack: true,
       backDisabled: true,
       showCommand: false,
     })
 
-    page.transferStep.set('result')
-    expect(page.getMobileToolbarContext().title).toBe('Export Result')
+    remoteStorageModel.transferStep.set('result')
+    expect(remoteStorageModel.getMobileToolbarContext().title).toBe('Export Result')
   })
 
   it('handles stepwise toolbar back flow and keeps progress guarded', async () => {
-    const page = createStoragePage()
-    await page.updateComplete
+    remoteStorageModel.transferStep.set('idle')
+    expect(remoteStorageModel.handleMobileToolbarBack()).toBe(false)
 
-    page.transferStep.set('idle')
-    expect(page.handleMobileToolbarBack()).toBe(false)
+    remoteStorageModel.transferStep.set('confirm')
+    expect(remoteStorageModel.handleMobileToolbarBack()).toBe(true)
+    expect(remoteStorageModel.transferStep()).toBe('idle')
 
-    page.transferStep.set('select-type')
-    expect(page.handleMobileToolbarBack()).toBe(true)
-    expect(page.transferStep()).toBe('idle')
+    remoteStorageModel.transferStep.set('password')
+    expect(remoteStorageModel.handleMobileToolbarBack()).toBe(true)
+    expect(remoteStorageModel.transferStep()).toBe('confirm')
 
-    page.transferStep.set('confirm')
-    expect(page.handleMobileToolbarBack()).toBe(true)
-    expect(page.transferStep()).toBe('select-type')
+    remoteStorageModel.transferStep.set('result')
+    expect(remoteStorageModel.handleMobileToolbarBack()).toBe(true)
+    expect(remoteStorageModel.transferStep()).toBe('password')
 
-    page.transferStep.set('password')
-    expect(page.handleMobileToolbarBack()).toBe(true)
-    expect(page.transferStep()).toBe('confirm')
-
-    page.transferStep.set('result')
-    expect(page.handleMobileToolbarBack()).toBe(true)
-    expect(page.transferStep()).toBe('password')
-
-    page.transferStep.set('progress')
-    expect(page.handleMobileToolbarBack()).toBe(true)
-    expect(page.transferStep()).toBe('progress')
+    remoteStorageModel.transferStep.set('progress')
+    expect(remoteStorageModel.handleMobileToolbarBack()).toBe(true)
+    expect(remoteStorageModel.transferStep()).toBe('progress')
   })
 })

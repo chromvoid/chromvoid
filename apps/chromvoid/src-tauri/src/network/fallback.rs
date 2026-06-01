@@ -10,7 +10,7 @@ use tracing::{info, warn};
 use webrtc::ice_transport::ice_server::RTCIceServer;
 
 use super::quic_masque_transport::{is_udp_unavailable_error, QuicMasqueTransport};
-use super::signaling::SignalingClient;
+use super::signaling::{SignalingClient, SIGNALING_CLIENT_CLOSE_GRACE};
 use super::tcp_stealth_transport::TcpStealthTransport;
 use super::webrtc_transport::WebRtcTransport;
 use super::wss_transport::WssTransport;
@@ -79,17 +79,10 @@ pub struct LastKnownGoodTransportCache {
 
 impl LastKnownGoodTransportCache {
     pub fn load(path: &Path) -> Self {
-        let entries = if path.exists() {
-            match std::fs::read_to_string(path) {
-                Ok(content) => {
-                    serde_json::from_str::<HashMap<String, LastKnownGoodEntry>>(&content)
-                        .unwrap_or_default()
-                }
-                Err(_) => HashMap::new(),
-            }
-        } else {
-            HashMap::new()
-        };
+        let entries = crate::helpers::storage::read_json_or_default(
+            path,
+            "network: last-known-good transport cache",
+        );
 
         Self {
             path: path.to_path_buf(),
@@ -98,9 +91,17 @@ impl LastKnownGoodTransportCache {
     }
 
     pub fn save(&self) -> Result<(), String> {
-        let payload =
-            serde_json::to_string_pretty(&self.entries).map_err(|e| format!("serialize: {e}"))?;
-        std::fs::write(&self.path, payload).map_err(|e| format!("write: {e}"))
+        crate::helpers::storage::write_json_pretty_atomic(&self.path, &self.entries)
+    }
+
+    async fn save_blocking(&self) -> Result<(), String> {
+        let path = self.path.clone();
+        let entries = self.entries.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::helpers::storage::write_json_pretty_atomic(&path, &entries)
+        })
+        .await
+        .map_err(|error| format!("last-known-good transport cache save task failed: {error}"))?
     }
 
     pub fn get(&self, network_context: &NetworkContext) -> Option<TransportType> {
@@ -204,6 +205,10 @@ pub async fn connect_with_fallback_with_options(
                             )
                             .await
                         };
+                        if let Err(error) = sig.close_with_grace(SIGNALING_CLIENT_CLOSE_GRACE).await
+                        {
+                            warn!("transport_attempt signaling close failed: {error}");
+                        }
                         match result {
                             Ok(Ok(transport)) => {
                                 Ok(Box::new(transport) as Box<dyn RemoteTransport>)
@@ -274,7 +279,7 @@ pub async fn connect_with_fallback_with_options(
 
                 if let Some(cache_store) = cache.as_mut() {
                     cache_store.set(&options.network_context, transport_type);
-                    if let Err(err) = cache_store.save() {
+                    if let Err(err) = cache_store.save_blocking().await {
                         warn!("failed to persist last-known-good cache: {}", err);
                     }
                 }

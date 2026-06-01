@@ -5,7 +5,7 @@ impl PrivyFilesystem {
     /// Handles standard rename: RENAME_EXCL check, POSIX replace-if-exists,
     /// catalog move, catalog rename, and inode cache update.
     pub(in crate::volume_fuse::imp) fn rename_standard(
-        &mut self,
+        &self,
         parent: u64,
         name_str: &str,
         newparent: u64,
@@ -21,7 +21,7 @@ impl PrivyFilesystem {
             Ok(g) => g,
             Err(_) => {
                 info!(target: "chromvoid_lib::volume_fuse::imp", branch = "write_lock_poisoned", errno = libc::EIO, node_id, flags, "FUSE rename: early abort");
-                reply.error(libc::EIO);
+                reply.error(fuse_errno(libc::EIO));
                 return;
             }
         };
@@ -32,7 +32,7 @@ impl PrivyFilesystem {
                     info!(target: "chromvoid_lib::volume_fuse::imp", branch = "flag_excl_dst_exists", node_id, dst_node_id = dst.catalog_node_id, flags, "FUSE rename: excl destination exists");
                     if dst.catalog_node_id != src.catalog_node_id {
                         info!(target: "chromvoid_lib::volume_fuse::imp", branch = "flag_excl_reject_eexist", node_id, dst_node_id = dst.catalog_node_id, flags, errno = libc::EEXIST, "FUSE rename: excl rejected");
-                        reply.error(libc::EEXIST);
+                        reply.error(fuse_errno(libc::EEXIST));
                         return;
                     }
                     info!(target: "chromvoid_lib::volume_fuse::imp", branch = "flag_excl_noop_same_node", node_id, flags, "FUSE rename: excl no-op");
@@ -57,14 +57,14 @@ impl PrivyFilesystem {
                 }
                 if dst.is_dir || src.is_dir {
                     info!(target: "chromvoid_lib::volume_fuse::imp", branch = "replace_reject_eexist_type", node_id, dst_node_id = dst.catalog_node_id, flags, errno = libc::EEXIST, "FUSE rename: replace rejected by type");
-                    reply.error(libc::EEXIST);
+                    reply.error(fuse_errno(libc::EEXIST));
                     return;
                 }
                 let mut adapter = match self.adapter.lock() {
                     Ok(a) => a,
                     Err(_) => {
                         info!(target: "chromvoid_lib::volume_fuse::imp", branch = "replace_delete_adapter_lock_failed", node_id, dst_node_id = dst.catalog_node_id, flags, errno = libc::EIO, "FUSE rename: replace delete lock failed");
-                        reply.error(libc::EIO);
+                        reply.error(fuse_errno(libc::EIO));
                         return;
                     }
                 };
@@ -75,10 +75,10 @@ impl PrivyFilesystem {
                     json!({"node_id": dst.catalog_node_id}),
                 ) {
                     info!(target: "chromvoid_lib::volume_fuse::imp", branch = "replace_delete_failed", node_id, dst_node_id = dst.catalog_node_id, flags, errno = e, "FUSE rename: replace delete failed");
-                    reply.error(e);
+                    reply.error(fuse_errno(e));
                     return;
                 }
-                let emitted = save_and_flush_best_effort(adapter.as_mut());
+                let emitted = save_and_flush_best_effort(&self.event_sink, adapter.as_mut());
                 self.inode_table
                     .remove(fuse_ino_from_catalog_node_id(dst.catalog_node_id));
                 info!(target: "chromvoid_lib::volume_fuse::imp", branch = "replace_delete_ok", node_id, dst_node_id = dst.catalog_node_id, flags, events_emitted = emitted, "FUSE rename: replace delete ok");
@@ -95,7 +95,7 @@ impl PrivyFilesystem {
                 Ok(a) => a,
                 Err(_) => {
                     info!(target: "chromvoid_lib::volume_fuse::imp", branch = "move_adapter_lock_failed", node_id, flags, errno = libc::EIO, "FUSE rename: move lock failed");
-                    reply.error(libc::EIO);
+                    reply.error(fuse_errno(libc::EIO));
                     return;
                 }
             };
@@ -105,10 +105,10 @@ impl PrivyFilesystem {
                 json!({"node_id": node_id, "new_parent_path": dest_parent_path, "new_name": serde_json::Value::Null}),
             ) {
                 info!(target: "chromvoid_lib::volume_fuse::imp", branch = "move_failed", node_id, flags, errno = e, "FUSE rename: move failed");
-                reply.error(e);
+                reply.error(fuse_errno(e));
                 return;
             }
-            let emitted = save_and_flush_best_effort(adapter.as_mut());
+            let emitted = save_and_flush_best_effort(&self.event_sink, adapter.as_mut());
             info!(target: "chromvoid_lib::volume_fuse::imp", branch = "move_ok", node_id, flags, events_emitted = emitted, "FUSE rename: move ok");
         }
 
@@ -119,7 +119,7 @@ impl PrivyFilesystem {
                 Ok(a) => a,
                 Err(_) => {
                     info!(target: "chromvoid_lib::volume_fuse::imp", branch = "rename_adapter_lock_failed", node_id, flags, errno = libc::EIO, "FUSE rename: rename lock failed");
-                    reply.error(libc::EIO);
+                    reply.error(fuse_errno(libc::EIO));
                     return;
                 }
             };
@@ -129,10 +129,10 @@ impl PrivyFilesystem {
                 json!({"node_id": node_id, "new_name": newname_str}),
             ) {
                 info!(target: "chromvoid_lib::volume_fuse::imp", branch = "rename_failed", node_id, flags, errno = e, "FUSE rename: rename failed");
-                reply.error(e);
+                reply.error(fuse_errno(e));
                 return;
             }
-            let emitted = save_and_flush_best_effort(adapter.as_mut());
+            let emitted = save_and_flush_best_effort(&self.event_sink, adapter.as_mut());
             info!(target: "chromvoid_lib::volume_fuse::imp", branch = "rename_ok", node_id, flags, events_emitted = emitted, "FUSE rename: rename ok");
         }
 

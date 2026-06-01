@@ -1,8 +1,3 @@
-import {state} from '@statx/core'
-
-export const timer = state(0)
-setInterval(() => timer.set(timer() + 1), 1000)
-
 export function generatePassword(symbols = 18) {
   return (
     window.crypto
@@ -22,7 +17,7 @@ export function generatePassword(symbols = 18) {
   )
 }
 
-// Наборы символов для расширенного генератора паролей
+// Character Sets for Extended Password Generator
 const CHARSETS = {
   lowercase: 'abcdefghijklmnopqrstuvwxyz',
   uppercase: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
@@ -55,7 +50,7 @@ export function generatePasswordWithOptions(options: PasswordGeneratorOptions): 
 
   const result: string[] = []
 
-  // Как минимум один символ из каждого выбранного набора
+  // At least one character from each selected set
   for (const key of enabledSets) {
     const cs = CHARSETS[key]
     const len = cs.length
@@ -64,7 +59,7 @@ export function generatePasswordWithOptions(options: PasswordGeneratorOptions): 
     result.push(cs.charAt(idx))
   }
 
-  // Остальные символы из общего пула
+  // Other symbols from the common pool
   const remaining = Math.max(0, length - result.length)
   const randoms = crypto.getRandomValues(new Uint32Array(remaining))
   for (let i = 0; i < remaining; i++) {
@@ -73,7 +68,7 @@ export function generatePasswordWithOptions(options: PasswordGeneratorOptions): 
     result.push(pool.charAt(idx))
   }
 
-  // Перемешивание Фишера–Йетса
+  // Fisher-Yates stirring
   for (let i = result.length - 1; i > 0; i--) {
     const rand = crypto.getRandomValues(new Uint32Array(1))[0] as number
     const j = rand % (i + 1)
@@ -88,7 +83,7 @@ export function generatePasswordWithOptions(options: PasswordGeneratorOptions): 
 export type PasswordStrength = {
   entropyBits: number
   score: 0 | 1 | 2 | 3 | 4
-  label: 'Очень слабый' | 'Слабый' | 'Средний' | 'Хороший' | 'Сильный'
+  label: 'Very weak' | 'Weak' | 'Medium' | 'Good' | 'Strong'
 }
 
 export function estimatePasswordStrength(password: string): PasswordStrength {
@@ -115,20 +110,23 @@ export function estimatePasswordStrength(password: string): PasswordStrength {
 
   const label: PasswordStrength['label'] =
     score === 4
-      ? 'Сильный'
+      ? 'Strong'
       : score === 3
-        ? 'Хороший'
+        ? 'Good'
         : score === 2
-          ? 'Средний'
+          ? 'Medium'
           : score === 1
-            ? 'Слабый'
-            : 'Очень слабый'
+            ? 'Weak'
+            : 'Very weak'
 
   return {entropyBits, score, label}
 }
 
 export const DEFAULT_CLIPBOARD_WIPE_MS = 15000
 export const DEFAULT_SECRET_REVEAL_MS = 10000
+
+let clipboardWipeTimer: ReturnType<typeof globalThis.setTimeout> | undefined
+let clipboardCopyVersion = 0
 
 type TauriInternals = {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>
@@ -169,36 +167,42 @@ export async function copyWithAutoWipe(
   text: string,
   wipeMs: number = DEFAULT_CLIPBOARD_WIPE_MS,
 ): Promise<void> {
-  try {
-    await writeClipboardText(text)
-  } catch (e) {
-    console.warn('[clipboard] writeClipboardText failed:', e)
+  await writeClipboardText(text)
+
+  const version = ++clipboardCopyVersion
+  if (clipboardWipeTimer !== undefined) {
+    globalThis.clearTimeout(clipboardWipeTimer)
+    clipboardWipeTimer = undefined
   }
 
   if (wipeMs > 0) {
-    globalThis.setTimeout(async () => {
+    clipboardWipeTimer = globalThis.setTimeout(async () => {
+      if (version !== clipboardCopyVersion) {
+        return
+      }
+
+      clipboardWipeTimer = undefined
       try {
         await writeClipboardText('')
       } catch {
-        // Игнорируем ошибки при очистке буфера
+        // Ignore errors when cleaning the buffer
       }
     }, wipeMs)
   }
 }
 
-/**
- * Нормализует значение временной метки к миллисекундам от эпохи Unix.
- * Поддерживаются секунды (<= 10 знаков), миллисекунды (<= 13),
- * микросекунды (<= 16) и наносекунды (> 16).
- */
+/**Normalizes the time stamp value to milliseconds from the Unix era.
+• Seconds (<=10 digits), milliseconds (<=13) are supported
+Microseconds (<=16) and nanoseconds (>16).
+*/
 export function normalizeTimestampMs(ts: number | string | null | undefined): number {
   const n = Number(ts)
   if (!Number.isFinite(n) || n <= 0) return Date.now()
 
   const digits = Math.floor(Math.log10(n)) + 1
 
-  if (digits <= 10) return Math.floor(n * 1000) // секунды → мс
-  if (digits <= 13) return Math.floor(n) // уже мс
-  if (digits <= 16) return Math.floor(n / 1000) // мкс → мс
-  return Math.floor(n / 1_000_000) // нс → мс
+  if (digits <= 10) return Math.floor(n * 1000) // seconds
+  if (digits <= 13) return Math.floor(n) // already.
+  if (digits <= 16) return Math.floor(n / 1000) // mx
+  return Math.floor(n / 1_000_000) // ns → ms
 }

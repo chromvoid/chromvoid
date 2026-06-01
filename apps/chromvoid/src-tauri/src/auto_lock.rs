@@ -1,92 +1,95 @@
-use tauri::{Emitter, Manager};
-use tracing::info;
+use std::sync::Arc;
+use std::time::Duration;
+
+use tauri::Manager;
+use tracing::{info, warn};
 
 use crate::app_state::AppState;
-#[cfg(desktop)]
-use crate::commands::volume_ops::{volume_spawn_join_backend, volume_take_backend_on_vault_lock};
-use crate::helpers::{emit_basic_state, flush_core_events};
+use crate::task_lifecycle::{ManagedTaskName, TaskLifecycleRuntime};
+use crate::vault_background_io::VaultBackgroundIoRuntimeState;
 
-pub(crate) fn spawn_auto_lock_thread(app_handle: tauri::AppHandle) {
-    std::thread::spawn(move || {
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(10));
+pub(crate) fn spawn_auto_lock_task(
+    app_handle: tauri::AppHandle,
+    task_lifecycle: Arc<TaskLifecycleRuntime>,
+) -> Result<(), String> {
+    task_lifecycle.spawn_unique_async(
+        ManagedTaskName::AutoLock,
+        move |mut shutdown_rx| async move {
+            loop {
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(10)) => {}
+                    changed = shutdown_rx.changed() => {
+                        if changed.is_ok() && shutdown_rx.borrow().is_some() {
+                            info!("auto_lock: stopped by lifecycle shutdown");
+                        }
+                        break;
+                    }
+                }
 
-            let state: tauri::State<'_, AppState> = app_handle.state();
+                let vault_background_io_runtime = {
+                    let state: tauri::State<'_, AppState> = app_handle.state();
 
-            let timeout = match state.session_settings.lock() {
-                Ok(s) => s.auto_lock_timeout_secs,
-                Err(_) => continue,
-            };
+                    let timeout = match state.session_settings.lock() {
+                        Ok(s) => s.auto_lock_timeout_secs,
+                        Err(_) => continue,
+                    };
 
-            if timeout == 0 {
-                continue;
-            }
+                    if timeout == 0 {
+                        continue;
+                    }
 
-            let should_lock = match state.last_activity.lock() {
-                Ok(last) => last.elapsed().as_secs() >= timeout,
-                Err(_) => false,
-            };
+                    let should_lock = match state.last_activity.lock() {
+                        Ok(last) => last.elapsed().as_secs() >= timeout,
+                        Err(_) => false,
+                    };
 
-            if !should_lock {
-                continue;
-            }
+                    if !should_lock {
+                        continue;
+                    }
 
-            let is_unlocked = match state.adapter.lock() {
-                Ok(a) => a.is_unlocked(),
-                Err(_) => false,
-            };
+                    state.vault_background_io_runtime.clone()
+                };
 
-            if is_unlocked {
                 info!("auto_lock: locking vault due to inactivity");
-                let invalidated =
-                    crate::mobile::android::invalidate_all_password_save_requests("auto_lock");
-                if invalidated > 0 {
-                    crate::mobile::android::notify_password_save_review_result(
-                        None,
-                        "dismissed",
-                        false,
-                    );
-                }
-                if let Ok(mut adapter) = state.adapter.lock() {
-                    let req = chromvoid_core::rpc::types::RpcRequest::new(
-                        "vault:lock".to_string(),
-                        serde_json::Value::Null,
-                    );
-                    let _ = adapter.handle(&req);
-
-                    let _ = adapter.save();
-                    flush_core_events(&app_handle, adapter.as_mut());
-                    if let Ok(root) = state.storage_root.lock() {
-                        emit_basic_state(&app_handle, &root, adapter.as_ref());
-                    }
-
-                    // Revoke all capability grants on vault lock.
-                    #[cfg(desktop)]
-                    if let Ok(mut gw) = state.gateway.lock() {
-                        gw.revoke_all_grants();
-                    }
-
-                    // Stop SSH agent on vault lock.
-                    #[cfg(desktop)]
-                    if let Ok(mut agent) = state.ssh_agent.lock() {
-                        agent.stop();
-                    }
-
-                    // Clear credential identities from ASCredentialIdentityStore on auto-lock
-                    crate::credential_provider_bridge::on_vault_locked();
-
-                    let _ =
-                        app_handle.emit("vault:locked", serde_json::json!({"reason": "auto_lock"}));
-                }
-                #[cfg(desktop)]
+                if let Err(error) =
+                    lock_vault_from_auto_lock(app_handle.clone(), vault_background_io_runtime).await
                 {
-                    let app2 = app_handle.clone();
-                    let backend = volume_take_backend_on_vault_lock(&app2, &state.volume_manager);
-                    if let Some(h) = backend {
-                        volume_spawn_join_backend(h);
-                    }
+                    warn!("auto_lock: lock failed: {}", error);
                 }
             }
+        },
+    )
+}
+
+async fn lock_vault_from_auto_lock(
+    app_handle: tauri::AppHandle,
+    vault_background_io_runtime: Arc<VaultBackgroundIoRuntimeState>,
+) -> Result<(), String> {
+    let app_bg = app_handle.clone();
+    match vault_background_io_runtime
+        .spawn_blocking(move || {
+            let Some(state) = app_bg.try_state::<AppState>() else {
+                return Err("Auto-lock AppState unavailable".to_string());
+            };
+            let adapter = state.adapter.clone();
+            let is_unlocked = match adapter.lock() {
+                Ok(adapter) => adapter.is_unlocked(),
+                Err(_) => {
+                    tracing::warn!("auto_lock: adapter mutex poisoned");
+                    return Ok(());
+                }
+            };
+            if !is_unlocked {
+                return Ok(());
+            }
+            crate::commands::vault::lock_vault_with_reason(&app_bg, &state, "auto_lock")
+        })
+        .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            let (error, _code) = error.into_rpc_error("Auto-lock");
+            Err(error)
         }
-    });
+    }
 }

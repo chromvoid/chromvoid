@@ -1,12 +1,12 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html} from 'lit'
+import {css} from 'lit'
 
 import {i18n, setLang} from 'root/i18n'
 import {getAppContext} from 'root/shared/services/app-context'
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 
-export class StatusBar extends XLitElement {
+export class StatusBar extends ReatomLitElement {
   static define() {
     if (!customElements.get('chromvoid-footer')) {
       customElements.define('chromvoid-footer', this)

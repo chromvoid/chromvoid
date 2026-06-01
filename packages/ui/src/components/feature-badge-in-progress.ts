@@ -34,9 +34,9 @@ export class CVFeatureBadgeInProgress extends LitElement {
         letter-spacing: 0.08em;
         text-transform: uppercase;
         font-weight: 500;
-        border: 1px solid rgba(0, 229, 255, 0.24);
-        background: rgba(0, 229, 255, 0.08);
-        color: var(--cv-primary, #00e5ff);
+        border: 1px solid var(--cv-color-primary-border);
+        background: var(--cv-color-primary-subtle);
+        color: var(--cv-color-primary);
         white-space: nowrap;
         transition:
           border-color 120ms ease,
@@ -45,8 +45,8 @@ export class CVFeatureBadgeInProgress extends LitElement {
       }
 
       [part='base']:hover {
-        border-color: rgba(0, 229, 255, 0.36);
-        background: rgba(0, 229, 255, 0.12);
+        border-color: var(--cv-color-primary-border-strong);
+        background: var(--cv-color-primary-surface);
       }
 
       [part='icon'] {
@@ -56,6 +56,19 @@ export class CVFeatureBadgeInProgress extends LitElement {
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
+        animation: cv-spinner-rotate 2s linear infinite;
+      }
+
+      @keyframes cv-spinner-rotate {
+        from {
+          transform: rotate(0deg);
+          transform-origin: center;
+        }
+
+        to {
+          transform: rotate(360deg);
+          transform-origin: center;
+        }
       }
     `,
   ]
@@ -66,28 +79,7 @@ export class CVFeatureBadgeInProgress extends LitElement {
         <svg part="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <!-- Spinner icon -->
           <circle cx="8" cy="8" r="6" stroke-dasharray="9.42 37.7" stroke-dashoffset="0" opacity="0.4" />
-          <circle
-            cx="8"
-            cy="8"
-            r="6"
-            stroke-dasharray="18.84 37.7"
-            stroke-dashoffset="0"
-            style="animation: cv-spinner-rotate 2s linear infinite"
-          />
-          <defs>
-            <style>
-              @keyframes cv-spinner-rotate {
-                from {
-                  transform: rotate(0deg);
-                  transform-origin: center;
-                }
-                to {
-                  transform: rotate(360deg);
-                  transform-origin: center;
-                }
-              }
-            </style>
-          </defs>
+          <circle cx="8" cy="8" r="6" stroke-dasharray="18.84 37.7" stroke-dashoffset="0" />
         </svg>
         <span part="label">In Development</span>
       </div>

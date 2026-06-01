@@ -65,7 +65,8 @@ export class VirtualFileListHandlers {
         event?: Event,
         source?: FileListItem,
         target?: FileListItem,
-      ) => this.emitItemAction(action, item, event, source, target),
+        payload?: unknown,
+      ) => this.emitItemAction(action, item, event, source, target, payload),
     })
 
     this.keyboardHandlers = createKeyboardHandlers({
@@ -162,7 +163,8 @@ export class VirtualFileListHandlers {
     event?: Event,
     source?: FileListItem,
     target?: FileListItem,
+    payload?: unknown,
   ) {
-    this.context.emitItemAction(action, item, event, source, target)
+    this.context.emitItemAction(action, item, event, source, target, payload)
   }
 }

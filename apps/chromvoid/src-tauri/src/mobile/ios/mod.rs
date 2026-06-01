@@ -8,7 +8,10 @@ mod credential_provider_spec;
 pub mod edge_swipe;
 pub mod idle_timer;
 pub mod keyboard;
+pub mod native_bridge;
 pub mod push_bridge;
+pub(crate) mod runtime;
+pub mod staging;
 
 pub fn authenticate_with_biometric(reason: &str) -> Result<(), BiometricAuthError> {
     bridge::authenticate_with_biometric(reason)

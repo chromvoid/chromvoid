@@ -55,9 +55,12 @@ describe('notify adapter', () => {
   })
 
   it('uses the mobile default position when matchMedia reports a small viewport', () => {
-    ;(globalThis as typeof globalThis & {window: Window}).window = {
-      matchMedia: vi.fn(() => ({matches: true})),
-    } as unknown as Window
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        matchMedia: vi.fn(() => ({matches: true} as MediaQueryList)),
+      } as unknown as Pick<Window, 'matchMedia'>,
+    })
 
     let payload: NotifyPayload | null = null
     setNotifyAdapter({
@@ -68,7 +71,9 @@ describe('notify adapter', () => {
 
     showNotifyToast({message: 'Saved'})
 
-    expect(payload?.position).toBe(DEFAULT_NOTIFY_MOBILE_POSITION)
+    if (!payload) throw new Error('expected payload to be present')
+    const resolvedPayload = payload as NotifyPayload
+    expect(resolvedPayload.position).toBe(DEFAULT_NOTIFY_MOBILE_POSITION)
   })
 
   it('notify.loading returns a dismiss callback and uses loading-specific defaults', () => {

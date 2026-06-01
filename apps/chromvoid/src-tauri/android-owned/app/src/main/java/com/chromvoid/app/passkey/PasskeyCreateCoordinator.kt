@@ -1,6 +1,7 @@
 package com.chromvoid.app.passkey
 
 import android.content.Intent
+import android.os.SystemClock
 import androidx.credentials.CreatePublicKeyCredentialResponse
 import androidx.credentials.exceptions.CreateCredentialException
 import androidx.credentials.exceptions.CreateCredentialInterruptedException
@@ -8,22 +9,20 @@ import androidx.credentials.exceptions.CreateCredentialNoCreateOptionException
 import androidx.credentials.exceptions.CreateCredentialUnknownException
 import androidx.fragment.app.FragmentActivity
 import com.chromvoid.app.ChromVoidCredentialProviderService
-import com.chromvoid.app.CreatePasskeyRequestData
 import com.chromvoid.app.CreateRequestResolution
 import com.chromvoid.app.PasskeyActivityBiometricRuntime
-import com.chromvoid.app.PasskeyActivityCryptoRuntime
 import com.chromvoid.app.PasskeyActivityRequestResolverRuntime
 import com.chromvoid.app.PasskeyActivityResponseWriterRuntime
+import com.chromvoid.app.PasskeyCoreRequestPayload
 import com.chromvoid.app.credentialprovider.AndroidBridgeGateway
-import com.chromvoid.app.security.PasskeyMetadataStore
+import com.chromvoid.app.shared.TracePrivacy
+import java.security.MessageDigest
 
 internal class PasskeyCreateCoordinator(
     private val bridgeGateway: AndroidBridgeGateway,
     private val requestRegistry: PasskeyRequestRegistry,
-    private val passkeyStore: PasskeyMetadataStore,
     private val requestResolver: PasskeyActivityRequestResolverRuntime = AndroidPasskeyRequestResolver,
     private val responseWriter: PasskeyActivityResponseWriterRuntime = AndroidPasskeyResponseWriter,
-    private val crypto: PasskeyActivityCryptoRuntime = AndroidPasskeyCryptoRuntime,
 ) {
     fun execute(
         activity: FragmentActivity,
@@ -60,91 +59,139 @@ internal class PasskeyCreateCoordinator(
             }
 
         if (!PasskeyResponseAssembler.supportsEs256(resolved.requestData)) {
+            PasskeyTrace.diagnostic(
+                "create_request_rejected",
+                "requestId" to requestId,
+                "rpId" to resolved.requestData.rpId,
+                "reason" to "unsupported_algorithm",
+                "algorithms" to resolved.requestData.supportedAlgorithms.sorted(),
+            )
             onFailure(requestId, CreateCredentialNoCreateOptionException("ChromVoid supports only ES256 passkeys on Android v1."))
             return
         }
         if (!PasskeyResponseAssembler.supportsAttestationNone(resolved.requestData)) {
+            PasskeyTrace.diagnostic(
+                "create_request_rejected",
+                "requestId" to requestId,
+                "rpId" to resolved.requestData.rpId,
+                "reason" to "unsupported_attestation",
+                "attestation" to resolved.requestData.attestationPreference,
+            )
             onFailure(requestId, CreateCredentialNoCreateOptionException("ChromVoid supports attestation=\"none\" only on Android v1."))
             return
         }
 
-        val hasExcludedCredential =
-            runCatching { passkeyStore.hasExcludedCredential(resolved.requestData.excludeCredentialIds) }.getOrElse {
-                onFailure(requestId, CreateCredentialUnknownException("ChromVoid could not read local Android passkeys."))
-                return
-            }
-        if (hasExcludedCredential) {
-            onFailure(requestId, CreateCredentialNoCreateOptionException("A local ChromVoid passkey already matches the excluded credential set."))
-            return
-        }
-
-        val clientDataJson =
-            PasskeyResponseAssembler.clientDataJson(
-                "webauthn.create",
-                resolved.requestData.challengeB64Url,
-                resolved.origin,
-            )
-
+        PasskeyTrace.important(
+            "create_request_resolved",
+            "requestId" to requestId,
+            "rpId" to resolved.requestData.rpId,
+            "origin" to resolved.origin,
+            "clientDataMode" to if (resolved.clientDataHash != null) "provided-hash" else "assembled-json",
+            "challengeLen" to resolved.requestData.challengeB64Url.length,
+            "providedClientDataHashLen" to (resolved.clientDataHash?.size ?: 0),
+            "algorithms" to resolved.requestData.supportedAlgorithms.sorted(),
+            "attestation" to resolved.requestData.attestationPreference.ifBlank { "none" },
+            "excludes" to resolved.requestData.excludeCredentialIds.size,
+            "credPropsRequested" to resolved.requestData.credPropsRequested,
+            "residentKeyRequired" to resolved.requestData.residentKeyRequired,
+        )
+        PasskeyTrace.diagnostic(
+            "create_biometric_start",
+            "requestId" to requestId,
+            "rpId" to resolved.requestData.rpId,
+        )
         biometric.authenticateCreate(
             activity = activity,
             onSuccess = {
+                PasskeyTrace.diagnostic(
+                    "create_biometric_success",
+                    "requestId" to requestId,
+                    "rpId" to resolved.requestData.rpId,
+                )
                 handleCreateSuccess(
                     requestId = requestId,
-                    parsedRequest = resolved.requestData,
-                    clientDataJson = clientDataJson,
+                    rpId = resolved.requestData.rpId,
+                    origin = resolved.origin,
+                    requestJson = resolved.requestJson,
+                    clientDataHash = resolved.clientDataHash,
                     onSuccess = onSuccess,
                     onFailure = onFailure,
                 )
             },
-            onError = { exception -> onFailure(requestId, exception) },
+            onError = { exception ->
+                PasskeyTrace.diagnostic(
+                    "create_biometric_error",
+                    "requestId" to requestId,
+                    "rpId" to resolved.requestData.rpId,
+                    "exception" to exception::class.java.simpleName,
+                    "message" to exception.message,
+                )
+                onFailure(requestId, exception)
+            },
         )
     }
 
     private fun handleCreateSuccess(
         requestId: String,
-        parsedRequest: CreatePasskeyRequestData,
-        clientDataJson: ByteArray,
+        rpId: String,
+        origin: String,
+        requestJson: String,
+        clientDataHash: ByteArray?,
         onSuccess: (requestId: String, resultIntent: Intent) -> Unit,
         onFailure: (requestId: String, exception: CreateCredentialException) -> Unit,
     ) {
+        val coreStartedAt = SystemClock.elapsedRealtime()
         val created =
-            runCatching { crypto.createCredential(parsedRequest) }.getOrElse {
-                onFailure(requestId, CreateCredentialUnknownException("ChromVoid could not create the Android passkey key material."))
-                return
-            }
-
-        val attestationObject =
-            runCatching {
-                val authenticatorData =
-                    PasskeyResponseAssembler.authenticatorDataForRegistration(
-                        rpId = parsedRequest.rpId,
-                        credentialId = created.credentialId,
-                        cosePublicKey = created.cosePublicKey,
+            when (
+                val result =
+                    bridgeGateway.passkeyCreate(
+                        PasskeyCoreRequestPayload(
+                            requestJson = requestJson,
+                            origin = origin,
+                            clientDataHashB64Url = clientDataHash?.let(PasskeyEncoding::base64UrlEncode),
+                        ),
                     )
-                PasskeyResponseAssembler.attestationObject(authenticatorData)
-            }.getOrElse {
-                onFailure(requestId, CreateCredentialUnknownException("ChromVoid could not serialize the Android passkey attestation."))
-                return
+            ) {
+                is com.chromvoid.app.credentialprovider.BridgeResult.Failure -> {
+                    PasskeyTrace.diagnostic(
+                        "create_core_error",
+                        "requestId" to requestId,
+                        "rpId" to rpId,
+                        "code" to result.error.code,
+                        "message" to result.error.message,
+                        "dt_ms" to elapsedMs(coreStartedAt),
+                    )
+                    onFailure(requestId, CreateCredentialUnknownException(result.error.message))
+                    return
+                }
+                is com.chromvoid.app.credentialprovider.BridgeResult.Success -> result.value
             }
-
-        runCatching {
-            passkeyStore.saveNew(created.metadata)
-        }.getOrElse {
-            onFailure(requestId, CreateCredentialUnknownException("ChromVoid could not persist the Android passkey metadata."))
-            return
-        }
+        PasskeyTrace.important(
+            "create_core.done",
+            "requestId" to requestId,
+            "credentialId" to created.credentialIdB64Url.safeTraceId(),
+            "dt_ms" to elapsedMs(coreStartedAt),
+        )
 
         val resultIntent =
             runCatching {
+                PasskeyTrace.important(
+                    "create_response_packaged",
+                    "requestId" to requestId,
+                    "origin" to origin,
+                    "responseJsonLen" to created.responseJson.length,
+                    "responseJsonSha256" to created.responseJson.toByteArray(Charsets.UTF_8).sha256B64Url(),
+                )
+                PasskeyTrace.file(
+                    "create_registration_response_json",
+                    "requestId" to requestId,
+                    "responseJsonB64Url" to PasskeyEncoding.base64UrlEncode(created.responseJson.toByteArray(Charsets.UTF_8)),
+                )
                 val intent = Intent()
                 responseWriter.setCreateSuccess(
                     intent,
                     CreatePublicKeyCredentialResponse(
-                        PasskeyResponseAssembler.registrationResponseJson(
-                            credentialId = created.credentialId,
-                            clientDataJson = clientDataJson,
-                            attestationObject = attestationObject,
-                        ),
+                        created.responseJson,
                     ),
                 )
                 intent
@@ -155,4 +202,13 @@ internal class PasskeyCreateCoordinator(
 
         onSuccess(requestId, resultIntent)
     }
+
+    private fun ByteArray.sha256B64Url(): String {
+        return PasskeyEncoding.base64UrlEncode(MessageDigest.getInstance("SHA-256").digest(this))
+    }
+
+    private fun elapsedMs(startedAt: Long): Long =
+        SystemClock.elapsedRealtime() - startedAt
+
+    private fun String.safeTraceId(): String = TracePrivacy.redactIdentifier(this) ?: "blank"
 }

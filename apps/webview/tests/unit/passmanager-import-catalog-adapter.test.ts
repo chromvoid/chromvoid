@@ -17,7 +17,7 @@ function makeEntries(): ImportedEntry[] {
       name: 'Mail account',
       username: 'mail@example.com',
       password: 'secret-1',
-      folder: 'Чеки',
+      folder: 'Checks.',
       urls: [{value: 'https://mail.example.com', match: 'base_domain'}],
     },
     {
@@ -26,7 +26,7 @@ function makeEntries(): ImportedEntry[] {
       name: 'Crypto exchange',
       username: 'crypto@example.com',
       password: 'secret-2',
-      folder: 'Почта',
+      folder: 'Mail',
       urls: [{value: 'https://exchange.example.com', match: 'base_domain'}],
     },
   ]
@@ -34,7 +34,7 @@ function makeEntries(): ImportedEntry[] {
 
 describe('passmanager import adapter regression', () => {
   it('imports root-level folders without generic catalog:createDir on /.passmanager', async () => {
-    const sendCatalog = vi.fn(async (command: string, data: Record<string, unknown>) => {
+    const sendPassmanager = vi.fn(async (command: string, data: Record<string, unknown>) => {
       switch (command) {
         case 'passmanager:entry:list':
           return {ok: true, result: {entries: [], folders: []}}
@@ -62,11 +62,10 @@ describe('passmanager import adapter regression', () => {
     const catalogStub = {
       api: {
         createDir,
-        prepareUpload: vi.fn(async () => ({nodeId: 1})),
         upload: vi.fn(async () => undefined),
         delete: vi.fn(async () => undefined),
       },
-      transport: {sendCatalog},
+      transport: {sendPassmanager},
       secrets: {
         setOTP: vi.fn(async () => undefined),
       },
@@ -86,13 +85,13 @@ describe('passmanager import adapter regression', () => {
     expect(result.success).toBe(true)
     expect(result.progress.errors).toBe(0)
     expect(createDir).not.toHaveBeenCalled()
-    expect(sendCatalog).toHaveBeenCalledWith('passmanager:group:ensure', {path: 'Чеки'})
-    expect(sendCatalog).toHaveBeenCalledWith('passmanager:group:ensure', {path: 'Почта'})
+    expect(sendPassmanager).toHaveBeenCalledWith('passmanager:group:ensure', {path: 'Checks.'})
+    expect(sendPassmanager).toHaveBeenCalledWith('passmanager:group:ensure', {path: 'Mail'})
   })
 
   it('uploads icon and sets group metadata via passmanager domain commands', async () => {
     const iconRef = `sha256:${'b'.repeat(64)}`
-    const sendCatalog = vi.fn(async (command: string) => {
+    const sendPassmanager = vi.fn(async (command: string) => {
       if (command === 'passmanager:icon:put') {
         return {ok: true, result: {icon_ref: iconRef}}
       }
@@ -102,11 +101,10 @@ describe('passmanager import adapter regression', () => {
     const catalogStub = {
       api: {
         createDir: vi.fn(async () => ({nodeId: 1})),
-        prepareUpload: vi.fn(async () => ({nodeId: 1})),
         upload: vi.fn(async () => undefined),
         delete: vi.fn(async () => undefined),
       },
-      transport: {sendCatalog},
+      transport: {sendPassmanager},
       secrets: {
         setOTP: vi.fn(async () => undefined),
       },
@@ -125,19 +123,19 @@ describe('passmanager import adapter regression', () => {
 
     await adapter.setGroupIcon('Work/Finance', iconRef)
 
-    expect(sendCatalog).toHaveBeenCalledWith('passmanager:icon:put', {
+    expect(sendPassmanager).toHaveBeenCalledWith('passmanager:icon:put', {
       content_base64: 'aGVsbG8=',
       mime_type: 'image/png',
     })
-    expect(sendCatalog).toHaveBeenCalledWith('passmanager:group:ensure', {path: 'Work/Finance'})
-    expect(sendCatalog).toHaveBeenCalledWith('passmanager:group:setMeta', {
+    expect(sendPassmanager).toHaveBeenCalledWith('passmanager:group:ensure', {path: 'Work/Finance'})
+    expect(sendPassmanager).toHaveBeenCalledWith('passmanager:group:setMeta', {
       path: 'Work/Finance',
       icon_ref: iconRef,
     })
   })
 
   it('passes import_source when saving imported entry metadata', async () => {
-    const sendCatalog = vi.fn(async (command: string, data: Record<string, unknown>) => {
+    const sendPassmanager = vi.fn(async (command: string, data: Record<string, unknown>) => {
       if (command === 'passmanager:entry:save') {
         return {
           ok: true,
@@ -148,7 +146,7 @@ describe('passmanager import adapter regression', () => {
     })
 
     const adapter = createCatalogOperationsAdapter({
-      transport: {sendCatalog},
+      transport: {sendPassmanager},
       catalog: {
         getPath: vi.fn(() => '/'),
         findByPath: vi.fn(() => undefined),
@@ -169,16 +167,16 @@ describe('passmanager import adapter regression', () => {
       },
     }
     const bytes = new TextEncoder().encode(JSON.stringify(meta))
-    const prep = await adapter.prepareUpload(
+    await adapter.upload(
       '/GroupA/Entry 1',
       'meta.json',
       bytes.byteLength,
+      bytes,
       16000,
       'application/json',
     )
-    await adapter.upload(prep.nodeId, bytes.byteLength, bytes)
 
-    expect(sendCatalog).toHaveBeenCalledWith(
+    expect(sendPassmanager).toHaveBeenCalledWith(
       'passmanager:entry:save',
       expect.objectContaining({
         entry_id: 'keepass-entry-1',
@@ -238,7 +236,7 @@ describe('passmanager import adapter regression', () => {
   })
 
   it('builds existing map from passmanager:entry:list when .passmanager shard is hidden in catalog mirror', async () => {
-    const sendCatalog = vi.fn(async (command: string) => {
+    const sendPassmanager = vi.fn(async (command: string) => {
       if (command === 'passmanager:entry:list') {
         return {
           ok: true,
@@ -260,7 +258,7 @@ describe('passmanager import adapter regression', () => {
     })
 
     const catalogStub = {
-      transport: {sendCatalog},
+      transport: {sendPassmanager},
       catalog: {
         findByPath: vi.fn(() => undefined),
       },
@@ -270,7 +268,7 @@ describe('passmanager import adapter regression', () => {
     const byOriginalId = map.get('keepass-entry-201')
     const byEntryId = map.get('entry-201')
 
-    expect(sendCatalog).toHaveBeenCalledWith('passmanager:entry:list', {})
+    expect(sendPassmanager).toHaveBeenCalledWith('passmanager:entry:list', {})
     expect(byOriginalId).toEqual({
       nodeId: 2200000000,
       path: '/GroupA/Entry 201',

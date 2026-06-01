@@ -1,7 +1,7 @@
 import {atom, computed} from '@reatom/core'
 
 import type {ProviderStatus, RpcResult} from '@chromvoid/scheme'
-import {type Entry, ManagerRoot} from '@project/passmanager'
+import {ManagerRoot, type Entry} from '@project/passmanager/core'
 
 import {GatewayRpcClient} from '../gateway/rpc-client'
 import {PopupMessenger} from '../messenger'

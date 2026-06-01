@@ -6,7 +6,7 @@ use chromvoid_core::rpc::{RpcInputStream, RpcReply};
 use std::io::Read;
 use test_helpers::*;
 
-fn prepare_upload(
+fn upload_create(
     router: &mut RpcRouter,
     name: &str,
     size: u64,
@@ -19,7 +19,18 @@ fn prepare_upload(
     if let Some(path) = parent_path {
         data["parent_path"] = serde_json::json!(path);
     }
-    router.handle(&RpcRequest::new("catalog:prepareUpload", data))
+    data["total_size"] = serde_json::json!(size);
+    data["offset"] = serde_json::json!(0);
+    let reply = router.handle_with_stream(
+        &RpcRequest::new("catalog:upload", data),
+        Some(RpcInputStream::from_bytes(vec![0; size as usize])),
+    );
+    match reply {
+        RpcReply::Json(response) => response,
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:upload must return JSON response")
+        }
+    }
 }
 
 fn secret_write_start(
@@ -64,7 +75,7 @@ fn test_secret_write_requires_stream() {
     let (mut router, _temp_dir) = create_test_router();
     unlock_vault(&mut router, "test");
 
-    let response = prepare_upload(&mut router, "password.txt", 100, None);
+    let response = upload_create(&mut router, "password.txt", 100, None);
     let node_id = get_node_id(&response);
 
     let response = secret_write_start(&mut router, node_id, 100);
@@ -88,7 +99,7 @@ fn test_secret_write_missing_size() {
     let (mut router, _temp_dir) = create_test_router();
     unlock_vault(&mut router, "test");
 
-    let response = prepare_upload(&mut router, "file.txt", 100, None);
+    let response = upload_create(&mut router, "file.txt", 100, None);
     let node_id = get_node_id(&response);
 
     let response = router.handle(&RpcRequest::new(
@@ -115,7 +126,7 @@ fn test_secret_read_requires_stream() {
     let (mut router, _temp_dir) = create_test_router();
     unlock_vault(&mut router, "test");
 
-    let response = prepare_upload(&mut router, "creds.json", 100, None);
+    let response = upload_create(&mut router, "creds.json", 100, None);
     let node_id = get_node_id(&response);
 
     let response = secret_read_start(&mut router, node_id);
@@ -141,7 +152,7 @@ fn test_secret_write_read_roundtrip_with_stream() {
 
     let secret_bytes = b"super secret bytes".to_vec();
 
-    let response = prepare_upload(&mut router, "secret.bin", secret_bytes.len() as u64, None);
+    let response = upload_create(&mut router, "secret.bin", secret_bytes.len() as u64, None);
     assert_rpc_ok(&response);
     let node_id = get_node_id(&response);
 
@@ -158,7 +169,9 @@ fn test_secret_write_read_roundtrip_with_stream() {
     );
     match write_reply {
         RpcReply::Json(r) => assert_rpc_ok(&r),
-        RpcReply::Stream(_) => panic!("catalog:secret:write must return JSON response"),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:secret:write must return JSON response")
+        }
     }
 
     let read_request = RpcRequest::new(
@@ -181,6 +194,7 @@ fn test_secret_write_read_roundtrip_with_stream() {
             assert_eq!(downloaded, secret_bytes);
         }
         RpcReply::Json(r) => panic!("expected stream reply, got JSON: {r:?}"),
+        RpcReply::RangeStream(_) => panic!("expected secret stream reply"),
     }
 }
 
@@ -189,7 +203,7 @@ fn test_secret_erase_existing() {
     let (mut router, _temp_dir) = create_test_router();
     unlock_vault(&mut router, "test");
 
-    let response = prepare_upload(&mut router, "to_erase.txt", 100, None);
+    let response = upload_create(&mut router, "to_erase.txt", 100, None);
     let node_id = get_node_id(&response);
 
     let erase_response = secret_erase(&mut router, node_id);
@@ -210,7 +224,7 @@ fn test_secret_erase_preserves_node_metadata() {
     let (mut router, _temp_dir) = create_test_router();
     unlock_vault(&mut router, "test");
 
-    let response = prepare_upload(&mut router, "persistent.txt", 100, None);
+    let response = upload_create(&mut router, "persistent.txt", 100, None);
     let node_id = get_node_id(&response);
     secret_erase(&mut router, node_id);
 

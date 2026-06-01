@@ -1,13 +1,13 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html} from 'lit'
+import {css} from 'lit'
 
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 
 import {CommandBar} from 'root/features/file-manager/components/command-bar'
 import {NavigationRail} from 'root/features/file-manager/components/navigation-rail'
 
-export class FileAppShellDesktopLayout extends XLitElement {
+export class FileAppShellDesktopLayout extends ReatomLitElement {
   static elementName = 'file-app-shell-desktop-layout'
   static define() {
     if (!customElements.get(this.elementName)) {
@@ -16,6 +16,18 @@ export class FileAppShellDesktopLayout extends XLitElement {
     NavigationRail.define()
     CommandBar.define()
   }
+
+  static get properties() {
+    return {
+      detailsOpen: {type: Boolean, reflect: true, attribute: 'data-details-open'},
+      detailsHidden: {type: Boolean, reflect: true, attribute: 'data-details-hidden'},
+      dualPane: {type: Boolean, reflect: true, attribute: 'data-dual-pane'},
+    }
+  }
+
+  declare detailsOpen: boolean
+  declare detailsHidden: boolean
+  declare dualPane: boolean
 
   static styles = [
     sharedStyles,
@@ -68,7 +80,8 @@ export class FileAppShellDesktopLayout extends XLitElement {
         -webkit-backdrop-filter: blur(4px);
         opacity: 0;
         pointer-events: none;
-        transition: opacity var(--cv-duration-normal, 250ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1));
+        transition: opacity var(--cv-duration-normal, 220ms)
+          var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1));
         z-index: var(--cv-z-overlay, 300);
       }
 
@@ -91,9 +104,13 @@ export class FileAppShellDesktopLayout extends XLitElement {
         box-shadow: var(--cv-shadow-xl, 0 16px 48px var(--cv-alpha-black-65));
         transform: translateX(100%);
         opacity: 0;
+        pointer-events: none;
+        visibility: hidden;
         transition:
-          transform var(--cv-duration-normal, 250ms) var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1)),
-          opacity var(--cv-duration-fast, 150ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1));
+          transform var(--cv-duration-slow, 320ms)
+            var(--cv-easing-decelerate, cubic-bezier(0, 0, 0.2, 1)),
+          opacity var(--cv-duration-fast, 120ms)
+            var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1));
         z-index: calc(var(--cv-z-overlay, 300) + 1);
         overflow: auto;
         view-transition-name: details-panel;
@@ -102,16 +119,39 @@ export class FileAppShellDesktopLayout extends XLitElement {
       :host([data-details-open]) .details {
         transform: translateX(0);
         opacity: 1;
+        pointer-events: auto;
+        visibility: visible;
       }
 
-      :host([data-details-hidden]) {
-        .details,
-        .overlay--details {
-          display: none;
+      :host([data-details-hidden]) .details,
+      :host([data-details-hidden]) .overlay--details {
+        display: none;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .overlay {
+          transition-duration: var(--cv-duration-instant, 0ms);
+        }
+
+        .details {
+          transform: none;
+          transition: opacity var(--cv-duration-fast, 120ms)
+            var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1));
+        }
+
+        :host([data-details-open]) .details {
+          transform: none;
         }
       }
     `,
   ]
+
+  constructor() {
+    super()
+    this.detailsOpen = false
+    this.detailsHidden = false
+    this.dualPane = false
+  }
 
   private onOverlayDetailsClick = () => {
     this.dispatchEvent(new CustomEvent('close-details', {bubbles: true, composed: true}))

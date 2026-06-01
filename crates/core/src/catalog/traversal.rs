@@ -104,35 +104,10 @@ impl CatalogManager {
     }
 
     /// Collect all descendant node IDs
-    fn collect_descendant_ids(node: &CatalogNode, ids: &mut Vec<u64>) {
+    pub(super) fn collect_descendant_ids(node: &CatalogNode, ids: &mut Vec<u64>) {
         for child in node.children() {
             ids.push(child.node_id);
             Self::collect_descendant_ids(child, ids);
-        }
-    }
-
-    pub(super) fn update_subtree_index_prefix(
-        &mut self,
-        node_id: u64,
-        old_prefix_len: usize,
-        new_prefix: &[String],
-    ) {
-        let mut ids = vec![node_id];
-        if let Some(node) = self.find_by_id(node_id) {
-            Self::collect_descendant_ids(node, &mut ids);
-        }
-
-        for id in ids {
-            if let Some(indexed_path) = self.node_index.get_mut(&id) {
-                if indexed_path.len() >= old_prefix_len {
-                    let mut updated = Vec::with_capacity(
-                        new_prefix.len() + indexed_path.len().saturating_sub(old_prefix_len),
-                    );
-                    updated.extend_from_slice(new_prefix);
-                    updated.extend_from_slice(&indexed_path[old_prefix_len..]);
-                    *indexed_path = updated;
-                }
-            }
         }
     }
 
@@ -151,6 +126,17 @@ impl CatalogManager {
 
     /// Get path for a node ID
     pub fn get_path(&self, node_id: u64) -> Option<String> {
-        self.node_index.get(&node_id).map(|p| p.join("/"))
+        self.node_index.get(&node_id).map(|path| {
+            let parts = path
+                .iter()
+                .map(String::as_str)
+                .filter(|part| !part.is_empty() && *part != "/")
+                .collect::<Vec<_>>();
+            if parts.is_empty() {
+                "/".to_string()
+            } else {
+                format!("/{}", parts.join("/"))
+            }
+        })
     }
 }

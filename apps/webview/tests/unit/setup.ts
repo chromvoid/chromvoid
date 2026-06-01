@@ -1,8 +1,8 @@
 // jsdom globals or polyfills if needed
-// Упрощённый setup для unit-тестов web components
+// Simplified setup for unit tests of web components
 import {beforeAll} from 'vitest'
 
-// Мок localStorage для jsdom (требуется для @statx/persist)
+// Mock localStorage for jsdom (required for Reatom persist adapters)
 const localStorageMock = (() => {
   let store: Record<string, string> = {}
   return {
@@ -23,7 +23,38 @@ const localStorageMock = (() => {
   }
 })()
 
-Object.defineProperty(globalThis, 'localStorage', {value: localStorageMock})
+Object.defineProperty(globalThis, 'localStorage', {
+  configurable: true,
+  writable: true,
+  value: localStorageMock,
+})
+
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    writable: true,
+    value: localStorageMock,
+  })
+}
+
+const {CVButton} = await import('@chromvoid/uikit/components/cv-button')
+
+CVButton.define()
+
+const {getPassmanagerRoot, setPassmanagerRoot} =
+  await import('../../src/features/passmanager/models/pm-root.adapter')
+
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window, 'passmanager', {
+    configurable: true,
+    get() {
+      return getPassmanagerRoot()
+    },
+    set(value) {
+      setPassmanagerRoot(value as never)
+    },
+  })
+}
 
 if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
   Object.defineProperty(window, 'matchMedia', {
@@ -55,6 +86,24 @@ if (typeof globalThis.ResizeObserver !== 'function') {
   })
 }
 
+if (typeof HTMLMediaElement !== 'undefined') {
+  Object.defineProperty(HTMLMediaElement.prototype, 'pause', {
+    configurable: true,
+    writable: true,
+    value() {},
+  })
+  Object.defineProperty(HTMLMediaElement.prototype, 'load', {
+    configurable: true,
+    writable: true,
+    value() {},
+  })
+  Object.defineProperty(HTMLMediaElement.prototype, 'play', {
+    configurable: true,
+    writable: true,
+    value: () => Promise.resolve(),
+  })
+}
+
 const originalAttachInternals = (HTMLElement.prototype as any).attachInternals as
   | ((...args: unknown[]) => any)
   | undefined
@@ -62,9 +111,7 @@ const originalAttachInternals = (HTMLElement.prototype as any).attachInternals a
 Object.defineProperty(HTMLElement.prototype, 'attachInternals', {
   configurable: true,
   value: function (...args: unknown[]) {
-    const internals = originalAttachInternals
-      ? originalAttachInternals.apply(this, args) ?? {}
-      : {}
+    const internals = originalAttachInternals ? (originalAttachInternals.apply(this, args) ?? {}) : {}
 
     if (typeof internals.setFormValue !== 'function') internals.setFormValue = () => {}
     if (typeof internals.setValidity !== 'function') internals.setValidity = () => {}
@@ -81,9 +128,9 @@ Object.defineProperty(HTMLElement.prototype, 'attachInternals', {
   },
 })
 
-// jsdom уже есть в среде vitest browser, но установим базовый контейнер
+// jsdom is already in the vitest browser, but install the base container
 beforeAll(() => {
-  // Создаём корневой контейнер для рендеров
+  // Create a root container for renderers
   const root = document.createElement('div')
   root.id = 'test-root'
   document.body.appendChild(root)

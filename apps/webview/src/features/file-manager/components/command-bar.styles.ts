@@ -3,7 +3,11 @@ import {css} from 'lit'
 export const commandBarStyles = [
   css`
     :host {
-      display: contents;
+      position: fixed;
+      inset: 0;
+      display: block;
+      pointer-events: none;
+      z-index: var(--cv-z-modal, 400);
     }
 
     .backdrop {
@@ -14,8 +18,13 @@ export const commandBarStyles = [
       -webkit-backdrop-filter: blur(8px);
       opacity: 0;
       pointer-events: none;
-      transition: opacity var(--cv-duration-fast, 150ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1));
+      transition: opacity var(--cv-duration-normal, 220ms)
+        var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1));
       z-index: var(--cv-z-modal, 400);
+    }
+
+    :host([open]) {
+      pointer-events: auto;
     }
 
     :host([open]) .backdrop {
@@ -27,7 +36,7 @@ export const commandBarStyles = [
       position: fixed;
       inset-block-start: 15vh;
       inset-inline: 50%;
-      transform: translateX(-50%) scale(0.98);
+      transform: translateX(-50%);
       inline-size: min(92vw, 640px);
       max-block-size: 70vh;
       display: flex;
@@ -39,16 +48,14 @@ export const commandBarStyles = [
       box-shadow: var(--cv-shadow-xl, 0 16px 48px var(--cv-alpha-black-65));
       opacity: 0;
       pointer-events: none;
-      transition:
-        opacity var(--cv-duration-fast, 150ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),
-        transform var(--cv-duration-normal, 250ms) var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1));
+      transition: opacity var(--cv-duration-normal, 220ms)
+        var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1));
       z-index: calc(var(--cv-z-modal, 400) + 1);
     }
 
     :host([open]) .dialog {
       opacity: 1;
       pointer-events: auto;
-      transform: translateX(-50%) scale(1);
     }
 
     .search {
@@ -124,8 +131,9 @@ export const commandBarStyles = [
       font-size: var(--text-small, 0.8125rem);
       font-weight: var(--weight-medium, 500);
       transition:
-        background-color var(--cv-duration-fast, 150ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),
-        color var(--cv-duration-fast, 150ms) var(--ease-out-quart);
+        background-color var(--cv-duration-fast, 150ms)
+          var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
+        color var(--cv-duration-fast, 150ms) var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1));
 
       cv-icon {
         flex-shrink: 0;
@@ -182,6 +190,13 @@ export const commandBarStyles = [
 
     .file-input {
       display: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .backdrop,
+      .dialog {
+        transition-duration: var(--cv-duration-instant, 0ms);
+      }
     }
   `,
 ]

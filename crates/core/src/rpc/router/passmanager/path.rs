@@ -1,8 +1,5 @@
 //! Path utilities and guard functions for PassManager (ADR-028).
 
-use super::super::super::commands::with_system_shard_guard_bypass;
-use super::super::super::types::RpcResponse;
-use crate::error::ErrorCode;
 use crate::vault::VaultSession;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -69,37 +66,6 @@ pub(super) fn node_in_passmanager(session: &VaultSession, node_id: u64) -> bool 
         .get_path(node_id)
         .map(|p| is_passmanager_path(&p))
         .unwrap_or(false)
-}
-
-pub(super) fn ensure_passmanager_root_exists(
-    session: &mut VaultSession,
-) -> Result<(), RpcResponse> {
-    if session.catalog().find_by_path("/.passmanager").is_some() {
-        return Ok(());
-    }
-
-    let created =
-        with_system_shard_guard_bypass(|| session.catalog_mut().create_dir("/", ".passmanager"));
-
-    match created {
-        Ok(_) => Ok(()),
-        Err(crate::error::Error::NameExists(_)) => Ok(()),
-        Err(e) => Err(RpcResponse::error(
-            e.to_string(),
-            Some(ErrorCode::InternalError),
-        )),
-    }
-}
-
-/// Verify that a given node_id belongs to the passmanager shard.
-pub(super) fn check_pm_access(session: &VaultSession, node_id: u64) -> Result<(), RpcResponse> {
-    if !node_in_passmanager(session, node_id) {
-        return Err(RpcResponse::error(
-            "Access denied",
-            Some(ErrorCode::AccessDenied),
-        ));
-    }
-    Ok(())
 }
 
 pub(super) fn entry_id_from_data(data: &serde_json::Value) -> Option<String> {

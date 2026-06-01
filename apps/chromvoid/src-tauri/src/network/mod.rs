@@ -1,4 +1,5 @@
 pub mod connection;
+mod host_responder_task;
 pub mod io_task;
 pub mod ios_control;
 pub mod ios_lifecycle;
@@ -7,8 +8,10 @@ pub mod ios_peers;
 pub mod ios_push;
 pub mod local_identity;
 pub mod mobile_acceptor;
+pub mod mobile_host;
 pub mod paired_peers;
 pub mod pairing;
+mod rustls_crypto;
 pub mod safety;
 pub mod server_profiles;
 pub mod signaling;
@@ -29,7 +32,7 @@ pub use fallback::{
     connect_with_fallback, connect_with_fallback_with_options, default_ice_servers,
     FallbackConnectOptions, FallbackResult, LastKnownGoodTransportCache, NetworkContext,
 };
-pub use io_task::{spawn_network_io_task, IoEvent, IoRequest, IoTaskConfig};
+pub use io_task::{spawn_network_io_task, IoEvent, IoRequest, IoTaskConfig, NetworkIoTaskHandle};
 pub use ios_control::{
     create_pairing_session, fetch_host_presence, fetch_pairing_session, http_base_from_relay_url,
     publish_host_presence, send_wake, HostPresence, PairingOffer, PairingSessionSnapshot,

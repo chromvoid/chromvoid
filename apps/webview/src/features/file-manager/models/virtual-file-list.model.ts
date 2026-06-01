@@ -1,39 +1,49 @@
-import {state} from '@statx/core'
+import {atom} from '@reatom/core'
 
-import type {FileListItem, SearchFilters, ViewMode} from 'root/shared/contracts/file-manager'
+import {
+  type FileListRenderItem,
+  type FileListVisibleItem,
+  type SearchFilters,
+  type ViewMode,
+} from 'root/shared/contracts/file-manager'
 
-import {filterAndSortItems} from '../components/virtual-file-list/virtual-file-list.model-helpers'
+import {VirtualFileListDataModel} from './virtual-file-list-data.model'
+import {
+  type GridViewportMetrics,
+  type VirtualFileListMetrics,
+  VirtualFileListViewportModel,
+} from './virtual-file-list-viewport.model'
 
-export interface VisibleFileListItem extends FileListItem {
-  virtualIndex?: number
-}
+export type {GridViewportMetrics, VirtualFileListMetrics} from './virtual-file-list-viewport.model'
 
 export class VirtualFileListModel {
-  readonly virtualScrollTop = state(0)
-  readonly viewportHeight = state(400)
-  readonly dragOverIndex = state(-1)
-  readonly activeItemId = state<number | null>(null)
-
-  private cachedFilteredItems: FileListItem[] = []
-  private lastItemsHash = ''
-  private lastFiltersHash = ''
+  readonly data = new VirtualFileListDataModel()
+  readonly viewport = new VirtualFileListViewportModel()
+  readonly virtualScrollTop = this.viewport.virtualScrollTop
+  readonly viewportHeight = this.viewport.viewportHeight
+  readonly gridColumns = this.viewport.gridColumns
+  readonly gridRowHeight = this.viewport.gridRowHeight
+  readonly dragOverIndex = this.viewport.dragOverIndex
+  readonly activeItemId = atom<number | null>(null, 'file.virtualList.activeItemId')
 
   setVirtualScrollTop(value: number) {
-    this.virtualScrollTop.set(value)
+    this.viewport.setVirtualScrollTop(value)
   }
 
   setViewportHeight(value: number) {
-    if (this.viewportHeight() !== value) {
-      this.viewportHeight.set(value)
-    }
+    this.viewport.setViewportHeight(value)
+  }
+
+  setGridViewportMetrics(metrics: GridViewportMetrics) {
+    this.viewport.setGridViewportMetrics(metrics)
   }
 
   setDragOverIndex(index: number) {
-    this.dragOverIndex.set(index)
+    this.viewport.setDragOverIndex(index)
   }
 
   clearDragOverIndex() {
-    this.dragOverIndex.set(-1)
+    this.viewport.clearDragOverIndex()
   }
 
   setActiveItemId(id: number | null) {
@@ -41,38 +51,73 @@ export class VirtualFileListModel {
     this.activeItemId.set(id)
   }
 
-  getFilteredItems(items: FileListItem[], filters: SearchFilters): FileListItem[] {
-    const itemsHash = JSON.stringify(items.map((item) => `${item.id}_${item.name}_${item.lastModified}`))
-    const filtersHash = JSON.stringify(filters)
-
-    if (itemsHash === this.lastItemsHash && filtersHash === this.lastFiltersHash) {
-      return this.cachedFilteredItems
-    }
-
-    const filtered = filterAndSortItems(items, filters)
-    this.cachedFilteredItems = filtered
-    this.lastItemsHash = itemsHash
-    this.lastFiltersHash = filtersHash
-
-    return filtered
+  getFilteredItems(
+    items: readonly FileListRenderItem[],
+    filters: SearchFilters,
+    itemsPreFiltered = false,
+  ): FileListRenderItem[] {
+    return this.data.getFilteredItems(items, filters, itemsPreFiltered)
   }
 
   getVisibleItems(
-    filtered: FileListItem[],
+    filtered: readonly FileListRenderItem[],
     viewMode: ViewMode,
     itemHeight: number,
     virtualScrollTop: number,
     viewportHeight: number,
-  ): VisibleFileListItem[] {
-    if (viewMode === 'grid') return filtered
+    gridColumns = this.gridColumns(),
+    gridRowHeight = this.gridRowHeight(),
+  ): FileListVisibleItem[] {
+    return this.viewport.getVisibleItems(
+      filtered,
+      viewMode,
+      itemHeight,
+      virtualScrollTop,
+      viewportHeight,
+      gridColumns,
+      gridRowHeight,
+    )
+  }
 
-    const safeScrollTop = Math.max(0, virtualScrollTop)
-    const startIndex = Math.floor(safeScrollTop / itemHeight)
-    const endIndex = Math.min(filtered.length, startIndex + Math.ceil(viewportHeight / itemHeight) + 2)
+  getVisibleRange(
+    totalItemsCount: number,
+    viewMode: ViewMode,
+    itemHeight: number,
+    virtualScrollTop: number,
+    viewportHeight: number,
+    gridColumns = this.gridColumns(),
+    gridRowHeight = this.gridRowHeight(),
+  ): {startIndex: number; endIndex: number} {
+    return this.viewport.getVisibleRange(
+      totalItemsCount,
+      viewMode,
+      itemHeight,
+      virtualScrollTop,
+      viewportHeight,
+      gridColumns,
+      gridRowHeight,
+    )
+  }
 
-    return filtered.slice(startIndex, endIndex).map((item, index) => ({
-      ...item,
-      virtualIndex: startIndex + index,
-    }))
+  getVirtualMetrics(
+    totalItemsCount: number,
+    viewMode: ViewMode,
+    itemHeight: number,
+    virtualScrollTop: number,
+    gridColumns = this.gridColumns(),
+    gridRowHeight = this.gridRowHeight(),
+  ): VirtualFileListMetrics {
+    return this.viewport.getVirtualMetrics(
+      totalItemsCount,
+      viewMode,
+      itemHeight,
+      virtualScrollTop,
+      gridColumns,
+      gridRowHeight,
+    )
+  }
+
+  getGridScrollTopForIndex(index: number, viewportHeight: number, currentScrollTop: number): number {
+    return this.viewport.getGridScrollTopForIndex(index, viewportHeight, currentScrollTop)
   }
 }

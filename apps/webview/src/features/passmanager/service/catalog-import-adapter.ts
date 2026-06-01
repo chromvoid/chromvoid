@@ -1,18 +1,18 @@
 import type {CatalogService} from '../../../core/catalog/catalog'
-import type {ExistingEntryInfo} from '@chromvoid/password-import'
+import type {ExistingEntryInfo} from '@chromvoid/password-import/types'
 import {PASS_DIR} from '../../../core/pass-utils'
 import {normalizeIconFromBase64} from './icon-normalizer'
 
 type CatalogOperations = {
   createDir(name: string, parentPath: string): Promise<{nodeId: number} | {nameExists: true}>
-  prepareUpload(
+  upload(
     parentPath: string,
     name: string,
     size: number,
+    data: Uint8Array,
     chunkSize: number,
     mimeType: string,
   ): Promise<{nodeId: number}>
-  upload(nodeId: number, size: number, data: Uint8Array): Promise<void>
   setOTPSecret(params: {
     nodeId: number
     entryId?: string
@@ -24,7 +24,7 @@ type CatalogOperations = {
     period: number
   }): Promise<void>
   deleteNode(nodeId: number): Promise<void>
-  putIcon(contentBase64: string, mimeType: string): Promise<{iconRef: string}>
+  putIcon(contentBase64: string, mimeType: string): Promise<{iconRef: string; backgroundColor?: string}>
   setGroupIcon(path: string, iconRef: string | null): Promise<void>
 }
 
@@ -32,11 +32,6 @@ type DomainEnvelope<T> = {
   ok?: boolean
   result?: T
   error?: unknown
-}
-
-type UploadTarget = {
-  parentPath: string
-  name: string
 }
 
 type MetaShape = {
@@ -106,7 +101,6 @@ export function createCatalogOperationsAdapter(catalog: CatalogService): Catalog
   let nextUploadNodeId = 2_100_000_000
   let existingLoaded = false
 
-  const uploadTargets = new Map<number, UploadTarget>()
   const virtualPathToNodeId = new Map<string, number>()
   const virtualNodeIdToPath = new Map<number, string>()
   const reservedNames = new Set<string>()
@@ -117,7 +111,11 @@ export function createCatalogOperationsAdapter(catalog: CatalogService): Catalog
     `${normalizeRelativePath(parentPath)}\u0000${name}`
 
   const domainCall = async <T>(command: string, data: Record<string, unknown>): Promise<T> => {
-    const raw = (await catalog.transport.sendCatalog(command, data)) as DomainEnvelope<T> | T
+    const send =
+      typeof catalog.transport.sendPassmanager === 'function'
+        ? catalog.transport.sendPassmanager.bind(catalog.transport)
+        : catalog.transport.sendCatalog.bind(catalog.transport)
+    const raw = (await send(command, data)) as DomainEnvelope<T> | T
     if (raw && typeof raw === 'object' && 'ok' in (raw as Record<string, unknown>)) {
       const envelope = raw as DomainEnvelope<T>
       if (envelope.ok === false) {
@@ -175,23 +173,13 @@ export function createCatalogOperationsAdapter(catalog: CatalogService): Catalog
       return {nodeId}
     },
 
-    async prepareUpload(parentPath: string, name: string, size: number, chunkSize: number, mimeType: string) {
+    async upload(parentPath: string, name: string, size: number, data: Uint8Array, chunkSize: number, mimeType: string) {
       void size
       void chunkSize
       void mimeType
-      const nodeId = nextUploadNodeId++
-      uploadTargets.set(nodeId, {
+      const target = {
         parentPath: normalizeRelativePath(parentPath),
         name,
-      })
-      return {nodeId}
-    },
-
-    async upload(nodeId: number, size: number, data: Uint8Array) {
-      void size
-      const target = uploadTargets.get(nodeId)
-      if (!target) {
-        throw new Error(`Unknown upload target: ${nodeId}`)
       }
 
       const text = new TextDecoder().decode(data)
@@ -238,7 +226,7 @@ export function createCatalogOperationsAdapter(catalog: CatalogService): Catalog
         if (virtualNodeId !== undefined) {
           entryIdByNodeId.set(virtualNodeId, resolvedEntryId)
         }
-        return
+        return {nodeId: virtualNodeId ?? nextUploadNodeId++}
       }
 
       if (target.name === '.password' || target.name === '.note') {
@@ -253,6 +241,8 @@ export function createCatalogOperationsAdapter(catalog: CatalogService): Catalog
           value: text,
         })
       }
+
+      return {nodeId: nextUploadNodeId++}
     },
 
     async setOTPSecret(params: {
@@ -317,13 +307,21 @@ export function createCatalogOperationsAdapter(catalog: CatalogService): Catalog
 
     async putIcon(contentBase64: string, mimeType: string) {
       const normalized = await normalizeIconFromBase64(contentBase64, mimeType)
-      const result = await domainCall<{icon_ref?: unknown}>('passmanager:icon:put', {
-        content_base64: normalized.contentBase64,
-        mime_type: normalized.mimeType,
-      })
+      const result = await domainCall<{icon_ref?: unknown; background_color?: unknown}>(
+        'passmanager:icon:put',
+        {
+          content_base64: normalized.contentBase64,
+          mime_type: normalized.mimeType,
+          ...(normalized.backgroundColor ? {background_color: normalized.backgroundColor} : {}),
+        },
+      )
       const iconRef = toStringValue(result?.icon_ref)
       if (!iconRef) throw new Error('passmanager:icon:put did not return icon_ref')
-      return {iconRef}
+      const backgroundColor = toStringValue(result?.background_color) ?? normalized.backgroundColor
+      return {
+        iconRef,
+        ...(backgroundColor ? {backgroundColor} : {}),
+      }
     },
 
     async setGroupIcon(path: string, iconRef: string | null) {
@@ -347,7 +345,11 @@ export async function buildExistingEntriesByOriginalId(
   const root = catalog.catalog.findByPath(rootPath)
   if (!root) {
     try {
-      const raw = (await catalog.transport.sendCatalog('passmanager:entry:list', {})) as
+      const send =
+        typeof catalog.transport.sendPassmanager === 'function'
+          ? catalog.transport.sendPassmanager.bind(catalog.transport)
+          : catalog.transport.sendCatalog.bind(catalog.transport)
+      const raw = (await send('passmanager:entry:list', {})) as
         | DomainEnvelope<{entries?: unknown[]}>
         | {entries?: unknown[]}
       const listPayload =
@@ -355,9 +357,7 @@ export async function buildExistingEntriesByOriginalId(
           ? ((raw as DomainEnvelope<{entries?: unknown[]}>).result ?? {})
           : raw
       const listPayloadRec =
-        listPayload && typeof listPayload === 'object'
-          ? (listPayload as Record<string, unknown>)
-          : {}
+        listPayload && typeof listPayload === 'object' ? (listPayload as Record<string, unknown>) : {}
       const entriesRaw = listPayloadRec['entries']
       const entries = Array.isArray(entriesRaw) ? entriesRaw : []
       for (const item of entries) {

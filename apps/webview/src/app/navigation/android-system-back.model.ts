@@ -1,4 +1,7 @@
 import {navigationModel} from './navigation.model'
+import {markdownPreviewModel} from 'root/features/file-manager/models/markdown-preview.model'
+import {tryGetAppContext} from 'root/shared/services/app-context'
+import {transientBackModel} from 'root/shared/services/transient-back.model'
 
 function getDeepActiveElement(): HTMLElement | null {
   let active: Element | null = typeof document !== 'undefined' ? document.activeElement : null
@@ -35,13 +38,29 @@ class AndroidSystemBackModel {
   }
 
   handleBack(): boolean {
+    if (transientBackModel.consumeBack()) {
+      return true
+    }
+
+    const document = navigationModel.resolvedDocument()
+    if (
+      document.kind === 'markdown' &&
+      (markdownPreviewModel.dirty() || markdownPreviewModel.saving() || markdownPreviewModel.formatting())
+    ) {
+      return navigationModel.goBackFromUi()
+    }
+
     const active = getDeepActiveElement()
     if (active && isEditableElement(active)) {
       active.blur()
       return true
     }
 
-    return navigationModel.goBack()
+    if (navigationModel.goBackFromUi()) {
+      return true
+    }
+
+    return tryGetAppContext()?.router?.route?.() === 'dashboard'
   }
 }
 

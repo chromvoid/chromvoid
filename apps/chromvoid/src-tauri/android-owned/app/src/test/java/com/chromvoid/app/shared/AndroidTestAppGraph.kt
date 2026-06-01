@@ -8,6 +8,7 @@ import com.chromvoid.app.autofill.AutofillSessionStore
 import com.chromvoid.app.autofill.InMemoryAutofillSessionStore
 import com.chromvoid.app.credentialprovider.AndroidBridgeGateway
 import com.chromvoid.app.credentialprovider.AutofillCandidate
+import com.chromvoid.app.credentialprovider.AutofillListPayload
 import com.chromvoid.app.credentialprovider.AutofillSecret
 import com.chromvoid.app.credentialprovider.BridgeResult
 import com.chromvoid.app.credentialprovider.PasswordCandidate
@@ -19,12 +20,10 @@ import com.chromvoid.app.main.PasswordSaveReviewController
 import com.chromvoid.app.main.PendingPasswordSaveRequest
 import com.chromvoid.app.passkey.PasskeyPreflightPayload
 import com.chromvoid.app.security.BiometricPromptRunner
-import com.chromvoid.app.security.PasskeyMetadataStore
 import com.chromvoid.app.security.PepperStore
 
 internal class TestAndroidAppGraph(
     override val bridgeGateway: AndroidBridgeGateway,
-    override val passkeyMetadataStore: PasskeyMetadataStore,
     override val passkeyRequestRegistry: com.chromvoid.app.passkey.PasskeyRequestRegistry =
         com.chromvoid.app.passkey.InMemoryPasskeyRequestRegistry(SystemAndroidClock),
     override val clock: AndroidClock = SystemAndroidClock,
@@ -80,29 +79,6 @@ internal class InMemoryPasswordSaveRequestStore : PasswordSaveRequestStore {
     }
 }
 
-internal object UnsupportedPasskeyMetadataStore : PasskeyMetadataStore {
-    override fun listForRpId(rpId: String, allowCredentialIds: Set<String>) =
-        error("Unexpected passkey metadata lookup")
-
-    override fun findByCredentialId(credentialId: String) =
-        error("Unexpected passkey metadata lookup")
-
-    override fun hasExcludedCredential(excludedCredentialIds: Set<String>) =
-        error("Unexpected passkey metadata lookup")
-
-    override fun saveNew(metadata: com.chromvoid.app.PasskeyMetadata) {
-        error("Unexpected passkey metadata save")
-    }
-
-    override fun updateUsage(credentialId: String, signCount: Long, lastUsedEpochMs: Long) {
-        error("Unexpected passkey metadata update")
-    }
-
-    override fun clearTransientState(passkeyRequestRegistry: com.chromvoid.app.passkey.PasskeyRequestRegistry) {
-        passkeyRequestRegistry.clear()
-    }
-}
-
 internal open class BaseFakeBridgeGateway : AndroidBridgeGateway {
     override fun warmUp() = Unit
 
@@ -127,7 +103,8 @@ internal open class BaseFakeBridgeGateway : AndroidBridgeGateway {
     override fun autofillList(
         origin: String,
         domain: String,
-    ): BridgeResult<Pair<String, List<AutofillCandidate>>> =
+        includeDiagnostics: Boolean,
+    ): BridgeResult<AutofillListPayload> =
         error("Unexpected autofillList call")
 
     override fun autofillGetSecret(
@@ -135,6 +112,9 @@ internal open class BaseFakeBridgeGateway : AndroidBridgeGateway {
         credentialId: String,
         otpId: String?,
     ): BridgeResult<AutofillSecret> = error("Unexpected autofillGetSecret call")
+
+    override fun autofillCloseSession(sessionId: String): BridgeResult<Boolean> =
+        error("Unexpected autofillCloseSession call")
 
     override fun passwordList(origin: String, domain: String): BridgeResult<Pair<String, List<PasswordCandidate>>> =
         error("Unexpected passwordList call")
@@ -159,4 +139,13 @@ internal open class BaseFakeBridgeGateway : AndroidBridgeGateway {
         payload: PasskeyPreflightPayload,
     ): BridgeResult<String> =
         error("Unexpected passkeyPreflight call")
+
+    override fun passkeyQuery(payload: com.chromvoid.app.PasskeyCoreRequestPayload): BridgeResult<com.chromvoid.app.PasskeyCoreQueryResult> =
+        error("Unexpected passkeyQuery call")
+
+    override fun passkeyCreate(payload: com.chromvoid.app.PasskeyCoreRequestPayload): BridgeResult<com.chromvoid.app.PasskeyCoreOperationResult> =
+        error("Unexpected passkeyCreate call")
+
+    override fun passkeyGet(payload: com.chromvoid.app.PasskeyCoreRequestPayload): BridgeResult<com.chromvoid.app.PasskeyCoreOperationResult> =
+        error("Unexpected passkeyGet call")
 }

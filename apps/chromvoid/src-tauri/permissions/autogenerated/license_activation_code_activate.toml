@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-license-activation-code-activate"
+description = "Enables the license_activation_code_activate command without any pre-configured scope."
+commands.allow = ["license_activation_code_activate"]
+
+[[permission]]
+identifier = "deny-license-activation-code-activate"
+description = "Denies the license_activation_code_activate command without any pre-configured scope."
+commands.deny = ["license_activation_code_activate"]

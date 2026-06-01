@@ -1,8 +1,16 @@
 use super::{autofill, biometric, bridge_contract, passkey, password_save, provider_status};
 use crate::core_adapter::{CoreAdapter, RemoteHost};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+use chromvoid_core::license::{
+    BuildPolicy, LicenseCert, LicenseStore, SignedCert, LICENSE_KEY_ID_2026_01,
+};
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
+use ed25519_dalek::{Signer, SigningKey};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::collections::VecDeque;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 static SHARED_PROVIDER_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -10,8 +18,11 @@ static SHARED_PROVIDER_TEST_LOCK: Mutex<()> = Mutex::new(());
 fn unlocked_adapter() -> (tempfile::TempDir, Box<dyn crate::CoreAdapter>) {
     let tmp = tempfile::tempdir().expect("tempdir");
     let storage_root = tmp.path().join("storage");
+    let license_store = test_pro_license_store(tmp.path().join("license"));
 
-    let mut adapter = crate::LocalCoreAdapter::new(storage_root).expect("LocalCoreAdapter::new");
+    let mut adapter =
+        crate::LocalCoreAdapter::new_with_test_license_store(storage_root, license_store)
+            .expect("LocalCoreAdapter::new_with_test_license_store");
     adapter.set_master_key(Some("test-master-password".to_string()));
 
     let setup = RpcRequest::new(
@@ -24,6 +35,36 @@ fn unlocked_adapter() -> (tempfile::TempDir, Box<dyn crate::CoreAdapter>) {
     let _ = adapter.handle(&unlock);
 
     (tmp, Box::new(adapter))
+}
+
+fn test_pro_license_store(root: PathBuf) -> LicenseStore {
+    let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+    let mut trusted_keys = BTreeMap::new();
+    trusted_keys.insert(
+        LICENSE_KEY_ID_2026_01.to_string(),
+        signing_key.verifying_key(),
+    );
+    let store = LicenseStore::with_trusted_keys(root, BuildPolicy::Enforce, trusted_keys);
+    let payload = LicenseCert {
+        v: 1,
+        kid: LICENSE_KEY_ID_2026_01.to_string(),
+        license_id: "android-autofill-test".to_string(),
+        featureset: "pro".to_string(),
+        seat_limit: 1,
+        device_fingerprint: store.device_fingerprint().expect("device fingerprint"),
+        issued_at: "2026-05-22T00:00:00Z".to_string(),
+        exp: None,
+        source: Some("test".to_string()),
+    };
+    let payload_bytes = serde_json::to_vec(&payload).expect("license payload");
+    let signature = signing_key.sign(&payload_bytes);
+    store
+        .install_cert(SignedCert {
+            payload,
+            signature: URL_SAFE_NO_PAD.encode(signature.to_bytes()),
+        })
+        .expect("install test pro license");
+    store
 }
 
 fn ensure_entry(adapter: &mut dyn crate::CoreAdapter) {
@@ -51,45 +92,55 @@ fn ensure_entry(adapter: &mut dyn crate::CoreAdapter) {
       "urls": [{"value": "https://example.com/login", "match": "base_domain"}],
     })
     .to_string();
-    let meta_resp = adapter.handle(&RpcRequest::new(
-        "catalog:prepareUpload".to_string(),
-        json!({
-            "name": "meta.json",
-            "size": meta.len(),
-            "parent_path": "/.passmanager/Example",
-            "mime_type": "application/json",
-        }),
-    ));
-    let meta_node = meta_resp
-        .result()
-        .and_then(|v| v.get("node_id"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    let _ = adapter.handle_with_stream(
+    let meta_resp = adapter.handle_with_stream(
         &RpcRequest::new(
             "catalog:upload".to_string(),
-            json!({"node_id": meta_node, "size": meta.len(), "offset": 0}),
+            json!({
+                "name": "meta.json",
+                "total_size": meta.len(),
+                "size": meta.len(),
+                "offset": 0,
+                "parent_path": "/.passmanager/Example",
+                "mime_type": "application/json",
+            }),
         ),
         Some(chromvoid_core::rpc::RpcInputStream::from_bytes(
             meta.into_bytes(),
         )),
     );
+    let meta_node = match meta_resp {
+        chromvoid_core::rpc::RpcReply::Json(response) => response
+            .result()
+            .and_then(|v| v.get("node_id"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        _ => 0,
+    };
+    let _ = meta_node;
 
     let pwd = b"correct horse battery staple".to_vec();
-    let pwd_resp = adapter.handle(&RpcRequest::new(
-        "catalog:prepareUpload".to_string(),
-        json!({
-            "name": ".password",
-            "size": pwd.len(),
-            "parent_path": "/.passmanager/Example",
-            "mime_type": "text/plain",
-        }),
-    ));
-    let pwd_node = pwd_resp
-        .result()
-        .and_then(|v| v.get("node_id"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
+    let pwd_resp = adapter.handle_with_stream(
+        &RpcRequest::new(
+            "catalog:upload".to_string(),
+            json!({
+                "name": ".password",
+                "total_size": 0,
+                "size": 0,
+                "offset": 0,
+                "parent_path": "/.passmanager/Example",
+                "mime_type": "text/plain",
+            }),
+        ),
+        Some(chromvoid_core::rpc::RpcInputStream::from_bytes(Vec::new())),
+    );
+    let pwd_node = match pwd_resp {
+        chromvoid_core::rpc::RpcReply::Json(response) => response
+            .result()
+            .and_then(|v| v.get("node_id"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        _ => 0,
+    };
     let _ = adapter.handle_with_stream(
         &RpcRequest::new(
             "catalog:secret:write".to_string(),
@@ -147,11 +198,9 @@ impl crate::CoreAdapter for ScriptedPasskeyAdapter {
                 RpcResponse::success(status)
             }
             "credential_provider:passkey:create" | "credential_provider:passkey:get" => {
-                RpcResponse::error(
-                    "UNSUPPORTED: passkeys_lite create/get handshake remains adapter-owned",
-                    Some("PROVIDER_UNAVAILABLE"),
-                )
+                RpcResponse::success(json!({"credentialIdB64Url": "cred-a"}))
             }
+            "credential_provider:passkey:query" => RpcResponse::success(json!({"passkeys": []})),
             _ => RpcResponse::error("unsupported command", Some("UNKNOWN_COMMAND")),
         }
     }
@@ -240,41 +289,46 @@ fn password_save_requests_register_and_finish_once() {
     let _shared_provider_lock = SHARED_PROVIDER_TEST_LOCK
         .lock()
         .expect("shared provider test lock");
-    password_save::invalidate_all_password_save_requests("test_reset");
-    let token =
-        password_save::register_password_save_request(password_save::AndroidPasswordSavePayload {
+    let runtime = password_save::AndroidPasswordSaveRuntimeState::new();
+    let token = password_save::register_password_save_request(
+        &runtime,
+        password_save::AndroidPasswordSavePayload {
             title: "github.com".to_string(),
             username: "alice@example.com".to_string(),
             password: "pw-123".to_string(),
             urls: "https://github.com/login".to_string(),
-        })
-        .expect("token");
+        },
+    )
+    .expect("token");
 
-    let (payload, state) = password_save::get_password_save_request(&token)
+    let (payload, state) = password_save::get_password_save_request(&runtime, &token)
         .expect("store")
         .expect("payload");
     assert_eq!(payload.password, "pw-123");
     assert_eq!(state, password_save::PasswordSaveRequestState::Pending);
 
-    let launched = password_save::mark_password_save_request_launched(&token).expect("launch");
+    let launched =
+        password_save::mark_password_save_request_launched(&runtime, &token).expect("launch");
     assert!(launched);
-    let (_, state) = password_save::get_password_save_request(&token)
+    let (_, state) = password_save::get_password_save_request(&runtime, &token)
         .expect("store")
         .expect("payload");
     assert_eq!(state, password_save::PasswordSaveRequestState::Launched);
 
     let finished = password_save::finish_password_save_request(
+        &runtime,
         &token,
         password_save::AndroidPasswordSaveOutcome::Saved,
     )
     .expect("finish");
     assert!(finished);
-    let (_, state) = password_save::get_password_save_request(&token)
+    let (_, state) = password_save::get_password_save_request(&runtime, &token)
         .expect("store")
         .expect("state");
     assert_eq!(state, password_save::PasswordSaveRequestState::Saved);
 
     let duplicate = password_save::finish_password_save_request(
+        &runtime,
         &token,
         password_save::AndroidPasswordSaveOutcome::Saved,
     )
@@ -287,23 +341,48 @@ fn password_save_requests_are_invalidated_explicitly() {
     let _shared_provider_lock = SHARED_PROVIDER_TEST_LOCK
         .lock()
         .expect("shared provider test lock");
-    password_save::invalidate_all_password_save_requests("test_reset");
-    let token =
-        password_save::register_password_save_request(password_save::AndroidPasswordSavePayload {
+    let runtime = password_save::AndroidPasswordSaveRuntimeState::new();
+    let token = password_save::register_password_save_request(
+        &runtime,
+        password_save::AndroidPasswordSavePayload {
             title: "github.com".to_string(),
             username: "alice@example.com".to_string(),
             password: "pw-123".to_string(),
             urls: "https://github.com/login".to_string(),
-        })
-        .expect("token");
+        },
+    )
+    .expect("token");
 
-    let invalidated = password_save::invalidate_all_password_save_requests("background");
+    let invalidated = password_save::invalidate_all_password_save_requests(&runtime, "background");
     assert_eq!(invalidated, 1);
 
-    let (_, state) = password_save::get_password_save_request(&token)
+    let (_, state) = password_save::get_password_save_request(&runtime, &token)
         .expect("store")
         .expect("state");
     assert_eq!(state, password_save::PasswordSaveRequestState::Dismissed);
+}
+
+#[test]
+fn password_save_runtime_instances_do_not_share_requests() {
+    let first = password_save::AndroidPasswordSaveRuntimeState::new();
+    let second = password_save::AndroidPasswordSaveRuntimeState::new();
+    let token = password_save::register_password_save_request(
+        &first,
+        password_save::AndroidPasswordSavePayload {
+            title: "github.com".to_string(),
+            username: "alice@example.com".to_string(),
+            password: "pw-123".to_string(),
+            urls: "https://github.com/login".to_string(),
+        },
+    )
+    .expect("token");
+
+    assert!(password_save::get_password_save_request(&first, &token)
+        .expect("first store")
+        .is_some());
+    assert!(password_save::get_password_save_request(&second, &token)
+        .expect("second store")
+        .is_none());
 }
 
 #[test]
@@ -311,18 +390,23 @@ fn password_save_mark_launched_is_one_shot() {
     let _shared_provider_lock = SHARED_PROVIDER_TEST_LOCK
         .lock()
         .expect("shared provider test lock");
-    password_save::invalidate_all_password_save_requests("test_reset");
-    let token =
-        password_save::register_password_save_request(password_save::AndroidPasswordSavePayload {
+    let runtime = password_save::AndroidPasswordSaveRuntimeState::new();
+    let token = password_save::register_password_save_request(
+        &runtime,
+        password_save::AndroidPasswordSavePayload {
             title: "github.com".to_string(),
             username: "alice@example.com".to_string(),
             password: "pw-123".to_string(),
             urls: "https://github.com/login".to_string(),
-        })
-        .expect("token");
+        },
+    )
+    .expect("token");
 
-    assert!(password_save::mark_password_save_request_launched(&token).expect("launch"));
-    assert!(!password_save::mark_password_save_request_launched(&token).expect("launch again"));
+    assert!(password_save::mark_password_save_request_launched(&runtime, &token).expect("launch"));
+    assert!(
+        !password_save::mark_password_save_request_launched(&runtime, &token)
+            .expect("launch again")
+    );
 }
 
 #[test]
@@ -330,22 +414,25 @@ fn runtime_password_save_request_fails_closed_for_terminal_states() {
     let _shared_provider_lock = SHARED_PROVIDER_TEST_LOCK
         .lock()
         .expect("shared provider test lock");
-    password_save::invalidate_all_password_save_requests("test_reset");
-    let token =
-        password_save::register_password_save_request(password_save::AndroidPasswordSavePayload {
+    let runtime = password_save::AndroidPasswordSaveRuntimeState::new();
+    let token = password_save::register_password_save_request(
+        &runtime,
+        password_save::AndroidPasswordSavePayload {
             title: "github.com".to_string(),
             username: "alice@example.com".to_string(),
             password: "pw-123".to_string(),
             urls: "https://github.com/login".to_string(),
-        })
-        .expect("token");
+        },
+    )
+    .expect("token");
     let _ = password_save::finish_password_save_request(
+        &runtime,
         &token,
         password_save::AndroidPasswordSaveOutcome::Dismissed,
     )
     .expect("finish");
 
-    let response = password_save::runtime_password_save_request(&token);
+    let response = password_save::runtime_password_save_request_with_runtime(&runtime, &token);
     assert_eq!(response.get("ok").and_then(|v| v.as_bool()), Some(false));
     assert_eq!(
         response.get("state").and_then(|v| v.as_str()),
@@ -364,8 +451,8 @@ fn autofill_adapter_lists_allowed_domain_and_reads_secret() {
     };
 
     let mut af = autofill::AndroidAutofillAdapter::new(adapter.as_mut());
-    let listed = af.list(&context);
-    assert!(listed.degraded.is_none());
+    let listed = af.list(&context, false);
+    assert!(listed.degraded.is_none(), "{:?}", listed.degraded);
     assert_eq!(listed.candidates.len(), 1);
     assert_eq!(listed.candidates[0].credential_id, "cred-example");
 
@@ -390,7 +477,7 @@ fn autofill_adapter_returns_degraded_state_when_vault_locked() {
     };
 
     let mut af = autofill::AndroidAutofillAdapter::new(adapter.as_mut());
-    let listed = af.list(&context);
+    let listed = af.list(&context, false);
     let degraded = listed
         .degraded
         .expect("vault-locked flow must return degraded state");
@@ -542,10 +629,13 @@ fn passkey_requests_do_not_fall_back_to_autofill_list_path() {
         payload: json!({"rp_id": "example.com"}),
     };
 
-    let err = passkey::AndroidPasskeyAdapter::new(&mut adapter, 34)
+    let result = passkey::AndroidPasskeyAdapter::new(&mut adapter, 34)
         .handle(&request)
-        .expect_err("passkey command remains adapter-owned until native bridge is wired");
-    assert_eq!(err.code, "UNSUPPORTED");
+        .expect("passkey command must dispatch through Core");
+    assert_eq!(
+        result.get("credentialIdB64Url").and_then(|v| v.as_str()),
+        Some("cred-a")
+    );
     assert!(
         adapter
             .commands
@@ -583,15 +673,17 @@ fn runtime_autofill_bridge_round_trip_uses_allowlisted_session() {
         .expect("shared provider test lock");
     let (_tmp, mut adapter) = unlocked_adapter();
     ensure_entry(adapter.as_mut());
-    super::register_shared_app_adapter(Arc::new(Mutex::new(adapter)));
+    super::register_test_provider_adapter(Arc::new(Mutex::new(adapter)));
+    let runtime = super::AndroidAutofillRuntimeState::new();
 
     let context = autofill::AutofillContext {
         origin: "https://app.example.com/login".to_string(),
         domain: "app.example.com".to_string(),
     };
 
-    let listed = autofill::runtime_autofill_list(&context);
+    let listed = autofill::runtime_autofill_list_with_runtime(&runtime, &context, false);
     assert_eq!(listed.get("ok").and_then(|v| v.as_bool()), Some(true));
+    assert!(listed.get("debug").is_none());
     let session_id = listed
         .get("session_id")
         .and_then(|v| v.as_str())
@@ -602,12 +694,240 @@ fn runtime_autofill_bridge_round_trip_uses_allowlisted_session() {
         .expect("candidates");
     assert_eq!(candidates.len(), 1);
 
-    let secret = autofill::runtime_autofill_get_secret(session_id, "cred-example", None);
+    let secret = autofill::runtime_autofill_get_secret_with_runtime(
+        &runtime,
+        session_id,
+        "cred-example",
+        None,
+    );
     assert_eq!(secret.get("ok").and_then(|v| v.as_bool()), Some(true));
     let result = secret.get("result").expect("result");
     assert_eq!(
         result.get("password").and_then(|v| v.as_str()),
         Some("correct horse battery staple")
+    );
+}
+
+#[test]
+fn runtime_autofill_list_respects_debug_flag() {
+    let _shared_provider_lock = SHARED_PROVIDER_TEST_LOCK
+        .lock()
+        .expect("shared provider test lock");
+    let (_tmp, mut adapter) = unlocked_adapter();
+    ensure_entry(adapter.as_mut());
+    super::register_test_provider_adapter(Arc::new(Mutex::new(adapter)));
+    let runtime = super::AndroidAutofillRuntimeState::new();
+
+    let context = autofill::AutofillContext {
+        origin: "https://app.example.com/login".to_string(),
+        domain: "app.example.com".to_string(),
+    };
+
+    let without_debug = autofill::runtime_autofill_list_with_runtime(&runtime, &context, false);
+    assert_eq!(
+        without_debug.get("ok").and_then(|v| v.as_bool()),
+        Some(true)
+    );
+    assert!(without_debug.get("debug").is_none());
+
+    let with_debug = autofill::runtime_autofill_list_with_runtime(&runtime, &context, true);
+    assert_eq!(with_debug.get("ok").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(
+        with_debug
+            .get("debug")
+            .and_then(|v| v.get("entry_count"))
+            .and_then(|v| v.as_u64()),
+        Some(1)
+    );
+}
+
+#[test]
+fn runtime_autofill_close_session_invalidates_pending_session() {
+    let _shared_provider_lock = SHARED_PROVIDER_TEST_LOCK
+        .lock()
+        .expect("shared provider test lock");
+    let (_tmp, mut adapter) = unlocked_adapter();
+    ensure_entry(adapter.as_mut());
+    super::register_test_provider_adapter(Arc::new(Mutex::new(adapter)));
+    let runtime = super::AndroidAutofillRuntimeState::new();
+
+    let context = autofill::AutofillContext {
+        origin: "https://app.example.com/login".to_string(),
+        domain: "app.example.com".to_string(),
+    };
+
+    let listed = autofill::runtime_autofill_list_with_runtime(&runtime, &context, false);
+    let session_id = listed
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .expect("session_id")
+        .to_string();
+
+    let closed = autofill::runtime_autofill_close_session_with_runtime(&runtime, &session_id);
+    assert_eq!(closed.get("ok").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(closed.get("closed").and_then(|v| v.as_bool()), Some(true));
+
+    let secret = autofill::runtime_autofill_get_secret_with_runtime(
+        &runtime,
+        &session_id,
+        "cred-example",
+        None,
+    );
+    assert_eq!(secret.get("ok").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(
+        secret
+            .get("degraded")
+            .and_then(|v| v.get("code"))
+            .and_then(|v| v.as_str()),
+        Some("ACCESS_DENIED")
+    );
+}
+
+#[test]
+fn runtime_autofill_expired_session_is_pruned_before_secret_lookup() {
+    let _shared_provider_lock = SHARED_PROVIDER_TEST_LOCK
+        .lock()
+        .expect("shared provider test lock");
+    let (_tmp, mut adapter) = unlocked_adapter();
+    ensure_entry(adapter.as_mut());
+    super::register_test_provider_adapter(Arc::new(Mutex::new(adapter)));
+    let runtime = super::AndroidAutofillRuntimeState::new();
+
+    let context = autofill::AutofillContext {
+        origin: "https://app.example.com/login".to_string(),
+        domain: "app.example.com".to_string(),
+    };
+
+    let listed = autofill::runtime_autofill_list_with_runtime(&runtime, &context, false);
+    let session_id = listed
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .expect("session_id")
+        .to_string();
+
+    runtime
+        .expire_session_for_tests(&session_id)
+        .expect("expire session");
+
+    let secret = autofill::runtime_autofill_get_secret_with_runtime(
+        &runtime,
+        &session_id,
+        "cred-example",
+        None,
+    );
+    assert_eq!(secret.get("ok").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(
+        secret
+            .get("degraded")
+            .and_then(|v| v.get("code"))
+            .and_then(|v| v.as_str()),
+        Some("ACCESS_DENIED")
+    );
+}
+
+#[test]
+fn runtime_autofill_sessions_are_runtime_isolated() {
+    let _shared_provider_lock = SHARED_PROVIDER_TEST_LOCK
+        .lock()
+        .expect("shared provider test lock");
+    let (_tmp, mut adapter) = unlocked_adapter();
+    ensure_entry(adapter.as_mut());
+    super::register_test_provider_adapter(Arc::new(Mutex::new(adapter)));
+    let first = super::AndroidAutofillRuntimeState::new();
+    let second = super::AndroidAutofillRuntimeState::new();
+
+    let context = autofill::AutofillContext {
+        origin: "https://app.example.com/login".to_string(),
+        domain: "app.example.com".to_string(),
+    };
+
+    let listed = autofill::runtime_autofill_list_with_runtime(&first, &context, false);
+    let session_id = listed
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .expect("session_id")
+        .to_string();
+
+    let second_secret = autofill::runtime_autofill_get_secret_with_runtime(
+        &second,
+        &session_id,
+        "cred-example",
+        None,
+    );
+    assert_eq!(
+        second_secret.get("ok").and_then(|v| v.as_bool()),
+        Some(false)
+    );
+    assert_eq!(
+        second_secret
+            .get("degraded")
+            .and_then(|v| v.get("code"))
+            .and_then(|v| v.as_str()),
+        Some("ACCESS_DENIED")
+    );
+
+    let second_close = autofill::runtime_autofill_close_session_with_runtime(&second, &session_id);
+    assert_eq!(
+        second_close.get("closed").and_then(|v| v.as_bool()),
+        Some(false)
+    );
+    assert_eq!(
+        first
+            .session_count_for_tests()
+            .expect("first session count"),
+        1
+    );
+
+    let first_secret = autofill::runtime_autofill_get_secret_with_runtime(
+        &first,
+        &session_id,
+        "cred-example",
+        None,
+    );
+    assert_eq!(first_secret.get("ok").and_then(|v| v.as_bool()), Some(true));
+}
+
+#[test]
+fn runtime_autofill_session_store_poison_returns_provider_unavailable() {
+    let runtime = super::AndroidAutofillRuntimeState::new();
+    runtime.poison_sessions_for_tests();
+
+    let closed = autofill::runtime_autofill_close_session_with_runtime(&runtime, "session-id");
+    assert_eq!(closed.get("ok").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(
+        closed
+            .get("degraded")
+            .and_then(|v| v.get("code"))
+            .and_then(|v| v.as_str()),
+        Some("PROVIDER_UNAVAILABLE")
+    );
+    assert_eq!(
+        closed
+            .get("degraded")
+            .and_then(|v| v.get("message"))
+            .and_then(|v| v.as_str()),
+        Some("Autofill runtime session store unavailable")
+    );
+}
+
+#[test]
+fn runtime_autofill_public_wrapper_without_appstate_returns_provider_unavailable() {
+    let _shared_provider_lock = SHARED_PROVIDER_TEST_LOCK
+        .lock()
+        .expect("shared provider test lock");
+    let context = autofill::AutofillContext {
+        origin: "https://app.example.com/login".to_string(),
+        domain: "app.example.com".to_string(),
+    };
+
+    let listed = autofill::runtime_autofill_list(&context);
+    assert_eq!(listed.get("ok").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(
+        listed
+            .get("degraded")
+            .and_then(|v| v.get("code"))
+            .and_then(|v| v.as_str()),
+        Some("PROVIDER_UNAVAILABLE")
     );
 }
 
@@ -674,7 +994,7 @@ fn runtime_passkey_preflight_only_performs_local_policy_checks() {
             "vault_open": true
         })]),
     };
-    super::register_shared_app_adapter(Arc::new(Mutex::new(
+    super::register_test_provider_adapter(Arc::new(Mutex::new(
         Box::new(adapter) as Box<dyn crate::CoreAdapter>
     )));
 
@@ -735,7 +1055,7 @@ fn runtime_passkey_preflight_returns_spec_shaped_success_response() {
         fn set_master_key(&mut self, _key: Option<String>) {}
     }
 
-    super::register_shared_app_adapter(Arc::new(Mutex::new(
+    super::register_test_provider_adapter(Arc::new(Mutex::new(
         Box::new(ReadyAdapter) as Box<dyn crate::CoreAdapter>
     )));
 
@@ -769,7 +1089,7 @@ fn runtime_passkey_preflight_returns_spec_shaped_success_response() {
             .get("policy")
             .and_then(|v| v.get("local_only"))
             .and_then(|v| v.as_bool()),
-        Some(true)
+        Some(false)
     );
 }
 
@@ -819,9 +1139,10 @@ fn runtime_passkey_preflight_rejects_api_33_without_policy_dispatch() {
     }
 
     let commands = Arc::new(Mutex::new(Vec::new()));
-    super::register_shared_app_adapter(Arc::new(Mutex::new(Box::new(LoggedAdapter {
+    super::register_test_provider_adapter(Arc::new(Mutex::new(Box::new(LoggedAdapter {
         commands: commands.clone(),
-    }) as Box<dyn crate::CoreAdapter>)));
+    })
+        as Box<dyn crate::CoreAdapter>)));
 
     let response = passkey::runtime_passkey_preflight("get", json!({"rp_id": "example.com"}), 33);
     assert_eq!(response.get("ok").and_then(|v| v.as_bool()), Some(false));
@@ -879,7 +1200,7 @@ fn runtime_provider_status_keeps_surfaces_unavailable_below_min_api_even_when_br
         fn set_master_key(&mut self, _key: Option<String>) {}
     }
 
-    super::register_shared_app_adapter(Arc::new(Mutex::new(
+    super::register_test_provider_adapter(Arc::new(Mutex::new(
         Box::new(ReadyAdapter) as Box<dyn crate::CoreAdapter>
     )));
 

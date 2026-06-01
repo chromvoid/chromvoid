@@ -1,12 +1,82 @@
-import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest'
+import {describe, it, expect, vi} from 'vitest'
 import {readFileSync} from 'fs'
-import {KeePassParseError, parseKeePass} from './keepass.js'
+
+import {KeePassParseError, createKeePassParser, parseKeePass} from './keepass.js'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 function loadFixture() {
   const buf = readFileSync(new URL('./kees.kdbx', import.meta.url))
   return new File([buf], 'kees.kdbx')
+}
+
+function parseFixture(password: string) {
+  return parseKeePass(loadFixture(), password)
+}
+
+function createMockedParser(loadResult: any) {
+  return createKeePassParser({
+    Credentials: class {},
+    ProtectedValue: {fromString: () => ({})},
+    Kdbx: {
+      load: typeof loadResult === 'function' ? loadResult : vi.fn().mockResolvedValue(loadResult),
+    },
+  })
+}
+
+function createErrorParser(error: Error) {
+  return createKeePassParser({
+    Credentials: class {},
+    ProtectedValue: {fromString: () => ({})},
+    Kdbx: {
+      load: vi.fn().mockRejectedValue(error),
+    },
+  })
+}
+
+function makeFile() {
+  return new File(['x'], 'test.kdbx')
+}
+
+function makeDb(rootGroups: any[] = [], rootEntries: any[] = []) {
+  return {
+    groups: [
+      {
+        uuid: {toString: () => 'root-uuid'},
+        name: 'Root',
+        enableSearching: undefined,
+        entries: rootEntries,
+        groups: rootGroups,
+      },
+    ],
+  }
+}
+
+function makeEntry(fieldsArr: [string, any][], uuid = 'entry-1') {
+  return {
+    uuid: {toString: () => uuid},
+    fields: new Map<string, any>(fieldsArr),
+  }
+}
+
+function makeEntryObject(fields: Record<string, any>, uuid = 'entry-1') {
+  return {
+    uuid: {toString: () => uuid},
+    fields,
+  }
+}
+
+function makeGroup(
+  name: string,
+  opts: {entries?: any[]; groups?: any[]; enableSearching?: boolean; uuid?: string} = {},
+) {
+  return {
+    uuid: {toString: () => opts.uuid ?? `${name}-uuid`},
+    name,
+    enableSearching: opts.enableSearching ?? undefined,
+    entries: opts.entries ?? [],
+    groups: opts.groups ?? [],
+  }
 }
 
 describe('KeePass parser', () => {
@@ -28,6 +98,7 @@ describe('KeePass parser', () => {
         'IMPORT_TOO_MANY_ENTRIES',
         'IMPORT_PARSE_ERROR',
       ] as const
+
       for (const code of codes) {
         const error = new KeePassParseError('test', code)
         expect(error.code).toBe(code)
@@ -45,7 +116,6 @@ describe('KeePass parser', () => {
 
   describe('parseKeePass', () => {
     it('should reject files larger than 50MB', async () => {
-      const {parseKeePass} = await import('./keepass.js')
       const file = new File(['x'], 'test.kdbx')
       Object.defineProperty(file, 'size', {value: 51 * 1024 * 1024})
 
@@ -58,7 +128,6 @@ describe('KeePass parser', () => {
     })
 
     it('should accept files at exactly 50MB', async () => {
-      const {parseKeePass} = await import('./keepass.js')
       const file = new File(['x'], 'test.kdbx')
       Object.defineProperty(file, 'size', {value: 50 * 1024 * 1024})
 
@@ -70,14 +139,11 @@ describe('KeePass parser', () => {
     })
 
     it('should throw IMPORT_PARSE_ERROR for invalid kdbx data', async () => {
-      const {parseKeePass} = await import('./keepass.js')
       const file = new File(['not a kdbx file'], 'test.kdbx', {type: 'application/octet-stream'})
-
       await expect(parseKeePass(file, 'password')).rejects.toThrow(KeePassParseError)
     })
 
     it('should throw for data with bad signature', async () => {
-      const {parseKeePass} = await import('./keepass.js')
       const file = new File([new Uint8Array(100)], 'test.kdbx')
 
       try {
@@ -91,7 +157,6 @@ describe('KeePass parser', () => {
     })
 
     it('should include file size in error message for oversized files', async () => {
-      const {parseKeePass} = await import('./keepass.js')
       const file = new File(['x'], 'test.kdbx')
       Object.defineProperty(file, 'size', {value: 60 * 1024 * 1024})
 
@@ -106,88 +171,8 @@ describe('KeePass parser', () => {
   })
 
   describe('parseKeePass with mocked kdbxweb', () => {
-    beforeEach(() => {
-      vi.resetModules()
-      vi.clearAllMocks()
-    })
-
-    afterEach(() => {
-      vi.doUnmock('kdbxweb')
-    })
-
-    function mockKdbxweb(loadResult: any) {
-      vi.doMock('kdbxweb', () => ({
-        Credentials: class {},
-        ProtectedValue: {fromString: () => ({})},
-        Kdbx: {
-          load: typeof loadResult === 'function' ? loadResult : vi.fn().mockResolvedValue(loadResult),
-        },
-      }))
-    }
-
-    function mockKdbxwebError(error: Error) {
-      vi.doMock('kdbxweb', () => ({
-        Credentials: class {},
-        ProtectedValue: {fromString: () => ({})},
-        Kdbx: {
-          load: vi.fn().mockRejectedValue(error),
-        },
-      }))
-    }
-
-    async function importParseKeePass() {
-      const mod = await import('./keepass.js')
-      return mod.parseKeePass
-    }
-
-    function makeFile() {
-      return new File(['x'], 'test.kdbx')
-    }
-
-    function makeDb(rootGroups: any[] = [], rootEntries: any[] = []) {
-      return {
-        groups: [
-          {
-            uuid: {toString: () => 'root-uuid'},
-            name: 'Root',
-            enableSearching: undefined,
-            entries: rootEntries,
-            groups: rootGroups,
-          },
-        ],
-      }
-    }
-
-    function makeEntry(fieldsArr: [string, any][], uuid = 'entry-1') {
-      return {
-        uuid: {toString: () => uuid},
-        fields: new Map<string, any>(fieldsArr),
-      }
-    }
-
-    function makeEntryObject(fields: Record<string, any>, uuid = 'entry-1') {
-      return {
-        uuid: {toString: () => uuid},
-        fields,
-      }
-    }
-
-    function makeGroup(
-      name: string,
-      opts: {entries?: any[]; groups?: any[]; enableSearching?: boolean; uuid?: string} = {},
-    ) {
-      return {
-        uuid: {toString: () => opts.uuid ?? `${name}-uuid`},
-        name,
-        enableSearching: opts.enableSearching ?? undefined,
-        entries: opts.entries ?? [],
-        groups: opts.groups ?? [],
-      }
-    }
-
     it('should map Invalid credentials error to IMPORT_INVALID_PASSWORD', async () => {
-      mockKdbxwebError(new Error('Invalid credentials or key'))
-      const parseKeePass = await importParseKeePass()
+      const parseKeePass = createErrorParser(new Error('Invalid credentials or key'))
 
       try {
         await parseKeePass(makeFile(), 'wrong')
@@ -199,8 +184,7 @@ describe('KeePass parser', () => {
     })
 
     it('should map Not a KeePass error to IMPORT_CORRUPT_FILE', async () => {
-      mockKdbxwebError(new Error('Not a KeePass database'))
-      const parseKeePass = await importParseKeePass()
+      const parseKeePass = createErrorParser(new Error('Not a KeePass database'))
 
       try {
         await parseKeePass(makeFile(), 'test')
@@ -212,8 +196,7 @@ describe('KeePass parser', () => {
     })
 
     it('should map signature error to IMPORT_CORRUPT_FILE', async () => {
-      mockKdbxwebError(new Error('Bad signature'))
-      const parseKeePass = await importParseKeePass()
+      const parseKeePass = createErrorParser(new Error('Bad signature'))
 
       try {
         await parseKeePass(makeFile(), 'test')
@@ -225,8 +208,7 @@ describe('KeePass parser', () => {
     })
 
     it('should map Unsupported version error to IMPORT_UNSUPPORTED_FORMAT', async () => {
-      mockKdbxwebError(new Error('Unsupported version'))
-      const parseKeePass = await importParseKeePass()
+      const parseKeePass = createErrorParser(new Error('Unsupported version'))
 
       try {
         await parseKeePass(makeFile(), 'test')
@@ -238,8 +220,7 @@ describe('KeePass parser', () => {
     })
 
     it('should map unknown error to IMPORT_PARSE_ERROR', async () => {
-      mockKdbxwebError(new Error('Something unexpected happened'))
-      const parseKeePass = await importParseKeePass()
+      const parseKeePass = createErrorParser(new Error('Something unexpected happened'))
 
       try {
         await parseKeePass(makeFile(), 'test')
@@ -263,11 +244,7 @@ describe('KeePass parser', () => {
       )
 
       const group = makeGroup('Personal', {entries: [entry]})
-      const db = makeDb([group])
-
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
+      const result = await createMockedParser(makeDb([group]))(makeFile(), 'password')
 
       expect(result.entries).toHaveLength(1)
       expect(result.entries[0]).toMatchObject({
@@ -280,10 +257,8 @@ describe('KeePass parser', () => {
         folder: 'Personal',
       })
       expect(result.entries[0]!.urls).toEqual([{value: 'https://example.com', match: 'base_domain'}])
-
       expect(result.folders).toHaveLength(1)
       expect(result.folders[0]).toMatchObject({name: 'Personal', path: 'Personal'})
-
       expect(result.conflicts).toEqual([])
       expect(result.warnings).toEqual([])
     })
@@ -302,11 +277,7 @@ describe('KeePass parser', () => {
       )
 
       const group = makeGroup('Personal', {entries: [entry]})
-      const db = makeDb([group])
-
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
+      const result = await createMockedParser(makeDb([group]))(makeFile(), 'password')
 
       expect(result.entries).toHaveLength(1)
       expect(result.entries[0]).toMatchObject({
@@ -331,12 +302,8 @@ describe('KeePass parser', () => {
           ]),
         ],
       })
-      const db = makeDb([recycleBin])
 
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
+      const result = await createMockedParser(makeDb([recycleBin]))(makeFile(), 'password')
       expect(result.entries).toHaveLength(0)
       expect(result.folders.find((f) => f.name === 'Recycle Bin')).toBeUndefined()
     })
@@ -351,12 +318,8 @@ describe('KeePass parser', () => {
           ]),
         ],
       })
-      const db = makeDb([hidden])
 
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
+      const result = await createMockedParser(makeDb([hidden]))(makeFile(), 'password')
       expect(result.entries).toHaveLength(0)
     })
 
@@ -366,12 +329,8 @@ describe('KeePass parser', () => {
         ['UserName', 'just-username'],
         ['Password', ''],
       ])
-      const db = makeDb([], [entry])
 
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
+      const result = await createMockedParser(makeDb([], [entry]))(makeFile(), 'password')
       expect(result.entries).toHaveLength(0)
       expect(result.warnings.length).toBeGreaterThan(0)
       expect(result.warnings[0]).toContain('just-username')
@@ -384,12 +343,8 @@ describe('KeePass parser', () => {
         ['Password', ''],
         ['Notes', 'Important note content'],
       ])
-      const db = makeDb([], [entry])
 
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
+      const result = await createMockedParser(makeDb([], [entry]))(makeFile(), 'password')
       expect(result.entries).toHaveLength(1)
       expect(result.entries[0]!.type).toBe('secure_note')
       expect(result.entries[0]!.name).toBe('My Note')
@@ -403,12 +358,8 @@ describe('KeePass parser', () => {
         ['CustomKey', 'CustomValue'],
         ['AnotherField', 'AnotherValue'],
       ])
-      const db = makeDb([], [entry])
 
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
+      const result = await createMockedParser(makeDb([], [entry]))(makeFile(), 'password')
       expect(result.entries[0]!.customFields).toEqual([
         {key: 'CustomKey', value: 'CustomValue'},
         {key: 'AnotherField', value: 'AnotherValue'},
@@ -423,12 +374,8 @@ describe('KeePass parser', () => {
         ]),
         icon: 4,
       }
-      const db = makeDb([], [entry])
 
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
+      const result = await createMockedParser(makeDb([], [entry]))(makeFile(), 'password')
       expect(result.entries[0]!.icon).toMatchObject({
         source: 'keepass-standard',
         sourceId: '4',
@@ -451,10 +398,7 @@ describe('KeePass parser', () => {
         customIcons: new Map([['custom-1', iconBytes]]),
       }
 
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
+      const result = await createMockedParser(db)(makeFile(), 'password')
       expect(result.entries[0]!.icon).toMatchObject({
         source: 'keepass-custom',
         sourceId: 'custom-1',
@@ -469,12 +413,8 @@ describe('KeePass parser', () => {
         ['Password', 'pass'],
         ['otp', 'otpauth://totp/test?secret=JBSWY3DPEHPK3PXP&issuer=Test'],
       ])
-      const db = makeDb([], [entry])
 
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
+      const result = await createMockedParser(makeDb([], [entry]))(makeFile(), 'password')
       expect(result.entries[0]!.otp).toEqual({
         secret: 'JBSWY3DPEHPK3PXP',
         label: 'OTP',
@@ -492,12 +432,8 @@ describe('KeePass parser', () => {
         ['Password', 'pass'],
         ['otp', 'JBSWY3DPEHPK3PXP'],
       ])
-      const db = makeDb([], [entry])
 
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
+      const result = await createMockedParser(makeDb([], [entry]))(makeFile(), 'password')
       expect(result.entries[0]!.otp).toMatchObject({
         secret: 'JBSWY3DPEHPK3PXP',
         encoding: 'base32',
@@ -511,12 +447,8 @@ describe('KeePass parser', () => {
         ['Password', 'pass'],
         ['TOTP Seed', 'MYSECRET32'],
       ])
-      const db = makeDb([], [entry])
 
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
+      const result = await createMockedParser(makeDb([], [entry]))(makeFile(), 'password')
       expect(result.entries[0]!.otp).toMatchObject({
         secret: 'MYSECRET32',
         type: 'TOTP',
@@ -529,12 +461,8 @@ describe('KeePass parser', () => {
         ['Password', 'pass'],
         ['TimeOtp-Secret-Base32', 'BASE32SECRET'],
       ])
-      const db = makeDb([], [entry])
 
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
+      const result = await createMockedParser(makeDb([], [entry]))(makeFile(), 'password')
       expect(result.entries[0]!.otp).toMatchObject({
         secret: 'BASE32SECRET',
         type: 'TOTP',
@@ -548,12 +476,8 @@ describe('KeePass parser', () => {
         ['otp', 'otpauth://totp/test?secret=ABC&issuer=Test'],
         ['CustomField', 'value'],
       ])
-      const db = makeDb([], [entry])
 
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
+      const result = await createMockedParser(makeDb([], [entry]))(makeFile(), 'password')
       const otpInCustom = result.entries[0]!.customFields?.find((f) => f.key === 'otp')
       expect(otpInCustom).toBeUndefined()
       const custom = result.entries[0]!.customFields?.find((f) => f.key === 'CustomField')
@@ -565,12 +489,8 @@ describe('KeePass parser', () => {
         ['Title', 'String Pass Entry'],
         ['Password', 'plain-pass'],
       ])
-      const db = makeDb([], [entry])
 
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
+      const result = await createMockedParser(makeDb([], [entry]))(makeFile(), 'password')
       expect(result.entries).toHaveLength(1)
       expect(result.entries[0]!.password).toBe('plain-pass')
     })
@@ -586,23 +506,13 @@ describe('KeePass parser', () => {
         ),
       )
 
-      const db = makeDb([], entries)
-
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
+      const result = await createMockedParser(makeDb([], entries))(makeFile(), 'password')
       expect(result.entries).toHaveLength(10_000)
       expect(result.warnings).toContain('Import limit reached: only first 10000 entries were imported')
     })
 
     it('should handle empty database with no entries', async () => {
-      const db = makeDb()
-
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
+      const result = await createMockedParser(makeDb())(makeFile(), 'password')
       expect(result.entries).toEqual([])
       expect(result.folders).toHaveLength(0)
       expect(result.conflicts).toEqual([])
@@ -621,12 +531,8 @@ describe('KeePass parser', () => {
         ],
       })
       const level1 = makeGroup('Level1', {groups: [level2]})
-      const db = makeDb([level1])
 
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
+      const result = await createMockedParser(makeDb([level1]))(makeFile(), 'password')
       expect(result.entries[0]!.folder).toBe('Level1/Level2')
       expect(result.folders).toHaveLength(2)
       expect(result.folders[1]).toMatchObject({
@@ -643,18 +549,13 @@ describe('KeePass parser', () => {
         ],
         'entry-slash',
       )
-      const group = makeGroup('Чеки/Квитанции', {entries: [entry]})
-      const db = makeDb([group])
+      const group = makeGroup('Checks/Receipts', {entries: [entry]})
 
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
-      // Slash in group name must NOT create nested groups
+      const result = await createMockedParser(makeDb([group]))(makeFile(), 'password')
       expect(result.folders).toHaveLength(1)
-      expect(result.folders[0]!.name).toBe('Чеки\u2215Квитанции')
-      expect(result.folders[0]!.path).toBe('Чеки\u2215Квитанции')
-      expect(result.entries[0]!.folder).toBe('Чеки\u2215Квитанции')
+      expect(result.folders[0]!.name).toBe('Checks∕Receipts')
+      expect(result.folders[0]!.path).toBe('Checks∕Receipts')
+      expect(result.entries[0]!.folder).toBe('Checks∕Receipts')
     })
 
     it('should use "Untitled" for entries without a title', async () => {
@@ -662,12 +563,8 @@ describe('KeePass parser', () => {
         ['Title', ''],
         ['Password', 'has-pass'],
       ])
-      const db = makeDb([], [entry])
 
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
+      const result = await createMockedParser(makeDb([], [entry]))(makeFile(), 'password')
       expect(result.entries[0]!.name).toBe('Untitled')
     })
 
@@ -679,18 +576,14 @@ describe('KeePass parser', () => {
         ['URL', ''],
         ['Notes', ''],
       ])
-      const db = makeDb([], [entry])
 
-      mockKdbxweb(db)
-      const parseKeePass = await importParseKeePass()
-      const result = await parseKeePass(makeFile(), 'password')
-
-      const e = result.entries[0]!
-      expect(e.username).toBeUndefined()
-      expect(e.urls).toBeUndefined()
-      expect(e.notes).toBeUndefined()
-      expect(e.customFields).toBeUndefined()
-      expect(e.otp).toBeUndefined()
+      const result = await createMockedParser(makeDb([], [entry]))(makeFile(), 'password')
+      const imported = result.entries[0]!
+      expect(imported.username).toBeUndefined()
+      expect(imported.urls).toBeUndefined()
+      expect(imported.notes).toBeUndefined()
+      expect(imported.customFields).toBeUndefined()
+      expect(imported.otp).toBeUndefined()
     })
   })
 
@@ -698,7 +591,7 @@ describe('KeePass parser', () => {
     const PASSWORD = '123123123123'
 
     it('should parse the file without errors', async () => {
-      const result = await parseKeePass(loadFixture(), PASSWORD)
+      const result = await parseFixture(PASSWORD)
 
       expect(result.entries).toBeInstanceOf(Array)
       expect(result.folders).toBeInstanceOf(Array)
@@ -707,12 +600,12 @@ describe('KeePass parser', () => {
     })
 
     it('should extract exactly one entry', async () => {
-      const result = await parseKeePass(loadFixture(), PASSWORD)
+      const result = await parseFixture(PASSWORD)
       expect(result.entries).toHaveLength(1)
     })
 
     it('should parse entry fields correctly', async () => {
-      const result = await parseKeePass(loadFixture(), PASSWORD)
+      const result = await parseFixture(PASSWORD)
       const entry = result.entries[0]!
 
       expect(entry).toMatchObject({
@@ -725,22 +618,17 @@ describe('KeePass parser', () => {
     })
 
     it('should extract URL with base_domain match', async () => {
-      const result = await parseKeePass(loadFixture(), PASSWORD)
-      const entry = result.entries[0]!
-
-      expect(entry.urls).toEqual([{value: 'google.com', match: 'base_domain'}])
+      const result = await parseFixture(PASSWORD)
+      expect(result.entries[0]!.urls).toEqual([{value: 'google.com', match: 'base_domain'}])
     })
 
     it('should extract custom fields', async () => {
-      const result = await parseKeePass(loadFixture(), PASSWORD)
-      const entry = result.entries[0]!
-
-      expect(entry.customFields).toEqual([{key: 'Поле', value: 'Значение'}])
+      const result = await parseFixture(PASSWORD)
+      expect(result.entries[0]!.customFields).toEqual([{key: 'Поле', value: 'Значение'}])
     })
 
     it('should extract folder hierarchy', async () => {
-      const result = await parseKeePass(loadFixture(), PASSWORD)
-
+      const result = await parseFixture(PASSWORD)
       expect(result.folders).toHaveLength(5)
       expect(result.folders.map((f) => f.name)).toEqual([
         'Windows',
@@ -752,8 +640,7 @@ describe('KeePass parser', () => {
     })
 
     it('should build correct folder paths', async () => {
-      const result = await parseKeePass(loadFixture(), PASSWORD)
-
+      const result = await parseFixture(PASSWORD)
       expect(result.folders.map((f) => f.path)).toEqual([
         'Windows',
         'Сеть',
@@ -764,7 +651,7 @@ describe('KeePass parser', () => {
     })
 
     it('should assign unique ids to all folders', async () => {
-      const result = await parseKeePass(loadFixture(), PASSWORD)
+      const result = await parseFixture(PASSWORD)
       const ids = result.folders.map((f) => f.id)
 
       expect(new Set(ids).size).toBe(ids.length)
@@ -785,12 +672,12 @@ describe('KeePass parser', () => {
     })
 
     it('should have no OTP on the entry', async () => {
-      const result = await parseKeePass(loadFixture(), PASSWORD)
+      const result = await parseFixture(PASSWORD)
       expect(result.entries[0]!.otp).toBeUndefined()
     })
 
     it('should have no notes on the entry', async () => {
-      const result = await parseKeePass(loadFixture(), PASSWORD)
+      const result = await parseFixture(PASSWORD)
       expect(result.entries[0]!.notes).toBeUndefined()
     })
   })

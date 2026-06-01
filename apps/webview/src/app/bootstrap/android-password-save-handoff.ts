@@ -1,5 +1,6 @@
 import {passmanagerNavigationController} from 'root/features/passmanager/passmanager-navigation.controller'
 import {stageAndroidPasswordSavePrefill, type AndroidPasswordSavePrefill} from 'root/features/passmanager/models/android-password-save-prefill'
+import {getPassmanagerRoot} from 'root/features/passmanager/models/pm-root.adapter'
 
 type WindowWithAndroidPasswordSave = Window & {
   __chromvoidPendingAndroidPasswordSave?: unknown
@@ -44,7 +45,7 @@ function handlePendingPasswordSave(): void {
 
   stageAndroidPasswordSavePrefill(prefill)
 
-  if (window.passmanager) {
+  if (getPassmanagerRoot()) {
     passmanagerNavigationController.openCreateEntry()
   }
 }

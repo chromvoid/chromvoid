@@ -1,6 +1,6 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 
-import type {PassManagerRootV2} from '@project/passmanager'
+import type {PassManagerRootV2, PassManagerRootV3} from '@project/passmanager'
 import {CatalogPasswordsRepository, CatalogTransport} from '../../src/core/state/passmanager'
 
 function fileFromJson(json: unknown): File {
@@ -38,6 +38,8 @@ function createRepo(opts?: {
             return {ok: true, result: undefined}
           case 'passmanager:group:list':
             return {ok: true, result: {groups: []}}
+          case 'passmanager:group:delete':
+            return {ok: true, result: undefined}
           case 'passmanager:group:setMeta':
             return {ok: true, result: undefined}
           case 'passmanager:root:export':
@@ -63,7 +65,7 @@ function createRepo(opts?: {
   const repo = opts?.repoOptions
     ? new CatalogPasswordsRepository(catalog as any, catalogTransport, opts.repoOptions as unknown)
     : new CatalogPasswordsRepository(catalog as any, catalogTransport)
-  return {repo, catalog, sendCatalog}
+  return {repo, catalog, sendCatalog, catalogTransport}
 }
 
 function assertOk(ok: boolean, ctx: {catalog: {lastError: {set: {mock: {calls: unknown[][]}}}}}) {
@@ -75,6 +77,7 @@ function assertOk(ok: boolean, ctx: {catalog: {lastError: {set: {mock: {calls: u
 
 describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
   const iconRef = `sha256:${'a'.repeat(64)}`
+  const description = 'Ops runbooks'
 
   let ctx: ReturnType<typeof createRepo>
 
@@ -92,7 +95,7 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
       createdTs: Date.now(),
       updatedTs: Date.now(),
       folders: ['Work/Jira'],
-      foldersMeta: [{path: 'Work/Jira', iconRef}],
+      foldersMeta: [{path: 'Work/Jira', iconRef, description}],
       entries: [
         {
           id: '1',
@@ -118,7 +121,14 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
     expect(saveCalls.some((call) => (call[1] as Record<string, unknown>)['entry_id'] === '1')).toBe(true)
 
     const metaCalls = ctx.sendCatalog.mock.calls.filter((call) => call[0] === 'passmanager:group:setMeta')
-    expect(metaCalls.some((call) => (call[1] as Record<string, unknown>)['path'] === 'Work/Jira')).toBe(true)
+    expect(metaCalls).toContainEqual([
+      'passmanager:group:setMeta',
+      expect.objectContaining({
+        path: 'Work/Jira',
+        icon_ref: iconRef,
+        description,
+      }),
+    ])
   })
 
   it('writes single-segment folderPath', async () => {
@@ -146,6 +156,47 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
 
     const saveCalls = ctx.sendCatalog.mock.calls.filter((call) => call[0] === 'passmanager:entry:save')
     expect(saveCalls.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('deletes obsolete groups deepest-first during saveRoot reconcile', async () => {
+    ctx = createRepo({
+      sendCatalogOverride: async (cmd: string, data: Record<string, unknown>) => {
+        switch (cmd) {
+          case 'passmanager:group:list':
+            return {
+              ok: true,
+              result: {
+                groups: [{path: '/Work'}, {path: '/Work/Legacy'}, {path: '/Personal'}],
+              },
+            }
+          case 'passmanager:group:delete':
+          case 'passmanager:group:ensure':
+            return {ok: true, result: undefined}
+          case 'passmanager:entry:list':
+            return {ok: true, result: {entries: [], folders: []}}
+          case 'passmanager:root:export':
+            return {ok: true, result: {root: {version: 2, entries: [], folders: ['/Work']}}}
+          default:
+            return {ok: true, result: undefined}
+        }
+      },
+    })
+
+    const ok = await ctx.repo.saveRoot(
+      fileFromJson({
+        version: 2,
+        createdTs: Date.now(),
+        updatedTs: Date.now(),
+        folders: ['/Work'],
+        entries: [],
+      }),
+    )
+    assertOk(ok, ctx)
+
+    const deleteCalls = ctx.sendCatalog.mock.calls.filter((call) => call[0] === 'passmanager:group:delete')
+    expect(deleteCalls).toHaveLength(2)
+    expect((deleteCalls[0]?.[1] as Record<string, unknown>)['path']).toBe('Work/Legacy')
+    expect((deleteCalls[1]?.[1] as Record<string, unknown>)['path']).toBe('Personal')
   })
 
   it('returns false when domain entry:list command fails', async () => {
@@ -202,6 +253,80 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
     expect(saveCalls.length).toBeGreaterThanOrEqual(1)
     const lastSavePayload = saveCalls[saveCalls.length - 1]?.[1] as Record<string, unknown>
     expect(lastSavePayload['icon_ref']).toBe(iconRef)
+  })
+
+  it('saveEntryMeta sends normalized tags including explicit clearing', async () => {
+    const tagged = await ctx.repo.saveEntryMeta({
+      id: 'entry-tags',
+      title: 'Tagged entry',
+      urls: [],
+      username: '',
+      otps: [],
+      tags: ['  #Work  ', 'work'],
+    })
+    const cleared = await ctx.repo.saveEntryMeta({
+      id: 'entry-tags',
+      title: 'Tagged entry',
+      urls: [],
+      username: '',
+      otps: [],
+      tags: [],
+    })
+
+    expect(tagged).toBe(true)
+    expect(cleared).toBe(true)
+
+    const saveCalls = ctx.sendCatalog.mock.calls.filter((call) => call[0] === 'passmanager:entry:save')
+    expect(saveCalls.at(-2)?.[1]).toMatchObject({tags: ['Work']})
+    expect(saveCalls.at(-1)?.[1]).toMatchObject({tags: []})
+  })
+
+  it('transport saveEntry omits undefined tags and preserves explicit empty tags', async () => {
+    await ctx.catalogTransport.saveEntry({
+      entryId: 'without-tags',
+      title: 'Without tags',
+      entryType: 'login',
+    })
+    await ctx.catalogTransport.saveEntry({
+      entryId: 'empty-tags',
+      title: 'Empty tags',
+      entryType: 'login',
+      tags: [],
+    })
+
+    const saveCalls = ctx.sendCatalog.mock.calls.filter((call) => call[0] === 'passmanager:entry:save')
+    const withoutTags = saveCalls.at(-2)?.[1] as Record<string, unknown>
+    const emptyTags = saveCalls.at(-1)?.[1] as Record<string, unknown>
+
+    expect(Object.prototype.hasOwnProperty.call(withoutTags, 'tags')).toBe(false)
+    expect(emptyTags['tags']).toEqual([])
+  })
+
+  it('saveRoot preserves tags while normalizing v3 root payloads', async () => {
+    const data: PassManagerRootV3 = {
+      version: 3,
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+      folders: [],
+      entries: [
+        {
+          id: 'entry-tags',
+          entryType: 'login',
+          title: 'Tagged entry',
+          username: 'alice',
+          urls: [],
+          otps: [],
+          folderPath: null,
+          tags: ['  #Work  ', 'work'],
+        },
+      ],
+    }
+
+    const ok = await ctx.repo.saveRoot(fileFromJson(data))
+    assertOk(ok, ctx)
+
+    const saveCalls = ctx.sendCatalog.mock.calls.filter((call) => call[0] === 'passmanager:entry:save')
+    expect(saveCalls.at(-1)?.[1]).toMatchObject({entry_id: 'entry-tags', tags: ['Work']})
   })
 
   it('saveEntryPassword keeps explicit empty value via secret:save', async () => {
@@ -270,7 +395,27 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
     })
   })
 
-  it('readRoot preserves iconRef and foldersMeta from domain export', async () => {
+  it('removeEntrySshPrivateKey treats missing secret as already deleted', async () => {
+    ctx.sendCatalog.mockImplementation(async (cmd: string) => {
+      if (cmd === 'passmanager:secret:delete') {
+        return {ok: false, error: 'secret_not_found'}
+      }
+      return {ok: true, result: undefined}
+    })
+
+    const ok = await ctx.repo.removeEntrySshPrivateKey('entry-55', 'broken-key')
+
+    expect(ok).toBe(true)
+    expect(ctx.sendCatalog).toHaveBeenCalledWith(
+      'passmanager:secret:delete',
+      expect.objectContaining({
+        entry_id: 'entry-55',
+        secret_type: 'ssh_private_key:broken-key',
+      }),
+    )
+  })
+
+  it('readRoot preserves iconRef, description, and foldersMeta from domain export', async () => {
     ctx = createRepo({
       sendCatalogOverride: async (cmd: string) => {
         if (cmd === 'passmanager:root:export') {
@@ -282,7 +427,7 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
                 createdTs: 1,
                 updatedTs: 2,
                 folders: ['Work/Jira'],
-                foldersMeta: [{path: 'Work/Jira', iconRef}],
+                foldersMeta: [{path: 'Work/Jira', iconRef, description}],
                 entries: [
                   {
                     id: 'entry-1',
@@ -303,8 +448,32 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
     })
 
     const result = await ctx.repo.readRoot<PassManagerRootV2>()
-    expect(result?.foldersMeta).toEqual([{path: 'Work/Jira', iconRef}])
+    expect(result?.foldersMeta).toEqual([{path: 'Work/Jira', iconRef, description}])
     expect(result?.entries[0]?.iconRef).toBe(iconRef)
+  })
+
+  it('saveRoot normalizes blank group description to null in group:setMeta', async () => {
+    const data: PassManagerRootV2 = {
+      version: 2,
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+      folders: ['Work/Jira'],
+      foldersMeta: [{path: 'Work/Jira', description: '   '}],
+      entries: [],
+    }
+
+    const ok = await ctx.repo.saveRoot(fileFromJson(data))
+    assertOk(ok, ctx)
+
+    const metaCalls = ctx.sendCatalog.mock.calls.filter((call) => call[0] === 'passmanager:group:setMeta')
+    expect(metaCalls).toContainEqual([
+      'passmanager:group:setMeta',
+      expect.objectContaining({
+        path: 'Work/Jira',
+        icon_ref: null,
+        description: null,
+      }),
+    ])
   })
 
   it('readRoot reports integrity mismatch for missing iconRef payloads', async () => {
@@ -524,7 +693,7 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
     const result = await ctx.repo.readRoot<{version: number; entries: unknown[]; folders: string[]}>()
 
     expect(result).toBeDefined()
-    expect(result?.version).toBe(2)
+    expect(result?.version).toBe(3)
     expect(result?.entries).toEqual([])
 
     const exportCalls = ctx.sendCatalog.mock.calls.filter((call) => call[0] === 'passmanager:root:export')

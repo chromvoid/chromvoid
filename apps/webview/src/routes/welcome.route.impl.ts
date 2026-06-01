@@ -1,12 +1,12 @@
-import {XLitElement} from '@statx/lit'
-import {css, html} from 'lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {css} from 'lit'
 
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
 import {getAppContext} from 'root/shared/services/app-context'
 import {WelcomePageDesktopLayout} from './welcome/welcome-desktop'
 import {WelcomePageMobileLayout} from './welcome/welcome-mobile'
 
-class WelcomePage extends XLitElement {
+class WelcomePage extends ReatomLitElement {
   static define() {
     WelcomePageMobileLayout.define()
     WelcomePageDesktopLayout.define()
@@ -20,6 +20,7 @@ class WelcomePage extends XLitElement {
     css`
       :host {
         display: block;
+        height: 100%;
         min-height: 100%;
       }
     `,

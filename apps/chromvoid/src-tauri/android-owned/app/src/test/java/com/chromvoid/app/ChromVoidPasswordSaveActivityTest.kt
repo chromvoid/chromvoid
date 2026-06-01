@@ -8,7 +8,6 @@ import com.chromvoid.app.credentialprovider.PasswordSaveReviewRequest
 import com.chromvoid.app.nativebridge.PasswordSaveNativeShell
 import com.chromvoid.app.shared.BaseFakeBridgeGateway
 import com.chromvoid.app.shared.TestAndroidAppGraph
-import com.chromvoid.app.shared.UnsupportedPasskeyMetadataStore
 import com.chromvoid.app.shared.installTestAppGraph
 import com.chromvoid.app.shared.resetTestAppGraph
 import org.junit.After
@@ -31,7 +30,7 @@ class ChromVoidPasswordSaveActivityTest {
 
     @Test
     fun invalidToken_finishesCancelledImmediately() {
-        installTestAppGraph(TestAndroidAppGraph(FakePasswordSaveBridge(ok = false), UnsupportedPasskeyMetadataStore))
+        installTestAppGraph(TestAndroidAppGraph(FakePasswordSaveBridge(ok = false)))
 
         val activity =
             Robolectric.buildActivity(
@@ -48,7 +47,7 @@ class ChromVoidPasswordSaveActivityTest {
 
     @Test
     fun validToken_staysOpenUntilReviewCompletes() {
-        installTestAppGraph(TestAndroidAppGraph(FakePasswordSaveBridge(ok = true), UnsupportedPasskeyMetadataStore))
+        installTestAppGraph(TestAndroidAppGraph(FakePasswordSaveBridge(ok = true)))
 
         val activity =
             Robolectric.buildActivity(
@@ -64,7 +63,7 @@ class ChromVoidPasswordSaveActivityTest {
 
     @Test
     fun completeReview_saved_setsResultOkAndFinishes() {
-        installTestAppGraph(TestAndroidAppGraph(FakePasswordSaveBridge(ok = true), UnsupportedPasskeyMetadataStore))
+        installTestAppGraph(TestAndroidAppGraph(FakePasswordSaveBridge(ok = true)))
 
         val activity =
             Robolectric.buildActivity(
@@ -83,7 +82,7 @@ class ChromVoidPasswordSaveActivityTest {
 
     @Test
     fun completeReview_dismissed_setsResultCanceledAndFinishes() {
-        installTestAppGraph(TestAndroidAppGraph(FakePasswordSaveBridge(ok = true), UnsupportedPasskeyMetadataStore))
+        installTestAppGraph(TestAndroidAppGraph(FakePasswordSaveBridge(ok = true)))
 
         val activity =
             Robolectric.buildActivity(

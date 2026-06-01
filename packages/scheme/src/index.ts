@@ -33,7 +33,6 @@ export type {
   CommandFnResult,
   CatalogListItem,
   CatalogListResponse,
-  SyncInitResponse,
   ProviderContext,
   CredentialCandidate,
   CredentialSecret,

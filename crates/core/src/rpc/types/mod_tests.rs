@@ -40,3 +40,49 @@ fn test_error_response_without_code() {
     let json = serde_json::to_string(&response).expect("should serialize");
     assert!(!json.contains("\"code\""));
 }
+
+#[test]
+fn rpc_types_include_lazy_catalog_contracts() {
+    let command = RpcCommand::CatalogFolderBatch {
+        pages: vec![CatalogFolderPageRequest {
+            path: "/docs".to_string(),
+            offset: 0,
+            limit: Some(200),
+            expected_version: Some(7),
+            sort: Some(CatalogFolderSort {
+                by: "name".to_string(),
+                direction: "asc".to_string(),
+            }),
+            filter: Some(CatalogFolderFilter {
+                query: Some("report".to_string()),
+                include_hidden: Some(false),
+                file_types: vec!["documents".to_string()],
+            }),
+        }],
+    };
+
+    let json = serde_json::to_value(command).expect("command serializes");
+    assert_eq!(
+        json.get("command").and_then(|value| value.as_str()),
+        Some("catalog:folder:batch")
+    );
+    assert_eq!(
+        json.pointer("/data/pages/0/expected_version")
+            .and_then(|value| value.as_u64()),
+        Some(7)
+    );
+
+    let result = RpcCommandResult::CatalogSyncManifest(CatalogSyncManifestResponse {
+        root_version: 3,
+        format: "manifest".to_string(),
+        manifest_budget_bytes: CATALOG_MANIFEST_BUDGET_BYTES,
+        shards: Vec::new(),
+        root_summaries: Vec::new(),
+        eager_data: serde_json::json!({}),
+    });
+    let json = serde_json::to_value(result).expect("result serializes");
+    assert_eq!(
+        json.get("command").and_then(|value| value.as_str()),
+        Some("catalog:sync:manifest")
+    );
+}

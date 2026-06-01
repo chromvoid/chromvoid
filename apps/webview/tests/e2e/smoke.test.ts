@@ -4,9 +4,9 @@ declare global {
   var __E2E_PAGE__: import('playwright').Page | undefined
 }
 
-test('главная страница рендерится и содержит chromvoid-app', async () => {
+test('Main page renders and contains chromvoid-app', async () => {
   const page = globalThis.__E2E_PAGE__!
-  // Vite dev server по адресу http://localhost:4400 (root=src)
+  // Vite dev server at http://localhost:4400 (root=src)
   await page.goto('http://localhost:4400/index.html')
 
   const app = await page.$('chromvoid-app')

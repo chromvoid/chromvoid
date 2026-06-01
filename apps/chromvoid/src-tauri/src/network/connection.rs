@@ -15,7 +15,10 @@ use tracing::info;
 
 /// Construct an RPC request frame from a core RpcRequest.
 fn frame_from_rpc_request(message_id: u64, req: &RpcRequest) -> Frame {
-    let payload = serde_json::to_vec(req).unwrap_or_else(|_| b"{}".to_vec());
+    let payload = crate::rpc_transport_protocol::json_payload_or_empty_object(
+        req,
+        "network: rpc request frame",
+    );
     Frame {
         frame_type: FrameType::RpcRequest,
         message_id,

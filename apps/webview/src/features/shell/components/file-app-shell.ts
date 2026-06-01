@@ -1,19 +1,20 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html} from 'lit'
+import {css} from 'lit'
 
 import {getAppContext} from 'root/shared/services/app-context'
 
 import {CommandBar} from 'root/features/file-manager/components/command-bar'
 import {FileAppShellDesktopLayout} from './file-app-shell-desktop-layout'
-import {FileAppShellMobileLayout} from './file-app-shell-mobile-layout'
+import {
+  FileAppShellMobileLayout,
+  type MobileShellContentScrollMode,
+} from './file-app-shell-mobile-layout'
 import {MobileTabBar} from './mobile-tab-bar'
 import {MobileTopToolbar} from './mobile-top-toolbar'
 import {NavigationRail} from 'root/features/file-manager/components/navigation-rail'
 
-const FORWARDED_ATTRS = ['data-sidebar-open', 'data-details-open', 'data-details-hidden', 'data-dual-pane'] as const
-
-export class FileAppShell extends XLitElement {
+export class FileAppShell extends ReatomLitElement {
   static elementName = 'file-app-shell'
   static define() {
     if (!customElements.get(this.elementName)) {
@@ -27,49 +28,47 @@ export class FileAppShell extends XLitElement {
     FileAppShellDesktopLayout.define()
   }
 
+  static get properties() {
+    return {
+      sidebarOpen: {type: Boolean, reflect: true, attribute: 'data-sidebar-open'},
+      detailsOpen: {type: Boolean, reflect: true, attribute: 'data-details-open'},
+      detailsHidden: {type: Boolean, reflect: true, attribute: 'data-details-hidden'},
+      dualPane: {type: Boolean, reflect: true, attribute: 'data-dual-pane'},
+      edgeBackDisabled: {type: Boolean, reflect: true, attribute: 'data-edge-back-disabled'},
+      contentScrollMode: {type: String, attribute: 'content-scroll-mode'},
+    }
+  }
+
+  declare sidebarOpen: boolean
+  declare detailsOpen: boolean
+  declare detailsHidden: boolean
+  declare dualPane: boolean
+  declare edgeBackDisabled: boolean
+  declare contentScrollMode: MobileShellContentScrollMode
+
   static styles = [
     css`
       :host {
         display: block;
         height: 100%;
       }
+
+      slot:not([name]) {
+        display: block;
+        min-block-size: 0;
+        block-size: 100%;
+      }
     `,
   ]
 
-  private observer?: MutationObserver
-
-  override connectedCallback() {
-    super.connectedCallback()
-    this.observer = new MutationObserver(() => this.forwardAttributes())
-    this.observer.observe(this, {attributes: true, attributeFilter: [...FORWARDED_ATTRS]})
-  }
-
-  override disconnectedCallback() {
-    super.disconnectedCallback()
-    this.observer?.disconnect()
-    this.observer = undefined
-  }
-
-  override updated(_changedProps: Map<string, unknown>) {
-    super.updated(_changedProps)
-    this.forwardAttributes()
-  }
-
-  private getLayoutElement(): HTMLElement | null {
-    return this.renderRoot.querySelector('file-app-shell-mobile-layout, file-app-shell-desktop-layout')
-  }
-
-  private forwardAttributes() {
-    const el = this.getLayoutElement()
-    if (!el) return
-
-    for (const attr of FORWARDED_ATTRS) {
-      if (this.hasAttribute(attr)) {
-        el.setAttribute(attr, this.getAttribute(attr) ?? '')
-      } else {
-        el.removeAttribute(attr)
-      }
-    }
+  constructor() {
+    super()
+    this.sidebarOpen = false
+    this.detailsOpen = false
+    this.detailsHidden = false
+    this.dualPane = false
+    this.edgeBackDisabled = false
+    this.contentScrollMode = 'shell'
   }
 
   protected render() {
@@ -78,7 +77,14 @@ export class FileAppShell extends XLitElement {
 
     if (isMobile) {
       return html`
-        <file-app-shell-mobile-layout>
+        <file-app-shell-mobile-layout
+          .sidebarOpen=${this.sidebarOpen}
+          .detailsOpen=${this.detailsOpen}
+          .detailsHidden=${this.detailsHidden}
+          .dualPane=${this.dualPane}
+          .edgeBackDisabled=${this.edgeBackDisabled}
+          .contentScrollMode=${this.contentScrollMode}
+        >
           <slot name="mobile-topbar" slot="mobile-topbar"></slot>
           <slot></slot>
           <slot name="details" slot="details"></slot>
@@ -87,7 +93,11 @@ export class FileAppShell extends XLitElement {
     }
 
     return html`
-      <file-app-shell-desktop-layout>
+      <file-app-shell-desktop-layout
+        .detailsOpen=${this.detailsOpen}
+        .detailsHidden=${this.detailsHidden}
+        .dualPane=${this.dualPane}
+      >
         <slot></slot>
         <slot name="details" slot="details"></slot>
         <slot name="statusbar" slot="statusbar"></slot>

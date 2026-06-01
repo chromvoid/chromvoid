@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.fragment.app.FragmentActivity
 import com.chromvoid.app.ChromVoidPasswordSaveActivity
 import com.chromvoid.app.MainActivity
+import com.chromvoid.app.security.AppGateBiometricBridgeController
 
 internal interface ActivityLifecycleRegistrar {
     fun register()
@@ -49,6 +50,9 @@ internal class DefaultActivityLifecycleRegistrar(
     }
 
     override fun onActivityPaused(activity: Activity) {
+        if (activity is MainActivity) {
+            AppGateBiometricBridgeController.cancelPromptFor(activity)
+        }
         if (activity is FragmentActivity) {
             appGraph().appGateActivityRegistry.detach(activity)
         }

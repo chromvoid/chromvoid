@@ -144,6 +144,7 @@ describe('CatalogPasswordsRepository (nested groups)', () => {
       entry_id: 'test-2',
       target_group_path: '',
     })
+    expect(ctx.catalog.queueRefresh).not.toHaveBeenCalled()
   })
 
   it('moves entry between nested groups', async () => {
@@ -164,5 +165,17 @@ describe('CatalogPasswordsRepository (nested groups)', () => {
       entry_id: 'test-3',
       target_group_path: 'X/Y/Z',
     })
+    expect(ctx.catalog.queueRefresh).not.toHaveBeenCalled()
+  })
+
+  it('surfaces backend move errors instead of collapsing them into a false result', async () => {
+    ctx.sendCatalog.mockImplementation(async (cmd: string) => {
+      if (cmd === 'passmanager:entry:move') {
+        return {ok: false, error: 'Name already exists: dev'}
+      }
+      return {ok: true, result: undefined}
+    })
+
+    await expect(ctx.repo.moveEntryToGroup('test-4', undefined)).rejects.toThrow('Name already exists: dev')
   })
 })

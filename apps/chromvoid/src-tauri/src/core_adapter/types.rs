@@ -1,8 +1,17 @@
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
+use chromvoid_core::rpc::{
+    CatalogDerivativeWriteRequest, CatalogDerivativeWriteResult, CatalogDerivativeWriteSnapshot,
+    CatalogMediaInspectSnapshot,
+};
 use chromvoid_core::rpc::{RpcInputStream, RpcReply};
+use chromvoid_core::vault::{VaultRekeyProgress, VaultRekeyRequest};
 use chromvoid_protocol::TransportMetrics;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+#[cfg(desktop)]
+use std::sync::{Arc, Mutex};
+#[cfg(desktop)]
+use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -33,6 +42,166 @@ pub enum ConnectionState {
     Error,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteRpcPriority {
+    High,
+    Normal,
+    Low,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteCancelGroup {
+    MediaInspection { epoch: u64 },
+}
+
+#[cfg(desktop)]
+#[derive(Clone)]
+pub(crate) enum RemoteJsonSender {
+    Usb(mpsc::Sender<crate::usb::io_task::IoRequest>),
+    Network(mpsc::Sender<crate::network::io_task::IoRequest>),
+}
+
+#[cfg(desktop)]
+#[derive(Clone)]
+pub struct RemoteJsonClientHandle {
+    sender: RemoteJsonSender,
+    features: Arc<Mutex<Vec<String>>>,
+}
+
+#[cfg(desktop)]
+impl RemoteJsonClientHandle {
+    pub(crate) fn new(sender: RemoteJsonSender, features: Arc<Mutex<Vec<String>>>) -> Self {
+        Self { sender, features }
+    }
+
+    pub(crate) fn is_closed(&self) -> bool {
+        match &self.sender {
+            RemoteJsonSender::Usb(tx) => tx.is_closed(),
+            RemoteJsonSender::Network(tx) => tx.is_closed(),
+        }
+    }
+
+    pub(crate) fn features(&self) -> Vec<String> {
+        match self.features.lock() {
+            Ok(features) => features.clone(),
+            Err(_) => {
+                tracing::warn!("remote_json_client: features mutex poisoned");
+                Vec::new()
+            }
+        }
+    }
+
+    pub(crate) fn has_feature(&self, feature: &str) -> bool {
+        self.features()
+            .iter()
+            .any(|candidate| candidate.as_str() == feature)
+    }
+
+    pub(crate) fn replace_features(&self, next: Vec<String>) {
+        match self.features.lock() {
+            Ok(mut features) => *features = next,
+            Err(_) => tracing::warn!("remote_json_client: features mutex poisoned"),
+        }
+    }
+
+    pub(crate) fn send_json_blocking(
+        &self,
+        request: RpcRequest,
+        priority: RemoteRpcPriority,
+        cancel_group: Option<RemoteCancelGroup>,
+    ) -> RpcResponse {
+        if self.is_closed() {
+            return RpcResponse::Error {
+                ok: false,
+                error: "Not connected to remote device".to_string(),
+                code: Some("DISCONNECTED".to_string()),
+            };
+        }
+
+        let (reply_tx, reply_rx) = oneshot::channel();
+        let send_result = match &self.sender {
+            RemoteJsonSender::Usb(tx) => tx
+                .blocking_send(crate::usb::io_task::IoRequest {
+                    request,
+                    stream: None,
+                    reply_tx,
+                    priority,
+                    cancel_group,
+                })
+                .map_err(|_| ()),
+            RemoteJsonSender::Network(tx) => tx
+                .blocking_send(crate::network::io_task::IoRequest {
+                    request,
+                    stream: None,
+                    reply_tx,
+                    priority,
+                    cancel_group,
+                })
+                .map_err(|_| ()),
+        };
+
+        if send_result.is_err() {
+            return RpcResponse::Error {
+                ok: false,
+                error: "Remote I/O task closed".to_string(),
+                code: Some("DISCONNECTED".to_string()),
+            };
+        }
+
+        match reply_rx.blocking_recv() {
+            Ok(RpcReply::Json(resp)) => resp,
+            Ok(RpcReply::Stream(_) | RpcReply::RangeStream(_)) => RpcResponse::Error {
+                ok: false,
+                error: "Unexpected streaming response in JSON-only RPC".to_string(),
+                code: Some("STREAM_UNEXPECTED".to_string()),
+            },
+            Err(_) => RpcResponse::Error {
+                ok: false,
+                error: "Remote reply channel closed".to_string(),
+                code: Some("DISCONNECTED".to_string()),
+            },
+        }
+    }
+
+    pub(crate) fn try_send_cancel_media_inspection(&self, epoch: u64) -> bool {
+        if !self
+            .has_feature(chromvoid_core::rpc::types::CORE_FEATURE_REMOTE_MEDIA_INSPECTION_SPLIT_V1)
+        {
+            return false;
+        }
+
+        let request = RpcRequest::new(
+            "catalog:media:inspect:cancel",
+            serde_json::json!({ "epoch": epoch }),
+        );
+
+        match &self.sender {
+            RemoteJsonSender::Network(tx) => {
+                let (reply_tx, _reply_rx) = oneshot::channel();
+                tx.try_send(crate::network::io_task::IoRequest {
+                    request,
+                    stream: None,
+                    reply_tx,
+                    priority: RemoteRpcPriority::High,
+                    cancel_group: None,
+                })
+                .is_ok()
+            }
+            RemoteJsonSender::Usb(tx) => {
+                let (reply_tx, _reply_rx) = oneshot::channel();
+                tx.try_send(crate::usb::io_task::IoRequest {
+                    request,
+                    stream: None,
+                    reply_tx,
+                    priority: RemoteRpcPriority::High,
+                    cancel_group: None,
+                })
+                .is_ok()
+            }
+        }
+    }
+}
+
 impl Default for ConnectionState {
     fn default() -> Self {
         Self::Disconnected
@@ -61,9 +230,58 @@ pub trait CoreAdapter: Send + Sync {
         None
     }
 
+    fn remote_core_features(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    #[cfg(desktop)]
+    fn remote_json_client(&self) -> Option<RemoteJsonClientHandle> {
+        None
+    }
+
     fn is_unlocked(&self) -> bool;
 
     fn handle(&mut self, req: &RpcRequest) -> RpcResponse;
+
+    fn rekey_vault(
+        &mut self,
+        _request: VaultRekeyRequest,
+        _cancel_requested: &(dyn Fn() -> bool + Send + Sync),
+        _progress: &mut dyn FnMut(VaultRekeyProgress),
+    ) -> Option<RpcResponse> {
+        None
+    }
+
+    fn snapshot_catalog_media_inspect(
+        &mut self,
+        _node_id: u64,
+    ) -> Option<Result<CatalogMediaInspectSnapshot, RpcResponse>> {
+        None
+    }
+
+    fn commit_catalog_media_inspect(
+        &mut self,
+        _snapshot: &CatalogMediaInspectSnapshot,
+        _media_info: Option<chromvoid_core::catalog::CatalogMediaInfo>,
+        _media_inspected_revision: u64,
+    ) -> Option<RpcResponse> {
+        None
+    }
+
+    fn snapshot_catalog_derivative_write(
+        &mut self,
+        _request: CatalogDerivativeWriteRequest,
+    ) -> Option<Result<CatalogDerivativeWriteSnapshot, RpcResponse>> {
+        None
+    }
+
+    fn commit_catalog_derivative_write(
+        &mut self,
+        _snapshot: &CatalogDerivativeWriteSnapshot,
+        _write_result: &CatalogDerivativeWriteResult,
+    ) -> Option<RpcResponse> {
+        None
+    }
 
     fn handle_with_stream(&mut self, req: &RpcRequest, stream: Option<RpcInputStream>) -> RpcReply;
 

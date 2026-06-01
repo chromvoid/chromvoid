@@ -1,10 +1,10 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html} from 'lit'
+import {css} from 'lit'
 
-import {hostLayoutPaintContainStyles, sharedStyles} from 'root/shared/ui/shared-styles'
+import {sharedStyles} from 'root/shared/ui/shared-styles'
 
-export class FileManagerMobileLayout extends XLitElement {
+export class FileManagerMobileLayout extends ReatomLitElement {
   static elementName = 'file-manager-mobile-layout'
 
   static define() {
@@ -15,11 +15,16 @@ export class FileManagerMobileLayout extends XLitElement {
 
   static styles = [
     sharedStyles,
-    hostLayoutPaintContainStyles,
     css`
       :host {
         height: 100%;
         min-height: 100%;
+        /*
+         * Nested mobile drawers render with fixed positioning.
+         * Layout containment here turns this layout into their containing block in
+         * WebViews, which makes sheets appear clipped or not open at all.
+         */
+        contain: style;
       }
 
       .dashboard-wrapper {
@@ -39,13 +44,13 @@ export class FileManagerMobileLayout extends XLitElement {
         flex: 1;
         display: flex;
         flex-direction: column;
-        background: var(--cv-color-surface);
+        background: transparent;
         border-radius: 0;
         border-inline: none;
         border-block-start: none;
-        border-block-end: 1px solid var(--cv-color-border);
+        border-block-end: none;
         overflow: hidden;
-        contain: layout style paint;
+        contain: style;
       }
 
       .catalog-content {

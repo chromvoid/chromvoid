@@ -26,6 +26,15 @@ export interface ImportedEntry {
   name: string
   username?: string
   password?: string
+  tags?: string[]
+  paymentCard?: {
+    cardholderName: string
+    expMonth: number
+    expYear: number
+    brand?: string
+    number?: string
+    cvv?: string
+  }
   urls?: UrlRule[]
   notes?: string
   folder?: string

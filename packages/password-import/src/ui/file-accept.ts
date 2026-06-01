@@ -1,4 +1,4 @@
-const DEFAULT_IMPORT_DIALOG_FILE_ACCEPT = '.kdbx,.json,.csv'
+const DEFAULT_IMPORT_DIALOG_FILE_ACCEPT = '.kdbx,.json,.csv,.1pux'
 
 export function getImportDialogFileAccept(userAgent?: string): string | null {
   const runtimeUserAgent = typeof userAgent === 'string' ? userAgent : readNavigatorUserAgent()

@@ -1,8 +1,8 @@
-import {computed, state} from '@statx/core'
 import {open} from '@tauri-apps/plugin-dialog'
 
 import {isTauriRuntime} from 'root/core/runtime/runtime'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
+import {atom, computed} from '@reatom/core'
 import {getAppContext} from 'root/shared/services/app-context'
 
 import type {SearchFilters} from 'root/shared/contracts/file-manager'
@@ -41,12 +41,12 @@ export type DashboardHeaderSnapshot = {
 }
 
 export class DashboardHeaderModel {
-  readonly currentPath = state('/')
-  readonly filters = state<SearchFilters>(createDefaultDashboardHeaderFilters())
-  readonly totalFiles = state(0)
-  readonly filteredFiles = state(0)
-  readonly selectedCount = state(0)
-  private readonly breakpointMobile = state(false)
+  readonly currentPath = atom('/')
+  readonly filters = atom<SearchFilters>(createDefaultDashboardHeaderFilters())
+  readonly totalFiles = atom(0)
+  readonly filteredFiles = atom(0)
+  readonly selectedCount = atom(0)
+  private readonly breakpointMobile = atom(false)
 
   readonly isMobile = computed(() => {
     return getAppContext().store.layoutMode() === 'mobile'
@@ -95,6 +95,14 @@ export class DashboardHeaderModel {
     return (
       isTauriRuntime() &&
       getRuntimeCapabilities().supports_native_path_io &&
+      getAppContext().store.remoteSessionState() === 'inactive'
+    )
+  }
+
+  canUseNativeUpload(): boolean {
+    return (
+      isTauriRuntime() &&
+      getRuntimeCapabilities().supports_native_file_upload &&
       getAppContext().store.remoteSessionState() === 'inactive'
     )
   }

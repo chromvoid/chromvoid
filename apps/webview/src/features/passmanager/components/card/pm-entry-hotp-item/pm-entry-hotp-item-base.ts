@@ -1,22 +1,21 @@
-import {XLitElement} from '@statx/lit'
+import {nothing} from 'lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {html, nothing} from 'lit'
-
-import {i18n} from '@project/passmanager'
-import type {OTP} from '@project/passmanager'
+import type {OTP} from '@project/passmanager/core'
+import {i18n} from '@project/passmanager/i18n'
 import {PMEntryHOTPItemModel} from './pm-entry-hotp-item.model'
+import {renderPMCopyButton} from '../../pm-copy-button'
 
 type PMEntryHotpCounterChangeEvent = CustomEvent<{value: number}>
 
-/**
- * HOTP (HMAC-based One-Time Password) компонент
- *
- * Особенности:
- * - Ручное управление счётчиком
- * - Генерация кода по запросу (кнопка)
- * - Компактный визуальный стиль в тон TOTP карточкам
- */
-export class PMEntryHOTPItemBase extends XLitElement {
+/**HOTP (HMAC-based One-Time Password)
+*
+* Features:
+Manual control of the meter
+* - Generating code on request (button)
+* - Compact visual style tone TOTP card n
+*/
+export class PMEntryHOTPItemBase extends ReatomLitElement {
   protected readonly model = new PMEntryHOTPItemModel()
 
   constructor() {
@@ -25,49 +24,49 @@ export class PMEntryHOTPItemBase extends XLitElement {
   }
 
   get otp(): OTP | undefined {
-    return this.model.otp()
+    return this.model.state.otp()
   }
 
   set otp(value: OTP | undefined) {
-    this.model.setOtp(value)
+    this.model.actions.setOtp(value)
   }
 
   disconnectedCallback(): void {
-    this.model.disconnect()
+    this.model.actions.disconnect()
     super.disconnectedCallback()
   }
 
   protected onCounterInput(event: PMEntryHotpCounterChangeEvent): void {
-    this.model.setCounter(event.detail.value)
+    this.model.actions.setCounter(event.detail.value)
   }
 
   protected async onGenerateCode(): Promise<void> {
-    await this.model.generateCode()
+    await this.model.actions.generateCode()
   }
 
   protected async onCodeClick(): Promise<void> {
-    await this.model.toggleCode()
+    await this.model.actions.toggleCode()
   }
 
   protected copyOtpValue(): Promise<string> {
-    return this.model.loadCodeForCopy()
+    return this.model.actions.loadCodeForCopy()
   }
 
   render() {
-    const otp = this.model.otp()
+    const otp = this.model.state.otp()
     if (!otp) {
       return nothing
     }
 
-    const isVisible = this.model.isVisible()
-    const code = this.model.code()
-    const counter = this.model.counter()
-    const label = this.model.label() || i18n('otp:item')
+    const isVisible = this.model.state.isVisible()
+    const code = this.model.state.code()
+    const counter = this.model.state.counter()
+    const label = this.model.state.label() || i18n('otp:item')
 
     return html`
       <div class="hotp-card" role="group" aria-label=${`${i18n('otp:hotp_short')} ${label}`}>
         <div class="hotp-header">
-          <span class="hotp-label">${this.model.label()}</span>
+          <span class="hotp-label">${this.model.state.label()}</span>
           <div class="hotp-badge">
             <cv-icon name="hash" aria-hidden="true"></cv-icon>
             ${i18n('otp:hotp_short')}
@@ -105,7 +104,7 @@ export class PMEntryHOTPItemBase extends XLitElement {
                   @click=${this.onGenerateCode}
                   aria-label=${i18n('button:generate')}
                 >
-                  <cv-icon name="arrow-clockwise" aria-hidden="true"></cv-icon>
+                  <cv-icon slot="prefix" name="arrow-clockwise" aria-hidden="true"></cv-icon>
                   ${i18n('button:generate')}
                 </cv-button>
               </div>
@@ -114,11 +113,11 @@ export class PMEntryHOTPItemBase extends XLitElement {
 
           <div class="hotp-actions">
             <cv-tooltip arrow show-delay="150" hide-delay="0">
-              <cv-copy-button
-                slot="trigger"
-                .value=${this.copyOtpValue}
-                aria-label=${i18n('button:copy')}
-              ></cv-copy-button>
+              ${renderPMCopyButton({
+                slot: 'trigger',
+                value: this.copyOtpValue,
+                ariaLabel: i18n('button:copy'),
+              })}
               <span slot="content">${i18n('tooltip:copy-otp')}</span>
             </cv-tooltip>
             <cv-button
@@ -129,6 +128,7 @@ export class PMEntryHOTPItemBase extends XLitElement {
             >
               <cv-icon name=${isVisible ? 'eye-off' : 'eye'} aria-hidden="true"></cv-icon>
             </cv-button>
+            <slot name="otp-action"></slot>
           </div>
         </div>
       </div>

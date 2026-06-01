@@ -29,7 +29,7 @@ export function normalizeOTPEncodingStrict(enc?: string): 'base32' | 'base64' | 
   return v ?? 'base32'
 }
 
-// Стабильный сериализатор meta: отсортированные ключи и детерминированный JSON
+// Meta stable serializer: sorted keys and deterministic JSON
 export function stableStringify(value: unknown): string {
   const seen = new WeakSet<object>()
   const order = (val: unknown): unknown => {
@@ -51,7 +51,7 @@ export function stableStringify(value: unknown): string {
   return JSON.stringify(order(value))
 }
 
-// Ограничение параллелизма для массовых операций
+// Limiting parallelism for mass operations
 export async function withConcurrencyLimit<T, R = unknown>(
   items: T[],
   limit: number,
@@ -75,7 +75,7 @@ export async function withConcurrencyLimit<T, R = unknown>(
   return results
 }
 
-// Единый словарь кодов ошибок адаптеров (без enum)
+// Unified dictionary of adapter error codes (without enum)
 export const ADAPTER_ERROR = {
   SAVE_ROOT_PARSE: 'SAVE_ROOT_PARSE_ERROR',
   SAVE_ROOT_WRITE: 'SAVE_ROOT_WRITE_ERROR',
@@ -96,7 +96,7 @@ export function formatAdapterError(code: AdapterErrorCode, details?: string, cau
   return base
 }
 
-// Примитивный Result без enum
+// Primitive Result without enum
 export type Result<T> = {ok: true; value: T} | {ok: false; error: AdapterErrorCode; message?: string}
 
 export function ok<T>(value: T): Result<T> {

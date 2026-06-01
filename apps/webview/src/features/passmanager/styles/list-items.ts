@@ -1,8 +1,7 @@
 import {css} from 'lit'
 
-/**
- * Общие стили для списков (ul, li)
- */
+/**General styles for lists (ul, li)
+*/
 export const listItemsCSS = css`
   ul {
     list-style: none;
@@ -18,9 +17,8 @@ export const listItemsCSS = css`
   }
 `
 
-/**
- * Стили для папки в списке групп
- */
+/*** Styles for folders in the group list
+*/
 export const folderItemCSS = css`
   li.group {
     display: grid;
@@ -47,7 +45,7 @@ export const folderItemCSS = css`
     height: 24px;
     padding: 4px;
     box-sizing: content-box;
-    background: color-mix(in oklch, var(--cv-color-primary) 12%, transparent);
+    background: var(--cv-color-primary-surface);
     border-radius: var(--cv-radius-1);
   }
 
@@ -67,9 +65,8 @@ export const folderItemCSS = css`
   }
 `
 
-/**
- * Стили для пустого состояния
- */
+/*** Styles for an empty state
+*/
 export const emptyStateCSS = css`
   .empty {
     display: flex;
@@ -80,7 +77,7 @@ export const emptyStateCSS = css`
     padding: var(--cv-space-7) var(--cv-space-4);
     text-align: center;
     color: var(--cv-color-text-muted);
-    background: color-mix(in oklch, var(--cv-color-surface-2) 50%, transparent);
+    background: var(--cv-color-surface-2);
     border: 2px dashed var(--cv-color-border);
     border-radius: var(--cv-radius-3);
   }

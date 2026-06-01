@@ -1,50 +1,72 @@
-import {computed, state} from '@statx/core'
+import {atom, computed, peek} from '@reatom/core'
 
-import {Group} from '@project/passmanager'
-import {getFormData} from '@project/utils'
-import {pmIconStore} from '../../../models/pm-icon-store'
+import {i18n} from '@project/passmanager/i18n'
+import {getPassmanagerRoot} from '../../../models/pm-root.adapter'
+import type {PMWorkspaceContextItem} from '../../card/pm-workspace-header'
+import {passmanagerNavigationController} from '../../../passmanager-navigation.controller'
 
-type PMGroupCreateFormData = {
-  entries?: string | string[]
-  name: string
-}
+export const GROUP_CREATE_NAME_MAX_LENGTH = 40
+export const GROUP_CREATE_DESCRIPTION_MAX_LENGTH = 120
 
 export class PMGroupCreateModel {
-  readonly iconRef = state<string | undefined>(undefined)
-  readonly entries = computed(() => window.passmanager?.topLevelEntries ?? [])
+  readonly name = atom('')
+  readonly description = atom('')
+  readonly iconRef = atom<string | undefined>(undefined)
+  readonly targetGroupPath = atom<string | undefined>(
+    passmanagerNavigationController.getCreateGroupTargetGroupPath(),
+  )
+  readonly trimmedName = computed(() => this.name().trim())
+  readonly nameLength = computed(() => this.name().length)
+  readonly descriptionLength = computed(() => this.description().length)
+  readonly nameCounterLabel = computed(() => `${this.nameLength()}/${GROUP_CREATE_NAME_MAX_LENGTH}`)
+  readonly descriptionCounterLabel = computed(
+    () => `${this.descriptionLength()}/${GROUP_CREATE_DESCRIPTION_MAX_LENGTH}`,
+  )
+  readonly canSubmit = computed(() => this.trimmedName().length > 0)
+
+  setName(name: string): void {
+    this.name.set(name.slice(0, GROUP_CREATE_NAME_MAX_LENGTH))
+  }
+
+  setDescription(description: string): void {
+    this.description.set(description.slice(0, GROUP_CREATE_DESCRIPTION_MAX_LENGTH))
+  }
 
   setIconRef(iconRef: string | undefined): void {
     this.iconRef.set(iconRef)
   }
 
-  async submit(form: HTMLFormElement, selectedEntries: string | string[] | undefined): Promise<void> {
-    const passmanager = window.passmanager
-    if (!passmanager) {
+  getContextItems(): PMWorkspaceContextItem[] {
+    const targetGroupPath = peek(this.targetGroupPath)
+    const segments = targetGroupPath?.split('/').filter(Boolean) ?? []
+    return [
+      {label: i18n('root:title-short'), value: ''},
+      ...segments.map((segment, index) => ({
+        label: segment,
+        value: segments.slice(0, index + 1).join('/'),
+      })),
+    ]
+  }
+
+  navigateToPath(path: string): void {
+    passmanagerNavigationController.applyRoute(path ? {kind: 'group', groupPath: path} : {kind: 'root'})
+  }
+
+  async submit(): Promise<void> {
+    const passmanager = getPassmanagerRoot()
+    if (!passmanager || !peek(this.canSubmit)) {
       return
     }
 
-    const data = getFormData<PMGroupCreateFormData>(form)
-    const entries = this.normalizeSelectedEntries(selectedEntries)
+    const targetGroupPath = peek(this.targetGroupPath)
+    const groupName = peek(this.trimmedName)
+    const fullName = targetGroupPath ? `${targetGroupPath}/${groupName}` : groupName
 
     passmanager.createGroup({
-      name: data.name,
-      entries: entries.map((item) => passmanager.getEntry(item)).filter((item) => !!item),
+      name: fullName,
+      description: peek(this.description),
+      iconRef: peek(this.iconRef),
+      entries: [],
     })
-
-    const selected = passmanager.showElement()
-    const iconRef = this.iconRef.peek()
-    if (selected instanceof Group && iconRef) {
-      selected.updateData({iconRef})
-      await pmIconStore.setGroupIcon(selected.name, iconRef)
-      await selected.root.save()
-    }
-  }
-
-  private normalizeSelectedEntries(value: string | string[] | undefined): string[] {
-    if (!value) {
-      return []
-    }
-
-    return Array.isArray(value) ? value : [value]
   }
 }

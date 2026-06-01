@@ -17,18 +17,18 @@
     "lint:fix": "oxlint --fix src/**/*.ts",
     "format": "prettier --write src/**/*.ts",
     "build": "tsup src/index.ts --format cjs,esm --dts",
-    "generate": "cd ../.. && cargo test --features ts-bindings -- export_bindings --nocapture",
+    "generate": "cd ../.. && npm run types:generate",
     "prepublish": "npm run generate && npm run build"
   },
   "devDependencies": {
     "tsup": "^8.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^6.0.2"
   },
   "files": [
     "dist",
     "src"
   ],
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "https://github.com/chromvoid/chromvoid"

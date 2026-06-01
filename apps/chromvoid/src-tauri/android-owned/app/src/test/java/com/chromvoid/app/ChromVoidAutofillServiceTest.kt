@@ -3,6 +3,7 @@ package com.chromvoid.app
 import android.content.ComponentName
 import android.content.Context
 import android.service.autofill.Dataset
+import android.service.autofill.FillRequest
 import android.service.autofill.FillResponse
 import androidx.test.core.app.ApplicationProvider
 import com.chromvoid.app.autofill.AutofillFocusedFieldCandidate
@@ -24,7 +25,9 @@ import com.chromvoid.app.credentialprovider.OtpOption
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -36,6 +39,38 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 class ChromVoidAutofillServiceTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
+
+    @Test
+    fun compatModeDetector_treatsFirefoxPackagesAsCompat_whenFrameworkFlagIsMissing() {
+        assertTrue(
+            AutofillCompatModeDetector.isCompatRequest(
+                flags = 0,
+                activityComponent = ComponentName("org.mozilla.firefox", "org.mozilla.fenix.HomeActivity"),
+            ),
+        )
+        assertTrue(
+            AutofillCompatModeDetector.isCompatRequest(
+                flags = 0,
+                activityComponent = ComponentName("org.mozilla.fenix", "org.mozilla.fenix.HomeActivity"),
+            ),
+        )
+    }
+
+    @Test
+    fun compatModeDetector_keepsChromeNative_withoutFrameworkCompatFlag() {
+        assertTrue(
+            AutofillCompatModeDetector.isCompatRequest(
+                flags = FillRequest.FLAG_COMPATIBILITY_MODE_REQUEST,
+                activityComponent = ComponentName("com.android.chrome", "org.chromium.chrome.browser.ChromeTabbedActivity"),
+            ),
+        )
+        assertFalse(
+            AutofillCompatModeDetector.isCompatRequest(
+                flags = 0,
+                activityComponent = ComponentName("com.android.chrome", "org.chromium.chrome.browser.ChromeTabbedActivity"),
+            ),
+        )
+    }
 
     @Test
     fun authenticatedDataset_isFieldBound_toUsernameAndPasswordTargets() {
@@ -295,6 +330,35 @@ class ChromVoidAutofillServiceTest {
     }
 
     @Test
+    fun authenticatedFillResponse_returnsNull_whenOtpCandidateHasNoBindableOtpOptions() {
+        val service = Robolectric.setupService(ChromVoidAutofillService::class.java)
+
+        val otpId = AutofillTestUtils.newAutofillId(context)
+        val parsedRequest =
+            constructParsedRequest(
+                origin = "https://github.com",
+                domain = "github.com",
+                usernameIds = emptyList(),
+                passwordIds = emptyList(),
+                otpIds = listOf(otpId),
+            )
+        val candidate =
+            JSONObject()
+                .put("credential_id", "cred-otp-empty")
+                .put("username", "alice@example.com")
+                .put("label", "Alice")
+
+        val response =
+            AutofillDatasetFactory(service).buildAuthenticatedFillResponse(
+                parsed = parsedRequest,
+                sessionId = "sess-otp-empty",
+                candidates = listOf(candidate.toAutofillCandidate()),
+            )
+
+        assertNull(response)
+    }
+
+    @Test
     fun authenticatedDataset_usesChromVoidSafeRemoteViewsLayout() {
         val service = Robolectric.setupService(ChromVoidAutofillService::class.java)
 
@@ -354,11 +418,6 @@ class ChromVoidAutofillServiceTest {
 
         val responseBuilder = FillResponse.Builder()
         responseBuilder.addDataset(dataset!!)
-        invokeMaybeConfigureFillDialog(
-            service = service,
-            responseBuilder = responseBuilder,
-            parsedRequest = parsedRequest,
-        )
 
         val response = responseBuilder.build()
         assertTrue(AutofillTestUtils.fillResponseDialogTriggerIds(response).isEmpty())
@@ -511,6 +570,36 @@ class ChromVoidAutofillServiceTest {
             )
 
         assertEquals(listOf(focusedOtpId, siblingOtpId), otpFieldIds)
+        assertEquals(
+            AutofillResolvedStepKind.OTP,
+            AutofillOtpFieldResolver.resolveStepKind(listOf(passwordId), otpFieldIds),
+        )
+    }
+
+    @Test
+    fun firefoxLikeOtpFallback_treatsAuthenticationCodePageAsOtpContext() {
+        val passwordId = AutofillTestUtils.newAutofillId(context)
+        val focusedOtpId = AutofillTestUtils.newAutofillId(context)
+
+        val fallbackCandidates =
+            listOf(
+                AutofillFocusedFieldCandidate(
+                    autofillId = focusedOtpId,
+                    parentPath = "root/form/otp",
+                    order = 0,
+                    visible = true,
+                    fillable = true,
+                    focused = true,
+                ),
+            )
+
+        val otpFieldIds =
+            AutofillOtpFieldResolver.resolveFallbackOtpFieldIds(
+                pageHintBlob = "authentication code",
+                focusedFieldCandidates = fallbackCandidates,
+            )
+
+        assertEquals(listOf(focusedOtpId), otpFieldIds)
         assertEquals(
             AutofillResolvedStepKind.OTP,
             AutofillOtpFieldResolver.resolveStepKind(listOf(passwordId), otpFieldIds),
@@ -897,6 +986,32 @@ class ChromVoidAutofillServiceTest {
     }
 
     @Test
+    fun firefoxLikeOtpFallback_usesFocusedAuthProxy_whenFirefoxKeepsStaleCredentialIds() {
+        val focusedProxyId = AutofillTestUtils.newAutofillId(context)
+        val usernameId = AutofillTestUtils.newAutofillId(context)
+        val passwordId = AutofillTestUtils.newAutofillId(context)
+
+        val parsedRequest =
+            resolveCompatRequest(
+                webDomain = "github.com",
+                focusedAutofillId = focusedProxyId,
+                usernameFieldIds = listOf(usernameId),
+                passwordFieldIds = listOf(passwordId),
+                otpCandidates = emptyList(),
+                focusedFieldCandidates = emptyList(),
+                pageHintBlobs = emptyList(),
+                seededCredentialIds = listOf(usernameId, passwordId),
+                markPasswordFilled = true,
+            )
+
+        assertEquals(ParsedStepKind.OTP, parsedRequest!!.stepKind)
+        assertEquals(emptyList<android.view.autofill.AutofillId>(), parsedRequest.usernameFieldIds)
+        assertEquals(emptyList<android.view.autofill.AutofillId>(), parsedRequest.passwordFieldIds)
+        assertEquals(listOf(focusedProxyId), parsedRequest.otpFieldIds)
+        assertEquals(listOf(focusedProxyId), parsedRequest.otpAnchorFieldIds)
+    }
+
+    @Test
     fun firefoxLikeOtpFallback_keepsProxyFollowUpResolvable_whileSessionIsFresh() {
         val focusedFieldId = AutofillTestUtils.newAutofillId(context)
         val focusedCandidates =
@@ -1095,14 +1210,6 @@ class ChromVoidAutofillServiceTest {
             sessionId = sessionId,
             candidate = candidate.toAutofillCandidate(),
         )
-    }
-
-    private fun invokeMaybeConfigureFillDialog(
-        service: ChromVoidAutofillService,
-        responseBuilder: FillResponse.Builder,
-        parsedRequest: ParsedAutofillRequest,
-    ) {
-        AutofillDatasetFactory(service).maybeConfigureFillDialog(responseBuilder, parsedRequest)
     }
 
     private fun JSONObject.toAutofillCandidate(): AutofillCandidate {

@@ -1,6 +1,7 @@
 mod file;
 mod filesystem;
 mod metadata;
+mod request_io;
 mod server;
 
 #[cfg(test)]

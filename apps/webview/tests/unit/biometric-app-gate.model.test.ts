@@ -1,8 +1,7 @@
-import {state} from '@statx/core'
-
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {BiometricAppGateModel} from '../../src/routes/biometric-app-gate/biometric-app-gate.model'
+import {atom} from '@reatom/core'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 
@@ -14,7 +13,7 @@ vi.mock('root/core/transport/tauri/ipc', () => {
   }
 })
 
-type ConnectedAtom = ReturnType<typeof state<boolean>>
+type ConnectedAtom = ReturnType<typeof atom<boolean>>
 
 function flushAsyncWork(): Promise<void> {
   return new Promise((resolve) => {
@@ -23,14 +22,14 @@ function flushAsyncWork(): Promise<void> {
 }
 
 function initTauriContext(): {connected: ConnectedAtom} {
-  const connected = state(false)
+  const connected = atom(false)
   initAppContext(
     createMockAppContext({
       ws: {
         kind: 'tauri',
         connected,
-        connecting: state(false),
-        lastError: state<string | undefined>(undefined),
+        connecting: atom(false),
+        lastError: atom<string | undefined>(undefined),
         connect: () => {},
         disconnect: () => {},
         on: () => {},
@@ -93,6 +92,94 @@ describe('BiometricAppGateModel', () => {
     expect(model.shouldBlockSurface()).toBe(false)
     expect(tauriInvoke).toHaveBeenCalledTimes(1)
     expect(tauriInvoke).toHaveBeenCalledWith('get_session_settings')
+  })
+
+  it('runs cold-open gate once when connected before connect subscribes', async () => {
+    const {connected} = initTauriContext()
+    connected.set(true)
+    setRuntimeCapabilities({
+      platform: 'ios',
+      mobile: true,
+      supports_biometric: true,
+    })
+    tauriInvoke.mockImplementation(async (command: string) => {
+      if (command === 'get_session_settings') {
+        return {
+          ok: true,
+          result: {
+            auto_lock_timeout_secs: 300,
+            lock_on_sleep: true,
+            lock_on_mobile_background: false,
+            require_biometric_app_gate: true,
+            auto_mount_after_unlock: false,
+            keep_screen_awake_when_unlocked: false,
+          },
+        }
+      }
+
+      if (command === 'mobile_biometric_auth') {
+        return {
+          ok: true,
+          result: {authenticated: true},
+        }
+      }
+
+      throw new Error(`Unexpected command: ${command}`)
+    })
+
+    model = new BiometricAppGateModel()
+    model.connect()
+    await flushAsyncWork()
+
+    expect(tauriInvoke.mock.calls.filter(([command]) => command === 'get_session_settings')).toHaveLength(1)
+    expect(tauriInvoke.mock.calls.filter(([command]) => command === 'mobile_biometric_auth')).toHaveLength(1)
+    expect(model.phase()).toBe('passed')
+  })
+
+  it('reacts to a real connected transition after initial disconnected sync', async () => {
+    const {connected} = initTauriContext()
+    setRuntimeCapabilities({
+      platform: 'ios',
+      mobile: true,
+      supports_biometric: true,
+    })
+    tauriInvoke.mockImplementation(async (command: string) => {
+      if (command === 'get_session_settings') {
+        return {
+          ok: true,
+          result: {
+            auto_lock_timeout_secs: 300,
+            lock_on_sleep: true,
+            lock_on_mobile_background: false,
+            require_biometric_app_gate: true,
+            auto_mount_after_unlock: false,
+            keep_screen_awake_when_unlocked: false,
+          },
+        }
+      }
+
+      if (command === 'mobile_biometric_auth') {
+        return {
+          ok: true,
+          result: {authenticated: true},
+        }
+      }
+
+      throw new Error(`Unexpected command: ${command}`)
+    })
+
+    model = new BiometricAppGateModel()
+    model.connect()
+    await flushAsyncWork()
+
+    expect(tauriInvoke).not.toHaveBeenCalled()
+
+    connected.set(true)
+    await flushAsyncWork()
+
+    expect(tauriInvoke.mock.calls.filter(([command]) => command === 'get_session_settings')).toHaveLength(1)
+    expect(tauriInvoke.mock.calls.filter(([command]) => command === 'mobile_biometric_auth')).toHaveLength(1)
+    expect(model.phase()).toBe('passed')
   })
 
   it('enters blocked state on cancelled biometric prompt and can retry', async () => {
@@ -218,8 +305,8 @@ describe('BiometricAppGateModel', () => {
         ws: {
           kind: 'tauri',
           connected,
-          connecting: state(false),
-          lastError: state<string | undefined>(undefined),
+          connecting: atom(false),
+          lastError: atom<string | undefined>(undefined),
           connect: () => {},
           disconnect: () => {},
           on: () => {},

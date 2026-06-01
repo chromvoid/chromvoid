@@ -1,5 +1,8 @@
 const MAX_ICON_DIMENSION = 128
 const MAX_ICON_BYTES = 64 * 1024
+const MIN_VISIBLE_ALPHA = 16
+const MIN_BACKGROUND_CONTRAST = 3
+const HEX_PREFIX = String.fromCharCode(35)
 
 const BACKEND_MIME_TYPES = new Set(['image/png', 'image/webp', 'image/svg+xml', 'image/x-icon'])
 const WEBP_QUALITIES = [0.9, 0.82, 0.74, 0.66, 0.58, 0.5]
@@ -10,6 +13,7 @@ export type NormalizedIconPayload = {
   width: number
   height: number
   bytes: number
+  backgroundColor?: string
 }
 
 export async function normalizeIconFromFile(file: File): Promise<NormalizedIconPayload> {
@@ -22,6 +26,26 @@ export async function normalizeIconFromBase64(
   mimeType?: string,
 ): Promise<NormalizedIconPayload> {
   return normalizeIconBytes(base64ToBytes(contentBase64), mimeType)
+}
+
+export async function deriveIconBackgroundColorFromBase64(
+  contentBase64: string,
+  mimeType?: string,
+): Promise<string | undefined> {
+  const bytes = base64ToBytes(contentBase64)
+  const requestedMime = normalizeMime(mimeType)
+  const detectedMime = sniffMime(bytes)
+  const sourceMime =
+    requestedMime ?? detectedMime ?? (typeof mimeType === 'string' ? mimeType : 'application/octet-stream')
+  if (sourceMime === 'image/svg+xml') return undefined
+  const decoded = await tryDecodeImage(bytes, sourceMime)
+  if (!decoded) return undefined
+
+  try {
+    return resolveIconBackgroundColor(decoded.image, decoded.width, decoded.height)
+  } finally {
+    decoded.release()
+  }
 }
 
 async function normalizeIconBytes(bytes: Uint8Array, mimeType?: string): Promise<NormalizedIconPayload> {
@@ -43,6 +67,8 @@ async function normalizeIconBytes(bytes: Uint8Array, mimeType?: string): Promise
       const scale = Math.min(1, MAX_ICON_DIMENSION / width, MAX_ICON_DIMENSION / height)
       const targetWidth = Math.max(1, Math.round(width * scale))
       const targetHeight = Math.max(1, Math.round(height * scale))
+      const backgroundColor =
+        sourceMime === 'image/svg+xml' ? undefined : resolveIconBackgroundColor(decoded.image, width, height)
 
       if (
         width <= MAX_ICON_DIMENSION &&
@@ -57,6 +83,7 @@ async function normalizeIconBytes(bytes: Uint8Array, mimeType?: string): Promise
           width,
           height,
           bytes: bytes.length,
+          backgroundColor,
         }
       }
 
@@ -75,6 +102,7 @@ async function normalizeIconBytes(bytes: Uint8Array, mimeType?: string): Promise
         width: targetWidth,
         height: targetHeight,
         bytes: normalized.bytes.length,
+        backgroundColor,
       }
     } finally {
       decoded.release()
@@ -96,6 +124,168 @@ async function normalizeIconBytes(bytes: Uint8Array, mimeType?: string): Promise
     height: 0,
     bytes: bytes.length,
   }
+}
+
+export function pickIconBackgroundColorFromPixels(
+  pixels: Uint8ClampedArray | Uint8Array,
+  width: number,
+  height: number,
+): string | undefined {
+  if (width <= 0 || height <= 0 || pixels.length < width * height * 4) {
+    return undefined
+  }
+
+  let red = 0
+  let green = 0
+  let blue = 0
+  let weight = 0
+
+  for (let offset = 0; offset < width * height * 4; offset += 4) {
+    const alpha = pixels[offset + 3] ?? 255
+    if (alpha < MIN_VISIBLE_ALPHA) continue
+
+    const pixelWeight = alpha / 255
+    red += (pixels[offset] ?? 0) * pixelWeight
+    green += (pixels[offset + 1] ?? 0) * pixelWeight
+    blue += (pixels[offset + 2] ?? 0) * pixelWeight
+    weight += pixelWeight
+  }
+
+  if (weight <= 0) return undefined
+
+  const source = {
+    r: Math.round(red / weight),
+    g: Math.round(green / weight),
+    b: Math.round(blue / weight),
+  }
+  const sourceLuminance = relativeLuminance(source)
+  const hsl = rgbToHsl(source.r, source.g, source.b)
+  const saturation = clamp(hsl.s * 0.38, 0.16, 0.42)
+  const darkBackground = sourceLuminance > 0.45
+  let lightness = darkBackground ? 0.14 : 0.86
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const candidate = hslToRgb(hsl.h, saturation, lightness)
+    if (contrastRatio(sourceLuminance, relativeLuminance(candidate)) >= MIN_BACKGROUND_CONTRAST) {
+      return rgbToHex(candidate)
+    }
+    lightness = darkBackground ? Math.max(0.04, lightness - 0.03) : Math.min(0.96, lightness + 0.03)
+  }
+
+  return rgbToHex(darkBackground ? {r: 18, g: 22, b: 26} : {r: 238, g: 242, b: 246})
+}
+
+function resolveIconBackgroundColor(
+  image: CanvasImageSource,
+  width: number,
+  height: number,
+): string | undefined {
+  const canvas = createCanvas(width, height)
+  if (!canvas) return undefined
+
+  const context = canvas.getContext('2d')
+  if (!context) return undefined
+
+  try {
+    context.clearRect(0, 0, width, height)
+    context.drawImage(image, 0, 0, width, height)
+    return pickIconBackgroundColorFromPixels(context.getImageData(0, 0, width, height).data, width, height)
+  } catch {
+    return undefined
+  }
+}
+
+function relativeLuminance(color: {r: number; g: number; b: number}): number {
+  const r = linearizeSrgb(color.r)
+  const g = linearizeSrgb(color.g)
+  const b = linearizeSrgb(color.b)
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+function linearizeSrgb(value: number): number {
+  const channel = clamp(value / 255, 0, 1)
+  if (channel <= 0.03928) return channel / 12.92
+  return ((channel + 0.055) / 1.055) ** 2.4
+}
+
+function contrastRatio(left: number, right: number): number {
+  const lighter = Math.max(left, right)
+  const darker = Math.min(left, right)
+  return (lighter + 0.05) / (darker + 0.05)
+}
+
+function rgbToHsl(r: number, g: number, b: number): {h: number; s: number; l: number} {
+  const red = clamp(r / 255, 0, 1)
+  const green = clamp(g / 255, 0, 1)
+  const blue = clamp(b / 255, 0, 1)
+  const max = Math.max(red, green, blue)
+  const min = Math.min(red, green, blue)
+  const delta = max - min
+  const lightness = (max + min) / 2
+
+  if (delta === 0) {
+    return {h: 0, s: 0, l: lightness}
+  }
+
+  const saturation = delta / (1 - Math.abs(2 * lightness - 1))
+  let hue = 0
+  if (max === red) {
+    hue = ((green - blue) / delta) % 6
+  } else if (max === green) {
+    hue = (blue - red) / delta + 2
+  } else {
+    hue = (red - green) / delta + 4
+  }
+
+  return {h: (hue * 60 + 360) % 360, s: saturation, l: lightness}
+}
+
+function hslToRgb(h: number, s: number, l: number): {r: number; g: number; b: number} {
+  const chroma = (1 - Math.abs(2 * l - 1)) * s
+  const hue = h / 60
+  const x = chroma * (1 - Math.abs((hue % 2) - 1))
+  const match = l - chroma / 2
+  let red = 0
+  let green = 0
+  let blue = 0
+
+  if (hue >= 0 && hue < 1) {
+    red = chroma
+    green = x
+  } else if (hue >= 1 && hue < 2) {
+    red = x
+    green = chroma
+  } else if (hue >= 2 && hue < 3) {
+    green = chroma
+    blue = x
+  } else if (hue >= 3 && hue < 4) {
+    green = x
+    blue = chroma
+  } else if (hue >= 4 && hue < 5) {
+    red = x
+    blue = chroma
+  } else {
+    red = chroma
+    blue = x
+  }
+
+  return {
+    r: Math.round((red + match) * 255),
+    g: Math.round((green + match) * 255),
+    b: Math.round((blue + match) * 255),
+  }
+}
+
+function rgbToHex(color: {r: number; g: number; b: number}): string {
+  return `${HEX_PREFIX}${hexChannel(color.r)}${hexChannel(color.g)}${hexChannel(color.b)}`
+}
+
+function hexChannel(value: number): string {
+  return clamp(Math.round(value), 0, 255).toString(16).padStart(2, '0')
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
 }
 
 type DecodedImage = {
@@ -125,6 +315,10 @@ async function tryDecodeImage(bytes: Uint8Array, mimeType: string): Promise<Deco
     typeof URL === 'undefined' ||
     typeof URL.createObjectURL !== 'function'
   ) {
+    return undefined
+  }
+
+  if (typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent)) {
     return undefined
   }
 

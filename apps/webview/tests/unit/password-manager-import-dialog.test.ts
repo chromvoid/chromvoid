@@ -1,6 +1,9 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
-import {state} from '@statx/core'
 import {pmModel} from '../../src/features/passmanager/password-manager.model'
+import {atom} from '@reatom/core'
+import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
+import {pmComponentLoaderModel} from '../../src/features/passmanager/models/pm-component-loader.model'
+import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
 
 const {setImportCatalogOpsMock, setExistingEntriesMapMock} = vi.hoisted(() => {
   return {
@@ -9,7 +12,7 @@ const {setImportCatalogOpsMock, setExistingEntriesMapMock} = vi.hoisted(() => {
   }
 })
 
-vi.mock('@chromvoid/password-import', async (importOriginal) => {
+vi.mock('@chromvoid/password-import/ui/import-dialog-state', async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,
@@ -29,15 +32,16 @@ describe('pmModel.onImport sets catalogOps before showing dialog', () => {
     origPassmanager = (window as any).passmanager
     origCatalog = (window as any).catalog
     ;(window as any).passmanager = {
-      showElement: Object.assign(state<any>(null), {
+      isEditMode: atom(false),
+      showElement: Object.assign(atom<any>(null), {
         set: vi.fn(),
       }),
       load: vi.fn(async () => undefined),
     }
+    setPassmanagerRoot((window as any).passmanager)
     ;(window as any).catalog = {
       api: {
         createDir: vi.fn(),
-        prepareUpload: vi.fn(),
         upload: vi.fn(),
         delete: vi.fn(),
       },
@@ -50,11 +54,16 @@ describe('pmModel.onImport sets catalogOps before showing dialog', () => {
       refreshSilent: vi.fn(async () => undefined),
       queueRefresh: vi.fn(),
     }
+    initAppContext(createMockAppContext({catalog: (window as any).catalog}))
+    vi.spyOn(pmComponentLoaderModel, 'ensureExtendedComponents').mockResolvedValue(undefined)
   })
 
   afterEach(() => {
     ;(window as any).passmanager = origPassmanager
     ;(window as any).catalog = origCatalog
+    setPassmanagerRoot(undefined)
+    clearAppContext()
+    vi.restoreAllMocks()
   })
 
   it('should call setImportCatalogOps before setting showElement', async () => {
@@ -77,7 +86,6 @@ describe('pmModel.onImport sets catalogOps before showing dialog', () => {
     const ops = calls[0]?.[0]
     expect(ops).toBeDefined()
     expect(typeof ops.createDir).toBe('function')
-    expect(typeof ops.prepareUpload).toBe('function')
     expect(typeof ops.upload).toBe('function')
     expect(typeof ops.setOTPSecret).toBe('function')
     expect(typeof ops.deleteNode).toBe('function')

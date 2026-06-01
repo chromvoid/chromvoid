@@ -1,5 +1,13 @@
 import {getLang, i18n} from './i18n'
 
+const PASSWORD_STRENGTH_LABEL_KEYS = [
+  'password:strength:very_weak',
+  'password:strength:weak',
+  'password:strength:medium',
+  'password:strength:good',
+  'password:strength:strong',
+] as const
+
 function getLocale(): string {
   try {
     const lang = getLang()
@@ -12,7 +20,7 @@ function getLocale(): string {
 function isInvalidTimestamp(timestamp: unknown): boolean {
   if (typeof timestamp !== 'number') return true
   if (!Number.isFinite(timestamp)) return true
-  // защита от явно неверных значений и нулей
+  // Protection from clearly incorrect values and zeros
   if (timestamp <= 0) return true
   const d = new Date(timestamp)
   return Number.isNaN(d.getTime())
@@ -85,12 +93,11 @@ export function formatWeekdayShort(timestamp: number): string {
   }
 }
 
-/**
- * Формат для списка записей:
- * - < 24ч: время (часы:мин)
- * - < 7д: день недели (коротко)
- * - иначе: дата (день.месяц или локальный эквивалент)
- */
+/*** Format for list of records:
+* - < 24 hours: time (hours: min)
+* - < 7d: day of the week (short)
+* - otherwise: date (day.month or local equivalent)
+*/
 export function formatModifiedForList(timestamp: number): string {
   if (isInvalidTimestamp(timestamp)) return unknownLabel()
   const date = new Date(timestamp)
@@ -102,11 +109,15 @@ export function formatModifiedForList(timestamp: number): string {
 
   if (diffMs < DAY) return formatTime(timestamp)
   if (diffMs < WEEK) return formatWeekdayShort(timestamp)
-  // Короткая дата без года
+  // A short date without a year
   const locale = getLocale()
   try {
     return new Intl.DateTimeFormat(locale, {day: '2-digit', month: '2-digit'}).format(date)
   } catch {
     return date.toLocaleDateString(locale, {day: '2-digit', month: '2-digit'})
   }
+}
+
+export function formatPasswordStrengthLabel(score: 0 | 1 | 2 | 3 | 4): string {
+  return i18n(PASSWORD_STRENGTH_LABEL_KEYS[score] as never)
 }

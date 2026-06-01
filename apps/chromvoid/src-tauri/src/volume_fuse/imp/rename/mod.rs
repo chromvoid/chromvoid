@@ -7,7 +7,7 @@ use super::*;
 
 impl PrivyFilesystem {
     pub(super) fn do_rename(
-        &mut self,
+        &self,
         parent: u64,
         name_str: &str,
         newparent: u64,
@@ -28,12 +28,12 @@ impl PrivyFilesystem {
 
         if let Err(e) = self.guard_system_child(parent, name_str) {
             info!(target: "chromvoid_lib::volume_fuse::imp", branch = "guard_src_parent", errno = e, flags, "FUSE rename: guard blocked");
-            reply.error(e);
+            reply.error(fuse_errno(e));
             return;
         }
         if let Err(e) = self.guard_system_child(newparent, newname_str) {
             info!(target: "chromvoid_lib::volume_fuse::imp", branch = "guard_dst_parent", errno = e, flags, "FUSE rename: guard blocked");
-            reply.error(e);
+            reply.error(fuse_errno(e));
             return;
         }
 
@@ -48,7 +48,7 @@ impl PrivyFilesystem {
             Ok(e) => e,
             Err(e) => {
                 info!(target: "chromvoid_lib::volume_fuse::imp", branch = "src_lookup_failed", errno = e, flags, "FUSE rename: source lookup failed");
-                reply.error(e);
+                reply.error(fuse_errno(e));
                 return;
             }
         };
@@ -85,7 +85,7 @@ impl PrivyFilesystem {
                 Some(p) => p,
                 None => {
                     info!(target: "chromvoid_lib::volume_fuse::imp", branch = "src_parent_path_missing", errno = libc::ENOENT, flags, "FUSE rename: early abort");
-                    reply.error(libc::ENOENT);
+                    reply.error(fuse_errno(libc::ENOENT));
                     return;
                 }
             }
@@ -98,7 +98,7 @@ impl PrivyFilesystem {
                 Some(p) => p,
                 None => {
                     info!(target: "chromvoid_lib::volume_fuse::imp", branch = "dst_parent_path_missing", errno = libc::ENOENT, flags, "FUSE rename: early abort");
-                    reply.error(libc::ENOENT);
+                    reply.error(fuse_errno(libc::ENOENT));
                     return;
                 }
             }

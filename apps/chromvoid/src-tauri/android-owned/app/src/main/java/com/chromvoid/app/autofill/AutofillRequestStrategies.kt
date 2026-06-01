@@ -63,7 +63,7 @@ internal object NativeAutofillStrategy : AutofillRequestStrategy {
         val credentialIds = (usernameIds + passwordIds).distinct()
         val otpFieldIds = AutofillOtpFieldResolver.resolveExplicitOtpFieldIds(context.otpCandidates)
         val stepKind =
-            when (AutofillOtpFieldResolver.resolveStepKind(passwordIds, otpFieldIds)) {
+            when (AutofillOtpFieldResolver.resolveStepKind(credentialIds, otpFieldIds)) {
                 AutofillResolvedStepKind.PASSWORD -> ParsedStepKind.PASSWORD
                 AutofillResolvedStepKind.OTP -> ParsedStepKind.OTP
                 AutofillResolvedStepKind.UNSUPPORTED -> ParsedStepKind.UNSUPPORTED
@@ -190,12 +190,17 @@ internal object CompatAutofillStrategy : AutofillRequestStrategy {
                 baseOtpFieldIds = baseOtpFieldIds,
                 focusedAutofillId = context.focusedId,
                 hasCredentialFields = hasCredentialFields,
+                allowCredentialProxyFallback =
+                    hasCredentialFields &&
+                        !focusedResolvedAsCredential &&
+                        hasRecentPasswordFill &&
+                        hasHistoricalCredentialFocus,
                 hasRecentPasswordSignal = hasRecentCredentialSignal,
                 hasRecentOtpResponse = hasRecentOtpResponse,
             )
 
         val rawStepKind =
-            when (AutofillOtpFieldResolver.resolveStepKind(rawCredentialTargetIds.passwordIds, otpTargetIds.fillIds)) {
+            when (AutofillOtpFieldResolver.resolveStepKind(rawCredentialTargetIds.allIds.toList(), otpTargetIds.fillIds)) {
                 AutofillResolvedStepKind.PASSWORD -> ParsedStepKind.PASSWORD
                 AutofillResolvedStepKind.OTP -> ParsedStepKind.OTP
                 AutofillResolvedStepKind.UNSUPPORTED -> ParsedStepKind.UNSUPPORTED
@@ -376,11 +381,15 @@ internal object CompatAutofillStrategy : AutofillRequestStrategy {
         baseOtpFieldIds: List<AutofillId>,
         focusedAutofillId: AutofillId?,
         hasCredentialFields: Boolean,
+        allowCredentialProxyFallback: Boolean,
         hasRecentPasswordSignal: Boolean,
         hasRecentOtpResponse: Boolean,
     ): OtpTargetIds {
         if (baseOtpFieldIds.isEmpty()) {
-            if (focusedAutofillId == null || hasCredentialFields) {
+            if (focusedAutofillId == null) {
+                return OtpTargetIds(fillIds = emptyList(), anchorIds = emptyList())
+            }
+            if (hasCredentialFields && !allowCredentialProxyFallback) {
                 return OtpTargetIds(fillIds = emptyList(), anchorIds = emptyList())
             }
             if (!hasRecentPasswordSignal && !hasRecentOtpResponse) {

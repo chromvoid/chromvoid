@@ -1,6 +1,5 @@
-/**
- * Unit-тесты для AppContext
- */
+/*** Unit tests for AppContext
+*/
 import {afterEach, beforeEach, describe, expect, it} from 'vitest'
 
 import {
@@ -10,6 +9,7 @@ import {
   getAppContext,
   getCatalog,
   getDeviceState,
+  getRouter,
   getStore,
   getWebSocket,
   initAppContext,
@@ -100,6 +100,10 @@ describe('AppContext', () => {
     it('getDeviceState() returns state', () => {
       expect(getDeviceState()).toBe(mockContext.state)
     })
+
+    it('getRouter() returns router', () => {
+      expect(getRouter()).toBe(mockContext.router)
+    })
   })
 
   describe('createMockAppContext()', () => {
@@ -110,6 +114,7 @@ describe('AppContext', () => {
       expect(mock.ws).toBeDefined()
       expect(mock.catalog).toBeDefined()
       expect(mock.state).toBeDefined()
+      expect(mock.router).toBeDefined()
     })
 
     it('accepts overrides', () => {
@@ -117,6 +122,19 @@ describe('AppContext', () => {
       const mock = createMockAppContext({store: customStore})
 
       expect(mock.store).toBe(customStore)
+    })
+
+    it('fills missing required services when initAppContext receives a partial context', () => {
+      const customStore = {customField: 'test'} as unknown as AppContext['store']
+
+      initAppContext({store: customStore})
+
+      const context = getAppContext()
+      expect(context.store).toBe(customStore)
+      expect(context.router).toBeDefined()
+      expect(context.ws).toBeDefined()
+      expect(context.catalog).toBeDefined()
+      expect(context.state).toBeDefined()
     })
   })
 })

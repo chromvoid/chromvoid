@@ -5,51 +5,55 @@ export const fileItemViewStyles = css`
   :host([view-mode='list']) {
     height: 80px;
     position: relative;
+  }
 
-    &::before {
-      content: '';
-      position: absolute;
-      inset-block-start: 0;
-      inset-block-end: 0;
-      inline-size: 4px;
-      background: var(--gradient-primary);
-      opacity: 0;
-      border-radius: var(--cv-radius-2) 0 0 var(--cv-radius-2);
-      transition:
-        opacity var(--cv-duration-fast) var(--cv-easing-standard),
-        inline-size var(--cv-duration-fast) var(--cv-easing-standard);
-    }
+  :host([view-mode='list'])::before {
+    content: '';
+    position: absolute;
+    inset-block-start: 8px;
+    inset-block-end: 8px;
+    inline-size: 3px;
+    background: var(--file-item-selected-leading-accent);
+    opacity: 0;
+    border-radius: 2px;
+    transition:
+      opacity var(--cv-duration-fast) var(--cv-easing-standard),
+      inline-size var(--cv-duration-fast) var(--cv-easing-standard),
+      background var(--cv-duration-fast) var(--cv-easing-standard);
+  }
 
-    &:hover {
-      background: linear-gradient(
-        90deg,
-        color-mix(in oklch, var(--cv-color-accent) 8%, transparent) 0%,
-        color-mix(in oklch, var(--cv-color-accent) 4%, transparent) 100%
-      );
-      transform: translateX(2px);
-      box-shadow: var(--cv-shadow-1);
+  :host([view-mode='list']:hover) {
+    background: var(--file-item-hover-background);
+    border-color: var(--file-item-active-border);
+    transform: translateX(2px);
+    box-shadow: var(--cv-shadow-1);
+  }
 
-      &::before {
-        opacity: 1;
-        inline-size: 5px;
-      }
-    }
+  :host([view-mode='list']:hover)::before {
+    opacity: 1;
+  }
 
-    &[selected] {
-      background: linear-gradient(
-        90deg,
-        color-mix(in oklch, var(--cv-color-accent) 22%, transparent) 0%,
-        color-mix(in oklch, var(--cv-color-accent) 12%, transparent) 100%
-      );
-      box-shadow:
-        var(--cv-shadow-2),
-        inset 0 0 0 2px color-mix(in oklch, var(--cv-color-accent) 60%, transparent);
+  :host([view-mode='list'][active]) {
+    background: var(--file-item-active-background);
+    border-color: var(--file-item-active-border);
+    outline: var(--file-item-selected-outline);
+    outline-offset: var(--file-item-selected-outline-offset);
+    transform: none;
+  }
 
-      &::before {
-        opacity: 1;
-        inline-size: 6px;
-      }
-    }
+  :host([view-mode='list'][selected]) {
+    background: var(--file-item-selected-background);
+    border-color: var(--file-item-selected-border);
+    outline: var(--file-item-selected-outline);
+    outline-offset: var(--file-item-selected-outline-offset);
+    box-shadow: none;
+    transform: none;
+  }
+
+  :host([view-mode='list'][active])::before,
+  :host([view-mode='list'][selected])::before {
+    opacity: 1;
+    inline-size: 4px;
   }
 
   /* ========== GRID VIEW ========== */
@@ -60,127 +64,152 @@ export const fileItemViewStyles = css`
     overflow: hidden;
     background: var(--cv-color-surface);
     position: relative;
+  }
 
-    &::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: var(--gradient-subtle);
-      opacity: 0;
-      transition: opacity var(--cv-duration-fast) var(--cv-easing-standard);
-      pointer-events: none;
-      border-radius: var(--cv-radius-3);
-    }
+  :host([view-mode='grid'])::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--gradient-subtle);
+    opacity: 0;
+    transition: opacity var(--cv-duration-fast) var(--cv-easing-standard);
+    pointer-events: none;
+    border-radius: var(--cv-radius-3);
+  }
 
-    &:hover {
-      transform: translateY(-8px) scale(1.02);
-      box-shadow: var(--cv-shadow-3);
-      border-color: var(--cv-color-border-accent);
+  :host([view-mode='grid']:hover) {
+    transform: translateY(-8px) scale(1.02);
+    box-shadow: var(--cv-shadow-3);
+    border-color: var(--cv-color-border-accent);
+  }
 
-      &::after {
-        opacity: 0.1;
-      }
-    }
+  :host([view-mode='grid']:hover)::after {
+    opacity: 0.1;
+  }
 
-    &[selected] {
-      transform: translateY(-4px);
-      border-color: var(--cv-color-primary);
-      box-shadow:
-        var(--cv-shadow-2),
-        0 0 0 3px color-mix(in oklch, var(--cv-color-primary) 35%, transparent);
-      background: color-mix(in oklch, var(--cv-color-primary) 10%, var(--cv-color-surface));
+  :host([view-mode='grid'][active]) {
+    background: var(--file-item-active-background);
+    border-color: var(--file-item-active-border);
+    outline: var(--file-item-selected-outline);
+    outline-offset: var(--file-item-selected-outline-offset);
+    box-shadow: none;
+    transform: none;
+  }
 
-      &::after {
-        opacity: 0.15;
-        background: var(--gradient-primary);
-      }
-    }
+  :host([view-mode='grid'][selected]) {
+    background: var(--file-item-selected-background);
+    border-color: var(--file-item-selected-border);
+    outline: var(--file-item-selected-outline);
+    outline-offset: var(--file-item-selected-outline-offset);
+    box-shadow: none;
+    transform: none;
+  }
 
-    .file-item {
-      flex-direction: column;
-      justify-content: center;
-      block-size: 100%;
-      text-align: center;
-      padding: var(--app-spacing-4);
-    }
+  :host([view-mode='grid'][active])::after,
+  :host([view-mode='grid'][selected])::after {
+    opacity: 0;
+  }
 
-    .icon {
-      font-size: 48px;
-      min-inline-size: 64px;
-      block-size: 64px;
-      margin-block-end: var(--app-spacing-3);
-    }
+  :host([view-mode='grid']) .file-item {
+    flex-direction: column;
+    justify-content: center;
+    block-size: 100%;
+    text-align: center;
+    padding: var(--app-spacing-4);
+  }
 
-    .info {
-      inline-size: 100%;
-    }
+  :host([view-mode='grid']) .thumbnail-shell {
+    --file-media-spectrum-width: 40px;
+    --file-media-spectrum-height: 40px;
+    --file-media-spectrum-bar-width: 5px;
+    --file-media-spectrum-gap: 5px;
+    font-size: 48px;
+    inline-size: 72px;
+    block-size: 72px;
+    margin-block-end: var(--app-spacing-3);
+  }
 
-    .name {
-      font-size: var(--cv-font-size-sm);
-    }
+  :host([view-mode='grid']) .icon {
+    font-size: 48px;
+    block-size: 100%;
+  }
 
-    .meta {
-      font-size: var(--cv-font-size-xs);
-    }
+  :host([view-mode='grid']) .info {
+    inline-size: 100%;
+  }
 
-    .file-type {
-      position: absolute;
-      inset-block-start: 8px;
-      inset-inline-end: 8px;
-    }
+  :host([view-mode='grid']) .name {
+    font-size: var(--cv-font-size-sm);
+  }
 
-    .actions {
-      position: absolute;
-      inset-block-end: 8px;
-      inset-inline-end: 8px;
-      inset-inline-start: 8px;
-      justify-content: flex-end;
-    }
+  :host([view-mode='grid']) .meta {
+    font-size: var(--cv-font-size-xs);
+  }
+
+  :host([view-mode='grid']) .file-type {
+    position: absolute;
+    inset-block-start: 8px;
+    inset-inline-end: 8px;
+  }
+
+  :host([view-mode='grid']) .actions {
+    position: absolute;
+    inset-block-end: 8px;
+    inset-inline-end: 8px;
+    inset-inline-start: 8px;
+    justify-content: flex-end;
   }
 
   /* ========== TABLE VIEW ========== */
   :host([view-mode='table']) {
     border-radius: 0;
+  }
 
-    &::before {
-      content: '';
-      position: absolute;
-      inset-block-start: 0;
-      inset-block-end: 0;
-      inline-size: 3px;
-      background: var(--gradient-primary);
-      opacity: 0;
-      transition: opacity var(--cv-duration-fast) var(--cv-easing-standard);
-    }
+  :host([view-mode='table'])::before {
+    content: '';
+    position: absolute;
+    inset-block-start: 8px;
+    inset-block-end: 8px;
+    inline-size: 3px;
+    background: var(--file-item-selected-leading-accent);
+    opacity: 0;
+    border-radius: 2px;
+    transition:
+      opacity var(--cv-duration-fast) var(--cv-easing-standard),
+      inline-size var(--cv-duration-fast) var(--cv-easing-standard);
+  }
 
-    &:hover {
-      background: linear-gradient(
-        90deg,
-        color-mix(in oklch, var(--cv-color-accent) 8%, transparent) 0%,
-        color-mix(in oklch, var(--cv-color-accent) 4%, transparent) 100%
-      );
-      transform: translateX(2px);
-      box-shadow: var(--cv-shadow-sm);
+  :host([view-mode='table']:hover) {
+    background: var(--file-item-hover-background);
+    border-color: var(--file-item-active-border);
+    transform: translateX(2px);
+    box-shadow: var(--cv-shadow-sm);
+  }
 
-      &::before {
-        opacity: 1;
-      }
-    }
+  :host([view-mode='table']:hover)::before {
+    opacity: 1;
+  }
 
-    &[selected] {
-      background: linear-gradient(
-        90deg,
-        color-mix(in oklch, var(--cv-color-accent) 18%, transparent) 0%,
-        color-mix(in oklch, var(--cv-color-accent) 10%, transparent) 100%
-      );
-      box-shadow:
-        var(--cv-shadow-1),
-        inset 0 0 0 2px color-mix(in oklch, var(--cv-color-accent) 55%, transparent);
+  :host([view-mode='table'][active]) {
+    background: var(--file-item-active-background);
+    border-color: var(--file-item-active-border);
+    outline: var(--file-item-selected-outline);
+    outline-offset: var(--file-item-selected-outline-offset);
+    transform: none;
+  }
 
-      &::before {
-        opacity: 1;
-        inline-size: 4px;
-      }
-    }
+  :host([view-mode='table'][selected]) {
+    background: var(--file-item-selected-background);
+    border-color: var(--file-item-selected-border);
+    outline: var(--file-item-selected-outline);
+    outline-offset: var(--file-item-selected-outline-offset);
+    box-shadow: none;
+    transform: none;
+  }
+
+  :host([view-mode='table'][active])::before,
+  :host([view-mode='table'][selected])::before {
+    opacity: 1;
+    inline-size: 4px;
   }
 `

@@ -2,16 +2,17 @@
 
 use crate::crypto::keystore::Keystore;
 use crate::error::ErrorCode;
+use crate::license::LicenseStore;
 use crate::storage::Storage;
 use crate::vault::VaultSession;
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::{fs, path::PathBuf};
+use crate::wallet::{WalletProvider, WalletRuntimeConfig};
+use std::sync::{Arc, Mutex};
 
-use super::backup::BackupLocalSession;
-use super::credential_types::CredentialProviderSession;
-use super::restore::RestoreLocalSession;
-use super::vault_export::VaultExportSession;
+use super::credential_provider::runtime::CredentialProviderRuntime;
+use super::events::RouterEventQueue;
+use super::passmanager::otp_target::PassmanagerOtpTargetCache;
+use super::session_lifecycle::{LongRunningSessionTtls, LongRunningSessions};
+use super::storage_gc::StorageGcScanRegistry;
 use crate::rpc::types::RpcResponse;
 
 #[derive(Debug, Clone)]
@@ -31,25 +32,22 @@ pub struct RpcRouter {
 
     /// Platform keystore for device-local secrets (portable pepper, etc.)
     pub(super) keystore: Option<Arc<dyn Keystore>>,
+    pub(super) license_store: Option<LicenseStore>,
 
     pub(super) erase_token: Option<EraseTokenState>,
 
-    pub(super) backup_local: Option<BackupLocalSession>,
-    pub(super) backup_local_max_size: Option<u64>,
-    pub(super) restore_local: Option<RestoreLocalSession>,
+    pub(super) long_running_sessions: LongRunningSessions,
 
-    pub(super) vault_export: Option<VaultExportSession>,
+    pub(super) event_queue: RouterEventQueue,
 
-    /// Pending push events for the embedding layer (gateway/client).
-    pub(super) events: Vec<serde_json::Value>,
+    pub(super) credential_provider_runtime: CredentialProviderRuntime,
 
-    /// Minimal subscription flag for `catalog:subscribe`/`catalog:unsubscribe`.
-    pub(super) catalog_subscribed: bool,
+    pub(super) wallet_runtime_config: WalletRuntimeConfig,
+    pub(super) wallet_provider: Option<Arc<dyn WalletProvider>>,
 
-    pub(super) credential_provider_enabled: bool,
-    pub(super) credential_provider_sessions: HashMap<String, CredentialProviderSession>,
-    pub(super) credential_provider_allowlist: HashMap<String, std::time::SystemTime>,
-    pub(super) credential_provider_last_used_at_ms: HashMap<String, u64>,
+    pub(super) passmanager_otp_target_cache: Mutex<PassmanagerOtpTargetCache>,
+
+    pub(super) storage_gc_scan_registry: StorageGcScanRegistry,
 }
 
 impl RpcRouter {
@@ -60,44 +58,44 @@ impl RpcRouter {
             session: None,
             master_key: None,
             keystore: None,
+            license_store: None,
             erase_token: None,
-            backup_local: None,
-            backup_local_max_size: None,
-            restore_local: None,
-            vault_export: None,
-            events: Vec::new(),
-            catalog_subscribed: false,
-            credential_provider_enabled: true,
-            credential_provider_sessions: HashMap::new(),
-            credential_provider_allowlist: HashMap::new(),
-            credential_provider_last_used_at_ms: HashMap::new(),
+            long_running_sessions: LongRunningSessions::default(),
+            event_queue: RouterEventQueue::default(),
+            credential_provider_runtime: CredentialProviderRuntime::default(),
+            wallet_runtime_config: WalletRuntimeConfig::default(),
+            wallet_provider: None,
+            passmanager_otp_target_cache: Mutex::new(PassmanagerOtpTargetCache::default()),
+            storage_gc_scan_registry: StorageGcScanRegistry::default(),
         }
     }
 
     pub fn with_backup_local_max_size(mut self, max_size: u64) -> Self {
-        self.backup_local_max_size = Some(max_size);
+        self.long_running_sessions.backup_local_max_size = Some(max_size);
+        self
+    }
+
+    pub fn with_backup_local_idle_ttl_ms(mut self, ttl_ms: u64) -> Self {
+        self.long_running_sessions.ttls.backup_local_ms = ttl_ms;
+        self
+    }
+
+    pub fn with_long_running_session_idle_ttl_ms(mut self, ttl_ms: u64) -> Self {
+        self.long_running_sessions.ttls = LongRunningSessionTtls {
+            backup_local_ms: ttl_ms,
+            restore_local_ms: ttl_ms,
+            vault_export_ms: ttl_ms,
+        };
+        self
+    }
+
+    pub fn with_storage_gc_scan_idle_ttl_ms(mut self, ttl_ms: u64) -> Self {
+        self.storage_gc_scan_registry.set_idle_ttl_ms(ttl_ms);
         self
     }
 
     pub fn take_events(&mut self) -> Vec<serde_json::Value> {
-        let events = std::mem::take(&mut self.events);
-        // ADR-028: filter out catalog:event for system shards before external delivery.
-        events
-            .into_iter()
-            .filter(|evt| {
-                let is_catalog_event =
-                    evt.get("command").and_then(|v| v.as_str()) == Some("catalog:event");
-                if !is_catalog_event {
-                    return true;
-                }
-                let shard_id = evt
-                    .get("data")
-                    .and_then(|d| d.get("shard_id"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                !crate::catalog::is_system_shard_id(shard_id)
-            })
-            .collect()
+        self.event_queue.take_events()
     }
 
     pub fn with_keystore(mut self, keystore: Arc<dyn Keystore>) -> Self {
@@ -105,8 +103,23 @@ impl RpcRouter {
         self
     }
 
+    pub fn with_license_store(mut self, license_store: LicenseStore) -> Self {
+        self.license_store = Some(license_store);
+        self
+    }
+
     pub fn with_master_key(mut self, master_key: impl Into<String>) -> Self {
         self.master_key = Some(master_key.into());
+        self
+    }
+
+    pub fn with_wallet_runtime_config(mut self, config: WalletRuntimeConfig) -> Self {
+        self.wallet_runtime_config = config;
+        self
+    }
+
+    pub fn with_wallet_provider(mut self, provider: Arc<dyn WalletProvider>) -> Self {
+        self.wallet_provider = Some(provider);
         self
     }
 
@@ -146,141 +159,55 @@ impl RpcRouter {
         }
     }
 
-    pub(super) fn master_files_paths(&self) -> (PathBuf, PathBuf) {
-        let base = self.storage.base_path();
-        (base.join("master.salt"), base.join("master.verify"))
+    /// Execute a catalog mutation and make command success mean durable catalog persistence.
+    pub(super) fn commit_catalog_mutation<F>(&mut self, f: F) -> RpcResponse
+    where
+        F: FnOnce(&mut VaultSession) -> RpcResponse,
+    {
+        self.commit_catalog_mutation_with_output(|session| (f(session), ()), |_, _, _| {})
     }
 
-    pub(super) fn verify_master_password(&self, master_password: &str) -> Result<(), RpcResponse> {
-        let (salt_path, verify_path) = self.master_files_paths();
-        let salt_bytes = fs::read(&salt_path).map_err(|e| {
-            RpcResponse::error(
-                format!("Failed to read master.salt: {}", e),
-                Some(ErrorCode::InternalError),
-            )
-        })?;
-        let master_salt: [u8; 16] = salt_bytes.as_slice().try_into().map_err(|_| {
-            RpcResponse::error("Invalid master.salt", Some(ErrorCode::InternalError))
-        })?;
-
-        let verify_bytes = fs::read(&verify_path).map_err(|e| {
-            RpcResponse::error(
-                format!("Failed to read master.verify: {}", e),
-                Some(ErrorCode::InternalError),
-            )
-        })?;
-        let expected_verify: [u8; 32] = verify_bytes.as_slice().try_into().map_err(|_| {
-            RpcResponse::error("Invalid master.verify", Some(ErrorCode::InternalError))
-        })?;
-
-        self.verify_master_password_with_material(master_password, &master_salt, &expected_verify)
-    }
-
-    pub(super) fn verify_master_password_with_material(
-        &self,
-        master_password: &str,
-        master_salt: &[u8; 16],
-        expected_verify: &[u8; 32],
-    ) -> Result<(), RpcResponse> {
-        use crate::crypto::{derive_vault_key, hash};
-
-        let master_key_derived = derive_vault_key(master_password, master_salt)
-            .map_err(|e| RpcResponse::error(e.to_string(), Some(ErrorCode::InternalError)))?;
-        let actual_verify = hash(&*master_key_derived);
-
-        if &actual_verify != expected_verify {
-            return Err(RpcResponse::error(
-                "Invalid master password",
-                Some(ErrorCode::InvalidMasterPassword),
-            ));
+    pub(super) fn commit_catalog_mutation_with_output<F, T, P>(
+        &mut self,
+        f: F,
+        post_commit: P,
+    ) -> RpcResponse
+    where
+        F: FnOnce(&mut VaultSession) -> (RpcResponse, T),
+        P: FnOnce(&mut VaultSession, &Storage, T),
+    {
+        let Some(session) = self.session.as_mut() else {
+            return RpcResponse::error("Vault not unlocked", Some(ErrorCode::VaultRequired));
+        };
+        let snapshot = session.snapshot_persistence_state();
+        let (response, output) = f(session);
+        if !response.is_ok() {
+            return response;
         }
 
-        Ok(())
-    }
-
-    pub(super) fn read_file_plain(
-        &self,
-        vault_key: &[u8; crate::types::KEY_SIZE],
-        node_id: u64,
-    ) -> std::result::Result<Vec<u8>, RpcResponse> {
-        let mut out: Vec<u8> = Vec::new();
-        for index in 0u32.. {
-            let chunk_name = self.file_data_chunk_name(vault_key, node_id, index)?;
-            let encrypted = match self.storage.read_chunk(&chunk_name) {
-                Ok(d) => d,
-                Err(_) => {
-                    // No chunks yet (empty file) or end of chunk sequence.
-                    break;
-                }
-            };
-
-            let plaintext =
-                match crate::crypto::decrypt(&encrypted, vault_key, chunk_name.as_bytes()) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        return Err(RpcResponse::error(
-                            format!("Decryption failed: {}", e),
-                            Some(ErrorCode::InternalError),
-                        ))
-                    }
-                };
-            out.extend_from_slice(&plaintext);
+        if let Err(error) = self.save() {
+            if let Some(session) = self.session.as_mut() {
+                let (catalog, dirty, pending_deltas) = snapshot;
+                session.restore_persistence_state(catalog, dirty, pending_deltas);
+            }
+            return RpcResponse::error(
+                format!("Catalog save failed: {error}"),
+                Some(ErrorCode::InternalError),
+            );
         }
-        Ok(out)
-    }
 
-    fn file_data_chunk_name(
-        &self,
-        vault_key: &[u8; crate::types::KEY_SIZE],
-        node_id: u64,
-        part_index: u32,
-    ) -> std::result::Result<String, RpcResponse> {
-        let node_id32: u32 = node_id
-            .try_into()
-            .map_err(|_| RpcResponse::error("Invalid node_id", Some(ErrorCode::InternalError)))?;
-        Ok(crate::crypto::blob_chunk_name(
-            vault_key, node_id32, part_index,
-        ))
+        if let Some(session) = self.session.as_mut() {
+            post_commit(session, &self.storage, output);
+        }
+
+        response
     }
 
     /// Save current session (if any)
     pub fn save(&mut self) -> crate::error::Result<()> {
         if let Some(session) = &mut self.session {
             let persisted = session.save(&self.storage)?;
-            if self.catalog_subscribed {
-                for (shard_id, delta) in persisted {
-                    let op_type = match &delta.op {
-                        crate::catalog::DeltaOp::Create { .. } => "create",
-                        crate::catalog::DeltaOp::Update { .. } => "update",
-                        crate::catalog::DeltaOp::Delete => "delete",
-                        crate::catalog::DeltaOp::Move { .. } => "move",
-                    };
-
-                    self.events.push(serde_json::json!({
-                        "command": "catalog:event",
-                        "data": {
-                            "type": op_type,
-                            "shard_id": shard_id,
-                            "node_id": delta.node_id.unwrap_or(0),
-                            "version": delta.seq,
-                            "delta": delta,
-                        }
-                    }));
-                }
-
-                // Best-effort device state update for subscribers.
-                let ts = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or(0);
-                self.events.push(serde_json::json!({
-                    "command": "update:state",
-                    "data": {
-                        "TS": ts,
-                        "serial_num": "local",
-                    }
-                }));
-            }
+            self.event_queue.enqueue_catalog_events(persisted);
         }
         Ok(())
     }

@@ -9,6 +9,18 @@ fn test_required_fields_vault_unlock() {
 
     let resp = router.handle(&RpcRequest::new("vault:unlock", serde_json::json!({})));
     assert_rpc_error(&resp, "EMPTY_PAYLOAD");
+    assert_eq!(resp.error_message(), Some("password is required"));
+
+    let resp = router.handle(&RpcRequest::new("vault:rekey", serde_json::json!({})));
+    assert_rpc_error(&resp, "EMPTY_PAYLOAD");
+    assert_eq!(resp.error_message(), Some("current_password is required"));
+
+    let resp = router.handle(&RpcRequest::new(
+        "vault:rekey",
+        serde_json::json!({"current_password": "old-password"}),
+    ));
+    assert_rpc_error(&resp, "EMPTY_PAYLOAD");
+    assert_eq!(resp.error_message(), Some("new_password is required"));
 }
 
 #[test]
@@ -17,6 +29,25 @@ fn test_required_fields_master_setup() {
 
     let resp = router.handle(&RpcRequest::new("master:setup", serde_json::json!({})));
     assert_rpc_error(&resp, "EMPTY_PAYLOAD");
+}
+
+#[test]
+fn test_required_fields_master_rekey() {
+    let (mut router, _temp_dir) = create_test_router();
+
+    let resp = router.handle(&RpcRequest::new("master:rekey", serde_json::json!({})));
+    assert_rpc_error(&resp, "EMPTY_PAYLOAD");
+    assert_eq!(resp.error_message(), Some("current_password is required"));
+
+    let resp = router.handle(&RpcRequest::new(
+        "master:rekey",
+        serde_json::json!({"current_password": "current master password"}),
+    ));
+    assert_rpc_error(&resp, "EMPTY_PAYLOAD");
+    assert_eq!(
+        resp.error_message(),
+        Some("new_master_password is required")
+    );
 }
 
 #[test]
@@ -60,14 +91,7 @@ fn test_required_fields_catalog_mutations() {
             "catalog:prepareUpload",
             serde_json::json!({}),
         )),
-        "EMPTY_PAYLOAD",
-    );
-    assert_rpc_error(
-        &router.handle(&RpcRequest::new(
-            "catalog:prepareUpload",
-            serde_json::json!({"name": "file.bin"}),
-        )),
-        "EMPTY_PAYLOAD",
+        "UNKNOWN_COMMAND",
     );
 }
 
@@ -169,14 +193,25 @@ fn test_required_fields_admin_and_erase() {
         &router.handle(&RpcRequest::new("admin:restore", serde_json::json!({}))),
         "EMPTY_PAYLOAD",
     );
-    assert_rpc_error(
-        &router.handle(&RpcRequest::new("admin:erase", serde_json::json!({}))),
-        "EMPTY_PAYLOAD",
+    let response = router.handle(&RpcRequest::new("admin:erase", serde_json::json!({})));
+    assert_rpc_error(&response, "EMPTY_PAYLOAD");
+    assert_eq!(
+        response.error_message(),
+        Some("master_password is required")
     );
 
-    assert_rpc_error(
-        &router.handle(&RpcRequest::new("erase:execute", serde_json::json!({}))),
-        "EMPTY_PAYLOAD",
+    let response = router.handle(&RpcRequest::new("erase:execute", serde_json::json!({})));
+    assert_rpc_error(&response, "EMPTY_PAYLOAD");
+    assert_eq!(response.error_message(), Some("erase_token is required"));
+
+    let response = router.handle(&RpcRequest::new(
+        "erase:execute",
+        serde_json::json!({"erase_token": "token"}),
+    ));
+    assert_rpc_error(&response, "EMPTY_PAYLOAD");
+    assert_eq!(
+        response.error_message(),
+        Some("master_password is required")
     );
 }
 
@@ -225,7 +260,7 @@ fn test_required_fields_backup_restore_local() {
             "restore:local:uploadChunk",
             serde_json::json!({}),
         )),
-        "EMPTY_PAYLOAD",
+        "UNKNOWN_COMMAND",
     );
     assert_rpc_error(
         &router.handle(&RpcRequest::new(

@@ -9,6 +9,7 @@ import androidx.credentials.exceptions.CreateCredentialException
 import androidx.fragment.app.FragmentActivity
 import com.chromvoid.app.passkey.BiometricPromptRunnerAdapter
 import com.chromvoid.app.passkey.PasskeyCreateCoordinator
+import com.chromvoid.app.passkey.PasskeyTrace
 
 @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
 class ChromVoidPasskeyCreateActivity : FragmentActivity() {
@@ -16,13 +17,17 @@ class ChromVoidPasskeyCreateActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        PasskeyTrace.important(
+            "create_activity_on_create",
+            "action" to intent.action,
+            "extras" to intent.extras?.keySet()?.joinToString(","),
+        )
 
         val graph = applicationContext.androidAppGraph()
         val coordinator =
             PasskeyCreateCoordinator(
                 bridgeGateway = graph.bridgeGateway,
                 requestRegistry = graph.passkeyRequestRegistry,
-                passkeyStore = graph.passkeyMetadataStore,
             )
         coordinator.execute(
             activity = this,
@@ -35,9 +40,18 @@ class ChromVoidPasskeyCreateActivity : FragmentActivity() {
 
     private fun finishSuccess(requestId: String, resultIntent: Intent) {
         if (finished) {
+            PasskeyTrace.diagnostic(
+                "create_activity_finish_ignored",
+                "requestId" to requestId,
+                "reason" to "already_finished_success",
+            )
             return
         }
         finished = true
+        PasskeyTrace.diagnostic(
+            "create_activity_finish_success",
+            "requestId" to requestId,
+        )
         applicationContext.androidAppGraph().passkeyRequestRegistry.remove(requestId)
         setResult(Activity.RESULT_OK, resultIntent)
         finish()
@@ -45,9 +59,22 @@ class ChromVoidPasskeyCreateActivity : FragmentActivity() {
 
     private fun finishWithException(requestId: String, exception: CreateCredentialException) {
         if (finished) {
+            PasskeyTrace.diagnostic(
+                "create_activity_finish_ignored",
+                "requestId" to requestId,
+                "reason" to "already_finished_error",
+                "exception" to exception::class.java.simpleName,
+                "message" to exception.message,
+            )
             return
         }
         finished = true
+        PasskeyTrace.diagnostic(
+            "create_activity_finish_error",
+            "requestId" to requestId,
+            "exception" to exception::class.java.simpleName,
+            "message" to exception.message,
+        )
         if (requestId.isNotBlank()) {
             applicationContext.androidAppGraph().passkeyRequestRegistry.remove(requestId)
         }

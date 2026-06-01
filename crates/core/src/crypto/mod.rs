@@ -15,8 +15,10 @@ mod storage_pepper;
 
 pub use self::argon2::derive_vault_key;
 pub use self::blake3::{
-    blob_chunk_idx, blob_chunk_name, catalog_chunk_name, chunk_name, chunk_name_u64,
-    delta_chunk_name, hash, otp_chunk_name, root_index_chunk_name, shard_chunk_name,
+    blob_chunk_idx, blob_chunk_name, catalog_chunk_name, catalog_commit_chunk_name, chunk_name,
+    chunk_name_u64, delta_chunk_name, derivative_chunk_name, derivative_index_chunk_name,
+    derivative_meta_chunk_name, derivative_write_tx_marker_name, hash, otp_chunk_name,
+    root_index_chunk_name, shard_chunk_name, shard_snapshot_chunk_name,
 };
 pub use self::chacha::{decrypt, encrypt};
 pub use self::derive_vault_key::derive_vault_key_v2;

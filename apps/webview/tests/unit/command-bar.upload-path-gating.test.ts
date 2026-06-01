@@ -1,9 +1,8 @@
-import {state} from '@statx/core'
-
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import type {SearchFilters} from '../../src/shared/contracts/file-manager'
 import {CommandBarModel} from '../../src/features/file-manager/models/command-bar.model'
+import {atom} from '@reatom/core'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 
@@ -31,7 +30,7 @@ const DEFAULT_FILTERS: SearchFilters = {
 }
 
 function initStore(remoteState: 'inactive' | 'waiting_host_unlock' | 'ready') {
-  const searchFilters = state<SearchFilters>({...DEFAULT_FILTERS})
+  const searchFilters = atom<SearchFilters>({...DEFAULT_FILTERS})
 
   initAppContext(
     createMockAppContext({
@@ -44,7 +43,7 @@ function initStore(remoteState: 'inactive' | 'waiting_host_unlock' | 'ready') {
           }
           searchFilters.set(next)
         },
-        remoteSessionState: state<'inactive' | 'waiting_host_unlock' | 'ready'>(remoteState),
+        remoteSessionState: atom<'inactive' | 'waiting_host_unlock' | 'ready'>(remoteState),
       } as never,
     }),
   )
@@ -52,12 +51,11 @@ function initStore(remoteState: 'inactive' | 'waiting_host_unlock' | 'ready') {
 
 function createModel() {
   const runtime = {
-    requestOpen: () => {},
-    requestClose: () => {},
-    focusSearchInput: () => {},
+    requestOpen: vi.fn(),
+    requestClose: vi.fn(),
+    focusSearchInput: vi.fn(),
     openFileInput: vi.fn(),
     dispatchCommand: vi.fn(),
-    getPasswordsMobileCommandProvider: () => null,
   }
 
   return {
@@ -91,9 +89,56 @@ describe('CommandBarModel upload gating', () => {
 
     expect(open).toHaveBeenCalledWith({multiple: true, directory: false})
     expect(runtime.dispatchCommand).toHaveBeenCalledWith({
-      action: 'upload-paths',
+      kind: 'upload-paths',
       paths: ['/tmp/file.txt'],
     })
+    expect(runtime.requestClose).toHaveBeenCalledTimes(1)
+    expect(runtime.openFileInput).not.toHaveBeenCalled()
+  })
+
+  it('closes without dispatching upload paths when native path upload is cancelled', async () => {
+    initStore('inactive')
+    open.mockResolvedValue([])
+
+    const {model, runtime} = createModel()
+
+    await (model as unknown as {openUpload: () => Promise<void>}).openUpload()
+
+    expect(open).toHaveBeenCalledWith({multiple: true, directory: false})
+    expect(runtime.dispatchCommand).not.toHaveBeenCalled()
+    expect(runtime.openFileInput).not.toHaveBeenCalled()
+    expect(runtime.requestClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to file input and closes when native path picker fails', async () => {
+    initStore('inactive')
+    open.mockRejectedValue(new Error('picker failed'))
+
+    const {model, runtime} = createModel()
+
+    await (model as unknown as {openUpload: () => Promise<void>}).openUpload()
+
+    expect(open).toHaveBeenCalledWith({multiple: true, directory: false})
+    expect(runtime.dispatchCommand).not.toHaveBeenCalled()
+    expect(runtime.openFileInput).toHaveBeenCalledTimes(1)
+    expect(runtime.requestClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses native upload before desktop path dialog when available', async () => {
+    initStore('inactive')
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+      supports_native_path_io: false,
+      supports_native_file_upload: true,
+    })
+
+    const {model, runtime} = createModel()
+
+    await (model as unknown as {openUpload: () => Promise<void>}).openUpload()
+
+    expect(open).not.toHaveBeenCalled()
+    expect(runtime.dispatchCommand).toHaveBeenCalledWith({kind: 'native-upload'})
     expect(runtime.openFileInput).not.toHaveBeenCalled()
   })
 

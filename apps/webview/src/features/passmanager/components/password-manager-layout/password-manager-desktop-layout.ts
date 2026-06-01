@@ -1,9 +1,18 @@
-import {css, html, type PropertyValues} from 'lit'
+import {css, type PropertyValues} from 'lit'
+import {keyed} from 'lit/directives/keyed.js'
+import {html} from '@chromvoid/uikit/reatom-lit'
 
-import {i18n} from '@project/passmanager'
+import {Entry} from '@project/passmanager/core'
+import {i18n} from '@project/passmanager/i18n'
+import {navigationModel} from 'root/app/navigation/navigation.model'
 import {hostContainStyles, pageFadeInStyles, pageTransitionStyles} from 'root/shared/ui/shared-styles'
+import {ScrollEdgeAffordanceModel} from 'root/shared/ui/scroll-edge-affordance.model'
+import {scrollEdgeAffordanceStyles} from 'root/shared/ui/scroll-edge-affordance.styles'
+import {pmComponentLoaderModel} from '../../models/pm-component-loader.model'
 import {pmSharedStyles} from '../../styles/shared'
+import {PMOtpQuickView} from '../otp-quick-view'
 import {PMLayoutBase, type SearchElement} from './password-manager-layout-base'
+import {PMDesktopToolbar} from './password-manager-desktop-toolbar'
 import {passwordManagerLayoutStyles} from './password-manager-layout.styles'
 import type {PMSearch} from '../list/search'
 
@@ -12,17 +21,18 @@ type PMKeyboardNavigableGroup = HTMLElement & {
   openActiveItem(): boolean
 }
 
-type BackButtonElement = HTMLElement & {
-  handleClick?: () => void
-}
-
 export class PasswordManagerDesktopLayout extends PMLayoutBase {
   static elementName = 'password-manager-desktop-layout'
+
+  private unregisterBackHandler?: () => void
+  private readonly treeScrollEdge = new ScrollEdgeAffordanceModel()
 
   static define() {
     if (!customElements.get(this.elementName)) {
       customElements.define(this.elementName, this as unknown as CustomElementConstructor)
     }
+    PMDesktopToolbar.define()
+    PMOtpQuickView.define()
   }
 
   static styles = [
@@ -30,89 +40,87 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
     pageTransitionStyles,
     pageFadeInStyles,
     hostContainStyles,
+    scrollEdgeAffordanceStyles,
     passwordManagerLayoutStyles,
     css`
       :host {
-        padding: var(--cv-space-4);
-        border: 1px solid var(--cv-color-border);
+        padding: var(--app-surface-gutter-desktop);
+        background: transparent;
+        --sidebar-width: clamp(248px, 28cqw, 312px);
+        --pm-credentials-content-inset-start: 8px;
+        --pm-credentials-content-inset-end: 10px;
+      }
+
+      .page {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        gap: 10px;
+        block-size: 100%;
+        min-block-size: 0;
       }
 
       .wrapper {
         display: grid;
-        grid-template-columns: var(--sidebar-width, max(33cqw, 250px)) 12px 1fr;
+        grid-template-columns: var(--sidebar-width) 14px minmax(0, 1fr);
         block-size: 100%;
         min-block-size: 0;
+        min-inline-size: 0;
         position: relative;
+        align-items: stretch;
       }
 
       .head-row {
         display: grid;
-        grid-template-columns: 1fr auto;
-        gap: var(--cv-space-2);
+        grid-template-columns: 1fr;
         align-items: start;
       }
 
-      .new-entry-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        inline-size: 28px;
-        block-size: 28px;
-        border-radius: var(--cv-radius-2);
-        border: 1px solid color-mix(in oklch, var(--cv-color-primary) 40%, var(--cv-color-border));
-        background: color-mix(in oklch, var(--cv-color-primary) 15%, var(--cv-color-surface-2));
-        color: var(--cv-color-primary);
-        cursor: pointer;
-        flex-shrink: 0;
-        margin-block-start: 1px;
-
-        cv-icon {
-          inline-size: 14px;
-          block-size: 14px;
-        }
-
-        &:hover {
-          background: var(--cv-color-primary);
-          color: white;
-          border-color: var(--cv-color-primary);
-          transform: scale(1.05);
-          box-shadow: 0 2px 8px color-mix(in oklch, var(--cv-color-primary) 30%, transparent);
-        }
-
-        &:active {
-          transform: scale(0.95);
-        }
-
-        &:disabled {
-          opacity: 0.4;
-          pointer-events: none;
-        }
-      }
-
       .sidebar {
-        padding: var(--cv-space-2) var(--cv-space-4);
-        border-right: 1px solid var(--cv-color-border);
-        background: transparent;
+        padding: 8px 6px 8px 2px;
         display: grid;
-        grid-template-rows: auto 1fr auto;
-        gap: var(--cv-space-2);
+        grid-template-rows: auto 1fr;
+        gap: 10px;
         overflow: hidden;
         min-block-size: 0;
+        min-inline-size: 0;
         contain: layout style;
         position: relative;
+      }
+
+      .sidebar-tree-scroll-frame {
+        block-size: 100%;
+        min-block-size: 0;
+        --cv-scroll-edge-block-size: 44px;
+        --cv-scroll-edge-inline-start: var(--pm-credentials-content-inset-start);
+        --cv-scroll-edge-inline-end: var(--pm-credentials-content-inset-end);
+        --cv-scroll-edge-surface: var(--cv-color-surface);
+      }
+
+      .sidebar-tree-scroll-frame > group-tree-view.scrollable {
+        display: block;
+        block-size: 100%;
       }
 
       .head {
         z-index: 1;
         flex-shrink: 0;
-        padding-block-end: var(--cv-space-2);
-        border-bottom: 1px solid color-mix(in oklch, var(--cv-color-border) 60%, transparent);
+        padding-block: 2px 12px;
+        padding-inline: var(--pm-credentials-content-inset-start) var(--pm-credentials-content-inset-end);
         margin-block-end: 0;
         position: relative;
       }
 
+      .head::after {
+        content: '';
+        position: absolute;
+        inset-inline: var(--pm-credentials-content-inset-start) var(--pm-credentials-content-inset-end);
+        inset-block-end: 0;
+        block-size: 1px;
+        background: var(--cv-gradient-divider-subtle);
+      }
+
       .resizer {
-        inline-size: 12px;
+        inline-size: 14px;
         background: transparent;
         cursor: col-resize;
         position: relative;
@@ -130,87 +138,158 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
           inset-inline-start: 50%;
           transform: translate(-50%, -50%);
           inline-size: 4px;
-          block-size: 40px;
-          background: var(--cv-color-border);
-          opacity: 0.25;
+          block-size: 72px;
+          background: var(--cv-color-border-strong);
+          opacity: 0.45;
           border-radius: 2px;
-          transition: opacity var(--cv-duration-fast) var(--cv-easing-standard);
+          transition:
+            opacity var(--cv-duration-fast) var(--cv-easing-standard),
+            background-color var(--cv-duration-fast) var(--cv-easing-standard),
+            block-size var(--cv-duration-fast) var(--cv-easing-standard);
         }
 
         &:hover::before {
-          opacity: 0.6;
-          block-size: 60px;
+          opacity: 0.8;
+          block-size: 108px;
           background: var(--cv-color-primary);
         }
       }
 
       .resizer.dragging::before {
         opacity: 1;
-        block-size: 80px;
+        block-size: 136px;
         background: var(--cv-color-primary);
-        box-shadow: 0 0 12px color-mix(in oklch, var(--cv-color-primary) 40%, transparent);
+        box-shadow: 0 0 12px var(--cv-color-primary-ring);
       }
 
       .resizer:hover {
-        background: linear-gradient(
-          90deg,
-          transparent 0%,
-          color-mix(in oklch, var(--cv-color-primary) 6%, transparent) 50%,
-          transparent 100%
-        );
+        background: var(--cv-gradient-divider-subtle);
       }
 
       .resizer.dragging {
-        background: linear-gradient(
-          90deg,
-          transparent 0%,
-          color-mix(in oklch, var(--cv-color-primary) 12%, transparent) 50%,
-          transparent 100%
-        );
+        background: var(--cv-gradient-surface-primary);
       }
 
       .content {
         block-size: 100%;
+        min-block-size: 0;
+        min-inline-size: 0;
+        padding: 4px 2px 0 0;
+        border: none;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
       }
 
       .content .card {
-        padding: var(--cv-space-6);
+        padding: 0;
+        block-size: 100%;
+        min-block-size: 0;
+      }
+
+      .content pm-otp-quick-view.card {
+        padding: var(--app-surface-gutter-desktop);
       }
 
       .content pm-group.card {
         overflow: hidden;
+        min-block-size: 0;
       }
 
-      .content back-button {
-        position: absolute;
-        inset-block-start: var(--cv-space-4);
-        inset-inline-end: 0;
-        z-index: 1;
-      }
+      @container (width < 1180px) {
+        :host {
+          --sidebar-width: clamp(232px, 30cqw, 288px);
+        }
 
-      .actions {
-        display: flex;
-        gap: var(--cv-space-2);
-        align-items: center;
-      }
+        .wrapper {
+          grid-template-columns: var(--sidebar-width) 12px minmax(0, 1fr);
+        }
 
-      .more-menu::part(label),
-      .more-menu::part(dropdown-icon) {
-        display: none;
-      }
+        .sidebar {
+          padding-inline-end: 4px;
+        }
 
-      .more-menu-item-danger::part(base) {
-        color: var(--cv-color-danger);
-      }
-
-      .more-menu-item-danger cv-icon {
-        color: var(--cv-color-danger);
+        .content {
+          padding: 8px;
+          border-radius: 24px;
+        }
       }
     `,
   ]
 
   protected getSearchElement(): SearchElement | null {
     return this.shadowRoot?.querySelector('pm-search') as PMSearch | null
+  }
+
+  private renderEntry(entry: Entry, editing: boolean) {
+    return html`<pm-entry
+      class="card"
+      .entry=${entry}
+      .editing=${editing}
+      .showBackButton=${false}
+      .showHeaderActions=${false}
+    ></pm-entry>`
+  }
+
+  private renderGroup() {
+    return keyed(
+      this.model.getGroupViewKey(),
+      html`<pm-group class="card" .showBackButton=${false} .showToolbarActions=${false}></pm-group>`,
+    )
+  }
+
+  private renderCreateEntry() {
+    return html`<pm-entry-create-desktop class="card" hide-back></pm-entry-create-desktop>`
+  }
+
+  private renderCreateGroup() {
+    return html`<pm-group-create-desktop class="card" hide-back></pm-group-create-desktop>`
+  }
+
+  private renderLoading() {
+    return html`<div class="spinner-wrapper">
+      <cv-spinner class="spinner" label=${i18n('loading')}></cv-spinner>
+    </div>`
+  }
+
+  private renderOtpQuickView() {
+    return html`<pm-otp-quick-view class="card"></pm-otp-quick-view>`
+  }
+
+  private renderMain() {
+    const showElement = this.model.getCurrentShowElement()
+
+    if (this.model.isLoading()) {
+      return this.renderLoading()
+    }
+
+    const extendedReady = pmComponentLoaderModel.extendedReady()
+    if (pmComponentLoaderModel.requiresExtendedComponents(showElement) && !extendedReady) {
+      void pmComponentLoaderModel.ensureExtendedComponents()
+      return this.renderLoading()
+    }
+
+    if (showElement === 'createEntry') {
+      return this.renderCreateEntry()
+    }
+
+    if (showElement === 'createGroup') {
+      return this.renderCreateGroup()
+    }
+
+    if (showElement instanceof Entry) {
+      return this.renderEntry(showElement, this.model.isEditingEntry())
+    }
+
+    if (showElement === 'importDialog') {
+      return this.renderImportDialog()
+    }
+
+    if (showElement === 'otpView') {
+      return this.renderOtpQuickView()
+    }
+
+    return this.renderGroup()
   }
 
   protected handleExtraKeys(event: KeyboardEvent, shortcutBlocked: boolean): boolean {
@@ -246,16 +325,23 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
     super.connectedCallback()
     this.model.initializeSidebarWidth()
     this.applySidebarWidth()
+    this.unregisterBackHandler = navigationModel.registerSurfaceBackHandler('passwords', () =>
+      this.model.handleTransientEntryBack())
   }
 
   override disconnectedCallback(): void {
+    this.unregisterBackHandler?.()
+    this.unregisterBackHandler = undefined
     this.stopResizerTracking()
+    this.treeScrollEdge.dispose()
     super.disconnectedCallback()
   }
 
   override updated(changedProperties: PropertyValues<this>): void {
     super.updated(changedProperties)
     this.applySidebarWidth()
+    const treeScroller = this.shadowRoot?.querySelector('group-tree-view.scrollable') as HTMLElement | null
+    this.treeScrollEdge.bindScroller(treeScroller)
   }
 
   override handleEvent(event: Event): void {
@@ -308,55 +394,41 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
   override render() {
     const sidebarWidth = this.model.sidebarWidth()
     const isDragging = this.model.isSidebarDragging()
+    const motion = this.model.getMotionRenderState()
+    const treeHasScrollBlockEnd = this.treeScrollEdge.hasBlockEndOverflow()
 
     return html`
-      <div class="wrapper" data-sidebar-width=${String(sidebarWidth)}>
-        <div class="sidebar">
-          <div class="head">
-            <div class="head-row">
-              <pm-search></pm-search>
-              <cv-tooltip arrow show-delay="150" hide-delay="0">
-                <button
-                  slot="trigger"
-                  class="new-entry-btn"
-                  @click=${this.onCreateEntry}
-                  ?disabled=${this.model.isReadOnly()}
-                  aria-label=${i18n('enrty:create')}
-                >
-                  <cv-icon name="plus-lg"></cv-icon>
-                </button>
-                <span slot="content">${i18n('enrty:create')} (Ctrl+N)</span>
-              </cv-tooltip>
+      <div class="page">
+        <pm-desktop-toolbar .model=${this.model}>
+          <slot name="buttons" slot="buttons"></slot>
+        </pm-desktop-toolbar>
+        <div class="wrapper" data-sidebar-width=${String(sidebarWidth)}>
+          <div class="sidebar">
+            <div class="head">
+              <div class="head-row">
+                <pm-search></pm-search>
+              </div>
+            </div>
+            <div
+              class="scroll-edge-frame sidebar-tree-scroll-frame"
+              data-scroll-block-end=${String(treeHasScrollBlockEnd)}
+            >
+              <group-tree-view class="scrollable"></group-tree-view>
             </div>
           </div>
-          <group-tree-view class="scrollable"></group-tree-view>
-          <div class="actions">
-            <cv-menu-button class="more-menu" size="small" aria-label=${i18n('button:more_actions')}>
-              <cv-icon name="ellipsis" slot="prefix"></cv-icon>
-              <cv-menu-item slot="menu" value="pm-export" @click=${this.onExportClick}>
-                <cv-icon name="cloud-download" slot="prefix"></cv-icon>
-                ${i18n('export')}
-              </cv-menu-item>
-              <cv-menu-item slot="menu" value="pm-import" @click=${this.onImportClick}>
-                <cv-icon name="cloud-upload" slot="prefix"></cv-icon>
-                ${i18n('import')}
-              </cv-menu-item>
-              <cv-menu-item
-                class="more-menu-item-danger"
-                slot="menu"
-                value="pm-clean"
-                @click=${this.onFullCleanClick}
-              >
-                <cv-icon name="trash" slot="prefix"></cv-icon>
-                ${i18n('clean')}
-              </cv-menu-item>
-            </cv-menu-button>
-
-            <slot name="buttons"></slot>
+          <div class="resizer ${isDragging ? 'dragging' : ''}" @pointerdown=${this.onResizerPointerDown}></div>
+          <div class="content scrollable">
+            <div
+              class="pm-content"
+              data-motion-kind=${motion.kind}
+              data-motion-direction=${motion.direction}
+              data-motion-target=${motion.target ?? ''}
+              data-reduced-motion=${String(motion.reducedMotion)}
+            >
+              ${this.renderMain()}
+            </div>
           </div>
         </div>
-        <div class="resizer ${isDragging ? 'dragging' : ''}" @pointerdown=${this.onResizerPointerDown}></div>
-        <div class="content scrollable animate-fade-in">${this.renderMain()}</div>
       </div>
     `
   }

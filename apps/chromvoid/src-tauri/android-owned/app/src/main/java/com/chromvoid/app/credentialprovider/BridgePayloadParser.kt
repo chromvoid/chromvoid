@@ -18,7 +18,7 @@ internal class BridgePayloadParser(
         return providerStatusParser.parse(response, currentApiLevel)
     }
 
-    fun autofillList(raw: String): BridgeResult<Pair<String, List<AutofillCandidate>>> {
+    fun autofillList(raw: String): BridgeResult<AutofillListPayload> {
         val response = when (val envelope = envelopeParser.parse(raw, "ChromVoid AutoFill is temporarily unavailable.")) {
             is BridgeResult.Failure -> return envelope
             is BridgeResult.Success -> envelope.value
@@ -32,6 +32,14 @@ internal class BridgePayloadParser(
             is BridgeResult.Success -> envelope.value
         }
         return autofillPayloadParser.parseSecret(response)
+    }
+
+    fun autofillCloseSession(raw: String): BridgeResult<Boolean> {
+        val response = when (val envelope = envelopeParser.parse(raw, "ChromVoid could not close the autofill request session.")) {
+            is BridgeResult.Failure -> return envelope
+            is BridgeResult.Success -> envelope.value
+        }
+        return autofillPayloadParser.parseClosed(response)
     }
 
     fun passwordSaveToken(
@@ -67,5 +75,29 @@ internal class BridgePayloadParser(
             is BridgeResult.Success -> envelope.value
         }
         return passkeyPayloadParser.parseRequestId(response)
+    }
+
+    fun passkeyQuery(raw: String): BridgeResult<com.chromvoid.app.PasskeyCoreQueryResult> {
+        val response = when (val envelope = envelopeParser.parse(raw, "ChromVoid passkey query failed.")) {
+            is BridgeResult.Failure -> return envelope
+            is BridgeResult.Success -> envelope.value
+        }
+        return passkeyPayloadParser.parseQuery(response)
+    }
+
+    fun passkeyCreate(raw: String): BridgeResult<com.chromvoid.app.PasskeyCoreOperationResult> {
+        val response = when (val envelope = envelopeParser.parse(raw, "ChromVoid could not create the passkey.")) {
+            is BridgeResult.Failure -> return envelope
+            is BridgeResult.Success -> envelope.value
+        }
+        return passkeyPayloadParser.parseOperation(response, "ChromVoid could not create the passkey.")
+    }
+
+    fun passkeyGet(raw: String): BridgeResult<com.chromvoid.app.PasskeyCoreOperationResult> {
+        val response = when (val envelope = envelopeParser.parse(raw, "ChromVoid could not use the selected passkey.")) {
+            is BridgeResult.Failure -> return envelope
+            is BridgeResult.Success -> envelope.value
+        }
+        return passkeyPayloadParser.parseOperation(response, "ChromVoid could not use the selected passkey.")
     }
 }

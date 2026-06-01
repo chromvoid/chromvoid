@@ -4,6 +4,27 @@ use chromvoid_core::rpc::commands::set_bypass_system_shard_guards;
 use chromvoid_core::rpc::types::RpcRequest;
 use test_helpers::*;
 
+fn catalog_event_payloads(events: &[serde_json::Value]) -> Vec<&serde_json::Value> {
+    events
+        .iter()
+        .flat_map(
+            |event| match event.get("command").and_then(|v| v.as_str()) {
+                Some("catalog:event") => event
+                    .get("data")
+                    .into_iter()
+                    .collect::<Vec<&serde_json::Value>>(),
+                Some("catalog:event:batch") => event
+                    .get("data")
+                    .and_then(|data| data.get("events"))
+                    .and_then(|events| events.as_array())
+                    .map(|items| items.iter().collect::<Vec<_>>())
+                    .unwrap_or_default(),
+                _ => Vec::new(),
+            },
+        )
+        .collect()
+}
+
 #[test]
 fn test_catalog_events_emitted_on_save_when_subscribed() {
     let (mut router, _temp_dir) = create_test_router();
@@ -23,18 +44,13 @@ fn test_catalog_events_emitted_on_save_when_subscribed() {
     let events = router.take_events();
     assert!(!events.is_empty(), "expected at least one event");
 
-    let docs_event = events
+    let catalog_events = catalog_event_payloads(&events);
+    let docs_event = catalog_events
         .iter()
-        .find(|e| {
-            e.get("command").and_then(|v| v.as_str()) == Some("catalog:event")
-                && e.get("data")
-                    .and_then(|d| d.get("shard_id"))
-                    .and_then(|v| v.as_str())
-                    == Some("docs")
-        })
+        .find(|e| e.get("shard_id").and_then(|v| v.as_str()) == Some("docs"))
         .expect("expected catalog:event for docs shard");
 
-    let data = docs_event.get("data").expect("data");
+    let data = docs_event;
     assert_eq!(data.get("type").and_then(|v| v.as_str()), Some("create"));
     assert_eq!(data.get("node_id").and_then(|v| v.as_u64()), Some(node_id));
     assert_eq!(data.get("version").and_then(|v| v.as_u64()), Some(1));
@@ -77,10 +93,7 @@ fn test_catalog_events_exclude_system_shard_externally() {
     router.save().expect("save");
 
     let events = router.take_events();
-    let catalog_events: Vec<_> = events
-        .iter()
-        .filter(|e| e.get("command").and_then(|v| v.as_str()) == Some("catalog:event"))
-        .collect();
+    let catalog_events = catalog_event_payloads(&events);
 
     // There should be events for "docs" but none for ".passmanager".
     assert!(
@@ -88,12 +101,8 @@ fn test_catalog_events_exclude_system_shard_externally() {
         "expected at least one catalog:event for user shard"
     );
 
-    for evt in &catalog_events {
-        let shard_id = evt
-            .get("data")
-            .and_then(|d| d.get("shard_id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+    for evt in catalog_events.iter() {
+        let shard_id = evt.get("shard_id").and_then(|v| v.as_str()).unwrap_or("");
         assert_ne!(
             shard_id, ".passmanager",
             "catalog:event for system shard must not be emitted externally"
@@ -105,11 +114,9 @@ fn test_catalog_events_exclude_system_shard_externally() {
     }
 
     assert!(
-        catalog_events.iter().any(|e| e
-            .get("data")
-            .and_then(|d| d.get("shard_id"))
-            .and_then(|v| v.as_str())
-            == Some("docs")),
+        catalog_events
+            .iter()
+            .any(|e| e.get("shard_id").and_then(|v| v.as_str()) == Some("docs")),
         "expected catalog:event for user shard 'docs'"
     );
 }
@@ -128,17 +135,37 @@ fn test_catalog_events_for_user_shard_still_emitted() {
     router.save().expect("save");
 
     let events = router.take_events();
-    let catalog_events: Vec<_> = events
-        .iter()
-        .filter(|e| e.get("command").and_then(|v| v.as_str()) == Some("catalog:event"))
-        .collect();
+    let catalog_events = catalog_event_payloads(&events);
 
     assert!(
-        catalog_events.iter().any(|e| e
-            .get("data")
-            .and_then(|d| d.get("shard_id"))
-            .and_then(|v| v.as_str())
-            == Some("photos")),
+        catalog_events
+            .iter()
+            .any(|e| e.get("shard_id").and_then(|v| v.as_str()) == Some("photos")),
         "expected catalog:event for user shard 'photos'"
     );
+}
+
+#[test]
+fn test_catalog_events_are_emitted_per_committed_mutation() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_vault(&mut router, "test_password");
+
+    let subscribe = router.handle(&RpcRequest::new("catalog:subscribe", serde_json::json!({})));
+    assert_rpc_ok(&subscribe);
+
+    assert_rpc_ok(&create_dir(&mut router, "docs"));
+    assert_rpc_ok(&create_dir_at(&mut router, "/docs", "work"));
+    assert_rpc_ok(&create_dir_at(&mut router, "/docs", "archive"));
+
+    let events = router.take_events();
+    let catalog_events = catalog_event_payloads(&events);
+    let docs_events: Vec<_> = catalog_events
+        .iter()
+        .filter(|event| event.get("shard_id").and_then(|v| v.as_str()) == Some("docs"))
+        .collect();
+
+    assert!(docs_events.len() >= 2);
+    assert!(docs_events
+        .iter()
+        .all(|event| event.get("shard_id").and_then(|v| v.as_str()) == Some("docs")));
 }

@@ -1,5 +1,11 @@
-import type {ManagerSaver, OTPGetParams, OTPSecretsGateway, PasswordsRepository} from '@project/passmanager'
-import {SAVE_KEY} from '@project/passmanager/src/consts'
+import {SAVE_KEY} from '@project/passmanager/consts'
+import type {PasswordsRepository, OTPSecretsGateway} from '@project/passmanager/ports'
+import type {
+  ManagerSaver,
+  OTPGetParams,
+  PassManagerSecretSlot,
+  PassManagerSaveEntryMetaPayload,
+} from '@project/passmanager/types'
 import type {Logger} from '../../logger'
 import {defaultLogger} from '../../logger'
 
@@ -93,76 +99,73 @@ export class ManagerSaverAdapter implements ManagerSaver {
     return ok
   }
 
-  async readEntryPassword(entryId: string): Promise<string | undefined> {
+  async readEntrySecret(entryId: string, slot: PassManagerSecretSlot): Promise<string | undefined> {
     try {
-      this.logger.debug('[PassManager][Adapter.readEntryPassword] begin', {entryId})
+      this.logger.debug('[PassManager][Adapter.readEntrySecret] begin', {entryId, slot})
     } catch {}
-    const out = await this.repo.readEntryPassword(entryId)
+    const out = await this.repo.readEntrySecret(entryId, slot)
     try {
-      this.logger.debug('[PassManager][Adapter.readEntryPassword] result', {
+      this.logger.debug('[PassManager][Adapter.readEntrySecret] result', {
         entryId,
+        slot,
         ok: typeof out === 'string',
       })
     } catch {}
     return out
   }
 
+  async saveEntrySecret(
+    entryId: string,
+    slot: PassManagerSecretSlot,
+    value: string | null,
+  ): Promise<boolean> {
+    try {
+      this.logger.debug('[PassManager][Adapter.saveEntrySecret] begin', {
+        entryId,
+        slot,
+        length: value?.length ?? null,
+      })
+    } catch {}
+    const ok = await this.repo.saveEntrySecret(entryId, slot, value)
+    try {
+      this.logger.debug('[PassManager][Adapter.saveEntrySecret] result', {entryId, slot, ok})
+    } catch {}
+    return ok
+  }
+
+  async removeEntrySecret(entryId: string, slot: PassManagerSecretSlot): Promise<boolean> {
+    try {
+      this.logger.debug('[PassManager][Adapter.removeEntrySecret] begin', {entryId, slot})
+    } catch {}
+    const ok = await this.repo.removeEntrySecret(entryId, slot)
+    try {
+      this.logger.debug('[PassManager][Adapter.removeEntrySecret] result', {entryId, slot, ok})
+    } catch {}
+    return ok
+  }
+
+  async readEntryPassword(entryId: string): Promise<string | undefined> {
+    return this.readEntrySecret(entryId, 'password')
+  }
+
   async readEntryNote(entryId: string): Promise<string | undefined> {
-    try {
-      this.logger.debug('[PassManager][Adapter.readEntryNote] begin', {entryId})
-    } catch {}
-    const out = await this.repo.readEntryNote(entryId)
-    try {
-      this.logger.debug('[PassManager][Adapter.readEntryNote] result', {entryId, ok: typeof out === 'string'})
-    } catch {}
-    return out
+    return this.readEntrySecret(entryId, 'note')
   }
 
   async saveEntryPassword(entryId: string, password: string | null): Promise<boolean> {
-    try {
-      this.logger.debug('[PassManager][Adapter.saveEntryPassword] begin', {
-        entryId,
-        length: password?.length ?? null,
-      })
-    } catch {}
-    const ok = await this.repo.saveEntryPassword(entryId, password)
-    try {
-      this.logger.debug('[PassManager][Adapter.saveEntryPassword] result', {entryId, ok})
-    } catch {}
-    return ok
+    return this.saveEntrySecret(entryId, 'password', password)
   }
 
   async saveEntryNote(entryId: string, note: string | null): Promise<boolean> {
-    try {
-      this.logger.debug('[PassManager][Adapter.saveEntryNote] begin', {entryId, length: note?.length ?? null})
-    } catch {}
-    const ok = await this.repo.saveEntryNote(entryId, note)
-    try {
-      this.logger.debug('[PassManager][Adapter.saveEntryNote] result', {entryId, ok})
-    } catch {}
-    return ok
+    return this.saveEntrySecret(entryId, 'note', note)
   }
 
   async removeEntryPassword(entryId: string): Promise<boolean> {
-    try {
-      this.logger.debug('[PassManager][Adapter.removeEntryPassword] begin', {entryId})
-    } catch {}
-    const ok = await this.repo.removeEntryPassword(entryId)
-    try {
-      this.logger.debug('[PassManager][Adapter.removeEntryPassword] result', {entryId, ok})
-    } catch {}
-    return ok
+    return this.removeEntrySecret(entryId, 'password')
   }
 
   async removeEntryNote(entryId: string): Promise<boolean> {
-    try {
-      this.logger.debug('[PassManager][Adapter.removeEntryNote] begin', {entryId})
-    } catch {}
-    const ok = await this.repo.removeEntryNote(entryId)
-    try {
-      this.logger.debug('[PassManager][Adapter.removeEntryNote] result', {entryId, ok})
-    } catch {}
-    return ok
+    return this.removeEntrySecret(entryId, 'note')
   }
 
   async readEntrySshPrivateKey(entryId: string, keyId: string): Promise<string | undefined> {
@@ -195,7 +198,12 @@ export class ManagerSaverAdapter implements ManagerSaver {
     return out
   }
 
-  async getIcon(iconRef: string): Promise<{iconRef: string; mimeType: string; contentBase64: string}> {
+  async getIcon(iconRef: string): Promise<{
+    iconRef: string
+    mimeType: string
+    backgroundColor?: string
+    contentBase64: string
+  }> {
     if (!this.repo.getIcon) {
       throw new Error('PassManager icon repository is not available')
     }
@@ -233,6 +241,14 @@ export class ManagerSaverAdapter implements ManagerSaver {
     return ok
   }
 
+  saveEntryMeta(data: PassManagerSaveEntryMetaPayload): Promise<boolean> {
+    return this.repo.saveEntryMeta(data)
+  }
+
+  moveEntryToGroup(entryId: string, targetGroupPath: string | undefined): Promise<boolean> {
+    return this.repo.moveEntryToGroup(entryId, targetGroupPath)
+  }
+
   async removeEntrySshPrivateKey(entryId: string, keyId: string): Promise<boolean> {
     try {
       this.logger.debug('[PassManager][Adapter.removeEntrySshPrivateKey] begin', {entryId, keyId})
@@ -253,10 +269,6 @@ export class ManagerSaverAdapter implements ManagerSaver {
       this.logger.debug('[PassManager][Adapter.removeEntrySshPublicKey] result', {entryId, keyId, ok})
     } catch {}
     return ok
-  }
-
-  saveEntryMeta(data: Parameters<ManagerSaver['saveEntryMeta']>[0]): Promise<boolean> {
-    return this.repo.saveEntryMeta(data)
   }
 
   removeEntry(id: string): Promise<boolean> {

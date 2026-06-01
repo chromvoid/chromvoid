@@ -1,4 +1,4 @@
-import {computed, state} from '@statx/core'
+import {atom, computed, wrap} from '@reatom/core'
 
 import {
   DEFAULT_SESSION_SETTINGS,
@@ -8,7 +8,9 @@ import {
 import {isTauriRuntime} from 'root/core/runtime/runtime'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
 import {tauriInvoke} from 'root/core/transport/tauri/ipc'
+import {i18n} from 'root/i18n'
 import {getAppContext} from 'root/shared/services/app-context'
+import {subscribeAfterInitial} from 'root/shared/services/subscribed-signal'
 
 type RpcOk<T> = {ok: true; result: T}
 type RpcErr = {ok: false; error: string; code?: string | null}
@@ -43,15 +45,15 @@ function normalizeBiometricErrorCode(code: string | null | undefined): Biometric
 }
 
 export class BiometricAppGateModel {
-  readonly phase = state<BiometricAppGatePhase>('idle')
-  readonly entrypoint = state<BiometricAppGateEntrypoint>(null)
-  readonly platform = state(getRuntimeCapabilities().platform)
-  readonly mobileRuntime = state(Boolean(getRuntimeCapabilities().mobile))
-  readonly available = state(Boolean(getRuntimeCapabilities().mobile && getRuntimeCapabilities().supports_biometric))
-  readonly requireBiometricAppGate = state(DEFAULT_SESSION_SETTINGS.require_biometric_app_gate)
-  readonly loading = state(false)
-  readonly lastErrorCode = state<BiometricAuthCode | null>(null)
-  readonly lastErrorMessage = state('')
+  readonly phase = atom<BiometricAppGatePhase>('idle')
+  readonly entrypoint = atom<BiometricAppGateEntrypoint>(null)
+  readonly platform = atom(getRuntimeCapabilities().platform)
+  readonly mobileRuntime = atom(Boolean(getRuntimeCapabilities().mobile))
+  readonly available = atom(Boolean(getRuntimeCapabilities().mobile && getRuntimeCapabilities().supports_biometric))
+  readonly requireBiometricAppGate = atom(DEFAULT_SESSION_SETTINGS.require_biometric_app_gate)
+  readonly loading = atom(false)
+  readonly lastErrorCode = atom<BiometricAuthCode | null>(null)
+  readonly lastErrorMessage = atom('')
 
   readonly enabled = computed(() => this.mobileRuntime() && this.available() && this.requireBiometricAppGate())
   readonly shouldBlockSurface = computed(() => {
@@ -65,30 +67,30 @@ export class BiometricAppGateModel {
   })
   readonly showRetry = computed(() => this.phase() === 'blocked')
   readonly title = computed(() => {
-    if (this.phase() === 'blocked') return 'Biometric check required'
-    if (this.phase() === 'prompting') return 'Confirm it is you'
-    return 'Checking app access'
+    if (this.phase() === 'blocked') return i18n('biometric-app-gate:title-required')
+    if (this.phase() === 'prompting') return i18n('biometric-app-gate:title-prompting')
+    return i18n('biometric-app-gate:title-checking')
   })
   readonly message = computed(() => {
     if (this.phase() === 'blocked') {
       switch (this.lastErrorCode()) {
         case 'BIOMETRIC_DENIED':
-          return 'Biometric verification did not succeed. Try again to continue to ChromVoid.'
+          return i18n('biometric-app-gate:message-denied')
         case 'BIOMETRIC_CANCELLED':
-          return 'Verification was cancelled. Try again to continue to ChromVoid.'
+          return i18n('biometric-app-gate:message-cancelled')
         case 'BIOMETRIC_UNAVAILABLE':
-          return 'Biometric app gate is unavailable right now. Try again or check device security settings.'
+          return i18n('biometric-app-gate:message-unavailable')
         case 'BIOMETRIC_INTERNAL':
         default:
-          return 'ChromVoid could not complete the biometric app gate. Try again.'
+          return i18n('biometric-app-gate:message-internal')
       }
     }
 
     if (this.entrypoint() === 'foreground_resume') {
-      return 'Verifying local access before showing the app again.'
+      return i18n('biometric-app-gate:message-resume')
     }
 
-    return 'Verifying local access before showing the app.'
+    return i18n('biometric-app-gate:message-open')
   })
 
   private connected = false
@@ -109,7 +111,7 @@ export class BiometricAppGateModel {
     }
 
     const {ws} = getAppContext()
-    this.unsubscribeWsConnected = ws.connected.subscribe((connected) => {
+    const syncWsConnected = (connected: boolean) => {
       this.refreshRuntimeFlags()
       if (!connected) {
         this.loading.set(false)
@@ -120,12 +122,10 @@ export class BiometricAppGateModel {
       if (this.coldOpenHandled) return
       this.coldOpenHandled = true
       void this.runGate('cold_open')
-    })
-
-    if (ws.connected() && !this.coldOpenHandled) {
-      this.coldOpenHandled = true
-      void this.runGate('cold_open')
     }
+
+    syncWsConnected(ws.connected())
+    this.unsubscribeWsConnected = subscribeAfterInitial(ws.connected, () => syncWsConnected(ws.connected()))
   }
 
   disconnect(): void {
@@ -229,7 +229,7 @@ export class BiometricAppGateModel {
     if (this.sessionSettingsLoaded) return
 
     try {
-      const settings = await loadSessionSettings()
+      const settings = await wrap(loadSessionSettings())
       this.applySessionSettings(settings)
     } catch (error) {
       console.warn('[biometric-app-gate] failed to load session settings', error)
@@ -243,9 +243,11 @@ export class BiometricAppGateModel {
     this.lastErrorMessage.set('')
 
     try {
-      const res = await tauriInvoke<RpcResult<BiometricAuthResult>>('mobile_biometric_auth', {
-        reason: 'Continue to ChromVoid',
-      })
+      const res = await wrap(
+        tauriInvoke<RpcResult<BiometricAuthResult>>('mobile_biometric_auth', {
+          reason: i18n('biometric-app-gate:reason'),
+        }),
+      )
 
       if (isOk(res) && res.result.authenticated) {
         this.phase.set('passed')
@@ -278,7 +280,7 @@ export class BiometricAppGateModel {
     this.phase.set('disabled')
     getAppContext().store.pushNotification(
       'warning',
-      'Biometric app gate is unavailable for this attempt. Continuing without it.',
+      i18n('biometric-app-gate:fallback-warning'),
     )
     console.warn('[biometric-app-gate] safe fallback', {
       code,

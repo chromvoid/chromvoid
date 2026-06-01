@@ -1,50 +1,26 @@
-import {state} from '@statx/core'
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html} from 'lit'
+import {css, type PropertyValues} from 'lit'
 
 import {i18n} from 'root/i18n'
+import {keyboardShortcutsModel} from 'root/shared/keyboard'
 import {sharedStyles} from 'root/shared/ui/shared-styles'
+import {ContextMenuModel, type ContextMenuItem} from './context-menu.model'
 
-export type ContextMenuItem = {
-  id: string
-  label: string
-  icon: string
-  action: () => void
-  disabled?: boolean
-  separator?: boolean
-  shortcut?: string
-}
+export type {ContextMenuItem} from './context-menu.model'
 
-export class ContextMenu extends XLitElement {
+export class ContextMenu extends ReatomLitElement {
   static define() {
-    customElements.define('context-menu', this)
-  }
-
-  static get properties() {
-    return {
-      visible: {type: Boolean, reflect: true},
-      x: {type: Number},
-      y: {type: Number},
-      items: {type: Array},
+    if (!customElements.get('context-menu')) {
+      customElements.define('context-menu', this)
     }
   }
 
-  declare visible: boolean
-  declare x: number
-  declare y: number
-  declare items: ContextMenuItem[]
-
-  constructor() {
-    super()
-    this.visible = false
-    this.x = 0
-    this.y = 0
-    this.items = []
-  }
-
-  private activeIndex = state(-1)
+  private readonly model = new ContextMenuModel()
   private previousFocus: HTMLElement | null = null
+  private readonly handleDocumentPointerDownBound = this.handleDocumentPointerDown.bind(this)
+  private readonly handleDocumentScrollBound = this.handleDocumentScroll.bind(this)
+  private readonly handleKeyDownBound = this.handleKeyDown.bind(this)
 
   private static supportsPopover(): boolean {
     try {
@@ -161,14 +137,14 @@ export class ContextMenu extends XLitElement {
         }
 
         &.disabled {
-          color: color-mix(in oklch, var(--cv-color-text-muted), transparent 30%);
+          color: var(--cv-color-text-subtle);
           cursor: not-allowed;
         }
 
         &.danger {
           &:hover:not(.disabled),
           &.active:not(.disabled) {
-            background: color-mix(in oklch, var(--cv-color-danger), transparent 92%);
+            background: var(--cv-color-danger-surface);
             color: var(--cv-color-danger);
           }
 
@@ -207,7 +183,7 @@ export class ContextMenu extends XLitElement {
       .ripple {
         position: absolute;
         border-radius: 50%;
-        background: color-mix(in oklch, var(--cv-color-primary), transparent 70%);
+        background: var(--cv-color-primary-border);
         transform: scale(0);
         animation: ripple 0.6s linear;
         pointer-events: none;
@@ -226,20 +202,25 @@ export class ContextMenu extends XLitElement {
     super.connectedCallback()
     // Programmatically focusable for keyboard navigation; not a tab stop.
     this.setAttribute('tabindex', '-1')
-    document.addEventListener('pointerdown', this.handleDocumentPointerDown, {capture: true})
-    document.addEventListener('keydown', this.handleKeyDown, {capture: true})
-    document.addEventListener('scroll', this.handleDocumentScroll, true)
+    document.addEventListener('pointerdown', this.handleDocumentPointerDownBound, true)
+    document.addEventListener('keydown', this.handleKeyDownBound, true)
+    document.addEventListener('scroll', this.handleDocumentScrollBound, true)
   }
 
   disconnectedCallback() {
     super.disconnectedCallback()
-    document.removeEventListener('pointerdown', this.handleDocumentPointerDown, {capture: true} as any)
-    document.removeEventListener('keydown', this.handleKeyDown, {capture: true} as any)
-    document.removeEventListener('scroll', this.handleDocumentScroll, true)
+    document.removeEventListener('pointerdown', this.handleDocumentPointerDownBound, true)
+    document.removeEventListener('keydown', this.handleKeyDownBound, true)
+    document.removeEventListener('scroll', this.handleDocumentScrollBound, true)
   }
 
-  private handleDocumentPointerDown = (e: Event) => {
-    if (!this.visible) return
+  protected override updated(changed: PropertyValues<this>): void {
+    super.updated(changed)
+    this.syncPositionStyles()
+  }
+
+  private handleDocumentPointerDown(e: Event) {
+    if (!this.model.visible()) return
 
     const path =
       typeof (e as any).composedPath === 'function' ? ((e as any).composedPath() as EventTarget[]) : []
@@ -251,8 +232,8 @@ export class ContextMenu extends XLitElement {
     this.hide({restoreFocus: false})
   }
 
-  private handleDocumentScroll = () => {
-    if (this.visible) {
+  private handleDocumentScroll() {
+    if (this.model.visible()) {
       this.hide({restoreFocus: false})
     }
   }
@@ -265,24 +246,20 @@ export class ContextMenu extends XLitElement {
     return active instanceof HTMLElement ? active : null
   }
 
-  private handleKeyDown = (e: KeyboardEvent) => {
-    if (!this.visible) return
+  private handleKeyDown(e: KeyboardEvent) {
+    if (!this.model.visible()) return
 
     // Capture all keypresses while the menu is open to avoid triggering handlers
     // in other components (e.g. list navigation).
     e.stopImmediatePropagation()
+
+    if (this.activateShortcut(e)) return
 
     switch (e.key) {
       case 'Escape':
         e.preventDefault()
         this.hide()
         break
-      case 'F2':
-        e.preventDefault()
-        this.activateItemById('rename')
-        break
-      case 'Delete':
-      case 'Del':
       case 'Backspace':
         e.preventDefault()
         this.activateItemById('delete')
@@ -292,12 +269,12 @@ export class ContextMenu extends XLitElement {
         break
       case 'ArrowDown':
         e.preventDefault()
-        this.moveSelection(1)
+        this.model.moveSelection(1)
         this.focusActiveItem()
         break
       case 'ArrowUp':
         e.preventDefault()
-        this.moveSelection(-1)
+        this.model.moveSelection(-1)
         this.focusActiveItem()
         break
       case 'Enter':
@@ -305,11 +282,6 @@ export class ContextMenu extends XLitElement {
         this.activateCurrentItem()
         break
       default:
-        if ((e.code === 'KeyO' || e.key === 'o' || e.key === 'O') && (e.ctrlKey || e.metaKey)) {
-          e.preventDefault()
-          this.activateItemById('open-external')
-          break
-        }
         // Prevent e.g. Space/PageDown from scrolling the underlying list.
         if (!e.metaKey && !e.ctrlKey && !e.altKey) {
           e.preventDefault()
@@ -318,19 +290,21 @@ export class ContextMenu extends XLitElement {
     }
   }
 
-  private moveSelection(direction: number) {
-    const selectableItems = this.items.filter((item) => !item.disabled && !item.separator)
-    if (selectableItems.length === 0) return
+  private activateShortcut(e: KeyboardEvent): boolean {
+    for (const item of this.model.items()) {
+      if (!item.shortcutId || item.disabled || item.separator) continue
+      if (!keyboardShortcutsModel.matches(item.shortcutId, e)) continue
 
-    let newIndex = this.activeIndex() + direction
-    if (newIndex < 0) newIndex = selectableItems.length - 1
-    if (newIndex >= selectableItems.length) newIndex = 0
+      e.preventDefault()
+      this.activateItemById(item.id)
+      return true
+    }
 
-    this.activeIndex.set(newIndex)
+    return false
   }
 
   private focusActiveItem() {
-    const idx = this.activeIndex()
+    const idx = this.model.activeIndex()
     if (idx < 0) return
     // Focus the currently active (selectable) menu item for screen readers.
     void this.updateComplete.then(() => {
@@ -340,29 +314,25 @@ export class ContextMenu extends XLitElement {
   }
 
   private activateCurrentItem() {
-    const selectableItems = this.items.filter((item) => !item.disabled && !item.separator)
-    const currentItem = selectableItems[this.activeIndex()]
+    const currentItem = this.model.getCurrentItem()
     if (currentItem) {
       this.handleItemClick(currentItem)
     }
   }
 
   private activateItemById(id: string) {
-    const item = this.items.find(
-      (candidate) => candidate.id === id && !candidate.disabled && !candidate.separator,
-    )
+    const item = this.model.getActivatableItemById(id)
     if (!item) return
 
-    const selectableItems = this.items.filter((candidate) => !candidate.disabled && !candidate.separator)
-    const selectableIndex = selectableItems.findIndex((candidate) => candidate.id === id)
+    const selectableIndex = this.model.getSelectableIndexById(id)
     if (selectableIndex >= 0) {
-      this.activeIndex.set(selectableIndex)
+      this.model.setActiveSelectableIndex(selectableIndex)
     }
 
     this.handleItemClick(item)
   }
 
-  private handleItemClick = (item: ContextMenuItem, e?: Event) => {
+  private handleItemClick(item: ContextMenuItem, e?: Event) {
     if (item.disabled) return
 
     // Add ripple effect
@@ -377,6 +347,32 @@ export class ContextMenu extends XLitElement {
     } finally {
       this.hide()
     }
+  }
+
+  private handleMenuClick(event: Event) {
+    event.stopPropagation()
+  }
+
+  private handleMenuItemClick(event: Event) {
+    const target = event.currentTarget as HTMLElement | null
+    const itemId = target?.dataset['itemId']
+    if (!itemId) return
+    const item = this.model.items().find((candidate) => candidate.id === itemId)
+    if (!item) return
+    this.handleItemClick(item, event)
+  }
+
+  private handleMenuItemMouseEnter(event: Event) {
+    const target = event.currentTarget as HTMLElement | null
+    const selectableIndex = Number(target?.dataset['selectableIndex'] ?? '-1')
+    if (!Number.isFinite(selectableIndex)) return
+
+    const itemId = target?.dataset['itemId']
+    const item = itemId ? this.model.items().find((candidate) => candidate.id === itemId) : undefined
+    if (item?.disabled) return
+
+    this.model.setActiveSelectableIndex(selectableIndex)
+    this.focusActiveItem()
   }
 
   private createRipple(e: MouseEvent) {
@@ -398,15 +394,8 @@ export class ContextMenu extends XLitElement {
 
   show(x: number, y: number, items: ContextMenuItem[]) {
     this.previousFocus = this.getDeepActiveElement()
-    this.items = items
-    const selectable = items.filter((item) => !item.disabled && !item.separator)
-    this.activeIndex.set(selectable.length > 0 ? 0 : -1)
-
-    this.x = Math.max(8, Math.floor(x))
-    this.y = Math.max(8, Math.floor(y))
-
-    this.visible = true
-    this.requestUpdate()
+    this.model.show(x, y, items)
+    this.syncPositionStyles()
 
     // Focus first menu item for keyboard navigation (APG menu pattern).
     void this.updateComplete.then(() => {
@@ -427,18 +416,18 @@ export class ContextMenu extends XLitElement {
         // After render we know real size. Clamp within viewport.
         const rect = menu.getBoundingClientRect()
         const margin = 8
-        let nx = this.x
-        let ny = this.y
+        const position = this.model.position()
+        let nx = position.x
+        let ny = position.y
         if (nx + rect.width > window.innerWidth - margin) {
           nx = Math.max(margin, window.innerWidth - rect.width - margin)
         }
         if (ny + rect.height > window.innerHeight - margin) {
           ny = Math.max(margin, window.innerHeight - rect.height - margin)
         }
-        if (nx !== this.x || ny !== this.y) {
-          this.x = nx
-          this.y = ny
-          this.requestUpdate()
+        if (nx !== position.x || ny !== position.y) {
+          this.model.setPosition(nx, ny)
+          this.syncPositionStyles()
         }
       }
 
@@ -447,8 +436,7 @@ export class ContextMenu extends XLitElement {
   }
 
   hide(opts?: {restoreFocus?: boolean}) {
-    this.visible = false
-    this.activeIndex.set(-1)
+    this.model.hide()
     this.dispatchEvent(new CustomEvent('hide', {bubbles: true}))
 
     const menu = this.renderRoot.querySelector<HTMLElement>('.context-menu')
@@ -473,29 +461,35 @@ export class ContextMenu extends XLitElement {
     this.previousFocus = null
   }
 
+  private syncPositionStyles() {
+    const {x, y} = this.model.position()
+    this.style.setProperty('--context-menu-x', `${x}px`)
+    this.style.setProperty('--context-menu-y', `${y}px`)
+  }
+
   render() {
-    const rootStyle = `--context-menu-x: ${this.x}px; --context-menu-y: ${this.y}px;`
+    const visible = this.model.visible()
+    const items = this.model.items()
+    const activeIndex = this.model.activeIndex()
 
     return html`
-      <div class="anchor" aria-hidden="true" style=${rootStyle}></div>
+      <div class="anchor" aria-hidden="true"></div>
       <div
-        class="context-menu ${this.visible ? 'visible' : ''}"
-        style=${rootStyle}
+        class="context-menu ${visible ? 'visible' : ''}"
         popover="manual"
         role="menu"
         aria-label=${i18n('context-menu:title' as any)}
-        aria-hidden=${this.visible ? 'false' : 'true'}
-        @click=${(e: Event) => e.stopPropagation()}
+        aria-hidden=${visible ? 'false' : 'true'}
+        @click=${this.handleMenuClick}
       >
-        ${this.items.map((item, index) => {
+        ${items.map((item, index) => {
           if (item.separator) {
             return html`<div class="menu-separator" role="separator"></div>`
           }
 
-          const selectableIndex = item.disabled
-            ? -1
-            : this.items.slice(0, index).filter((i) => !i.disabled && !i.separator).length
-          const isActive = selectableIndex >= 0 && selectableIndex === this.activeIndex()
+          const selectableIndex = this.model.getSelectableIndexAtItemIndex(index)
+          const isActive = selectableIndex >= 0 && selectableIndex === activeIndex
+          const shortcutLabel = item.shortcutId ? keyboardShortcutsModel.label(item.shortcutId) : undefined
 
           const classes = [
             'menu-item',
@@ -511,18 +505,15 @@ export class ContextMenu extends XLitElement {
               class=${classes}
               role="menuitem"
               tabindex="-1"
+              data-item-id=${item.id}
               data-selectable-index=${String(selectableIndex)}
               aria-disabled=${item.disabled ? 'true' : 'false'}
-              @click=${(e: Event) => this.handleItemClick(item, e)}
-              @mouseenter=${() => {
-                if (item.disabled) return
-                this.activeIndex.set(selectableIndex)
-                this.focusActiveItem()
-              }}
+              @click=${this.handleMenuItemClick}
+              @mouseenter=${this.handleMenuItemMouseEnter}
             >
               <cv-icon class="menu-icon" name=${item.icon}></cv-icon>
               <span class="menu-label">${item.label}</span>
-              ${item.shortcut ? html`<span class="menu-shortcut">${item.shortcut}</span>` : ''}
+              ${shortcutLabel ? html`<span class="menu-shortcut">${shortcutLabel}</span>` : ''}
             </div>
           `
         })}

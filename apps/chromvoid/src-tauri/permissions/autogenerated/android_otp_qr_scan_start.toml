@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-android-otp-qr-scan-start"
+description = "Enables the android_otp_qr_scan_start command without any pre-configured scope."
+commands.allow = ["android_otp_qr_scan_start"]
+
+[[permission]]
+identifier = "deny-android-otp-qr-scan-start"
+description = "Denies the android_otp_qr_scan_start command without any pre-configured scope."
+commands.deny = ["android_otp_qr_scan_start"]

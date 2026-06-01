@@ -62,9 +62,28 @@ class BridgePayloadParserTest {
 
         assertTrue(result is BridgeResult.Success)
         val success = result as BridgeResult.Success
-        assertEquals("sess-1", success.value.first)
-        assertEquals("cred-1", success.value.second.single().credentialId)
-        assertEquals("TOTP", success.value.second.single().otpOptions.single().otpType)
+        assertEquals("sess-1", success.value.sessionId)
+        assertEquals("cred-1", success.value.candidates.single().credentialId)
+        assertEquals("TOTP", success.value.candidates.single().otpOptions.single().otpType)
+    }
+
+    @Test
+    fun autofillCloseSession_parsesClosedFlag() {
+        val result =
+            parser.autofillCloseSession(
+                envelope(
+                    """
+                    {
+                      "ok": true,
+                      "closed": true
+                    }
+                    """.trimIndent(),
+                ),
+            )
+
+        assertTrue(result is BridgeResult.Success)
+        val success = result as BridgeResult.Success
+        assertEquals(true, success.value)
     }
 
     @Test

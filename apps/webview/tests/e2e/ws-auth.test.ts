@@ -1,57 +1,24 @@
 import {expect, test} from 'vitest'
+import {waitForAuthenticated, waitForWSConnected} from './utils'
 
 declare global {
   var __E2E_PAGE__: import('playwright').Page | undefined
 }
 
-test('ws становится authenticated в течение 5 секунд', async () => {
+test('app bootstrap reaches connected opened state', async () => {
   const page = globalThis.__E2E_PAGE__!
 
   await page.goto('http://localhost:4400/index.html')
+  await waitForWSConnected(page)
+  await waitForAuthenticated(page)
 
-  // Ждём инициализации AppContext (getAppContext экспортируется в window)
-  await page.waitForFunction(
-    () => {
-      const getAppContext = (window as any).getAppContext
-      if (typeof getAppContext !== 'function') return false
-      try {
-        const ctx = getAppContext()
-        return ctx && ctx.ws !== undefined
-      } catch {
-        return false
-      }
-    },
-    undefined,
-    {timeout: 5_000},
-  )
+  const ready = await page.evaluate(() => {
+    return (
+      !document.documentElement.hasAttribute('loading') &&
+      !document.body.hasAttribute('loading') &&
+      !document.querySelector('no-connection')
+    )
+  })
 
-  // Опционально ждём установления соединения
-  await page.waitForFunction(
-    () => {
-      try {
-        const {ws} = (window as any).getAppContext()
-        return !!ws && typeof ws.connected === 'function' && ws.connected()
-      } catch {
-        return false
-      }
-    },
-    undefined,
-    {timeout: 5_000},
-  )
-
-  // Проверяем, что authenticated станет true в пределах 5 секунд
-  const authed = await page.waitForFunction(
-    () => {
-      try {
-        const {ws} = (window as any).getAppContext()
-        return !!ws && typeof ws.authenticated === 'function' && ws.authenticated()
-      } catch {
-        return false
-      }
-    },
-    undefined,
-    {timeout: 5_000},
-  )
-
-  expect(await authed.jsonValue()).toBe(true)
+  expect(ready).toBe(true)
 })

@@ -3,12 +3,16 @@ package com.chromvoid.app.passkey
 import java.security.MessageDigest
 
 internal object PasskeyAuthenticatorDataBuilder {
+    private const val FLAG_USER_PRESENT = 0x01
+    private const val FLAG_USER_VERIFIED = 0x04
+    private const val FLAG_ATTESTED_CREDENTIAL_DATA = 0x40
+
     fun assertion(
         rpId: String,
         signCount: Long,
         userVerified: Boolean = true,
     ): ByteArray {
-        val flags = 0x01 or if (userVerified) 0x04 else 0
+        val flags = FLAG_USER_PRESENT or (if (userVerified) FLAG_USER_VERIFIED else 0)
         return build(
             rpId = rpId,
             flags = flags,
@@ -24,7 +28,10 @@ internal object PasskeyAuthenticatorDataBuilder {
         signCount: Long = 0,
         userVerified: Boolean = true,
     ): ByteArray {
-        val flags = 0x01 or if (userVerified) 0x04 else 0 or 0x40
+        val flags =
+            FLAG_USER_PRESENT or
+                FLAG_ATTESTED_CREDENTIAL_DATA or
+                (if (userVerified) FLAG_USER_VERIFIED else 0)
         val aaguid = ByteArray(16)
         val length = byteArrayOf(
             ((credentialId.size shr 8) and 0xff).toByte(),

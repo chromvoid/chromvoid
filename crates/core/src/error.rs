@@ -70,6 +70,18 @@ pub enum Error {
     #[error("Vault already unlocked")]
     VaultAlreadyUnlocked,
 
+    #[error("Vault rekey already in progress")]
+    RekeyAlreadyInProgress,
+
+    #[error("Current vault password is invalid")]
+    RekeyInvalidCurrentPassword,
+
+    #[error("Vault rekey password policy failed: {0}")]
+    RekeyPasswordPolicy(String),
+
+    #[error("Vault rekey cancelled")]
+    RekeyCancelled,
+
     // RPC errors
     #[error("Unknown command: {0}")]
     UnknownCommand(String),
@@ -92,6 +104,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum ErrorCode {
     // General
     EmptyPayload,
+    InvalidInput,
     UnknownCommand,
     InternalError,
 
@@ -99,6 +112,14 @@ pub enum ErrorCode {
     VaultRequired,
     VaultAlreadyUnlocked,
     VaultNotUnlocked,
+    RekeyAlreadyInProgress,
+    RekeyInvalidCurrentPassword,
+    RekeyPasswordPolicy,
+    RekeyCancelled,
+    MasterRekeyInvalidCurrentPassword,
+    MasterRekeyPasswordPolicy,
+    MasterRekeyArtifactUnsupported,
+    MasterRekeyIntegrityFailed,
 
     // Vault Export
     VaultExportMasterPasswordRequired,
@@ -112,11 +133,20 @@ pub enum ErrorCode {
     ShardNotFound,
     ShardVersionMismatch,
     DeltasLost,
+    StaleSource,
+    NotFile,
+    SizeMismatch,
+    WriteLocked,
 
     // Streaming (ADR-004)
     StreamRequired,
     NoStream,
     InvalidOffset,
+
+    // Native media range streaming (SPEC-219)
+    MediaStreamStale,
+    MediaRangeInvalid,
+    MediaRangeReadFailed,
 
     // Sync (ADR-004)
     SyncShardNotFound,
@@ -165,17 +195,40 @@ pub enum ErrorCode {
     AccessDenied,
     NoMatch,
     InvalidContext,
+
+    // Wallet (SPEC-217)
+    WalletNotFound,
+    AccountNotFound,
+    UnsupportedChain,
+    UnsupportedAccountModel,
+    PreparationNotFound,
+    PreparationExpired,
+    PreparationStale,
+    InsufficientFunds,
+    BroadcastRejected,
+    BroadcastUnknown,
+    ExportReauthFailed,
+    UnsupportedExportKind,
 }
 
 impl ErrorCode {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::EmptyPayload => "EMPTY_PAYLOAD",
+            Self::InvalidInput => "INVALID_INPUT",
             Self::UnknownCommand => "UNKNOWN_COMMAND",
             Self::InternalError => "INTERNAL_ERROR",
             Self::VaultRequired => "VAULT_REQUIRED",
             Self::VaultAlreadyUnlocked => "VAULT_ALREADY_UNLOCKED",
             Self::VaultNotUnlocked => "VAULT_NOT_UNLOCKED",
+            Self::RekeyAlreadyInProgress => "REKEY_ALREADY_IN_PROGRESS",
+            Self::RekeyInvalidCurrentPassword => "REKEY_INVALID_CURRENT_PASSWORD",
+            Self::RekeyPasswordPolicy => "REKEY_PASSWORD_POLICY",
+            Self::RekeyCancelled => "REKEY_CANCELLED",
+            Self::MasterRekeyInvalidCurrentPassword => "MASTER_REKEY_INVALID_CURRENT_PASSWORD",
+            Self::MasterRekeyPasswordPolicy => "MASTER_REKEY_PASSWORD_POLICY",
+            Self::MasterRekeyArtifactUnsupported => "MASTER_REKEY_ARTIFACT_UNSUPPORTED",
+            Self::MasterRekeyIntegrityFailed => "MASTER_REKEY_INTEGRITY_FAILED",
             Self::VaultExportMasterPasswordRequired => "VAULT_EXPORT_MASTER_PASSWORD_REQUIRED",
             Self::CatalogNotInit => "CATALOG_NOT_INIT",
             Self::NodeNotFound => "NODE_NOT_FOUND",
@@ -185,9 +238,16 @@ impl ErrorCode {
             Self::ShardNotFound => "SHARD_NOT_FOUND",
             Self::ShardVersionMismatch => "SHARD_VERSION_MISMATCH",
             Self::DeltasLost => "DELTAS_LOST",
+            Self::StaleSource => "ERR_STALE_SOURCE",
+            Self::NotFile => "ERR_NOT_FILE",
+            Self::SizeMismatch => "ERR_SIZE_MISMATCH",
+            Self::WriteLocked => "ERR_WRITE_LOCKED",
             Self::StreamRequired => "STREAM_REQUIRED",
             Self::NoStream => "NO_STREAM",
             Self::InvalidOffset => "INVALID_OFFSET",
+            Self::MediaStreamStale => "ERR_MEDIA_STREAM_STALE",
+            Self::MediaRangeInvalid => "ERR_MEDIA_RANGE_INVALID",
+            Self::MediaRangeReadFailed => "ERR_MEDIA_RANGE_READ_FAILED",
             Self::SyncShardNotFound => "SYNC_SHARD_NOT_FOUND",
             Self::SyncVersionMismatch => "SYNC_VERSION_MISMATCH",
             Self::SyncDeltasLost => "SYNC_DELTAS_LOST",
@@ -222,6 +282,18 @@ impl ErrorCode {
             Self::AccessDenied => "ACCESS_DENIED",
             Self::NoMatch => "NO_MATCH",
             Self::InvalidContext => "INVALID_CONTEXT",
+            Self::WalletNotFound => "WALLET_NOT_FOUND",
+            Self::AccountNotFound => "ACCOUNT_NOT_FOUND",
+            Self::UnsupportedChain => "UNSUPPORTED_CHAIN",
+            Self::UnsupportedAccountModel => "UNSUPPORTED_ACCOUNT_MODEL",
+            Self::PreparationNotFound => "PREPARATION_NOT_FOUND",
+            Self::PreparationExpired => "PREPARATION_EXPIRED",
+            Self::PreparationStale => "PREPARATION_STALE",
+            Self::InsufficientFunds => "INSUFFICIENT_FUNDS",
+            Self::BroadcastRejected => "BROADCAST_REJECTED",
+            Self::BroadcastUnknown => "BROADCAST_UNKNOWN",
+            Self::ExportReauthFailed => "EXPORT_REAUTH_FAILED",
+            Self::UnsupportedExportKind => "UNSUPPORTED_EXPORT_KIND",
         }
     }
 }

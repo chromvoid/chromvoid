@@ -44,9 +44,9 @@ fn sensitive_command_requires_origin_when_site_grant_enabled() {
     policy.require_site_grant = true;
     st.set_policy(policy);
 
-    let err =
-        capability::check_capability(&mut st, ext_id, "passmanager:secret:read", None, None, None)
-            .expect_err("origin should be required");
+    let (result, _) =
+        capability::check_capability(&mut st, ext_id, "passmanager:secret:read", None, None, None);
+    let err = result.expect_err("origin should be required");
 
     assert_eq!(err, "origin required for sensitive command");
 }
@@ -75,7 +75,7 @@ fn sensitive_command_checks_site_grant_by_origin() {
         },
     );
 
-    let ok = capability::check_capability(
+    let (ok, _) = capability::check_capability(
         &mut st,
         ext_id,
         "passmanager:secret:read",
@@ -86,15 +86,15 @@ fn sensitive_command_checks_site_grant_by_origin() {
 
     assert!(ok.is_ok());
 
-    let denied = capability::check_capability(
+    let (denied, _) = capability::check_capability(
         &mut st,
         ext_id,
         "passmanager:secret:read",
         None,
         Some("https://evil.example"),
         None,
-    )
-    .expect_err("wrong origin must be denied");
+    );
+    let denied = denied.expect_err("wrong origin must be denied");
 
     assert_eq!(denied, "no site grant for origin 'https://evil.example'");
 }

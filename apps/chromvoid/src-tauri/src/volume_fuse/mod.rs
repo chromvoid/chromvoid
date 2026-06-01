@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 // Intentionally keep this module self-contained; FUSE ops pull in std::io::Read locally.
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::core_adapter::CoreAdapter;
@@ -13,16 +13,6 @@ const INO_OFFSET: u64 = 1;
 
 /// TTL for cached attributes (short to keep consistency with catalog).
 const ATTR_TTL: Duration = Duration::from_secs(1);
-
-static FUSE_EVENT_APP: OnceLock<tauri::AppHandle> = OnceLock::new();
-
-pub(crate) fn set_fuse_event_app_handle(app: tauri::AppHandle) {
-    let _ = FUSE_EVENT_APP.set(app);
-}
-
-fn fuse_event_app_handle() -> Option<&'static tauri::AppHandle> {
-    FUSE_EVENT_APP.get()
-}
 
 pub fn fuse_ino_from_catalog_node_id(node_id: u64) -> u64 {
     node_id.saturating_add(INO_OFFSET)
@@ -52,30 +42,50 @@ pub struct InodeTable {
 
 impl InodeTable {
     pub fn get(&self, ino: u64) -> Option<InodeEntry> {
-        self.entries.read().ok()?.get(&ino).cloned()
+        match self.entries.read() {
+            Ok(map) => map.get(&ino).cloned(),
+            Err(_) => {
+                tracing::warn!("FUSE inode table read lock poisoned");
+                None
+            }
+        }
     }
 
     pub fn upsert(&self, entry: InodeEntry) {
         let ino = fuse_ino_from_catalog_node_id(entry.catalog_node_id);
-        if let Ok(mut map) = self.entries.write() {
-            map.insert(ino, entry);
+        match self.entries.write() {
+            Ok(mut map) => {
+                map.insert(ino, entry);
+            }
+            Err(_) => {
+                tracing::warn!("FUSE inode table write lock poisoned");
+            }
         }
     }
 
     pub fn remove(&self, ino: u64) {
-        if let Ok(mut map) = self.entries.write() {
-            map.remove(&ino);
+        match self.entries.write() {
+            Ok(mut map) => {
+                map.remove(&ino);
+            }
+            Err(_) => {
+                tracing::warn!("FUSE inode table write lock poisoned");
+            }
         }
     }
 
     /// Find a child by parent inode and name.
     pub fn find_child(&self, parent_ino: u64, name: &str) -> Option<InodeEntry> {
-        self.entries
-            .read()
-            .ok()?
-            .values()
-            .find(|e| e.parent_ino == parent_ino && e.name == name)
-            .cloned()
+        match self.entries.read() {
+            Ok(map) => map
+                .values()
+                .find(|e| e.parent_ino == parent_ino && e.name == name)
+                .cloned(),
+            Err(_) => {
+                tracing::warn!("FUSE inode table read lock poisoned");
+                None
+            }
+        }
     }
 
     /// List all children of `parent_ino` from the cache.
@@ -86,7 +96,10 @@ impl InodeTable {
                 .filter(|e| e.parent_ino == parent_ino)
                 .cloned()
                 .collect(),
-            Err(_) => Vec::new(),
+            Err(_) => {
+                tracing::warn!("FUSE inode table read lock poisoned");
+                Vec::new()
+            }
         }
     }
 
@@ -97,7 +110,10 @@ impl InodeTable {
     pub fn retain_children(&self, parent_ino: u64, keep_names: &HashSet<String>) {
         let mut map = match self.entries.write() {
             Ok(m) => m,
-            Err(_) => return,
+            Err(_) => {
+                tracing::warn!("FUSE inode table write lock poisoned");
+                return;
+            }
         };
 
         let mut to_remove: Vec<u64> = Vec::new();
@@ -122,11 +138,29 @@ fn ms_to_system_time(ms: u64) -> SystemTime {
 mod imp;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-pub use imp::start_fuse_server;
+pub use imp::{start_fuse_server, start_fuse_server_with_app};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn entry(node_id: u64, name: &str, parent_ino: u64, is_dir: bool) -> InodeEntry {
+        InodeEntry {
+            catalog_node_id: node_id,
+            name: name.to_string(),
+            parent_ino,
+            is_dir,
+            size: 0,
+            modified: None,
+        }
+    }
+
+    fn poison_inode_table_for_test(table: &InodeTable) {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = table.entries.write().expect("inode table lock");
+            panic!("poison inode table for test");
+        }));
+    }
 
     #[test]
     fn inode_mapping_offsets_catalog_ids() {
@@ -151,14 +185,8 @@ mod tests {
     #[test]
     fn inode_table_upsert_and_get() {
         let table = InodeTable::default();
-        let entry = InodeEntry {
-            catalog_node_id: 7,
-            name: "a.txt".to_string(),
-            parent_ino: FUSE_ROOT_ID,
-            is_dir: false,
-            size: 123,
-            modified: None,
-        };
+        let mut entry = entry(7, "a.txt", FUSE_ROOT_ID, false);
+        entry.size = 123;
         let ino = fuse_ino_from_catalog_node_id(entry.catalog_node_id);
         table.upsert(entry);
         let got = table.get(ino).expect("entry");
@@ -170,22 +198,10 @@ mod tests {
     #[test]
     fn inode_table_find_child() {
         let table = InodeTable::default();
-        table.upsert(InodeEntry {
-            catalog_node_id: 5,
-            name: "docs".to_string(),
-            parent_ino: FUSE_ROOT_ID,
-            is_dir: true,
-            size: 0,
-            modified: None,
-        });
-        table.upsert(InodeEntry {
-            catalog_node_id: 10,
-            name: "readme.md".to_string(),
-            parent_ino: FUSE_ROOT_ID,
-            is_dir: false,
-            size: 256,
-            modified: None,
-        });
+        table.upsert(entry(5, "docs", FUSE_ROOT_ID, true));
+        let mut readme = entry(10, "readme.md", FUSE_ROOT_ID, false);
+        readme.size = 256;
+        table.upsert(readme);
 
         let found = table
             .find_child(FUSE_ROOT_ID, "docs")
@@ -199,6 +215,43 @@ mod tests {
         assert_eq!(found2.catalog_node_id, 10);
 
         assert!(table.find_child(FUSE_ROOT_ID, "nonexistent").is_none());
+    }
+
+    #[test]
+    fn inode_table_children_returns_cached_children() {
+        let table = InodeTable::default();
+        table.upsert(entry(5, "docs", FUSE_ROOT_ID, true));
+        table.upsert(entry(10, "readme.md", FUSE_ROOT_ID, false));
+
+        let mut names = table
+            .children(FUSE_ROOT_ID)
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect::<Vec<_>>();
+        names.sort();
+
+        assert_eq!(names, vec!["docs", "readme.md"]);
+    }
+
+    #[test]
+    fn inode_table_poisoned_read_fallbacks_remain_empty() {
+        let table = InodeTable::default();
+        table.upsert(entry(5, "docs", FUSE_ROOT_ID, true));
+        poison_inode_table_for_test(&table);
+
+        assert!(table.get(fuse_ino_from_catalog_node_id(5)).is_none());
+        assert!(table.find_child(FUSE_ROOT_ID, "docs").is_none());
+        assert!(table.children(FUSE_ROOT_ID).is_empty());
+    }
+
+    #[test]
+    fn inode_table_poisoned_write_fallbacks_do_not_panic() {
+        let table = InodeTable::default();
+        poison_inode_table_for_test(&table);
+
+        table.upsert(entry(5, "docs", FUSE_ROOT_ID, true));
+        table.remove(fuse_ino_from_catalog_node_id(5));
+        table.retain_children(FUSE_ROOT_ID, &HashSet::new());
     }
 
     #[test]

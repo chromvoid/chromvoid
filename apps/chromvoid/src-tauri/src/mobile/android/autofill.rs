@@ -1,13 +1,13 @@
 #![cfg_attr(not(target_os = "android"), allow(dead_code))]
 
+use crate::credential_provider_contract::credential_provider_status_bool;
 use crate::CoreAdapter;
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::sync::LazyLock;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, MutexGuard};
 use uuid::Uuid;
 
 use super::provider_status::provider_runtime_unavailable;
@@ -55,17 +55,114 @@ pub struct AutofillDegradedState {
 pub struct AutofillListResult {
     pub candidates: Vec<AutofillCandidate>,
     pub degraded: Option<AutofillDegradedState>,
+    pub debug: Option<Value>,
 }
 
 #[derive(Debug, Clone)]
 struct AndroidAutofillRuntimeSession {
     context: AutofillContext,
     allowlisted_ids: HashSet<String>,
+    expires_at_ms: u64,
 }
 
-static ANDROID_AUTOFILL_RUNTIME_SESSIONS: LazyLock<
-    Mutex<HashMap<String, AndroidAutofillRuntimeSession>>,
-> = LazyLock::new(|| Mutex::new(HashMap::new()));
+const ANDROID_AUTOFILL_RUNTIME_SESSION_TTL_MS: u64 = 120_000;
+const AUTOFILL_RUNTIME_SESSION_STORE_UNAVAILABLE: &str =
+    "Autofill runtime session store unavailable";
+
+pub(crate) struct AndroidAutofillRuntimeState {
+    sessions: Mutex<HashMap<String, AndroidAutofillRuntimeSession>>,
+}
+
+impl AndroidAutofillRuntimeState {
+    pub(crate) fn new() -> Self {
+        Self {
+            sessions: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn sessions(
+        &self,
+    ) -> Result<MutexGuard<'_, HashMap<String, AndroidAutofillRuntimeSession>>, String> {
+        self.sessions
+            .lock()
+            .map_err(|_| AUTOFILL_RUNTIME_SESSION_STORE_UNAVAILABLE.to_string())
+    }
+
+    fn create_session(
+        &self,
+        context: &AutofillContext,
+        candidates: &[AutofillCandidate],
+    ) -> Result<Option<String>, String> {
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+
+        let session_id = Uuid::new_v4().to_string();
+        let allowlisted_ids = candidates
+            .iter()
+            .map(|candidate| candidate.credential_id.clone())
+            .collect::<HashSet<_>>();
+        let expires_at_ms =
+            runtime_autofill_now_ms().saturating_add(ANDROID_AUTOFILL_RUNTIME_SESSION_TTL_MS);
+
+        let mut sessions = self.sessions()?;
+        runtime_autofill_prune_sessions(&mut sessions);
+        sessions.insert(
+            session_id.clone(),
+            AndroidAutofillRuntimeSession {
+                context: context.clone(),
+                allowlisted_ids,
+                expires_at_ms,
+            },
+        );
+        Ok(Some(session_id))
+    }
+
+    fn take_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<AndroidAutofillRuntimeSession>, String> {
+        let mut sessions = self.sessions()?;
+        runtime_autofill_prune_sessions(&mut sessions);
+        Ok(sessions.remove(session_id))
+    }
+
+    fn close_session(&self, session_id: &str) -> Result<bool, String> {
+        let mut sessions = self.sessions()?;
+        runtime_autofill_prune_sessions(&mut sessions);
+        Ok(sessions.remove(session_id).is_some())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn expire_session_for_tests(&self, session_id: &str) -> Result<(), String> {
+        let mut sessions = self.sessions()?;
+        if let Some(session) = sessions.get_mut(session_id) {
+            session.expires_at_ms = runtime_autofill_now_ms().saturating_sub(1);
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn session_count_for_tests(&self) -> Result<usize, String> {
+        let mut sessions = self.sessions()?;
+        runtime_autofill_prune_sessions(&mut sessions);
+        Ok(sessions.len())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn poison_sessions_for_tests(&self) {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = self.sessions.lock().expect("autofill runtime test lock");
+            panic!("poison autofill runtime sessions");
+        }));
+    }
+}
+
+impl Default for AndroidAutofillRuntimeState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 pub struct AndroidAutofillAdapter<'a> {
     adapter: &'a mut dyn CoreAdapter,
@@ -80,7 +177,7 @@ impl<'a> AndroidAutofillAdapter<'a> {
         }
     }
 
-    pub fn list(&mut self, context: &AutofillContext) -> AutofillListResult {
+    pub fn list(&mut self, context: &AutofillContext, include_debug: bool) -> AutofillListResult {
         self.allowlisted_ids.clear();
 
         let status = self
@@ -90,6 +187,7 @@ impl<'a> AndroidAutofillAdapter<'a> {
             return AutofillListResult {
                 candidates: Vec::new(),
                 degraded: Some(degraded),
+                debug: None,
             };
         }
 
@@ -98,7 +196,8 @@ impl<'a> AndroidAutofillAdapter<'a> {
                 "kind": "web",
                 "origin": context.origin,
                 "domain": context.domain,
-            }
+            },
+            "include_debug": include_debug,
         });
 
         let list = self.dispatch("credential_provider:list", context_payload);
@@ -108,9 +207,11 @@ impl<'a> AndroidAutofillAdapter<'a> {
                 return AutofillListResult {
                     candidates: Vec::new(),
                     degraded: Some(degraded),
+                    debug: None,
                 }
             }
         };
+        let debug = result.get("debug").cloned();
 
         let candidates = result
             .get("candidates")
@@ -118,77 +219,21 @@ impl<'a> AndroidAutofillAdapter<'a> {
             .map(|items| {
                 items
                     .iter()
-                    .filter_map(|item| {
-                        let credential_id = item.get("credential_id")?.as_str()?.to_string();
-                        let label = item
-                            .get("label")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default()
-                            .to_string();
-                        let username = item
-                            .get("username")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default()
-                            .to_string();
-                        let domain = item
-                            .get("domain")
-                            .and_then(|v| v.as_str())
-                            .map(ToString::to_string);
-                        let app_id = item
-                            .get("app_id")
-                            .and_then(|v| v.as_str())
-                            .map(ToString::to_string);
-                        let match_kind = item
-                            .get("match")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("exact")
-                            .to_string();
-                        let otp_options = item
-                            .get("otp_options")
-                            .and_then(|v| v.as_array())
-                            .map(|items| {
-                                items
-                                    .iter()
-                                    .filter_map(|otp| {
-                                        let id = otp.get("id")?.as_str()?.trim().to_string();
-                                        if id.is_empty() {
-                                            return None;
-                                        }
-                                        let label = otp
-                                            .get("label")
-                                            .and_then(|v| v.as_str())
-                                            .map(str::trim)
-                                            .filter(|s| !s.is_empty())
-                                            .map(ToString::to_string);
-                                        let otp_type = otp
-                                            .get("type")
-                                            .and_then(|v| v.as_str())
-                                            .map(str::trim)
-                                            .filter(|s| !s.is_empty())
-                                            .map(ToString::to_string);
-                                        Some(AutofillOtpOption {
-                                            id,
-                                            label,
-                                            otp_type,
-                                        })
-                                    })
-                                    .collect::<Vec<_>>()
-                            })
-                            .unwrap_or_default();
-
-                        Some(AutofillCandidate {
-                            credential_id,
-                            label,
-                            username,
-                            domain,
-                            app_id,
-                            match_kind,
-                            otp_options,
-                        })
-                    })
+                    .filter_map(parse_autofill_candidate)
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+
+        if let Some(debug) = debug.as_ref() {
+            let diagnostics_json = debug.to_string();
+            tracing::info!(
+                target: "chromvoid_lib::mobile::android::autofill",
+                origin = %context.origin,
+                domain = %context.domain,
+                diagnostics = %diagnostics_json,
+                "android autofill list diagnostics"
+            );
+        }
 
         for candidate in &candidates {
             self.allowlisted_ids.insert(candidate.credential_id.clone());
@@ -197,6 +242,7 @@ impl<'a> AndroidAutofillAdapter<'a> {
         AutofillListResult {
             candidates,
             degraded: None,
+            debug,
         }
     }
 
@@ -296,14 +342,8 @@ impl<'a> AndroidAutofillAdapter<'a> {
     }
 
     fn policy_gate(&self, status: &Value) -> Result<(), AutofillDegradedState> {
-        let enabled = status
-            .get("enabled")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let vault_open = status
-            .get("vault_open")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let enabled = credential_provider_status_bool(status, "enabled", "android_autofill");
+        let vault_open = credential_provider_status_bool(status, "vault_open", "android_autofill");
 
         if !enabled {
             return Err(Self::degraded(
@@ -348,54 +388,163 @@ impl<'a> AndroidAutofillAdapter<'a> {
     }
 }
 
-pub fn runtime_autofill_list(context: &AutofillContext) -> Value {
+fn parse_autofill_candidate(item: &Value) -> Option<AutofillCandidate> {
+    let credential_id = item.get("credential_id")?.as_str()?;
+    if credential_id.trim().is_empty() {
+        return None;
+    }
+
+    let label = item
+        .get("label")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let username = item
+        .get("username")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let domain = item
+        .get("domain")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
+    let app_id = item
+        .get("app_id")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
+    let match_kind = item
+        .get("match")
+        .and_then(|v| v.as_str())
+        .unwrap_or("exact")
+        .to_string();
+    let otp_options = item
+        .get("otp_options")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(parse_autofill_otp_option)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    Some(AutofillCandidate {
+        credential_id: credential_id.to_string(),
+        label,
+        username,
+        domain,
+        app_id,
+        match_kind,
+        otp_options,
+    })
+}
+
+fn parse_autofill_otp_option(otp: &Value) -> Option<AutofillOtpOption> {
+    let id = otp.get("id")?.as_str()?.trim().to_string();
+    if id.is_empty() {
+        return None;
+    }
+    let label = otp
+        .get("label")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string);
+    let otp_type = otp
+        .get("type")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string);
+    Some(AutofillOtpOption {
+        id,
+        label,
+        otp_type,
+    })
+}
+
+fn runtime_autofill_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn runtime_autofill_prune_sessions(sessions: &mut HashMap<String, AndroidAutofillRuntimeSession>) {
+    let now = runtime_autofill_now_ms();
+    sessions.retain(|_, session| session.expires_at_ms > now);
+}
+
+fn app_android_autofill_runtime() -> Option<Arc<AndroidAutofillRuntimeState>> {
+    crate::mobile::android::runtime::app_android_autofill_runtime()
+}
+
+pub(crate) fn runtime_autofill_list_with_runtime(
+    runtime: &AndroidAutofillRuntimeState,
+    context: &AutofillContext,
+    include_debug: bool,
+) -> Value {
     let listed = match with_shared_provider_adapter(|adapter| {
         let mut autofill = AndroidAutofillAdapter::new(adapter);
-        autofill.list(context)
+        autofill.list(context, include_debug)
     }) {
         Ok(listed) => listed,
         Err(message) => return provider_runtime_unavailable(&message),
     };
 
-    if let Some(degraded) = listed.degraded {
+    let AutofillListResult {
+        candidates,
+        degraded,
+        debug,
+    } = listed;
+
+    if let Some(degraded) = degraded {
         return json!({
             "ok": false,
             "degraded": degraded,
         });
     }
 
-    let session_id = Uuid::new_v4().to_string();
-    let allowlisted_ids = listed
-        .candidates
-        .iter()
-        .map(|candidate| candidate.credential_id.clone())
-        .collect::<HashSet<_>>();
-
-    if let Ok(mut sessions) = ANDROID_AUTOFILL_RUNTIME_SESSIONS.lock() {
-        sessions.insert(
-            session_id.clone(),
-            AndroidAutofillRuntimeSession {
-                context: context.clone(),
-                allowlisted_ids,
-            },
-        );
-    }
-
-    json!({
+    let mut response = json!({
         "ok": true,
-        "session_id": session_id,
-        "candidates": listed.candidates,
-    })
+        "candidates": candidates,
+    });
+    match runtime.create_session(context, &candidates) {
+        Ok(Some(session_id)) => {
+            response["session_id"] = json!(session_id);
+        }
+        Ok(None) => {}
+        Err(message) => return provider_runtime_unavailable(&message),
+    }
+    if let Some(debug) = debug {
+        response["debug"] = debug;
+    }
+    response
 }
 
-pub fn runtime_autofill_get_secret(
+pub fn runtime_autofill_list(context: &AutofillContext) -> Value {
+    let Some(runtime) = app_android_autofill_runtime() else {
+        return provider_runtime_unavailable(AUTOFILL_RUNTIME_SESSION_STORE_UNAVAILABLE);
+    };
+    runtime_autofill_list_with_runtime(&runtime, context, false)
+}
+
+pub fn runtime_autofill_list_with_diagnostics(context: &AutofillContext) -> Value {
+    let Some(runtime) = app_android_autofill_runtime() else {
+        return provider_runtime_unavailable(AUTOFILL_RUNTIME_SESSION_STORE_UNAVAILABLE);
+    };
+    runtime_autofill_list_with_runtime(&runtime, context, true)
+}
+
+pub(crate) fn runtime_autofill_get_secret_with_runtime(
+    runtime: &AndroidAutofillRuntimeState,
     session_id: &str,
     credential_id: &str,
     otp_id: Option<&str>,
 ) -> Value {
-    let session = match ANDROID_AUTOFILL_RUNTIME_SESSIONS.lock() {
-        Ok(mut sessions) => sessions.remove(session_id),
-        Err(_) => None,
+    let session = match runtime.take_session(session_id) {
+        Ok(session) => session,
+        Err(message) => return provider_runtime_unavailable(&message),
     };
 
     let Some(session) = session else {
@@ -426,5 +575,90 @@ pub fn runtime_autofill_get_secret(
             "ok": false,
             "degraded": degraded,
         }),
+    }
+}
+
+pub fn runtime_autofill_get_secret(
+    session_id: &str,
+    credential_id: &str,
+    otp_id: Option<&str>,
+) -> Value {
+    let Some(runtime) = app_android_autofill_runtime() else {
+        return provider_runtime_unavailable(AUTOFILL_RUNTIME_SESSION_STORE_UNAVAILABLE);
+    };
+    runtime_autofill_get_secret_with_runtime(&runtime, session_id, credential_id, otp_id)
+}
+
+pub(crate) fn runtime_autofill_close_session_with_runtime(
+    runtime: &AndroidAutofillRuntimeState,
+    session_id: &str,
+) -> Value {
+    if session_id.trim().is_empty() {
+        return json!({
+            "ok": true,
+            "closed": false,
+        });
+    }
+
+    let closed = match runtime.close_session(session_id) {
+        Ok(closed) => closed,
+        Err(message) => return provider_runtime_unavailable(&message),
+    };
+
+    json!({
+        "ok": true,
+        "closed": closed,
+    })
+}
+
+pub fn runtime_autofill_close_session(session_id: &str) -> Value {
+    let Some(runtime) = app_android_autofill_runtime() else {
+        return provider_runtime_unavailable(AUTOFILL_RUNTIME_SESSION_STORE_UNAVAILABLE);
+    };
+    runtime_autofill_close_session_with_runtime(&runtime, session_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parse_autofill_candidate_rejects_blank_credential_id() {
+        assert!(parse_autofill_candidate(&json!({ "credential_id": "" })).is_none());
+        assert!(parse_autofill_candidate(&json!({ "credential_id": "   " })).is_none());
+        assert!(parse_autofill_candidate(&json!({ "label": "Example" })).is_none());
+    }
+
+    #[test]
+    fn parse_autofill_candidate_preserves_valid_payload_and_filters_blank_otp() {
+        let candidate = parse_autofill_candidate(&json!({
+            "credential_id": " cred-example ",
+            "label": "Example",
+            "username": "alice@example.com",
+            "domain": "example.com",
+            "app_id": "com.example.app",
+            "match": "associated",
+            "otp_options": [
+                { "id": " otp-1 ", "label": " TOTP ", "type": " totp " },
+                { "id": "   ", "label": "invalid" }
+            ]
+        }))
+        .expect("candidate");
+
+        assert_eq!(candidate.credential_id, " cred-example ");
+        assert_eq!(candidate.label, "Example");
+        assert_eq!(candidate.username, "alice@example.com");
+        assert_eq!(candidate.domain.as_deref(), Some("example.com"));
+        assert_eq!(candidate.app_id.as_deref(), Some("com.example.app"));
+        assert_eq!(candidate.match_kind, "associated");
+        assert_eq!(
+            candidate.otp_options,
+            vec![AutofillOtpOption {
+                id: "otp-1".to_string(),
+                label: Some("TOTP".to_string()),
+                otp_type: Some("totp".to_string()),
+            }]
+        );
     }
 }

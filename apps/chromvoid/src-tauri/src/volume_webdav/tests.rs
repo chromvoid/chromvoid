@@ -11,12 +11,14 @@ use hyper::{Request, StatusCode};
 use hyper_util::rt::TokioIo;
 use serde_json::json;
 use tempfile::tempdir;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::oneshot;
 
 use crate::core_adapter::{CoreAdapter, LocalCoreAdapter};
 
 use super::filesystem::CatalogDavFs;
+use super::request_io::WebDavRequestIoRuntimeState;
 use super::server::{start_webdav_server, WebDavServerHandle};
 
 #[tokio::test]
@@ -26,6 +28,7 @@ async fn webdav_handle_drop_signals_shutdown_channel() {
         addr: "127.0.0.1:0".parse().expect("addr"),
         shutdown_tx: Some(shutdown_tx),
         task: Some(tokio::spawn(async {})),
+        request_io_runtime: Arc::new(WebDavRequestIoRuntimeState::new()),
     };
 
     drop(handle);
@@ -147,6 +150,45 @@ async fn webdav_bind_is_loopback_and_file_roundtrip() {
     srv.join().await;
 }
 
+#[tokio::test]
+async fn webdav_join_closes_active_idle_connection() {
+    let app = tauri::test::mock_app();
+    let handle = app.handle().clone();
+
+    let dir = tempdir().expect("tempdir");
+    let storage_root = dir.path().join("storage");
+    let adapter = LocalCoreAdapter::new(storage_root).expect("LocalCoreAdapter::new");
+    let adapter: Arc<Mutex<Box<dyn CoreAdapter>>> = Arc::new(Mutex::new(Box::new(adapter)));
+    let srv = start_webdav_server(handle, adapter)
+        .await
+        .expect("start webdav");
+
+    let mut stream = TcpStream::connect(srv.addr)
+        .await
+        .expect("tcp connect to webdav");
+
+    tokio::time::timeout(Duration::from_secs(1), srv.join())
+        .await
+        .expect("webdav join should finish with an idle connection");
+
+    let _ = stream
+        .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .await;
+
+    let mut buf = [0_u8; 32];
+    let read = tokio::time::timeout(Duration::from_millis(200), stream.read(&mut buf)).await;
+    match read {
+        Ok(Ok(0)) | Ok(Err(_)) | Err(_) => {}
+        Ok(Ok(n)) => {
+            let text = String::from_utf8_lossy(&buf[..n]);
+            assert!(
+                !text.starts_with("HTTP/"),
+                "idle connection produced a response after shutdown: {text:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn rpc_code_access_denied_maps_to_forbidden() {
     let err = CatalogDavFs::<tauri::Wry>::rpc_code_to_fs_error(Some("ACCESS_DENIED"));
@@ -160,9 +202,9 @@ fn rpc_code_node_not_found_maps_to_not_found() {
 }
 
 #[test]
-fn rpc_code_unknown_maps_to_not_found() {
+fn rpc_code_unknown_maps_to_general_failure() {
     let err = CatalogDavFs::<tauri::Wry>::rpc_code_to_fs_error(Some("SOMETHING_ELSE"));
-    assert!(matches!(err, FsError::NotFound));
+    assert!(matches!(err, FsError::GeneralFailure));
     let err = CatalogDavFs::<tauri::Wry>::rpc_code_to_fs_error(None);
-    assert!(matches!(err, FsError::NotFound));
+    assert!(matches!(err, FsError::GeneralFailure));
 }

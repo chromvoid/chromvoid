@@ -1,6 +1,6 @@
 import {writeJson, writeText} from './artifacts.mjs'
 
-const AUTOFILL_COMPONENT = 'com.chromvoid.app/com.chromvoid.app.ChromVoidAutofillService'
+const AUTOFILL_SERVICE_CLASS = 'com.chromvoid.app.ChromVoidAutofillService'
 
 export async function clearAutofillDiagnostics({adb, serial, env}) {
   await runAdb(adb, serial, ['logcat', '-c'], env, {allowFailure: true})
@@ -9,11 +9,11 @@ export async function clearAutofillDiagnostics({adb, serial, env}) {
   })
 }
 
-export async function ensureChromvoidAutofillService({adb, serial, env}) {
+export async function ensureChromvoidAutofillService({adb, serial, env, packageName}) {
   await runAdb(
     adb,
     serial,
-    ['shell', 'settings', 'put', 'secure', 'autofill_service', AUTOFILL_COMPONENT],
+    ['shell', 'settings', 'put', 'secure', 'autofill_service', `${packageName}/${AUTOFILL_SERVICE_CLASS}`],
     env,
   )
 }
@@ -41,7 +41,7 @@ export async function openChromeUrl({adb, serial, env, url}) {
   )
 }
 
-export async function captureAutofillDiagnostics({adb, serial, env, artifactRoot, label}) {
+export async function captureAutofillDiagnostics({adb, serial, env, artifactRoot, label, packageName}) {
   const logcat = await runAdb(adb, serial, ['logcat', '-d', '-v', 'time', '-s', 'ChromVoidAutofill'], env, {
     allowFailure: true,
   })
@@ -74,7 +74,7 @@ export async function captureAutofillDiagnostics({adb, serial, env, artifactRoot
     authCancelReasons: [...text.matchAll(/event=authCancel reason=([^\s]+)/g)].map((match) => match[1]),
     selectedDatasetIds: dump.match(/mSelectedDatasetIds:\s*(.+)/)?.[1]?.trim() ?? null,
     numDatasets: Number(dump.match(/NUM_DATASETS=(\d+)/)?.[1] ?? 0),
-    serviceSeen: dump.includes('SERVICE=com.chromvoid.app'),
+    serviceSeen: dump.includes(`SERVICE=${packageName}`),
   }
   await writeJson(artifactRoot, `${label}-autofill-summary.json`, summary)
   return summary

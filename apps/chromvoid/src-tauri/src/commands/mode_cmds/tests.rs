@@ -10,6 +10,7 @@ mod tests {
             mode: CoreMode::Local,
             connection_state: ConnectionState::Disconnected,
             transport_type: None,
+            remote_core_features: Vec::new(),
         };
         let json = serde_json::to_value(&info).unwrap();
         assert_eq!(json["mode"], "local");
@@ -27,11 +28,16 @@ mod tests {
             },
             connection_state: ConnectionState::Ready,
             transport_type: Some("webrtc".to_string()),
+            remote_core_features: vec!["remote_media_inspection_split_v1".to_string()],
         };
         let json = serde_json::to_value(&info).unwrap();
         assert!(json["mode"].is_object());
         assert_eq!(json["connection_state"], "ready");
         assert_eq!(json["transport_type"], "webrtc");
+        assert_eq!(
+            json["remote_core_features"][0],
+            "remote_media_inspection_split_v1"
+        );
     }
 
     #[test]
@@ -65,6 +71,7 @@ mod tests {
                 },
             },
             current_mode: CoreMode::Local,
+            remote_core_features: Vec::new(),
             auto_locked: true,
             drain_completed: true,
         };
@@ -248,36 +255,33 @@ mod sync_integration_tests {
     }
 
     #[test]
-    fn sync_integration_bootstrap_sync_helper_uses_global_state() {
-        // Test the actual public helper through global state
-        sync_cmds::reset_sync_state();
-        sync_cmds::bootstrap_sync(200, 1700000000000);
-        assert!(sync_cmds::is_sync_active());
-        let cursor = sync_cmds::current_cursor();
+    fn sync_integration_bootstrap_runtime_sets_local_state() {
+        let runtime = sync_cmds::SyncRuntimeState::new();
+        runtime.bootstrap(200, 1700000000000).unwrap();
+        assert!(runtime.is_active().unwrap());
+        let cursor = runtime.current_cursor().unwrap();
         assert!(cursor.is_some());
         assert_eq!(cursor.unwrap().version, 200);
-        sync_cmds::reset_sync_state();
     }
 
     #[test]
-    fn sync_integration_trigger_reconnect_via_helper() {
-        sync_cmds::reset_sync_state();
-        sync_cmds::bootstrap_sync(100, 1000);
-        let strategy = sync_cmds::trigger_reconnect_sync(150, 2000);
+    fn sync_integration_trigger_reconnect_via_runtime() {
+        let runtime = sync_cmds::SyncRuntimeState::new();
+        runtime.bootstrap(100, 1000).unwrap();
+        let strategy = runtime.trigger_reconnect(150, 2000).unwrap();
         assert_eq!(strategy, ReconnectStrategy::Delta);
-        let cursor = sync_cmds::current_cursor().unwrap();
+        let cursor = runtime.current_cursor().unwrap().unwrap();
         assert_eq!(cursor.version, 150);
-        assert!(sync_cmds::is_sync_active());
-        sync_cmds::reset_sync_state();
+        assert!(runtime.is_active().unwrap());
     }
 
     #[test]
-    fn sync_integration_reset_clears_via_helper() {
-        sync_cmds::reset_sync_state();
-        sync_cmds::bootstrap_sync(50, 1000);
-        assert!(sync_cmds::is_sync_active());
-        sync_cmds::reset_sync_state();
-        assert!(!sync_cmds::is_sync_active());
-        assert!(sync_cmds::current_cursor().is_none());
+    fn sync_integration_reset_clears_via_runtime() {
+        let runtime = sync_cmds::SyncRuntimeState::new();
+        runtime.bootstrap(50, 1000).unwrap();
+        assert!(runtime.is_active().unwrap());
+        runtime.reset().unwrap();
+        assert!(!runtime.is_active().unwrap());
+        assert!(runtime.current_cursor().unwrap().is_none());
     }
 }

@@ -1,10 +1,10 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html} from 'lit'
+import {css} from 'lit'
 
 import {hostContentContainStyles, sharedStyles} from 'root/shared/ui/shared-styles'
 
-export class DashboardHeaderDesktopLayout extends XLitElement {
+export class DashboardHeaderDesktopLayout extends ReatomLitElement {
   static elementName = 'dashboard-header-desktop-layout'
 
   static define() {
@@ -28,9 +28,9 @@ export class DashboardHeaderDesktopLayout extends XLitElement {
         display: flex;
         align-items: center;
         padding: var(--app-spacing-2) var(--app-spacing-3);
-        border-block-end: 1px solid color-mix(in oklch, var(--cv-color-border-muted) 50%, transparent);
+        border-block-end: 1px solid var(--cv-color-border-glass);
         min-block-size: 36px;
-        background: color-mix(in oklch, var(--cv-color-surface) 95%, var(--cv-color-bg));
+        background: var(--cv-color-surface);
       }
 
       .toolbar-row {

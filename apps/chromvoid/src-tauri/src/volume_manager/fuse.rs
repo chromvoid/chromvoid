@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
+use super::cleanup_fuse_staging_dir;
 use super::models::FuseDriverStatus;
 
 /// Detect if FUSE driver is available on the current platform.
@@ -84,7 +85,7 @@ impl FuseSessionHandle {
 
     /// Best-effort staging cleanup.
     pub fn cleanup_staging_best_effort(&self) {
-        let _ = std::fs::remove_dir_all(&self.staging_dir);
+        cleanup_fuse_staging_dir(Some(&self.staging_dir));
     }
 
     /// Trigger graceful shutdown of the FUSE session.
@@ -104,7 +105,7 @@ impl FuseSessionHandle {
         if let Some(task) = self.task.take() {
             let _ = task.await;
         }
-        let _ = std::fs::remove_dir_all(staging_dir);
+        cleanup_fuse_staging_dir(Some(&staging_dir));
     }
 }
 

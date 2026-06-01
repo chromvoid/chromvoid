@@ -84,12 +84,13 @@ export const pmEntryMoveSharedStyles = [
 
     .tree:focus-visible {
       border-radius: var(--cv-radius-2);
-      box-shadow: 0 0 0 2px color-mix(in oklch, var(--cv-color-primary) 55%, transparent);
+      outline: var(--pm-focus-outline, 2px solid var(--cv-color-focus, var(--cv-color-primary)));
+      outline-offset: 2px;
     }
 
     .row {
       display: grid;
-      grid-template-columns: 18px minmax(0, 1fr);
+      grid-template-columns: 18px minmax(0, 1fr) 18px;
       align-items: center;
       gap: calc(var(--cv-space-2) * 0.75);
       padding-block: var(--cv-space-2);
@@ -104,17 +105,21 @@ export const pmEntryMoveSharedStyles = [
 
     .row:hover {
       border-color: var(--cv-color-primary);
-      background: color-mix(in oklch, var(--cv-color-primary) 10%, var(--cv-color-surface-2));
+      background: var(--cv-color-primary-surface);
     }
 
     .row.selected {
       border-color: var(--cv-color-primary);
-      background: color-mix(in oklch, var(--cv-color-primary) 15%, var(--cv-color-surface-2));
+      background: var(--cv-color-primary-surface-strong);
       font-weight: var(--cv-font-weight-medium);
     }
 
     .row.active {
-      box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--cv-color-primary) 45%, transparent);
+      outline: var(
+        --pm-active-outline,
+        2px solid var(--cv-color-primary-ring)
+      );
+      outline-offset: var(--pm-active-outline-offset, -2px);
     }
 
     .row[aria-disabled='true'] {
@@ -157,6 +162,12 @@ export const pmEntryMoveSharedStyles = [
       min-width: 0;
     }
 
+    .label-text {
+      display: grid;
+      min-inline-size: 0;
+      gap: 2px;
+    }
+
     .indent {
       display: flex;
       flex: 0 0 auto;
@@ -183,8 +194,27 @@ export const pmEntryMoveSharedStyles = [
       white-space: nowrap;
     }
 
+    .subtitle {
+      overflow: hidden;
+      color: var(--cv-color-text-muted);
+      font-size: var(--cv-font-size-xs);
+      line-height: 1.2;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .row-check,
+    .row-check-spacer {
+      inline-size: 16px;
+      block-size: 16px;
+    }
+
+    .row-check {
+      color: var(--cv-color-primary);
+    }
+
     .root {
-      font-style: italic;
+      font-weight: var(--cv-font-weight-medium);
     }
   `,
 ]

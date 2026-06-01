@@ -5,8 +5,8 @@
 mod test_helpers;
 
 use chromvoid_core::crypto::{
-    decrypt, delta_chunk_name, derive_vault_key_v2, root_index_chunk_name, shard_chunk_name,
-    StoragePepper,
+    decrypt, delta_chunk_name, derive_vault_key_v2, root_index_chunk_name,
+    shard_snapshot_chunk_name, StoragePepper,
 };
 use chromvoid_core::rpc::commands::set_bypass_system_shard_guards;
 use chromvoid_core::rpc::types::RpcRequest;
@@ -86,10 +86,19 @@ fn test_compaction_removes_old_deltas_and_writes_new_snapshot() {
         "base_version must match version after compaction"
     );
 
-    // ADR-003: compaction rewrites shard snapshot (index 0) and removes old deltas.
-    let shard_v0 = shard_chunk_name(&*vault_key, ".passmanager", 0);
+    // ADR-003: compaction publishes a new shard snapshot and removes old deltas only
+    // after the durable RootIndex update.
+    let snapshot_seq = pm
+        .get("snapshot_seq")
+        .and_then(|v| v.as_u64())
+        .expect("snapshot_seq");
     assert!(
-        storage.chunk_exists(&shard_v0).expect("chunk_exists"),
+        snapshot_seq > 0,
+        "compaction should advance the snapshot sequence"
+    );
+    let shard_v1 = shard_snapshot_chunk_name(&*vault_key, ".passmanager", snapshot_seq);
+    assert!(
+        storage.chunk_exists(&shard_v1).expect("chunk_exists"),
         "expected a new shard snapshot chunk after compaction"
     );
     assert!(

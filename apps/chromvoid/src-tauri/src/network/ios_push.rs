@@ -9,7 +9,7 @@ use tracing::info;
 use super::ios_control::{
     register_push_registration, PushRegistration, RegisterPushRegistrationRequest,
 };
-use super::local_identity::LocalDeviceIdentityStore;
+use super::local_identity::{LocalDeviceIdentity, LocalDeviceIdentityStore};
 
 fn now_secs() -> u64 {
     SystemTime::now()
@@ -39,15 +39,15 @@ pub struct LocalIosPushRegistrationStore {
     registration: Option<LocalIosPushRegistration>,
 }
 
+struct PushRegistrationSyncInput {
+    registration: LocalIosPushRegistration,
+    identity: LocalDeviceIdentity,
+}
+
 impl LocalIosPushRegistrationStore {
     pub fn load(path: &Path) -> Self {
-        let registration = if path.exists() {
-            std::fs::read_to_string(path).ok().and_then(|contents| {
-                serde_json::from_str::<LocalIosPushRegistration>(&contents).ok()
-            })
-        } else {
-            None
-        };
+        let registration =
+            crate::helpers::storage::read_optional_json(path, "network: iOS push registration");
 
         Self {
             path: path.to_path_buf(),
@@ -81,9 +81,7 @@ impl LocalIosPushRegistrationStore {
             .registration
             .as_ref()
             .ok_or("no iOS push registration to save".to_string())?;
-        let json =
-            serde_json::to_string_pretty(registration).map_err(|e| format!("serialize: {e}"))?;
-        std::fs::write(&self.path, json).map_err(|e| format!("write: {e}"))
+        crate::helpers::storage::write_json_pretty_atomic(&self.path, registration)
     }
 }
 
@@ -108,27 +106,23 @@ pub async fn sync_push_registration_for_relay(
     relay_url: &str,
     storage_root: &Path,
 ) -> Result<Option<PushRegistration>, String> {
-    let store = LocalIosPushRegistrationStore::load(&push_registration_path(storage_root));
-    let Some(registration) = store.get().cloned() else {
+    let Some(input) = load_push_registration_sync_input_blocking(
+        storage_root.to_path_buf(),
+        "iOS push registration sync input",
+    )
+    .await?
+    else {
         return Ok(None);
-    };
-
-    let identity = {
-        let store = LocalDeviceIdentityStore::load(&local_identity_path(storage_root));
-        let Some(identity) = store.get().cloned() else {
-            return Ok(None);
-        };
-        identity
     };
 
     let remote = register_push_registration(
         relay_url,
-        &identity.device_id,
+        &input.identity.device_id,
         &RegisterPushRegistrationRequest {
             relay_url: relay_url.to_string(),
-            device_token: registration.device_token,
-            environment: registration.environment,
-            bundle_id: registration.bundle_id,
+            device_token: input.registration.device_token,
+            environment: input.registration.environment,
+            bundle_id: input.registration.bundle_id,
         },
     )
     .await?;
@@ -143,15 +137,54 @@ pub async fn sync_push_registration_for_relay(
 pub async fn sync_push_registration_for_host_mode(
     storage_root: &Path,
 ) -> Result<Option<PushRegistration>, String> {
-    if !super::ios_pairing::is_host_mode_enabled(storage_root) {
-        return Ok(None);
-    }
-
-    let Some(relay_url) = super::ios_pairing::persisted_host_mode_relay_url(storage_root) else {
+    let Some(relay_url) = host_mode_relay_url_for_push_sync_blocking(
+        storage_root.to_path_buf(),
+        "iOS push host mode config",
+    )
+    .await?
+    else {
         return Ok(None);
     };
 
     sync_push_registration_for_relay(&relay_url, storage_root).await
+}
+
+fn load_push_registration_sync_input(root: &Path) -> Option<PushRegistrationSyncInput> {
+    let registration_store = LocalIosPushRegistrationStore::load(&push_registration_path(root));
+    let registration = registration_store.get().cloned()?;
+
+    let identity_store = LocalDeviceIdentityStore::load(&local_identity_path(root));
+    let identity = identity_store.get().cloned()?;
+
+    Some(PushRegistrationSyncInput {
+        registration,
+        identity,
+    })
+}
+
+async fn load_push_registration_sync_input_blocking(
+    storage_root: PathBuf,
+    task_label: &'static str,
+) -> Result<Option<PushRegistrationSyncInput>, String> {
+    tauri::async_runtime::spawn_blocking(move || load_push_registration_sync_input(&storage_root))
+        .await
+        .map_err(|error| format!("{task_label} task failed: {error}"))
+}
+
+fn host_mode_relay_url_for_push_sync(root: &Path) -> Option<String> {
+    if !super::ios_pairing::is_host_mode_enabled(root) {
+        return None;
+    }
+    super::ios_pairing::persisted_host_mode_relay_url(root)
+}
+
+async fn host_mode_relay_url_for_push_sync_blocking(
+    storage_root: PathBuf,
+    task_label: &'static str,
+) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || host_mode_relay_url_for_push_sync(&storage_root))
+        .await
+        .map_err(|error| format!("{task_label} task failed: {error}"))
 }
 
 #[cfg(test)]

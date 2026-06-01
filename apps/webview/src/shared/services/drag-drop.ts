@@ -1,4 +1,4 @@
-import {state} from '@statx/core'
+import {atom} from '@reatom/core'
 
 export type DragDropHandlers = {
   onFiles: (files: FileList) => void | Promise<void>
@@ -6,7 +6,7 @@ export type DragDropHandlers = {
 }
 
 export class DragDropService {
-  private readonly dragCounter = state(0)
+  private readonly dragCounter = atom(0)
   private handlers: DragDropHandlers
 
   constructor(handlers: DragDropHandlers) {
@@ -20,8 +20,8 @@ export class DragDropService {
   private isExternalFileDrag(e: DragEvent): boolean {
     const dt = e.dataTransfer
     if (!dt) return false
-    // Показываем overlay только для перетаскивания файлов из вне окна
-    // Внутренний DnD помечаем собственным типом 'application/json'
+    // Show overlay only to drag and drop files from outside the window
+    // The internal DnD is marked with its own type 'application/json'.
     const types = Array.from(dt.types || [])
     const hasFiles = types.includes('Files')
     const isInternal = types.includes('application/json')

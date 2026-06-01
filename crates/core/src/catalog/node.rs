@@ -49,6 +49,20 @@ pub struct CatalogNode {
     #[serde(rename = "y", skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
 
+    /// Catalog-owned media track classification.
+    #[serde(rename = "u", skip_serializing_if = "Option::is_none")]
+    pub media_info: Option<CatalogMediaInfo>,
+
+    /// Source revision for which media inspection was completed.
+    #[serde(rename = "q", default, skip_serializing_if = "is_zero_u64")]
+    #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
+    pub media_inspected_revision: u64,
+
+    /// Backend-owned source revision for file bytes.
+    #[serde(rename = "r", default, skip_serializing_if = "is_zero_u64")]
+    #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
+    pub source_revision: u64,
+
     /// Symlink target (for symlinks)
     #[serde(rename = "l", skip_serializing_if = "Option::is_none")]
     pub link_to: Option<String>,
@@ -71,6 +85,9 @@ impl CatalogNode {
             birthtime: now,
             modtime: now,
             mime_type: None,
+            media_info: None,
+            media_inspected_revision: 0,
+            source_revision: 0,
             link_to: None,
             children: Some(Vec::new()),
         }
@@ -88,6 +105,9 @@ impl CatalogNode {
             birthtime: now,
             modtime: now,
             mime_type: None,
+            media_info: None,
+            media_inspected_revision: 0,
+            source_revision: 0,
             link_to: None,
             children: Some(Vec::new()),
         }
@@ -105,6 +125,9 @@ impl CatalogNode {
             birthtime: now,
             modtime: now,
             mime_type,
+            media_info: None,
+            media_inspected_revision: 0,
+            source_revision: next_source_revision(0),
             link_to: None,
             children: None,
         }
@@ -138,6 +161,27 @@ impl CatalogNode {
     /// Update modification time to now
     pub fn touch(&mut self) {
         self.modtime = current_timestamp();
+    }
+
+    /// Return this file's catalog-owned source revision.
+    pub fn source_revision(&self) -> u64 {
+        self.source_revision
+    }
+
+    /// Initialize a legacy zero source revision without changing source bytes.
+    pub fn ensure_source_revision(&mut self) -> u64 {
+        if self.is_file() && self.source_revision == 0 {
+            self.source_revision = next_source_revision(0);
+        }
+        self.source_revision
+    }
+
+    /// Bump the file source revision after raw source bytes change.
+    pub fn bump_source_revision(&mut self) -> u64 {
+        if self.is_file() {
+            self.source_revision = next_source_revision(self.source_revision);
+        }
+        self.source_revision
     }
 
     /// Find a child by name
@@ -194,12 +238,45 @@ impl CatalogNode {
     }
 }
 
+/// Catalog-backed media classification.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+#[serde(rename_all = "snake_case")]
+pub enum CatalogMediaKind {
+    Audio,
+    Video,
+}
+
+/// Compact media track summary stored on catalog nodes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+pub struct CatalogMediaInfo {
+    #[serde(rename = "k")]
+    pub kind: CatalogMediaKind,
+    #[serde(rename = "a")]
+    pub audio_tracks: u16,
+    #[serde(rename = "v")]
+    pub video_tracks: u16,
+    #[serde(rename = "m", skip_serializing_if = "Option::is_none")]
+    pub playback_mime_type: Option<String>,
+}
+
 /// Get current timestamp in milliseconds
 fn current_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+fn next_source_revision(previous: u64) -> u64 {
+    current_timestamp().max(previous.saturating_add(1)).max(1)
+}
+
+fn is_zero_u64(value: &u64) -> bool {
+    *value == 0
 }
 
 #[cfg(test)]

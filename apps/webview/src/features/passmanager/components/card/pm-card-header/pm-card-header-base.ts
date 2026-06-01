@@ -1,9 +1,8 @@
-import {XLitElement} from '@statx/lit'
-
-import {html, nothing, type TemplateResult} from 'lit'
+import {nothing, type TemplateResult} from 'lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {PMCardHeaderModel} from './pm-card-header.model'
 
-export abstract class PMCardHeaderBase extends XLitElement {
+export abstract class PMCardHeaderBase extends ReatomLitElement {
   protected readonly model = new PMCardHeaderModel()
 
   protected hasAvatarSlot(): boolean {
@@ -12,11 +11,11 @@ export abstract class PMCardHeaderBase extends XLitElement {
 
   public override connectedCallback(): void {
     super.connectedCallback()
-    this.model.setHasAvatarSlot(this.hasAvatarSlot())
+    this.model.actions.setHasAvatarSlot(this.hasAvatarSlot())
   }
 
   protected renderAvatar(): TemplateResult | typeof nothing {
-    if (!this.model.hasAvatarSlot()) {
+    if (!this.model.state.hasAvatarSlot()) {
       return nothing
     }
 

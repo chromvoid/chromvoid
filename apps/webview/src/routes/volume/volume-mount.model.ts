@@ -1,7 +1,8 @@
-import {state} from '@statx/core'
+import {atom, wrap} from '@reatom/core'
 
 import {tauriInvoke} from 'root/core/transport/tauri/ipc'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
+import {i18n} from 'root/i18n'
 
 type RpcOk<T> = {ok: true; result: T}
 type RpcErr = {ok: false; error: string; code?: string | null}
@@ -37,7 +38,7 @@ export type BackendInfo = {
 }
 
 export class VolumeMountModel {
-  readonly status = state<VolumeStatus>({
+  readonly status = atom<VolumeStatus>({
     state: 'unmounted',
     backend: null,
     mountpoint: null,
@@ -45,8 +46,8 @@ export class VolumeMountModel {
     error: null,
   })
 
-  readonly backends = state<BackendInfo[]>([])
-  readonly selectedBackend = state<VolumeBackend | null>(null)
+  readonly backends = atom<BackendInfo[]>([])
+  readonly selectedBackend = atom<VolumeBackend | null>(null)
 
   async refreshStatus(): Promise<void> {
     if (!getRuntimeCapabilities().supports_volume) {
@@ -60,7 +61,7 @@ export class VolumeMountModel {
       return
     }
     try {
-      const res = await tauriInvoke<RpcResult<VolumeStatus>>('volume_get_status')
+      const res = await wrap(tauriInvoke<RpcResult<VolumeStatus>>('volume_get_status'))
       if (!isOk(res)) {
         throw new Error(res.error)
       }
@@ -78,7 +79,7 @@ export class VolumeMountModel {
       return
     }
     try {
-      const res = await tauriInvoke<RpcResult<BackendInfo[]>>('volume_get_backends')
+      const res = await wrap(tauriInvoke<RpcResult<BackendInfo[]>>('volume_get_backends'))
       if (!isOk(res)) {
         throw new Error(res.error)
       }
@@ -101,14 +102,20 @@ export class VolumeMountModel {
 
   async mount(): Promise<void> {
     if (!getRuntimeCapabilities().supports_volume) {
-      this.status.set({...this.status(), state: 'error', error: 'Volume is not available on this platform'})
+      this.status.set({
+        ...this.status(),
+        state: 'error',
+        error: i18n('remote-storage:volume-unavailable-platform'),
+      })
       return
     }
     this.status.set({...this.status(), state: 'mounting', error: null})
     try {
-      const res = await tauriInvoke<RpcResult<VolumeStatus>>('volume_mount', {
-        backend: this.selectedBackend(),
-      })
+      const res = await wrap(
+        tauriInvoke<RpcResult<VolumeStatus>>('volume_mount', {
+          backend: this.selectedBackend(),
+        }),
+      )
       if (!isOk(res)) {
         throw new Error(res.error)
       }
@@ -126,7 +133,7 @@ export class VolumeMountModel {
     }
     this.status.set({...this.status(), state: 'unmounting', error: null})
     try {
-      const res = await tauriInvoke<RpcResult<VolumeStatus>>('volume_unmount')
+      const res = await wrap(tauriInvoke<RpcResult<VolumeStatus>>('volume_unmount'))
       if (!isOk(res)) {
         throw new Error(res.error)
       }

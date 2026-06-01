@@ -29,7 +29,10 @@ describe('Bitwarden JSON parser', () => {
               uris: [{match: null, uri: 'https://github.com'}],
             },
             notes: 'My GitHub account',
-            fields: [{name: 'Recovery Key', value: 'abc-def-ghi'}],
+            fields: [
+              {name: 'Recovery Key', value: 'abc-def-ghi'},
+              {name: 'Hidden Code', value: '12345', type: 1},
+            ],
           },
         ],
       }
@@ -46,7 +49,11 @@ describe('Bitwarden JSON parser', () => {
       expect(entry.urls).toEqual([{value: 'https://github.com', match: 'base_domain'}])
       expect(entry.notes).toBe('My GitHub account')
       expect(entry.folder).toBe('Social')
-      expect(entry.customFields).toEqual([{key: 'Recovery Key', value: 'abc-def-ghi'}])
+      expect(entry.customFields).toEqual([
+        {key: 'Recovery Key', value: 'abc-def-ghi'},
+        {key: 'Hidden Code', value: '12345'},
+      ])
+      expect(entry.tags).toBeUndefined()
       expect(entry.otp).toBeDefined()
       expect(entry.otp!.secret).toBe('JBSWY3DPEHPK3PXP')
     })
@@ -82,8 +89,8 @@ describe('Bitwarden JSON parser', () => {
     })
   })
 
-  describe('Card entries (type: 3) → secure_note degradation', () => {
-    it('should degrade card to secure_note with card details in notes', async () => {
+  describe('Card entries (type: 3) → payment_card import', () => {
+    it('should keep card as card with structured payment metadata', async () => {
       const data = {
         ...baseBitwardenExport,
         items: [
@@ -106,15 +113,21 @@ describe('Bitwarden JSON parser', () => {
 
       const result = await parseBitwardenJson(createJsonFile(data))
 
-      expect(result.entries[0]!.type).toBe('secure_note')
-      expect(result.entries[0]!.notes).toContain('My main card')
-      expect(result.entries[0]!.notes).toContain('Card Details')
-      expect(result.entries[0]!.notes).toContain('4111111111111111')
+      expect(result.entries[0]!.type).toBe('card')
+      expect(result.entries[0]!.notes).toBe('My main card')
+      expect(result.entries[0]!.paymentCard).toEqual({
+        cardholderName: 'John Doe',
+        number: '4111111111111111',
+        expMonth: 12,
+        expYear: 2025,
+        cvv: '123',
+        brand: 'Visa',
+      })
     })
   })
 
-  describe('Identity entries (type: 4) → secure_note degradation', () => {
-    it('should degrade identity to secure_note with identity details in notes', async () => {
+  describe('Identity entries (type: 4) → degraded identity notes', () => {
+    it('should keep identity type and serialize identity details into notes', async () => {
       const data = {
         ...baseBitwardenExport,
         items: [
@@ -129,7 +142,7 @@ describe('Bitwarden JSON parser', () => {
 
       const result = await parseBitwardenJson(createJsonFile(data))
 
-      expect(result.entries[0]!.type).toBe('secure_note')
+      expect(result.entries[0]!.type).toBe('identity')
       expect(result.entries[0]!.notes).toContain('Identity Details')
       expect(result.entries[0]!.notes).toContain('John')
     })
@@ -195,6 +208,31 @@ describe('Bitwarden JSON parser', () => {
       expect(result.entries[1]!.folder).toBe('Personal')
       expect(result.entries[2]!.folder).toBeUndefined()
       expect(result.folders).toHaveLength(2)
+    })
+  })
+
+  describe('Collection mapping', () => {
+    it('should map organization collections to entry tags', async () => {
+      const data = {
+        encrypted: false,
+        collections: [
+          {id: 'c1', name: 'Team'},
+          {id: 'c2', name: 'Operations'},
+        ],
+        items: [
+          {
+            id: 'i1',
+            collectionIds: ['c1', 'missing', 'c2', 'c1'],
+            type: 1,
+            name: 'Shared Login',
+            login: {username: 'u', password: 'p'},
+          },
+        ],
+      }
+
+      const result = await parseBitwardenJson(createJsonFile(data))
+
+      expect(result.entries[0]!.tags).toEqual(['Team', 'Operations'])
     })
   })
 

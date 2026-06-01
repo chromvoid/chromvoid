@@ -10,6 +10,7 @@ fn sample_peer(id: &str) -> PairedPeer {
         client_privkey_hex: "deadbeef".to_string(),
         last_seen: 1000,
         paired_at: 900,
+        platform: "network".to_string(),
     }
 }
 

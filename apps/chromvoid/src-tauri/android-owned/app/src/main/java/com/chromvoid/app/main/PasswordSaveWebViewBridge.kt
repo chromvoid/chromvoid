@@ -39,7 +39,10 @@ internal class PasswordSaveWebViewBridge(
                             handleMarkedLaunch(pending.token)
                         }
                     },
-                    onException = {},
+                    onException = {
+                        requestStore.remove(pending.token)
+                        reviewController.completeReview(pending.token, "dismissed", false)
+                    },
                 )
             }
         }

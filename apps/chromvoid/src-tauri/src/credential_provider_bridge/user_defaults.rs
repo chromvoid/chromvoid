@@ -9,6 +9,8 @@ pub const RESPONSE_KEY: &str = "credential_provider.response";
 pub fn read_app_group_json(key: &str) -> Option<Value> {
     use objc2_foundation::{NSString, NSUserDefaults};
 
+    // SAFETY: objc2 NSUserDefaults bridge; suite NSString outlives the call; returned values are
+    // autoreleased and consumed before this block ends.
     unsafe {
         let suite = NSString::from_str(APP_GROUP_ID);
         let defaults = NSUserDefaults::alloc();
@@ -24,6 +26,8 @@ pub fn read_app_group_json(key: &str) -> Option<Value> {
 pub fn write_app_group_json(key: &str, value: &Value) {
     use objc2_foundation::{NSString, NSUserDefaults};
 
+    // SAFETY: objc2 NSUserDefaults bridge; suite NSString outlives the call; ns_value is autoreleased and
+    // synchronously copied by setObject_forKey.
     unsafe {
         let suite = NSString::from_str(APP_GROUP_ID);
         let defaults = NSUserDefaults::alloc();
@@ -45,6 +49,8 @@ pub fn write_app_group_json(key: &str, value: &Value) {
 pub fn clear_app_group_key(key: &str) {
     use objc2_foundation::{NSString, NSUserDefaults};
 
+    // SAFETY: objc2 NSUserDefaults bridge; suite NSString outlives the call; ns_key is autoreleased and
+    // consumed before this block ends.
     unsafe {
         let suite = NSString::from_str(APP_GROUP_ID);
         let defaults = NSUserDefaults::alloc();

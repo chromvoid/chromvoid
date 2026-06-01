@@ -1,13 +1,18 @@
 //! System shard registry (ADR-028).
 //!
 //! Centralized source of truth for system shard identification.
-//! System shards (`.passmanager`, `.wallet`) must not be exposed through
+//! System shards (`.passmanager`, `.wallet`, `.passkeys`) must not be exposed through
 //! external generic `catalog:*` surfaces.
 //!
-//! MVP list: `.passmanager`, `.wallet`.
+//! MVP list: `.passmanager`, `.wallet`, `.passkeys`.
 //! Future naming convention: `.cv-*` (policy only, not enforced here).
 
-const SYSTEM_SHARD_IDS: &[&str] = &[".passmanager", ".wallet"];
+pub const PASSMANAGER_SHARD_ID: &str = ".passmanager";
+pub const PASSKEYS_SHARD_ID: &str = ".passkeys";
+pub const WALLET_SHARD_ID: &str = ".wallet";
+
+const SYSTEM_SHARD_IDS: &[&str] = &[PASSMANAGER_SHARD_ID, WALLET_SHARD_ID, PASSKEYS_SHARD_ID];
+const EAGER_SYSTEM_SHARD_IDS: &[&str] = &[PASSMANAGER_SHARD_ID, PASSKEYS_SHARD_ID];
 
 /// Check whether `shard_id` is a system (protected) shard.
 ///
@@ -15,10 +20,21 @@ const SYSTEM_SHARD_IDS: &[&str] = &[".passmanager", ".wallet"];
 /// use chromvoid_core::catalog::system_shard::is_system_shard_id;
 /// assert!(is_system_shard_id(".passmanager"));
 /// assert!(is_system_shard_id(".wallet"));
+/// assert!(is_system_shard_id(".passkeys"));
 /// assert!(!is_system_shard_id("documents"));
 /// ```
 pub fn is_system_shard_id(shard_id: &str) -> bool {
     SYSTEM_SHARD_IDS.contains(&shard_id)
+}
+
+/// Protected system shards that must have eager snapshots available on unlock.
+pub fn eager_system_shard_ids() -> &'static [&'static str] {
+    EAGER_SYSTEM_SHARD_IDS
+}
+
+/// Check whether `shard_id` is an eager protected system shard.
+pub fn is_eager_system_shard_id(shard_id: &str) -> bool {
+    EAGER_SYSTEM_SHARD_IDS.contains(&shard_id)
 }
 
 /// Extract the shard id (first path component) from a catalog path.

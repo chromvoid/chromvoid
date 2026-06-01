@@ -5,10 +5,13 @@ pub type CFStringRef = *const c_void;
 pub type CFDictionaryRef = *const c_void;
 pub type CFNotificationCenterRef = *mut c_void;
 pub type CFAllocatorRef = *const c_void;
+pub type CFRunLoopRef = *mut c_void;
 
 pub const K_CF_STRING_ENCODING_UTF8: u32 = 0x08000100;
 pub const K_CF_NOTIFICATION_DELIVER_IMMEDIATELY: isize = 4;
 
+// SAFETY: signatures match Apple's CoreFoundation framework headers; symbols are linked from
+// CoreFoundation, which is implicitly available on Darwin targets.
 unsafe extern "C" {
     pub fn CFNotificationCenterGetDarwinNotifyCenter() -> CFNotificationCenterRef;
 
@@ -29,6 +32,13 @@ unsafe extern "C" {
         suspension_behavior: isize,
     );
 
+    pub fn CFNotificationCenterRemoveObserver(
+        center: CFNotificationCenterRef,
+        observer: *const c_void,
+        name: CFStringRef,
+        object: *const c_void,
+    );
+
     pub fn CFNotificationCenterPostNotification(
         center: CFNotificationCenterRef,
         name: CFStringRef,
@@ -45,5 +55,9 @@ unsafe extern "C" {
 
     pub fn CFRelease(cf: *const c_void);
 
+    pub fn CFRunLoopGetCurrent() -> CFRunLoopRef;
+
     pub fn CFRunLoopRun();
+
+    pub fn CFRunLoopStop(rl: CFRunLoopRef);
 }

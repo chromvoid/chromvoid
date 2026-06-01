@@ -1,7 +1,7 @@
 {
   "name": "@chromvoid/ui",
   "version": "0.0.1",
-  "description": "UI components for ChromVoid (Lit + @statx/lit)",
+  "description": "UI components for ChromVoid",
   "type": "module",
   "main": "./src/index.ts",
   "module": "./src/index.ts",
@@ -41,20 +41,17 @@
   "keywords": [
     "lit",
     "web-components",
-    "statx",
     "ui"
   ],
   "author": "ChromVoid Team",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "peerDependencies": {
-    "@statx/core": "^1.15.0",
-    "@statx/lit": "^1.15.0",
     "lit": "^3.0.0"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^3.2.4",
-    "typescript": "^5.5.4",
-    "vitest": "^3.2.4"
+    "@vitest/coverage-v8": "^4.1.1",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.1"
   },
   "engines": {
     "node": ">=20.0.0"

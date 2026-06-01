@@ -37,6 +37,7 @@ internal object AutofillFieldClassifier {
             "totp" in hintText ||
             "2fa" in hintText ||
             "verification code" in hintText ||
+            "authentication code" in hintText ||
             "auth code" in hintText
     }
 

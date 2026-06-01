@@ -1,34 +1,21 @@
-import {css, html, nothing} from 'lit'
+import {css, nothing} from 'lit'
+import {keyed} from 'lit/directives/keyed.js'
+import {html} from '@chromvoid/uikit/reatom-lit'
 
-import {Entry, i18n} from '@project/passmanager'
+import {Entry} from '@project/passmanager/core'
+import {i18n} from '@project/passmanager/i18n'
 import {navigationModel} from 'root/app/navigation/navigation.model'
+import {MobileActionBar} from 'root/shared/ui/mobile-action-bar'
+import {mobileActionBarButtonStyles} from 'root/shared/ui/mobile-action-bar.styles'
 import {hostContainStyles, pageFadeInStyles, pageTransitionStyles} from 'root/shared/ui/shared-styles'
+import {pmComponentLoaderModel} from '../../models/pm-component-loader.model'
+import {pmMobileChromeModel} from '../../models/pm-mobile-chrome.model'
 import {pmSharedStyles} from '../../styles/shared'
-import {PMLayoutBase} from './password-manager-layout-base'
-import {type PMMobileCommandContext, type PMMobileToolbarContext} from './password-manager-layout.model'
+import {PMMobileSortGroupSheet} from '../list/mobile-sort-group-sheet'
+import {PMOtpQuickViewMobile} from '../otp-quick-view'
+import {PMLayoutBase, type SearchElement} from './password-manager-layout-base'
+import {passwordManagerMobileLayoutModel} from './password-manager-mobile-layout.model'
 import {passwordManagerLayoutStyles} from './password-manager-layout.styles'
-
-export type PMMobileToolbarAction = {
-  id: string
-  icon: string
-  label: string
-  disabled?: boolean
-}
-
-type PMEntryActionsElement = HTMLElement & {
-  triggerEditAction?: () => void
-  triggerMoveAction?: () => void
-  triggerDeleteAction?: () => void
-}
-
-type PMGroupEditElement = HTMLElement & {
-  editEnd?: () => void
-}
-
-type PMGroupActionsElement = HTMLElement & {
-  triggerEditAction?: () => void
-  triggerDeleteAction?: () => void
-}
 
 export class PasswordManagerMobileLayout extends PMLayoutBase {
   static elementName = 'password-manager-mobile-layout'
@@ -37,6 +24,9 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
     if (!customElements.get(this.elementName)) {
       customElements.define(this.elementName, this as unknown as CustomElementConstructor)
     }
+    MobileActionBar.define()
+    PMOtpQuickViewMobile.define()
+    PMMobileSortGroupSheet.define()
   }
 
   static styles = [
@@ -45,6 +35,7 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
     pageFadeInStyles,
     hostContainStyles,
     passwordManagerLayoutStyles,
+    mobileActionBarButtonStyles,
     css`
       .wrapper {
         display: flex;
@@ -60,10 +51,24 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
       }
 
       .content .card {
-        padding: var(--cv-space-3);
+        padding: var(--app-surface-gutter-mobile);
+      }
+
+      /* Lets pm-entry-mobile own its internal content scroller and footer. */
+      .content pm-entry-mobile.card {
+        contain: none;
+        overflow: hidden;
+      }
+
+      .content pm-entry-create-mobile.card {
+        padding: 0;
       }
 
       .content pm-group-mobile.card {
+        overflow: hidden;
+      }
+
+      .content pm-otp-quick-view-mobile.card {
         overflow: hidden;
       }
 
@@ -71,265 +76,108 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
         display: none;
       }
 
-      @container (width < 420px) {
-        .content .card {
-          padding: var(--cv-space-2);
-        }
-      }
     `,
   ]
 
   private unregisterBackHandler?: () => void
 
-  protected getSearchElement(): null {
-    return null
+  protected getSearchElement(): SearchElement | null {
+    const group = this.shadowRoot?.querySelector('pm-group-mobile') as HTMLElement | null
+    return group?.shadowRoot?.querySelector('pm-search-mobile') as SearchElement | null
   }
 
-  protected override renderEntry(entry: Entry, editing: boolean) {
+  private renderEntry(entry: Entry, editing: boolean) {
     return html`<pm-entry-mobile class="card" .entry=${entry} .editing=${editing}></pm-entry-mobile>`
   }
 
-  protected override renderGroup() {
-    return html`<pm-group-mobile class="card"></pm-group-mobile>`
+  private renderGroup() {
+    return keyed(this.model.getGroupViewKey(), html`<pm-group-mobile class="card"></pm-group-mobile>`)
   }
 
-  protected override renderCreateEntry() {
-    return html`<pm-entry-create-mobile class="card" hide-back></pm-entry-create-mobile>`
+  private renderCreateEntry() {
+    return html`<pm-entry-create-mobile class="card"></pm-entry-create-mobile>`
   }
 
-  protected override shouldHideCreateBackButton(): boolean {
-    return true
+  private renderCreateGroup() {
+    return html`<pm-group-create-mobile class="card"></pm-group-create-mobile>`
+  }
+
+  private renderLoading() {
+    return html`<div class="spinner-wrapper">
+      <cv-spinner class="spinner" label=${i18n('loading')}></cv-spinner>
+    </div>`
+  }
+
+  private renderOtpQuickView() {
+    return html`<pm-otp-quick-view-mobile class="card"></pm-otp-quick-view-mobile>`
+  }
+
+  private renderMain() {
+    const showElement = this.model.getCurrentShowElement()
+
+    if (this.model.isLoading()) {
+      return this.renderLoading()
+    }
+
+    const extendedReady = pmComponentLoaderModel.extendedReady()
+    if (pmComponentLoaderModel.requiresExtendedComponents(showElement) && !extendedReady) {
+      void pmComponentLoaderModel.ensureExtendedComponents()
+      return this.renderLoading()
+    }
+
+    if (showElement === 'createEntry') {
+      return this.renderCreateEntry()
+    }
+
+    if (showElement === 'createGroup') {
+      return this.renderCreateGroup()
+    }
+
+    if (showElement instanceof Entry) {
+      return this.renderEntry(showElement, this.model.isEditingEntry())
+    }
+
+    if (showElement === 'importDialog') {
+      return this.renderImportDialog()
+    }
+
+    if (showElement === 'otpView') {
+      return this.renderOtpQuickView()
+    }
+
+    return this.renderGroup()
   }
 
   override connectedCallback(): void {
     super.connectedCallback()
-    this.unregisterBackHandler = navigationModel.registerSurfaceBackHandler('passwords', () =>
-      this.handleMobileToolbarBack(),
-    )
+    this.unregisterBackHandler = navigationModel.registerSurfaceBackHandler('passwords', () => pmMobileChromeModel.handleBack())
   }
 
   override disconnectedCallback(): void {
     this.unregisterBackHandler?.()
     this.unregisterBackHandler = undefined
+    passwordManagerMobileLayoutModel.cancelLongPress()
     super.disconnectedCallback()
   }
 
-  getMobileToolbarContext(): PMMobileToolbarContext {
-    return this.model.getMobileToolbarContext(this.isGroupEditActive())
-  }
-
-  handleMobileToolbarBack(): boolean {
-    return this.model.handleMobileToolbarBack({
-      isGroupEditActive: this.isGroupEditActive(),
-      onExitGroupEdit: () => this.getGroupEditElement()?.editEnd?.(),
-    })
-  }
-
-  getMobileCommandContext(): PMMobileCommandContext {
-    return this.model.getMobileCommandContext(this.isGroupEditActive())
-  }
-
-  getMobileToolbarActions(): PMMobileToolbarAction[] {
-    const ctx = this.getMobileCommandContext()
-    const isReadOnly = ctx.readOnly
-
-    if (ctx.kind === 'passwords-list') {
-      const actions: PMMobileToolbarAction[] = [
-        {id: 'pm-filters', icon: 'sliders', label: i18n('button:filters_sorting')},
-        {id: 'pm-create-group', icon: 'folder-plus', label: i18n('group:create:title'), disabled: isReadOnly},
-        {id: 'pm-create-entry', icon: 'plus-lg', label: i18n('button:create_entry'), disabled: isReadOnly},
-      ]
-      if (this.model.isInNonRootGroup()) {
-        actions.push(
-          {id: 'pm-edit-group', icon: 'pencil-square', label: i18n('button:edit'), disabled: isReadOnly},
-          {id: 'pm-delete-group', icon: 'trash', label: i18n('button:remove'), disabled: isReadOnly},
-        )
-      }
-      return actions
-    }
-
-    if (ctx.kind === 'passwords-entry') {
-      return [
-        {id: 'pm-entry-edit', icon: 'pencil-square', label: i18n('entry:edit:title'), disabled: isReadOnly},
-        {id: 'pm-entry-move', icon: 'folder-symlink', label: i18n('button:move_entry'), disabled: isReadOnly},
-        {id: 'pm-entry-delete', icon: 'trash', label: i18n('button:delete_entry'), disabled: isReadOnly},
-      ]
-    }
-
-    return []
-  }
-
-  executeMobileCommand(actionId: string, payload?: {query?: string}): boolean {
-    return this.model.executeMobileCommand(actionId, payload, {
-      isGroupEditActive: this.isGroupEditActive(),
-      onEntryEdit: () => this.onEntryFabEdit(),
-      onEntryMove: () => this.onEntryFabMove(),
-      onEntryDelete: () => this.onEntryFabDelete(),
-      onGroupEdit: () => this.onGroupEdit(),
-      onGroupDelete: () => this.onGroupDelete(),
-    })
-  }
-
-  private isGroupEditActive(): boolean {
-    const group = this.shadowRoot?.querySelector('pm-group-mobile') as HTMLElement | null
-    return Boolean(group?.shadowRoot?.querySelector('pm-group-edit'))
-  }
-
-  private getGroupEditElement(): PMGroupEditElement | null {
-    const group = this.shadowRoot?.querySelector('pm-group-mobile') as HTMLElement | null
-    return group?.shadowRoot?.querySelector('pm-group-edit') as PMGroupEditElement | null
-  }
-
-  private getEntryElement(): PMEntryActionsElement | null {
-    return this.shadowRoot?.querySelector('pm-entry-mobile') as PMEntryActionsElement | null
-  }
-
-  private onOpenFiltersFab() {
-    this.model.openFiltersPalette()
-  }
-
-  private getGroupElement(): PMGroupActionsElement | null {
-    return this.shadowRoot?.querySelector('pm-group-mobile') as PMGroupActionsElement | null
-  }
-
-  private onGroupEdit() {
-    this.getGroupElement()?.triggerEditAction?.()
-  }
-
-  private onGroupDelete() {
-    this.getGroupElement()?.triggerDeleteAction?.()
-  }
-
-  private onEntryFabEdit() {
-    this.getEntryElement()?.triggerEditAction?.()
-  }
-
-  private onEntryFabMove() {
-    this.getEntryElement()?.triggerMoveAction?.()
-  }
-
-  private onEntryFabDelete() {
-    this.getEntryElement()?.triggerDeleteAction?.()
-  }
-
-  private renderMoreMenu() {
-    return html`
-      <cv-menu-button
-        class="tb-btn tb-btn-more"
-        data-action="pm-more"
-        size="small"
-        aria-label=${i18n('button:more_actions')}
-      >
-        <cv-icon name="ellipsis" slot="prefix"></cv-icon>
-        <cv-menu-item slot="menu" data-action="pm-export" value="pm-export" @click=${this.onExportClick}>
-          <cv-icon name="cloud-download" slot="prefix"></cv-icon>
-          ${i18n('export')}
-        </cv-menu-item>
-        <cv-menu-item slot="menu" data-action="pm-import" value="pm-import" @click=${this.onImportClick}>
-          <cv-icon name="cloud-upload" slot="prefix"></cv-icon>
-          ${i18n('import')}
-        </cv-menu-item>
-        <cv-menu-item
-          class="more-menu-item-danger"
-          slot="menu"
-          data-action="pm-clean"
-          value="pm-clean"
-          @click=${this.onFullCleanClick}
-        >
-          <cv-icon name="trash" slot="prefix"></cv-icon>
-          ${i18n('clean')}
-        </cv-menu-item>
-      </cv-menu-button>
-    `
-  }
-
-  private renderListActions(isReadOnly: boolean) {
-    const hasActiveFilters = this.model.hasActiveFilters()
-
-    return html`
-      ${this.renderMoreMenu()}
-
-      <cv-button
-        class="tb-btn ${hasActiveFilters ? 'has-badge' : ''}"
-        data-action="pm-filters"
-        variant="default"
-        size="small"
-        @click=${this.onOpenFiltersFab}
-        aria-label=${i18n('button:filters_sorting')}
-      >
-        <cv-icon name="sliders"></cv-icon>
-      </cv-button>
-
-      <cv-button
-        class="tb-btn"
-        data-action="pm-create-group"
-        size="small"
-        @click=${this.onCreateGroup}
-        ?disabled=${isReadOnly}
-        aria-label=${i18n('group:create:title')}
-      >
-        <cv-icon name="folder-plus"></cv-icon>
-      </cv-button>
-
-      <cv-button
-        class="tb-btn"
-        data-action="pm-create-entry"
-        size="small"
-        @click=${this.onCreateEntry}
-        ?disabled=${isReadOnly}
-        aria-label=${i18n('button:create_entry')}
-      >
-        <cv-icon name="plus-lg"></cv-icon>
-      </cv-button>
-    `
-  }
-
-  private renderEntryActions(isReadOnly: boolean) {
-    return html`
-      ${this.renderMoreMenu()}
-
-      <cv-button
-        class="tb-btn"
-        data-action="pm-entry-edit"
-        variant="primary"
-        size="small"
-        @click=${this.onEntryFabEdit}
-        ?disabled=${isReadOnly}
-        aria-label=${i18n('entry:edit:title')}
-      >
-        <cv-icon name="pencil-square"></cv-icon>
-      </cv-button>
-
-      <cv-button
-        class="tb-btn"
-        data-action="pm-entry-move"
-        variant="primary"
-        size="small"
-        @click=${this.onEntryFabMove}
-        ?disabled=${isReadOnly}
-        aria-label=${i18n('button:move_entry')}
-      >
-        <cv-icon name="folder-symlink"></cv-icon>
-      </cv-button>
-
-      <cv-button
-        class="tb-btn tb-btn-danger"
-        data-action="pm-entry-delete"
-        variant="default"
-        size="small"
-        @click=${this.onEntryFabDelete}
-        ?disabled=${isReadOnly}
-        aria-label=${i18n('button:delete_entry')}
-      >
-        <cv-icon name="trash"></cv-icon>
-      </cv-button>
-    `
-  }
-
   override render() {
+    const selectionStateKey = `${passwordManagerMobileLayoutModel.selection.active() ? '1' : '0'}:${passwordManagerMobileLayoutModel.selection.selectedCount()}`
+    const motion = this.model.getMotionRenderState()
+
     return html`
-      <div class="wrapper">
-        <div class="content scrollable animate-fade-in">${this.renderMain()}</div>
+      <div class="wrapper" data-selection-state=${selectionStateKey}>
+        <div class="content scrollable">
+          <div
+            class="pm-content"
+            data-motion-kind=${motion.kind}
+            data-motion-direction=${motion.direction}
+            data-motion-target=${motion.target ?? ''}
+            data-reduced-motion=${String(motion.reducedMotion)}
+          >
+            ${this.renderMain()}
+          </div>
+        </div>
+        <pm-mobile-sort-group-sheet></pm-mobile-sort-group-sheet>
         <slot name="buttons"></slot>
       </div>
     `

@@ -1,5 +1,6 @@
 package com.chromvoid.app.main
 
+import android.util.Log
 import android.webkit.WebView
 
 internal class PasswordSaveWebViewEmitter(
@@ -30,8 +31,13 @@ internal class PasswordSaveWebViewEmitter(
             ) { result ->
                 onResult(result == "true")
             }
-        } catch (_error: Exception) {
+        } catch (error: Exception) {
+            Log.w(TAG, "Password save script eval failed", error)
             onException()
         }
+    }
+
+    companion object {
+        private const val TAG = "ChromVoid/PasswordSave"
     }
 }

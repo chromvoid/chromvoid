@@ -23,7 +23,7 @@ export async function runAutofillProbeAuthSmoke({
   const password = 'probe-password-123'
   const entryId = 'autofill-probe-entry'
 
-  await ensureChromvoidAutofillService({adb, serial, env})
+  await ensureChromvoidAutofillService({adb, serial, env, packageName})
   await seedPasswordEntry(driver, {
     entryId,
     title: 'Autofill Probe Entry',
@@ -36,7 +36,7 @@ export async function runAutofillProbeAuthSmoke({
     adb,
     serial,
     env,
-    component: `${packageName}/.AutofillProbeActivity`,
+    component: `${packageName}/com.chromvoid.app.AutofillProbeActivity`,
   })
   await driver.switchContext('NATIVE_APP')
 
@@ -100,6 +100,7 @@ export async function runAutofillProbeAuthSmoke({
     env,
     artifactRoot,
     label: 'probe',
+    packageName,
   })
   if (!diagnostics.hasDatasetOffered) {
     throw new Error(`Autofill probe never offered a ChromVoid dataset: ${JSON.stringify(diagnostics)}`)

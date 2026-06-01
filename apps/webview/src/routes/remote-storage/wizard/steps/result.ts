@@ -1,6 +1,8 @@
 import {html, nothing} from 'lit'
+import {i18n} from 'root/i18n'
 
 import type {TransferResult} from '../../remote-storage.model'
+import {renderRemoteStorageCallout} from '../../render-callout'
 
 type ResultStepInput = {
   result: TransferResult | null
@@ -13,9 +15,10 @@ export const renderResultStep = ({result, onCopyPath, onClose, onRetry}: ResultS
   if (!result) {
     return html`
       <div class="wizard-body">
-        <div class="alert info">
-          <div class="alert-text">Загрузка результатов...</div>
-        </div>
+        ${renderRemoteStorageCallout({
+          variant: 'info',
+          text: i18n('remote-storage:result-loading'),
+        })}
       </div>
     `
   }
@@ -24,21 +27,20 @@ export const renderResultStep = ({result, onCopyPath, onClose, onRetry}: ResultS
     return html`
       <div class="wizard-body">
         <div class="result">
-          <div class="result-icon success">
+          <div class="result-icon success motion-success-check">
             <cv-icon name="check"></cv-icon>
           </div>
-          <p class="result-message">Экспорт завершён успешно</p>
-          <p class="result-hint">Резервная копия хранилища создана и сохранена на диск</p>
+          <p class="result-message">${i18n('remote-storage:result-success')}</p>
+          <p class="result-hint">${i18n('remote-storage:result-success-hint')}</p>
         </div>
 
         ${result.backupDir
           ? html`
-              <div class="alert success">
-                <div class="alert-title">
-                  <cv-icon name="folder-check"></cv-icon>
-                  Файлы сохранены
-                </div>
-              </div>
+              ${renderRemoteStorageCallout({
+                variant: 'success',
+                icon: 'folder-check',
+                title: i18n('remote-storage:files-saved'),
+              })}
               <div class="path-display">
                 <cv-icon name="folder"></cv-icon>
                 ${result.backupDir}
@@ -52,13 +54,13 @@ export const renderResultStep = ({result, onCopyPath, onClose, onRetry}: ResultS
           ? html`
               <cv-button variant="default" @click=${onCopyPath}>
                 <cv-icon name="copy" slot="prefix"></cv-icon>
-                Скопировать путь
+                ${i18n('remote-storage:copy-path')}
               </cv-button>
             `
           : nothing}
         <cv-button variant="primary" @click=${onClose}>
           <cv-icon name="check" slot="prefix"></cv-icon>
-          Готово
+          ${i18n('button:done')}
         </cv-button>
       </div>
     `
@@ -72,30 +74,27 @@ export const renderResultStep = ({result, onCopyPath, onClose, onRetry}: ResultS
         <div class="result-icon error">
           <cv-icon name="x"></cv-icon>
         </div>
-        <p class="result-message">${isCancelled ? 'Экспорт отменён' : 'Ошибка экспорта'}</p>
+        <p class="result-message">${isCancelled ? i18n('remote-storage:result-cancelled') : i18n('remote-storage:result-error')}</p>
         <p class="result-hint">
-          ${isCancelled
-            ? 'Операция была остановлена по запросу пользователя.'
-            : 'Не удалось создать резервную копию'}
+          ${isCancelled ? i18n('remote-storage:result-cancelled-hint') : i18n('remote-storage:result-error-hint')}
         </p>
       </div>
 
-      <div class="alert ${isCancelled ? 'info' : 'danger'}">
-        <div class="alert-title">
-          <cv-icon name="${isCancelled ? 'info' : 'alert-triangle'}"></cv-icon>
-          ${isCancelled ? 'Статус операции' : 'Подробности ошибки'}
-        </div>
-        <div class="alert-text">
-          ${result.error || (isCancelled ? 'Экспорт отменён.' : 'Неизвестная ошибка. Попробуйте ещё раз.')}
-        </div>
-      </div>
+      ${renderRemoteStorageCallout({
+        variant: isCancelled ? 'info' : 'danger',
+        icon: isCancelled ? 'info' : 'alert-triangle',
+        title: isCancelled ? i18n('remote-storage:operation-status') : i18n('remote-storage:error-details'),
+        text:
+          result.error ||
+          (isCancelled ? i18n('remote-storage:export-cancelled') : i18n('remote-storage:error-unknown-retry')),
+      })}
     </div>
 
     <div class="wizard-actions">
-      <cv-button variant="default" @click=${onClose}>Закрыть</cv-button>
+      <cv-button variant="default" @click=${onClose}>${i18n('button:close')}</cv-button>
       <cv-button variant="primary" @click=${onRetry}>
         <cv-icon name="refresh-cw" slot="prefix"></cv-icon>
-        ${isCancelled ? 'Запустить снова' : 'Повторить'}
+        ${isCancelled ? i18n('remote-storage:run-again') : i18n('button:retry')}
       </cv-button>
     </div>
   `

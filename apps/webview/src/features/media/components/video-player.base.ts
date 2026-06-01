@@ -1,25 +1,37 @@
-import {XLitElement} from '@statx/lit'
-import {nothing} from 'lit'
-import {state} from '@statx/core'
-import {loadImageByFileId} from './image-loader'
+import {ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {VideoPlayerModel} from './video-player.model'
+import type {FileMediaInfo} from 'root/core/catalog/media-info'
 
-export class VideoPlayerBase extends XLitElement {
+export class VideoPlayerBase extends ReatomLitElement {
   static get properties() {
     return {
       fileId: {type: Number},
       fileName: {type: String},
+      mimeType: {type: String},
+      mediaInfo: {attribute: false},
+      lastModified: {type: Number},
+      sourceSize: {type: Number},
       open: {type: Boolean},
     }
   }
 
   declare fileId: number
   declare fileName: string
+  declare mimeType?: string
+  declare mediaInfo?: FileMediaInfo | null
+  declare lastModified?: number
+  declare sourceSize?: number
   declare open: boolean
 
-  protected readonly videoUrl = state<string | null>(null)
-  protected readonly loading = state(true)
+  protected readonly model = new VideoPlayerModel({
+    onAndroidNativeVideoReleased: () => this.close(),
+  })
+  protected readonly videoUrl = this.model.videoUrl
+  protected readonly loading = this.model.loading
+  protected readonly fallbackLimited = this.model.fallbackLimited
+  protected readonly errorMessage = this.model.errorMessage
+  protected readonly sourceKind = this.model.sourceKind
   protected previousFocus: HTMLElement | null = null
-  protected abortController: AbortController | null = null
 
   constructor() {
     super()
@@ -49,7 +61,15 @@ export class VideoPlayerBase extends XLitElement {
         this.onTeardown()
       }
     }
-    if ((changedProperties.has('fileId') || changedProperties.has('fileName')) && this.open) {
+    if (
+      (changedProperties.has('fileId') ||
+        changedProperties.has('fileName') ||
+        changedProperties.has('mimeType') ||
+        changedProperties.has('mediaInfo') ||
+        changedProperties.has('lastModified') ||
+        changedProperties.has('sourceSize')) &&
+      this.open
+    ) {
       this.loadVideo()
     }
   }
@@ -62,18 +82,7 @@ export class VideoPlayerBase extends XLitElement {
 
   protected onTeardown() {
     document.body.style.overflow = ''
-
-    if (this.abortController) {
-      this.abortController.abort()
-      this.abortController = null
-    }
-
-    const url = this.videoUrl()
-    if (url) {
-      URL.revokeObjectURL(url)
-      this.videoUrl.set(null)
-    }
-    this.loading.set(true)
+    this.model.cleanup()
 
     if (this.previousFocus && typeof this.previousFocus.focus === 'function') {
       try {
@@ -83,26 +92,45 @@ export class VideoPlayerBase extends XLitElement {
     this.previousFocus = null
   }
 
-  protected async loadVideo() {
-    if (!this.fileId || !this.fileName) return
-
-    this.loading.set(true)
-    this.abortController = new AbortController()
-
-    try {
-      const {url} = await loadImageByFileId(this.fileId, this.fileName, {
-        signal: this.abortController.signal,
-      })
-      this.videoUrl.set(url)
-      this.loading.set(false)
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') return
-      console.error('Failed to load video:', error)
-      this.loading.set(false)
-    }
+  protected loadVideo() {
+    this.model.setFile({
+      fileId: this.fileId,
+      fileName: this.fileName,
+      mimeType: this.mimeType ?? null,
+      mediaInfo: this.mediaInfo ?? null,
+      lastModified: this.lastModified,
+      sourceSize: this.sourceSize,
+    })
   }
 
   protected close() {
     this.dispatchEvent(new CustomEvent('close', {bubbles: true, composed: true}))
+  }
+
+  protected handleVideoElementReady() {
+    this.model.handleVideoElementReady()
+  }
+
+  protected handleVideoElementError() {
+    this.model.handleVideoElementError()
+  }
+
+  protected handleOpenExternal() {
+    this.dispatchFallbackAction('open-external')
+  }
+
+  protected handleDownload() {
+    this.dispatchFallbackAction('download')
+  }
+
+  private dispatchFallbackAction(action: 'open-external' | 'download') {
+    if (!this.fileId) return
+    this.dispatchEvent(
+      new CustomEvent('action', {
+        detail: {action, fileId: this.fileId},
+        bubbles: true,
+        composed: true,
+      }),
+    )
   }
 }

@@ -18,9 +18,19 @@
  * setViewTransitionName(element, 'gallery-image')
  */
 
+export type ViewTransitionRunState =
+  | 'applied'
+  | 'skipped-reduced-motion'
+  | 'skipped-unsupported'
+  | 'cancelled'
+
+export type ViewTransitionResult = {
+  state: ViewTransitionRunState
+}
+
 /** Check if View Transition API is available */
 export function supportsViewTransitions(): boolean {
-  return typeof document !== 'undefined' && 'startViewTransition' in document
+  return typeof document !== 'undefined' && typeof document.startViewTransition === 'function'
 }
 
 /** Check if user prefers reduced motion */
@@ -40,29 +50,33 @@ export function prefersReducedMotion(): boolean {
  * 3. Snapshot the new state
  * 4. Animate between the two states
  */
-export async function viewTransition(updateCallback: () => void | Promise<void>): Promise<void> {
+export async function viewTransition(
+  updateCallback: () => void | Promise<void>,
+): Promise<ViewTransitionResult> {
   // Skip transitions when reduced motion is preferred
   if (prefersReducedMotion()) {
     await updateCallback()
-    return
+    return {state: 'skipped-reduced-motion'}
   }
 
   // Fallback for browsers without View Transition API
   if (!supportsViewTransitions()) {
     await updateCallback()
-    return
+    return {state: 'skipped-unsupported'}
   }
 
   // Call startViewTransition on document directly to preserve `this` context
-  const transition = (document as any).startViewTransition(async () => {
+  const transition = document.startViewTransition(async () => {
     await updateCallback()
   })
 
   try {
     await transition.finished
+    return {state: 'applied'}
   } catch {
     // Transition was skipped or cancelled - this is normal behavior
     // (e.g., when page is hidden, or another transition starts)
+    return {state: 'cancelled'}
   }
 }
 
@@ -83,6 +97,48 @@ export function setViewTransitionName(element: HTMLElement | null, name: string 
   }
 }
 
+function readViewTransitionName(element: HTMLElement): string {
+  const inlineName = element.style.viewTransitionName
+  if (inlineName) {
+    return inlineName
+  }
+
+  if (typeof getComputedStyle !== 'function') {
+    return ''
+  }
+
+  return getComputedStyle(element).viewTransitionName
+}
+
+export function getViewTransitionNameOwners(
+  name: string,
+  root: ParentNode = document,
+): HTMLElement[] {
+  const elements: Element[] = []
+
+  if (root instanceof HTMLElement) {
+    elements.push(root)
+  }
+
+  elements.push(...Array.from(root.querySelectorAll('*')))
+
+  return elements.filter(
+    (element): element is HTMLElement =>
+      element instanceof HTMLElement && readViewTransitionName(element) === name,
+  )
+}
+
+function warnDuplicateViewTransitionName(name: string, owners: HTMLElement[]): void {
+  if (typeof window !== 'undefined' && window.env === 'prod') {
+    return
+  }
+
+  console.warn('[chromvoid][view-transition] duplicate view-transition-name owner', {
+    name,
+    owners: owners.length,
+  })
+}
+
 /**
  * Temporarily sets a view-transition-name, runs the callback, then clears it.
  * Useful for one-shot transitions where the element shouldn't always participate.
@@ -91,21 +147,22 @@ export async function withViewTransitionName(
   element: HTMLElement | null,
   name: string,
   callback: () => void | Promise<void>,
-): Promise<void> {
+): Promise<ViewTransitionResult> {
   if (!element) {
-    await callback()
-    return
+    return viewTransition(callback)
+  }
+
+  const duplicateOwners = getViewTransitionNameOwners(name).filter((owner) => owner !== element)
+  if (duplicateOwners.length > 0) {
+    warnDuplicateViewTransitionName(name, duplicateOwners)
+    return viewTransition(callback)
   }
 
   setViewTransitionName(element, name)
 
   try {
-    await viewTransition(callback)
+    return await viewTransition(callback)
   } finally {
-    // Wait for transition to complete before removing the name
-    // Using finished promise would be better, but this is a reasonable fallback
-    requestAnimationFrame(() => {
-      setViewTransitionName(element, null)
-    })
+    setViewTransitionName(element, null)
   }
 }

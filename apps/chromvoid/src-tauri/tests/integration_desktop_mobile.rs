@@ -8,14 +8,15 @@
 mod common;
 
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
-use chromvoid_lib::network::mobile_acceptor::{AcceptorState, ConnectedPeer, MobileAcceptor};
+use chromvoid_lib::network::mobile_acceptor::{
+    AcceptorState, ConnectedPeer, MobileAcceptor, MobileAcceptorRuntimeState,
+};
 use chromvoid_lib::network::paired_peers::{PairedPeer, PairedPeerStore};
 use chromvoid_lib::network::pairing;
 use chromvoid_lib::{
-    bootstrap_sync, choose_reconnect_strategy, current_cursor, is_sync_active, reset_sync_state,
-    trigger_reconnect_sync, ConnectionState, CoreAdapter, CoreMode, LocalCoreAdapter,
-    ModeTransition, ReconnectStrategy, RemoteCoreAdapter, RemoteHost, SyncCursor, SyncState,
-    WriterLockInfo,
+    choose_reconnect_strategy, ConnectionState, CoreAdapter, CoreMode, LocalCoreAdapter,
+    ModeTransition, ReconnectStrategy, RemoteCoreAdapter, RemoteHost, SyncCursor, SyncRuntimeState,
+    SyncState, WriterLockInfo,
 };
 use serde_json::json;
 use tokio::sync::mpsc;
@@ -43,6 +44,7 @@ fn setup_paired_peer_store() -> (tempfile::TempDir, PairedPeerStore, PairedPeer)
         client_privkey_hex: "aa".repeat(32),
         last_seen: 0,
         paired_at: 1700000000,
+        platform: "network".to_string(),
     };
     store.upsert(peer.clone());
     store.save().unwrap();
@@ -57,6 +59,38 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
+fn reset_sync_state(sync_runtime: &SyncRuntimeState) {
+    sync_runtime.reset().expect("sync runtime reset");
+}
+
+fn bootstrap_sync(sync_runtime: &SyncRuntimeState, version: u64, timestamp_ms: u64) {
+    sync_runtime
+        .bootstrap(version, timestamp_ms)
+        .expect("sync runtime bootstrap");
+}
+
+fn trigger_reconnect_sync(
+    sync_runtime: &SyncRuntimeState,
+    host_version: u64,
+    host_timestamp_ms: u64,
+) -> ReconnectStrategy {
+    sync_runtime
+        .trigger_reconnect(host_version, host_timestamp_ms)
+        .expect("sync runtime reconnect")
+}
+
+fn is_sync_active(sync_runtime: &SyncRuntimeState) -> bool {
+    sync_runtime.is_active().expect("sync runtime active state")
+}
+
+fn current_cursor(sync_runtime: &SyncRuntimeState) -> Option<SyncCursor> {
+    sync_runtime.current_cursor().expect("sync runtime cursor")
+}
+
+fn pairing_runtime() -> pairing::NetworkPairingRuntimeState {
+    pairing::NetworkPairingRuntimeState::new()
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 //  1. PAIRING — session creation, PIN verification, peer persistence
 // ═══════════════════════════════════════════════════════════════════════
@@ -64,7 +98,8 @@ fn now_ms() -> u64 {
 #[test]
 fn integration_pairing_session_lifecycle() {
     // Start pairing → returns session_id, 6-digit PIN, room_id.
-    let info = pairing::start_pairing("wss://relay.test");
+    let pairing_runtime = pairing_runtime();
+    let info = pairing_runtime.start_pairing("wss://relay.test").unwrap();
 
     assert_eq!(info.pin.len(), 6, "PIN must be 6 digits");
     assert!(
@@ -79,17 +114,18 @@ fn integration_pairing_session_lifecycle() {
     assert!(!info.relay_url.is_empty());
 
     // Cancel pairing — session removed.
-    pairing::cancel_pairing(&info.session_id);
+    pairing_runtime.cancel_pairing(&info.session_id).unwrap();
 }
 
 #[test]
 fn integration_pairing_confirm_stores_peer() {
     let (_dir, mut store, _) = setup_paired_peer_store();
-    let info = pairing::start_pairing("wss://relay.test");
+    let pairing_runtime = pairing_runtime();
+    let info = pairing_runtime.start_pairing("wss://relay.test").unwrap();
     let correct_pin = info.pin.clone();
 
     // Confirm with correct PIN → peer stored.
-    let result = pairing::confirm_pairing(
+    let result = pairing_runtime.confirm_pairing(
         &info.session_id,
         &correct_pin,
         "desktop-001",
@@ -119,12 +155,13 @@ fn integration_pairing_confirm_stores_peer() {
 #[test]
 fn integration_pairing_wrong_pin_lockout() {
     let (_dir, mut store, _) = setup_paired_peer_store();
-    let info = pairing::start_pairing("wss://relay.test");
+    let pairing_runtime = pairing_runtime();
+    let info = pairing_runtime.start_pairing("wss://relay.test").unwrap();
     let wrong_pin = "000000";
 
     // Submit wrong PIN 5 times → lockout.
     for attempt in 1..=5 {
-        let result = pairing::confirm_pairing(
+        let result = pairing_runtime.confirm_pairing(
             &info.session_id,
             wrong_pin,
             "desktop-001",
@@ -141,7 +178,7 @@ fn integration_pairing_wrong_pin_lockout() {
     }
 
     // 6th attempt should report lockout (not just "pin mismatch").
-    let result = pairing::confirm_pairing(
+    let result = pairing_runtime.confirm_pairing(
         &info.session_id,
         wrong_pin,
         "desktop-001",
@@ -159,19 +196,20 @@ fn integration_pairing_wrong_pin_lockout() {
     );
 
     // Clean up.
-    pairing::cancel_pairing(&info.session_id);
+    pairing_runtime.cancel_pairing(&info.session_id).unwrap();
 }
 
 #[test]
 fn integration_pairing_cancel_removes_session() {
-    let info = pairing::start_pairing("wss://relay.test");
+    let pairing_runtime = pairing_runtime();
+    let info = pairing_runtime.start_pairing("wss://relay.test").unwrap();
     let session_id = info.session_id.clone();
 
-    pairing::cancel_pairing(&session_id);
+    pairing_runtime.cancel_pairing(&session_id).unwrap();
 
     // Confirm on cancelled session should fail.
     let (_dir, mut store, _) = setup_paired_peer_store();
-    let result = pairing::confirm_pairing(
+    let result = pairing_runtime.confirm_pairing(
         &session_id,
         &info.pin,
         "desktop-001",
@@ -366,66 +404,70 @@ fn integration_mode_transition_metadata() {
 
 #[test]
 fn integration_sync_bootstrap_on_remote_entry() {
-    reset_sync_state();
+    let sync_runtime = SyncRuntimeState::new();
+    reset_sync_state(&sync_runtime);
 
-    assert!(!is_sync_active());
-    assert!(current_cursor().is_none());
+    assert!(!is_sync_active(&sync_runtime));
+    assert!(current_cursor(&sync_runtime).is_none());
 
     // Simulate entering Remote mode → bootstrap sync.
-    bootstrap_sync(100, 1700000000000);
+    bootstrap_sync(&sync_runtime, 100, 1700000000000);
 
-    assert!(is_sync_active());
-    let cursor = current_cursor().expect("cursor must be set after bootstrap");
+    assert!(is_sync_active(&sync_runtime));
+    let cursor = current_cursor(&sync_runtime).expect("cursor must be set after bootstrap");
     assert_eq!(cursor.version, 100);
     assert_eq!(cursor.timestamp_ms, 1700000000000);
 
-    reset_sync_state();
+    reset_sync_state(&sync_runtime);
 }
 
 #[test]
 fn integration_sync_reconnect_delta_path() {
-    reset_sync_state();
+    let sync_runtime = SyncRuntimeState::new();
+    reset_sync_state(&sync_runtime);
 
     // Bootstrap at version 100.
-    bootstrap_sync(100, 1700000000000);
+    bootstrap_sync(&sync_runtime, 100, 1700000000000);
 
     // Core Host advanced to version 150 (gap = 50, within threshold 500).
-    let strategy = trigger_reconnect_sync(150, 1700000001000);
+    let strategy = trigger_reconnect_sync(&sync_runtime, 150, 1700000001000);
     assert_eq!(strategy, ReconnectStrategy::Delta);
 
-    let cursor = current_cursor().expect("cursor must advance");
+    let cursor = current_cursor(&sync_runtime).expect("cursor must advance");
     assert_eq!(cursor.version, 150);
-    assert!(is_sync_active());
+    assert!(is_sync_active(&sync_runtime));
 
-    reset_sync_state();
+    reset_sync_state(&sync_runtime);
 }
 
 #[test]
 fn integration_sync_reconnect_full_resync_path() {
-    reset_sync_state();
+    let sync_runtime = SyncRuntimeState::new();
+    reset_sync_state(&sync_runtime);
 
     // Bootstrap at version 100.
-    bootstrap_sync(100, 1700000000000);
+    bootstrap_sync(&sync_runtime, 100, 1700000000000);
 
     // Core Host advanced to version 700 (gap = 600, exceeds threshold 500).
-    let strategy = trigger_reconnect_sync(700, 1700000002000);
+    let strategy = trigger_reconnect_sync(&sync_runtime, 700, 1700000002000);
     assert_eq!(strategy, ReconnectStrategy::FullResync);
 
-    let cursor = current_cursor().expect("cursor must advance to host version");
+    let cursor = current_cursor(&sync_runtime).expect("cursor must advance to host version");
     assert_eq!(cursor.version, 700);
 
-    reset_sync_state();
+    reset_sync_state(&sync_runtime);
 }
 
 #[test]
 fn integration_sync_reconnect_no_prior_cursor() {
-    reset_sync_state();
+    let sync_runtime = SyncRuntimeState::new();
+    reset_sync_state(&sync_runtime);
 
     // No prior bootstrap → version 0 → always FullResync.
     let strategy = choose_reconnect_strategy(0, 50);
     assert_eq!(strategy, ReconnectStrategy::FullResync);
 
-    reset_sync_state();
+    reset_sync_state(&sync_runtime);
 }
 
 #[test]
@@ -444,17 +486,36 @@ fn integration_sync_reconnect_exact_threshold_boundary() {
 
 #[test]
 fn integration_sync_local_switch_clears_state() {
-    reset_sync_state();
+    let sync_runtime = SyncRuntimeState::new();
+    reset_sync_state(&sync_runtime);
 
     // Enter Remote mode.
-    bootstrap_sync(200, 1700000000000);
-    assert!(is_sync_active());
-    assert!(current_cursor().is_some());
+    bootstrap_sync(&sync_runtime, 200, 1700000000000);
+    assert!(is_sync_active(&sync_runtime));
+    assert!(current_cursor(&sync_runtime).is_some());
 
     // Switch back to Local → clear sync state.
-    reset_sync_state();
-    assert!(!is_sync_active());
-    assert!(current_cursor().is_none());
+    reset_sync_state(&sync_runtime);
+    assert!(!is_sync_active(&sync_runtime));
+    assert!(current_cursor(&sync_runtime).is_none());
+}
+
+#[test]
+fn integration_sync_runtime_instances_are_isolated() {
+    let first = SyncRuntimeState::new();
+    let second = SyncRuntimeState::new();
+
+    bootstrap_sync(&first, 10, 1700000000000);
+    bootstrap_sync(&second, 20, 1700000001000);
+
+    assert_eq!(current_cursor(&first).unwrap().version, 10);
+    assert_eq!(current_cursor(&second).unwrap().version, 20);
+
+    reset_sync_state(&first);
+
+    assert!(current_cursor(&first).is_none());
+    assert_eq!(current_cursor(&second).unwrap().version, 20);
+    assert!(is_sync_active(&second));
 }
 
 #[test]
@@ -485,11 +546,14 @@ fn integration_sync_writer_lock_state() {
 
 #[test]
 fn integration_full_cycle_pairing_to_sync_to_local() {
+    let sync_runtime = SyncRuntimeState::new();
+    let pairing_runtime = pairing_runtime();
+
     // ── Phase 1: Pairing ──────────────────────────────────────────────
     let (_dir, mut store, _existing_peer) = setup_paired_peer_store();
 
-    let pair_info = pairing::start_pairing("wss://relay.test");
-    let result = pairing::confirm_pairing(
+    let pair_info = pairing_runtime.start_pairing("wss://relay.test").unwrap();
+    let result = pairing_runtime.confirm_pairing(
         &pair_info.session_id,
         &pair_info.pin,
         "new-desktop",
@@ -525,45 +589,46 @@ fn integration_full_cycle_pairing_to_sync_to_local() {
     assert!(matches!(adapter.mode(), CoreMode::Remote { .. }));
 
     // ── Phase 4: Sync bootstrap ──────────────────────────────────────
-    reset_sync_state();
-    bootstrap_sync(0, now_ms());
-    assert!(is_sync_active());
-    let cursor = current_cursor().expect("cursor set");
+    reset_sync_state(&sync_runtime);
+    bootstrap_sync(&sync_runtime, 0, now_ms());
+    assert!(is_sync_active(&sync_runtime));
+    let cursor = current_cursor(&sync_runtime).expect("cursor set");
     assert_eq!(cursor.version, 0);
 
     // ── Phase 5: Receive deltas ──────────────────────────────────────
     // Simulate delta by advancing cursor.
-    bootstrap_sync(50, now_ms());
-    let cursor = current_cursor().expect("cursor advanced");
+    bootstrap_sync(&sync_runtime, 50, now_ms());
+    let cursor = current_cursor(&sync_runtime).expect("cursor advanced");
     assert_eq!(cursor.version, 50);
 
     // ── Phase 6: Transport drop → reconnect → delta sync ─────────────
-    let strategy = trigger_reconnect_sync(55, now_ms());
+    let strategy = trigger_reconnect_sync(&sync_runtime, 55, now_ms());
     assert_eq!(strategy, ReconnectStrategy::Delta);
-    let cursor = current_cursor().expect("cursor after reconnect");
+    let cursor = current_cursor(&sync_runtime).expect("cursor after reconnect");
     assert_eq!(cursor.version, 55);
-    assert!(is_sync_active());
+    assert!(is_sync_active(&sync_runtime));
 
     // ── Phase 7: Switch back to Local ────────────────────────────────
-    reset_sync_state();
+    reset_sync_state(&sync_runtime);
     let local2 = LocalCoreAdapter::new(storage_root).expect("local2");
     adapter = Box::new(local2);
     assert!(matches!(adapter.mode(), CoreMode::Local));
-    assert!(!is_sync_active());
-    assert!(current_cursor().is_none());
+    assert!(!is_sync_active(&sync_runtime));
+    assert!(current_cursor(&sync_runtime).is_none());
 }
 
 #[test]
 fn integration_full_cycle_reconnect_with_large_gap_triggers_full_resync() {
-    reset_sync_state();
+    let sync_runtime = SyncRuntimeState::new();
+    reset_sync_state(&sync_runtime);
 
     // ── Phase 1: Bootstrap at version 100 ────────────────────────────
-    bootstrap_sync(100, 1700000000000);
-    assert!(is_sync_active());
+    bootstrap_sync(&sync_runtime, 100, 1700000000000);
+    assert!(is_sync_active(&sync_runtime));
 
     // ── Phase 2: Transport drops for a while ─────────────────────────
     // Core Host advances significantly (gap = 600).
-    let strategy = trigger_reconnect_sync(700, 1700000010000);
+    let strategy = trigger_reconnect_sync(&sync_runtime, 700, 1700000010000);
     assert_eq!(
         strategy,
         ReconnectStrategy::FullResync,
@@ -571,14 +636,14 @@ fn integration_full_cycle_reconnect_with_large_gap_triggers_full_resync() {
     );
 
     // Cursor should be updated to host's version.
-    let cursor = current_cursor().expect("cursor must advance");
+    let cursor = current_cursor(&sync_runtime).expect("cursor must advance");
     assert_eq!(cursor.version, 700);
 
     // ── Phase 3: After resync, small gap → delta ─────────────────────
-    let strategy2 = trigger_reconnect_sync(710, 1700000020000);
+    let strategy2 = trigger_reconnect_sync(&sync_runtime, 710, 1700000020000);
     assert_eq!(strategy2, ReconnectStrategy::Delta);
 
-    reset_sync_state();
+    reset_sync_state(&sync_runtime);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -587,7 +652,8 @@ fn integration_full_cycle_reconnect_with_large_gap_triggers_full_resync() {
 
 #[test]
 fn integration_acceptor_initial_state() {
-    let status = MobileAcceptor::status();
+    let runtime = MobileAcceptorRuntimeState::new();
+    let status = MobileAcceptor::status(&runtime).expect("acceptor status");
     // After any prior test cleanup, state should be Idle or what the static holds.
     // We verify the status struct is well-formed.
     assert!(
@@ -602,7 +668,8 @@ fn integration_acceptor_initial_state() {
 #[test]
 fn integration_acceptor_stop_resets_to_idle() {
     // Calling stop on an idle acceptor should be safe and return Idle.
-    let status = MobileAcceptor::stop();
+    let runtime = MobileAcceptorRuntimeState::new();
+    let status = MobileAcceptor::stop(&runtime).expect("acceptor stop");
     assert_eq!(status.state, AcceptorState::Idle);
     assert!(status.connected_peers.is_empty());
     assert!(status.relay_url.is_none());

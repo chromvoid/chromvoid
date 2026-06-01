@@ -1,21 +1,32 @@
-import {state} from '@statx/core'
-import {XLitElement} from '@statx/lit'
-import {Entry, Group, ManagerRoot, filterValue, quickFilters} from '@project/passmanager'
+import {
+  Entry,
+  Group,
+  ManagerRoot,
+  filterValue,
+  quickFilters,
+  selectedCredentialTagFilters,
+} from '@project/passmanager'
+import {ImportDialog} from '@chromvoid/password-import/ui/import-dialog'
+import {ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {html, nothing} from 'lit'
 
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
+import {atom} from '@reatom/core'
+import {PMEntryModel} from '../../src/features/passmanager/components/card/entry/entry.model'
 import {PMGroupModel} from '../../src/features/passmanager/components/group/group'
 import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/components/list/sort-controls'
-import {PasswordManagerMobileLayout} from '../../src/features/passmanager/components/password-manager-mobile-layout'
+import {PasswordManagerMobileLayout} from '../../src/features/passmanager/components/password-manager-layout/password-manager-mobile-layout'
+import {pmEntryEditorModel} from '../../src/features/passmanager/models/pm-entry-editor.model'
+import {pmMobileChromeModel} from '../../src/features/passmanager/models/pm-mobile-chrome.model'
 import {pmModel} from '../../src/features/passmanager/password-manager.model'
 
 type FakePassmanager = {
   id: string
-  showElement: ReturnType<typeof state<any>>
-  isEditMode: ReturnType<typeof state<boolean>>
-  isLoading: ReturnType<typeof state<boolean>>
-  isReadOnly: ReturnType<typeof state<boolean>>
+  showElement: ReturnType<typeof atom<any>>
+  isEditMode: ReturnType<typeof atom<boolean>>
+  isLoading: ReturnType<typeof atom<boolean>>
+  isReadOnly: ReturnType<typeof atom<boolean>>
   setShowElement: (...args: unknown[]) => void
   entriesList: () => Array<Entry | Group>
   getCardByID: (id: string) => Entry | Group | undefined
@@ -23,12 +34,6 @@ type FakePassmanager = {
   fullClean: () => void
   clean: () => void
   load: () => void
-}
-
-type PMEntryActionsElement = HTMLElement & {
-  triggerEditAction?: () => void
-  triggerMoveAction?: () => void
-  triggerDeleteAction?: () => void
 }
 
 let mobileLayoutDefined = false
@@ -43,7 +48,7 @@ class FakeEntryListItemMobile extends HTMLElement {
   focusRow() {}
 }
 
-class TestPMGroupMobile extends XLitElement {
+class TestPMGroupMobile extends ReatomLitElement {
   protected readonly model = new PMGroupModel()
 
   protected render() {
@@ -98,22 +103,25 @@ function ensureMobileLayoutDefined() {
   if (mobileLayoutDefined) return
   defineStub('pm-entry-list-item-mobile', FakeEntryListItemMobile)
   defineStub('pm-avatar-icon', class extends HTMLElement {})
+  defineStub('pm-entry', class extends HTMLElement {})
+  defineStub('pm-group-create-desktop', class extends HTMLElement {})
   if (!customElements.get('pm-group-mobile')) {
     customElements.define('pm-group-mobile', TestPMGroupMobile)
   }
   if (!customElements.get('password-manager-mobile-layout')) {
     customElements.define('password-manager-mobile-layout', TestPasswordManagerMobileLayout)
   }
+  ImportDialog.define()
   mobileLayoutDefined = true
 }
 
 function createPassmanager(initialShowElement: unknown, items: Array<Entry | Group> = []): FakePassmanager {
   return {
     id: 'pm-mobile-layout-test',
-    showElement: state<any>(initialShowElement),
-    isEditMode: state(false),
-    isLoading: state(false),
-    isReadOnly: state(false),
+    showElement: atom<any>(initialShowElement),
+    isEditMode: atom(false),
+    isLoading: atom(false),
+    isReadOnly: atom(false),
     setShowElement: () => {},
     entriesList: () => items,
     getCardByID: (id: string) => items.find((item) => item.id === id),
@@ -145,13 +153,13 @@ function createRootLike() {
     searched: () => Array<Entry | Group>
   }
   root.isRoot = true
-  root.entries = state<Array<Entry | Group>>([])
-  root.isLoading = state(false)
-  root.isReadOnly = state(false)
-  root.isEditMode = state(false)
-  root.showElement = state<any>(root)
-  root.updatedTs = state(Date.now())
-  root.createdTs = state(Date.now())
+  root.entries = atom<Array<Entry | Group>>([])
+  root.isLoading = atom(false)
+  root.isReadOnly = atom(false)
+  root.isEditMode = atom(false)
+  root.showElement = atom<any>(root)
+  root.updatedTs = atom(Date.now())
+  root.createdTs = atom(Date.now())
   root.entriesList = () => root.entries()
   root.searched = () => root.entries()
   return root
@@ -207,44 +215,23 @@ function getRenderedMobileRows(layout: PasswordManagerMobileLayout): string[] {
   })
 }
 
-function getAction(layout: PasswordManagerMobileLayout, action: string): HTMLElement | null {
-  return layout.shadowRoot?.querySelector(`[data-action="${action}"]`) as HTMLElement | null
-}
-
-function isActionDisabled(el: HTMLElement | null): boolean {
-  if (!el) return false
-  const host = el as HTMLElement & {disabled?: boolean}
-  return Boolean(host.disabled) || el.hasAttribute('disabled')
-}
-
-function getFabOrder(layout: PasswordManagerMobileLayout): string[] {
-  const actions = layout.shadowRoot?.querySelector('mobile-action-bar')
-  if (!actions) return []
-  const order: string[] = []
-
-  for (const child of Array.from(actions.children)) {
-    const action = child.getAttribute('data-action')
-    if (action) {
-      order.push(action)
-    }
-  }
-
-  return order
-}
-
 describe('PasswordManagerMobileLayout FAB actions', () => {
   afterEach(() => {
     document.querySelectorAll('password-manager-mobile-layout').forEach((el) => el.remove())
     ;(window as any).passmanager = originalPassmanager
+    pmEntryEditorModel.reset()
     filterValue.set('')
     quickFilters.set([])
+    selectedCredentialTagFilters.set([])
     sortField.set('name')
     sortDirection.set('asc')
     groupBy.set('none')
+    pmMobileChromeModel.closeSortGroupSheet()
+    localStorage.clear()
     vi.restoreAllMocks()
   })
 
-  it('renders list/group FAB stack and disables only create actions in readonly', async () => {
+  it('exposes readonly list toolbar actions through the shared mobile chrome model', async () => {
     ensureMobileLayoutDefined()
     originalPassmanager = (window as any).passmanager
     const pm = createPassmanager(createRootLike())
@@ -255,20 +242,13 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
     document.body.appendChild(layout)
     await layout.updateComplete
 
-    expect(getFabOrder(layout)).toEqual(['pm-more', 'pm-filters', 'pm-create-group', 'pm-create-entry'])
-    expect(layout.shadowRoot?.querySelector('mobile-action-bar')?.hasAttribute('hidden')).toBe(false)
-
-    const createGroup = getAction(layout, 'pm-create-group') as any
-    const createEntry = getAction(layout, 'pm-create-entry') as any
-    const filters = getAction(layout, 'pm-filters') as any
-    const more = getAction(layout, 'pm-more') as any
-    expect(isActionDisabled(createGroup)).toBe(true)
-    expect(isActionDisabled(createEntry)).toBe(true)
-    expect(isActionDisabled(filters)).toBe(false)
-    expect(isActionDisabled(more)).toBe(false)
+    expect(pmMobileChromeModel.getToolbarActions()).toEqual([
+      {id: 'pm-create-group', icon: 'folder-plus', label: 'Create group', disabled: true},
+      {id: 'pm-create-entry', icon: 'plus-lg', label: 'Create entry', disabled: true},
+    ])
   })
 
-  it('renders entry FAB stack and disables entry actions in readonly', async () => {
+  it('exposes readonly entry toolbar actions through the shared mobile chrome model', async () => {
     ensureMobileLayoutDefined()
     originalPassmanager = (window as any).passmanager
     const pm = createPassmanager(createEntryForStateCheck())
@@ -279,19 +259,14 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
     document.body.appendChild(layout)
     await layout.updateComplete
 
-    expect(getFabOrder(layout)).toEqual(['pm-more', 'pm-entry-edit', 'pm-entry-move', 'pm-entry-delete'])
-
-    const edit = getAction(layout, 'pm-entry-edit') as any
-    const move = getAction(layout, 'pm-entry-move') as any
-    const remove = getAction(layout, 'pm-entry-delete') as any
-    const more = getAction(layout, 'pm-more') as any
-    expect(isActionDisabled(edit)).toBe(true)
-    expect(isActionDisabled(move)).toBe(true)
-    expect(isActionDisabled(remove)).toBe(true)
-    expect(isActionDisabled(more)).toBe(false)
+    expect(pmMobileChromeModel.getToolbarActions()).toEqual([
+      {id: 'pm-entry-copy-all', icon: 'cloud-download', label: 'Copy all data'},
+      {id: 'pm-entry-delete', icon: 'trash', label: 'Delete entry', disabled: true},
+      {id: 'pm-entry-move', icon: 'folder-symlink', label: 'Move entry', disabled: true},
+    ])
   })
 
-  it('shows FAB lane only in list/group and entry contexts', async () => {
+  it('keeps list command context but shows the command button only outside inline-search lists', async () => {
     ensureMobileLayoutDefined()
     originalPassmanager = (window as any).passmanager
     const pm = createPassmanager(createRootLike())
@@ -301,130 +276,46 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
     document.body.appendChild(layout)
     await layout.updateComplete
 
-    const isHidden = () => layout.shadowRoot?.querySelector('mobile-action-bar')?.hasAttribute('hidden') ?? false
-
-    expect(isHidden()).toBe(false)
+    expect(pmMobileChromeModel.getToolbarContext().showCommand).toBe(false)
+    expect(pmMobileChromeModel.getCommandContext().kind).toBe('passwords-list')
 
     pm.showElement.set(createEntryForStateCheck())
     await Promise.resolve()
     await layout.updateComplete
-    expect(isHidden()).toBe(false)
+    expect(pmMobileChromeModel.getToolbarContext().showCommand).toBe(false)
+    expect(pmMobileChromeModel.getCommandContext().kind).toBe('passwords-entry')
 
     pm.showElement.set('createEntry')
     await Promise.resolve()
     await layout.updateComplete
-    expect(isHidden()).toBe(true)
+    expect(pmMobileChromeModel.getToolbarContext().showCommand).toBe(false)
+    expect(pmMobileChromeModel.getCommandContext().kind).toBe('none')
 
     pm.showElement.set('createGroup')
     await Promise.resolve()
     await layout.updateComplete
-    expect(isHidden()).toBe(true)
+    expect(pmMobileChromeModel.getToolbarContext().showCommand).toBe(false)
+    expect(pmMobileChromeModel.getCommandContext().kind).toBe('none')
 
     pm.showElement.set('importDialog')
     await Promise.resolve()
     await layout.updateComplete
-    expect(isHidden()).toBe(true)
-
-    pm.showElement.set(Object.create(Group.prototype))
-    pm.isEditMode.set(true)
-    await Promise.resolve()
-    await layout.updateComplete
-    expect(isHidden()).toBe(true)
-
-    pm.isEditMode.set(false)
-    await Promise.resolve()
-    await layout.updateComplete
-    expect(isHidden()).toBe(false)
+    expect(pmMobileChromeModel.getToolbarContext().showCommand).toBe(false)
+    expect(pmMobileChromeModel.getCommandContext().kind).toBe('none')
   })
 
-  it('wires list FAB actions and opens command palette in filters mode', async () => {
+  it('does not expose toolbar actions while the password import surface is open', async () => {
     ensureMobileLayoutDefined()
     originalPassmanager = (window as any).passmanager
-    ;(window as any).passmanager = createPassmanager(createRootLike())
-
-    const onCreateEntrySpy = vi.spyOn(pmModel, 'onCreateEntry').mockImplementation(() => {})
-    const onCreateGroupSpy = vi.spyOn(pmModel, 'onCreateGroup').mockImplementation(() => {})
-    const commandOpenSpy = vi.fn()
-    window.addEventListener('command-bar:open', commandOpenSpy as EventListener)
-
-    try {
-      const layout = document.createElement('password-manager-mobile-layout') as PasswordManagerMobileLayout
-      document.body.appendChild(layout)
-      await layout.updateComplete
-
-      const createGroup = getAction(layout, 'pm-create-group')
-      const createEntry = getAction(layout, 'pm-create-entry')
-      const filters = getAction(layout, 'pm-filters')
-      createGroup?.click()
-      createEntry?.click()
-      filters?.click()
-
-      expect(onCreateGroupSpy).toHaveBeenCalledTimes(1)
-      expect(onCreateEntrySpy).toHaveBeenCalledTimes(1)
-      expect(commandOpenSpy).toHaveBeenCalledTimes(1)
-      expect((commandOpenSpy.mock.calls[0]?.[0] as CustomEvent | undefined)?.detail).toMatchObject({
-        mode: 'filters',
-        source: 'fab',
-      })
-    } finally {
-      window.removeEventListener('command-bar:open', commandOpenSpy as EventListener)
-    }
-  })
-
-  it('wires entry FAB actions to pm-entry-mobile methods', async () => {
-    ensureMobileLayoutDefined()
-    originalPassmanager = (window as any).passmanager
-    ;(window as any).passmanager = createPassmanager(createEntryForStateCheck())
-
-    const layout = document.createElement('password-manager-mobile-layout') as PasswordManagerMobileLayout
-    document.body.appendChild(layout)
-    await layout.updateComplete
-
-    const entryEl = layout.shadowRoot?.querySelector('pm-entry-mobile') as PMEntryActionsElement | null
-    expect(entryEl).toBeTruthy()
-
-    const editSpy = vi.fn()
-    const moveSpy = vi.fn()
-    const deleteSpy = vi.fn()
-    if (entryEl) {
-      entryEl.triggerEditAction = editSpy
-      entryEl.triggerMoveAction = moveSpy
-      entryEl.triggerDeleteAction = deleteSpy
-    }
-
-    getAction(layout, 'pm-entry-edit')?.click()
-    getAction(layout, 'pm-entry-move')?.click()
-    getAction(layout, 'pm-entry-delete')?.click()
-
-    expect(editSpy).toHaveBeenCalledTimes(1)
-    expect(moveSpy).toHaveBeenCalledTimes(1)
-    expect(deleteSpy).toHaveBeenCalledTimes(1)
-  })
-
-  it('keeps only secondary actions inside More dropdown for both contexts', async () => {
-    ensureMobileLayoutDefined()
-    originalPassmanager = (window as any).passmanager
-    const pm = createPassmanager(createRootLike())
+    const pm = createPassmanager('importDialog')
     ;(window as any).passmanager = pm
 
     const layout = document.createElement('password-manager-mobile-layout') as PasswordManagerMobileLayout
     document.body.appendChild(layout)
-    await layout.updateComplete
+    await flushLayout(layout)
 
-    const getDropdownItems = () =>
-      Array.from(
-        layout.shadowRoot
-          ?.querySelector('cv-menu-button[data-action="pm-more"]')
-          ?.querySelectorAll('cv-menu-item[data-action]') ?? [],
-      ).map((item) => item.getAttribute('data-action'))
-
-    expect(getDropdownItems()).toEqual(['pm-export', 'pm-import', 'pm-clean'])
-
-    pm.showElement.set(createEntryForStateCheck())
-    await Promise.resolve()
-    await layout.updateComplete
-
-    expect(getDropdownItems()).toEqual(['pm-export', 'pm-import', 'pm-clean'])
+    expect(pmMobileChromeModel.getToolbarActions()).toEqual([])
+    expect(pmMobileChromeModel.executeCommand('pm-import-help')).toBe(false)
   })
 
   it('provides toolbar context for list, entry, create and edit states', async () => {
@@ -445,47 +336,77 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
     document.body.appendChild(layout)
     await layout.updateComplete
 
-    expect(layout.getMobileToolbarContext()).toEqual({
-      title: 'Root',
+    expect(pmMobileChromeModel.getToolbarContext()).toEqual({
+      title: 'Credentials',
       canGoBack: false,
       backDisabled: false,
-      showCommand: true,
+      showCommand: false,
+      maxVisible: 3,
     })
 
     pm.showElement.set(group)
     await Promise.resolve()
     await layout.updateComplete
-    expect(layout.getMobileToolbarContext().showCommand).toBe(true)
-    expect(layout.getMobileToolbarContext().canGoBack).toBe(true)
+    expect(pmMobileChromeModel.getToolbarContext().showCommand).toBe(false)
+    expect(pmMobileChromeModel.getToolbarContext().canGoBack).toBe(true)
 
     const entry = createEntryWithParent(group, 'Context Entry')
     pm.showElement.set(entry)
     await Promise.resolve()
     await layout.updateComplete
-    expect(layout.getMobileToolbarContext()).toEqual({
+    expect(pmMobileChromeModel.getToolbarContext()).toEqual({
       title: 'Context Entry',
       canGoBack: true,
       backDisabled: false,
-      showCommand: true,
+      showCommand: false,
+      maxVisible: 3,
+      overflowFromIndex: 2,
     })
 
-    pm.isEditMode.set(true)
+    pmEntryEditorModel.openSurface(entry.id, 'title')
     await Promise.resolve()
     await layout.updateComplete
-    expect(layout.getMobileToolbarContext().title).toBe('Edit entry')
-    expect(layout.getMobileToolbarContext().canGoBack).toBe(true)
-    expect(layout.getMobileToolbarContext().showCommand).toBe(false)
+    expect(pmMobileChromeModel.getToolbarContext().title).toBe('Context Entry')
+    expect(pmMobileChromeModel.getToolbarContext().canGoBack).toBe(true)
+    expect(pmMobileChromeModel.getToolbarContext().showCommand).toBe(false)
 
-    pm.isEditMode.set(false)
+    pmEntryEditorModel.closeSurface(entry.id)
     pm.showElement.set('createEntry')
     await Promise.resolve()
     await layout.updateComplete
-    expect(layout.getMobileToolbarContext()).toEqual({
+    expect(pmMobileChromeModel.getToolbarContext()).toEqual({
       title: 'Create entry',
       canGoBack: true,
       backDisabled: false,
       showCommand: false,
+      maxVisible: 3,
     })
+  })
+
+  it('keeps only frequent list actions in the mobile toolbar', async () => {
+    ensureMobileLayoutDefined()
+    originalPassmanager = (window as any).passmanager
+    const pm = createPassmanager(createRootLike())
+    ;(window as any).passmanager = pm
+
+    const layout = document.createElement('password-manager-mobile-layout') as PasswordManagerMobileLayout
+    document.body.appendChild(layout)
+    await layout.updateComplete
+
+    expect(pmMobileChromeModel.getToolbarActions().map((action) => action.id)).toEqual([
+      'pm-create-group',
+      'pm-create-entry',
+    ])
+
+    pm.showElement.set(createEntryForStateCheck())
+    await Promise.resolve()
+    await layout.updateComplete
+
+    expect(pmMobileChromeModel.getToolbarActions().map((action) => action.id)).toEqual([
+      'pm-entry-copy-all',
+      'pm-entry-delete',
+      'pm-entry-move',
+    ])
   })
 
   it('provides command context and active filters state', async () => {
@@ -498,34 +419,53 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
     document.body.appendChild(layout)
     await layout.updateComplete
 
-    let context = layout.getMobileCommandContext()
+    let context = pmMobileChromeModel.getCommandContext()
     expect(context.kind).toBe('passwords-list')
     expect(context.hasActiveFilters).toBe(false)
 
+    selectedCredentialTagFilters.set(['work'])
+    expect(pmMobileChromeModel.getCommandContext().hasActiveFilters).toBe(true)
+    expect(pmMobileChromeModel.getToolbarActions().map((action) => action.id)).toContain(
+      'pm-search-clear-query',
+    )
+    expect(pmMobileChromeModel.executeCommand('pm-search-clear-query')).toBe(true)
+    expect(selectedCredentialTagFilters()).toEqual([])
+
     filterValue.set('mail')
     quickFilters.set(['otp'])
+    selectedCredentialTagFilters.set(['work'])
     sortField.set('modified')
     await Promise.resolve()
     await layout.updateComplete
 
-    context = layout.getMobileCommandContext()
+    context = pmMobileChromeModel.getCommandContext()
     expect(context.query).toBe('mail')
     expect(context.quickFilters).toEqual(['otp'])
     expect(context.sortField).toBe('modified')
     expect(context.hasActiveFilters).toBe(true)
+    expect(pmMobileChromeModel.getToolbarContext().maxVisible).toBe(4)
+    const toolbarActions = pmMobileChromeModel.getToolbarActions()
+    expect(toolbarActions.map((action) => action.id)).toEqual([
+      'pm-create-group',
+      'pm-create-entry',
+      'pm-search-clear-query',
+    ])
+    expect(toolbarActions.find((action) => action.id === 'pm-search-clear-query')).toMatchObject({
+      tone: 'accent',
+    })
 
     pm.showElement.set(createEntryForStateCheck())
     await Promise.resolve()
     await layout.updateComplete
-    expect(layout.getMobileCommandContext().kind).toBe('passwords-entry')
+    expect(pmMobileChromeModel.getCommandContext().kind).toBe('passwords-entry')
 
-    pm.isEditMode.set(true)
+    pmEntryEditorModel.openSurface('entry-for-fab-state', 'title')
     await Promise.resolve()
     await layout.updateComplete
-    expect(layout.getMobileCommandContext().kind).toBe('none')
+    expect(pmMobileChromeModel.getCommandContext().kind).toBe('none')
   })
 
-  it('executes mobile command actions through provider API', async () => {
+  it('executes mobile command actions through the shared mobile chrome model', async () => {
     ensureMobileLayoutDefined()
     originalPassmanager = (window as any).passmanager
     const pm = createPassmanager(createRootLike())
@@ -536,70 +476,80 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
     const onExportSpy = vi.spyOn(pmModel, 'onExport').mockImplementation(() => {})
     const onImportSpy = vi.spyOn(pmModel, 'onImport').mockResolvedValue(undefined)
     const onCleanSpy = vi.spyOn(pmModel, 'onFullClean').mockImplementation(() => {})
+    const openOtpSpy = vi.spyOn(pmModel, 'openOtpView').mockImplementation(() => {})
 
     const layout = document.createElement('password-manager-mobile-layout') as PasswordManagerMobileLayout
     document.body.appendChild(layout)
     await layout.updateComplete
 
-    expect(layout.executeMobileCommand('pm-create-entry')).toBe(true)
-    expect(layout.executeMobileCommand('pm-create-group')).toBe(true)
-    expect(layout.executeMobileCommand('pm-export')).toBe(true)
-    expect(layout.executeMobileCommand('pm-import')).toBe(true)
-    expect(layout.executeMobileCommand('pm-clean')).toBe(true)
+    expect(pmMobileChromeModel.executeCommand('pm-create-entry')).toBe(true)
+    expect(pmMobileChromeModel.executeCommand('pm-create-group')).toBe(true)
+    expect(pmMobileChromeModel.executeCommand('pm-export')).toBe(false)
+    expect(pmMobileChromeModel.executeCommand('pm-import')).toBe(false)
+    expect(pmMobileChromeModel.executeCommand('pm-clean')).toBe(false)
+    expect(pmMobileChromeModel.executeCommand('pm-otp-view')).toBe(false)
 
     expect(onCreateEntrySpy).toHaveBeenCalledTimes(1)
     expect(onCreateGroupSpy).toHaveBeenCalledTimes(1)
-    expect(onExportSpy).toHaveBeenCalledTimes(1)
-    expect(onImportSpy).toHaveBeenCalledTimes(1)
-    expect(onCleanSpy).toHaveBeenCalledTimes(1)
+    expect(onExportSpy).not.toHaveBeenCalled()
+    expect(onImportSpy).not.toHaveBeenCalled()
+    expect(onCleanSpy).not.toHaveBeenCalled()
+    expect(openOtpSpy).not.toHaveBeenCalled()
 
-    expect(layout.executeMobileCommand('pm-search-set-query', {query: 'bank'})).toBe(true)
+    expect(pmMobileChromeModel.executeCommand('pm-search-set-query', {query: 'bank'})).toBe(true)
     expect(filterValue()).toBe('bank')
 
-    expect(layout.executeMobileCommand('pm-search-clear-query')).toBe(true)
-    expect(filterValue()).toBe('')
-
-    expect(layout.executeMobileCommand('pm-toggle-quick-filter', {query: 'otp'})).toBe(true)
+    expect(pmMobileChromeModel.executeCommand('pm-toggle-quick-filter', {query: 'otp'})).toBe(true)
     expect(quickFilters()).toEqual(['otp'])
 
-    expect(layout.executeMobileCommand('pm-toggle-quick-filter', {query: 'favorites'})).toBe(true)
+    expect(pmMobileChromeModel.executeCommand('pm-toggle-quick-filter', {query: 'favorites'})).toBe(true)
     expect(quickFilters()).toEqual(['otp', 'favorites'])
 
-    expect(layout.executeMobileCommand('pm-sort-direction-toggle')).toBe(true)
+    expect(pmMobileChromeModel.executeCommand('pm-sort-direction-toggle')).toBe(true)
     expect(sortDirection()).toBe('desc')
 
-    expect(layout.executeMobileCommand('pm-sort-field-website')).toBe(true)
+    expect(pmMobileChromeModel.executeCommand('pm-sort-field-website')).toBe(true)
     expect(sortField()).toBe('website')
 
-    expect(layout.executeMobileCommand('pm-group-by-folder')).toBe(true)
-    expect(groupBy()).toBe('folder')
+    expect(pmMobileChromeModel.executeCommand('pm-group-by-folder')).toBe(false)
+    expect(groupBy()).toBe('none')
+
+    expect(pmMobileChromeModel.executeCommand('pm-group-by-website')).toBe(true)
+    expect(groupBy()).toBe('website')
+
+    selectedCredentialTagFilters.set(['work'])
+    expect(pmMobileChromeModel.executeCommand('pm-search-clear-query')).toBe(true)
+    expect(filterValue()).toBe('')
+    expect(quickFilters()).toEqual([])
+    expect(selectedCredentialTagFilters()).toEqual([])
+    expect(sortField()).toBe('name')
+    expect(sortDirection()).toBe('asc')
+    expect(groupBy()).toBe('none')
 
     const entry = createEntryForStateCheck()
     pm.showElement.set(entry)
-    await Promise.resolve()
-    await layout.updateComplete
+    await flushLayout(layout)
 
-    const entryEl = layout.shadowRoot?.querySelector('pm-entry-mobile') as PMEntryActionsElement | null
-    const editSpy = vi.fn()
-    const moveSpy = vi.fn()
-    const deleteSpy = vi.fn()
-    if (entryEl) {
-      entryEl.triggerEditAction = editSpy
-      entryEl.triggerMoveAction = moveSpy
-      entryEl.triggerDeleteAction = deleteSpy
-    }
+    const moveSpy = vi.spyOn(PMEntryModel.prototype, 'moveEntryCard').mockResolvedValue(undefined)
+    const deleteSpy = vi.spyOn(PMEntryModel.prototype, 'deleteEntryCard').mockImplementation(() => {})
 
-    expect(layout.executeMobileCommand('pm-entry-edit')).toBe(true)
-    expect(layout.executeMobileCommand('pm-entry-move')).toBe(true)
-    expect(layout.executeMobileCommand('pm-entry-delete')).toBe(true)
-    expect(editSpy).toHaveBeenCalledTimes(1)
+    expect(pmMobileChromeModel.executeCommand('pm-entry-move')).toBe(true)
+    expect(pmMobileChromeModel.executeCommand('pm-entry-delete')).toBe(true)
+    expect(pmMobileChromeModel.executeCommand('pm-entry-edit')).toBe(true)
+    expect(pmMobileChromeModel.executeCommand('pm-export')).toBe(false)
+    expect(pmMobileChromeModel.executeCommand('pm-import')).toBe(false)
+    expect(pmMobileChromeModel.executeCommand('pm-clean')).toBe(false)
+    expect(pmEntryEditorModel.isActiveForEntry(entry.id)).toBe(true)
     expect(moveSpy).toHaveBeenCalledTimes(1)
     expect(deleteSpy).toHaveBeenCalledTimes(1)
+    expect(onExportSpy).not.toHaveBeenCalled()
+    expect(onImportSpy).not.toHaveBeenCalled()
+    expect(onCleanSpy).not.toHaveBeenCalled()
 
-    pm.isEditMode.set(true)
+    pmEntryEditorModel.openSurface(entry.id, 'title')
     await Promise.resolve()
     await layout.updateComplete
-    expect(layout.executeMobileCommand('pm-entry-edit')).toBe(false)
+    expect(pmMobileChromeModel.executeCommand('pm-entry-edit')).toBe(false)
   })
 
   it('re-renders visible mobile rows after sort and group commands', async () => {
@@ -642,11 +592,11 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
 
     expect(getRenderedMobileRows(layout)).toEqual(['entry:Alpha', 'entry:Zulu'])
 
-    expect(layout.executeMobileCommand('pm-sort-field-website')).toBe(true)
+    expect(pmMobileChromeModel.executeCommand('pm-sort-field-website')).toBe(true)
     await flushLayout(layout)
     expect(getRenderedMobileRows(layout)).toEqual(['entry:Zulu', 'entry:Alpha'])
 
-    expect(layout.executeMobileCommand('pm-group-by-website')).toBe(true)
+    expect(pmMobileChromeModel.executeCommand('pm-group-by-website')).toBe(true)
     await flushLayout(layout)
     expect(getRenderedMobileRows(layout)).toEqual([
       'header:alpha.test 1',
@@ -656,7 +606,7 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
     ])
   })
 
-  it('handles toolbar back chain for edit, entry, create/import and root contexts', async () => {
+  it('keeps non-transient toolbar back handling outside the shared model', async () => {
     ensureMobileLayoutDefined()
     originalPassmanager = (window as any).passmanager
     const root = createRootLike()
@@ -679,31 +629,31 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
     await Promise.resolve()
     await layout.updateComplete
 
-    expect(layout.handleMobileToolbarBack()).toBe(false)
+    expect(pmMobileChromeModel.handleBack()).toBe(false)
     expect(pm.showElement()).toBe(entry)
 
     pm.showElement.set(entry)
-    pm.isEditMode.set(true)
+    pmEntryEditorModel.openSurface(entry.id, 'note')
     await Promise.resolve()
     await layout.updateComplete
-    expect(layout.handleMobileToolbarBack()).toBe(false)
-    expect(pm.isEditMode()).toBe(true)
+    expect(pmMobileChromeModel.handleBack()).toBe(true)
+    expect(pmEntryEditorModel.active()).toBe(false)
 
     pm.showElement.set('createGroup')
     await Promise.resolve()
     await layout.updateComplete
-    expect(layout.handleMobileToolbarBack()).toBe(false)
+    expect(pmMobileChromeModel.handleBack()).toBe(false)
     expect(pm.showElement()).toBe('createGroup')
 
     pm.showElement.set('importDialog')
     await Promise.resolve()
     await layout.updateComplete
-    expect(layout.handleMobileToolbarBack()).toBe(false)
+    expect(pmMobileChromeModel.handleBack()).toBe(false)
     expect(pm.showElement()).toBe('importDialog')
 
     pm.showElement.set(root)
     await Promise.resolve()
     await layout.updateComplete
-    expect(layout.handleMobileToolbarBack()).toBe(false)
+    expect(pmMobileChromeModel.handleBack()).toBe(false)
   })
 })

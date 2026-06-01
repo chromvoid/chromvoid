@@ -14,11 +14,10 @@
   "author": "",
   "license": "ISC",
   "peerDependencies": {
-    "@statx/core": "^1.15.0",
-    "@statx/lit": "^1.15.0",
-    "@statx/machine": "^1.15.0",
     "lit": "^3.0.0",
     "web-bip39": "^0.0.3"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@types/node": "^24.11.0"
+  }
 }

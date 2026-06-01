@@ -12,9 +12,12 @@ import com.chromvoid.app.autofill.AutofillSessionKeys
 import com.chromvoid.app.autofill.AutofillSessionMetadata
 import com.chromvoid.app.autofill.AutofillStrategyKind
 import com.chromvoid.app.autofill.InMemoryAutofillSessionStore
+import com.chromvoid.app.credentialprovider.AutofillSecret
+import com.chromvoid.app.credentialprovider.BridgeResult
 import com.chromvoid.app.credentialprovider.OtpOption
 import com.chromvoid.app.shared.BaseFakeBridgeGateway
 import com.chromvoid.app.shared.SystemAndroidClock
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -269,5 +272,61 @@ class AutofillAuthControllerTest {
         assertEquals(listOf(originalOtpId), resolved.otpIds)
     }
 
-    private class FakeBridge : BaseFakeBridgeGateway()
+    @Test
+    fun closeSession_returnsActualClosedFlag_forRepeatedCalls() {
+        val fake = FakeBridge()
+        fake.closeResults.addLast(true)
+        fake.closeResults.addLast(false)
+        val controller = AutofillAuthController(fake)
+
+        assertTrue(controller.closeSession("sess-1"))
+        assertFalse(controller.closeSession("sess-1"))
+    }
+
+    @Test
+    fun handleOtp_singleOptionAndExplicitOption_useEquivalentSecretResolution() {
+        val fake = FakeBridge()
+        fake.secretResponse = BridgeResult.Success(AutofillSecret("alice@example.com", null, "123456"))
+        val controller = AutofillAuthController(fake)
+        val otpId = AutofillTestUtils.newAutofillId(context)
+        val option = OtpOption("otp-1", "Main", "TOTP")
+        val args =
+            AutofillAuthArgs(
+                sessionId = "sess-1",
+                credentialId = "cred-1",
+                domain = "github.com",
+                sessionKey = "session-key",
+                strategyKind = AutofillStrategyKind.COMPAT,
+                usernameIds = emptyList(),
+                passwordIds = emptyList(),
+                otpIds = listOf(otpId),
+                stepKind = ChromVoidAutofillService.STEP_OTP,
+                otpOptions = listOf(option),
+            )
+
+        val fromSingle = controller.handleOtp(args) as com.chromvoid.app.autofill.AutofillAuthResult.Success
+        val fromExplicit =
+            controller.handleOtp(args, option) as com.chromvoid.app.autofill.AutofillAuthResult.Success
+
+        assertEquals(
+            AutofillTestUtils.datasetFieldValueMap(fromSingle.dataset.build()),
+            AutofillTestUtils.datasetFieldValueMap(fromExplicit.dataset.build()),
+        )
+        assertEquals(fromSingle.otpValue, fromExplicit.otpValue)
+    }
+
+    private class FakeBridge : BaseFakeBridgeGateway() {
+        val closeResults = ArrayDeque<Boolean>()
+        var secretResponse: BridgeResult<AutofillSecret> =
+            BridgeResult.Success(AutofillSecret("alice@example.com", null, "123456"))
+
+        override fun autofillGetSecret(
+            sessionId: String,
+            credentialId: String,
+            otpId: String?,
+        ): BridgeResult<AutofillSecret> = secretResponse
+
+        override fun autofillCloseSession(sessionId: String): BridgeResult<Boolean> =
+            BridgeResult.Success(closeResults.removeFirstOrNull() ?: false)
+    }
 }

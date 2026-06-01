@@ -1,2 +1,5 @@
 export {pmEntryCardStyles, pmEntryGenerateStyles} from '../entry-create/styles'
+export {entryDesktopStyles} from './entry-desktop.styles'
+export {entryMobileStyles} from './entry-mobile.styles'
 export {entrySharedStyles} from './entry.styles'
+export {paymentCardFaceMobileStyles, paymentCardFaceStyles} from './payment-card-face.styles'

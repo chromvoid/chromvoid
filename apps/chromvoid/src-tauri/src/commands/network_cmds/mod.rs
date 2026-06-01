@@ -1,5 +1,6 @@
 mod helpers;
 mod ios;
+mod mobile_host;
 mod pairing;
 #[cfg(any(desktop, test))]
 mod peers;
@@ -16,6 +17,11 @@ pub(crate) use ios::{desktop_connect_ios, desktop_pair_ios};
 pub(crate) use ios::{
     get_local_device_identity, handle_ios_wake, ios_host_status, publish_ios_presence,
     start_ios_host_mode, stop_ios_host_mode,
+};
+#[cfg(desktop)]
+pub(crate) use mobile_host::desktop_pair_mobile_host;
+pub(crate) use mobile_host::{
+    mobile_host_publish_presence, mobile_host_start, mobile_host_status, mobile_host_stop,
 };
 pub(crate) use pairing::{mobile_acceptor_start, mobile_acceptor_status, mobile_acceptor_stop};
 #[cfg(desktop)]

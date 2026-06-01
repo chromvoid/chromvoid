@@ -14,8 +14,8 @@ pub(crate) use unmount::volume_unmount_inner_with_budget;
 
 // Helper functions
 pub(crate) use helpers::{
-    perform_volume_teardown, volume_join_timeout, volume_spawn_join_backend, volume_status_from_vm,
-    volume_take_backend_on_vault_lock,
+    perform_volume_teardown, volume_join_timeout, volume_schedule_backend_join,
+    volume_status_from_vm,
 };
 
 // macOS-specific helpers
@@ -94,7 +94,7 @@ mod volume_unmount_safety_tests {
 
     use crate::volume_manager;
 
-    use super::helpers::volume_spawn_join_backend;
+    use super::helpers::volume_schedule_backend_join;
     use super::macos::macos_mountpoint_is_unhealthy;
 
     #[tokio::test]
@@ -117,7 +117,12 @@ mod volume_unmount_safety_tests {
             fuse_task,
         );
 
-        volume_spawn_join_backend(volume_manager::VolumeBackendHandle::Fuse(fuse_handle));
+        let runtime = std::sync::Arc::new(volume_manager::VolumeBackendJoinRuntimeState::new());
+        volume_schedule_backend_join(
+            runtime,
+            volume_manager::VolumeBackendHandle::Fuse(fuse_handle),
+        )
+        .expect("schedule backend join");
         tokio::time::sleep(Duration::from_secs(4)).await;
 
         assert!(

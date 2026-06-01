@@ -1,18 +1,15 @@
-import {XLitElement} from '@statx/lit'
-import {css, html} from 'lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {css} from 'lit'
 
-import {
-  CVToastRegion,
-  createToastController,
-  type CVToastController,
-  type ToastRegionPosition,
-} from '@chromvoid/uikit'
+import {CVToastRegion, type ToastRegionPosition} from '@chromvoid/uikit/components/cv-toast-region'
+import type {CVToastController} from '@chromvoid/uikit/toast/create-toast-controller'
+import {createToastController} from '@chromvoid/uikit/toast/create-toast-controller'
 import {
   setNotifyAdapter,
   type NotifyPayload,
   type NotifyToastPresentOptions,
   type ToastPosition,
-} from '@project/passmanager'
+} from '@project/passmanager/notify'
 import {announce} from '@chromvoid/ui'
 
 type ToastVariant = NotifyPayload['variant']
@@ -61,12 +58,21 @@ const POSITION_TO_REGION: Record<ToastPosition, ToastRegionPosition> = {
 }
 
 const DEFAULT_TOAST_POSITION: ToastPosition = 'bottom-right'
+const MOBILE_DEFAULT_TOAST_POSITION: ToastPosition = 'bottom-center'
+
+function resolveDefaultToastPosition(): ToastPosition {
+  if (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 767px)').matches) {
+    return MOBILE_DEFAULT_TOAST_POSITION
+  }
+
+  return DEFAULT_TOAST_POSITION
+}
 
 function resolveAnnouncePriority(variant: ToastVariant): 'polite' | 'assertive' {
   return variant === 'error' ? 'assertive' : 'polite'
 }
 
-export class ToastContainer extends XLitElement {
+export class ToastContainer extends ReatomLitElement {
   static define() {
     CVToastRegion.define()
     if (!customElements.get('toast-container')) {
@@ -94,7 +100,10 @@ export class ToastContainer extends XLitElement {
         cv-toast-region[position='bottom-start'],
         cv-toast-region[position='bottom-center'],
         cv-toast-region[position='bottom-end'] {
-          bottom: calc(56px + var(--cv-toast-region-inset, 8px));
+          bottom: calc(
+            56px + var(--safe-area-bottom-active, var(--safe-area-bottom, 0px)) +
+              var(--cv-toast-region-inset, 8px)
+          );
         }
       }
     `,
@@ -107,7 +116,7 @@ export class ToastContainer extends XLitElement {
   )
 
   show(options: ToastOptions): string {
-    const position = options.position ?? DEFAULT_TOAST_POSITION
+    const position = options.position ?? resolveDefaultToastPosition()
     const controller = this.controllers.get(position)
     if (!controller) {
       throw new Error(`Unsupported toast position: ${position}`)

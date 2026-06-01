@@ -34,9 +34,9 @@ export class CVFeatureBadgePro extends LitElement {
         letter-spacing: 0.08em;
         text-transform: uppercase;
         font-weight: 500;
-        border: 1px solid rgba(179, 136, 255, 0.24);
-        background: rgba(179, 136, 255, 0.08);
-        color: #b388ff;
+        border: 1px solid var(--cv-color-accent-border);
+        background: var(--cv-color-accent-surface);
+        color: var(--cv-color-accent);
         white-space: nowrap;
         transition:
           border-color 120ms ease,
@@ -45,8 +45,8 @@ export class CVFeatureBadgePro extends LitElement {
       }
 
       [part='base']:hover {
-        border-color: rgba(179, 136, 255, 0.36);
-        background: rgba(179, 136, 255, 0.12);
+        border-color: var(--cv-color-accent-border-strong);
+        background: var(--cv-color-accent-surface-strong);
       }
 
       [part='icon'] {

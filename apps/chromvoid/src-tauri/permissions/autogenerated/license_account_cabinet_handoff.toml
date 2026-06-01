@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-license-account-cabinet-handoff"
+description = "Enables the license_account_cabinet_handoff command without any pre-configured scope."
+commands.allow = ["license_account_cabinet_handoff"]
+
+[[permission]]
+identifier = "deny-license-account-cabinet-handoff"
+description = "Denies the license_account_cabinet_handoff command without any pre-configured scope."
+commands.deny = ["license_account_cabinet_handoff"]

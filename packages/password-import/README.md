@@ -1,11 +1,32 @@
 # @chromvoid/password-import
 
-Password import library for ChromVoid — client-side migration from KeePass, Bitwarden, and CSV exports.
+Password import library for ChromVoid — client-side migration from KeePass, Bitwarden, 1Password, and CSV exports.
+
+## Import Contract
+
+- Prefer lean subpath imports in application hot paths.
+- Root imports from `@chromvoid/password-import` remain supported for compatibility only.
+
+Recommended subpaths:
+
+- `@chromvoid/password-import/types`
+- `@chromvoid/password-import/validation`
+- `@chromvoid/password-import/conflicts`
+- `@chromvoid/password-import/mapper`
+- `@chromvoid/password-import/parsers`
+- `@chromvoid/password-import/parsers/1password`
+- `@chromvoid/password-import/parsers/csv`
+- `@chromvoid/password-import/parsers/bitwarden`
+- `@chromvoid/password-import/parsers/keepass`
+- `@chromvoid/password-import/ui/import-dialog`
+- `@chromvoid/password-import/ui/import-dialog-state`
+- `@chromvoid/password-import/ui/mobile-file-picker-lifecycle`
+- `@chromvoid/password-import/ui/file-accept`
 
 ## Installation
 
 ```bash
-pnpm add @chromvoid/password-import
+npm install @chromvoid/password-import
 ```
 
 ## Features
@@ -14,10 +35,12 @@ pnpm add @chromvoid/password-import
 - **Multiple formats**:
   - KeePass (.kdbx) — encrypted password databases
   - Bitwarden JSON exports
+  - 1Password 1PUX exports
   - CSV files (LastPass, Bitwarden, Generic format)
 - **Conflict detection**: Auto-rename with suffix (2), (3), etc. for name collisions
 - **OTP import**: TOTP/HOTP secrets imported into ChromVoid catalog
 - **Custom fields**: Stored in `.fields.json` and duplicated to `.note` for Phase 1 visibility
+- **Tags**: Preserved from supported formats and written to entry metadata
 - **Cancel/abort**: Import can be cancelled mid-process
 - **Progress tracking**: Real-time updates (entries imported, errors, current entry)
 
@@ -26,7 +49,7 @@ pnpm add @chromvoid/password-import
 ### Basic Import
 
 ```typescript
-import {ImportDialog} from '@chromvoid/password-import'
+import {ImportDialog} from '@chromvoid/password-import/ui/import-dialog'
 
 // Register dialog custom element
 ImportDialog.define()
@@ -43,10 +66,10 @@ ImportDialog.define()
 The import dialog requires catalog operations to write entries to the passmanager namespace. All paths passed to `CatalogOperations` are relative to the passmanager root — the adapter is responsible for mapping them to actual catalog paths. Create an adapter from your app-layer catalog service:
 
 ```typescript
-import {createCatalogOperationsAdapter} from '@chromvoid/password-import'
+import type {CatalogOperations} from '@chromvoid/password-import/mapper'
 
 // In your app initialization
-const catalogOps = createCatalogOperationsAdapter(window.catalog)
+const catalogOps: CatalogOperations = window.catalogAdapter
 
 // Pass to dialog
 const dialog = document.querySelector('pm-import-dialog')
@@ -60,6 +83,8 @@ dialog?.setCatalogOperations(catalogOps)
 Parse a KeePass .kdbx file.
 
 ```typescript
+import {parseKeePass} from '@chromvoid/password-import/parsers/keepass'
+
 const result = await parseKeePass(file, 'master-password')
 console.log(result.entries.length, 'entries imported')
 console.log(result.folders.length, 'folders')
@@ -70,6 +95,8 @@ console.log(result.folders.length, 'folders')
 Parse a CSV file (LastPass, Bitwarden, Generic format auto-detected).
 
 ```typescript
+import {parseCSV} from '@chromvoid/password-import/parsers/csv'
+
 const result = await parseCSV(file)
 ```
 
@@ -78,7 +105,19 @@ const result = await parseCSV(file)
 Parse a Bitwarden JSON export.
 
 ```typescript
+import {parseBitwardenJson} from '@chromvoid/password-import/parsers/bitwarden'
+
 const result = await parseBitwardenJson(file)
+```
+
+### `parse1Password1PUX(file: File): Promise<ImportResult>`
+
+Parse a 1Password 8 `.1pux` export.
+
+```typescript
+import {parse1Password1PUX} from '@chromvoid/password-import/parsers/1password'
+
+const result = await parse1Password1PUX(file)
 ```
 
 ### `detectConflicts(entries: ImportedEntry[], existingCatalog?: Set<string>): Conflict[]`
@@ -86,6 +125,8 @@ const result = await parseBitwardenJson(file)
 Find conflicts between import entries and existing catalog.
 
 ```typescript
+import {detectConflicts} from '@chromvoid/password-import/conflicts'
+
 const conflicts = detectConflicts(entries)
 ```
 
@@ -94,6 +135,8 @@ const conflicts = detectConflicts(entries)
 Auto-resolve name conflicts by adding suffix (2), (3), etc.
 
 ```typescript
+import {resolveConflictsAutoRename} from '@chromvoid/password-import/conflicts'
+
 resolveConflictsAutoRename(entries, existingCatalog)
 ```
 
@@ -102,6 +145,8 @@ resolveConflictsAutoRename(entries, existingCatalog)
 Manages the import process with progress tracking and abort support.
 
 ```typescript
+import {ImportOrchestrator} from '@chromvoid/password-import/mapper'
+
 const orchestrator = new ImportOrchestrator()
 const result = await orchestrator.execute(catalogOps, entries, onProgress)
 
@@ -140,6 +185,7 @@ interface ImportedEntry {
   url: string | null          // Primary URL
   urls: string[]             // All URLs
   notes: string | null         // Notes
+  tags: string[] | null        // Entry tags
   customFields: Array<{key: string; value: string}> | null
   otp: OTPData | null       // TOTP/HOTP configuration
   folder: string | null      // Folder/group path
@@ -202,8 +248,7 @@ To integrate with ChromVoid's catalog, implement this interface:
 ```typescript
 interface CatalogOperations {
   createDir(name: string, parentPath: string): Promise<{nodeId: number} | {nameExists: true}>
-  prepareUpload(parentPath: string, name: string, size: number, chunkSize: number, mimeType: string): Promise<{nodeId: number}>
-  upload(nodeId: number, size: number, data: Uint8Array): Promise<void>
+  upload(parentPath: string, name: string, size: number, data: Uint8Array, chunkSize: number, mimeType: string): Promise<{nodeId: number}>
   setOTPSecret(params: {nodeId: number; label: string; secret: string; encoding: string; algorithm: string; digits: number; period: number}): Promise<void>
   deleteNode(nodeId: number): Promise<void>
 }

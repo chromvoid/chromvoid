@@ -2,10 +2,9 @@
 
 use crate::credential_provider_contract::passkey_native_request_payload;
 pub use crate::credential_provider_contract::{PasskeyLiteCommand, PasskeyLiteRequest};
-#[cfg(test)]
-use crate::credential_provider_passkey::dispatch_provider_rpc;
 use crate::credential_provider_passkey::{
-    ensure_local_mode, ensure_passkeys_supported, provider_policy_preflight, PasskeyRuntimeError,
+    dispatch_provider_rpc, ensure_local_mode, ensure_passkeys_supported, provider_policy_preflight,
+    PasskeyRuntimeError,
 };
 use crate::CoreAdapter;
 use serde::Serialize;
@@ -84,10 +83,39 @@ impl<'a> AndroidPasskeyAdapter<'a> {
         let policy = provider_policy_preflight(self.adapter)?;
 
         Ok(AndroidPasskeyPolicyState {
-            local_only: true,
+            local_only: false,
             provider_enabled: policy.provider_enabled,
             vault_open: policy.vault_open,
         })
+    }
+
+    pub fn dispatch_core_operation(
+        &mut self,
+        command: PasskeyLiteCommand,
+        payload: Value,
+    ) -> Result<Value, AndroidPasskeyError> {
+        ensure_local_mode(self.adapter.mode(), "Android")?;
+
+        let status = self.status();
+        ensure_passkeys_supported(
+            status.passkeys_lite == PasskeysLiteState::Ready,
+            status.unsupported_reason.as_deref(),
+            "passkeys_lite is unsupported on this Android API level",
+        )?;
+
+        self.policy_preflight()?;
+        let payload = core_operation_payload(payload, self.api_level)?;
+        let result = dispatch_provider_rpc(self.adapter, command.rpc_command(), payload)?;
+        if matches!(
+            command,
+            PasskeyLiteCommand::Create | PasskeyLiteCommand::Get
+        ) {
+            self.adapter.save().map_err(|message| PasskeyRuntimeError {
+                code: "INTERNAL".to_string(),
+                message,
+            })?;
+        }
+        Ok(result)
     }
 
     #[cfg(test)]
@@ -134,4 +162,109 @@ pub fn runtime_passkey_preflight(command: &str, payload: Value, api_level: u64) 
             "message": error.message,
         }),
     }
+}
+
+pub fn runtime_passkey_query(payload: Value, api_level: u64) -> Value {
+    runtime_passkey_core_operation(PasskeyLiteCommand::Query, payload, api_level)
+}
+
+pub fn runtime_passkey_create(payload: Value, api_level: u64) -> Value {
+    runtime_passkey_core_operation(PasskeyLiteCommand::Create, payload, api_level)
+}
+
+pub fn runtime_passkey_get(payload: Value, api_level: u64) -> Value {
+    runtime_passkey_core_operation(PasskeyLiteCommand::Get, payload, api_level)
+}
+
+fn runtime_passkey_core_operation(
+    command: PasskeyLiteCommand,
+    payload: Value,
+    api_level: u64,
+) -> Value {
+    let request_id = Uuid::new_v4().to_string();
+    let result = match with_shared_provider_adapter(|adapter| {
+        let mut passkeys = AndroidPasskeyAdapter::new(adapter, api_level);
+        passkeys.dispatch_core_operation(command, payload)
+    }) {
+        Ok(result) => result,
+        Err(message) => {
+            return json!({
+                "ok": false,
+                "code": "PROVIDER_UNAVAILABLE",
+                "message": message,
+            });
+        }
+    };
+
+    match result {
+        Ok(result) if command == PasskeyLiteCommand::Query => json!({
+            "ok": true,
+            "request_id": request_id,
+            "passkeys": result.get("passkeys").cloned().unwrap_or_else(|| json!([])),
+        }),
+        Ok(result) => json!({
+            "ok": true,
+            "credential_id": result
+                .get("credentialIdB64Url")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default(),
+            "response_json": result.to_string(),
+        }),
+        Err(error) => json!({
+            "ok": false,
+            "code": error.code,
+            "message": error.message,
+        }),
+    }
+}
+
+fn core_operation_payload(payload: Value, api_level: u64) -> Result<Value, PasskeyRuntimeError> {
+    let request_json = payload
+        .get("request_json")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| PasskeyRuntimeError {
+            code: "EMPTY_PAYLOAD".to_string(),
+            message: "Android passkey request_json is required".to_string(),
+        })?;
+    let mut request: Value =
+        serde_json::from_str(request_json).map_err(|error| PasskeyRuntimeError {
+            code: "INVALID_CONTEXT".to_string(),
+            message: format!("Android passkey request_json is invalid: {error}"),
+        })?;
+
+    if let Some(origin) = payload
+        .get("origin")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        request["origin"] = json!(origin);
+    }
+    if let Some(client_data_hash) = payload
+        .get("client_data_hash")
+        .or_else(|| payload.get("clientDataHash"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        request["clientDataHash"] = json!(client_data_hash);
+    }
+
+    let mut out = json!({
+        "platform": "android",
+        "platform_version_major": api_level,
+        "request": request,
+    });
+    if let Some(credential_id) = payload
+        .get("selected_credential_id")
+        .or_else(|| payload.get("credentialIdB64Url"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        out["credentialIdB64Url"] = json!(credential_id);
+    }
+    Ok(out)
 }

@@ -22,15 +22,16 @@ class ConsoleLogger implements Logger {
 
   debug(message: string, meta?: unknown): void {
     if (!shouldLog(this.level, 'debug')) return
+    
     try {
-      console.debug(message, meta ?? '')
+      console.log(message, meta ?? '')
     } catch {}
   }
 
   info(message: string, meta?: unknown): void {
     if (!shouldLog(this.level, 'info')) return
     try {
-      console.info(message, meta ?? '')
+      console.log(message, meta ?? '')
     } catch {}
   }
 

@@ -53,7 +53,13 @@ pub(super) async fn perform_extension_handshake(
     // Load the gateway's persistent keypair (if any).
     let gateway_privkey = {
         let state = app_handle.state::<crate::AppState>();
-        let st = state.gateway.lock().ok()?;
+        let st = match state.gateway.lock() {
+            Ok(st) => st,
+            Err(_) => {
+                warn!("[gateway] reject extension handshake: gateway mutex poisoned");
+                return None;
+            }
+        };
         st.config.gateway_privkey_hex.as_ref().and_then(|hex| {
             let bytes = hex_decode(hex).ok()?;
             if bytes.len() == 32 {
@@ -70,7 +76,7 @@ pub(super) async fn perform_extension_handshake(
             match try_ik_responder(privkey, msg1.as_ref(), &mut buf, &mut write).await {
                 Ok((noise, ext_id)) => {
                     // Verify the extension is known/paired.
-                    let authorized = authorize_extension(app_handle, &ext_id)?;
+                    let authorized = authorize_extension(app_handle, &ext_id).await?;
                     if !authorized {
                         warn!(
                             "[gateway] reject extension handshake: unauthorized extension_id={ext_id}"
@@ -123,7 +129,7 @@ pub(super) async fn perform_extension_handshake(
         }
     };
 
-    let authorized = authorize_extension(app_handle, &ext_id)?;
+    let authorized = authorize_extension(app_handle, &ext_id).await?;
     if !authorized {
         warn!("[gateway] reject extension handshake: unauthorized extension_id={ext_id}");
         return None;
@@ -131,10 +137,27 @@ pub(super) async fn perform_extension_handshake(
 
     // If we generated a fresh keypair during XX, store it for future IK.
     if let Some(kp) = keypair_for_storage {
-        let state = app_handle.state::<crate::AppState>();
-        let mut st = state.gateway.lock().ok()?;
-        st.ensure_gateway_keypair(&kp);
-        st.save_config();
+        let (catalog_blocking_io_runtime, save_snapshot) = {
+            let state = app_handle.state::<crate::AppState>();
+            let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
+            let mut st = match state.gateway.lock() {
+                Ok(st) => st,
+                Err(_) => {
+                    warn!(
+                        "[gateway] reject extension handshake: gateway mutex poisoned while storing keypair"
+                    );
+                    return None;
+                }
+            };
+            st.ensure_gateway_keypair(&kp);
+            (catalog_blocking_io_runtime, st.config_save_snapshot())
+        };
+        crate::gateway::save_config_snapshot_best_effort(
+            catalog_blocking_io_runtime,
+            save_snapshot,
+            "Gateway extension keypair save",
+        )
+        .await;
     }
 
     let transport = noise.into_transport_mode().ok()?;
@@ -247,47 +270,64 @@ async fn try_xx_responder(
 
 /// Authorize an extension: check it's paired and active, enforce access duration.
 /// Returns `Some(true)` if authorized, `Some(false)` if denied, `None` on lock error.
-fn authorize_extension(app_handle: &tauri::AppHandle, ext_id: &str) -> Option<bool> {
+async fn authorize_extension(app_handle: &tauri::AppHandle, ext_id: &str) -> Option<bool> {
     let now = now_ms();
-    let state = app_handle.state::<crate::AppState>();
-    let mut st = state.gateway.lock().ok()?;
+    let (catalog_blocking_io_runtime, save_snapshot) = {
+        let state = app_handle.state::<crate::AppState>();
+        let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
+        let mut st = match state.gateway.lock() {
+            Ok(st) => st,
+            Err(_) => {
+                warn!(
+                    "[gateway] reject extension handshake: gateway mutex poisoned while authorizing extension_id={ext_id}"
+                );
+                return None;
+            }
+        };
 
-    if !st.is_paired_and_active(ext_id) {
-        return Some(false);
-    }
+        if !st.is_paired_and_active(ext_id) {
+            return Some(false);
+        }
 
-    // Enforce access duration as a rolling window.
-    match st.config.access_duration {
-        AccessDuration::UntilVaultLocked => {}
-        AccessDuration::Hour1 => {
-            let allowed = st
-                .config
-                .paired_extensions
-                .iter()
-                .find(|e| e.id == ext_id && !e.revoked)
-                .and_then(|e| e.last_active_ms)
-                .map(|ts| now.saturating_sub(ts) <= 60 * 60 * 1000)
-                .unwrap_or(false);
-            if !allowed {
-                return Some(false);
+        // Enforce access duration as a rolling window.
+        match st.config.access_duration {
+            AccessDuration::UntilVaultLocked => {}
+            AccessDuration::Hour1 => {
+                let allowed = st
+                    .config
+                    .paired_extensions
+                    .iter()
+                    .find(|e| e.id == ext_id && !e.revoked)
+                    .and_then(|e| e.last_active_ms)
+                    .map(|ts| now.saturating_sub(ts) <= 60 * 60 * 1000)
+                    .unwrap_or(false);
+                if !allowed {
+                    return Some(false);
+                }
+            }
+            AccessDuration::Hour24 => {
+                let allowed = st
+                    .config
+                    .paired_extensions
+                    .iter()
+                    .find(|e| e.id == ext_id && !e.revoked)
+                    .and_then(|e| e.last_active_ms)
+                    .map(|ts| now.saturating_sub(ts) <= 24 * 60 * 60 * 1000)
+                    .unwrap_or(false);
+                if !allowed {
+                    return Some(false);
+                }
             }
         }
-        AccessDuration::Hour24 => {
-            let allowed = st
-                .config
-                .paired_extensions
-                .iter()
-                .find(|e| e.id == ext_id && !e.revoked)
-                .and_then(|e| e.last_active_ms)
-                .map(|ts| now.saturating_sub(ts) <= 24 * 60 * 60 * 1000)
-                .unwrap_or(false);
-            if !allowed {
-                return Some(false);
-            }
-        }
-    }
 
-    st.mark_extension_active(ext_id);
-    st.save_config();
+        st.mark_extension_active(ext_id);
+        (catalog_blocking_io_runtime, st.config_save_snapshot())
+    };
+    crate::gateway::save_config_snapshot_best_effort(
+        catalog_blocking_io_runtime,
+        save_snapshot,
+        "Gateway extension activity save",
+    )
+    .await;
     Some(true)
 }

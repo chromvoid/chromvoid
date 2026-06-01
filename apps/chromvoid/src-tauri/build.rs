@@ -1,18 +1,42 @@
+const LICENSE_PUBLIC_KEY_ENV: &str = "CHROMVOID_LICENSE_PUBLIC_KEY_ED25519_2026_01";
+
 fn main() {
+    println!("cargo:rerun-if-env-changed={LICENSE_PUBLIC_KEY_ENV}");
+    require_license_public_key_for_release();
+
     // Use ACL permissions for custom app commands (Tauri v2 capabilities).
     // Names here must match the command names used by `#[tauri::command]` (snake_case).
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "rpc_dispatch",
+            "license_activation_code_activate",
+            "license_account_cabinet_handoff",
+            "license_status",
+            "license_seat_status",
+            "license_current_seat_deactivate",
+            "module_access_snapshot",
+            "module_access_resolve",
             "catalog_upload_chunk",
+            "catalog_upload_native_files",
+            "catalog_cancel_native_upload",
+            "catalog_upload_android_shared_files",
+            "catalog_cancel_android_shared_files",
             "passmanager_upload_chunk",
             "catalog_upload_path",
             "file_stat",
             "write_text_file",
             "catalog_download",
+            "prepare_catalog_preview_file",
+            "release_catalog_preview_file",
+            "catalog_preview_image",
+            "catalog_thumbnail_image",
+            "catalog_image_metadata",
+            "catalog_save_image_to_gallery",
+            "catalog_share_files",
             "passmanager_download",
             "catalog_download_path",
             "catalog_open_external",
+            "open_url_external",
             "catalog_secret_read",
             "catalog_secret_write_chunk",
             "passmanager_secret_read",
@@ -20,10 +44,12 @@ fn main() {
             "get_current_mode",
             "init_local_storage",
             "master_setup",
+            "master_rekey",
             "storage_set_root",
             "backup_local_create",
             "backup_local_cancel",
             "restore_local_from_folder",
+            "restore_local_select_source",
             "restore_local_cancel",
             "erase_device",
             "gateway_get_config",
@@ -47,12 +73,22 @@ fn main() {
             "volume_mount",
             "volume_unmount",
             "touch_activity",
+            "unlock_debug_log",
             "runtime_capabilities",
             "get_local_device_identity",
             "mobile_notify_background",
             "mobile_notify_foreground",
+            "android_media_session_update",
+            "android_media_session_stop",
+            "android_audio_session_command",
+            "android_video_start",
+            "android_video_stop",
             "mobile_biometric_auth",
+            "android_passkeys_list",
+            "android_passkey_delete",
             "android_password_save_finish",
+            "android_quick_lock_tile_status",
+            "android_request_quick_lock_tile",
             "start_ios_host_mode",
             "stop_ios_host_mode",
             "ios_host_status",
@@ -98,4 +134,15 @@ fn main() {
         ]),
     ))
     .expect("tauri-build failed");
+}
+
+fn require_license_public_key_for_release() {
+    if std::env::var("PROFILE").ok().as_deref() != Some("release") {
+        return;
+    }
+
+    let value = std::env::var(LICENSE_PUBLIC_KEY_ENV).unwrap_or_default();
+    if value.trim().is_empty() {
+        panic!("missing {LICENSE_PUBLIC_KEY_ENV}: release app builds must embed the license verification public key");
+    }
 }

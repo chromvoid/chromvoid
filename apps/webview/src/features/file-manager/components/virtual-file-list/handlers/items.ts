@@ -1,4 +1,5 @@
 import type {FileListItem} from 'root/shared/contracts/file-manager'
+import {FILE_ITEM_HOST_OR_ROW_SELECTOR} from '../item-host-selectors'
 import {
   getEventFromDetail,
   getItemFromDetail,
@@ -35,7 +36,14 @@ export interface VirtualFileListItemHandlersDeps {
   context: VirtualFileListHandlerContext
   focusItemById: (id: number) => void
   getItems: () => FileListItem[]
-  emitItemAction: (action: string, item?: FileListItem, event?: Event, source?: FileListItem, target?: FileListItem) => void
+  emitItemAction: (
+    action: string,
+    item?: FileListItem,
+    event?: Event,
+    source?: FileListItem,
+    target?: FileListItem,
+    payload?: unknown,
+  ) => void
 }
 
 export const createItemHandlers = (deps: VirtualFileListItemHandlersDeps): VirtualFileListItemHandlers => {
@@ -47,6 +55,58 @@ export const createItemHandlers = (deps: VirtualFileListItemHandlersDeps): Virtu
     getItems,
     emitItemAction,
   } = deps
+
+  const handleMobileContextMenuSelection = (item: FileListItem, event: Event) => {
+    if (!context.isMobileLayout()) {
+      return false
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    const now = Date.now()
+    const isDuplicateLongPress =
+      pointerState.lastLongPressItemId === item.id && now - pointerState.lastLongPressAtMs < 900
+
+    const filtered = getItems()
+    const currentIndex = filtered.findIndex((candidate) => candidate.id === item.id)
+    if (currentIndex >= 0) {
+      selectionState.lastSelectionAnchorIndex = currentIndex
+      selectionState.lastKeyboardAnchorIndex = currentIndex
+    }
+
+    focusItemById(item.id)
+
+    if (isDuplicateLongPress) {
+      return true
+    }
+
+    if (!context.isSelectionMode()) {
+      context.emitSelectionModeRequested(true)
+      context.emitSelectionChange([item.id])
+    } else {
+      const selected = [...context.getSelectedItems()]
+      const index = selected.indexOf(item.id)
+      if (index >= 0) {
+        selected.splice(index, 1)
+      } else {
+        selected.push(item.id)
+      }
+      context.emitSelectionChange(selected)
+    }
+
+    pointerState.lastLongPressAtMs = now
+    pointerState.lastLongPressItemId = item.id
+
+    return true
+  }
+
+  const isMobileSelectionActive = () => {
+    return (
+      context.isMobileLayout() &&
+      (context.isSelectionMode() || context.getSelectedItems().length > 0)
+    )
+  }
 
   return {
     onFileItemClick: (e: CustomEvent) => {
@@ -61,7 +121,7 @@ export const createItemHandlers = (deps: VirtualFileListItemHandlersDeps): Virtu
       if (isMacCtrlClick(mouse)) return
       if (mouse.shiftKey || mouse.ctrlKey || mouse.metaKey) {
         handleItemSelect(context, selectionState, item, mouse)
-      } else if (context.isSelectionMode()) {
+      } else if (context.isSelectionMode() || isMobileSelectionActive()) {
         const fakeMouse = {ctrlKey: true, metaKey: false, shiftKey: false} as MouseEvent
         handleItemSelect(context, selectionState, item, fakeMouse)
       } else if (isTouchActivationForItem(pointerState, item.id)) {
@@ -75,12 +135,18 @@ export const createItemHandlers = (deps: VirtualFileListItemHandlersDeps): Virtu
       const item = getItemFromDetail(e.detail)
       const rawEvent = getEventFromDetail(e.detail)
       if (!item) return
+      if (isMobileSelectionActive()) {
+        rawEvent?.preventDefault()
+        rawEvent?.stopPropagation()
+        return
+      }
       emitItemAction('open', item, rawEvent)
     },
     onFileItemContextMenu: (e: CustomEvent) => {
       const item = getItemFromDetail(e.detail)
-      const rawEvent = getEventFromDetail(e.detail)
+      const rawEvent = getEventFromDetail(e.detail) ?? e
       if (!item) return
+      if (handleMobileContextMenuSelection(item, rawEvent)) return
       emitItemAction('context-menu', item, rawEvent)
       focusItemById(item.id)
     },
@@ -116,8 +182,13 @@ export const createItemHandlers = (deps: VirtualFileListItemHandlersDeps): Virtu
 
       if (mouse.shiftKey || mouse.ctrlKey || mouse.metaKey) {
         handleItemSelect(context, selectionState, item, mouse)
-      } else if (context.isSelectionMode()) {
-        handleItemSelect(context, selectionState, item, {ctrlKey: true, metaKey: false, shiftKey: false} as MouseEvent)
+      } else if (context.isSelectionMode() || isMobileSelectionActive()) {
+        handleItemSelect(
+          context,
+          selectionState,
+          item,
+          {ctrlKey: true, metaKey: false, shiftKey: false} as MouseEvent,
+        )
       } else if (isTouchActivationForItem(pointerState, item.id)) {
         emitItemAction('open', item, mouse)
         focusItemById(item.id)
@@ -129,6 +200,11 @@ export const createItemHandlers = (deps: VirtualFileListItemHandlersDeps): Virtu
       const target = e.currentTarget as HTMLElement
       const id = Number(target.getAttribute('data-id'))
       const item = getItems().find((i) => i.id === id)
+      if (item && isMobileSelectionActive()) {
+        e.preventDefault()
+        e.stopPropagation()
+        return
+      }
       if (item) emitItemAction('open', item, e)
     },
     onTableRowContextMenu: (e: Event) => {
@@ -137,6 +213,7 @@ export const createItemHandlers = (deps: VirtualFileListItemHandlersDeps): Virtu
       const id = Number(target.getAttribute('data-id'))
       const item = getItems().find((i) => i.id === id)
       if (!item) return
+      if (handleMobileContextMenuSelection(item, e)) return
       emitItemAction('context-menu', item, e)
       focusItemById(item.id)
     },
@@ -161,16 +238,16 @@ export const createItemHandlers = (deps: VirtualFileListItemHandlersDeps): Virtu
     },
     onContainerBackgroundClick: (e: MouseEvent) => {
       const target = e.target as HTMLElement
-      const isInsideItem = target.closest('file-item, .file-item-wrapper') != null
+      const isInsideItem = target.closest(FILE_ITEM_HOST_OR_ROW_SELECTOR) != null
       if (isInsideItem) return
       context.focusContainer()
     },
     onItemDrop: (e: Event) => {
-      const {detail} = e as CustomEvent<{target: FileListItem; source: FileListItem}>
+      const {detail} = e as CustomEvent<{target: FileListItem; source: FileListItem; payload?: unknown}>
       if (!detail) return
-      const {source, target} = detail
+      const {source, target, payload} = detail
       if (!source || !target) return
-      emitItemAction('move', source, undefined, source, target)
+      emitItemAction('move', source, undefined, source, target, payload)
     },
   }
 }

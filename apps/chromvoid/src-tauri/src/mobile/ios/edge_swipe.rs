@@ -1,5 +1,6 @@
 #[cfg(target_os = "ios")]
 mod native {
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Mutex;
 
     use objc2::rc::Retained;
@@ -13,6 +14,9 @@ mod native {
     };
 
     use tauri::{AppHandle, Emitter, Manager};
+    use tracing::warn;
+
+    static EDGE_SWIPE_SETUP_DONE: AtomicBool = AtomicBool::new(false);
 
     #[derive(Debug, serde::Serialize, Clone)]
     pub struct EdgeSwipeEvent {
@@ -43,6 +47,8 @@ mod native {
             }
         }
 
+        // SAFETY: NSObjectProtocol has no methods; SwipeTarget is an objc2 ObjC subclass of NSObject so
+        // the protocol is structurally satisfied.
         unsafe impl NSObjectProtocol for SwipeTarget {}
     );
 
@@ -58,12 +64,26 @@ mod native {
                 view: Mutex::new(Some(view)),
                 haptic_fired: Mutex::new(false),
             });
+            // SAFETY: this is an alloc'd SwipeTarget with ivars set; calling -[NSObject init] via msg_send
+            // is the standard objc2 designated-initializer pattern.
             unsafe { msg_send![super(this), init] }
         }
 
         fn on_gesture(&self, gesture: &UIScreenEdgePanGestureRecognizer) {
-            let app_guard = self.ivars().app.lock().unwrap();
-            let view_guard = self.ivars().view.lock().unwrap();
+            let app_guard = match self.ivars().app.lock() {
+                Ok(guard) => guard,
+                Err(_) => {
+                    warn!("edge_swipe: app ivar lock poisoned");
+                    return;
+                }
+            };
+            let view_guard = match self.ivars().view.lock() {
+                Ok(guard) => guard,
+                Err(_) => {
+                    warn!("edge_swipe: view ivar lock poisoned");
+                    return;
+                }
+            };
             let (Some(app), Some(view)) = (app_guard.as_ref(), view_guard.as_ref()) else {
                 return;
             };
@@ -79,26 +99,39 @@ mod native {
                 _ => return,
             };
 
+            // SAFETY: gesture is a live UIScreenEdgePanGestureRecognizer borrow; view is a live UIView
+            // borrow; translationInView: returns a CGPoint by value.
             let translation: CGPoint = unsafe { msg_send![gesture, translationInView: &**view] };
+            // SAFETY: gesture is a live UIScreenEdgePanGestureRecognizer borrow; view is a live UIView
+            // borrow; velocityInView: returns a CGPoint by value.
             let velocity: CGPoint = unsafe { msg_send![gesture, velocityInView: &**view] };
+            // SAFETY: gesture is a live UIScreenEdgePanGestureRecognizer borrow; view is a live UIView
+            // borrow; locationInView: returns a CGPoint by value.
             let location: CGPoint = unsafe { msg_send![gesture, locationInView: &**view] };
 
             let delta_x = translation.x.max(0.0);
 
             match state {
-                UIGestureRecognizerState::Began => {
-                    if let Ok(mut h) = self.ivars().haptic_fired.lock() {
-                        *h = false;
-                    }
-                }
+                UIGestureRecognizerState::Began => match self.ivars().haptic_fired.lock() {
+                    Ok(mut haptic_fired) => *haptic_fired = false,
+                    Err(_) => tracing::warn!("ios_edge_swipe: haptic state mutex poisoned"),
+                },
                 UIGestureRecognizerState::Ended => {
                     let should_fire = delta_x >= 80.0;
-                    let already_fired =
-                        self.ivars().haptic_fired.lock().map(|h| *h).unwrap_or(true);
+                    let already_fired = match self.ivars().haptic_fired.lock() {
+                        Ok(haptic_fired) => *haptic_fired,
+                        Err(_) => {
+                            tracing::warn!("ios_edge_swipe: haptic state mutex poisoned");
+                            true
+                        }
+                    };
 
                     if should_fire && !already_fired {
-                        if let Ok(mut h) = self.ivars().haptic_fired.lock() {
-                            *h = true;
+                        match self.ivars().haptic_fired.lock() {
+                            Ok(mut haptic_fired) => *haptic_fired = true,
+                            Err(_) => {
+                                tracing::warn!("ios_edge_swipe: haptic state mutex poisoned")
+                            }
                         }
                         if let Some(mtm) = MainThreadMarker::new() {
                             let generator = UIImpactFeedbackGenerator::initWithStyle(
@@ -128,17 +161,29 @@ mod native {
     /// Attaches a `UIScreenEdgePanGestureRecognizer` (left edge) to the webview
     /// and emits `edge-swipe:progress` events back to JS with gesture state.
     pub fn setup(app: AppHandle) {
+        if EDGE_SWIPE_SETUP_DONE
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            tracing::debug!("edge_swipe: native gesture setup already completed");
+            return;
+        }
+
         if MainThreadMarker::new().is_none() {
+            EDGE_SWIPE_SETUP_DONE.store(false, Ordering::SeqCst);
             tracing::warn!("edge_swipe::setup called off main thread, skipping");
             return;
         }
 
         let Some(webview_window) = app.get_webview_window("main") else {
+            EDGE_SWIPE_SETUP_DONE.store(false, Ordering::SeqCst);
             tracing::warn!("edge_swipe::setup: no 'main' webview window found");
             return;
         };
 
         let app_handle = app.clone();
+        let attached = std::sync::Arc::new(AtomicBool::new(false));
+        let attached_flag = attached.clone();
 
         let _ = webview_window.with_webview(move |webview| {
             // Re-obtain MainThreadMarker inside the closure (with_webview runs on main thread).
@@ -146,6 +191,9 @@ mod native {
                 return;
             };
 
+            // SAFETY: runs on the main thread (mtm above); wv_ptr is the WKWebView from Tauri
+            // (null-checked); WKWebView is a UIView subclass so the cast is sound; recognizer keeps
+            // target alive via std::mem::forget for the app lifetime.
             unsafe {
                 let wv_ptr = webview.inner() as *mut objc2::runtime::AnyObject;
                 if wv_ptr.is_null() {
@@ -153,9 +201,16 @@ mod native {
                     return;
                 }
 
+                // Disable native WebKit back/forward swipe navigation so the
+                // app can route edge-swipe consistently through its own
+                // transient-state back contract first.
+                let _: () = msg_send![wv_ptr, setAllowsBackForwardNavigationGestures: false];
+
                 // WKWebView *is* a UIView subclass, so we can cast directly.
-                let view: Retained<UIView> =
-                    Retained::retain(wv_ptr as *mut UIView).expect("webview ptr should be valid");
+                let Some(view) = Retained::retain(wv_ptr as *mut UIView) else {
+                    tracing::warn!("edge_swipe::setup: failed to retain webview UIView");
+                    return;
+                };
 
                 // Create target for the gesture recognizer action.
                 let target = SwipeTarget::new_with(app_handle.clone(), view.clone(), mtm);
@@ -176,12 +231,17 @@ mod native {
                 // Prevent target from being deallocated by leaking a retained reference.
                 // This is intentional — the gesture recognizer lives for the app lifetime.
                 std::mem::forget(target);
+                attached_flag.store(true, Ordering::SeqCst);
 
                 tracing::info!(
                     "edge_swipe: UIScreenEdgePanGestureRecognizer attached successfully"
                 );
             }
         });
+
+        if !attached.load(Ordering::SeqCst) {
+            EDGE_SWIPE_SETUP_DONE.store(false, Ordering::SeqCst);
+        }
     }
 }
 

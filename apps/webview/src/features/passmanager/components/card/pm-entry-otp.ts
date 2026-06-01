@@ -1,17 +1,25 @@
-import {XLitElement} from '@statx/lit'
+import {css, nothing} from 'lit'
+import {html} from '@chromvoid/uikit/reatom-lit'
+import {ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html, nothing} from 'lit'
-
-import {i18n} from '@project/passmanager'
-import {Entry} from '@project/passmanager'
+import {i18n} from '@project/passmanager/i18n'
 import {hostLayoutPaintContainStyles, motionPrimitiveStyles} from 'root/shared/ui/shared-styles'
-import {PMEntryOTPItem} from './pm-entry-otp-item'
 
-export class PMEntryOTP extends XLitElement {
+import {PMEntryOTPItem} from './pm-entry-otp-item'
+import {PMEntryOTPModel} from './pm-entry-otp.model'
+
+export class PMEntryOTP extends ReatomLitElement {
+  protected readonly model = new PMEntryOTPModel()
+
   static define() {
-    customElements.define('pm-entry-otp', this)
+    if (customElements.get('pm-entry-otp')) {
+      return
+    }
+
     PMEntryOTPItem.define()
+    customElements.define('pm-entry-otp', this)
   }
+
   static styles = [
     hostLayoutPaintContainStyles,
     motionPrimitiveStyles,
@@ -52,7 +60,7 @@ export class PMEntryOTP extends XLitElement {
         margin: 0;
       }
 
-      /* Адаптивность */
+      /*Adaptability*/
       @container (width < 480px) {
         .otp-list {
           gap: calc(var(--cv-space-2) * 0.75);
@@ -62,20 +70,29 @@ export class PMEntryOTP extends XLitElement {
           padding: var(--cv-space-3);
         }
       }
-
     `,
   ]
 
   private isCompact = false
 
+  override connectedCallback(): void {
+    super.connectedCallback()
+    this.model.actions.connect()
+  }
+
+  override disconnectedCallback(): void {
+    this.model.actions.disconnect()
+    super.disconnectedCallback()
+  }
+
   render() {
-    const card = window.passmanager?.showElement()
-    if (!(card instanceof Entry)) {
+    const entry = this.model.state.entry()
+    if (!entry) {
       return nothing
     }
-    const codes = card?.otps()
 
-    if (!codes || codes.length === 0) {
+    const otps = this.model.state.otps()
+    if (otps.length === 0) {
       return html`
         <div class="empty-state" role="status" aria-label=${i18n('no_title')}>
           <cv-icon name="shield-x" size="lg" aria-hidden="true"></cv-icon>
@@ -86,8 +103,8 @@ export class PMEntryOTP extends XLitElement {
 
     return html`
       <div class="otp-list" data-compact=${this.isCompact} role="list" aria-label=${i18n('otp')}>
-        ${codes.map(
-          (otp, _i) =>
+        ${otps.map(
+          (otp) =>
             html`<pm-entry-otp-item
               .otp=${otp}
               .isIcon=${this.isCompact}

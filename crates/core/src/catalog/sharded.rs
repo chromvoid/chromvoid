@@ -6,10 +6,10 @@ use crate::error::{Error, Result};
 
 use super::delta::{apply_deltas, DeltaEntry, DeltaLog};
 use super::shard::{LoadStrategy, RootIndex, Shard, ShardMeta};
+use super::system_shard::is_eager_system_shard_id;
 use super::CatalogNode;
 
 const DEFAULT_SHARD_SIZE: usize = 1000;
-const PASSMANAGER_SHARD_ID: &str = ".passmanager";
 
 pub struct ShardedCatalogManager {
     root_index: RootIndex,
@@ -165,7 +165,7 @@ pub fn create_root_index_from_shards(shards: &[Shard]) -> RootIndex {
     let mut index = RootIndex::new();
 
     for shard in shards {
-        let strategy = if shard.shard_id == PASSMANAGER_SHARD_ID {
+        let strategy = if is_eager_system_shard_id(&shard.shard_id) {
             LoadStrategy::Eager
         } else {
             LoadStrategy::Lazy

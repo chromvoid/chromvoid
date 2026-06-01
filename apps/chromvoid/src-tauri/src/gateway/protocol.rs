@@ -11,6 +11,10 @@ use serde_json::Value;
 use chromvoid_core::rpc::stream::RpcStreamMeta;
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse, PROTOCOL_VERSION};
 
+pub(crate) use crate::rpc_transport_protocol::{
+    json_payload_or_empty_object, parse_upload_stream_metadata, upload_stream_chunk_data,
+};
+
 /// Construct an Error frame using the app's PROTOCOL_VERSION.
 pub fn frame_from_error(message_id: u64, code: u16, message: &str) -> Frame {
     chromvoid_protocol::frame_from_error(message_id, code, message, PROTOCOL_VERSION)
@@ -22,7 +26,7 @@ pub fn frame_from_heartbeat(message_id: u64) -> Frame {
 }
 
 pub fn frame_from_rpc_request(message_id: u64, req: &RpcRequest) -> Frame {
-    let payload = serde_json::to_vec(req).unwrap_or_else(|_| b"{}".to_vec());
+    let payload = json_payload_or_empty_object(req, "gateway: rpc request frame");
     Frame {
         frame_type: FrameType::RpcRequest,
         message_id,
@@ -32,7 +36,7 @@ pub fn frame_from_rpc_request(message_id: u64, req: &RpcRequest) -> Frame {
 }
 
 pub fn frame_from_rpc_response(message_id: u64, resp: &RpcResponse) -> Frame {
-    let payload = serde_json::to_vec(resp).unwrap_or_else(|_| b"{}".to_vec());
+    let payload = json_payload_or_empty_object(resp, "gateway: rpc response frame");
     Frame {
         frame_type: FrameType::RpcResponse,
         message_id,
@@ -53,7 +57,7 @@ pub fn frame_from_event(message_id: u64, command: &str, data: Value) -> Frame {
 /// Construct the first response frame for a download stream. Contains
 /// JSON-serialized `RpcStreamMeta` with the continuation flag set.
 pub fn frame_stream_meta_response(message_id: u64, meta: &RpcStreamMeta) -> Frame {
-    let payload = serde_json::to_vec(meta).unwrap_or_else(|_| b"{}".to_vec());
+    let payload = json_payload_or_empty_object(meta, "gateway: stream meta frame");
     Frame {
         frame_type: FrameType::RpcResponse,
         message_id,

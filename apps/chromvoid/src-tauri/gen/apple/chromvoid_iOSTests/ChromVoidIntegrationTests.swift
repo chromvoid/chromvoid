@@ -1,11 +1,11 @@
 import AuthenticationServices
 import XCTest
-@testable import chromvoid_iOS
 
 final class MockCredentialIdentityStore: CredentialIdentityStoreSyncing {
     private(set) var saveCalls: [[ASPasswordCredentialIdentity]] = []
     private(set) var removeCalls: [[ASPasswordCredentialIdentity]] = []
     private(set) var replaceCalls: [[ASPasswordCredentialIdentity]] = []
+    private(set) var removeAllCallCount = 0
 
     func saveCredentialIdentities(_ credentialIdentities: [ASPasswordCredentialIdentity], completion: @escaping CredentialIdentitySyncCompletion) {
         saveCalls.append(credentialIdentities)
@@ -19,6 +19,11 @@ final class MockCredentialIdentityStore: CredentialIdentityStoreSyncing {
 
     func replaceCredentialIdentities(with credentialIdentities: [ASPasswordCredentialIdentity], completion: @escaping CredentialIdentitySyncCompletion) {
         replaceCalls.append(credentialIdentities)
+        completion(true, nil)
+    }
+
+    func removeAllCredentialIdentities(completion: @escaping CredentialIdentitySyncCompletion) {
+        removeAllCallCount += 1
         completion(true, nil)
     }
 }
@@ -37,6 +42,10 @@ final class FailingSaveCredentialIdentityStore: CredentialIdentityStoreSyncing {
     }
 
     func replaceCredentialIdentities(with credentialIdentities: [ASPasswordCredentialIdentity], completion: @escaping CredentialIdentitySyncCompletion) {
+        completion(true, nil)
+    }
+
+    func removeAllCredentialIdentities(completion: @escaping CredentialIdentitySyncCompletion) {
         completion(true, nil)
     }
 }
@@ -169,5 +178,59 @@ final class ChromVoidIntegrationTests: XCTestCase {
         let nested = sanitized?["nested"] as? [String: Any]
         XCTAssertEqual(nested?["allowed"] as? String, "value")
         XCTAssertNil(nested?["token"])
+    }
+
+    func testPasskeysLiteStatusPayloadMatchesRuntimeGate() {
+        let status = CredentialIPCBridge.passkeysLiteStatusPayloadForTesting()
+
+        XCTAssertEqual(status["passkeysLiteAvailable"] as? Bool, CredentialIPCBridge.passkeysLiteReady())
+        if CredentialIPCBridge.passkeysLiteReady() {
+            XCTAssertTrue(status["passkeysLiteReason"] is NSNull)
+        } else {
+            XCTAssertEqual(status["passkeysLiteReason"] as? String, CredentialIPCBridge.passkeysLiteUnsupportedReason())
+        }
+    }
+
+    func testPasskeyRegistrationPayloadMapsToCoreCommandShape() {
+        let userHandle = Data("user-1".utf8)
+        let clientDataHash = Data(repeating: 7, count: 32)
+        let payload = CredentialIPCBridge.passkeyRegistrationPayloadForTesting(
+            relyingPartyIdentifier: "example.com",
+            userName: "alice@example.com",
+            userHandle: userHandle,
+            clientDataHash: clientDataHash,
+            supportedAlgorithms: [-7]
+        )
+        let request = payload["request"] as? [String: Any]
+        let rp = request?["rp"] as? [String: Any]
+        let user = request?["user"] as? [String: Any]
+        let params = request?["pubKeyCredParams"] as? [[String: Any]]
+
+        XCTAssertEqual(payload["platform"] as? String, "ios")
+        XCTAssertNotNil(payload["platform_version_major"] as? Int)
+        XCTAssertEqual(rp?["id"] as? String, "example.com")
+        XCTAssertEqual(user?["name"] as? String, "alice@example.com")
+        XCTAssertEqual(user?["id"] as? String, CredentialIPCBridge.base64URLEncode(userHandle))
+        XCTAssertEqual(request?["clientDataHash"] as? String, CredentialIPCBridge.base64URLEncode(clientDataHash))
+        XCTAssertEqual(params?.first?["alg"] as? Int, -7)
+    }
+
+    func testPasskeyAssertionPayloadMapsSelectedCredentialAndAllowedList() {
+        let credentialID = Data([1, 2, 3, 4])
+        let clientDataHash = Data(repeating: 8, count: 32)
+        let payload = CredentialIPCBridge.passkeyAssertionPayloadForTesting(
+            relyingPartyIdentifier: "example.com",
+            credentialID: credentialID,
+            clientDataHash: clientDataHash,
+            allowedCredentialIDs: [credentialID]
+        )
+        let request = payload["request"] as? [String: Any]
+        let allowedCredentials = request?["allowCredentials"] as? [[String: Any]]
+
+        XCTAssertEqual(payload["platform"] as? String, "ios")
+        XCTAssertEqual(payload["credentialIdB64Url"] as? String, CredentialIPCBridge.base64URLEncode(credentialID))
+        XCTAssertEqual(request?["rpId"] as? String, "example.com")
+        XCTAssertEqual(request?["clientDataHash"] as? String, CredentialIPCBridge.base64URLEncode(clientDataHash))
+        XCTAssertEqual(allowedCredentials?.first?["id"] as? String, CredentialIPCBridge.base64URLEncode(credentialID))
     }
 }

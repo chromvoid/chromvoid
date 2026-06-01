@@ -1,7 +1,8 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {CVTextarea} from '@chromvoid/uikit'
-import {PMLayoutBase} from '../../src/features/passmanager/components/password-manager-layout-base'
+import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
+import {PMLayoutBase} from '../../src/features/passmanager/components/password-manager-layout/password-manager-layout-base'
 import {pmModel} from '../../src/features/passmanager/password-manager.model'
 
 class TestPMLayout extends PMLayoutBase {
@@ -25,12 +26,19 @@ type PassmanagerStub = {
   searched: () => unknown[]
 }
 
-function createKeyboardEvent(key: string, target: EventTarget, path: EventTarget[]): KeyboardEvent {
+function createKeyboardEvent(
+  key: string,
+  target: EventTarget,
+  path: EventTarget[],
+  options: Partial<Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>> = {},
+): KeyboardEvent {
   return {
     key,
-    ctrlKey: false,
-    metaKey: false,
-    shiftKey: false,
+    code: options.code ?? '',
+    ctrlKey: options.ctrlKey ?? false,
+    metaKey: options.metaKey ?? false,
+    shiftKey: options.shiftKey ?? false,
+    altKey: options.altKey ?? false,
     target,
     composedPath: () => path,
     preventDefault: vi.fn(),
@@ -48,6 +56,7 @@ describe('PMLayoutBase keyboard guards', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    resetRuntimeCapabilities()
     window.passmanager = previousPassmanager
     document.querySelectorAll('test-pm-layout').forEach((el) => el.remove())
   })
@@ -139,5 +148,44 @@ describe('PMLayoutBase keyboard guards', () => {
 
     expect(openItemSpy).toHaveBeenCalledTimes(1)
     expect(openItemSpy).toHaveBeenCalledWith(firstItem)
+  })
+
+  it('executes the platform create-entry shortcut through the layout action boundary', async () => {
+    setRuntimeCapabilities({platform: 'macos', desktop: true})
+    const layout = document.createElement('test-pm-layout') as TestPMLayout
+    const createEntrySpy = vi.spyOn(pmModel, 'onCreateEntry').mockImplementation(() => {})
+
+    const nonInteractive = document.createElement('div')
+    const event = createKeyboardEvent(
+      'n',
+      nonInteractive,
+      [nonInteractive, layout, document.body, document, window],
+      {
+        code: 'KeyN',
+        metaKey: true,
+      },
+    )
+
+    await layout.triggerGlobalKeyDown(event)
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(1)
+    expect(createEntrySpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not execute the create-entry shortcut when the target is blocked', async () => {
+    setRuntimeCapabilities({platform: 'windows', desktop: true})
+    const layout = document.createElement('test-pm-layout') as TestPMLayout
+    const createEntrySpy = vi.spyOn(pmModel, 'onCreateEntry').mockImplementation(() => {})
+
+    const button = document.createElement('button')
+    const event = createKeyboardEvent('n', button, [button, layout, document.body, document, window], {
+      code: 'KeyN',
+      ctrlKey: true,
+    })
+
+    await layout.triggerGlobalKeyDown(event)
+
+    expect(event.preventDefault).not.toHaveBeenCalled()
+    expect(createEntrySpy).not.toHaveBeenCalled()
   })
 })

@@ -26,6 +26,21 @@ pub(crate) fn command_and_data(args: RpcDispatchArgs) -> Result<(String, Value),
     }
 }
 
+pub(crate) fn validate_upload_chunk_bounds(
+    context: &str,
+    offset: u64,
+    size: u64,
+    declared_size: Option<u64>,
+) -> Result<u64, String> {
+    let Some(end_offset) = offset.checked_add(size) else {
+        return Err(format!("{context} chunk offset overflow"));
+    };
+    if declared_size.is_some_and(|declared_size| end_offset > declared_size) {
+        return Err(format!("{context} chunk exceeds declared size"));
+    }
+    Ok(end_offset)
+}
+
 pub(crate) fn flush_core_events<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     adapter: &mut dyn CoreAdapter,
@@ -75,6 +90,13 @@ pub(crate) fn emit_core_event<R: tauri::Runtime>(
             "core_event: command=catalog:event type={} node_id={} version={} shard_id={} path={}",
             ev_type, node_id, version, shard_id, path
         );
+    } else if command == "catalog:event:batch" {
+        let count = payload
+            .get("events")
+            .and_then(|events| events.as_array())
+            .map(|events| events.len())
+            .unwrap_or(0);
+        info!("core_event: command=catalog:event:batch count={}", count);
     }
 
     let event_name = command

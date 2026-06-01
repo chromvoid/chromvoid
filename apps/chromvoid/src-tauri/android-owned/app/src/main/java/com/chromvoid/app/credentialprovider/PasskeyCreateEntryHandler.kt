@@ -5,17 +5,14 @@ import androidx.credentials.exceptions.CreateCredentialNoCreateOptionException
 import androidx.credentials.provider.BeginCreateCredentialRequest
 import androidx.credentials.provider.BeginCreateCredentialResponse
 import androidx.credentials.provider.BeginCreatePublicKeyCredentialRequest
-import com.chromvoid.app.PasskeyResultMapper
 import com.chromvoid.app.PendingPasskeyRequest
-import com.chromvoid.app.passkey.PasskeyPreflightPayloadFactory
 import com.chromvoid.app.passkey.PasskeyRequestParser
 import com.chromvoid.app.passkey.PasskeyRequestRegistry
 import com.chromvoid.app.passkey.PasskeyResponseAssembler
-import com.chromvoid.app.security.PasskeyMetadataStore
+import com.chromvoid.app.passkey.PasskeyTrace
+import java.util.UUID
 
 internal class PasskeyCreateEntryHandler(
-    private val bridgeGateway: AndroidBridgeGateway,
-    private val passkeyStore: PasskeyMetadataStore,
     private val requestRegistry: PasskeyRequestRegistry,
     private val entryFactory: CredentialProviderEntryFactory,
 ) {
@@ -27,38 +24,41 @@ internal class PasskeyCreateEntryHandler(
         val parsedRequest = PasskeyRequestParser.parseCreateRequestJson(passkeyRequest.requestJson)
             ?: return CreateCredentialNoCreateOptionException("ChromVoid could not parse the passkey create request.")
 
+        PasskeyTrace.diagnostic(
+            "begin_create.parsed",
+            "rpId" to parsedRequest.rpId,
+            "algorithms" to parsedRequest.supportedAlgorithms.sorted(),
+            "excludes" to parsedRequest.excludeCredentialIds.size,
+            "credPropsRequested" to parsedRequest.credPropsRequested,
+            "residentKeyRequired" to parsedRequest.residentKeyRequired,
+        )
+
         if (!PasskeyResponseAssembler.supportsEs256(parsedRequest)) {
+            PasskeyTrace.diagnostic(
+                "begin_create.rejected",
+                "rpId" to parsedRequest.rpId,
+                "reason" to "unsupported_algorithm",
+                "algorithms" to parsedRequest.supportedAlgorithms.sorted(),
+            )
             return CreateCredentialNoCreateOptionException("ChromVoid supports only ES256 passkeys on Android v1.")
         }
         if (!PasskeyResponseAssembler.supportsAttestationNone(parsedRequest)) {
+            PasskeyTrace.diagnostic(
+                "begin_create.rejected",
+                "rpId" to parsedRequest.rpId,
+                "reason" to "unsupported_attestation",
+                "attestation" to parsedRequest.attestationPreference,
+            )
             return CreateCredentialNoCreateOptionException("ChromVoid supports attestation=\"none\" only on Android v1.")
         }
 
-        val hasExcludedCredential =
-            runCatching { passkeyStore.hasExcludedCredential(parsedRequest.excludeCredentialIds) }.getOrElse {
-                return CreateCredentialNoCreateOptionException("ChromVoid could not read local Android passkeys.")
-            }
-        if (hasExcludedCredential) {
-            return CreateCredentialNoCreateOptionException("A local ChromVoid passkey already matches the excluded credential set.")
-        }
+        val requestId = UUID.randomUUID().toString()
 
-        val requestId =
-            when (
-                val preflight =
-                    bridgeGateway.passkeyPreflight(
-                        command = "create",
-                        payload = PasskeyPreflightPayloadFactory.buildCreate(passkeyRequest),
-                    )
-            ) {
-                is BridgeResult.Failure -> {
-                    return PasskeyResultMapper.createException(preflight.error)
-                }
-                is BridgeResult.Success -> preflight.value
-            }
-        if (requestId.isBlank()) {
-            return CreateCredentialNoCreateOptionException("ChromVoid did not receive a passkey request handle.")
-        }
-
+        PasskeyTrace.diagnostic(
+            "begin_create.request_tracked",
+            "requestId" to requestId,
+            "rpId" to parsedRequest.rpId,
+        )
         requestRegistry.put(
             PendingPasskeyRequest(
                 requestId = requestId,
@@ -67,6 +67,11 @@ internal class PasskeyCreateEntryHandler(
             ),
         )
         builder.addCreateEntry(entryFactory.buildPasskeyCreateEntry(requestId))
+        PasskeyTrace.diagnostic(
+            "begin_create.entry_added",
+            "requestId" to requestId,
+            "rpId" to parsedRequest.rpId,
+        )
         return null
     }
 }

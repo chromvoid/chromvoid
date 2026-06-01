@@ -1,25 +1,24 @@
 import type {
   Algorithm,
-  Encoding,
   OTPType,
+  PassManagerEntryType,
+  PassManagerRootV3,
+  PassManagerRootV3Entry,
+  PassManagerRootV3FolderMeta,
+  PassManagerSecretSlot,
   PassManagerRootV2,
-  PassManagerRootV2Entry,
-  PasswordsRepository,
+  PaymentCardMeta,
   UrlMatch,
   UrlRule,
-} from '@project/passmanager'
+} from '@project/passmanager/types'
+import {normalizeCredentialTags} from '@project/passmanager/tags'
 import type {CatalogDeps} from './types'
-import type {CatalogTransport} from './catalog-transport'
+import type {PassmanagerBackend} from './backend'
+import type {PassmanagerTransport} from './passmanager-transport'
 import type {Logger} from '../../logger'
 import {defaultLogger} from '../../logger'
 import {normalizeGroupPath} from '../../pass-paths'
-import {
-  ADAPTER_ERROR,
-  PASS_DIR,
-  formatAdapterError,
-  normalizeOTPEncoding,
-  sanitizeName,
-} from '../../pass-utils'
+import {ADAPTER_ERROR, formatAdapterError, normalizeOTPEncoding, sanitizeName} from '../../pass-utils'
 
 type RootExportShape = {
   version?: unknown
@@ -29,6 +28,8 @@ type RootExportShape = {
   foldersMeta?: unknown
   entries?: unknown
 }
+
+const DEFAULT_PAYMENT_CARD_BRAND = 'unknown' as const
 
 type IntegrityScanSource = 'readRoot' | 'saveRoot'
 
@@ -78,6 +79,7 @@ type CatalogPasswordsRepositoryOptions = {
 const INTEGRITY_OTP_CHECK_LIMIT = 50
 const INTEGRITY_ALERT_SAMPLE_LIMIT = 8
 const INTEGRITY_RECONCILE_SAMPLE_LIMIT = 20
+const MISSING_SECRET_ERROR_RE = /(secret_not_found|NODE_NOT_FOUND|not\s*found)/i
 
 const DEFAULT_URL_MATCH: UrlMatch = 'base_domain'
 
@@ -99,6 +101,11 @@ const isCatalogPasswordsRepositoryOptions = (value: unknown): value is CatalogPa
   return rawMode === undefined || rawMode === 'report' || rawMode === 'safe_fix'
 }
 
+const isMissingSecretError = (value: unknown): boolean => {
+  const message = value instanceof Error ? value.message : String(value ?? '')
+  return MISSING_SECRET_ERROR_RE.test(message)
+}
+
 const toFolderPathList = (value: unknown): string[] => {
   if (!Array.isArray(value)) return []
   const out: string[] = []
@@ -112,6 +119,12 @@ const toFolderPathList = (value: unknown): string[] => {
     if (typeof path === 'string') out.push(path)
   }
   return out
+}
+
+const normalizeOptionalText = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined
+  const normalized = value.trim()
+  return normalized ? normalized : undefined
 }
 
 const normalizeUrls = (value: unknown): UrlRule[] => {
@@ -138,15 +151,53 @@ const normalizeUrls = (value: unknown): UrlRule[] => {
 const toOptionalString = (value: unknown): string | undefined =>
   typeof value === 'string' && value.trim() !== '' ? value : undefined
 
-const toEntry = (value: unknown): PassManagerRootV2Entry | undefined => {
+const toOptionalTimestamp = (value: unknown): number | undefined => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined
+  return Math.floor(value)
+}
+
+const normalizeEntryType = (value: unknown): PassManagerEntryType =>
+  value === 'payment_card' ? 'payment_card' : 'login'
+
+const normalizePaymentCardMeta = (value: unknown): PaymentCardMeta | undefined => {
+  if (!value || typeof value !== 'object') return undefined
+  const rec = value as Record<string, unknown>
+  const cardholderName = toOptionalString(rec['cardholderName'] ?? rec['cardholder_name'])
+  const expMonthRaw = rec['expMonth'] ?? rec['exp_month']
+  const expYearRaw = rec['expYear'] ?? rec['exp_year']
+  const expMonth = typeof expMonthRaw === 'number' ? expMonthRaw : Number(expMonthRaw)
+  const expYear = typeof expYearRaw === 'number' ? expYearRaw : Number(expYearRaw)
+  if (!cardholderName || !Number.isInteger(expMonth) || !Number.isInteger(expYear)) return undefined
+  const brand = toOptionalString(rec['brand']) ?? DEFAULT_PAYMENT_CARD_BRAND
+  const last4 = toOptionalString(rec['last4'])
+  return {
+    cardholderName,
+    brand: brand as PaymentCardMeta['brand'],
+    expMonth,
+    expYear,
+    ...(last4 ? {last4} : {}),
+  }
+}
+
+const toEntry = (value: unknown): PassManagerRootV3Entry | undefined => {
   if (!value || typeof value !== 'object') return undefined
   const rec = value as Record<string, unknown>
   const id = toOptionalString(rec['id'] ?? rec['entry_id'])
   if (!id) return undefined
   const title = typeof rec['title'] === 'string' ? rec['title'] : id
+  const entryType = normalizeEntryType(rec['entryType'] ?? rec['entry_type'])
   const username = typeof rec['username'] === 'string' ? rec['username'] : ''
-  const folderPathRaw = rec['folderPath'] ?? rec['group_path']
+  const hasFolderPath = Object.prototype.hasOwnProperty.call(rec, 'folderPath')
+  const hasSnakeFolderPath = Object.prototype.hasOwnProperty.call(rec, 'folder_path')
+  const folderPathRaw = hasFolderPath
+    ? rec['folderPath']
+    : hasSnakeFolderPath
+      ? rec['folder_path']
+      : rec['group_path']
   const normalizedFolder = normalizeGroupPath(typeof folderPathRaw === 'string' ? folderPathRaw : undefined)
+  const createdTs = toOptionalTimestamp(rec['createdTs'] ?? rec['created_ts'])
+  const updatedTs = toOptionalTimestamp(rec['updatedTs'] ?? rec['updated_ts'])
+  const tags = normalizeCredentialTags(rec['tags'])
 
   const rawOtps = Array.isArray(rec['otps']) ? rec['otps'] : []
   const otps = rawOtps
@@ -176,6 +227,7 @@ const toEntry = (value: unknown): PassManagerRootV2Entry | undefined => {
       id: item['id'] as string,
       type: item['type'] as string,
       fingerprint: item['fingerprint'] as string,
+      name: typeof item['name'] === 'string' ? item['name'] : undefined,
       comment: typeof item['comment'] === 'string' ? item['comment'] : undefined,
     }))
 
@@ -189,25 +241,58 @@ const toEntry = (value: unknown): PassManagerRootV2Entry | undefined => {
           id: 'default',
           type: t,
           fingerprint: f,
+          name: toOptionalString(rec['sshKeyName'] ?? rec['ssh_key_name']),
           comment: toOptionalString(rec['sshKeyComment'] ?? rec['ssh_key_comment']),
         },
       ]
     }
   }
 
+  const iconRef = toOptionalString(rec['iconRef'] ?? rec['icon_ref'])
+  if (entryType === 'payment_card') {
+    const paymentCard = normalizePaymentCardMeta(rec['paymentCard'] ?? rec['payment_card'])
+    if (!paymentCard) return undefined
+    return {
+      id,
+      entryType,
+      ...(createdTs !== undefined ? {createdTs} : {}),
+      ...(updatedTs !== undefined ? {updatedTs} : {}),
+      title,
+      paymentCard,
+      folderPath: normalizedFolder ?? null,
+      tags,
+      ...(iconRef ? {iconRef} : {}),
+    }
+  }
+
   return {
     id,
+    entryType: 'login',
+    ...(createdTs !== undefined ? {createdTs} : {}),
+    ...(updatedTs !== undefined ? {updatedTs} : {}),
     title,
     username,
     urls: normalizeUrls(rec['urls']),
     otps,
     folderPath: normalizedFolder ?? null,
-    iconRef: toOptionalString(rec['iconRef'] ?? rec['icon_ref']),
-    sshKeys: sshKeys.length > 0 ? sshKeys : undefined,
+    tags,
+    ...(iconRef ? {iconRef} : {}),
+    ...(sshKeys.length > 0 ? {sshKeys} : {}),
   }
 }
 
-export class CatalogPasswordsRepository implements PasswordsRepository {
+const getEntryOtps = (entry: PassManagerRootV3Entry) => ('otps' in entry ? (entry.otps ?? []) : [])
+
+const getEntryIconRef = (entry: PassManagerRootV3Entry) =>
+  'iconRef' in entry ? toOptionalString(entry.iconRef) : undefined
+
+const getEntryFolderPath = (entry: PassManagerRootV3Entry) => entry.folderPath ?? undefined
+
+const isLoginEntry = (
+  entry: PassManagerRootV3Entry,
+): entry is Extract<PassManagerRootV3Entry, {entryType?: 'login'}> => entry.entryType !== 'payment_card'
+
+export class CatalogPasswordsRepository implements PassmanagerBackend {
   private readonly logger: Logger
   private readonly integrityReconcileMode: IntegrityReconcileMode
   private lastIntegrityKey = ''
@@ -216,14 +301,14 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
 
   constructor(
     catalog: CatalogDeps,
-    transport: CatalogTransport,
+    transport: PassmanagerTransport,
     logger?: Logger,
     options?: CatalogPasswordsRepositoryOptions,
   )
-  constructor(catalog: CatalogDeps, transport: CatalogTransport, logger: unknown, ...legacy: unknown[])
+  constructor(catalog: CatalogDeps, transport: PassmanagerTransport, logger: unknown, ...legacy: unknown[])
   constructor(
     private readonly catalog: CatalogDeps,
-    private readonly transport: CatalogTransport,
+    private readonly transport: PassmanagerTransport,
     logger: unknown = defaultLogger,
     ...legacy: unknown[]
   ) {
@@ -242,6 +327,15 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
     this.logger = legacyLogger ?? defaultLogger
   }
 
+  async getRevision(): Promise<string> {
+    const exported = await this.transport.exportRoot()
+    const root =
+      exported && typeof exported === 'object' && 'root' in exported
+        ? (exported as {root?: unknown}).root
+        : exported
+    return JSON.stringify(root ?? null)
+  }
+
   private setError(
     code: (typeof ADAPTER_ERROR)[keyof typeof ADAPTER_ERROR],
     details: string,
@@ -252,14 +346,14 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
     } catch {}
   }
 
-  private buildIntegrityKey(root: PassManagerRootV2): string {
+  private buildIntegrityKey(root: PassManagerRootV3): string {
     const entryParts = root.entries
       .map((entry) => {
-        const otpIds = (entry.otps ?? [])
+        const otpIds = getEntryOtps(entry)
           .map((otp) => (typeof otp.id === 'string' ? otp.id : ''))
           .filter((id) => id.length > 0)
           .sort()
-        const icon = typeof entry.iconRef === 'string' ? entry.iconRef : ''
+        const icon = getEntryIconRef(entry) ?? ''
         return `${entry.id}:${icon}:${otpIds.join(',')}`
       })
       .sort()
@@ -310,7 +404,7 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
 
   private async runIntegrityReconciliation(
     source: IntegrityScanSource,
-    root: PassManagerRootV2,
+    root: PassManagerRootV3,
     mismatches: IntegrityMismatch[],
   ): Promise<IntegrityReconcileAction[]> {
     const actions: IntegrityReconcileAction[] = []
@@ -373,7 +467,7 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
         }
 
         try {
-          await this.transport.setGroupMeta(normalizedPath, null)
+          await this.transport.setGroupMeta(normalizedPath, {iconRef: null})
           actions.push({
             kind: 'folder_icon_ref_clear',
             status: 'fixed',
@@ -418,7 +512,7 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
         continue
       }
 
-      if (!this.transport.hasSendCatalog) {
+      if (!this.transport.hasSendPassmanager) {
         actions.push({
           kind: 'entry_otp_link_remove',
           status: 'failed',
@@ -441,6 +535,17 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
         continue
       }
 
+      if (!isLoginEntry(entry)) {
+        actions.push({
+          kind: 'entry_otp_link_remove',
+          status: 'skipped',
+          reason: 'otp_not_found',
+          entryId: mismatch.entryId,
+          otpId: mismatch.otpId,
+        })
+        continue
+      }
+
       const nextOtps = (entry.otps ?? []).filter((otp) => toOptionalString(otp.id) !== mismatch.otpId)
       if (nextOtps.length === (entry.otps ?? []).length) {
         actions.push({
@@ -453,16 +558,20 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
         continue
       }
 
-      const groupPath = normalizeGroupPath(entry.folderPath ?? undefined)
+      const groupPath = normalizeGroupPath(getEntryFolderPath(entry))
       try {
-        await this.transport.sendCatalog('passmanager:entry:save', {
+        await this.transport.sendPassmanager('passmanager:entry:save', {
           id: entry.id,
           title: entry.title,
+          entryType: 'login',
+          createdTs: entry.createdTs,
+          updatedTs: Date.now(),
           urls: entry.urls,
           username: entry.username,
           groupPath: groupPath ?? '',
-          iconRef: entry.iconRef,
+          iconRef: getEntryIconRef(entry),
           sshKeys: entry.sshKeys,
+          tags: entry.tags,
           otps: nextOtps,
         })
         actions.push({
@@ -487,7 +596,7 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
 
   private async runIntegrityScan(
     source: IntegrityScanSource,
-    root: PassManagerRootV2,
+    root: PassManagerRootV3,
   ): Promise<IntegrityDiagnostics | undefined> {
     const key = this.buildIntegrityKey(root)
     if (source === 'readRoot' && key === this.lastIntegrityKey && this.lastIntegrityDiagnostics) {
@@ -496,7 +605,7 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
 
     const mismatches: IntegrityMismatch[] = []
     const entryIconRefs = root.entries
-      .map((entry) => ({entryId: entry.id, iconRef: toOptionalString(entry.iconRef)}))
+      .map((entry) => ({entryId: entry.id, iconRef: getEntryIconRef(entry)}))
       .filter((item): item is {entryId: string; iconRef: string} => Boolean(item.iconRef))
     const folderIconRefs = (root.foldersMeta ?? [])
       .filter((meta): meta is {path: string; iconRef?: string} =>
@@ -550,7 +659,7 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
     }
 
     const otpChecks = root.entries.flatMap((entry) =>
-      (entry.otps ?? [])
+      getEntryOtps(entry)
         .map((otp) => ({
           entryId: entry.id,
           otpId: toOptionalString(otp.id),
@@ -568,7 +677,8 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
 
     let scannedOtps = 0
     let skippedOtpChecks = Math.max(0, otpChecks.length - INTEGRITY_OTP_CHECK_LIMIT)
-    if (otpChecks.length > 0 && this.transport.hasSendCatalog) {
+    const shouldProbeOtpSecrets = source !== 'readRoot'
+    if (shouldProbeOtpSecrets && otpChecks.length > 0 && this.transport.hasSendPassmanager) {
       let otpScanUnsupported = false
       for (const otp of otpChecks.slice(0, INTEGRITY_OTP_CHECK_LIMIT)) {
         if (otpScanUnsupported) {
@@ -577,7 +687,7 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
         }
         scannedOtps += 1
         try {
-          const result = (await this.transport.sendCatalog('passmanager:otp:generate', {
+          const result = (await this.transport.sendPassmanager('passmanager:otp:generate', {
             otp_id: otp.otpId,
             entry_id: otp.entryId,
             ts: Date.now(),
@@ -641,13 +751,15 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
     return diagnostics
   }
 
-  private normalizeRootPayload(raw: unknown): PassManagerRootV2 {
+  private normalizeRootPayload(raw: unknown): PassManagerRootV3 {
     const rec = (raw && typeof raw === 'object' ? raw : {}) as RootExportShape
     const entriesRaw = Array.isArray(rec.entries) ? rec.entries : []
     const foldersRaw = toFolderPathList(rec.folders)
+    const foldersMetaRaw = Array.isArray(rec.foldersMeta) ? rec.foldersMeta : []
 
     const folders = new Set<string>()
-    const entries: PassManagerRootV2Entry[] = []
+    const entries: PassManagerRootV3Entry[] = []
+    const foldersMetaByPath = new Map<string, PassManagerRootV3FolderMeta>()
 
     for (const folder of foldersRaw) {
       const normalized = normalizeGroupPath(folder)
@@ -658,6 +770,22 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
       folders.add(normalized)
     }
 
+    for (const item of foldersMetaRaw) {
+      if (!item || typeof item !== 'object') continue
+      const rec = item as Record<string, unknown>
+      const path = normalizeGroupPath(typeof rec['path'] === 'string' ? rec['path'] : undefined)
+      if (!path) continue
+      const segment = path.startsWith('/') ? path.slice(1) : path
+      if (segment.startsWith('.')) continue
+      const next: PassManagerRootV3FolderMeta = {path}
+      const iconRef = toOptionalString(rec['iconRef'] ?? rec['icon_ref'])
+      const description = normalizeOptionalText(rec['description'])
+      if (iconRef) next.iconRef = iconRef
+      if (description) next.description = description
+      folders.add(path)
+      foldersMetaByPath.set(path, next)
+    }
+
     for (const item of entriesRaw) {
       const entry = toEntry(item)
       if (!entry) continue
@@ -665,41 +793,46 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
       entries.push(entry)
     }
 
-    const version = rec.version === 2 ? 2 : 2
+    const version = 3
     const now = Date.now()
     return {
       version,
       createdTs: typeof rec.createdTs === 'number' ? rec.createdTs : now,
       updatedTs: typeof rec.updatedTs === 'number' ? rec.updatedTs : now,
       folders: Array.from(folders).sort(),
-      foldersMeta: Array.isArray(rec.foldersMeta)
-        ? (rec.foldersMeta as PassManagerRootV2['foldersMeta'])
-        : [],
+      foldersMeta: Array.from(foldersMetaByPath.values()).sort((left, right) =>
+        left.path.localeCompare(right.path),
+      ),
       entries,
     }
   }
 
-  private appendMirrorFolders(root: PassManagerRootV2): PassManagerRootV2 {
+  private async appendListedFolders(root: PassManagerRootV3): Promise<PassManagerRootV3> {
     const folders = new Set(root.folders)
-    const top = this.catalog.catalog.getChildren(PASS_DIR) ?? []
-    for (const node of top) {
-      if (!node?.isDir) continue
-      if (node.name.startsWith('.')) continue // skip system dirs (.icons etc.)
-      const children = this.catalog.catalog.getChildren(node.nodeId) ?? []
-      const hasMeta = children.some((child) => child.isFile && child.name === 'meta.json')
-      if (!hasMeta) folders.add(node.name)
-    }
+    try {
+      const listed = await this.transport.listGroups()
+      const groups = Array.isArray(listed.groups) ? listed.groups : []
+      for (const item of groups) {
+        if (!item || typeof item !== 'object') continue
+        const rec = item as Record<string, unknown>
+        const path = normalizeGroupPath(typeof rec['path'] === 'string' ? rec['path'] : undefined)
+        if (!path) continue
+        const segment = path.startsWith('/') ? path.slice(1) : path
+        if (segment.startsWith('.')) continue
+        folders.add(path)
+      }
+    } catch {}
     return {...root, folders: Array.from(folders).sort()}
   }
 
   async saveRoot(file: File): Promise<boolean> {
     try {
       const raw = await file.text()
-      const parsed = JSON.parse(raw) as Partial<PassManagerRootV2>
-      if (parsed?.version !== 2) {
+      const parsed = JSON.parse(raw) as Partial<PassManagerRootV2 | PassManagerRootV3>
+      if (parsed?.version !== 2 && parsed?.version !== 3) {
         this.setError(
           ADAPTER_ERROR.SAVE_ROOT_PARSE,
-          'Unsupported PassManager root payload: expected version 2',
+          'Unsupported PassManager root payload: expected version 2 or 3',
           new Error('Invalid root version'),
         )
         return false
@@ -748,44 +881,93 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
       }
 
       for (const entry of normalizedRoot.entries) {
-        const groupPath = normalizeGroupPath(entry.folderPath ?? undefined)
+        const groupPath = normalizeGroupPath(getEntryFolderPath(entry))
         if (groupPath) {
           await this.transport.ensureGroup(groupPath)
         }
 
-        await this.transport.saveEntry({
-          entryId: entry.id,
-          title: entry.title,
-          urls: (entry.urls ?? []).map((rule) => rule.value),
-          username: entry.username,
-          groupPath,
-          iconRef: entry.iconRef,
-          sshKeys: entry.sshKeys,
-        })
+        if (isLoginEntry(entry)) {
+          await this.transport.saveEntry({
+            entryId: entry.id,
+            entryType: 'login',
+            createdTs: entry.createdTs,
+            updatedTs: entry.updatedTs,
+            title: entry.title,
+            urls: (entry.urls ?? []).map((rule) => rule.value),
+            username: entry.username,
+            groupPath: groupPath ?? '',
+            iconRef: getEntryIconRef(entry),
+            sshKeys: entry.sshKeys,
+            tags: entry.tags,
+          })
+        } else {
+          await this.transport.saveEntry({
+            entryId: entry.id,
+            entryType: 'payment_card',
+            createdTs: entry.createdTs,
+            updatedTs: entry.updatedTs,
+            title: entry.title,
+            paymentCard: entry.paymentCard,
+            groupPath: groupPath ?? '',
+            iconRef: getEntryIconRef(entry),
+            tags: entry.tags,
+          })
+        }
 
-        if ((entry.otps ?? []).length > 0 && this.transport.hasSendCatalog) {
-          await this.transport.sendCatalog('passmanager:entry:save', {
+        if (isLoginEntry(entry) && (entry.otps ?? []).length > 0 && this.transport.hasSendPassmanager) {
+          await this.transport.sendPassmanager('passmanager:entry:save', {
             id: entry.id,
             title: entry.title,
+            entryType: 'login',
+            createdTs: entry.createdTs,
+            updatedTs: entry.updatedTs,
             urls: entry.urls,
             username: entry.username,
             groupPath: groupPath ?? '',
-            iconRef: entry.iconRef,
+            iconRef: getEntryIconRef(entry),
             sshKeys: entry.sshKeys,
+            tags: entry.tags,
             otps: entry.otps,
           })
         }
       }
 
+      const existingGroups = new Set<string>()
+      try {
+        const listedGroups = await this.transport.listGroups()
+        const groups = listedGroups && typeof listedGroups === 'object' ? listedGroups.groups : []
+        for (const item of Array.isArray(groups) ? groups : []) {
+          if (!item || typeof item !== 'object') continue
+          const rec = item as Record<string, unknown>
+          const path = normalizeGroupPath(typeof rec['path'] === 'string' ? rec['path'] : undefined)
+          if (path) existingGroups.add(path)
+        }
+      } catch {}
+      const desiredGroups = new Set(
+        normalizedRoot.folders
+          .map((folderPath) => normalizeGroupPath(folderPath))
+          .filter((path): path is string => Boolean(path)),
+      )
+      const obsoleteGroups = Array.from(existingGroups)
+        .filter((path) => !desiredGroups.has(path))
+        .filter((path) => {
+          const relative = path.startsWith('/') ? path.slice(1) : path
+          return !relative.startsWith('.')
+        })
+        .sort((left, right) => right.length - left.length || right.localeCompare(left))
+      for (const groupPath of obsoleteGroups) {
+        await this.transport.deleteGroup(groupPath)
+      }
+
       for (const item of normalizedRoot.foldersMeta ?? []) {
         if (!item || typeof item !== 'object') continue
         const rec = item as Record<string, unknown>
-        if (!('iconRef' in rec) && !('icon_ref' in rec)) continue
         const path = normalizeGroupPath(typeof rec['path'] === 'string' ? rec['path'] : undefined)
         if (!path) continue
         const rawIconRef = rec['iconRef'] ?? rec['icon_ref']
         const iconRef = typeof rawIconRef === 'string' && rawIconRef.trim() ? rawIconRef : null
-        await this.transport.setGroupMeta(path, iconRef)
+        const description = normalizeOptionalText(rec['description']) ?? null
+        await this.transport.setGroupMeta(path, {iconRef, description})
       }
 
       const importTs = Date.now()
@@ -801,7 +983,7 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
       return true
     } catch (e) {
       this.logger.error('[PassManager][saveRoot] import failed', e)
-      this.setError(ADAPTER_ERROR.SAVE_ROOT_PARSE, 'Ошибка импорта PassManager root', e)
+      this.setError(ADAPTER_ERROR.SAVE_ROOT_PARSE, 'Failed to import PassManager root', e)
       return false
     }
   }
@@ -815,14 +997,14 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
           : exported
 
       const normalized = this.normalizeRootPayload(maybeRoot)
-      const withMirrorFolders = this.appendMirrorFolders(normalized)
+      const withMirrorFolders = await this.appendListedFolders(normalized)
       const integrity = await this.runIntegrityScan('readRoot', withMirrorFolders)
       return {
         ...withMirrorFolders,
         integrity,
       } as unknown as T
     } catch (e) {
-      this.setError(ADAPTER_ERROR.READ_ROOT, 'Ошибка чтения PassManager root', e)
+      this.setError(ADAPTER_ERROR.READ_ROOT, 'Failed to read PassManager root', e)
       return undefined
     }
   }
@@ -831,45 +1013,51 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
     return true
   }
 
-  async saveEntryMeta(data: {
-    id: string
-    title: string
-    urls: UrlRule[]
-    username: string
-    otps: Array<{
-      id?: string
-      label?: string
-      algorithm?: Algorithm
-      digits?: number
-      period?: number
-      encoding?: Encoding
-      type?: OTPType
-      counter?: number
-    }>
-    groupPath?: string
-    iconRef?: string
-    sshKeys?: Array<{id: string; type: string; fingerprint: string; comment?: string}>
-  }): Promise<boolean> {
+  async saveEntryMeta(
+    data: import('@project/passmanager/types').PassManagerSaveEntryMetaPayload,
+  ): Promise<boolean> {
     try {
       const groupPath = normalizeGroupPath(data.groupPath)
       if (groupPath) {
         await this.transport.ensureGroup(groupPath)
       }
 
-      await this.transport.saveEntry({
-        entryId: data.id,
-        title: data.title,
-        urls: (data.urls ?? []).map((rule) => rule.value),
-        username: data.username,
-        groupPath,
-        iconRef: data.iconRef,
-        sshKeys: data.sshKeys,
-      })
+      const entryType = normalizeEntryType(data.entryType)
+      if (entryType === 'payment_card') {
+        await this.transport.saveEntry({
+          entryId: data.id,
+          entryType,
+          createdTs: data.createdTs,
+          updatedTs: data.updatedTs,
+          title: data.title,
+          paymentCard: data.paymentCard,
+          groupPath: groupPath ?? '',
+          iconRef: data.iconRef,
+          tags: data.tags !== undefined ? normalizeCredentialTags(data.tags) : undefined,
+        })
+      } else {
+        await this.transport.saveEntry({
+          entryId: data.id,
+          entryType: 'login',
+          createdTs: data.createdTs,
+          updatedTs: data.updatedTs,
+          title: data.title,
+          urls: (data.urls ?? []).map((rule) => rule.value),
+          username: data.username,
+          groupPath: groupPath ?? '',
+          iconRef: data.iconRef,
+          sshKeys: data.sshKeys,
+          tags: data.tags !== undefined ? normalizeCredentialTags(data.tags) : undefined,
+        })
+      }
 
-      if ((data.otps ?? []).length > 0 && this.transport.hasSendCatalog) {
-        await this.transport.sendCatalog('passmanager:entry:save', {
+      if (entryType === 'login' && (data.otps ?? []).length > 0 && this.transport.hasSendPassmanager) {
+        await this.transport.sendPassmanager('passmanager:entry:save', {
           id: data.id,
           title: data.title,
+          entryType: 'login',
+          createdTs: data.createdTs,
+          updatedTs: data.updatedTs,
           urls: data.urls ?? [],
           username: data.username,
           otps: (data.otps ?? []).map((otp) => ({
@@ -885,6 +1073,7 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
           groupPath: groupPath ?? '',
           iconRef: data.iconRef,
           sshKeys: data.sshKeys,
+          tags: data.tags !== undefined ? normalizeCredentialTags(data.tags) : undefined,
         })
       }
 
@@ -894,7 +1083,7 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
 
       return true
     } catch (e) {
-      this.setError(ADAPTER_ERROR.SAVE_ROOT_PARSE, 'Ошибка точечной записи meta.json', e)
+      this.setError(ADAPTER_ERROR.SAVE_ROOT_PARSE, 'Failed to write meta.json', e)
       return false
     }
   }
@@ -902,6 +1091,8 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
   private toSecretType(fileName: string): string | undefined {
     if (fileName === '.password') return 'password'
     if (fileName === '.note') return 'note'
+    if (fileName === '.card_pan') return 'card_pan'
+    if (fileName === '.card_cvv') return 'card_cvv'
     // Backward compat: old static filenames
     if (fileName === '.ssh_private_key') return 'ssh_private_key'
     if (fileName === '.ssh_public_key') return 'ssh_public_key'
@@ -949,7 +1140,10 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
         await this.catalog.refresh()
       } catch {}
       return true
-    } catch {
+    } catch (error) {
+      if (value === null && isMissingSecretError(error)) {
+        return true
+      }
       return false
     }
   }
@@ -966,12 +1160,58 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
     return this.loadEntrySecretFile(entryId, '.note')
   }
 
+  private async loadSecretSlot(entryId: string, slot: PassManagerSecretSlot): Promise<string | undefined> {
+    switch (slot) {
+      case 'password':
+        return this.loadPassword(entryId)
+      case 'note':
+        return this.loadNote(entryId)
+      case 'card_pan':
+        return this.loadEntrySecretFile(entryId, '.card_pan')
+      case 'card_cvv':
+        return this.loadEntrySecretFile(entryId, '.card_cvv')
+    }
+  }
+
   private async savePassword(entryId: string, password: string | null): Promise<boolean> {
     return this.saveEntrySecretFile(entryId, '.password', password)
   }
 
   private async saveNote(entryId: string, note: string | null): Promise<boolean> {
     return this.saveEntrySecretFile(entryId, '.note', note)
+  }
+
+  private async saveSecretSlot(
+    entryId: string,
+    slot: PassManagerSecretSlot,
+    value: string | null,
+  ): Promise<boolean> {
+    switch (slot) {
+      case 'password':
+        return this.savePassword(entryId, value)
+      case 'note':
+        return this.saveNote(entryId, value)
+      case 'card_pan':
+        return this.saveEntrySecretFile(entryId, '.card_pan', value)
+      case 'card_cvv':
+        return this.saveEntrySecretFile(entryId, '.card_cvv', value)
+    }
+  }
+
+  async readEntrySecret(entryId: string, slot: PassManagerSecretSlot): Promise<string | undefined> {
+    return this.loadSecretSlot(entryId, slot)
+  }
+
+  async saveEntrySecret(
+    entryId: string,
+    slot: PassManagerSecretSlot,
+    value: string | null,
+  ): Promise<boolean> {
+    return this.saveSecretSlot(entryId, slot, value)
+  }
+
+  async removeEntrySecret(entryId: string, slot: PassManagerSecretSlot): Promise<boolean> {
+    return this.saveSecretSlot(entryId, slot, null)
   }
 
   async readEntryPassword(entryId: string): Promise<string | undefined> {
@@ -1030,7 +1270,7 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
       } catch {}
       return true
     } catch (e) {
-      this.setError(ADAPTER_ERROR.READ_ROOT, 'Ошибка точечного удаления записи', e)
+      this.setError(ADAPTER_ERROR.READ_ROOT, 'Failed to delete entry', e)
       return false
     }
   }
@@ -1040,11 +1280,10 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
       const normalized = normalizeGroupPath(targetGroupPath)
       if (normalized) await this.transport.ensureGroup(normalized)
       await this.transport.moveEntry(id, normalized ?? '')
-      this.catalog.queueRefresh(150)
       return true
     } catch (e) {
-      this.setError(ADAPTER_ERROR.SAVE_ROOT_WRITE, 'Ошибка перемещения записи в группу', e)
-      return false
+      this.setError(ADAPTER_ERROR.SAVE_ROOT_WRITE, 'Failed to move entry to group', e)
+      throw e instanceof Error ? e : new Error(String(e))
     }
   }
 
@@ -1055,22 +1294,34 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
       this.catalog.queueRefresh(150)
       return true
     } catch (e) {
-      this.setError(ADAPTER_ERROR.SAVE_ROOT_WRITE, 'Ошибка переименования записи', e)
+      this.setError(ADAPTER_ERROR.SAVE_ROOT_WRITE, 'Failed to rename entry', e)
       return false
     }
   }
 
-  async putIcon(contentBase64: string, mimeType: string): Promise<{iconRef: string}> {
+  async putIcon(
+    contentBase64: string,
+    mimeType: string,
+  ): Promise<{iconRef: string; backgroundColor?: string}> {
     const result = await this.transport.putIcon(contentBase64, mimeType)
-    return {iconRef: String(result.icon_ref)}
+    return {
+      iconRef: String(result.icon_ref),
+      ...(typeof result.background_color === 'string' ? {backgroundColor: result.background_color} : {}),
+    }
   }
 
-  async getIcon(iconRef: string): Promise<{iconRef: string; mimeType: string; contentBase64: string}> {
+  async getIcon(iconRef: string): Promise<{
+    iconRef: string
+    mimeType: string
+    backgroundColor?: string
+    contentBase64: string
+  }> {
     try {
       const result = await this.transport.getIcon(iconRef)
       return {
         iconRef: String(result.icon_ref),
         mimeType: String(result.mime_type),
+        ...(typeof result.background_color === 'string' ? {backgroundColor: result.background_color} : {}),
         contentBase64: String(result.content_base64),
       }
     } catch (e) {
@@ -1090,15 +1341,18 @@ export class CatalogPasswordsRepository implements PasswordsRepository {
     return {deleted: Number(result.deleted)}
   }
 
-  async setGroupMeta(path: string, iconRef: string | null): Promise<boolean> {
+  async setGroupMeta(
+    path: string,
+    meta: {iconRef?: string | null; description?: string | null},
+  ): Promise<boolean> {
     try {
       const normalized = normalizeGroupPath(path)
       if (!normalized) return false
-      await this.transport.setGroupMeta(normalized, iconRef)
+      await this.transport.setGroupMeta(normalized, meta)
       this.catalog.queueRefresh(150)
       return true
     } catch (e) {
-      this.setError(ADAPTER_ERROR.SAVE_ROOT_WRITE, 'Ошибка сохранения метаданных группы', e)
+      this.setError(ADAPTER_ERROR.SAVE_ROOT_WRITE, 'Failed to save group metadata', e)
       return false
     }
   }

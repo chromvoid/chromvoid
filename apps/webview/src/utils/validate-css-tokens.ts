@@ -39,7 +39,7 @@ export function validateCssTokens(): TokenReport[] {
   const appCore = [
     '--app-spacing-4',
     '--touch-target-min',
-    '--gradient-primary',
+    '--cv-gradient-primary',
     '--overlay-bg',
   ]
 

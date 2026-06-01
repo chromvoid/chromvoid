@@ -1,4 +1,7 @@
 import {html} from 'lit'
+import {i18n} from 'root/i18n'
+
+import {renderRemoteStorageCallout} from '../../render-callout'
 
 type ConfirmStepInput = {
   targetDir: string | null
@@ -9,26 +12,22 @@ type ConfirmStepInput = {
 
 export const renderConfirmStep = ({targetDir, onSelectFolder, onBack, onContinue}: ConfirmStepInput) => html`
   <div class="wizard-header">
-    <h3 class="wizard-title">Выберите место сохранения</h3>
-    <p class="wizard-description">Укажите папку для сохранения резервной копии хранилища.</p>
+    <h3 class="wizard-title">${i18n('remote-storage:confirm-title')}</h3>
+    <p class="wizard-description">${i18n('remote-storage:confirm-description')}</p>
   </div>
 
   <div class="wizard-body">
-    <div class="alert info">
-      <div class="alert-title">
-        <cv-icon name="info"></cv-icon>
-        Что будет экспортировано
-      </div>
-      <div class="alert-text">
-        Полная зашифрованная копия хранилища со всеми vault'ами и файлами. Для восстановления потребуется
-        master password.
-      </div>
-    </div>
+    ${renderRemoteStorageCallout({
+      variant: 'info',
+      icon: 'info',
+      title: i18n('remote-storage:what-exported'),
+      text: i18n('remote-storage:what-exported-text'),
+    })}
 
     <div class="field-group">
       <cv-button variant="${targetDir ? 'default' : 'primary'}" @click=${onSelectFolder}>
         <cv-icon name="folder" slot="prefix"></cv-icon>
-        ${targetDir ? 'Изменить папку' : 'Выбрать папку'}
+        ${targetDir ? i18n('remote-storage:change-folder') : i18n('remote-storage:choose-folder')}
       </cv-button>
 
       ${targetDir
@@ -39,11 +38,10 @@ export const renderConfirmStep = ({targetDir, onSelectFolder, onBack, onContinue
             </div>
           `
         : html`
-            <div class="alert">
-              <div class="alert-text">
-                Если папка не выбрана, резервная копия будет сохранена в папку приложения по умолчанию.
-              </div>
-            </div>
+            ${renderRemoteStorageCallout({
+              variant: 'warning',
+              text: i18n('remote-storage:default-folder-info'),
+            })}
           `}
     </div>
   </div>
@@ -51,10 +49,10 @@ export const renderConfirmStep = ({targetDir, onSelectFolder, onBack, onContinue
   <div class="wizard-actions">
     <cv-button variant="default" @click=${onBack}>
       <cv-icon name="arrow-left" slot="prefix"></cv-icon>
-      Назад
+      ${i18n('button:back')}
     </cv-button>
     <cv-button variant="primary" @click=${onContinue}>
-      Продолжить
+      ${i18n('button:continue')}
       <cv-icon name="arrow-right" slot="suffix"></cv-icon>
     </cv-button>
   </div>

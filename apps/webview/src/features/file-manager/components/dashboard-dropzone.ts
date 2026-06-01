@@ -1,13 +1,15 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html, nothing} from 'lit'
+import {css, nothing} from 'lit'
 
 import {i18n} from 'root/i18n'
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 
-export class DashboardDropzone extends XLitElement {
+export class DashboardDropzone extends ReatomLitElement {
   static define() {
-    customElements.define('dashboard-dropzone', this)
+    if (!customElements.get('dashboard-dropzone')) {
+      customElements.define('dashboard-dropzone', this)
+    }
   }
 
   static get properties() {
@@ -49,7 +51,7 @@ export class DashboardDropzone extends XLitElement {
         .drop-overlay {
           position: absolute;
           inset: 0;
-          background: color-mix(in oklch, var(--cv-color-primary), transparent 90%);
+          background: var(--cv-color-primary-subtle);
           border: 3px dashed var(--cv-color-primary);
           border-radius: var(--cv-radius-3);
           display: flex;
@@ -75,7 +77,7 @@ export class DashboardDropzone extends XLitElement {
         .loading-overlay {
           position: absolute;
           inset: 0;
-          background: color-mix(in oklch, var(--cv-color-surface), white 80%);
+          background: var(--cv-color-surface-2);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -85,7 +87,7 @@ export class DashboardDropzone extends XLitElement {
 
       /* dropZonePulse: removed — infinite animation hurt responsiveness */
 
-      /* Touch устройства - улучшенная визуализация */
+      /*Touch devices - improved visualization*/
       @media (hover: none) and (pointer: coarse) {
         .drop-zone {
           .drop-overlay {
@@ -100,7 +102,7 @@ export class DashboardDropzone extends XLitElement {
         }
       }
 
-      /* Responsive размеры для overlay */
+      /*Responsive sizes for overlay*/
       @media (max-width: 768px) {
         .drop-zone {
           .drop-overlay {

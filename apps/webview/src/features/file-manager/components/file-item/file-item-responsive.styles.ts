@@ -2,42 +2,51 @@ import {css} from 'lit'
 
 export const fileItemResponsiveStyles = css`
   @media (hover: none) and (pointer: coarse) {
-    /* Remove active/focus outlines on touch — no keyboard nav */
-    :host([active]) {
+    /* Hide passive active state on touch, but keep restored/programmatic focus visible. */
+    :host([active]:not(:focus):not(:focus-visible)) {
       outline: none;
     }
 
-    /* Remove border-radius on list items to prevent swipe action bleed-through */
-    :host([view-mode='list']) {
-      border-radius: 0;
-    }
-
-    /* Hide inline actions on touch — context menu is used instead */
-    .actions {
-      display: none;
-    }
-
     /* Disable hover transforms that look bad on touch */
-    :host([view-mode='list']):hover {
+    :host([view-mode='list']:not([selected]):not([active])):hover {
       transform: none;
       box-shadow: none;
       background: inherit;
-
-      &::before {
-        opacity: 0;
-      }
     }
 
+    :host([view-mode='list']:not([selected]):not([active])):hover::before {
+      opacity: 0;
+    }
+
+    :host([view-mode='list'][active]):hover,
+    :host([view-mode='list'][selected]):hover {
+      transform: none;
+      box-shadow: none;
+    }
+
+    :host([view-mode='list'][active]):hover::before,
     :host([view-mode='list'][selected]):hover::before {
       opacity: 1;
     }
 
-    :host([view-mode='grid']):hover {
+    :host([view-mode='grid']:not([selected]):not([active])):hover {
       transform: none;
       box-shadow: var(--cv-shadow-1);
     }
 
-    :host([view-mode='table']):hover {
+    :host([view-mode='grid'][active]):hover,
+    :host([view-mode='grid'][selected]):hover {
+      transform: none;
+      box-shadow: none;
+    }
+
+    :host([view-mode='table']:not([selected]):not([active])):hover {
+      transform: none;
+      box-shadow: none;
+    }
+
+    :host([view-mode='table'][active]):hover,
+    :host([view-mode='table'][selected]):hover {
       transform: none;
       box-shadow: none;
     }
@@ -48,28 +57,14 @@ export const fileItemResponsiveStyles = css`
       transition-duration: 50ms;
     }
 
-    /* Slightly reduce list item height on mobile for density */
-    :host([view-mode='list']) {
-      height: 64px;
+    :host([view-mode='list']) .swipe-container {
+      block-size: calc(100% - 4px);
+      margin-block: 2px;
     }
 
-    :host([view-mode='list']) .file-item {
-      padding: 8px 12px;
-      gap: 10px;
-    }
-
-    :host([view-mode='list']) .icon {
-      font-size: 20px;
-      min-inline-size: 28px;
-      block-size: 28px;
-    }
-
-    :host([view-mode='list']) .name {
-      font-size: var(--cv-font-size-sm, 0.875rem);
-    }
-
-    :host([view-mode='list']) .meta {
-      font-size: var(--cv-font-size-xs, 0.75rem);
+    :host([view-mode='list']) .swipe-container > .file-item {
+      block-size: 100%;
+      margin-block: 0;
     }
 
     /* Reduce grid card height on mobile */
@@ -99,11 +94,9 @@ export const fileItemResponsiveStyles = css`
       position: relative;
       overflow: hidden;
       border-radius: inherit;
-      block-size: 100%;
     }
 
     .swipe-container > .file-item {
-      background: var(--cv-color-surface, #1a1a2e);
       position: relative;
       z-index: 1;
       touch-action: pan-y;
@@ -112,11 +105,12 @@ export const fileItemResponsiveStyles = css`
     .swipe-actions-left,
     .swipe-actions-right {
       position: absolute;
-      inset-block: 0;
+      inset-block: 2px;
       display: flex;
       align-items: center;
       justify-content: center;
       inline-size: 64px;
+      border-radius: 16px;
       visibility: hidden;
       pointer-events: none;
     }
@@ -131,8 +125,8 @@ export const fileItemResponsiveStyles = css`
       inset-inline-start: 0;
       background: linear-gradient(
         90deg,
-        color-mix(in oklch, var(--cv-color-brand, #00e5ff) 24%, var(--cv-color-surface, #0b1120)) 0%,
-        color-mix(in oklch, var(--cv-color-brand, #00e5ff) 16%, var(--cv-color-surface, #0b1120)) 100%
+        var(--cv-color-primary-surface-strong) 0%,
+        var(--cv-color-primary-surface) 100%
       );
     }
 
@@ -140,8 +134,8 @@ export const fileItemResponsiveStyles = css`
       inset-inline-end: 0;
       background: linear-gradient(
         270deg,
-        color-mix(in oklch, var(--cv-color-danger, #ff3b30) 28%, var(--cv-color-surface, #0b1120)) 0%,
-        color-mix(in oklch, var(--cv-color-danger, #ff3b30) 18%, var(--cv-color-surface, #0b1120)) 100%
+        var(--cv-color-danger-surface-strong) 0%,
+        var(--cv-color-danger-surface) 100%
       );
     }
 
@@ -153,8 +147,8 @@ export const fileItemResponsiveStyles = css`
       gap: 4px;
       font-size: 11px;
       font-weight: 600;
-      background: color-mix(in oklch, black 14%, transparent);
-      border: 1px solid color-mix(in oklch, white 20%, transparent);
+      background: var(--cv-alpha-black-14);
+      border: 1px solid var(--cv-alpha-white-20);
       border-radius: var(--cv-radius-2);
       padding: 6px;
       cursor: pointer;

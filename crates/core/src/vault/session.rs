@@ -1,6 +1,7 @@
 //! Vault session management
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 
 use zeroize::Zeroizing;
@@ -11,6 +12,7 @@ use crate::crypto::{derive_vault_key_v2, StoragePepper};
 use crate::error::{Error, Result};
 use crate::storage::Storage;
 use crate::types::KEY_SIZE;
+use crate::vault::DecryptedChunkCache;
 
 /// Vault operations
 pub struct Vault;
@@ -66,19 +68,7 @@ impl Vault {
         };
 
         let vault_key = derive_vault_key_v2(password, &salt, &pepper)?;
-        let sharded = Self::try_load_sharded_catalog(storage, &vault_key)?;
-        #[cfg(debug_assertions)]
-        {
-            if sharded.is_some() {
-                eprintln!("[core][vault] sharded catalog loaded");
-            } else {
-                eprintln!("[core][vault] sharded catalog unavailable; falling back to monolithic");
-            }
-        }
-
-        let catalog = sharded
-            .or(Self::try_load_catalog(storage, &vault_key)?)
-            .unwrap_or_else(CatalogManager::new);
+        let catalog = Self::load_catalog_for_unlock(storage, &vault_key)?;
 
         Ok(VaultSession {
             vault_key,
@@ -86,6 +76,7 @@ impl Vault {
             unlocked_at: Instant::now(),
             dirty: false,
             pending_deltas: HashMap::new(),
+            decrypted_chunk_cache: Arc::new(DecryptedChunkCache::new_default()),
         })
     }
 }
@@ -93,18 +84,21 @@ impl Vault {
 /// An active vault session
 pub struct VaultSession {
     /// Derived vault key (zeroized on drop)
-    vault_key: Zeroizing<[u8; KEY_SIZE]>,
+    pub(super) vault_key: Zeroizing<[u8; KEY_SIZE]>,
     /// Catalog manager
     catalog: CatalogManager,
     /// When the vault was unlocked
     unlocked_at: Instant,
     /// Whether the catalog has unsaved changes
-    dirty: bool,
+    pub(super) dirty: bool,
 
     /// Pending per-shard delta entries since last persistence.
     ///
     /// `DeltaEntry.seq` is assigned during `save()` based on persisted shard versions.
-    pending_deltas: HashMap<String, Vec<crate::catalog::DeltaEntry>>,
+    pub(super) pending_deltas: HashMap<String, Vec<crate::catalog::DeltaEntry>>,
+
+    /// Session-scoped plaintext chunk cache, cleared on lock.
+    pub(super) decrypted_chunk_cache: Arc<DecryptedChunkCache>,
 }
 
 impl VaultSession {
@@ -134,6 +128,31 @@ impl VaultSession {
         );
     }
 
+    pub(crate) fn snapshot_persistence_state(
+        &self,
+    ) -> (
+        CatalogManager,
+        bool,
+        HashMap<String, Vec<crate::catalog::DeltaEntry>>,
+    ) {
+        (
+            self.catalog.clone(),
+            self.dirty,
+            self.pending_deltas.clone(),
+        )
+    }
+
+    pub(crate) fn restore_persistence_state(
+        &mut self,
+        catalog: CatalogManager,
+        dirty: bool,
+        pending_deltas: HashMap<String, Vec<crate::catalog::DeltaEntry>>,
+    ) {
+        self.catalog = catalog;
+        self.dirty = dirty;
+        self.pending_deltas = pending_deltas;
+    }
+
     /// Check if the catalog has unsaved changes
     pub fn is_dirty(&self) -> bool {
         self.dirty
@@ -147,6 +166,18 @@ impl VaultSession {
     /// Get the vault key (for chunk operations)
     pub fn vault_key(&self) -> &[u8; KEY_SIZE] {
         &self.vault_key
+    }
+
+    pub fn decrypted_chunk_cache(&self) -> Arc<DecryptedChunkCache> {
+        Arc::clone(&self.decrypted_chunk_cache)
+    }
+
+    pub fn decrypted_chunk_cache_generation(&self) -> u64 {
+        self.decrypted_chunk_cache.generation()
+    }
+
+    pub fn invalidate_decrypted_chunk_cache_for_node(&self, node_id: u64) {
+        self.decrypted_chunk_cache.invalidate_node(node_id);
     }
 
     /// Save the catalog to storage
@@ -168,6 +199,7 @@ impl VaultSession {
 
     /// Lock the vault (consumes the session)
     pub fn lock(mut self, storage: Option<&Storage>) -> Result<()> {
+        self.decrypted_chunk_cache.clear("vault_lock");
         if let Some(storage) = storage {
             let _ = self.save(storage)?;
         }

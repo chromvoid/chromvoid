@@ -1,6 +1,6 @@
 import {describe, expect, it, vi} from 'vitest'
 
-import {PasswordManagerDesktopLayout} from '../../src/features/passmanager/components/password-manager-desktop-layout'
+import {PasswordManagerDesktopLayout} from '../../src/features/passmanager/components/password-manager-layout/password-manager-desktop-layout'
 
 type KeyboardGroup = {
   moveKeyboardFocus: (step: number) => boolean

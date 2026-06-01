@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-android-passkey-delete"
+description = "Enables the android_passkey_delete command without any pre-configured scope."
+commands.allow = ["android_passkey_delete"]
+
+[[permission]]
+identifier = "deny-android-passkey-delete"
+description = "Denies the android_passkey_delete command without any pre-configured scope."
+commands.deny = ["android_passkey_delete"]

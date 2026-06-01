@@ -22,12 +22,51 @@ private struct ProviderBridgeError: Error {
     let message: String
 }
 
+private struct PasskeyCandidate {
+    let credentialIdB64Url: String
+    let rpId: String
+    let userName: String
+    let userDisplayName: String
+
+    var accountLabel: String {
+        let trimmedUserName = userName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedUserName.isEmpty {
+            return trimmedUserName
+        }
+        let trimmedDisplayName = userDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedDisplayName.isEmpty {
+            return trimmedDisplayName
+        }
+        return rpId
+    }
+
+    init?(payload: [String: Any]) {
+        guard let credentialId = payload["credentialIdB64Url"] as? String,
+              let rpId = payload["rpId"] as? String
+        else {
+            return nil
+        }
+
+        self.credentialIdB64Url = credentialId
+        self.rpId = rpId
+        self.userName = payload["userName"] as? String ?? ""
+        self.userDisplayName = payload["userDisplayName"] as? String ?? ""
+    }
+}
+
+private struct PasskeyAssertionContext {
+    let relyingPartyIdentifier: String
+    let clientDataHash: Data
+    let allowedCredentialIDs: [Data]
+}
+
 // MARK: - Credential Provider View Controller
 
 final class CredentialProviderViewController: ASCredentialProviderViewController {
     private var candidateCredentials: [[String: Any]] = []
+    private var candidatePasskeys: [PasskeyCandidate] = []
     private var candidateDomains: [String] = []
-    private var activePasskeyRelyingParty: String?
+    private var activePasskeyAssertionContext: PasskeyAssertionContext?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -38,7 +77,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     /// macOS/iOS calls this when the user taps a credential from the AutoFill list.
     /// The credential was previously registered in ASCredentialIdentityStore.
     override func provideCredentialWithoutUserInteraction(for credentialIdentity: ASPasswordCredentialIdentity) {
-        activePasskeyRelyingParty = nil
+        activePasskeyAssertionContext = nil
         guard let recordIdentifier = credentialIdentity.recordIdentifier else {
             extensionContext.cancelRequest(withError: ASExtensionError(.credentialIdentityNotFound))
             return
@@ -59,7 +98,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     /// Called when user interaction is allowed (after provideCredentialWithoutUserInteraction fails).
     override func prepareInterfaceToProvideCredential(for credentialIdentity: ASPasswordCredentialIdentity) {
-        activePasskeyRelyingParty = nil
+        activePasskeyAssertionContext = nil
         guard let recordIdentifier = credentialIdentity.recordIdentifier else {
             extensionContext.cancelRequest(withError: ASExtensionError(.credentialIdentityNotFound))
             return
@@ -85,7 +124,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     /// Called when the user selects our provider from the AutoFill bar for a service.
     /// We should show a list of matching credentials.
     override func prepareCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
-        activePasskeyRelyingParty = nil
+        activePasskeyAssertionContext = nil
         preparePasswordCredentialList(domains: serviceIdentifiers.map(\.identifier))
     }
 
@@ -115,10 +154,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             }
             prepareInterfaceToProvideCredential(for: identity)
         case .passkeyAssertion:
-            showProviderUnavailableUI(
-                title: "Passkeys are unavailable",
-                message: "This build supports password fallback from mixed credential lists, but direct passkey assertion is not available yet."
-            )
+            completePasskeyAssertion(for: credentialRequest)
         default:
             extensionContext.cancelRequest(withError: ASExtensionError(.failed))
         }
@@ -129,26 +165,19 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         for serviceIdentifiers: [ASCredentialServiceIdentifier],
         requestParameters: ASPasskeyCredentialRequestParameters
     ) {
-        activePasskeyRelyingParty = requestParameters.relyingPartyIdentifier
-
-        var domains = [requestParameters.relyingPartyIdentifier]
-        domains.append(contentsOf: serviceIdentifiers.map(\.identifier))
-        preparePasswordCredentialList(domains: domains)
+        activePasskeyAssertionContext = PasskeyAssertionContext(
+            relyingPartyIdentifier: requestParameters.relyingPartyIdentifier,
+            clientDataHash: requestParameters.clientDataHash,
+            allowedCredentialIDs: requestParameters.allowedCredentials
+        )
+        preparePasskeyCredentialList()
     }
 
     @available(iOS 17.0, macOS 14.0, *)
     override func prepareInterface(forPasskeyRegistration registrationRequest: ASCredentialRequest) {
-        activePasskeyRelyingParty = nil
+        activePasskeyAssertionContext = nil
 
-        if let error = ensureProviderReady() {
-            presentBridgeError(error)
-            return
-        }
-
-        showProviderUnavailableUI(
-            title: "Passkeys are unavailable",
-            message: "ChromVoid passkey registration is not available yet in this build."
-        )
+        completePasskeyRegistration(for: registrationRequest)
     }
 
     private func preparePasswordCredentialList(domains: [String]) {
@@ -157,6 +186,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             return trimmed.isEmpty ? nil : trimmed
         })) as? [String] ?? []
         candidateDomains = deduplicatedDomains
+        candidatePasskeys = []
 
         if let error = ensureProviderReady() {
             presentBridgeError(error)
@@ -188,6 +218,45 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
         candidateCredentials = candidates
         showCredentialListUI(candidates: candidates, domains: deduplicatedDomains)
+    }
+
+    private func preparePasskeyCredentialList() {
+        guard let context = activePasskeyAssertionContext else {
+            extensionContext.cancelRequest(withError: ASExtensionError(.failed))
+            return
+        }
+
+        if let error = ensurePasskeysLiteReady() {
+            presentBridgeError(error)
+            return
+        }
+
+        let response = CredentialProviderIPCChannel.callCore(
+            command: CredentialIPCBridge.passkeyQueryCommand,
+            data: CredentialIPCBridge.passkeyAssertionPayload(
+                relyingPartyIdentifier: context.relyingPartyIdentifier,
+                credentialID: nil,
+                clientDataHash: context.clientDataHash,
+                allowedCredentialIDs: context.allowedCredentialIDs
+            )
+        )
+
+        guard let result = bridgeResult(from: response) else {
+            presentBridgeError(bridgeError(from: response) ?? unavailableError())
+            return
+        }
+
+        let passkeys = (result["passkeys"] as? [[String: Any]] ?? [])
+            .compactMap(PasskeyCandidate.init(payload:))
+
+        guard !passkeys.isEmpty else {
+            showNoCredentialsUI()
+            return
+        }
+
+        candidatePasskeys = passkeys
+        candidateCredentials = []
+        showPasskeyListUI(candidates: passkeys)
     }
 
     /// Called when the user opens the extension settings.
@@ -242,6 +311,169 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         return (ASPasswordCredential(user: username, password: password), nil)
     }
 
+    @available(iOS 17.0, macOS 14.0, *)
+    private func completePasskeyRegistration(for registrationRequest: ASCredentialRequest) {
+        if let error = ensurePasskeysLiteReady() {
+            presentBridgeError(error)
+            return
+        }
+
+        guard let request = registrationRequest as? ASPasskeyCredentialRequest,
+              let identity = request.credentialIdentity as? ASPasskeyCredentialIdentity
+        else {
+            extensionContext.cancelRequest(withError: ASExtensionError(.credentialIdentityNotFound))
+            return
+        }
+
+        let response = CredentialProviderIPCChannel.callCore(
+            command: CredentialIPCBridge.passkeyCreateCommand,
+            data: CredentialIPCBridge.passkeyRegistrationPayload(
+                relyingPartyIdentifier: identity.relyingPartyIdentifier,
+                userName: identity.userName,
+                userHandle: identity.userHandle,
+                clientDataHash: request.clientDataHash,
+                supportedAlgorithms: request.supportedAlgorithms.map(\.rawValue)
+            )
+        )
+
+        guard let result = bridgeResult(from: response) else {
+            presentBridgeError(bridgeError(from: response) ?? unavailableError())
+            return
+        }
+
+        completePasskeyRegistration(
+            relyingPartyIdentifier: identity.relyingPartyIdentifier,
+            clientDataHash: request.clientDataHash,
+            result: result
+        )
+    }
+
+    @available(iOS 17.0, macOS 14.0, *)
+    private func completePasskeyAssertion(for credentialRequest: ASCredentialRequest) {
+        if let error = ensurePasskeysLiteReady() {
+            presentBridgeError(error)
+            return
+        }
+
+        guard let request = credentialRequest as? ASPasskeyCredentialRequest,
+              let identity = request.credentialIdentity as? ASPasskeyCredentialIdentity
+        else {
+            extensionContext.cancelRequest(withError: ASExtensionError(.credentialIdentityNotFound))
+            return
+        }
+
+        let response = CredentialProviderIPCChannel.callCore(
+            command: CredentialIPCBridge.passkeyGetCommand,
+            data: CredentialIPCBridge.passkeyAssertionPayload(
+                relyingPartyIdentifier: identity.relyingPartyIdentifier,
+                credentialID: identity.credentialID,
+                clientDataHash: request.clientDataHash,
+                allowedCredentialIDs: [identity.credentialID]
+            )
+        )
+
+        guard let result = bridgeResult(from: response) else {
+            presentBridgeError(bridgeError(from: response) ?? unavailableError())
+            return
+        }
+
+        completePasskeyAssertion(
+            relyingPartyIdentifier: identity.relyingPartyIdentifier,
+            clientDataHash: request.clientDataHash,
+            result: result
+        )
+    }
+
+    @available(iOS 17.0, macOS 14.0, *)
+    private func completeSelectedPasskeyAssertion(_ candidate: PasskeyCandidate) {
+        guard let context = activePasskeyAssertionContext else {
+            extensionContext.cancelRequest(withError: ASExtensionError(.failed))
+            return
+        }
+
+        guard let credentialID = CredentialIPCBridge.base64URLDecode(candidate.credentialIdB64Url) else {
+            extensionContext.cancelRequest(withError: ASExtensionError(.credentialIdentityNotFound))
+            return
+        }
+
+        let response = CredentialProviderIPCChannel.callCore(
+            command: CredentialIPCBridge.passkeyGetCommand,
+            data: CredentialIPCBridge.passkeyAssertionPayload(
+                relyingPartyIdentifier: context.relyingPartyIdentifier,
+                credentialID: credentialID,
+                clientDataHash: context.clientDataHash,
+                allowedCredentialIDs: context.allowedCredentialIDs
+            )
+        )
+
+        guard let result = bridgeResult(from: response) else {
+            presentBridgeError(bridgeError(from: response) ?? unavailableError())
+            return
+        }
+
+        completePasskeyAssertion(
+            relyingPartyIdentifier: context.relyingPartyIdentifier,
+            clientDataHash: context.clientDataHash,
+            result: result
+        )
+    }
+
+    @available(iOS 17.0, macOS 14.0, *)
+    private func completePasskeyRegistration(
+        relyingPartyIdentifier: String,
+        clientDataHash: Data,
+        result: [String: Any]
+    ) {
+        guard let credentialIDValue = result["credentialIdB64Url"] as? String,
+              let credentialID = CredentialIPCBridge.base64URLDecode(credentialIDValue),
+              let response = result["response"] as? [String: Any],
+              let attestationValue = response["attestationObject"] as? String,
+              let attestationObject = CredentialIPCBridge.base64URLDecode(attestationValue)
+        else {
+            extensionContext.cancelRequest(withError: ASExtensionError(.failed))
+            return
+        }
+
+        let credential = ASPasskeyRegistrationCredential(
+            relyingParty: relyingPartyIdentifier,
+            clientDataHash: clientDataHash,
+            credentialID: credentialID,
+            attestationObject: attestationObject
+        )
+        extensionContext.completeRegistrationRequest(using: credential, completionHandler: nil)
+    }
+
+    @available(iOS 17.0, macOS 14.0, *)
+    private func completePasskeyAssertion(
+        relyingPartyIdentifier: String,
+        clientDataHash: Data,
+        result: [String: Any]
+    ) {
+        guard let credentialIDValue = result["credentialIdB64Url"] as? String,
+              let credentialID = CredentialIPCBridge.base64URLDecode(credentialIDValue),
+              let response = result["response"] as? [String: Any],
+              let authenticatorDataValue = response["authenticatorData"] as? String,
+              let authenticatorData = CredentialIPCBridge.base64URLDecode(authenticatorDataValue),
+              let signatureValue = response["signature"] as? String,
+              let signature = CredentialIPCBridge.base64URLDecode(signatureValue),
+              let userHandleValue = response["userHandle"] as? String,
+              let userHandle = CredentialIPCBridge.base64URLDecode(userHandleValue)
+        else {
+            extensionContext.cancelRequest(withError: ASExtensionError(.failed))
+            return
+        }
+
+        let credential = ASPasskeyAssertionCredential(
+            userHandle: userHandle,
+            relyingParty: relyingPartyIdentifier,
+            signature: signature,
+            clientDataHash: clientDataHash,
+            authenticatorData: authenticatorData,
+            credentialID: credentialID
+        )
+        extensionContext.completeAssertionRequest(using: credential, completionHandler: nil)
+    }
+
     private func bridgeResult(from response: [String: Any]?) -> [String: Any]? {
         guard let response,
               response["success"] as? Bool == true
@@ -294,6 +526,22 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         return nil
     }
 
+    private func ensurePasskeysLiteReady() -> ProviderBridgeError? {
+        if let error = ensureProviderReady() {
+            return error
+        }
+
+        if !CredentialIPCBridge.passkeysLiteReady() {
+            return ProviderBridgeError(
+                code: "UNSUPPORTED",
+                message: CredentialIPCBridge.passkeysLiteUnsupportedReason()
+                    ?? "Passkeys are unavailable on this platform."
+            )
+        }
+
+        return nil
+    }
+
     private func webContext(for serviceIdentifier: String) -> [String: Any] {
         let domain = normalizedDomain(from: serviceIdentifier)
         return [
@@ -332,6 +580,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                 title: "ChromVoid AutoFill is disabled",
                 message: error.message
             )
+        case "UNSUPPORTED":
+            showProviderUnavailableUI(title: "Passkeys are unavailable", message: error.message)
         default:
             showProviderUnavailableUI(title: "ChromVoid is unavailable", message: error.message)
         }
@@ -480,6 +730,51 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         ])
     }
 
+    private func showPasskeyListUI(candidates: [PasskeyCandidate]) {
+        clearUI()
+
+        let titleLabel = NSTextField(labelWithString: "Choose a passkey")
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        var views: [NSView] = [titleLabel]
+
+        for (index, candidate) in candidates.enumerated() {
+            let button = NSButton(
+                title: "\(candidate.accountLabel)  —  \(candidate.rpId)",
+                target: self,
+                action: #selector(passkeySelected(_:))
+            )
+            button.tag = index
+            button.bezelStyle = .rounded
+            button.translatesAutoresizingMaskIntoConstraints = false
+            views.append(button)
+        }
+
+        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelTapped))
+        cancelButton.translatesAutoresizingMaskIntoConstraints = false
+        views.append(cancelButton)
+
+        let stack = NSStackView(views: views)
+        stack.orientation = .vertical
+        stack.spacing = 8
+        stack.alignment = .centerX
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let scrollView = NSScrollView()
+        scrollView.documentView = stack
+        scrollView.hasVerticalScroller = true
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        view.addSubview(scrollView)
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -12),
+        ])
+    }
+
     @objc private func credentialSelected(_ sender: NSButton) {
         let index = sender.tag
         guard index < candidateCredentials.count else {
@@ -500,6 +795,26 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             showProviderUnavailableUI(
                 title: "ChromVoid is unavailable",
                 message: "Bring ChromVoid to the foreground and try AutoFill again."
+            )
+        }
+    }
+
+    @objc private func passkeySelected(_ sender: NSButton) {
+        let index = sender.tag
+        guard index < candidatePasskeys.count else {
+            extensionContext.cancelRequest(withError: ASExtensionError(.failed))
+            return
+        }
+
+        if #available(iOS 17.0, macOS 14.0, *) {
+            completeSelectedPasskeyAssertion(candidatePasskeys[index])
+        } else {
+            presentBridgeError(
+                ProviderBridgeError(
+                    code: "UNSUPPORTED",
+                    message: CredentialIPCBridge.passkeysLiteUnsupportedReason()
+                        ?? "Passkeys are unavailable on this platform."
+                )
             )
         }
     }
@@ -611,6 +926,54 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         ])
     }
 
+    private func showPasskeyListUI(candidates: [PasskeyCandidate]) {
+        clearUI()
+
+        let titleLabel = UILabel()
+        titleLabel.text = "Choose a passkey"
+        titleLabel.font = .preferredFont(forTextStyle: .headline)
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 0
+
+        let stack = UIStackView(arrangedSubviews: [titleLabel])
+        stack.axis = .vertical
+        stack.spacing = 10
+        stack.alignment = .fill
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        for (index, candidate) in candidates.enumerated() {
+            let button = UIButton(type: .system)
+            button.tag = index
+            button.setTitle("\(candidate.accountLabel)  •  \(candidate.rpId)", for: .normal)
+            button.contentHorizontalAlignment = .left
+            button.addTarget(self, action: #selector(passkeySelected(_:)), for: .touchUpInside)
+            stack.addArrangedSubview(button)
+        }
+
+        let cancelButton = UIButton(type: .system)
+        cancelButton.setTitle("Cancel", for: .normal)
+        cancelButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+        stack.addArrangedSubview(cancelButton)
+
+        let scrollView = UIScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(stack)
+        view.addSubview(scrollView)
+
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -16),
+            stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -16),
+            stack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -32),
+        ])
+    }
+
     @objc private func credentialSelected(_ sender: UIButton) {
         let index = sender.tag
         guard index < candidateCredentials.count else {
@@ -631,6 +994,26 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             showProviderUnavailableUI(
                 title: "ChromVoid is unavailable",
                 message: "Bring ChromVoid to the foreground and try AutoFill again."
+            )
+        }
+    }
+
+    @objc private func passkeySelected(_ sender: UIButton) {
+        let index = sender.tag
+        guard index < candidatePasskeys.count else {
+            extensionContext.cancelRequest(withError: ASExtensionError(.failed))
+            return
+        }
+
+        if #available(iOS 17.0, macOS 14.0, *) {
+            completeSelectedPasskeyAssertion(candidatePasskeys[index])
+        } else {
+            presentBridgeError(
+                ProviderBridgeError(
+                    code: "UNSUPPORTED",
+                    message: CredentialIPCBridge.passkeysLiteUnsupportedReason()
+                        ?? "Passkeys are unavailable on this platform."
+                )
             )
         }
     }

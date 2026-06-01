@@ -3,7 +3,7 @@
 //! Contract-level test: create a v2 local backup (metadata.enc includes storage_pepper_wrapped),
 //! then restore into a fresh storage and verify the vault unlocks and data is present.
 //!
-//! This is expected to fail until restore:local:uploadChunk + restore:local:commit are implemented.
+//! Restore uses restore:local:uploadPack + restore:local:commit.
 
 mod test_helpers;
 
@@ -15,6 +15,7 @@ use chromvoid_core::rpc::RpcRouter;
 use chromvoid_core::rpc::{RpcInputStream, RpcReply};
 use chromvoid_core::storage::Storage;
 use std::fs;
+use std::io::Cursor;
 use std::sync::Arc;
 use tempfile::TempDir;
 use test_helpers::*;
@@ -65,23 +66,22 @@ fn test_restore_local_rehydrates_pepper_and_allows_unlock() {
     assert_rpc_ok(&create_dir(&mut router1, "seed"));
     router1.save().expect("save");
     let data = b"hello portable pepper".to_vec();
-    let prep = router1.handle(&RpcRequest::new(
-        "catalog:prepareUpload",
-        serde_json::json!({
-            "name": "pepper.txt",
-            "size": data.len() as u64,
-            "mime_type": "text/plain",
-        }),
-    ));
-    assert_rpc_ok(&prep);
-    let node_id = get_node_id(&prep);
     let upload_req = RpcRequest::new(
         "catalog:upload",
-        serde_json::json!({"node_id": node_id, "size": data.len(), "offset": 0}),
+        serde_json::json!({
+            "parent_path": "/",
+            "name": "pepper.txt",
+            "total_size": data.len() as u64,
+            "size": data.len(),
+            "offset": 0,
+            "mime_type": "text/plain",
+        }),
     );
     match router1.handle_with_stream(&upload_req, Some(RpcInputStream::from_bytes(data))) {
         RpcReply::Json(r) => assert_rpc_ok(&r),
-        RpcReply::Stream(_) => panic!("catalog:upload must return JSON response"),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:upload must return JSON response")
+        }
     }
 
     // Create local backup and collect chunks + metadata.
@@ -180,18 +180,40 @@ fn test_restore_local_rehydrates_pepper_and_allows_unlock() {
         .expect("restore_id")
         .to_string();
 
-    for (i, (chunk_name, data_b64)) in chunks.iter().enumerate() {
-        let upload = router2.handle(&RpcRequest::new(
-            "restore:local:uploadChunk",
+    let mut pack = Vec::new();
+    let manifest_chunks: Vec<_> = chunks
+        .iter()
+        .map(|(chunk_name, data_b64)| {
+            let bytes = general_purpose::STANDARD
+                .decode(data_b64)
+                .expect("backup chunk must be base64");
+            pack.extend_from_slice(&bytes);
             serde_json::json!({
-                "restore_id": restore_id.as_str(),
-                "chunk_index": i as u64,
-                "chunk_name": chunk_name,
-                "data": data_b64,
-                "is_last": i + 1 == chunks.len(),
-            }),
-        ));
-        assert_rpc_ok(&upload);
+                "name": chunk_name,
+                "size": bytes.len() as u64,
+            })
+        })
+        .collect();
+    let upload_req = RpcRequest::new(
+        "restore:local:uploadPack",
+        serde_json::json!({
+            "restore_id": restore_id.as_str(),
+            "manifest": {
+                "v": 2,
+                "chunk_count": chunks.len() as u64,
+                "total_size": pack.len() as u64,
+                "chunks": manifest_chunks,
+            },
+        }),
+    );
+    match router2.handle_with_stream(
+        &upload_req,
+        Some(RpcInputStream::new(Box::new(Cursor::new(pack)))),
+    ) {
+        RpcReply::Json(upload) => assert_rpc_ok(&upload),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("restore:local:uploadPack must return JSON response")
+        }
     }
 
     let commit = router2.handle(&RpcRequest::new(

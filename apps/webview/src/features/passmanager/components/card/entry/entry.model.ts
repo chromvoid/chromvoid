@@ -1,19 +1,30 @@
-import {state} from '@statx/core'
+import {action, atom, wrap, type Atom} from '@reatom/core'
 
-import {html} from 'lit'
-
-import {Entry} from '@project/passmanager'
-import {
-  DEFAULT_CLIPBOARD_WIPE_MS,
-  copyWithAutoWipe,
-  formatLink,
-  i18n,
-} from '@project/passmanager'
+import {Entry} from '@project/passmanager/core'
+import {i18n} from '@project/passmanager/i18n'
+import {DEFAULT_CLIPBOARD_WIPE_MS, copyWithAutoWipe} from '@project/passmanager/password-utils'
+import {formatLink} from '@project/passmanager/urls'
+import {defaultLogger} from 'root/core/logger'
 import {getAppContext} from 'root/shared/services/app-context'
-import {dialogService} from 'root/shared/services/dialog-service'
+import {openExternalBrowserUrl} from 'root/shared/services/external-browser'
+import type {PMDesktopToolbarActionSpec} from '../../desktop-toolbar'
+import type {PMWorkspaceContextItem} from '../pm-workspace-header'
+import {pmEntryEditorModel} from '../../../models/pm-entry-editor.model'
+import {pmDeleteMotionModel} from '../../../models/pm-delete-motion.model'
 import {pmEntryMoveModel} from '../../../models/pm-entry-move-model'
-import type {PMEntryMove as PMEntryMoveType} from '../pm-entry-move'
-import {PMEntrySessionModel} from './entry-session.model'
+import {
+  getPassmanagerRoot,
+  getPassmanagerShowElement,
+  isPassmanagerReadOnlyOrMissing,
+} from '../../../models/pm-root.adapter'
+import type {PaymentCardBrand} from '@project/passmanager/types'
+import {openPassmanagerMoveDialog} from '../../../service/passmanager-move-dialog'
+import {
+  PMEntrySessionModel,
+  type PMEntrySessionActions,
+  type PMEntrySessionController,
+  type PMEntrySessionState,
+} from './entry-session.model'
 
 export type PMEntryActionUrl = {
   value: string
@@ -21,19 +32,393 @@ export type PMEntryActionUrl = {
   href: string
 }
 
+export type PMEntryHeaderBadge = {
+  variant: 'success' | 'primary' | 'warning' | 'neutral'
+  icon: string
+  text: string
+}
+
 export type PMEntryRenderData = {
+  entryType: 'login' | 'payment_card'
+  contextLabel: string
+  contextItems: PMWorkspaceContextItem[]
   entryTitleText: string
   entryAvatarLetter: string
   avatarBg: string
+  headerBadges: PMEntryHeaderBadge[]
   hasOtps: boolean
   visibleUrls: PMEntryActionUrl[]
   hasUrls: boolean
+  paymentCardBrandLabel: string
+  paymentCardholderName: string
+  paymentCardLast4: string
+  paymentCardExpiryLabel: string
+  hasPaymentCardCvv: boolean
+  tags: string[]
+  hasTags: boolean
 }
 
-export class PMEntryModel extends PMEntrySessionModel {
-  readonly isNoteDetailsOpen = state(false)
+export interface PMEntryState extends PMEntrySessionState {
+  readonly isNoteDetailsOpen: Atom<boolean>
+  readonly isCardCvvRevealed: Atom<boolean>
+}
 
-  getEntryData(card: Entry): PMEntryRenderData {
+export interface PMEntryActions extends PMEntrySessionActions {
+  attach(entry: Entry): void
+  detach(): void
+  disconnect(): void
+  setNoteDetailsOpen(next: boolean): void
+  setCardCvvRevealed(next: boolean): void
+  toggleCardCvvRevealed(): void
+  onEditEnd(): void
+  moveCard(entry: Entry): Promise<void>
+  copyAll(entry: Entry): Promise<void>
+  copyUsername(entry: Entry): Promise<void>
+  copyPassword(entry: Entry): Promise<void>
+  copyCardCvv(entry: Entry): Promise<void>
+  copyOTP(entry: Entry): Promise<void>
+  startEdit(): void
+  removeEntry(entry: Entry): void
+  openUrl(href: string): void
+  openFirstUrl(entry: Entry): void
+  onKeyDown(entry: Entry, event: KeyboardEvent): void
+  closeAllDetails(): void
+  onNoteToggle(event: Event): void
+}
+
+export interface PMEntryContracts<TEntryData = PMEntryRenderData> {
+  getEntryData(entry: Entry): TEntryData
+}
+
+export type PMEntryDesktopToolbarAction = 'edit-entry' | 'move-entry' | 'delete-entry'
+
+function formatPaymentCardBrand(brand: PaymentCardBrand | undefined): string {
+  switch (brand) {
+    case 'visa':
+      return 'Visa'
+    case 'mastercard':
+      return 'Mastercard'
+    case 'amex':
+      return 'AmEx'
+    case 'mir':
+      return 'MIR'
+    case 'unionpay':
+      return 'UnionPay'
+    default:
+      return 'Card'
+  }
+}
+
+function formatPaymentCardExpiry(entry: Entry): string {
+  const paymentCard = entry.paymentCard
+  if (!paymentCard) return '—'
+
+  return `${String(paymentCard.expMonth).padStart(2, '0')}/${String(paymentCard.expYear).slice(-2)}`
+}
+
+export class PMEntryModel implements PMEntrySessionController {
+  private readonly logger = defaultLogger
+  private readonly session = new PMEntrySessionModel()
+  private readonly isNoteDetailsOpenAtom = atom(false, 'passmanager.entry.isNoteDetailsOpen')
+  private readonly isCardCvvRevealedAtom = atom(false, 'passmanager.entry.isCardCvvRevealed')
+  private readonly attachedEntryIdAtom = atom<string | undefined>(undefined, 'passmanager.entry.attachedEntryId')
+
+  state: PMEntryState = {
+    ...this.session.state,
+    isNoteDetailsOpen: this.isNoteDetailsOpenAtom,
+    isCardCvvRevealed: this.isCardCvvRevealedAtom,
+  }
+
+  startEntryEdit(): void {
+    const current = getPassmanagerShowElement()
+    if (!(current instanceof Entry)) {
+      return
+    }
+
+    pmEntryEditorModel.openSurface(current.id, current.entryType === 'payment_card' ? 'payment-card' : 'title')
+  }
+
+  deleteEntryCard(entry: Entry): void {
+    pmDeleteMotionModel.markPending([entry])
+    void this.finishEntryDelete(entry)
+  }
+
+  private async finishEntryDelete(entry: Entry): Promise<void> {
+    try {
+      await wrap(entry.remove())
+    } catch (error) {
+      this.logger.warn('[PassManager][Entry] delete failed', {
+        errorName: error instanceof Error ? error.name : typeof error,
+      })
+    }
+
+    const root = getPassmanagerRoot()
+    if (root?.getCardByID?.(entry.id) === entry) {
+      pmDeleteMotionModel.clearPending([entry.id])
+    }
+  }
+
+  isDesktopToolbarAction(value: string | undefined): value is PMEntryDesktopToolbarAction {
+    return value === 'edit-entry' || value === 'move-entry' || value === 'delete-entry'
+  }
+
+  getDesktopToolbarActions(): PMDesktopToolbarActionSpec<PMEntryDesktopToolbarAction>[] {
+    const isReadOnly = isPassmanagerReadOnlyOrMissing()
+
+    return [
+      {
+        id: 'edit-entry',
+        icon: 'pencil-square',
+        label: i18n('button:edit'),
+        disabled: isReadOnly,
+        iconOnly: true,
+        appearance: 'ghost',
+      },
+      {
+        id: 'move-entry',
+        icon: 'folder-symlink',
+        label: i18n('button:move'),
+        disabled: isReadOnly,
+        iconOnly: true,
+      },
+      {
+        id: 'delete-entry',
+        icon: 'trash',
+        label: i18n('button:remove'),
+        disabled: isReadOnly,
+        danger: true,
+        iconOnly: true,
+      },
+    ]
+  }
+
+  executeDesktopToolbarAction(action: PMEntryDesktopToolbarAction, entry: Entry): void {
+    switch (action) {
+      case 'edit-entry':
+        this.startEntryEdit()
+        return
+      case 'move-entry':
+        void this.moveEntryCard(entry)
+        return
+      case 'delete-entry':
+        this.deleteEntryCard(entry)
+        return
+    }
+  }
+
+  async moveEntryCard(entry: Entry): Promise<void> {
+    if (isPassmanagerReadOnlyOrMissing()) return
+
+    const sourceTargetId = pmEntryMoveModel.getEntryParentTargetId(entry)
+    const firstAllowedTarget = pmEntryMoveModel.listTargets().find((target) => target.id !== sourceTargetId)
+    await openPassmanagerMoveDialog({
+      entryId: entry.id,
+      onConfirm: (targetId) => pmEntryMoveModel.moveEntry(entry, targetId),
+      selectedId: firstAllowedTarget?.id ?? sourceTargetId,
+      useMobilePicker: this.shouldUseMobileMovePicker(),
+    })
+  }
+
+  actions: PMEntryActions = {
+    ...this.session.actions,
+    attach: action((entry: Entry) => {
+      const previousEntryId = this.attachedEntryIdAtom()
+      this.session.actions.attach(entry)
+      this.attachedEntryIdAtom.set(entry.id)
+      if (previousEntryId !== entry.id) {
+        this.isCardCvvRevealedAtom.set(false)
+      }
+    }, 'passmanager.entry.attach'),
+
+    detach: action(() => {
+      this.attachedEntryIdAtom.set(undefined)
+      this.isCardCvvRevealedAtom.set(false)
+      this.session.actions.detach()
+    }, 'passmanager.entry.detach'),
+
+    disconnect: action(() => {
+      this.attachedEntryIdAtom.set(undefined)
+      this.isCardCvvRevealedAtom.set(false)
+      this.session.actions.disconnect()
+    }, 'passmanager.entry.disconnect'),
+
+    setNoteDetailsOpen: action((next: boolean) => {
+      this.isNoteDetailsOpenAtom.set(next)
+    }, 'passmanager.entry.setNoteDetailsOpen'),
+
+    setCardCvvRevealed: action((next: boolean) => {
+      if (!next) {
+        this.isCardCvvRevealedAtom.set(false)
+        return
+      }
+
+      const cardCvvResource = this.state.cardCvvResource()
+      if (cardCvvResource.status === 'ready' && cardCvvResource.value) {
+        this.isCardCvvRevealedAtom.set(true)
+      }
+    }, 'passmanager.entry.setCardCvvRevealed'),
+
+    toggleCardCvvRevealed: action(() => {
+      this.actions.setCardCvvRevealed(!this.isCardCvvRevealedAtom())
+    }, 'passmanager.entry.toggleCardCvvRevealed'),
+
+    onEditEnd: action(() => {
+      const current = getPassmanagerShowElement()
+      if (current instanceof Entry) {
+        pmEntryEditorModel.closeSurface(current.id)
+        return
+      }
+
+      pmEntryEditorModel.closeSurface()
+    }, 'passmanager.entry.onEditEnd'),
+
+    moveCard: action(async (entry: Entry) => {
+      await this.moveEntryCard(entry)
+    }, 'passmanager.entry.moveCard'),
+
+    copyAll: action(async (entry: Entry) => {
+      if (entry.entryType === 'payment_card') {
+        const cardPan = await this.readCardPan(entry)
+        const cardCvv = await this.readCardCvv(entry)
+        const parts: string[] = []
+        parts.push(`[${i18n('title')}] ${entry.title || '-'}`)
+        parts.push(`[${i18n('payment-card:copy-cardholder')}] ${entry.paymentCard?.cardholderName || '-'}`)
+        parts.push(`[${i18n('payment-card:copy-number')}] ${cardPan || '—'}`)
+        parts.push(`[${i18n('payment-card:copy-expiry')}] ${formatPaymentCardExpiry(entry)}`)
+        if (cardCvv) {
+          parts.push(`[CVV] ${cardCvv}`)
+        }
+        await this.copyText(parts.join('\n'), 'copyAll')
+        return
+      }
+
+      const parts: string[] = []
+      parts.push(`[${i18n('title')}] ${entry.title || '-'}`)
+      parts.push(`[${i18n('username')}] ${entry.username || '-'}`)
+      parts.push(`[${i18n('password')}] ${await this.readPassword(entry)}`)
+
+      const otps = entry.otps()
+      const firstOtp = otps.length > 0 ? otps[0] : undefined
+      if (firstOtp) {
+        try {
+          const code = await firstOtp.loadCode()
+          if (code) parts.push(`[${i18n('otp')}] ${code}`)
+        } catch {}
+      }
+
+      const note = await this.readNote(entry)
+      if (note) parts.push(`[${i18n('note:title')}] ${note}`)
+      await this.copyText(parts.join('\n'), 'copyAll')
+    }, 'passmanager.entry.copyAll'),
+
+    copyUsername: action(async (entry: Entry) => {
+      if (!entry.username) return
+      await this.copyText(entry.username, 'copyUsername')
+    }, 'passmanager.entry.copyUsername'),
+
+    copyPassword: action(async (entry: Entry) => {
+      if (entry.entryType === 'payment_card') {
+        const cardPan = this.state.cardPan() ?? await this.readCardPan(entry)
+        if (!cardPan) return
+        await this.copyText(cardPan, 'copyPassword.cardPan')
+        return
+      }
+
+      const password = this.state.password() ?? await this.readPassword(entry)
+      if (!password) return
+      await this.copyText(password, 'copyPassword')
+    }, 'passmanager.entry.copyPassword'),
+
+    copyCardCvv: action(async (entry: Entry) => {
+      if (entry.entryType !== 'payment_card') return
+
+      const cardCvv = await this.readCardCvv(entry)
+      if (!cardCvv) return
+      await this.copyText(cardCvv, 'copyCardCvv')
+    }, 'passmanager.entry.copyCardCvv'),
+
+    copyOTP: action(async (entry: Entry) => {
+      const otps = entry.otps()
+      const firstOtp = otps.length > 0 ? otps[0] : undefined
+      if (!firstOtp) return
+
+      try {
+        const code = await firstOtp.loadCode()
+        if (code) {
+          await this.copyText(code, 'copyOtp')
+        }
+      } catch {}
+    }, 'passmanager.entry.copyOtp'),
+
+    startEdit: action(() => {
+      this.startEntryEdit()
+    }, 'passmanager.entry.startEdit'),
+
+    removeEntry: action((entry: Entry) => {
+      this.deleteEntryCard(entry)
+    }, 'passmanager.entry.removeEntry'),
+
+    openUrl: action((href: string) => {
+      void Promise.resolve(openExternalBrowserUrl(href)).catch((error: unknown) => {
+        this.logger.warn('[PassManager][Entry] external URL open failed', {
+          errorName: error instanceof Error ? error.name : typeof error,
+        })
+      })
+    }, 'passmanager.entry.openUrl'),
+
+    openFirstUrl: action((entry: Entry) => {
+      const first = entry.urls.find((rule) => rule.match !== 'never' && rule.match !== 'regex')?.value
+      if (!first) return
+
+      this.actions.openUrl(formatLink(first))
+    }, 'passmanager.entry.openFirstUrl'),
+
+    onKeyDown: action((entry: Entry, event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey) {
+        switch (event.key) {
+          case 'e':
+            event.preventDefault()
+            this.actions.startEdit()
+            break
+          case 'c':
+            event.preventDefault()
+            void this.actions.copyPassword(entry)
+            break
+          case 'u':
+            event.preventDefault()
+            this.actions.copyUsername(entry)
+            break
+          case 'o':
+            event.preventDefault()
+            this.actions.openFirstUrl(entry)
+            break
+        }
+      }
+
+      if (event.key === 'Escape') {
+        this.actions.closeAllDetails()
+      }
+    }, 'passmanager.entry.onKeyDown'),
+
+    closeAllDetails: action(() => {
+      if (this.state.isNoteDetailsOpen()) {
+        this.isNoteDetailsOpenAtom.set(false)
+      }
+      if (this.state.isCardCvvRevealed()) {
+        this.isCardCvvRevealedAtom.set(false)
+      }
+    }, 'passmanager.entry.closeAllDetails'),
+
+    onNoteToggle: action((event: Event) => {
+      event.preventDefault()
+    }, 'passmanager.entry.onNoteToggle'),
+  }
+
+  contracts: PMEntryContracts = {
+    getEntryData: (entry: Entry) => this.buildEntryData(entry),
+  }
+
+  protected buildEntryData(card: Entry): PMEntryRenderData {
     const entryTitleText = card.title || i18n('no_title')
     const visibleUrls = card.urls
       .filter((rule) => rule.match !== 'never')
@@ -46,180 +431,81 @@ export class PMEntryModel extends PMEntrySessionModel {
           href: openable ? formatLink(value) : '',
         }
       })
+    const headerBadges: PMEntryHeaderBadge[] = [
+      {
+        variant: 'success',
+        icon: 'lock',
+        text: i18n('entry:badge:encrypted'),
+      },
+    ]
+
+    if (card.entryType === 'payment_card') {
+      headerBadges.push({
+        variant: 'primary',
+        icon: 'credit-card',
+        text: formatPaymentCardBrand(card.paymentCard?.brand),
+      })
+
+      if (card.paymentCard?.last4) {
+        headerBadges.push({
+          variant: 'neutral',
+          icon: '123',
+          text: `•••• ${card.paymentCard.last4}`,
+        })
+      }
+    } else {
+      if (card.otps().length > 0) {
+        headerBadges.push({
+          variant: 'primary',
+          icon: 'shield-check',
+          text: i18n('entry:badge:two_factor'),
+        })
+      }
+
+      if (card.sshKeys.length > 0) {
+        headerBadges.push({
+          variant: 'warning',
+          icon: 'key',
+          text: i18n('ssh:short'),
+        })
+      }
+
+      if (visibleUrls.length > 0) {
+        headerBadges.push({
+          variant: 'neutral',
+          icon: 'globe',
+          text: String(visibleUrls.length),
+        })
+      }
+    }
 
     return {
+      entryType: card.entryType,
+      contextLabel: card.groupPath || i18n('group:scope-root'),
+      contextItems: card.groupPath
+        ? [
+            {label: i18n('root:title-short'), value: ''},
+            ...card.groupPath.split('/').filter(Boolean).map((segment, index, items) => ({
+              label: segment,
+              value: items.slice(0, index + 1).join('/'),
+            })),
+          ]
+        : [{label: i18n('root:title-short'), value: ''}],
       entryTitleText,
       entryAvatarLetter: (entryTitleText.trim().charAt(0) || '?').toUpperCase(),
       avatarBg: this.getAvatarBg(entryTitleText),
+      headerBadges,
       hasOtps: card.otps().length > 0,
       visibleUrls,
       hasUrls: visibleUrls.length > 0,
+      paymentCardBrandLabel: formatPaymentCardBrand(card.paymentCard?.brand),
+      paymentCardholderName: card.paymentCard?.cardholderName || '—',
+      paymentCardLast4: card.paymentCard?.last4 || '',
+      paymentCardExpiryLabel: formatPaymentCardExpiry(card),
+      hasPaymentCardCvv: Boolean(this.state.cardCvv()),
+      tags: card.tags,
+      hasTags: card.tags.length > 0,
     }
-  }
-
-  onEditEnd(): void {
-    window.passmanager.isEditMode.set(false)
-  }
-
-  async moveCard(entry: Entry): Promise<void> {
-    if (window.passmanager.isReadOnly()) return
-
-    const sourceTargetId = pmEntryMoveModel.getEntryParentTargetId(entry)
-    const firstAllowedTarget = pmEntryMoveModel.listTargets().find((target) => target.id !== sourceTargetId)
-    let selectedId = firstAllowedTarget?.id ?? sourceTargetId
-
-    const useMobileMovePicker = this.shouldUseMobileMovePicker()
-    const pickerTag = useMobileMovePicker ? 'pm-entry-move-mobile' : 'pm-entry-move'
-
-    const content = useMobileMovePicker
-      ? html`<pm-entry-move-mobile .entryId=${entry.id} .selectedId=${selectedId}></pm-entry-move-mobile>`
-      : html`<pm-entry-move .entryId=${entry.id} .selectedId=${selectedId}></pm-entry-move>`
-    const footer = html`
-      <cv-button variant="default" id="move-cancel-btn">${i18n('button:cancel')}</cv-button>
-      <cv-button variant="primary" id="move-confirm-btn">${i18n('button:move')}</cv-button>
-    `
-
-    await dialogService.showCustomDialog<boolean>(
-      {
-        title: i18n('dialog:move:title'),
-        content,
-        footer,
-        size: 'm',
-        dialogClass: 'pm-move-sheet',
-      },
-      (dialog, resolve) => {
-        const picker = dialog.querySelector(pickerTag) as PMEntryMoveType | null
-        const confirmBtn = dialog.querySelector('#move-confirm-btn')
-        const cancelBtn = dialog.querySelector('#move-cancel-btn')
-
-        picker?.addEventListener('move-selected', (event: Event) => {
-          const detail = (event as CustomEvent<{id: string}>).detail
-          selectedId = detail.id
-        })
-
-        confirmBtn?.addEventListener('click', () => {
-          if (!selectedId) return
-          const moved = pmEntryMoveModel.moveEntry(entry, selectedId)
-          if (moved) {
-            resolve(true)
-          }
-        })
-
-        cancelBtn?.addEventListener('click', () => resolve(false))
-
-        dialog.addEventListener('keydown', (event: KeyboardEvent) => {
-          if (event.key !== 'Enter' || event.shiftKey) return
-          if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return
-          event.preventDefault()
-          if (!selectedId) return
-          const moved = pmEntryMoveModel.moveEntry(entry, selectedId)
-          if (moved) {
-            resolve(true)
-          }
-        })
-      },
-    )
-  }
-
-  async copyAll(entry: Entry): Promise<void> {
-    const parts: string[] = []
-    parts.push(`[${i18n('title')}] ${entry.title || '-'}`)
-    parts.push(`[${i18n('username')}] ${entry.username || '-'}`)
-    parts.push(`[${i18n('password')}] ${await this.readPassword(entry)}`)
-
-    const otps = entry.otps()
-    const firstOtp = otps.length > 0 ? otps[0] : undefined
-    if (firstOtp) {
-      try {
-        const code = await firstOtp.loadCode()
-        if (code) parts.push(`[${i18n('otp')}] ${code}`)
-      } catch {}
-    }
-
-    const note = await this.readNote(entry)
-    if (note) parts.push(`[${i18n('note:title')}] ${note}`)
-    await copyWithAutoWipe(parts.join('\n'), DEFAULT_CLIPBOARD_WIPE_MS)
-  }
-
-  copyUsername(entry: Entry): void {
-    if (!entry.username) return
-    void copyWithAutoWipe(entry.username, DEFAULT_CLIPBOARD_WIPE_MS)
-  }
-
-  async copyPassword(entry: Entry): Promise<void> {
-    const password = await this.readPassword(entry)
-    if (!password) return
-    await copyWithAutoWipe(password, DEFAULT_CLIPBOARD_WIPE_MS)
-  }
-
-  async copyOTP(entry: Entry): Promise<void> {
-    const otps = entry.otps()
-    const firstOtp = otps.length > 0 ? otps[0] : undefined
-    if (!firstOtp) return
-
-    try {
-      const code = await firstOtp.loadCode()
-      if (code) {
-        await copyWithAutoWipe(code, DEFAULT_CLIPBOARD_WIPE_MS)
-      }
-    } catch {}
-  }
-
-  startEdit(): void {
-    window.passmanager.isEditMode.set(true)
-  }
-
-  removeEntry(entry: Entry): void {
-    void entry.remove()
-  }
-
-  openFirstUrl(entry: Entry): void {
-    const first = entry.urls.find((rule) => rule.match !== 'never' && rule.match !== 'regex')?.value
-    if (!first) return
-
-    const link = formatLink(first)
-    window.open(link, '_blank', 'noopener,noreferrer')
-  }
-
-  onKeyDown(entry: Entry, event: KeyboardEvent): void {
-    if (event.ctrlKey || event.metaKey) {
-      switch (event.key) {
-        case 'e':
-          event.preventDefault()
-          this.startEdit()
-          break
-        case 'c':
-          event.preventDefault()
-          void this.copyPassword(entry)
-          break
-        case 'u':
-          event.preventDefault()
-          this.copyUsername(entry)
-          break
-        case 'o':
-          event.preventDefault()
-          this.openFirstUrl(entry)
-          break
-      }
-    }
-
-    if (event.key === 'Escape') {
-      this.closeAllDetails()
-    }
-  }
-
-  closeAllDetails(): void {
-    if (this.isNoteDetailsOpen()) {
-      this.isNoteDetailsOpen.set(false)
-    }
-  }
-
-  onNoteToggle(event: Event): void {
-    event.preventDefault()
-  }
-
-  getPasswordValueProvider(entry: Entry): () => Promise<string> {
-    return async () => this.readPassword(entry)
   }
 
   protected getAvatarBg(text: string): string {
@@ -249,5 +535,30 @@ export class PMEntryModel extends PMEntrySessionModel {
   private async readNote(entry: Entry): Promise<string> {
     await entry.flushPendingPersistence()
     return (await entry.note()) ?? ''
+  }
+
+  private async readCardPan(entry: Entry): Promise<string> {
+    await entry.flushPendingPersistence()
+    return (await entry.cardPan()) ?? ''
+  }
+
+  private async readCardCvv(entry: Entry): Promise<string> {
+    await entry.flushPendingPersistence()
+    return (await entry.cardCvv()) ?? ''
+  }
+
+  private async copyText(text: string, context: string): Promise<boolean> {
+    if (!text) return false
+
+    try {
+      await copyWithAutoWipe(text, DEFAULT_CLIPBOARD_WIPE_MS)
+      return true
+    } catch (error) {
+      this.logger.warn('[PassManager][Entry] copy failed', {
+        context,
+        errorName: error instanceof Error ? error.name : typeof error,
+      })
+      return false
+    }
   }
 }

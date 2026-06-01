@@ -8,6 +8,9 @@
  * Rust core uses snake_case — types are separate.
  */
 
+import type {CatalogSyncManifestResponse} from './generated/CatalogSyncManifestResponse'
+import type {SyncShardResponse} from './generated/SyncShardResponse'
+
 /** Base route type */
 type Route<TRequest, TResponse> = {
   request: TRequest
@@ -29,12 +32,6 @@ export type CatalogListItem = {
 export type CatalogListResponse = {
   currentPath: string
   items: CatalogListItem[]
-}
-
-/** Sync init response */
-export type SyncInitResponse = {
-  version: number
-  nodes: unknown
 }
 
 export type ProviderContext = {kind: 'web'; origin: string; domain: string} | {kind: 'app'; app_id: string}
@@ -73,25 +70,25 @@ export type CatalogCommandMap = {
   'catalog:move': Route<{nodeId: number; newParentPath: string; newName?: string}, void>
 
   // === File transfer ===
-  'catalog:prepareUpload': Route<
+  'catalog:upload': Route<
     {
-      parentPath: string
-      name: string
+      nodeId?: number
+      parentPath?: string
+      name?: string
       size: number
+      totalSize?: number | null
+      offset?: number | null
       mimeType?: string
       chunkSize?: number
+      finish?: boolean
     },
-    {nodeId: number}
-  >
-  'catalog:upload': Route<
-    {nodeId: number; size: number; name?: string; mimeType?: string; chunkSize?: number},
-    void
+    {nodeId: number; uploadedBytes: number}
   >
   'catalog:download': Route<{nodeId: number}, AsyncIterable<Uint8Array>>
 
   // === Sync ===
-  'catalog:syncInit': Route<Record<string, never>, SyncInitResponse>
-  'catalog:sync:delta': Route<{fromVersion: number}, {version: number; delta: unknown[]}>
+  'catalog:sync:manifest': Route<Record<string, never>, CatalogSyncManifestResponse>
+  'catalog:sync:shard': Route<{shardId: string; fromVersion: number}, SyncShardResponse>
   'catalog:subscribe': Route<Record<string, never>, void>
   'catalog:unsubscribe': Route<Record<string, never>, void>
 
@@ -105,10 +102,19 @@ export type CatalogCommandMap = {
     {
       entryId?: string
       title: string
+      entryType?: 'login' | 'payment_card'
       urls?: string[]
       username?: string
+      paymentCard?: {
+        cardholderName: string
+        brand?: string
+        expMonth: number
+        expYear: number
+        last4?: string
+      }
       groupPath?: string
       iconRef?: string | null
+      tags?: string[]
     },
     {entryId: string}
   >
@@ -117,13 +123,34 @@ export type CatalogCommandMap = {
   'passmanager:entry:move': Route<{entryId: string; targetGroupPath: string}, void>
   'passmanager:entry:rename': Route<{entryId: string; newTitle: string}, void>
   'passmanager:entry:list': Route<Record<string, never>, {entries: object[]; folders: object[]}>
-  'passmanager:secret:save': Route<{entryId: string; secretType: string; value: string | null}, void>
-
-  'passmanager:secret:read': Route<{entryId: string; secretType: string}, {value: string}>
-  'passmanager:secret:delete': Route<{entryId: string; secretType: string}, void>
+  'passmanager:secret:save': Route<
+    {entryId: string; secretType: 'password' | 'note' | 'card_pan' | 'card_cvv'; value: string | null},
+    void
+  >
+  'passmanager:ssh:keygen': Route<
+    {entryId: string; keyType: 'ed25519' | 'rsa' | 'ecdsa'; comment?: string},
+    {
+      keyId: string
+      publicKeyOpenssh: string
+      fingerprint: string
+      keyType: string
+    }
+  >
+  'passmanager:secret:read': Route<
+    {entryId: string; secretType: 'password' | 'note' | 'card_pan' | 'card_cvv'},
+    {value: string}
+  >
+  'passmanager:secret:delete': Route<
+    {entryId: string; secretType: 'password' | 'note' | 'card_pan' | 'card_cvv'},
+    void
+  >
   'passmanager:group:ensure': Route<{path: string}, void>
-  'passmanager:group:setMeta': Route<{path: string; iconRef?: string | null}, void>
+  'passmanager:group:setMeta': Route<
+    {path: string; iconRef?: string | null; description?: string | null},
+    void
+  >
   'passmanager:group:list': Route<Record<string, never>, {groups: object[]}>
+  'passmanager:group:delete': Route<{path: string}, void>
   'passmanager:root:import': Route<
     {
       entries: object[]
@@ -137,16 +164,27 @@ export type CatalogCommandMap = {
   >
   'passmanager:root:export': Route<Record<string, never>, {root: object}>
   'passmanager:icon:put': Route<
-    {contentBase64: string; mimeType?: string | null},
-    {iconRef: string; mimeType: string; width: number; height: number; bytes: number}
+    {contentBase64: string; mimeType?: string | null; backgroundColor?: string | null},
+    {
+      iconRef: string
+      mimeType: string
+      backgroundColor?: string | null
+      width: number
+      height: number
+      bytes: number
+    }
   >
-  'passmanager:icon:get': Route<{iconRef: string}, {iconRef: string; mimeType: string; contentBase64: string}>
+  'passmanager:icon:get': Route<
+    {iconRef: string},
+    {iconRef: string; mimeType: string; backgroundColor?: string | null; contentBase64: string}
+  >
   'passmanager:icon:list': Route<
     Record<string, never>,
     {
       icons: Array<{
         iconRef: string
         mimeType: string
+        backgroundColor?: string | null
         width: number
         height: number
         bytes: number
@@ -155,6 +193,7 @@ export type CatalogCommandMap = {
       }>
     }
   >
+  'passmanager:icon:setMeta': Route<{iconRef: string; backgroundColor: string | null}, void>
   'passmanager:icon:gc': Route<Record<string, never>, {deleted: number}>
   'passmanager:otp:generate': Route<
     {
@@ -222,7 +261,6 @@ export type CommandMap = {
 /** Client event payloads (server → client push messages) */
 export type ClientEventPayloadMap = {
   'catalog:changed': {version: number; nodeId: number; action: 'create' | 'update' | 'delete'}
-  'catalog:sync': {version: number; delta: unknown[]}
   state: {ts: number}
 }
 

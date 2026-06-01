@@ -1,4 +1,6 @@
 import type {FileListItem, SearchFilters} from 'root/shared/contracts/file-manager'
+import {keyboardShortcutsModel} from 'root/shared/keyboard'
+import {FILE_ITEM_HOST_WITH_DATA_ID_SELECTOR} from '../item-host-selectors'
 import {type NavKey, NAV_KEYS} from './types'
 
 export interface VirtualFileListKeyboardHandlers {
@@ -72,7 +74,7 @@ export const createKeyboardHandlers = (deps: VirtualFileListKeyboardHandlersDeps
       const key = e.key
       const navKey = isNavKey(key) ? key : null
 
-      if (key === 'a' && (e.ctrlKey || e.metaKey)) {
+      if (keyboardShortcutsModel.matches('files.selectAll', e)) {
         e.preventDefault()
         const ids = deps.getItems().map((item) => item.id)
         deps.emitSelectionChange(ids)
@@ -140,7 +142,7 @@ export const createKeyboardHandlers = (deps: VirtualFileListKeyboardHandlersDeps
         return
       }
 
-      if ((key === 'o' || key === 'O') && (e.ctrlKey || e.metaKey)) {
+      if (keyboardShortcutsModel.matches('files.openExternal', e)) {
         const filtered = deps.getItems()
         const selectedId = deps.getSelectedItems().at(-1)
         const focusedId = getFocusedItemIdFromEvent(e)
@@ -263,7 +265,7 @@ const getFocusedItemIdFromEvent = (event?: Event): number | null => {
   const path = event?.composedPath?.() ?? []
   for (const el of path) {
     if (!(el instanceof HTMLElement)) continue
-    if (el.matches?.('file-item[data-id], .file-item-wrapper[data-id]')) {
+    if (el.matches?.(FILE_ITEM_HOST_WITH_DATA_ID_SELECTOR)) {
       const raw = el.getAttribute('data-id')
       const id = raw ? Number(raw) : NaN
       if (!Number.isNaN(id)) return id

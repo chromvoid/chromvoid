@@ -9,6 +9,7 @@ import {
   routeHostStyles,
   routePageStyles,
 } from 'root/shared/ui/shared-styles'
+import {remoteHostsFlowStyles} from './remote-hosts-flow.styles'
 
 export const remotePageStyles = [
   sharedStyles,
@@ -18,21 +19,27 @@ export const remotePageStyles = [
   routeHostStyles,
   routePageStyles,
   spinIndicatorStyles,
+  remoteHostsFlowStyles,
   css`
     .page {
       max-inline-size: 920px;
+      inline-size: 100%;
+      padding-inline: var(--app-spacing-4);
+      padding-block-end: var(--app-spacing-8);
     }
 
     .grid {
       display: grid;
-      gap: var(--app-spacing-3);
+      gap: var(--app-spacing-4);
     }
 
     .card {
+      padding: 0;
       background: var(--cv-color-surface);
-      border: 1px solid var(--cv-color-border);
-      border-radius: var(--cv-radius-3);
+      border: 1px solid var(--cv-color-border-muted);
+      border-radius: var(--cv-radius-2);
       overflow: hidden;
+      box-shadow: inset 0 1px 0 var(--cv-color-surface-highlight);
     }
 
     .card-header {
@@ -40,7 +47,7 @@ export const remotePageStyles = [
       align-items: flex-start;
       justify-content: space-between;
       gap: var(--app-spacing-3);
-      padding: var(--app-spacing-3) var(--app-spacing-4);
+      padding: var(--app-spacing-4);
       background: var(--cv-color-surface-2);
       border-bottom: 1px solid var(--cv-color-border-muted);
     }
@@ -53,7 +60,7 @@ export const remotePageStyles = [
 
     .card-title {
       display: grid;
-      gap: 2px;
+      gap: var(--app-spacing-1);
 
       .name {
         font-weight: var(--cv-font-weight-semibold);
@@ -74,35 +81,35 @@ export const remotePageStyles = [
       border-radius: 999px;
       font-size: var(--cv-font-size-xs);
       font-weight: var(--cv-font-weight-semibold);
-      border: 1px solid var(--cv-color-border);
-      background: color-mix(in oklch, var(--cv-color-info) 10%, var(--cv-color-surface));
+      border: 1px solid var(--cv-color-border-muted);
+      background: var(--cv-color-info-surface);
       color: var(--cv-color-text);
       white-space: nowrap;
     }
 
     .badge.success {
-      background: color-mix(in oklch, var(--cv-color-success) 15%, var(--cv-color-surface));
-      border-color: color-mix(in oklch, var(--cv-color-success) 30%, var(--cv-color-border));
+      background: var(--cv-color-success-surface);
+      border-color: var(--cv-color-success-border);
     }
 
     .badge.warning {
-      background: color-mix(in oklch, var(--cv-color-warning) 15%, var(--cv-color-surface));
-      border-color: color-mix(in oklch, var(--cv-color-warning) 30%, var(--cv-color-border));
+      background: var(--cv-color-warning-surface);
+      border-color: var(--cv-color-warning-border);
     }
 
     .badge.danger {
-      background: color-mix(in oklch, var(--cv-color-danger) 15%, var(--cv-color-surface));
-      border-color: color-mix(in oklch, var(--cv-color-danger) 30%, var(--cv-color-border));
+      background: var(--cv-color-danger-surface);
+      border-color: var(--cv-color-danger-border);
     }
 
     .badge.switching {
-      background: color-mix(in oklch, var(--cv-color-info) 20%, var(--cv-color-surface));
-      border-color: color-mix(in oklch, var(--cv-color-info) 40%, var(--cv-color-border));
+      background: var(--cv-color-info-surface-strong);
+      border-color: var(--cv-color-info-border-strong);
     }
     .card-body {
       padding: var(--app-spacing-4);
       display: grid;
-      gap: var(--app-spacing-3);
+      gap: var(--app-spacing-4);
     }
 
     .device-list {
@@ -166,35 +173,32 @@ export const remotePageStyles = [
       padding: var(--app-spacing-4) 0;
     }
 
-    .hint-block {
+    cv-callout.remote-callout {
+      --cv-callout-padding-block: var(--app-spacing-3);
+      --cv-callout-padding-inline: var(--app-spacing-3);
+      --cv-callout-border-radius: var(--cv-radius-2);
+      --cv-callout-font-size: var(--cv-font-size-sm);
+      text-align: center;
+    }
+
+    cv-callout.remote-callout::part(base) {
+      justify-content: center;
+    }
+
+    cv-callout.remote-callout::part(message) {
       display: grid;
       gap: var(--app-spacing-2);
-      padding: var(--app-spacing-3);
-      border-radius: var(--cv-radius-2);
-      border: 1px solid color-mix(in oklch, var(--cv-color-warning) 30%, var(--cv-color-border));
-      background: color-mix(in oklch, var(--cv-color-warning) 10%, var(--cv-color-surface));
+      min-inline-size: 0;
+    }
+
+    .remote-callout-title {
+      font-weight: var(--cv-font-weight-semibold);
       color: var(--cv-color-text);
-      text-align: center;
-
-      .hint-title {
-        font-weight: var(--cv-font-weight-semibold);
-      }
-
-      .hint-text {
-        color: var(--cv-color-text-muted);
-        font-size: var(--cv-font-size-sm);
-        line-height: 1.5;
-      }
     }
 
-    .hint-block.info {
-      border-color: color-mix(in oklch, var(--cv-color-info) 30%, var(--cv-color-border));
-      background: color-mix(in oklch, var(--cv-color-info) 10%, var(--cv-color-surface));
-    }
-
-    .hint-block.danger {
-      border-color: color-mix(in oklch, var(--cv-color-danger) 30%, var(--cv-color-border));
-      background: color-mix(in oklch, var(--cv-color-danger) 10%, var(--cv-color-surface));
+    .remote-callout-text {
+      color: var(--cv-color-text-muted);
+      line-height: 1.5;
     }
 
     .lock-polling {
@@ -216,6 +220,14 @@ export const remotePageStyles = [
     }
 
     /* Mode card */
+
+    .mode-card .card-header {
+      border-bottom: 0;
+    }
+
+    .mode-card .card-body {
+      border-top: 1px solid var(--cv-color-border-muted);
+    }
 
     .mode-switching {
       display: flex;
@@ -272,6 +284,182 @@ export const remotePageStyles = [
       display: flex;
       flex-wrap: wrap;
       gap: var(--app-spacing-1);
+    }
+
+    .step {
+      display: grid;
+      gap: var(--app-spacing-4);
+      padding: var(--app-spacing-5);
+      background: var(--cv-color-surface);
+      border-radius: var(--cv-radius-2);
+      border: 1px solid var(--cv-color-border-muted);
+    }
+
+    .step.active {
+      border-color: var(--cv-color-primary-border-strong);
+      box-shadow:
+        inset 0 1px 0 var(--cv-color-surface-highlight),
+        0 0 0 1px var(--cv-color-primary-ring);
+    }
+
+    .step-title {
+      font-weight: var(--cv-font-weight-semibold);
+      font-size: var(--cv-font-size-sm);
+      color: var(--cv-color-text);
+    }
+
+    .step-desc {
+      font-size: var(--cv-font-size-sm);
+      color: var(--cv-color-text-muted);
+      line-height: 1.5;
+      max-inline-size: 54ch;
+    }
+
+    .mode-badge {
+      font-size: 0.7rem;
+      font-family: var(--cv-font-family-code);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 4px var(--app-spacing-2);
+      background: var(--cv-color-surface-3);
+      border-radius: var(--cv-radius-pill);
+      color: var(--cv-color-text-subtle);
+      justify-self: start;
+      margin-top: var(--app-spacing-1);
+    }
+
+    .remote-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--app-spacing-3);
+      margin-top: var(--app-spacing-2);
+    }
+
+    .remote-actions cv-button {
+      width: auto;
+      flex: 0 1 auto;
+    }
+
+    .remote-actions cv-button:first-child {
+      flex: 1 1 180px;
+      max-inline-size: 260px;
+    }
+
+    .remote-peer-list {
+      display: grid;
+      gap: var(--app-spacing-3);
+      margin-top: var(--app-spacing-3);
+    }
+
+    .remote-peer {
+      display: grid;
+      gap: var(--app-spacing-3);
+      padding: var(--app-spacing-4);
+      border: 1px solid var(--cv-color-border-muted);
+      border-radius: var(--cv-radius-2);
+      background: var(--cv-color-surface);
+    }
+
+    .remote-peer-main {
+      display: grid;
+      gap: var(--app-spacing-1);
+    }
+
+    .remote-peer-title {
+      font-weight: var(--cv-font-weight-semibold);
+      color: var(--cv-color-text);
+    }
+
+    .remote-peer-meta {
+      font-size: var(--cv-font-size-xs);
+      color: var(--cv-color-text-muted);
+      word-break: break-all;
+    }
+
+    .remote-peer-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--app-spacing-2);
+    }
+
+    .remote-peer-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--app-spacing-2);
+    }
+
+    .status-success {
+      background: var(--cv-color-success-surface);
+      color: var(--cv-color-success, #16a34a);
+    }
+
+    .status-warning {
+      background: var(--cv-color-warning-surface);
+      color: var(--cv-color-warning-text, #b45309);
+    }
+
+    .status-danger {
+      background: var(--cv-color-danger-surface);
+      color: var(--cv-color-danger-text, #b91c1c);
+    }
+
+    .status-neutral {
+      background: var(--cv-color-surface-3);
+      color: var(--cv-color-text-muted);
+    }
+
+    .empty-remote-state {
+      display: grid;
+      gap: var(--app-spacing-3);
+      padding: var(--app-spacing-5);
+      border-radius: var(--cv-radius-2);
+      background: var(--cv-color-surface);
+      border: 1px dashed var(--cv-color-border-muted);
+      text-align: left;
+      margin-top: var(--app-spacing-2);
+    }
+
+    .remote-form-grid {
+      display: grid;
+      gap: var(--app-spacing-3);
+      margin-top: var(--app-spacing-1);
+    }
+
+    .remote-field {
+      display: grid;
+      gap: var(--app-spacing-2);
+    }
+
+    .remote-field-label {
+      font-size: var(--cv-font-size-xs);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--cv-color-text-muted);
+      line-height: 1.3;
+    }
+
+    .remote-textarea {
+      min-height: 160px;
+    }
+
+    cv-textarea::part(textarea) {
+      min-height: 160px;
+    }
+
+    .pin-panel,
+    .remote-presence-panel {
+      display: grid;
+      gap: var(--app-spacing-2);
+      padding: var(--app-spacing-4);
+      border-radius: var(--cv-radius-2);
+      border: 1px solid var(--cv-color-border-muted);
+      background: var(--cv-color-surface-2);
+    }
+
+    .pin-value,
+    .mono {
+      font-family: var(--cv-font-family-code);
     }
 
     /* Sync status card (Task 13) */

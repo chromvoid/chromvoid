@@ -1,16 +1,37 @@
-import {state} from '@statx/core'
-
 import {sha256} from '@project/utils'
-import Swal from 'sweetalert2'
+import {atom, peek} from '@reatom/core'
 import {v4} from 'uuid'
 
 import {i18n} from '../i18n'
+import {confirmPassManagerAction} from './dialog'
 import type {Entry} from './entry'
 import type {OTPOptions} from './types'
 
+const SHA256_CRYPTO_UNAVAILABLE_MESSAGES = new Set([
+  'No crypto implementation available',
+  'Web Crypto API not available or failed',
+  'Node.js crypto module not available',
+])
+
+function isSha256CryptoUnavailable(error: unknown): boolean {
+  return error instanceof Error && SHA256_CRYPTO_UNAVAILABLE_MESSAGES.has(error.message)
+}
+
 export class OTP {
   static async create(entry: Entry, otpParams: Omit<OTPOptions, 'id'>) {
-    const id = await sha256(entry.id + ':otp:' + v4() + entry.root.salt)
+    const randomId = v4()
+    let id: string
+
+    try {
+      id = await sha256(entry.id + ':otp:' + randomId + entry.root.salt)
+    } catch (error) {
+      if (!isSha256CryptoUnavailable(error)) {
+        throw error
+      }
+
+      id = `otp:${randomId}`
+    }
+
     delete otpParams.secret
 
     const otp = new OTP(entry, {
@@ -20,22 +41,45 @@ export class OTP {
 
     return otp
   }
-  currentOtp = state<string | undefined>(undefined)
-  isShow = state(false)
+  currentOtp = atom<string | undefined>(undefined)
+  isShow = atom(false)
   isRemoved = false
   interval = 0
-  type = state<'TOTP' | 'HOTP'>('TOTP')
-  private inFlightCodeRequest: {counter: number; promise: Promise<string | undefined>} | undefined
+  type = atom<'TOTP' | 'HOTP'>('TOTP')
+  private inFlightCodeRequest: {requestKey: number; promise: Promise<string | undefined>} | undefined
+  private resolvedCodeCache: {requestKey: number; value: string | undefined} | undefined
 
   constructor(
     private entry: Entry,
     public data: Omit<OTPOptions, 'secret'>,
   ) {
-    // Инициализируем тип из данных
+    // Initialize the type from the data
     if (data.type) {
       this.type.set(data.type)
     }
   }
+
+  updateData(next: Omit<OTPOptions, 'secret'>) {
+    const prev = this.data
+    const codeConfigChanged =
+      prev.id !== next.id ||
+      prev.algorithm !== next.algorithm ||
+      prev.digits !== next.digits ||
+      prev.period !== next.period ||
+      prev.encoding !== next.encoding ||
+      prev.type !== next.type ||
+      prev.counter !== next.counter
+
+    this.data = next
+    this.type.set(next.type ?? 'TOTP')
+
+    if (codeConfigChanged) {
+      this.inFlightCodeRequest = undefined
+      this.resolvedCodeCache = undefined
+      this.currentOtp.set(undefined)
+    }
+  }
+
   get id() {
     return this.data.id
   }
@@ -49,18 +93,24 @@ export class OTP {
     this.isShow.set(false)
   }
   async loadCode(counter = Math.floor(Date.now() / 1000)) {
+    const requestKey = this.getRequestKey(counter)
     const pending = this.inFlightCodeRequest
-    if (pending && pending.counter === counter) {
+    if (pending && pending.requestKey === requestKey) {
       return pending.promise
+    }
+
+    if (this.resolvedCodeCache?.requestKey === requestKey) {
+      return this.resolvedCodeCache.value
     }
 
     const request = (async () => {
       try {
+        await this.entry.flushPendingPersistence()
         const {algorithm, ...data} = {...this.data}
         const code = await this.entry.root.managerSaver.getOTP({
           ...data,
-          period: this.type.peek() === 'HOTP' ? 1 : this.data.period,
-          ts: counter,
+          period: peek(this.type) === 'HOTP' ? 1 : this.data.period,
+          ts: requestKey,
           ha: algorithm,
           entryId: this.entry.id,
           label: this.data.label,
@@ -68,17 +118,18 @@ export class OTP {
           entryGroupPath: this.entry.groupPath,
         })
         this.currentOtp.set(code)
+        this.resolvedCodeCache = {requestKey, value: code}
         return code
       } catch {
         return undefined
       } finally {
-        if (this.inFlightCodeRequest?.counter === counter) {
+        if (this.inFlightCodeRequest?.requestKey === requestKey) {
           this.inFlightCodeRequest = undefined
         }
       }
     })()
 
-    this.inFlightCodeRequest = {counter, promise: request}
+    this.inFlightCodeRequest = {requestKey, promise: request}
     return request
   }
 
@@ -103,71 +154,46 @@ export class OTP {
     return this.entry.root.managerSaver.removeOTP(this.id)
   }
 
+  private getRequestKey(counter: number): number {
+    if (peek(this.type) === 'HOTP') {
+      return counter
+    }
+
+    const period = Number(this.data.period ?? 30)
+    if (!Number.isFinite(period) || period <= 0) {
+      return counter
+    }
+
+    return Math.floor(counter / period) * period
+  }
+
   async remove(silent = false) {
     if (this.isRemoved) {
       return true
     }
 
     if (!silent) {
-      const res = await Swal.fire({
+      const confirmed = await confirmPassManagerAction({
         title: i18n('remove:dialog:title'),
-        text: i18n('remove:dialog:text'),
-        showConfirmButton: true,
-        showCancelButton: true,
+        message: i18n('remove:dialog:text'),
+        variant: 'danger',
+        confirmVariant: 'danger',
       })
-      if (!res.isConfirmed) {
+      if (!confirmed) {
         return false
       }
     }
 
-    await this.clean()
+    await this.entry.removeOTP(this, silent)
     this.isRemoved = true
-    this.entry.removeOTP(this, silent)
-    void this.entry.root.managerSaver.saveEntryMeta({
-      id: this.entry.id,
-      title: this.entry.title,
-      urls: this.entry.urls,
-      username: this.entry.username,
-      iconRef: this.entry.iconRef,
-      otps: this.entry
-        .otps()
-        .filter((o) => !o.isRemoved)
-        .map((o) => ({
-          id: o.id,
-          label: o.data.label,
-          algorithm: o.data.algorithm,
-          digits: o.data.digits,
-          period: o.data.period,
-          encoding: o.data.encoding,
-          type: o.data.type,
-          counter: o.data.counter,
-        })),
-      groupPath: this.entry.groupPath,
-    })
     clearInterval(this.interval)
     return true
   }
 
   setLabel(value: string) {
+    const prevLabel = this.data.label
     this.data.label = value
-    void this.entry.root.managerSaver.saveEntryMeta({
-      id: this.entry.id,
-      title: this.entry.title,
-      urls: this.entry.urls,
-      username: this.entry.username,
-      iconRef: this.entry.iconRef,
-      otps: this.entry.otps().map((o) => ({
-        id: o.id,
-        label: o.data.label,
-        algorithm: o.data.algorithm,
-        digits: o.data.digits,
-        period: o.data.period,
-        encoding: o.data.encoding,
-        type: o.data.type,
-        counter: o.data.counter,
-      })),
-      groupPath: this.entry.groupPath,
-    })
+    void this.persistLabel(prevLabel)
   }
 
   async export() {
@@ -187,6 +213,34 @@ export class OTP {
       encoding: this.data.encoding,
       type: this.data.type,
       counter: this.data.counter,
+    }
+  }
+
+  private async persistLabel(prevLabel: string) {
+    try {
+      const ok = await this.entry.root.managerSaver.saveEntryMeta({
+        id: this.entry.id,
+        title: this.entry.title,
+        urls: this.entry.urls,
+        username: this.entry.username,
+        iconRef: this.entry.iconRef,
+        otps: this.entry.otps().map((o) => ({
+          id: o.id,
+          label: o.data.label,
+          algorithm: o.data.algorithm,
+          digits: o.data.digits,
+          period: o.data.period,
+          encoding: o.data.encoding,
+          type: o.data.type,
+          counter: o.data.counter,
+        })),
+        groupPath: this.entry.groupPath,
+      })
+      if (!ok) {
+        throw new Error('saveEntryMeta failed')
+      }
+    } catch {
+      this.data.label = prevLabel
     }
   }
 }

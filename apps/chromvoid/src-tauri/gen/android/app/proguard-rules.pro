@@ -21,7 +21,27 @@
 #-renamesourcefileattribute SourceFile
 
 -keep class com.chromvoid.app.ConnectionForegroundService { *; }
+-keep class com.chromvoid.app.MediaPlaybackForegroundService { *; }
+-keep class com.chromvoid.app.VaultStatusNotificationController { *; }
+-keep class com.chromvoid.app.VaultQuickLockReceiver { *; }
+-keep class com.chromvoid.app.VaultQuickSettingsTileService { *; }
+-keep class com.chromvoid.app.ChromVoidAudioSessionService { *; }
+-keep class com.chromvoid.app.ChromVoidAudioPlayerController { *; }
+-keep class com.chromvoid.app.ChromVoidVaultAudioDataSource { *; }
+-keep class com.chromvoid.app.AudioPlaybackCommand { *; }
+-keep class com.chromvoid.app.AudioPlaybackEvent { *; }
+-keep class com.chromvoid.app.ChromVoidVideoActivity { *; }
+-keep class com.chromvoid.app.OtpQrScannerActivity { *; }
+-keep class com.chromvoid.app.nativebridge.** { *; }
 -keep class com.chromvoid.app.nativebridge.BiometricNativeShell { *; }
 -keep class com.chromvoid.app.nativebridge.CredentialProviderNativeShell { *; }
+-keep class com.chromvoid.app.nativebridge.HeifPreviewNativeResult { *; }
+-keep class com.chromvoid.app.nativebridge.HeifPreviewNativeShell { *; }
+-keep class com.chromvoid.app.nativebridge.AndroidShareImportNativeShell { *; }
+-keep class com.chromvoid.app.nativebridge.NativeUploadNativeShell { *; }
+-keep class com.chromvoid.app.nativebridge.OtpQrScannerNativeShell { *; }
 -keep class com.chromvoid.app.nativebridge.PasswordSaveNativeShell { *; }
+-keep class com.chromvoid.app.nativebridge.AudioPlaybackNativeShell { *; }
+-keep class com.chromvoid.app.nativebridge.AudioSourceReadResult { *; }
+-keep class com.chromvoid.app.nativebridge.VideoPlaybackNativeShell { *; }
 -keep class com.chromvoid.app.KeystoreBridge { *; }

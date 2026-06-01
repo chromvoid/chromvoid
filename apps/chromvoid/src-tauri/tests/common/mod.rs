@@ -186,6 +186,7 @@ pub fn catalog_download(adapter: &Arc<Mutex<Box<dyn CoreAdapter>>>, node_id: u64
             buf
         }
         RpcReply::Json(r) => panic!("expected stream reply for catalog:download, got JSON: {r:?}"),
+        RpcReply::RangeStream(_) => panic!("expected full file stream reply"),
     }
 }
 
@@ -337,6 +338,11 @@ pub fn finder_automation_unavailable(stderr: &str) -> bool {
         || stderr.contains("AppleEvent timed out")
         || stderr.contains("not allowed assistive access")
         || stderr.contains("Application isn’t running")
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn finder_automation_unavailable(_stderr: &str) -> bool {
+    false
 }
 
 #[cfg(target_os = "macos")]

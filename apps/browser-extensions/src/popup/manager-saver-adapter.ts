@@ -1,4 +1,4 @@
-import type {ManagerSaver, OTPGetParams} from '@project/passmanager'
+import type {ManagerSaver, OTPGetParams} from '@project/passmanager/types'
 import type {CredentialCandidate, CredentialSecret, ProviderContext, RpcResult} from '@chromvoid/scheme'
 
 const ROOT_KEY = 'PASSWORDMANAGER'
@@ -230,6 +230,10 @@ class ExtensionManagerSaver implements ManagerSaver {
   }
 
   async saveEntryMeta(_data: Parameters<ManagerSaver['saveEntryMeta']>[0]): Promise<boolean> {
+    return false
+  }
+
+  async moveEntryToGroup(_entryId: string, _targetGroupPath: string | undefined): Promise<boolean> {
     return false
   }
 

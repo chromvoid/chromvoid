@@ -4,6 +4,8 @@ import org.json.JSONObject
 import java.security.MessageDigest
 
 internal object PasskeyClientDataJsonEncoder {
+    private val PLACEHOLDER_JSON = "{}".toByteArray(Charsets.UTF_8)
+
     fun encode(
         type: String,
         challengeB64Url: String,
@@ -16,6 +18,19 @@ internal object PasskeyClientDataJsonEncoder {
         ).toJson()
             .toString()
             .toByteArray(Charsets.UTF_8)
+    }
+
+    fun responseJson(
+        type: String,
+        challengeB64Url: String,
+        origin: String,
+        providedHash: ByteArray?,
+    ): ByteArray {
+        return if (providedHash != null) {
+            PLACEHOLDER_JSON
+        } else {
+            encode(type, challengeB64Url, origin)
+        }
     }
 
     fun hash(

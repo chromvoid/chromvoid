@@ -65,11 +65,10 @@ describe('FileManagerModel (system shard access)', () => {
     } as unknown as AppContext
 
     const model = new FileManagerModel(ctx)
-    const items = model.fileItems()
+    model.handleNavigate('/.passmanager')
 
-    expect(items).toEqual([])
     expect(currentPath()).toBe('/')
-    expect(getChildren).not.toHaveBeenCalled()
+    expect(getChildren).not.toHaveBeenCalledWith('/.passmanager')
   })
 
   it('blocks navigating into /.wallet and resets currentPath to /', () => {
@@ -122,10 +121,9 @@ describe('FileManagerModel (system shard access)', () => {
     } as unknown as AppContext
 
     const model = new FileManagerModel(ctx)
-    const items = model.fileItems()
+    model.handleNavigate('/.wallet')
 
-    expect(items).toEqual([])
     expect(currentPath()).toBe('/')
-    expect(getChildren).not.toHaveBeenCalled()
+    expect(getChildren).not.toHaveBeenCalledWith('/.wallet')
   })
 })

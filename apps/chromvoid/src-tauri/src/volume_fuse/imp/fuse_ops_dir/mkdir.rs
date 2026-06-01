@@ -2,8 +2,8 @@ use super::super::helpers::*;
 use super::super::*;
 
 pub(in crate::volume_fuse::imp) fn handle_mkdir(
-    fs: &mut PrivyFilesystem,
-    _req: &Request<'_>,
+    fs: &PrivyFilesystem,
+    _req: &Request,
     parent: u64,
     name: &OsStr,
     _mode: u32,
@@ -13,7 +13,7 @@ pub(in crate::volume_fuse::imp) fn handle_mkdir(
     let name_str = match name.to_str() {
         Some(n) => n,
         None => {
-            reply.error(libc::EINVAL);
+            reply.error(fuse_errno(libc::EINVAL));
             return;
         }
     };
@@ -21,7 +21,7 @@ pub(in crate::volume_fuse::imp) fn handle_mkdir(
     info!(target: "chromvoid_lib::volume_fuse::imp", parent, name = name_str, "FUSE mkdir");
 
     if let Err(e) = fs.guard_system_child(parent, name_str) {
-        reply.error(e);
+        reply.error(fuse_errno(e));
         return;
     }
 
@@ -31,7 +31,7 @@ pub(in crate::volume_fuse::imp) fn handle_mkdir(
         match build_catalog_path(&fs.inode_table, parent) {
             Some(p) => p,
             None => {
-                reply.error(libc::ENOENT);
+                reply.error(fuse_errno(libc::ENOENT));
                 return;
             }
         }
@@ -45,7 +45,7 @@ pub(in crate::volume_fuse::imp) fn handle_mkdir(
     let _guard = match fs.write_lock.lock() {
         Ok(g) => g,
         Err(_) => {
-            reply.error(libc::EIO);
+            reply.error(fuse_errno(libc::EIO));
             return;
         }
     };
@@ -54,7 +54,7 @@ pub(in crate::volume_fuse::imp) fn handle_mkdir(
         let mut adapter = match fs.adapter.lock() {
             Ok(a) => a,
             Err(_) => {
-                reply.error(libc::EIO);
+                reply.error(fuse_errno(libc::EIO));
                 return;
             }
         };
@@ -65,20 +65,20 @@ pub(in crate::volume_fuse::imp) fn handle_mkdir(
         ) {
             Ok(v) => v,
             Err(e) => {
-                reply.error(e);
+                reply.error(fuse_errno(e));
                 return;
             }
         };
         let created: NodeCreatedResponse = match serde_json::from_value(value) {
             Ok(r) => r,
             Err(_) => {
-                reply.error(libc::EIO);
+                reply.error(fuse_errno(libc::EIO));
                 return;
             }
         };
-        let emitted = save_and_flush_best_effort(adapter.as_mut());
+        let emitted = save_and_flush_best_effort(&fs.event_sink, adapter.as_mut());
         if emitted == 0 {
-            emit_catalog_create_hint_event(created.node_id);
+            emit_catalog_create_hint_event(&fs.event_sink, created.node_id);
         }
         info!(
             target: "chromvoid_lib::volume_fuse::imp",
@@ -103,5 +103,5 @@ pub(in crate::volume_fuse::imp) fn handle_mkdir(
 
     let mut attr = make_attr(ino, 0, true, SystemTime::now());
     apply_trash_mode_overrides(&fs.inode_table, ino, &mut attr);
-    reply.entry(&ATTR_TTL, &attr, 0);
+    reply.entry(&ATTR_TTL, &attr, fuser::Generation(0));
 }

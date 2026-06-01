@@ -1,8 +1,7 @@
 import {css} from 'lit'
 
-/**
- * Стили для секции метаданных (создано/изменено)
- */
+/*** Styles for the metadata section (created/modified)
+*/
 export const metadataSectionCSS = css`
   .metadata-section {
     display: grid;

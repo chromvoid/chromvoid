@@ -18,18 +18,50 @@ targetTemplates:
     type: application
     sources:
       - path: Sources/chromvoid
+        excludes:
+          - IosNativeBridge.swift
     scheme:
       environmentVariables:
         RUST_BACKTRACE: full
         RUST_LOG: info
     settings:
       groups: [app]
+schemes:
+  chromvoid_iOS:
+    build:
+      targets:
+        chromvoid_iOS: all
+        chromvoid_iOSTests: [test]
+    run:
+      config: debug
+      environmentVariables:
+        RUST_BACKTRACE: full
+        RUST_LOG: info
+    test:
+      config: debug
+      targets:
+        - chromvoid_iOSTests
+      environmentVariables:
+        RUST_BACKTRACE: full
+        RUST_LOG: info
+        CHROMVOID_TEST_TRANSPORT_MODE: wss-fallback
+    profile:
+      config: release
+      environmentVariables:
+        RUST_BACKTRACE: full
+        RUST_LOG: info
+    analyze:
+      config: debug
+    archive:
+      config: release
 targets:
   chromvoid_iOS:
     type: application
     platform: iOS
     sources:
       - path: Sources/chromvoid
+        excludes:
+          - IosNativeBridge.swift
       - path: Assets.xcassets
       - path: Externals
         excludes:
@@ -38,6 +70,7 @@ targets:
       - path: assets
         buildPhase: resources
         type: folder
+        optional: true
       - path: LaunchScreen.storyboard
     info:
       path: chromvoid_iOS/Info.plist
@@ -57,6 +90,8 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         CFBundleShortVersionString: 0.1.0
         CFBundleVersion: "0.1.0"
+        NSCameraUsageDescription: ChromVoid uses the camera to scan OTP setup QR codes.
+        NSPhotoLibraryAddUsageDescription: ChromVoid saves selected images to your photo library when you choose Save to Photos.
         BGTaskSchedulerPermittedIdentifiers:
           - com.chromvoid.app.connection-refresh
         UIBackgroundModes:
@@ -67,10 +102,6 @@ targets:
       properties:
         com.apple.security.application-groups:
           - group.com.chromvoid.app.shared
-    scheme:
-      environmentVariables:
-        RUST_BACKTRACE: full
-        RUST_LOG: info
     settings:
       base:
         ENABLE_BITCODE: false
@@ -86,16 +117,28 @@ targets:
         embed: false
       - target: chromvoid_CredentialProviderExtension
         embed: true
+      - target: chromvoid_ShareExtension
+        embed: true
+      - sdk: AVFoundation.framework
       - sdk: BackgroundTasks.framework
       - sdk: CoreGraphics.framework
       - sdk: Metal.framework
       - sdk: MetalKit.framework
+      - sdk: MediaPlayer.framework
+      - sdk: AVKit.framework
+      - sdk: Photos.framework
       - sdk: QuartzCore.framework
       - sdk: Security.framework
       - sdk: UIKit.framework
+      - sdk: UniformTypeIdentifiers.framework
       - sdk: WebKit.framework
     preBuildScripts:
-      - script: npm run -- tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:-}" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}
+      - script: |-
+          if [ "${CHROMVOID_XCODE_SKIP_RUST_BUILD:-0}" = "1" ]; then
+            echo "Skipping Rust build because CHROMVOID_XCODE_SKIP_RUST_BUILD=1"
+            exit 0
+          fi
+          npm run -- tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:-}" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}
         name: Build Rust Code
         basedOnDependencyAnalysis: false
         outputFiles:
@@ -106,8 +149,11 @@ targets:
     platform: iOS
     sources:
       - path: chromvoid_iOSTests
-    dependencies:
-      - target: chromvoid_iOS
+      - path: Sources/chromvoid/CredentialIPCBridge.swift
+    settings:
+      base:
+        PRODUCT_NAME: $(TARGET_NAME)
+        PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.app.tests
 
   chromvoid_CredentialProviderExtension:
     type: app-extension
@@ -117,6 +163,16 @@ targets:
       - path: Sources/chromvoid/CredentialIPCBridge.swift
     info:
       path: chromvoid_CredentialProviderExtension/Info.plist
+      properties:
+        CFBundleShortVersionString: 0.1.0
+        CFBundleVersion: "0.1.0"
+        NSExtension:
+          NSExtensionAttributes:
+            ASCredentialProviderExtensionCapabilities:
+              ProvidesPasskeys: true
+            ASCredentialProviderExtensionShowsConfigurationUI: true
+          NSExtensionPointIdentifier: com.apple.authentication-services-credential-provider-ui
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).CredentialProviderViewController
     entitlements:
       path: chromvoid_CredentialProviderExtension/chromvoid_CredentialProviderExtension.entitlements
       properties:
@@ -134,6 +190,40 @@ targets:
       - sdk: Foundation.framework
       - sdk: UIKit.framework
 
+  chromvoid_ShareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: chromvoid_ShareExtension
+    info:
+      path: chromvoid_ShareExtension/Info.plist
+      properties:
+        CFBundleShortVersionString: 0.1.0
+        CFBundleVersion: "0.1.0"
+        NSExtension:
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsFileWithMaxCount: 20
+              NSExtensionActivationSupportsImageWithMaxCount: 20
+              NSExtensionActivationSupportsMovieWithMaxCount: 20
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+    entitlements:
+      path: chromvoid_ShareExtension/chromvoid_ShareExtension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.chromvoid.app.shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.app.share-extension
+        PRODUCT_NAME: ChromVoidShareExtension
+        SWIFT_VERSION: 5.0
+        ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: true
+    dependencies:
+      - sdk: Foundation.framework
+      - sdk: UIKit.framework
+      - sdk: UniformTypeIdentifiers.framework
+
   chromvoid_macOS_CredentialProviderExtension:
     type: app-extension
     platform: macOS
@@ -142,6 +232,16 @@ targets:
       - path: Sources/chromvoid/CredentialIPCBridge.swift
     info:
       path: chromvoid_CredentialProviderExtension/Info.plist
+      properties:
+        CFBundleShortVersionString: 0.1.0
+        CFBundleVersion: "0.1.0"
+        NSExtension:
+          NSExtensionAttributes:
+            ASCredentialProviderExtensionCapabilities:
+              ProvidesPasskeys: true
+            ASCredentialProviderExtensionShowsConfigurationUI: true
+          NSExtensionPointIdentifier: com.apple.authentication-services-credential-provider-ui
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).CredentialProviderViewController
     entitlements:
       path: chromvoid_CredentialProviderExtension/chromvoid_CredentialProviderExtension_macos.entitlements
       properties:
@@ -174,8 +274,13 @@ targets:
       - path: assets
         buildPhase: resources
         type: folder
+        optional: true
     info:
       path: chromvoid_macos/Info.plist
+      properties:
+        CFBundleShortVersionString: 0.1.0
+        CFBundleVersion: "0.1.0"
+        NSCameraUsageDescription: ChromVoid uses the camera to scan OTP setup QR codes.
     entitlements:
       path: chromvoid_macos/chromvoid_macos.entitlements
       properties:

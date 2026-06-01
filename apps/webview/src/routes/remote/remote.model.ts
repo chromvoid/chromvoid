@@ -1,5 +1,6 @@
 import {tauriInvoke, tauriListen, type UnlistenFn} from 'root/core/transport/tauri/ipc'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
+import {i18n} from 'root/i18n'
 
 // ---------------------------------------------------------------------------
 // Types (mirror Rust structs from usb + mode_cmds + core_adapter/types)
@@ -122,12 +123,14 @@ export interface ModeInfo {
   mode: CoreMode
   connection_state: ConnectionState
   transport_type: string | null
+  remote_core_features: string[]
 }
 
 /** Returned by `mode_switch` command and emitted via `mode:changed`. */
 export interface ModeSwitchResult {
   previous_mode: CoreMode
   current_mode: CoreMode
+  remote_core_features?: string[]
   auto_locked: boolean
   drain_completed: boolean
 }
@@ -222,9 +225,9 @@ export function isRemoteMode(mode: CoreMode): mode is {remote: {host: RemoteHost
 
 /** Human-readable mode label. */
 export function getModeLabel(mode: CoreMode): string {
-  if (mode === 'local') return 'Local'
-  if (mode === 'switching') return 'Switching…'
-  return 'Remote'
+  if (mode === 'local') return i18n('remote:mode-label-local')
+  if (mode === 'switching') return i18n('remote:mode-label-switching')
+  return i18n('remote:mode-label-remote')
 }
 
 /** Extract peer/device name from CoreMode when in Remote. */
@@ -330,12 +333,12 @@ export function formatSyncProgress(event: SyncStatusEvent): string | null {
   const total = event['items_total'] as number | undefined
   if (phase === 'bootstrap_started' || phase === 'syncing' || phase === 'delta_apply') {
     if (typeof synced === 'number' && typeof total === 'number') {
-      return `Syncing… (${synced}/${total})`
+      return i18n('remote:sync-progress', {synced, total})
     }
-    return 'Syncing…'
+    return i18n('remote:syncing-text')
   }
   if (phase === 'reconnect_started' || phase === 'reconnecting') {
-    return 'Reconnecting…'
+    return i18n('remote:reconnecting-text')
   }
   return null
 }
@@ -361,10 +364,10 @@ export function deriveRemoteStatusWithLock(
 /** Format a relative time for last sync display. */
 export function formatLastSyncTime(ms: number): string {
   const diff = Date.now() - ms
-  if (diff < 5_000) return 'just now'
-  if (diff < 60_000) return `${Math.floor(diff / 1_000)}s ago`
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} min ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
+  if (diff < 5_000) return i18n('time:just-now')
+  if (diff < 60_000) return i18n('time:seconds-ago', {value: Math.floor(diff / 1_000)})
+  if (diff < 3_600_000) return i18n('time:minutes-ago', {value: Math.floor(diff / 60_000)})
+  if (diff < 86_400_000) return i18n('time:hours-ago', {value: Math.floor(diff / 3_600_000)})
   return new Date(ms).toLocaleDateString(undefined, {month: 'short', day: 'numeric'})
 }
 
@@ -374,7 +377,7 @@ export function formatLastSyncTime(ms: number): string {
  */
 export function getWriterLockToastMessage(holderName: string | null): string {
   if (holderName) {
-    return `Write locked by ${holderName}. Wait or request lock.`
+    return i18n('remote:writer-lock-toast-holder', {holder: holderName})
   }
-  return 'Write locked by another device. Wait or request lock.'
+  return i18n('remote:writer-lock-toast-other')
 }

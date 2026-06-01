@@ -8,7 +8,7 @@ impl PrivyFilesystem {
     /// Returns `true` if the destination was a trash path and the branch was handled
     /// (reply already sent). Returns `false` if this is not a trash rename.
     pub(in crate::volume_fuse::imp) fn rename_trash(
-        &mut self,
+        &self,
         parent: u64,
         name_str: &str,
         newparent: u64,
@@ -26,7 +26,7 @@ impl PrivyFilesystem {
             Ok(g) => g,
             Err(_) => {
                 info!(target: "chromvoid_lib::volume_fuse::imp", branch = "write_lock_poisoned", errno = libc::EIO, node_id, flags, "FUSE rename: early abort");
-                reply.error(libc::EIO);
+                reply.error(fuse_errno(libc::EIO));
                 return None;
             }
         };
@@ -36,7 +36,7 @@ impl PrivyFilesystem {
             Ok(a) => a,
             Err(_) => {
                 info!(target: "chromvoid_lib::volume_fuse::imp", branch = "trash_delete_adapter_lock_failed", errno = libc::EIO, node_id, flags, "FUSE rename: early abort");
-                reply.error(libc::EIO);
+                reply.error(fuse_errno(libc::EIO));
                 return None;
             }
         };
@@ -48,7 +48,7 @@ impl PrivyFilesystem {
         ) {
             if e != libc::ENOENT {
                 info!(target: "chromvoid_lib::volume_fuse::imp", branch = "trash_delete_core_failed", node_id, flags, errno = e, "FUSE rename: trash delete failed");
-                reply.error(e);
+                reply.error(fuse_errno(e));
                 return None;
             }
             info!(
@@ -59,7 +59,7 @@ impl PrivyFilesystem {
                 "FUSE rename: trash delete already missing"
             );
         } else {
-            let emitted = save_and_flush_best_effort(adapter.as_mut());
+            let emitted = save_and_flush_best_effort(&self.event_sink, adapter.as_mut());
             info!(
                 target: "chromvoid_lib::volume_fuse::imp",
                 branch = "trash_delete_ok",
@@ -94,7 +94,7 @@ impl PrivyFilesystem {
         });
         touch_dir_mtime(&self.inode_table, parent);
         touch_dir_mtime(&self.inode_table, newparent);
-        emit_catalog_delete_event(node_id);
+        emit_catalog_delete_event(&self.event_sink, node_id);
         info!(
             target: "chromvoid_lib::volume_fuse::imp",
             branch = "trash_rename_reply_ok",

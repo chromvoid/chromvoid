@@ -1,10 +1,12 @@
-import {XLitElement} from '@statx/lit'
+import {ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html, nothing} from 'lit'
+import {css, nothing} from 'lit'
+import {html} from '@chromvoid/uikit/reatom-lit'
 
-import {i18n} from '@project/passmanager'
-import {Group} from '@project/passmanager'
-import {type QuickFilter, filterValue, quickFilters} from '@project/passmanager'
+import {i18n} from '@project/passmanager/i18n'
+import {type QuickFilter, quickFilters} from '@project/passmanager/select'
+import {pmCredentialTagsModel} from '../../models/pm-credential-tags.model'
+import {PMSearchInputModel} from './search.model'
 
 /** Shared CSS for search host, input field, kbd hint, quick filter buttons */
 export const searchBaseStyles = css`
@@ -21,7 +23,7 @@ export const searchBaseStyles = css`
   .search-header {
     display: flex;
     align-items: center;
-    gap: calc(var(--cv-space-2) * 0.75);
+    gap: var(--cv-space-2);
     justify-content: space-between;
     min-inline-size: 0;
   }
@@ -50,28 +52,26 @@ export const searchBaseStyles = css`
     }
   }
 
-  /* Стилизация поля ввода */
+  /*Styling the input field*/
   cv-input {
-    --cv-input-background: color-mix(in oklch, var(--cv-color-surface-2) 80%, var(--cv-color-primary) 2%);
-    --cv-input-border-color: color-mix(in oklch, var(--cv-color-border) 80%, transparent);
     border-radius: var(--cv-radius-2);
     min-inline-size: 0;
     inline-size: 100%;
     max-inline-size: 100%;
     box-shadow:
-      inset 0 1px 3px color-mix(in oklch, black 6%, transparent),
-      0 1px 0 color-mix(in oklch, white 4%, transparent);
+      inset 0 1px 3px var(--cv-alpha-black-5),
+      0 1px 0 var(--cv-alpha-white-4);
   }
 
   cv-input:hover {
-    --cv-input-border-color: color-mix(in oklch, var(--cv-color-border) 100%, var(--cv-color-primary) 30%);
+    --cv-input-border-color: var(--cv-color-primary-border);
   }
 
   cv-input:focus-within {
-    --cv-input-border-color: var(--cv-color-primary);
-    box-shadow:
-      0 0 0 3px color-mix(in oklch, var(--cv-color-primary) 12%, transparent),
-      inset 0 1px 3px color-mix(in oklch, var(--cv-color-primary) 8%, transparent);
+    --cv-input-border-color: var(
+      --pm-focus-border-color,
+      var(--pm-focus-border-color, var(--cv-color-primary-border-strong))
+    );
   }
 
   cv-input cv-icon {
@@ -93,7 +93,7 @@ export const searchBaseStyles = css`
     font-weight: var(--cv-font-weight-semibold, 600);
     padding: 1px 6px;
     border-radius: var(--cv-radius-1);
-    background: color-mix(in oklch, var(--cv-color-border) 40%, transparent);
+    background: var(--cv-color-border-muted);
     border: 1px solid var(--cv-color-border);
     color: var(--cv-color-text-muted);
     line-height: 1.4;
@@ -103,13 +103,11 @@ export const searchBaseStyles = css`
   .quick-filters {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: 6px;
     align-items: center;
     min-inline-size: 0;
     max-inline-size: 100%;
-    padding: calc(var(--cv-space-2) * 0.75);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    padding: 0;
   }
 
   .quick-filters cv-button {
@@ -128,36 +126,88 @@ export const searchBaseStyles = css`
     }
   }
 
-  .quick-filters cv-button:hover {
-    transform: translateY(-1px);
+  .quick-filters .quick-filter-button.active cv-icon {
+    color: var(--cv-color-primary);
   }
 
   .quick-filters cv-button:active {
     transform: translateY(0) scale(0.98);
   }
 
-  /* Активные фильтры - светлый фон с оранжевым акцентом */
-  .quick-filters cv-button[variant='primary']::part(base) {
-    background-color: var(--cv-color-accent-contrast, #2a2235);
-    border-color: var(--cv-color-accent, #ff7a00);
-    border-width: 1.5px;
+  .tag-filter-combobox {
+    --cv-combobox-min-width: 170px;
+    --cv-combobox-min-height: 24px;
+    --cv-combobox-padding-inline: 8px;
+    --cv-combobox-font-size: 0.75rem;
+    flex: 0 1 220px;
+    inline-size: min(100%, 240px);
+    min-inline-size: 160px;
+    max-inline-size: 260px;
   }
 
-  .quick-filters cv-button[variant='primary']::part(label) {
-    color: var(--cv-color-accent-light, #ff9a3e);
-    font-weight: 500;
+  .tag-filter-combobox::part(input-wrapper) {
+    min-block-size: 26px;
+    padding-inline: 8px;
+    border-color: var(--cv-color-border);
+    border-radius: var(--cv-radius-1);
+    background: var(--cv-color-surface-2);
   }
 
-  .quick-filters cv-button[variant='primary']:hover {
-    transform: translateY(-2px);
+  .tag-filter-combobox:focus-within::part(input-wrapper),
+  .tag-filter-combobox[open]::part(input-wrapper) {
+    border-color: var(--cv-color-primary-border-strong);
+    box-shadow: 0 0 0 1px var(--cv-color-primary-ring);
   }
 
-  .quick-filters cv-button[variant='primary']:hover::part(base) {
-    background-color: color-mix(
-      in oklch,
-      var(--cv-color-accent-contrast, #2a2235) 85%,
-      var(--cv-color-accent, #ff7a00)
-    );
+  .tag-filter-combobox::part(input) {
+    min-inline-size: 52px;
+    min-block-size: 24px;
+    font-size: 0.75rem;
+  }
+
+  .tag-filter-combobox::part(tag) {
+    border: 1px solid var(--cv-color-primary-border);
+    background: var(--cv-color-primary-surface);
+    color: var(--cv-color-primary);
+    font-size: 0.7rem;
+  }
+
+  .tag-filter-combobox::part(tag-label) {
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tag-filter-combobox::part(tag-overflow) {
+    color: var(--cv-color-text-muted);
+    font-size: 0.7rem;
+  }
+
+  .tag-filter-combobox::part(listbox) {
+    max-block-size: min(260px, 52vh);
+  }
+
+  .tag-filter-row {
+    display: flex;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+  }
+
+  /*Active filters keep an explicit DOM-selected state for styling and accessibility*/
+  .quick-filters .quick-filter-button.active::part(base) {
+    background: var(--cv-color-primary-surface-strong);
+    border-color: var(--cv-color-primary-border-strong);
+    box-shadow: 0 0 0 1px var(--cv-color-primary-ring);
+  }
+
+  .quick-filters .quick-filter-button.active::part(label) {
+    color: var(--cv-color-primary);
+    font-weight: 600;
+  }
+
+
+  .quick-filters .quick-filter-button.active:hover::part(base) {
+    background: var(--cv-color-primary-surface);
   }
 
   /* ===== RESPONSIVE ===== */
@@ -172,7 +222,6 @@ export const searchBaseStyles = css`
 
     .quick-filters {
       justify-content: flex-start;
-      padding: 4px;
       gap: 3px;
       overflow-x: auto;
       flex-wrap: nowrap;
@@ -184,8 +233,25 @@ export const searchBaseStyles = css`
       }
     }
 
+    .quick-filters:has(.tag-filter-combobox) {
+      overflow-x: visible;
+      flex-wrap: wrap;
+    }
+
     .quick-filters cv-button {
       flex-shrink: 0;
+    }
+
+    .tag-filter-combobox {
+      flex: 0 0 190px;
+      min-inline-size: 190px;
+    }
+
+    .quick-filters:has(.tag-filter-combobox) .tag-filter-combobox {
+      flex: 1 1 100%;
+      inline-size: 100%;
+      min-inline-size: 0;
+      max-inline-size: 100%;
     }
   }
 
@@ -200,9 +266,13 @@ export const searchBaseStyles = css`
   }
 `
 
-export abstract class PMSearchBase extends XLitElement {
-  protected debounceTimer: number | undefined
-  protected readonly DEBOUNCE_MS = 180
+export abstract class PMSearchBase extends ReatomLitElement {
+  protected readonly searchModel = new PMSearchInputModel()
+
+  override disconnectedCallback() {
+    super.disconnectedCallback()
+    this.searchModel.dispose()
+  }
 
   focusInput() {
     const input = this.shadowRoot?.querySelector('cv-input') as unknown as {focus: () => void}
@@ -210,41 +280,36 @@ export abstract class PMSearchBase extends XLitElement {
   }
 
   clear() {
-    const input = this.shadowRoot?.querySelector('cv-input') as unknown as {value: string}
-    if (input) {
-      input.value = ''
-    }
-    if (this.debounceTimer) {
-      window.clearTimeout(this.debounceTimer)
-      this.debounceTimer = undefined
-    }
-    filterValue.set('')
+    this.searchModel.clear()
   }
 
-  protected onToggleRecent = () => this.toggleQuick('recent')
-  protected onToggleOTP = () => this.toggleQuick('otp')
-  protected onToggleFiles = () => this.toggleQuick('files')
-  protected onToggleNoPass = () => this.toggleQuick('nopass')
-  protected onToggleFavorites = () => this.toggleQuick('favorites')
+  protected handleToggleRecent() {
+    this.toggleQuick('recent')
+  }
+
+  protected handleToggleOTP() {
+    this.toggleQuick('otp')
+  }
+
+  protected handleToggleSsh() {
+    this.toggleQuick('ssh')
+  }
+
+  protected handleToggleCard() {
+    this.toggleQuick('card')
+  }
+
+  protected handleTagFilterChange(e: Event) {
+    this.searchModel.setSelectedTagsFromComboboxEvent(e)
+  }
 
   protected toggleQuick(filter: QuickFilter) {
-    const current = quickFilters()
-    if (current.includes(filter)) {
-      quickFilters.set(current.filter((f) => f !== filter))
-    } else {
-      quickFilters.set([...current, filter])
-    }
+    this.searchModel.toggleQuick(filter)
   }
 
   protected submitSearch(e: Event) {
     e.preventDefault()
-    if (this.debounceTimer) {
-      window.clearTimeout(this.debounceTimer)
-      this.debounceTimer = undefined
-    }
-    const input = this.shadowRoot?.querySelector('cv-input') as unknown as {value?: string} | undefined
-    const value = input?.value ?? ''
-    filterValue.set(value)
+    this.searchModel.submitCurrent()
   }
 
   submit(e: Event) {
@@ -252,114 +317,150 @@ export abstract class PMSearchBase extends XLitElement {
     this.submitSearch(e)
   }
 
-  protected onInput = (e: Event) => {
+  protected onInput(e: Event) {
     e.preventDefault()
     const target = e as unknown as {detail?: {value?: string}}
-    const value = target?.detail?.value ?? ''
-    if (this.debounceTimer) {
-      window.clearTimeout(this.debounceTimer)
-    }
-    this.debounceTimer = window.setTimeout(() => {
-      filterValue.set(String(value))
-      this.debounceTimer = undefined
-    }, this.DEBOUNCE_MS)
+    const value = String(target?.detail?.value ?? '')
+    this.searchModel.input(value)
   }
 
   protected getSearchState() {
-    let group = window.passmanager?.showElement()
-    //@ts-ignore
-    const isRoot = group.isRoot
-    let successFindLen = 0
-    const isSearched = filterValue().length
-    if (group instanceof Group || isRoot) {
-      successFindLen = (group as Group).searched().length
-    }
-    const className = isSearched ? (successFindLen > 0 ? 'success' : 'fail') : ''
-    const isInvalid = Boolean(isSearched && successFindLen === 0)
-    return {className, isInvalid, isSearched}
+    return this.searchModel.getSearchState()
+  }
+
+  protected getSearchPlaceholder() {
+    return i18n('entry:search')
+  }
+
+  protected shouldRenderShortcutHint(isFocused: boolean, isSearched: number | boolean) {
+    return !isFocused && !isSearched
   }
 
   protected renderSearchInput(className: string, isInvalid: boolean, isSearched: number | boolean) {
-    const isFocused = this.shadowRoot?.querySelector('cv-input')?.matches(':focus-within')
+    const isFocused = this.searchModel.isFocused()
+    const value = this.searchModel.getInputValue()
     return html`
       <div class="search-form">
         <form @submit=${this.submit} class=${className}>
           <cv-input
             type="text"
             size="small"
-            placeholder=${i18n('entry:search')}
+            placeholder=${this.getSearchPlaceholder()}
+            .value=${value}
             @cv-input=${this.onInput}
-            @focus=${() => this.requestUpdate()}
-            @blur=${() => this.requestUpdate()}
+            @focus=${this.handleFocus}
+            @blur=${this.handleBlur}
             ?invalid=${isInvalid}
           >
             <cv-icon name="search" slot="prefix"></cv-icon>
-            ${!isFocused && !isSearched ? html`<kbd class="kbd-slash" slot="suffix">/</kbd>` : nothing}
+            ${this.shouldRenderShortcutHint(isFocused, isSearched)
+              ? html`<kbd class="kbd-slash" slot="suffix">/</kbd>`
+              : nothing}
           </cv-input>
         </form>
       </div>
     `
   }
 
+  protected handleFocus() {
+    this.searchModel.focus()
+  }
+
+  protected handleBlur() {
+    this.searchModel.blur()
+  }
+
   protected renderQuickFilters() {
     const filters = quickFilters()
+    const recentSelected = filters.includes('recent')
+    const otpSelected = filters.includes('otp')
+    const sshSelected = filters.includes('ssh')
+    const cardSelected = filters.includes('card')
     return html`
       <div class="quick-filters">
         <cv-button
+          class=${recentSelected ? 'quick-filter-button active' : 'quick-filter-button'}
+          data-quick-filter="recent"
           size="small"
           pill
-          variant=${filters.includes('recent') ? 'brand' : 'neutral'}
-          appearance=${filters.includes('recent') ? 'filled' : 'outlined'}
-          @click=${this.onToggleRecent}
+          variant=${recentSelected ? 'brand' : 'neutral'}
+          appearance=${recentSelected ? 'filled' : 'outlined'}
+          aria-pressed=${String(recentSelected)}
+          @click=${this.handleToggleRecent}
         >
-          <cv-icon name="clock" slot="prefix"></cv-icon>
+          <cv-icon name="clock-history" slot="prefix"></cv-icon>
           ${i18n('quick:recent')}
         </cv-button>
 
         <cv-button
+          class=${otpSelected ? 'quick-filter-button active' : 'quick-filter-button'}
+          data-quick-filter="otp"
           size="small"
           pill
-          variant=${filters.includes('otp') ? 'brand' : 'neutral'}
-          appearance=${filters.includes('otp') ? 'filled' : 'outlined'}
-          @click=${this.onToggleOTP}
+          variant=${otpSelected ? 'brand' : 'neutral'}
+          appearance=${otpSelected ? 'filled' : 'outlined'}
+          aria-pressed=${String(otpSelected)}
+          @click=${this.handleToggleOTP}
         >
           <cv-icon name="shield-check" slot="prefix"></cv-icon>
           ${i18n('otp')}
         </cv-button>
 
         <cv-button
+          class=${sshSelected ? 'quick-filter-button active' : 'quick-filter-button'}
+          data-quick-filter="ssh"
           size="small"
           pill
-          variant=${filters.includes('files') ? 'brand' : 'neutral'}
-          appearance=${filters.includes('files') ? 'filled' : 'outlined'}
-          @click=${this.onToggleFiles}
+          variant=${sshSelected ? 'brand' : 'neutral'}
+          appearance=${sshSelected ? 'filled' : 'outlined'}
+          aria-pressed=${String(sshSelected)}
+          @click=${this.handleToggleSsh}
         >
-          <cv-icon name="paperclip" slot="prefix"></cv-icon>
-          ${i18n('quick:files')}
+          <cv-icon name="key" slot="prefix"></cv-icon>
+          ${i18n('quick:ssh')}
         </cv-button>
 
         <cv-button
+          class=${cardSelected ? 'quick-filter-button active' : 'quick-filter-button'}
+          data-quick-filter="card"
           size="small"
           pill
-          variant=${filters.includes('nopass') ? 'brand' : 'neutral'}
-          appearance=${filters.includes('nopass') ? 'filled' : 'outlined'}
-          @click=${this.onToggleNoPass}
+          variant=${cardSelected ? 'brand' : 'neutral'}
+          appearance=${cardSelected ? 'filled' : 'outlined'}
+          aria-pressed=${String(cardSelected)}
+          @click=${this.handleToggleCard}
         >
-          <cv-icon name="exclamation-triangle" slot="prefix"></cv-icon>
-          ${i18n('quick:nopass')}
+          <cv-icon name="credit-card" slot="prefix"></cv-icon>
+          ${i18n('quick:card')}
         </cv-button>
 
-        <cv-button
-          size="small"
-          pill
-          variant=${filters.includes('favorites') ? 'brand' : 'neutral'}
-          appearance=${filters.includes('favorites') ? 'filled' : 'outlined'}
-          @click=${this.onToggleFavorites}
-        >
-          <cv-icon name="star" slot="prefix"></cv-icon>
-          <span>★</span>
-        </cv-button>
+        ${this.renderTagFilterControl()}
       </div>
+    `
+  }
+
+  protected renderTagFilterControl() {
+    const options = pmCredentialTagsModel.availableTags()
+    if (options.length === 0) return nothing
+
+    return html`
+      <cv-combobox
+        class="tag-filter-combobox"
+        size="small"
+        multiple
+        clearable
+        max-tags-visible="2"
+        aria-label=${i18n('tags:title')}
+        placeholder=${i18n('tags:filter_placeholder')}
+        .value=${pmCredentialTagsModel.selectedComboboxValue()}
+        @cv-change=${this.handleTagFilterChange}
+      >
+        ${options.map(
+          (option) => html`
+            <cv-combobox-option value=${option.key}>${option.label} (${option.count})</cv-combobox-option>
+          `,
+        )}
+      </cv-combobox>
     `
   }
 }

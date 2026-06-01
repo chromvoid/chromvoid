@@ -161,15 +161,57 @@ describe('copyWithAutoWipe', () => {
     expect(invoke).toHaveBeenCalledTimes(1)
   })
 
-  it('does not throw when Tauri IPC fails and logs a warning', async () => {
+  it('does not let an old wipe clear a newer copy', async () => {
+    const invoke = vi.fn().mockResolvedValue(undefined)
+    installTauri(invoke)
+
+    await copyWithAutoWipe('first', 5000)
+    await vi.advanceTimersByTimeAsync(3000)
+    await copyWithAutoWipe('second', 5000)
+
+    expect(invoke).toHaveBeenCalledTimes(2)
+    expect(invoke).toHaveBeenNthCalledWith(1, 'plugin:clipboard-manager|write_text', {text: 'first'})
+    expect(invoke).toHaveBeenNthCalledWith(2, 'plugin:clipboard-manager|write_text', {text: 'second'})
+
+    await vi.advanceTimersByTimeAsync(1999)
+    expect(invoke).toHaveBeenCalledTimes(2)
+
+    await vi.advanceTimersByTimeAsync(3001)
+    expect(invoke).toHaveBeenCalledTimes(3)
+    expect(invoke).toHaveBeenLastCalledWith('plugin:clipboard-manager|write_text', {text: ''})
+  })
+
+  it('cancels a pending wipe after a successful no-wipe copy', async () => {
+    const invoke = vi.fn().mockResolvedValue(undefined)
+    installTauri(invoke)
+
+    await copyWithAutoWipe('first', 5000)
+    await copyWithAutoWipe('keep', 0)
+    await vi.advanceTimersByTimeAsync(5000)
+
+    expect(invoke).toHaveBeenCalledTimes(2)
+    expect(invoke).toHaveBeenNthCalledWith(1, 'plugin:clipboard-manager|write_text', {text: 'first'})
+    expect(invoke).toHaveBeenNthCalledWith(2, 'plugin:clipboard-manager|write_text', {text: 'keep'})
+  })
+
+  it('rejects when the initial clipboard write fails', async () => {
     const invoke = vi.fn().mockRejectedValue(new Error('IPC broken'))
     installTauri(invoke)
 
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await expect(copyWithAutoWipe('test', 0)).rejects.toThrow('IPC broken')
+  })
 
-    await expect(copyWithAutoWipe('test', 0)).resolves.toBeUndefined()
+  it('ignores wipe failures after a successful copy', async () => {
+    const invoke = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('wipe failed'))
+    installTauri(invoke)
 
-    expect(warnSpy).toHaveBeenCalledOnce()
-    expect(warnSpy.mock.calls[0]![0]).toContain('[clipboard]')
+    await copyWithAutoWipe('secret', 5000)
+    await vi.advanceTimersByTimeAsync(5000)
+
+    expect(invoke).toHaveBeenCalledTimes(2)
+    expect(invoke).toHaveBeenNthCalledWith(1, 'plugin:clipboard-manager|write_text', {text: 'secret'})
+    expect(invoke).toHaveBeenNthCalledWith(2, 'plugin:clipboard-manager|write_text', {text: ''})
   })
 })

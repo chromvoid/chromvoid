@@ -1,79 +1,23 @@
-import {XLitElement} from '@statx/lit'
-import {state} from '@statx/core'
-import {css, html, nothing} from 'lit'
-import {i18n} from '@project/passmanager'
-import type {ImportResult, ImportProgress, ExistingEntryInfo} from '../types.js'
+import {ReatomLitElement, html} from '@chromvoid/uikit/reatom-lit'
+import {css, nothing} from 'lit'
 import type {CatalogOperations} from '../mapper.js'
-import {ImportOrchestrator} from '../mapper.js'
-import {parseKeePass} from '../parsers/keepass.js'
-import {parseCSV} from '../parsers/csv.js'
-import {parseBitwardenJson} from '../parsers/bitwarden.js'
-import {resolveConflictsAutoRename} from '../conflicts.js'
+import {i18n} from '../i18n.js'
 import {getImportDialogFileAccept} from './file-accept.js'
 import {
   notifyMobileFilePickerLifecycleEnd,
   notifyMobileFilePickerLifecycleStart,
 } from './mobile-file-picker-lifecycle.js'
+import {getExistingEntriesMap, setImportCatalogOps} from './import-dialog-state.js'
+import {ImportDialogModel, type DialogStep, VISIBLE_STEPS, stepIndex} from './import-dialog.model.js'
 
-type DialogStep = 'file-select' | 'password' | 'preview' | 'progress' | 'complete'
-
-const step = state<DialogStep>('file-select')
-const selectedFile = state<File | null>(null)
-const parseResult = state<ImportResult | null>(null)
-const progressState = state<ImportProgress>({total: 0, imported: 0, updated: 0, skipped: 0, errors: 0})
-const importErrors = state<string[]>([])
-const isImporting = state(false)
-const parseError = state<string | null>(null)
-
-let orchestrator: ImportOrchestrator | null = null
-let catalogOps: CatalogOperations | null = null
-let existingEntriesMap: Map<string, ExistingEntryInfo> | null = null
-let activeImportRunId = 0
-let importStartInFlight = false
-
-export function setImportCatalogOps(ops: CatalogOperations) {
-  catalogOps = ops
-}
-
-export function setExistingEntriesMap(map: Map<string, ExistingEntryInfo>) {
-  existingEntriesMap = map
-}
-
-function resetState() {
-  activeImportRunId++
-  importStartInFlight = false
-  step.set('file-select')
-  selectedFile.set(null)
-  parseResult.set(null)
-  progressState.set({total: 0, imported: 0, updated: 0, skipped: 0, errors: 0})
-  importErrors.set([])
-  isImporting.set(false)
-  parseError.set(null)
-  orchestrator = null
-}
-
-function detectFormat(file: File): 'keepass' | 'csv' | 'bitwarden-json' | 'unknown' {
-  const name = file.name.toLowerCase()
-  if (name.endsWith('.kdbx')) return 'keepass'
-  if (name.endsWith('.csv')) return 'csv'
-  if (name.endsWith('.json')) return 'bitwarden-json'
-  return 'unknown'
-}
-
-/** Step index for wizard progress (skips 'password' — it's conditional). */
-const VISIBLE_STEPS: DialogStep[] = ['file-select', 'preview', 'progress']
-
-function stepIndex(s: DialogStep): number {
-  if (s === 'password') return 0 // password shares index with file-select
-  if (s === 'complete') return 3 // 'complete' step means all 3 visible steps are done
-  return VISIBLE_STEPS.indexOf(s)
-}
-
-export class ImportDialog extends XLitElement {
+export class ImportDialog extends ReatomLitElement {
+  private readonly model = new ImportDialogModel()
   private filePickerSessionActive = false
 
   static define() {
-    customElements.define('pm-import-dialog', this)
+    if (!customElements.get('pm-import-dialog')) {
+      customElements.define('pm-import-dialog', this as unknown as CustomElementConstructor)
+    }
   }
 
   static styles = [
@@ -121,7 +65,7 @@ export class ImportDialog extends XLitElement {
         background: var(--cv-color-primary);
         color: var(--cv-color-on-primary, #00171a);
         border-color: var(--cv-color-primary);
-        box-shadow: 0 0 0 4px color-mix(in oklch, var(--cv-color-primary, #00e5ff) 20%, transparent);
+        box-shadow: 0 0 0 4px var(--cv-color-primary-ring);
       }
 
       .wizard-step-indicator.completed {
@@ -201,7 +145,7 @@ export class ImportDialog extends XLitElement {
         inset: 0;
         background: radial-gradient(
           ellipse 60% 50% at 50% 0%,
-          color-mix(in oklch, var(--cv-color-primary, #00e5ff) 6%, transparent),
+          var(--cv-color-primary-subtle),
           transparent 70%
         );
         opacity: 0;
@@ -212,13 +156,9 @@ export class ImportDialog extends XLitElement {
       .drop-zone:hover,
       .drop-zone.dragover {
         border-color: var(--cv-color-primary);
-        background: color-mix(
-          in oklch,
-          var(--cv-color-primary, #00e5ff) 5%,
-          var(--cv-color-surface-3, var(--cv-color-surface-2))
-        );
+        background: var(--cv-color-primary-surface);
         transform: translateY(-1px);
-        box-shadow: 0 4px 20px color-mix(in oklch, var(--cv-color-primary, #00e5ff) 10%, transparent);
+        box-shadow: 0 4px 20px var(--cv-color-primary-subtle);
       }
 
       .drop-zone:hover::before,
@@ -238,7 +178,7 @@ export class ImportDialog extends XLitElement {
         display: flex;
         align-items: center;
         justify-content: center;
-        background: color-mix(in oklch, var(--cv-color-primary, #00e5ff) 12%, transparent);
+        background: var(--cv-color-primary-surface);
         color: var(--cv-color-primary);
         transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
       }
@@ -281,9 +221,9 @@ export class ImportDialog extends XLitElement {
         letter-spacing: 0.04em;
         text-transform: uppercase;
         border-radius: 999px;
-        background: color-mix(in oklch, var(--cv-color-primary, #00e5ff) 10%, transparent);
+        background: var(--cv-color-primary-subtle);
         color: var(--cv-color-primary);
-        border: 1px solid color-mix(in oklch, var(--cv-color-primary, #00e5ff) 20%, transparent);
+        border: 1px solid var(--cv-color-primary-border);
       }
 
       /* ===== SECTION ===== */
@@ -304,8 +244,7 @@ export class ImportDialog extends XLitElement {
         padding: var(--cv-space-4, 16px);
         border-radius: var(--cv-radius-md, 8px);
         background: var(--cv-color-surface-3, var(--cv-color-surface-2));
-        border: 1px solid
-          var(--cv-color-border-muted, color-mix(in oklch, var(--cv-color-border) 55%, transparent));
+        border: 1px solid var(--cv-color-border-muted);
         text-align: center;
         overflow: hidden;
         transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
@@ -430,21 +369,17 @@ export class ImportDialog extends XLitElement {
         max-height: 180px;
         overflow-y: auto;
         border-radius: var(--cv-radius-md, 8px);
-        border: 1px solid color-mix(in oklch, var(--cv-color-danger, #ff3b30) 25%, transparent);
-        background: color-mix(
-          in oklch,
-          var(--cv-color-danger, #ff3b30) 5%,
-          var(--cv-color-surface-3, var(--cv-color-surface-2))
-        );
+        border: 1px solid var(--cv-color-danger-border);
+        background: var(--cv-color-danger-surface);
         scrollbar-width: thin;
-        scrollbar-color: color-mix(in oklch, var(--cv-color-danger, #ff3b30) 30%, transparent) transparent;
+        scrollbar-color: var(--cv-color-danger-border) transparent;
       }
 
       .error-item {
         font-size: var(--cv-font-size-xs, 0.75rem);
         color: var(--cv-color-danger);
         padding: var(--cv-space-2, 6px) var(--cv-space-3, 12px);
-        border-bottom: 1px solid color-mix(in oklch, var(--cv-color-danger, #ff3b30) 10%, transparent);
+        border-bottom: 1px solid var(--cv-color-danger-ring);
         display: flex;
         align-items: flex-start;
         gap: var(--cv-space-1, 4px);
@@ -471,16 +406,15 @@ export class ImportDialog extends XLitElement {
         margin-top: auto;
         justify-content: flex-end;
         padding-block-start: var(--cv-space-4, 16px);
-        border-block-start: 1px solid
-          var(--cv-color-border-muted, color-mix(in oklch, var(--cv-color-border) 55%, transparent));
+        border-block-start: 1px solid var(--cv-color-border-muted);
       }
 
       /* cv-button styling inherited from pmSharedStyles in host app */
 
       /* ===== cv-input focus override ===== */
       cv-input:focus-within::part(base) {
-        border-color: color-mix(in oklch, var(--cv-color-primary, #00e5ff) 55%, var(--cv-color-border));
-        box-shadow: inset 0 0 0 2px color-mix(in oklch, var(--cv-color-primary, #00e5ff) 20%, transparent);
+        border-color: var(--cv-color-primary-border-strong);
+        box-shadow: inset 0 0 0 2px var(--cv-color-primary-ring);
       }
 
       /* ===== CALLOUT OVERRIDES ===== */
@@ -488,29 +422,18 @@ export class ImportDialog extends XLitElement {
         display: block;
         --cv-callout-border-radius: var(--cv-radius-md, 8px);
         --cv-callout-background: var(--cv-color-surface-3, var(--cv-color-surface-2));
-        --cv-callout-border-color: var(
-          --cv-color-border-muted,
-          color-mix(in oklch, var(--cv-color-border) 55%, transparent)
-        );
+        --cv-callout-border-color: var(--cv-color-border-muted);
         --cv-callout-color: var(--cv-color-text);
       }
 
       cv-callout[variant='warning'] {
-        --cv-callout-background: color-mix(
-          in oklch,
-          var(--cv-color-warning, #ffb020) 8%,
-          var(--cv-color-surface-3, var(--cv-color-surface-2))
-        );
-        --cv-callout-border-color: color-mix(in oklch, var(--cv-color-warning, #ffb020) 25%, transparent);
+        --cv-callout-background: var(--cv-color-warning-surface);
+        --cv-callout-border-color: var(--cv-color-warning-border);
       }
 
       cv-callout[variant='danger'] {
-        --cv-callout-background: color-mix(
-          in oklch,
-          var(--cv-color-danger, #ff3b30) 8%,
-          var(--cv-color-surface-3, var(--cv-color-surface-2))
-        );
-        --cv-callout-border-color: color-mix(in oklch, var(--cv-color-danger, #ff3b30) 25%, transparent);
+        --cv-callout-background: var(--cv-color-danger-surface);
+        --cv-callout-border-color: var(--cv-color-danger-border);
       }
 
       .error-callout {
@@ -540,28 +463,28 @@ export class ImportDialog extends XLitElement {
       }
 
       .result-icon-wrap.success {
-        background: color-mix(
-          in oklch,
-          var(--cv-color-success, #00f5a0) 15%,
-          var(--cv-color-surface-3, var(--cv-color-surface-2))
-        );
+        background: var(--cv-color-success-surface);
         color: var(--cv-color-success);
-        box-shadow: 0 0 0 6px color-mix(in oklch, var(--cv-color-success, #00f5a0) 10%, transparent);
+        box-shadow: 0 0 0 6px var(--cv-color-success-ring);
       }
 
       .result-icon-wrap.error {
-        background: color-mix(
-          in oklch,
-          var(--cv-color-danger, #ff3b30) 15%,
-          var(--cv-color-surface-3, var(--cv-color-surface-2))
-        );
+        background: var(--cv-color-danger-surface);
         color: var(--cv-color-danger);
-        box-shadow: 0 0 0 6px color-mix(in oklch, var(--cv-color-danger, #ff3b30) 10%, transparent);
+        box-shadow: 0 0 0 6px var(--cv-color-danger-ring);
       }
 
       .result-icon-wrap svg {
         width: 28px;
         height: 28px;
+      }
+
+      .complete-state {
+        text-align: center;
+      }
+
+      .complete-title {
+        text-align: center;
       }
 
       @keyframes resultPop {
@@ -591,12 +514,12 @@ export class ImportDialog extends XLitElement {
   ]
 
   setCatalogOperations(ops: CatalogOperations) {
-    catalogOps = ops
+    setImportCatalogOps(ops)
   }
 
   connectedCallback() {
     super.connectedCallback()
-    resetState()
+    this.model.reset()
   }
 
   disconnectedCallback() {
@@ -605,7 +528,7 @@ export class ImportDialog extends XLitElement {
   }
 
   protected render() {
-    const currentStep = step()
+    const currentStep = this.model.step()
     return html`
       ${this.renderWizardProgress(currentStep)}
       <div class="step-content">${this.renderStep(currentStep)}</div>
@@ -703,8 +626,8 @@ export class ImportDialog extends XLitElement {
           @cancel=${this.handleFileSelectionCancelled}
         />
       </div>
-      ${parseError()
-        ? html`<cv-callout class="error-callout" variant="danger">${parseError()}</cv-callout>`
+      ${this.model.parseError()
+        ? html`<cv-callout class="error-callout" variant="danger">${this.model.parseError()}</cv-callout>`
         : nothing}
       <div class="actions">
         <cv-button variant="default" @click=${this.handleClose}>${i18n('button:cancel')}</cv-button>
@@ -724,23 +647,24 @@ export class ImportDialog extends XLitElement {
           autofocus
           @keydown=${this.handlePasswordKeydown}
         ></cv-input>
-        ${parseError()
-          ? html`<cv-callout class="error-callout" variant="danger">${parseError()}</cv-callout>`
+        ${this.model.parseError()
+          ? html`<cv-callout class="error-callout" variant="danger">${this.model.parseError()}</cv-callout>`
           : nothing}
       </div>
       <div class="actions">
-        <cv-button variant="default" @click=${() => resetState()}>${i18n('import:button:back')}</cv-button>
+        <cv-button variant="default" @click=${this.handleBack}>${i18n('import:button:back')}</cv-button>
         <cv-button variant="primary" @click=${this.handleDecrypt}>${i18n('import:button:decrypt')}</cv-button>
       </div>
     `
   }
 
   private renderPreview() {
-    const result = parseResult()
+    const result = this.model.parseResult()
     if (!result) return nothing
 
+    const existingEntriesMap = getExistingEntriesMap()
     const updateCount = existingEntriesMap
-      ? result.entries.filter((e) => existingEntriesMap!.has(e.id)).length
+      ? result.entries.filter((e) => existingEntriesMap.has(e.id)).length
       : 0
     const newCount = result.entries.length - updateCount
 
@@ -767,8 +691,8 @@ export class ImportDialog extends XLitElement {
           `
         : nothing}
       <div class="actions">
-        <cv-button variant="default" @click=${() => resetState()}>${i18n('button:cancel')}</cv-button>
-        <cv-button variant="primary" @click=${this.handleStartImport} ?disabled=${isImporting()}>
+        <cv-button variant="default" @click=${this.handleBack}>${i18n('button:cancel')}</cv-button>
+        <cv-button variant="primary" @click=${this.handleStartImport} ?disabled=${this.model.isImporting()}>
           ${i18n('import:preview:import_button')} ${result.entries.length}
         </cv-button>
       </div>
@@ -776,7 +700,7 @@ export class ImportDialog extends XLitElement {
   }
 
   private renderProgress() {
-    const p = progressState()
+    const p = this.model.progressState()
     const done = p.imported + p.updated + p.errors + p.skipped
     const pct = p.total > 0 ? Math.round((done / p.total) * 100) : 0
 
@@ -813,12 +737,12 @@ export class ImportDialog extends XLitElement {
   }
 
   private renderComplete() {
-    const p = progressState()
-    const errors = importErrors()
+    const p = this.model.progressState()
+    const errors = this.model.importErrors()
     const hasErrors = errors.length > 0
 
     return html`
-      <div style="text-align: center">
+      <div class="complete-state">
         <div class="result-icon-wrap ${hasErrors ? 'error' : 'success'}">
           ${hasErrors
             ? html`<svg
@@ -844,7 +768,7 @@ export class ImportDialog extends XLitElement {
                 <polyline points="20 6 9 17 4 12" />
               </svg>`}
         </div>
-        <h2 class="title" style="text-align: center">
+        <h2 class="title complete-title">
           ${hasErrors ? i18n('import:complete:title_errors') : i18n('import:complete:title')}
         </h2>
       </div>
@@ -899,160 +823,55 @@ export class ImportDialog extends XLitElement {
     e.stopPropagation()
     ;(e.currentTarget as HTMLElement).classList.remove('dragover')
     const file = e.dataTransfer?.files[0]
-    if (file) this.processFile(file)
+    if (file) void this.model.selectFile(file)
   }
 
   private handleFileSelected = (e: Event) => {
     this.endFilePickerSession()
     const input = e.target as HTMLInputElement
     const file = input.files?.[0]
-    if (file) this.processFile(file)
+    if (file) void this.model.selectFile(file)
   }
 
   private handleFileSelectionCancelled = () => {
     this.endFilePickerSession()
   }
 
-  private processFile(file: File) {
-    parseError.set(null)
-    selectedFile.set(file)
-    const format = detectFormat(file)
-    if (format === 'unknown') {
-      parseError.set(i18n('import:error:unsupported_format'))
-      return
-    }
-    if (format === 'keepass') {
-      step.set('password')
-      return
-    }
-    this.parseNonEncryptedFile(file, format)
-  }
-
   private handlePasswordKeydown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter') this.handleDecrypt()
+    if (e.key === 'Enter') void this.handleDecrypt()
   }
 
-  private handleDecrypt = async () => {
-    const file = selectedFile()
-    if (!file) return
+  private async handleDecrypt() {
     const input = this.shadowRoot?.querySelector('cv-input') as (HTMLElement & {value?: string}) | null
     const password = input?.value
-    if (!password) {
-      parseError.set(i18n('import:password:empty'))
-      return
-    }
-    parseError.set(null)
-    try {
-      const result = await parseKeePass(file, password)
-      parseResult.set(result)
-      step.set('preview')
-    } catch (e) {
-      parseError.set(e instanceof Error ? e.message : String(e))
-    }
+    await this.model.decrypt(password ?? '', () => import('../parsers/keepass.js'))
   }
 
-  private async parseNonEncryptedFile(file: File, format: 'csv' | 'bitwarden-json') {
-    parseError.set(null)
-    try {
-      const result = format === 'csv' ? await parseCSV(file) : await parseBitwardenJson(file)
-      resolveConflictsAutoRename(result.entries, new Set<string>())
-      parseResult.set(result)
-      step.set('preview')
-    } catch (e) {
-      parseError.set(e instanceof Error ? e.message : String(e))
-    }
+  private async handleStartImport() {
+    const detail = await this.model.startImport()
+    if (!detail) return
+
+    this.dispatchEvent(
+      new CustomEvent('import-complete', {
+        detail,
+        bubbles: true,
+        composed: true,
+      }),
+    )
   }
 
-  private handleStartImport = async () => {
-    if (importStartInFlight || isImporting()) return
-    if (!catalogOps) {
-      parseError.set('Catalog operations not configured.')
-      return
-    }
-    const result = parseResult()
-    if (!result || result.entries.length === 0) return
-
-    importStartInFlight = true
-    const runId = ++activeImportRunId
-    let currentOrchestrator: ImportOrchestrator | null = null
-
-    try {
-      if (catalogOps.setGroupIcon) {
-        for (const folder of result.folders) {
-          if (runId !== activeImportRunId) return
-
-          const icon = folder.icon
-          if (!icon) continue
-
-          let iconRef = icon.iconRef
-          if (!iconRef && icon.contentBase64 && catalogOps.putIcon) {
-            try {
-              const uploaded = await catalogOps.putIcon(icon.contentBase64, icon.mimeType ?? 'image/png')
-              iconRef = uploaded.iconRef
-            } catch {
-              result.warnings.push(`Failed to import icon for folder "${folder.path}"`)
-              continue
-            }
-          }
-
-          if (!iconRef) continue
-
-          try {
-            await catalogOps.setGroupIcon(folder.path, iconRef)
-          } catch {
-            result.warnings.push(`Failed to set icon metadata for folder "${folder.path}"`)
-          }
-        }
-      }
-
-      if (runId !== activeImportRunId) return
-
-      step.set('progress')
-      isImporting.set(true)
-      currentOrchestrator = new ImportOrchestrator()
-      orchestrator = currentOrchestrator
-
-      const importResult = await currentOrchestrator.execute(
-        catalogOps,
-        result.entries,
-        (p) => {
-          if (runId !== activeImportRunId) return
-          progressState.set({...p})
-        },
-        existingEntriesMap ?? undefined,
-      )
-
-      if (runId !== activeImportRunId) return
-
-      importErrors.set(importResult.errors)
-      step.set('complete')
-
-      this.dispatchEvent(
-        new CustomEvent('import-complete', {
-          detail: {success: importResult.success, progress: importResult.progress},
-          bubbles: true,
-          composed: true,
-        }),
-      )
-    } finally {
-      if (runId === activeImportRunId) {
-        importStartInFlight = false
-        isImporting.set(false)
-        if (orchestrator === currentOrchestrator) {
-          orchestrator = null
-        }
-      }
-    }
+  private handleCancelImport() {
+    this.model.cancelImport()
   }
 
-  private handleCancelImport = () => {
-    orchestrator?.abort()
-  }
-
-  private handleClose = () => {
+  private handleClose() {
     this.endFilePickerSession()
-    resetState()
+    this.model.reset()
     this.dispatchEvent(new CustomEvent('import-close', {bubbles: true, composed: true}))
+  }
+
+  private handleBack() {
+    this.model.reset()
   }
 
   private beginFilePickerSession() {

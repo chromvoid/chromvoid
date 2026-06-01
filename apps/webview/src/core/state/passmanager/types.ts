@@ -11,10 +11,9 @@ export type ClientCatalogNodeLike = {
 
 
 
-/**
- * Минимальный контракт CatalogService, необходимый модулям passmanager.
- * Позволяет не зависеть от полного CatalogService напрямую.
- */
+/**Minimum Catalog Service contract required by passmanager modules
+* Allows you not to depend on the full Catalog Service directly.
+*/
 export type CatalogDeps = Pick<
   CatalogService,
   | 'api'

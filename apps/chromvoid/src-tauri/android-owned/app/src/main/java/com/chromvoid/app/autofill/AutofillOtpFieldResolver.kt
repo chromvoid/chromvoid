@@ -4,12 +4,12 @@ import android.view.autofill.AutofillId
 import com.chromvoid.app.AutofillTrace
 
 internal object AutofillOtpFieldResolver {
-    fun resolveStepKind(passwordFieldIds: List<AutofillId>, otpFieldIds: List<AutofillId>): AutofillResolvedStepKind {
+    fun resolveStepKind(credentialFieldIds: List<AutofillId>, otpFieldIds: List<AutofillId>): AutofillResolvedStepKind {
         if (otpFieldIds.isNotEmpty()) {
             return AutofillResolvedStepKind.OTP
         }
         return when {
-            passwordFieldIds.isNotEmpty() -> AutofillResolvedStepKind.PASSWORD
+            credentialFieldIds.isNotEmpty() -> AutofillResolvedStepKind.PASSWORD
             else -> AutofillResolvedStepKind.UNSUPPORTED
         }
     }
@@ -185,6 +185,7 @@ internal object AutofillOtpFieldResolver {
             "totp" in normalized ||
             "2fa" in normalized ||
             "verification code" in normalized ||
+            "authentication code" in normalized ||
             "auth code" in normalized ||
             "two-factor authentication" in normalized ||
             "two factor authentication" in normalized ||

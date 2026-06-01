@@ -39,7 +39,13 @@ pub(super) async fn perform_handshake(
     // Gate on config.enabled.
     {
         let state = app_handle.state::<crate::AppState>();
-        let st = state.gateway.lock().ok()?;
+        let st = match state.gateway.lock() {
+            Ok(st) => st,
+            Err(_) => {
+                warn!("[gateway] reject websocket handshake: gateway mutex poisoned");
+                return None;
+            }
+        };
         if !st.config.enabled {
             info!("[gateway] reject websocket handshake: gateway disabled");
             return None;

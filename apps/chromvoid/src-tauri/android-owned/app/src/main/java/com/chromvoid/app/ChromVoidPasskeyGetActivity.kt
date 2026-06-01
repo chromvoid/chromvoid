@@ -22,8 +22,6 @@ class ChromVoidPasskeyGetActivity : FragmentActivity() {
             PasskeyGetCoordinator(
                 bridgeGateway = graph.bridgeGateway,
                 requestRegistry = graph.passkeyRequestRegistry,
-                passkeyStore = graph.passkeyMetadataStore,
-                clock = graph.clock,
             )
         coordinator.execute(
             activity = this,

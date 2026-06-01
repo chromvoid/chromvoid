@@ -1,6 +1,6 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html} from 'lit'
+import {css} from 'lit'
 
 import {i18n} from 'root/i18n'
 import {getAppContext} from 'root/shared/services/app-context'
@@ -11,17 +11,21 @@ import {
   sharedStyles,
 } from 'root/shared/ui/shared-styles'
 
-export class NoConnection extends XLitElement {
+export class NoConnection extends ReatomLitElement {
   static define() {
     if (!customElements.get('no-connection')) {
       customElements.define('no-connection', this)
     }
   }
 
-  private onRetry = () => {
+  private handleRetry() {
     try {
       getAppContext().ws?.connect()
     } catch {}
+  }
+
+  private handleReload() {
+    location.reload()
   }
 
   static styles = [
@@ -58,8 +62,8 @@ export class NoConnection extends XLitElement {
         height: 72px;
         margin: 0 auto;
         border-radius: 50%;
-        background: color-mix(in oklch, var(--cv-color-danger), transparent 92%);
-        border: 1px solid color-mix(in oklch, var(--cv-color-danger), transparent 70%);
+        background: var(--cv-color-danger-surface);
+        border: 1px solid var(--cv-color-danger-border);
         color: var(--cv-color-danger);
       }
 
@@ -110,31 +114,26 @@ export class NoConnection extends XLitElement {
           <cv-icon name="wifi-off" size="l" color="danger"></cv-icon>
         </div>
         <div class="title">${i18n('no-connection')}</div>
-        <div class="desc">
-          Не удалось подключиться к устройству. Проверьте подключение кабеля USB‑C и питание, затем повторите
-          попытку.
-        </div>
+        <div class="desc">${i18n('no-connection:description')}</div>
 
         <div class="status">
           <cv-icon name="activity" size="m" color=${isConnecting ? 'warning' : 'muted'}></cv-icon>
           <span>
-            ${isConnecting ? 'Подключение…' : 'Отключено'} ${lastError ? html` · ${lastError}` : ''}
+            ${isConnecting ? i18n('no-connection:status-connecting') : i18n('status:disconnected')}
+            ${lastError ? html` · ${lastError}` : ''}
           </span>
         </div>
 
         <div class="actions">
-          <cv-button variant="primary" size="large" @click=${this.onRetry} .loading=${isConnecting}
-            >Переподключиться</cv-button
+          <cv-button variant="primary" size="large" @click=${this.handleRetry} .loading=${isConnecting}
+            >${i18n('no-connection:retry')}</cv-button
           >
-          <cv-button variant="ghost" size="large" @click=${() => location.reload()}
-            >Обновить страницу</cv-button
+          <cv-button variant="ghost" size="large" @click=${this.handleReload}
+            >${i18n('no-connection:reload')}</cv-button
           >
         </div>
 
-        <div class="hint">
-          Подсказка: если проблема сохраняется, попробуйте другой кабель/порт USB‑C или перезагрузите
-          устройство.
-        </div>
+        <div class="hint">${i18n('no-connection:hint')}</div>
       </div>
     `
   }

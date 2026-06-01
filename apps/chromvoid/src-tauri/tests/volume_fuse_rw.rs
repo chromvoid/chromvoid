@@ -146,6 +146,7 @@ async fn fuse_rw_roundtrip_mount_smoke() {
             RpcReply::Json(r) => {
                 panic!("expected stream reply for catalog:download, got JSON: {r:?}")
             }
+            RpcReply::RangeStream(_) => panic!("expected full file stream reply"),
         }
     };
 

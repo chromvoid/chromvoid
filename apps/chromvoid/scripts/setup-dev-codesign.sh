@@ -5,7 +5,7 @@
 # Run once on a fresh machine:
 #   bash scripts/setup-dev-codesign.sh
 #
-# After setup, use `bun run dev:signed` instead of `bun run dev`.
+# After setup, use `npm run dev:signed` instead of `npm run dev`.
 
 set -euo pipefail
 
@@ -70,7 +70,7 @@ security add-trusted-cert -d -r trustRoot -p codeSign \
 if security find-identity -v -p codesigning 2>/dev/null | grep -q "\"$IDENTITY\""; then
     echo "✓ Done. \"$IDENTITY\" is ready for code signing."
     echo ""
-    echo "  Use:  bun run dev:signed"
+    echo "  Use:  npm run dev:signed"
     echo ""
     echo "  On first vault open you will see the Keychain prompt once more —"
     echo "  enter your password and click \"Always Allow\". After that it won't appear again."

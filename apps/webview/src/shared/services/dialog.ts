@@ -1,8 +1,13 @@
-// Реэкспортируем DialogService из локального модуля
-// cv-dialog based сервис диалогов с Promise API
-export {dialogService, DialogService} from './dialog-service.js'
+// Re-export DialogService from the local module
+// cv-dialog-based dialogue service with Promise API
+export {
+  dialogService,
+  DialogService,
+  validateRenameFileName,
+  validateRenameFolderName,
+} from './dialog-service.js'
 
-// Для совместимости экспортируем также типы
+// For compatibility, we also export types.
 export type {
   InputDialogOptions,
   ConfirmDialogOptions,
@@ -13,7 +18,7 @@ export type {
   DialogServiceInterface,
 } from './dialog-types.js'
 
-// Глобальная регистрация для удобства использования
+// Global registration for usability
 import type {DialogService as DialogServiceType} from './dialog-service.js'
 
 declare global {
@@ -22,10 +27,10 @@ declare global {
   }
 }
 
-// Импортируем для регистрации в window
+// Import for registration in window
 import {dialogService} from './dialog-service.js'
 
-// Регистрируем в window для глобального доступа
+// Register in the window for global access
 if (typeof window !== 'undefined') {
   window.dialogService = dialogService
 }

@@ -1,5 +1,6 @@
 use super::*;
 use crate::crypto::keystore::InMemoryKeystore;
+use crate::vault::DecryptedChunkCacheKey;
 use tempfile::TempDir;
 use zeroize::Zeroizing;
 
@@ -154,6 +155,46 @@ fn test_lock_with_save() {
         let session = unlock(&storage, &keystore, "password").expect("should unlock");
         assert!(session.catalog().find_by_path("/test").is_some());
     }
+}
+
+#[test]
+fn test_lock_clears_decrypted_chunk_cache() {
+    let (storage, _temp_dir, keystore) = create_test_storage();
+    let session = unlock(&storage, &keystore, "password").expect("should unlock");
+    let cache = session.decrypted_chunk_cache();
+    let generation = session.decrypted_chunk_cache_generation();
+    cache.insert(
+        generation,
+        DecryptedChunkCacheKey {
+            node_id: 7,
+            source_revision: 11,
+            chunk_index: 0,
+            chunk_size: 4,
+        },
+        b"test",
+    );
+    assert_eq!(cache.stats().entries, 1);
+
+    session.lock(Some(&storage)).expect("should lock");
+
+    let stats = cache.stats();
+    assert_eq!(stats.entries, 0);
+    assert_eq!(stats.bytes, 0);
+    assert!(stats.generation > generation);
+}
+
+#[test]
+fn test_unlock_creates_new_decrypted_chunk_cache() {
+    let (storage, _temp_dir, keystore) = create_test_storage();
+    let first = unlock(&storage, &keystore, "password").expect("should unlock");
+    let first_cache = first.decrypted_chunk_cache();
+    first.lock(Some(&storage)).expect("should lock");
+
+    let second = unlock(&storage, &keystore, "password").expect("should unlock");
+    let second_cache = second.decrypted_chunk_cache();
+
+    assert!(!std::sync::Arc::ptr_eq(&first_cache, &second_cache));
+    assert_eq!(second_cache.stats().entries, 0);
 }
 
 #[test]

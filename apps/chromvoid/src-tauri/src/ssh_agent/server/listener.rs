@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use tokio::net::UnixListener;
 use tokio::sync::{watch, Mutex};
+use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
 
 use super::connection::handle_connection;
@@ -41,6 +42,7 @@ pub async fn run_agent(
     info!("ssh-agent: listening on {}", socket_path.display());
 
     let mut connection_id_seq: u64 = 1;
+    let mut connections = JoinSet::new();
 
     loop {
         tokio::select! {
@@ -52,7 +54,7 @@ pub async fn run_agent(
                         let connection_id = connection_id_seq;
                         connection_id_seq = connection_id_seq.wrapping_add(1);
 
-                        tokio::spawn(async move {
+                        connections.spawn(async move {
                             tokio::select! {
                                 _ = handle_connection(stream, shared, connection_id) => {}
                                 _ = shutdown.changed() => {
@@ -66,10 +68,21 @@ pub async fn run_agent(
                     }
                 }
             }
+            join_result = connections.join_next(), if !connections.is_empty() => {
+                if let Some(Err(error)) = join_result {
+                    debug!("ssh-agent: connection task failed: {error}");
+                }
+            }
             _ = shutdown_rx.changed() => {
                 info!("ssh-agent: shutdown signal received");
                 break;
             }
+        }
+    }
+
+    while let Some(join_result) = connections.join_next().await {
+        if let Err(error) = join_result {
+            debug!("ssh-agent: connection task failed during shutdown: {error}");
         }
     }
 
@@ -122,6 +135,7 @@ fn remove_stale_socket(socket_path: &PathBuf) -> Result<(), String> {
     }
 
     let owner_uid = meta.uid();
+    // SAFETY: geteuid is async-signal-safe and never fails per POSIX; takes no args.
     let current_uid = unsafe { libc::geteuid() };
     if owner_uid != current_uid {
         return Err(format!(

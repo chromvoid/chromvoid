@@ -13,7 +13,7 @@ internal fun passwordProviderContext(info: CallingAppInfo?): PasswordProviderCon
     val origin = PasskeyOriginResolver.originForCallingApp(info).trim()
     val url =
         runCatching { URL(origin) }.getOrNull()
-            ?: return null
+            ?: return androidAppPasswordContext(info, origin)
     if (url.protocol !in setOf("http", "https")) {
         return null
     }
@@ -27,5 +27,22 @@ internal fun passwordProviderContext(info: CallingAppInfo?): PasswordProviderCon
     return PasswordProviderContext(
         origin = normalizedOrigin.ifEmpty { "${url.protocol}://$domain" },
         domain = domain,
+    )
+}
+
+private fun androidAppPasswordContext(
+    info: CallingAppInfo?,
+    origin: String,
+): PasswordProviderContext? {
+    if (!origin.startsWith("android:apk-key-hash:")) {
+        return null
+    }
+    val packageName = info?.packageName.orEmpty().trim().lowercase()
+    if (packageName.isEmpty()) {
+        return null
+    }
+    return PasswordProviderContext(
+        origin = origin,
+        domain = packageName,
     )
 }

@@ -6,29 +6,56 @@ export const fileItemBaseStyles = [
   sharedStyles,
   hostContentContainStyles,
   css`
-    /* ========== HOST - БАЗОВЫЕ СТИЛИ ========== */
+    /*========== HOST - Basic Styles ========*/
     :host {
+      --file-type-default: var(--cv-color-text-muted);
+      --file-type-folder: var(--cv-color-primary);
+      --file-type-image: var(--cv-color-success);
+      --file-type-document: var(--cv-color-accent);
+      --file-type-archive: var(--cv-color-warning);
+      --file-type-media: var(--cv-color-cyan);
+      --file-type-code: var(--cv-color-primary-dark);
+      --file-item-focus-outline: 2px solid var(--cv-color-focus);
+      --file-item-focus-outline-offset: 2px;
+      --file-item-selected-background: var(--cv-color-primary-surface-strong);
+      --file-item-active-background: var(--cv-color-primary-subtle);
+      --file-item-hover-background: var(--cv-color-primary-surface);
+      --file-item-selected-border: var(--cv-color-primary);
+      --file-item-active-border: var(--cv-color-primary-border-strong);
+      --file-item-selected-outline: 2px solid var(--cv-color-primary-ring);
+      --file-item-selected-outline-offset: -2px;
+      --file-item-selected-leading-accent: var(--cv-color-primary);
+      --file-item-active-outline: var(--file-item-selected-outline);
+      --file-item-active-outline-offset: var(--file-item-selected-outline-offset);
+      box-sizing: border-box;
+      border: 1px solid transparent;
       border-radius: var(--cv-radius-2);
-      outline-offset: -2px;
+      outline: none;
+      outline-offset: var(--file-item-focus-outline-offset);
       transition:
         transform var(--cv-duration-fast) var(--cv-easing-standard),
         opacity var(--cv-duration-fast) var(--cv-easing-standard),
-        background-color var(--cv-duration-fast) var(--cv-easing-standard),
+        background var(--cv-duration-fast) var(--cv-easing-standard),
+        border-color var(--cv-duration-fast) var(--cv-easing-standard),
+        outline-color var(--cv-duration-fast) var(--cv-easing-standard),
         box-shadow var(--cv-duration-fast) var(--cv-easing-standard);
     }
 
-    :host([active]) {
-      outline: 2px solid color-mix(in oklch, var(--cv-color-primary) 70%, transparent);
-      z-index: 1;
-    }
-
     :host(:focus) {
-      outline: none;
+      outline: var(--file-item-focus-outline);
+      z-index: 2;
     }
 
-    :host(:focus-visible) {
-      outline: 2px solid var(--cv-color-primary);
+    :host([active]) {
+      outline: var(--file-item-active-outline);
+      outline-offset: var(--file-item-active-outline-offset);
       z-index: 1;
+    }
+
+    :host([active]:focus),
+    :host(:focus-visible) {
+      outline: var(--file-item-focus-outline);
+      z-index: 2;
     }
 
     :host(.touch-dragging) {
@@ -38,9 +65,19 @@ export const fileItemBaseStyles = [
     }
 
     :host(.touch-drag-over) {
-      background: color-mix(in oklch, var(--cv-color-success), transparent 85%) !important;
-      box-shadow: inset 0 0 0 2px color-mix(in oklch, var(--cv-color-success), transparent 50%) !important;
+      background: var(--cv-color-success-surface) !important;
+      box-shadow: inset 0 0 0 2px var(--cv-color-success-border-strong) !important;
       transform: scale(1.02);
+    }
+
+    :host([pending-external-open]) {
+      background: var(--cv-color-primary-surface);
+      box-shadow: inset 0 0 0 1px var(--cv-color-primary-border);
+    }
+
+    :host([media-active]) {
+      background: var(--cv-color-primary-surface);
+      box-shadow: inset 0 0 0 1px var(--cv-color-primary-border);
     }
 
     :host([selection-mode][view-mode='list']) .file-item,
@@ -55,7 +92,7 @@ export const fileItemBaseStyles = [
       transform: translateY(-50%);
     }
 
-    /* ========== ОБЩИЙ КОНТЕНТ ========== */
+    /*=====================*/
     .file-item {
       display: flex;
       align-items: center;
@@ -68,6 +105,12 @@ export const fileItemBaseStyles = [
       user-select: none;
       touch-action: manipulation;
       -webkit-tap-highlight-color: transparent;
+      transition:
+        transform var(--cv-duration-fast) var(--cv-easing-standard),
+        background var(--cv-duration-fast) var(--cv-easing-standard),
+        border-color var(--cv-duration-fast) var(--cv-easing-standard),
+        outline-color var(--cv-duration-fast) var(--cv-easing-standard),
+        box-shadow var(--cv-duration-fast) var(--cv-easing-standard);
     }
 
     .selection-indicator {
@@ -77,8 +120,8 @@ export const fileItemBaseStyles = [
       inline-size: 18px;
       block-size: 18px;
       border-radius: 999px;
-      background: color-mix(in oklch, var(--cv-color-surface) 75%, transparent);
-      border: 1px solid color-mix(in oklch, var(--cv-color-text-muted), transparent 40%);
+      background: var(--cv-color-surface-glass);
+      border: 1px solid var(--cv-color-border-soft);
       color: var(--cv-color-primary);
       display: flex;
       align-items: center;
@@ -94,15 +137,150 @@ export const fileItemBaseStyles = [
       color: white;
     }
 
-    .icon {
-      font-size: 22px;
-      color: var(--file-type-default, var(--cv-color-text-muted));
-      min-inline-size: 32px;
-      block-size: 32px;
+    .thumbnail-shell {
+      --file-media-spectrum-width: 24px;
+      --file-media-spectrum-height: 24px;
+      --file-media-spectrum-bar-width: 4px;
+      --file-media-spectrum-gap: 4px;
+      inline-size: 44px;
+      block-size: 44px;
       display: flex;
       align-items: center;
       justify-content: center;
-      border-radius: var(--cv-radius-1);
+      flex-shrink: 0;
+      overflow: hidden;
+      border-radius: var(--cv-radius-2);
+      background: var(--cv-color-surface-highlight);
+      border: 1px solid var(--cv-color-border-soft);
+      transition:
+        transform var(--cv-duration-fast) var(--cv-easing-standard),
+        background var(--cv-duration-fast) var(--cv-easing-standard),
+        border-color var(--cv-duration-fast) var(--cv-easing-standard);
+
+      &.folder {
+        background: var(--cv-color-primary-surface);
+      }
+
+      &.file-image {
+        background: var(--cv-color-success-surface);
+      }
+
+      &.file-document {
+        background: var(--cv-color-accent-surface);
+      }
+
+      &.file-archive {
+        background: var(--cv-color-warning-surface);
+      }
+
+      &.file-media {
+        background: var(--cv-color-primary-surface);
+      }
+
+      &.file-code {
+        background: var(--cv-color-primary-surface-strong);
+      }
+    }
+
+    .thumbnail-shell.has-image {
+      background: var(--cv-color-surface-secondary);
+      border-color: var(--cv-color-border-muted);
+    }
+
+    .thumbnail-shell.is-media-active {
+      background: var(--cv-color-primary-surface-strong);
+      border-color: var(--cv-color-primary-border-strong);
+      box-shadow: inset 0 0 0 1px var(--cv-color-primary-subtle);
+    }
+
+    .media-active-spectrum {
+      inline-size: var(--file-media-spectrum-width);
+      block-size: var(--file-media-spectrum-height);
+      display: inline-flex;
+      align-items: end;
+      justify-content: center;
+      gap: var(--file-media-spectrum-gap);
+      color: var(--cv-color-primary);
+      pointer-events: none;
+    }
+
+    .media-active-spectrum span {
+      inline-size: var(--file-media-spectrum-bar-width);
+      block-size: 44%;
+      border-radius: 999px;
+      background: currentColor;
+      transform-origin: center bottom;
+    }
+
+    .media-active-spectrum span:nth-child(2) {
+      block-size: 76%;
+      color: var(--cv-color-accent);
+    }
+
+    .media-active-spectrum span:nth-child(3) {
+      block-size: 56%;
+    }
+
+    .media-active-spectrum.is-playing span {
+      animation: file-media-signal-rise 720ms var(--cv-easing-standard) infinite alternate;
+    }
+
+    .media-active-spectrum.is-playing span:nth-child(2) {
+      animation-delay: 120ms;
+    }
+
+    .media-active-spectrum.is-playing span:nth-child(3) {
+      animation-delay: 240ms;
+    }
+
+    .thumbnail-image {
+      inline-size: 100%;
+      block-size: 100%;
+      display: block;
+      object-fit: cover;
+      animation: thumbnail-reveal var(--cv-duration-fast) var(--cv-easing-standard);
+    }
+
+    @keyframes thumbnail-reveal {
+      from {
+        opacity: 0;
+        transform: scale(1.02);
+      }
+
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .thumbnail-image,
+      .media-active-spectrum span {
+        animation: none;
+      }
+    }
+
+    @keyframes file-media-signal-rise {
+      from {
+        transform: scaleY(0.68);
+        opacity: 0.64;
+      }
+
+      to {
+        transform: scaleY(1);
+        opacity: 1;
+      }
+    }
+
+    .icon {
+      font-size: 22px;
+      color: var(--file-type-default, var(--cv-color-text-muted));
+      inline-size: 100%;
+      block-size: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: inherit;
       transition:
         color var(--cv-duration-fast) var(--cv-easing-standard),
         transform var(--cv-duration-fast) var(--cv-easing-standard),
@@ -110,48 +288,41 @@ export const fileItemBaseStyles = [
 
       &.folder {
         color: var(--file-type-folder);
-        background: color-mix(in oklch, var(--file-type-folder) 12%, transparent);
       }
 
       &.file-image {
         color: var(--file-type-image);
-        background: color-mix(in oklch, var(--file-type-image) 12%, transparent);
       }
 
       &.file-document {
         color: var(--file-type-document);
-        background: color-mix(in oklch, var(--file-type-document) 12%, transparent);
       }
 
       &.file-archive {
         color: var(--file-type-archive);
-        background: color-mix(in oklch, var(--file-type-archive) 12%, transparent);
       }
 
       &.file-media {
         color: var(--file-type-media);
-        background: color-mix(in oklch, var(--file-type-media) 12%, transparent);
       }
 
       &.file-code {
         color: var(--file-type-code);
-        background: color-mix(in oklch, var(--file-type-code) 12%, transparent);
       }
 
       &.file-default {
         color: var(--file-type-default);
-        background: color-mix(in oklch, var(--file-type-default) 8%, transparent);
       }
     }
 
-    :host(:hover) {
-      .icon {
-        transform: scale(1.08);
-      }
+    :host([view-mode='grid']:hover) .thumbnail-shell {
+      transform: scale(1.08);
+    }
 
-      .icon.folder {
-        background: color-mix(in oklch, var(--file-type-folder) 20%, transparent);
-        box-shadow: 0 0 8px color-mix(in oklch, var(--file-type-folder) 25%, transparent);
+    :host(:hover) {
+      .thumbnail-shell.folder:not(.has-image) {
+        background: var(--cv-color-primary-surface-strong);
+        box-shadow: 0 0 8px var(--cv-color-primary-border);
       }
     }
 
@@ -196,29 +367,29 @@ export const fileItemBaseStyles = [
       }
     }
 
-    /* Цветные badges для типов файлов */
-    .file-item:has(.icon.file-image) .file-type {
-      background: color-mix(in oklch, var(--file-type-image) 15%, var(--cv-color-surface-2));
+    /*Color badges for file types*/
+    .file-item:has(.icon.file-image, .thumbnail-shell.file-image) .file-type {
+      background: var(--cv-color-success-surface);
       color: var(--file-type-image);
     }
 
-    .file-item:has(.icon.file-document) .file-type {
-      background: color-mix(in oklch, var(--file-type-document) 15%, var(--cv-color-surface-2));
+    .file-item:has(.icon.file-document, .thumbnail-shell.file-document) .file-type {
+      background: var(--cv-color-accent-surface);
       color: var(--file-type-document);
     }
 
-    .file-item:has(.icon.file-archive) .file-type {
-      background: color-mix(in oklch, var(--file-type-archive) 15%, var(--cv-color-surface-2));
+    .file-item:has(.icon.file-archive, .thumbnail-shell.file-archive) .file-type {
+      background: var(--cv-color-warning-surface);
       color: var(--file-type-archive);
     }
 
-    .file-item:has(.icon.file-media) .file-type {
-      background: color-mix(in oklch, var(--file-type-media) 15%, var(--cv-color-surface-2));
+    .file-item:has(.icon.file-media, .thumbnail-shell.file-media) .file-type {
+      background: var(--cv-color-primary-surface);
       color: var(--file-type-media);
     }
 
-    .file-item:has(.icon.file-code) .file-type {
-      background: color-mix(in oklch, var(--file-type-code) 15%, var(--cv-color-surface-2));
+    .file-item:has(.icon.file-code, .thumbnail-shell.file-code) .file-type {
+      background: var(--cv-color-primary-surface-strong);
       color: var(--file-type-code);
     }
 
@@ -250,7 +421,7 @@ export const fileItemBaseStyles = [
         color var(--cv-duration-fast) var(--cv-easing-standard);
 
       &:hover {
-        background: color-mix(in oklch, var(--cv-color-primary), transparent 85%);
+        background: var(--cv-color-primary-surface);
         color: var(--cv-color-primary);
       }
     }

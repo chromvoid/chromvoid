@@ -9,6 +9,7 @@ export type CommandPaletteOpenDetail = {
 
 export function openCommandPalette(detail: CommandPaletteOpenDetail = {}): void {
   if (typeof window === 'undefined') return
+  console.log('openCommandPalette', detail)
   window.dispatchEvent(
     new CustomEvent<CommandPaletteOpenDetail>('command-bar:open', {
       detail,

@@ -11,15 +11,15 @@ import android.view.autofill.AutofillManager
 import android.widget.Toast
 import com.chromvoid.app.autofill.AutofillAuthController
 import com.chromvoid.app.autofill.AutofillAuthResult
-import com.chromvoid.app.autofill.AutofillFieldClassifier
 import com.chromvoid.app.autofill.AutofillRequestContext
+import com.chromvoid.app.autofill.AutofillRequestContextFactory
 import com.chromvoid.app.autofill.AutofillSessionMetadata
 import com.chromvoid.app.autofill.AutofillStrategyKind
-import com.chromvoid.app.autofill.AutofillStructureParser
 import com.chromvoid.app.shared.IntentCompat
 
 class ChromVoidAutofillAuthActivity : Activity() {
     private lateinit var controller: AutofillAuthController
+    private var currentArgs: com.chromvoid.app.autofill.AutofillAuthArgs? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,6 +33,7 @@ class ChromVoidAutofillAuthActivity : Activity() {
                 requestContext = parseRequestContextFromIntent(parsedArgs),
                 sessionStore = appGraph.autofillSessionStore,
             )
+        currentArgs = args
         AutofillTrace.important(
             "authStart",
             "session" to args.sessionId,
@@ -73,31 +74,17 @@ class ChromVoidAutofillAuthActivity : Activity() {
             )
             return null
         }
-        val parser = AutofillStructureParser()
-        for (windowIndex in 0 until structure.windowNodeCount) {
-            parser.visit(structure.getWindowNodeAt(windowIndex).rootViewNode)
-        }
-        val snapshot = parser.buildSnapshot()
-        val requestContext =
-            AutofillRequestContext(
-                requestId = 0,
-                compatMode = args.strategyKind == AutofillStrategyKind.COMPAT,
-                activityComponent = structure.activityComponent,
-                normalizedDomain =
-                    AutofillFieldClassifier.normalizeDomain(snapshot.webDomain)
-                        ?: AutofillFieldClassifier.normalizeDomain(args.domain),
-                focusedId = findFocusedAutofillId(structure),
-                previousFocusedIds = emptyList(),
-                usernameFieldIds = snapshot.usernameFieldIds,
-                passwordFieldIds = snapshot.passwordFieldIds,
-                otpCandidates = snapshot.otpCandidates,
-                focusedFieldCandidates = snapshot.focusedFieldCandidates,
-                pageHintBlobs = snapshot.pageHintBlobs,
+        val requestContextResult =
+            AutofillRequestContextFactory.fromAssistStructure(
+                structure = structure,
+                fallbackDomain = args.domain,
+                fallbackStrategyKind = args.strategyKind,
             )
+        val requestContext = requestContextResult.context
         AutofillTrace.important(
             "authAssistStructure",
             "present" to true,
-            "activity" to structure.activityComponent?.flattenToShortString(),
+            "activity" to requestContext.activityComponent?.flattenToShortString(),
             "compat" to requestContext.compatMode,
             "domain" to requestContext.normalizedDomain,
             "focusedId" to AutofillTrace.id(requestContext.focusedId),
@@ -108,32 +95,6 @@ class ChromVoidAutofillAuthActivity : Activity() {
             "pageHints" to AutofillTrace.pageHints(requestContext.pageHintBlobs),
         )
         return requestContext
-    }
-
-    private fun findFocusedAutofillId(structure: AssistStructure): android.view.autofill.AutofillId? {
-        for (windowIndex in 0 until structure.windowNodeCount) {
-            val focused = findFocusedAutofillId(structure.getWindowNodeAt(windowIndex).rootViewNode)
-            if (focused != null) {
-                return focused
-            }
-        }
-        return null
-    }
-
-    private fun findFocusedAutofillId(node: AssistStructure.ViewNode?): android.view.autofill.AutofillId? {
-        if (node == null) {
-            return null
-        }
-        if (node.isFocused && node.autofillId != null) {
-            return node.autofillId
-        }
-        for (index in 0 until node.childCount) {
-            val focused = findFocusedAutofillId(node.getChildAt(index))
-            if (focused != null) {
-                return focused
-            }
-        }
-        return null
     }
 
     private fun handleOtp(args: com.chromvoid.app.autofill.AutofillAuthArgs) {
@@ -186,14 +147,31 @@ class ChromVoidAutofillAuthActivity : Activity() {
         args: com.chromvoid.app.autofill.AutofillAuthArgs,
         result: AutofillAuthResult.Success,
     ) {
-        if (args.stepKind != ChromVoidAutofillService.STEP_OTP) return
         if (args.strategyKind != AutofillStrategyKind.COMPAT) return
+        if (!shouldCopyOtpToClipboard(args)) return
 
         val otp = result.otpValue ?: return
         val clipboard = getSystemService(ClipboardManager::class.java) ?: return
         clipboard.setPrimaryClip(ClipData.newPlainText("otp", otp))
-        AutofillTrace.important("otpClipboardFallback", "otpLength" to otp.length)
+        AutofillTrace.important(
+            "otpClipboardFallback",
+            "step" to args.stepKind,
+            "otpLength" to otp.length,
+        )
         Toast.makeText(this, getString(R.string.autofill_otp_copied), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun shouldCopyOtpToClipboard(args: com.chromvoid.app.autofill.AutofillAuthArgs): Boolean {
+        if (args.stepKind == ChromVoidAutofillService.STEP_OTP) {
+            return true
+        }
+        if (args.stepKind != ChromVoidAutofillService.STEP_PASSWORD) {
+            return false
+        }
+        if (args.otpOptions.size != 1) {
+            return false
+        }
+        return args.otpOptions.first().otpType != "HOTP"
     }
 
     private fun maybeMarkSessionState(args: com.chromvoid.app.autofill.AutofillAuthArgs) {
@@ -207,13 +185,18 @@ class ChromVoidAutofillAuthActivity : Activity() {
             )
         val store = applicationContext.androidAppGraph().autofillSessionStore
         when (args.stepKind) {
-            ChromVoidAutofillService.STEP_PASSWORD -> store.markPasswordFilled(args.sessionKey, metadata)
+            ChromVoidAutofillService.STEP_PASSWORD ->
+                if (args.passwordIds.isNotEmpty()) {
+                    store.markPasswordFilled(args.sessionKey, metadata)
+                }
             ChromVoidAutofillService.STEP_OTP -> store.markOtpResponseShown(args.sessionKey, metadata)
         }
     }
 
     private fun finishCancelled(reason: String) {
-        AutofillTrace.important("authCancel", "reason" to reason)
+        val sessionClosed = currentArgs?.let { controller.closeSession(it.sessionId) } ?: false
+        AutofillTrace.important("authCancel", "reason" to reason, "closed" to sessionClosed)
+        AutofillTrace.important("authSessionClosed", "closed" to sessionClosed, "reason" to reason)
         setResult(RESULT_CANCELED)
         finish()
     }

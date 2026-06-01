@@ -1,28 +1,31 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html, nothing} from 'lit'
+import {css, nothing} from 'lit'
 
 import {i18n} from 'root/i18n'
 import {getAppContext} from 'root/shared/services/app-context'
 import {hostContentContainStyles, sharedStyles} from 'root/shared/ui/shared-styles'
+import {MediaMiniPlayer} from 'root/features/media/components/media-mini-player'
+import {mediaPlaybackModel} from 'root/features/media/models/media-playback.model'
+import {androidShareImportModel} from 'root/features/file-manager/models/android-share-import.model'
 
-// форматирование вынесено в utils/formatters
-
-/**
- * Status Bar с цветовыми индикаторами состояний и pulse-анимациями для активных процессов.
- * Показывает: статус подключения, статус синхронизации каталога, количество выбранных файлов, ошибки.
- */
-export class StatusBar extends XLitElement {
+/**Status Bar with color state indicators and pulse animations for active processes.
+* Shows: connection status, directory synchronization status, number of selected files, errors.
+*/
+export class StatusBar extends ReatomLitElement {
   static define() {
-    customElements.define('status-bar', this)
+    if (!customElements.get('status-bar')) {
+      customElements.define('status-bar', this)
+    }
+    MediaMiniPlayer.define()
   }
   static styles = [
     sharedStyles,
     hostContentContainStyles,
     css`
       :host {
-        background: var(--cv-color-surface);
-        border-top: 1px solid var(--cv-color-border);
+        background: var(--cv-color-surface-2);
+        border-top: 1px solid var(--cv-color-border-soft);
         font-size: var(--cv-font-size-xs);
       }
 
@@ -32,11 +35,11 @@ export class StatusBar extends XLitElement {
         display: flex;
         align-items: center;
         gap: var(--app-spacing-3);
-        padding: var(--app-spacing-2) var(--app-spacing-4);
-        min-block-size: 32px;
+        padding: 8px 16px;
+        min-block-size: 42px;
       }
 
-      /* ========== СТАТУС ИНДИКАТОРЫ ========== */
+      /*========= Status of INDICATORS ==================================================================================================================================================*/
 
       .status-indicators {
         display: flex;
@@ -51,8 +54,8 @@ export class StatusBar extends XLitElement {
         gap: var(--app-spacing-2);
         color: var(--cv-color-text-muted);
         font-weight: var(--cv-font-weight-medium);
-        padding: var(--app-spacing-1) var(--app-spacing-2);
-        border-radius: var(--cv-radius-2);
+        padding: 2px 8px;
+        border-radius: 999px;
         cursor: default;
         position: relative;
 
@@ -82,7 +85,7 @@ export class StatusBar extends XLitElement {
         }
       }
 
-      /* Иконка статуса с цветовым индикатором */
+      /*Status icon with color indicator*/
       .status-icon {
         position: relative;
         inline-size: 16px;
@@ -96,7 +99,7 @@ export class StatusBar extends XLitElement {
         }
       }
 
-      /* Текст статуса */
+      /*Text of status*/
       .status-text {
         white-space: nowrap;
         overflow: hidden;
@@ -104,16 +107,16 @@ export class StatusBar extends XLitElement {
         max-inline-size: 120px;
       }
 
-      /* Состояния индикатора */
-      /* ========== СЕЛЕКШН СЧЕТЧИК ========== */
+      /*Conditions of the indicator*/
+      /*=========================*/
 
       .selection-counter {
         display: flex;
         align-items: center;
         gap: var(--app-spacing-2);
         padding: var(--app-spacing-1) var(--app-spacing-3);
-        background: color-mix(in oklch, var(--cv-color-accent) 10%, transparent);
-        border: 1px solid color-mix(in oklch, var(--cv-color-accent) 20%, transparent);
+        background: var(--cv-color-accent-surface);
+        border: 1px solid var(--cv-color-accent-border);
         border-radius: var(--cv-radius-3);
         color: var(--cv-color-accent);
         font-weight: var(--cv-font-weight-semibold);
@@ -127,23 +130,25 @@ export class StatusBar extends XLitElement {
         display: inline-flex;
         align-items: center;
         gap: var(--app-spacing-2);
-        padding: var(--app-spacing-1) var(--app-spacing-3);
-        border-radius: var(--cv-radius-3);
-        border: 1px solid var(--cv-color-border);
+        min-block-size: 26px;
+        padding: 1px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--cv-color-border-soft);
         background: var(--cv-color-surface-2);
         color: var(--cv-color-text);
         font-size: var(--cv-font-size-xs);
         cursor: pointer;
+        box-shadow: inset 0 1px 0 var(--cv-alpha-white-5);
 
         &:hover {
-          background: var(--cv-color-hover);
+          background: var(--cv-color-primary-surface);
         }
 
         &.active {
-          background: color-mix(in oklch, var(--cv-color-accent) 18%, transparent);
-          border-color: color-mix(in oklch, var(--cv-color-accent) 35%, transparent);
-          color: var(--cv-color-accent);
-          box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--cv-color-accent) 40%, transparent);
+          background: var(--cv-color-primary-surface-strong);
+          border-color: var(--cv-color-primary-border-strong);
+          color: var(--cv-color-primary);
+          box-shadow: inset 0 0 0 1px var(--cv-color-primary-ring);
         }
       }
 
@@ -158,48 +163,49 @@ export class StatusBar extends XLitElement {
         }
       }
 
-      /* ========== ОШИБКИ ========== */
+      /*=========================*/
 
-      .error-banner {
-        display: flex;
-        align-items: center;
-        gap: var(--app-spacing-2);
-        padding: var(--app-spacing-1) var(--app-spacing-3);
-        background: color-mix(in oklch, var(--cv-color-danger) 15%, transparent);
-        border: 1px solid color-mix(in oklch, var(--cv-color-danger) 30%, transparent);
-        border-radius: var(--cv-radius-2);
-        color: var(--cv-color-danger);
+      cv-callout.status-error-callout {
+        --cv-callout-padding-block: var(--app-spacing-1);
+        --cv-callout-padding-inline: var(--app-spacing-3);
+        --cv-callout-border-radius: var(--cv-radius-2);
+        --cv-callout-font-size: var(--cv-font-size-xs);
+        --cv-callout-gap: var(--app-spacing-2);
         font-weight: var(--cv-font-weight-medium);
         max-inline-size: 300px;
         animation: errorSlideIn 300ms var(--cv-easing-decelerate);
-
-        cv-icon {
-          flex-shrink: 0;
-        }
-
-        .error-text {
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
       }
 
-      .error-dismiss {
-        background: transparent;
-        border: none;
+      cv-callout.status-error-callout::part(base) {
+        align-items: center;
+      }
+
+      cv-callout.status-error-callout::part(icon),
+      cv-callout.status-error-callout::part(close-button) {
+        flex-shrink: 0;
+      }
+
+      cv-callout.status-error-callout::part(close-button) {
         padding: var(--app-spacing-1);
-        cursor: pointer;
         color: var(--cv-color-danger);
         opacity: 0.7;
         transition: opacity var(--cv-duration-fast) var(--cv-easing-standard);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
+      }
 
-        &:hover {
-          opacity: 1;
-        }
+      cv-callout.status-error-callout::part(close-button):hover {
+        opacity: 1;
+      }
+
+      cv-callout.status-error-callout::part(message) {
+        min-inline-size: 0;
+        overflow: hidden;
+      }
+
+      .status-error-text {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       @keyframes errorSlideIn {
@@ -213,16 +219,16 @@ export class StatusBar extends XLitElement {
         }
       }
 
-      /* ========== РАЗДЕЛИТЕЛЬ ========== */
+      /*==================*/
 
       .divider {
         inline-size: 1px;
         block-size: 16px;
-        background: var(--cv-color-border);
+        background: var(--cv-color-border-muted);
         flex-shrink: 0;
       }
 
-      /* ========== АДАПТИВНОСТЬ ========== */
+      /*====================*/
 
       @container statusbar (max-width: 600px) {
         .status-text {
@@ -246,14 +252,18 @@ export class StatusBar extends XLitElement {
           }
         }
 
-        .error-banner {
+        cv-callout.status-error-callout {
           max-inline-size: 150px;
+        }
+
+        media-mini-player {
+          max-inline-size: 52vw;
         }
       }
     `,
   ]
 
-  /** Маппинг статуса WebSocket на CSS класс */
+  /**WebSocket status mapping on CSS class*/
   private getWsStatusClass(): string {
     const status = getAppContext().store.wsStatus()
     const statusMap: Record<string, string> = {
@@ -265,7 +275,7 @@ export class StatusBar extends XLitElement {
     return statusMap[status] ?? 'offline'
   }
 
-  /** Маппинг статуса каталога на CSS класс */
+  /**Mapping Directory Status in CSS Class*/
   private getCatalogStatusClass(): string {
     const status = getAppContext().store.catalogStatus()
     const statusMap: Record<string, string> = {
@@ -277,7 +287,7 @@ export class StatusBar extends XLitElement {
     return statusMap[status] ?? 'connected'
   }
 
-  /** Иконка для статуса каталога */
+  /**Icon for catalog status*/
   private getCatalogIcon(): string {
     const status = getAppContext().store.catalogStatus()
     const iconMap: Record<string, string> = {
@@ -294,15 +304,15 @@ export class StatusBar extends XLitElement {
     const statusClass = this.getWsStatusClass()
     const statusLabel =
       wsStatus === 'connected'
-        ? i18n('statusbar:connection:connected' as any)
+        ? i18n('statusbar:connection:connected')
         : wsStatus === 'connecting'
-          ? i18n('statusbar:connection:connecting' as any)
-          : i18n('statusbar:connection:offline' as any)
+          ? i18n('statusbar:connection:connecting')
+          : i18n('statusbar:connection:offline')
 
     return html`
       <div
         class="status-indicator ${statusClass}"
-        title="${i18n('statusbar:connection' as any)}: ${statusLabel}"
+        title="${i18n('statusbar:connection')}: ${statusLabel}"
       >
         <div class="status-icon">
           <cv-icon
@@ -324,15 +334,15 @@ export class StatusBar extends XLitElement {
     const icon = this.getCatalogIcon()
 
     const labelMap: Record<string, string> = {
-      idle: i18n('statusbar:catalog:idle' as any),
-      syncing: i18n('statusbar:catalog:syncing' as any),
-      loading: i18n('statusbar:catalog:loading' as any),
-      error: i18n('statusbar:catalog:error' as any),
+      idle: i18n('statusbar:catalog:idle'),
+      syncing: i18n('statusbar:catalog:syncing'),
+      loading: i18n('statusbar:catalog:loading'),
+      error: i18n('statusbar:catalog:error'),
     }
-    const label = labelMap[catalogStatus] ?? i18n('statusbar:catalog:ready' as any)
+    const label = labelMap[catalogStatus] ?? i18n('statusbar:catalog:ready')
 
     const isRecent = statusMessage && Date.now() - statusMessage.timestamp < 5000
-    const tooltipText = isRecent ? statusMessage.message : `${i18n('statusbar:catalog' as any)}: ${label}`
+    const tooltipText = isRecent ? statusMessage.message : `${i18n('statusbar:catalog')}: ${label}`
 
     return html`
       <div class="status-indicator ${statusClass}" title="${tooltipText}">
@@ -351,8 +361,28 @@ export class StatusBar extends XLitElement {
     return html`
       <div class="selection-counter">
         <cv-icon size="s" name="check-square"></cv-icon>
-        <span class="counter-text">${i18n('statusbar:selected' as any)}:</span>
+        <span class="counter-text">${i18n('statusbar:selected')}:</span>
         <span>${selectedCount}</span>
+      </div>
+    `
+  }
+
+  private renderAndroidSharePending() {
+    const summary = androidShareImportModel.pendingLockedSummary()
+    if (!summary) return nothing
+
+    const label = i18n('statusbar:android-share-pending', {count: String(summary.fileCount)})
+    const tooltip = i18n('statusbar:android-share-pending:detail', {
+      count: String(summary.fileCount),
+      unknown: String(summary.unknownSizes),
+    })
+
+    return html`
+      <div class="status-indicator syncing" title=${tooltip}>
+        <div class="status-icon">
+          <cv-icon size="s" name="upload"></cv-icon>
+        </div>
+        <span class="status-text">${label}</span>
       </div>
     `
   }
@@ -361,20 +391,18 @@ export class StatusBar extends XLitElement {
     const store = getAppContext().store
     const enabled = store.selectionMode()
     return html`
-      <button
+      <cv-button unstyled
         class="selection-mode-toggle ${enabled ? 'active' : ''}"
-        title=${`${i18n('statusbar:selection-mode' as any)}: ${i18n(
-          enabled ? ('statusbar:selection-mode:on' as any) : ('statusbar:selection-mode:off' as any),
+        title=${`${i18n('statusbar:selection-mode')}: ${i18n(
+          enabled ? 'statusbar:selection-mode:on' : 'statusbar:selection-mode:off',
         )}`}
         aria-pressed=${enabled ? 'true' : 'false'}
-        aria-label=${i18n(
-          enabled ? ('statusbar:selection-mode:disable' as any) : ('statusbar:selection-mode:enable' as any),
-        )}
+        aria-label=${i18n(enabled ? 'statusbar:selection-mode:disable' : 'statusbar:selection-mode:enable')}
         @click=${this.onToggleSelectionMode}
       >
-        <cv-icon size="s" name="check-square"></cv-icon>
-        <span>${i18n('statusbar:selection-mode' as any)}</span>
-      </button>
+        <cv-icon slot="prefix" size="s" name="check-square"></cv-icon>
+        <span>${i18n('statusbar:selection-mode')}</span>
+      </cv-button>
     `
   }
 
@@ -383,22 +411,27 @@ export class StatusBar extends XLitElement {
     if (!lastError) return nothing
 
     return html`
-      <div class="error-banner">
-        <cv-icon size="s" name="alert-circle"></cv-icon>
-        <span class="error-text" title=${lastError}>${lastError}</span>
-        <button class="error-dismiss" @click=${this.onDismissError} aria-label=${i18n('button:close' as any)}>
-          <cv-icon size="s" name="x"></cv-icon>
-        </button>
-      </div>
+      <cv-callout
+        class="status-error-callout"
+        variant="danger"
+        closable
+        role="alert"
+        @cv-close=${this.onDismissError}
+      >
+        <cv-icon slot="icon" size="s" name="alert-circle"></cv-icon>
+        <span class="status-error-text" title=${lastError}>${lastError}</span>
+      </cv-callout>
     `
   }
 
-  private onDismissError = () => {
-    // Очищаем ошибку через store если есть такой метод
-    const store = getAppContext().store
-    if (typeof (store as any).clearLastError === 'function') {
-      ;(store as any).clearLastError()
-    }
+  private renderMediaMiniControls() {
+    if (!mediaPlaybackModel.miniControlsVisible()) return nothing
+
+    return html`<media-mini-player variant="statusbar"></media-mini-player>`
+  }
+
+  private onDismissError() {
+    getAppContext().store.clearLastError()
   }
 
   private onToggleSelectionMode = () => {
@@ -407,14 +440,16 @@ export class StatusBar extends XLitElement {
 
   render() {
     return html`
-      <nav class="status-bar" role="navigation" aria-label=${i18n('statusbar:system' as any)}>
+      <nav class="status-bar" role="navigation" aria-label=${i18n('statusbar:system')}>
         <div class="status-indicators">
           ${this.renderConnectionStatus()}
           <div class="divider"></div>
           ${this.renderCatalogStatus()}
+          ${this.renderAndroidSharePending()}
         </div>
 
-        ${this.renderSelectionModeToggle()} ${this.renderSelectionCounter()} ${this.renderError()}
+        ${this.renderMediaMiniControls()} ${this.renderSelectionModeToggle()} ${this.renderSelectionCounter()}
+        ${this.renderError()}
       </nav>
     `
   }

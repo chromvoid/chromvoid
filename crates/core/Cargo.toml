@@ -24,10 +24,17 @@ serde.workspace = true
 serde_json.workspace = true
 serde_repr.workspace = true
 base64.workspace = true
+ed25519-dalek.workspace = true
+p256.workspace = true
+rand_core.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+icu_properties = "2.1.2"
+unicode-normalization = "0.1"
 tar.workspace = true
 tempfile.workspace = true
 regex = "1"
 url = "2"
+tracing = "0.1"
 
 # OTP
 totp-rs.workspace = true
@@ -39,6 +46,7 @@ ts-rs = { workspace = true, optional = true }
 thiserror.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 keyring = { version = "3.6.3", default-features = false, features = ["apple-native"] }

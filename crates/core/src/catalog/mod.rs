@@ -17,7 +17,7 @@ pub mod system_shard;
 mod traversal;
 
 pub use manager::CatalogManager;
-pub use node::CatalogNode;
+pub use node::{CatalogMediaInfo, CatalogMediaKind, CatalogNode};
 pub use serialize::{deserialize_catalog, serialize_catalog};
 
 pub use delta::{
@@ -29,4 +29,7 @@ pub use sharded::{
     create_root_index_from_shards, merge_shards_to_catalog, split_into_shards,
     ShardedCatalogManager,
 };
-pub use system_shard::{is_system_path, is_system_shard_id, shard_id_from_path};
+pub use system_shard::{
+    eager_system_shard_ids, is_eager_system_shard_id, is_system_path, is_system_shard_id,
+    shard_id_from_path, PASSKEYS_SHARD_ID, PASSMANAGER_SHARD_ID, WALLET_SHARD_ID,
+};

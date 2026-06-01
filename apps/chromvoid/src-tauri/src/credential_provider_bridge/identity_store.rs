@@ -1,19 +1,22 @@
 use objc2::AnyThread;
 use serde_json::{json, Value};
+use tauri::Manager;
 use tracing::{error, info, warn};
 
+use super::identity_candidate::parse_credential_identity_candidate;
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 
 /// Sync credentials to ASCredentialIdentityStore on vault unlock.
 /// Collects all password entries and registers them so macOS AutoFill
 /// knows which credentials we can provide.
-pub fn sync_credential_identities_on_unlock(_app_handle: &tauri::AppHandle) {
+pub fn sync_credential_identities_on_unlock(app_handle: &tauri::AppHandle) {
     info!("credential_provider_bridge: syncing credential identities on vault unlock");
 
-    let Some(adapter_handle) = super::shared_app_adapter() else {
-        warn!("credential_provider_bridge: shared app adapter is not registered");
+    let Some(state) = app_handle.try_state::<crate::app_state::AppState>() else {
+        warn!("credential_provider_bridge: AppState is not available");
         return;
     };
+    let adapter_handle = state.adapter.clone();
 
     let candidates = match adapter_handle.lock() {
         Ok(mut adapter) => {
@@ -62,23 +65,19 @@ fn replace_credential_identities(candidates: &[Value]) {
 
     let count = candidates.len();
 
+    // SAFETY: objc2 ObjC API; sharedStore returns a +0 singleton; identities array and completion block
+    // outlive the call (completion is RcBlock-owned).
     unsafe {
         let store = ASCredentialIdentityStore::sharedStore();
 
         let identities: Vec<objc2::rc::Retained<ASPasswordCredentialIdentity>> = candidates
             .iter()
             .filter_map(|c| {
-                let credential_id = c.get("credential_id")?.as_str()?;
-                let username = c.get("username").and_then(|v| v.as_str()).unwrap_or("");
-                let domain = c.get("domain").and_then(|v| v.as_str()).unwrap_or("");
-
-                if domain.is_empty() {
-                    return None;
-                }
+                let candidate = parse_credential_identity_candidate(c)?;
 
                 let service_id = ASCredentialServiceIdentifier::initWithIdentifier_type(
                     ASCredentialServiceIdentifier::alloc(),
-                    &NSString::from_str(domain),
+                    &NSString::from_str(candidate.domain),
                     ASCredentialServiceIdentifierType::Domain,
                 );
 
@@ -86,8 +85,8 @@ fn replace_credential_identities(candidates: &[Value]) {
                     ASPasswordCredentialIdentity::initWithServiceIdentifier_user_recordIdentifier(
                         ASPasswordCredentialIdentity::alloc(),
                         &service_id,
-                        &NSString::from_str(username),
-                        Some(&NSString::from_str(credential_id)),
+                        &NSString::from_str(candidate.username),
+                        Some(&NSString::from_str(candidate.credential_id)),
                     );
 
                 Some(identity)
@@ -119,6 +118,7 @@ fn replace_credential_identities(candidates: &[Value]) {
 fn remove_all_credential_identities() {
     use objc2_authentication_services::ASCredentialIdentityStore;
 
+    // SAFETY: objc2 ObjC API; sharedStore returns a +0 singleton; completion block outlives the call (RcBlock-owned).
     unsafe {
         let store = ASCredentialIdentityStore::sharedStore();
 

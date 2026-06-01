@@ -1,3 +1,5 @@
 export * from './group-create'
+export * from './group-create-mobile'
+export * from './group-create-base'
 export * from './group-create.model'
 export * from './styles'

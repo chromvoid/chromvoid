@@ -5,6 +5,14 @@ type RpcErr = {ok: false; error: string; code?: string | null}
 type RpcResult<T> = RpcOk<T> | RpcErr
 type RpcCommandResult<T> = {command: string; result: T}
 
+export interface PasswordStrengthFeedback {
+  score: number
+  feedback: {
+    warning: string
+    suggestions: string[]
+  }
+}
+
 function isOk<T>(res: RpcResult<T>): res is RpcOk<T> {
   return typeof res === 'object' && res !== null && 'ok' in res && (res as {ok: unknown}).ok === true
 }
@@ -52,4 +60,12 @@ export async function tauriRpc<T = unknown>(command: string, data: Record<string
     throw new RpcError(`rpc_dispatch command mismatch: expected ${command}`, 'INTERNAL')
   }
   return res.result.result
+}
+
+export async function estimatePasswordStrength(password: string): Promise<PasswordStrengthFeedback> {
+  const res = await tauriInvoke<RpcResult<PasswordStrengthFeedback>>('password_strength_estimate', {password})
+  if (!isOk(res)) {
+    throw new RpcError(res.error, res.code ?? null)
+  }
+  return res.result
 }

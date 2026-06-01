@@ -1,90 +1,102 @@
-import {state} from '@statx/core'
+import {atom} from '@reatom/core'
+import {normalizeCredentialTags} from '@project/passmanager/tags'
 
 import type {TransportEventHandler, TransportLike} from '../transport'
+import type {
+  CatalogFileReplaceOptions,
+  CatalogFileReplaceResult,
+  CatalogSourceMetadata,
+} from '../../catalog/catalog'
+import {normalizeFileMediaInfo, toCompactFileMediaInfo} from '../../catalog/media-info'
 import {
   CatalogEventType,
   type CatalogEvent,
+  type CatalogFolderFilter,
+  type CatalogFolderPageRequest,
+  type CatalogFolderSort,
   type CatalogJSON,
+  type CatalogNotesListItem,
   type NodeType,
 } from '../../catalog/local-catalog/types'
 import {normalizePath, splitPath} from '../../catalog/local-catalog/path'
 
-type HandlerSet = Set<TransportEventHandler>
+import {
+  MOCK_TRANSPORT_LOG_ENDPOINT,
+  type HandlerSet,
+  type MockNode,
+  type MockPassmanagerFolderMeta,
+  type MockPassmanagerIcon,
+  type MockTransportLogChannel,
+  type MockTransportLogEntry,
+  type PersistedPassmanagerState,
+  type PersistedState,
+} from './mock-transport.types'
+import {
+  base64ToUint8,
+  createMockSshKeyMaterial,
+  err,
+  nextSourceRevision,
+  ok,
+  readFileBytes,
+  toBooleanValue,
+  toNumberValue,
+  toOptionalString,
+  toStringValue,
+  uint8ToArrayBuffer,
+  uint8ToBase64,
+} from './mock-transport.utils'
+import type {FileMediaInfo} from '../../catalog/media-info'
 
-type Ok<T> = {ok: true; result: T}
-
-type Err = {ok: false; error: string}
-
-type MockNode = {
-  id: number
-  type: NodeType
-  name: string
-  size: number
-  modtime: number
-  parentId: number | null
-  children: number[]
-  mimeType?: string
+function mockExtension(name: string): string {
+  const dot = name.lastIndexOf('.')
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : ''
 }
 
-function ok<T>(result: T): Ok<T> {
-  return {ok: true, result}
+function mockParentPath(path: string): string {
+  const normalized = normalizePath(path)
+  if (normalized === '/') return '/'
+  const index = normalized.lastIndexOf('/')
+  return index <= 0 ? '/' : `${normalized.slice(0, index)}/`
 }
 
-function err(message: string): Err {
-  return {ok: false, error: message}
-}
+function inferMockMediaInfo(name: string, mimeType?: string | null): FileMediaInfo | null {
+  const ext = mockExtension(name)
+  const normalizedMime = (mimeType ?? '').split(';', 1)[0]!.trim().toLowerCase()
+  const normalizedName = name.toLowerCase()
 
-function toStringValue(v: unknown): string | undefined {
-  return typeof v === 'string' ? v : undefined
-}
-
-function toBooleanValue(v: unknown): boolean | undefined {
-  return typeof v === 'boolean' ? v : undefined
-}
-
-function toNumberValue(v: unknown): number | undefined {
-  if (typeof v !== 'number') return undefined
-  if (!Number.isFinite(v)) return undefined
-  return v
-}
-
-function toOptionalString(v: unknown): string | undefined {
-  const s = toStringValue(v)
-  return s && s.length > 0 ? s : undefined
-}
-
-function uint8ToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]!)
+  if (ext === 'm4a' || normalizedMime === 'audio/mp4' || normalizedName.includes('audio-only')) {
+    return {
+      kind: 'audio',
+      audioTracks: 1,
+      videoTracks: 0,
+      playbackMimeType: 'audio/mp4',
+    }
   }
-  return btoa(binary)
-}
 
-function base64ToUint8(b64: string): Uint8Array {
-  const binary = atob(b64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i)
+  if (
+    (ext === 'mp4' || ext === 'mov') &&
+    (normalizedMime === 'video/mp4' ||
+      normalizedMime === 'video/quicktime' ||
+      normalizedName.includes('video') ||
+      normalizedName.includes('movie'))
+  ) {
+    return {
+      kind: 'video',
+      audioTracks: normalizedName.includes('audio-video') ? 1 : 0,
+      videoTracks: 1,
+      playbackMimeType: ext === 'mov' ? 'video/quicktime' : 'video/mp4',
+    }
   }
-  return bytes
-}
 
-type PersistedState = {
-  version: 1
-  nextId: number
-  nodes: [number, MockNode][]
-  files: [number, string][]
-  secrets: [number, string][]
-  otpSecrets: [string, {secret: string; digits: number; period: number}][]
+  return null
 }
 
 export class MockTransport implements TransportLike {
   readonly kind = 'ws' as const
 
-  connected = state(false)
-  connecting = state(false)
-  lastError = state<string | undefined>(undefined)
+  connected = atom(false)
+  connecting = atom(false)
+  lastError = atom<string | undefined>(undefined)
 
   private handlers = new Map<string, HandlerSet>()
 
@@ -94,6 +106,14 @@ export class MockTransport implements TransportLike {
   private otpSecrets = new Map<string, {secret: string; digits: number; period: number}>()
 
   private nextId = 1
+  private passmanagerRevision = 0
+  private passmanagerNextNodeId = 1
+  private passmanagerFolders = new Set<string>()
+  private passmanagerFolderMeta = new Map<string, MockPassmanagerFolderMeta>()
+  private passmanagerEntries = new Map<string, {nodeId: number; meta: Record<string, unknown>}>()
+  private passmanagerSecrets = new Map<string, string>()
+  private passmanagerOtpSecrets = new Map<string, {secret: string; digits: number; period: number}>()
+  private passmanagerIcons = new Map<string, MockPassmanagerIcon>()
 
   private saveTimer: ReturnType<typeof setTimeout> | null = null
   private static readonly SAVE_DEBOUNCE_MS = 500
@@ -129,6 +149,40 @@ export class MockTransport implements TransportLike {
     return JSON.stringify(data)
   }
 
+  private serializePassmanager(): string {
+    const data: PersistedPassmanagerState = {
+      version: 1,
+      revision: this.passmanagerRevision,
+      nextNodeId: this.passmanagerNextNodeId,
+      folders: Array.from(this.passmanagerFolders).sort(),
+      foldersMeta: Array.from(this.passmanagerFolderMeta.entries())
+        .map(([path, meta]) => ({
+          path,
+          ...('iconRef' in meta ? {iconRef: meta.iconRef ?? null} : {}),
+          ...('description' in meta ? {description: meta.description ?? null} : {}),
+        }))
+        .sort((left, right) => left.path.localeCompare(right.path)),
+      entries: Array.from(this.passmanagerEntries.entries())
+        .map(([, value]) => ({
+          nodeId: value.nodeId,
+          meta: structuredClone(value.meta),
+        }))
+        .sort((left, right) => {
+          const leftId = typeof left.meta['id'] === 'string' ? left.meta['id'] : ''
+          const rightId = typeof right.meta['id'] === 'string' ? right.meta['id'] : ''
+          return leftId.localeCompare(rightId)
+        }),
+      secrets: Array.from(this.passmanagerSecrets.entries()).sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
+      otpSecrets: Array.from(this.passmanagerOtpSecrets.entries()).sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
+      icons: Array.from(this.passmanagerIcons.entries()).sort(([left], [right]) => left.localeCompare(right)),
+    }
+    return JSON.stringify(data)
+  }
+
   private deserialize(json: PersistedState): void {
     this.nodes.clear()
     for (const [id, node] of json.nodes) {
@@ -153,6 +207,85 @@ export class MockTransport implements TransportLike {
     this.nextId = json.nextId
   }
 
+  private deserializePassmanager(json: PersistedPassmanagerState): void {
+    this.passmanagerRevision = typeof json.revision === 'number' ? json.revision : 0
+    this.passmanagerNextNodeId = typeof json.nextNodeId === 'number' ? json.nextNodeId : 1
+
+    this.passmanagerFolders.clear()
+    for (const folder of json.folders ?? []) {
+      const normalized = this.normalizePassmanagerFolderPath(folder)
+      if (!normalized) continue
+      this.passmanagerFolders.add(normalized)
+    }
+
+    this.passmanagerFolderMeta.clear()
+    for (const item of json.foldersMeta ?? []) {
+      if (!item || typeof item !== 'object') continue
+      const path = this.normalizePassmanagerFolderPath((item as {path?: string}).path)
+      if (!path) continue
+      const nextMeta: MockPassmanagerFolderMeta = {}
+      if ('iconRef' in item) {
+        const iconRef = typeof item.iconRef === 'string' && item.iconRef.trim() ? item.iconRef : null
+        if (iconRef) nextMeta.iconRef = iconRef
+      }
+      if ('description' in item) {
+        const description =
+          typeof item.description === 'string' && item.description.trim() ? item.description.trim() : null
+        if (description) nextMeta.description = description
+      }
+      if ('iconRef' in nextMeta || 'description' in nextMeta) {
+        this.passmanagerFolderMeta.set(path, nextMeta)
+      }
+    }
+
+    this.passmanagerEntries.clear()
+    for (const item of json.entries ?? []) {
+      if (!item || typeof item !== 'object') continue
+      const metaRaw = item.meta && typeof item.meta === 'object' ? structuredClone(item.meta) : undefined
+      if (!metaRaw) continue
+      const meta = metaRaw as Record<string, unknown>
+      const entryId = toOptionalString(meta['id'] ?? meta['entry_id'])
+      if (!entryId) continue
+      const nodeId =
+        typeof item.nodeId === 'number' && Number.isFinite(item.nodeId)
+          ? Math.trunc(item.nodeId)
+          : this.passmanagerNextNodeId++
+      const folderPath = this.normalizePassmanagerFolderPath(meta['folderPath'] ?? meta['groupPath'])
+      if (folderPath) {
+        meta['folderPath'] = folderPath
+        this.ensurePassmanagerFolder(folderPath)
+      } else {
+        delete meta['folderPath']
+      }
+      this.passmanagerEntries.set(entryId, {nodeId, meta})
+      this.passmanagerNextNodeId = Math.max(this.passmanagerNextNodeId, nodeId + 1)
+    }
+
+    this.passmanagerSecrets.clear()
+    for (const [key, value] of json.secrets ?? []) {
+      if (typeof key !== 'string' || typeof value !== 'string') continue
+      this.passmanagerSecrets.set(key, value)
+    }
+
+    this.passmanagerOtpSecrets.clear()
+    for (const [key, value] of json.otpSecrets ?? []) {
+      if (typeof key !== 'string' || !value || typeof value !== 'object') continue
+      const secret = toOptionalString((value as {secret?: unknown}).secret)
+      if (!secret) continue
+      this.passmanagerOtpSecrets.set(key, {
+        secret,
+        digits: toNumberValue((value as {digits?: unknown}).digits) ?? 6,
+        period: toNumberValue((value as {period?: unknown}).period) ?? 30,
+      })
+    }
+
+    this.passmanagerIcons.clear()
+    for (const [key, value] of json.icons ?? []) {
+      if (typeof key !== 'string' || !value || typeof value !== 'object') continue
+      this.passmanagerIcons.set(key, structuredClone(value))
+    }
+  }
+
   private scheduleSave(): void {
     if (this.saveTimer !== null) {
       clearTimeout(this.saveTimer)
@@ -164,27 +297,58 @@ export class MockTransport implements TransportLike {
   }
 
   private async persistToDisk(): Promise<void> {
-    const body = this.serialize()
-    await fetch('/api/mock-state', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body,
-    })
+    const catalogBody = this.serialize()
+    const passmanagerBody = this.serializePassmanager()
+    await Promise.all([
+      fetch('/api/mock-state', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: catalogBody,
+      }),
+      fetch('/api/mock-passmanager-state', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: passmanagerBody,
+      }),
+    ])
   }
 
   private async loadFromDisk(): Promise<boolean> {
     try {
-      const resp = await fetch('/api/mock-state')
-      if (!resp.ok) return false
-      const json = (await resp.json()) as PersistedState
-      if (!json || json.version !== 1 || !Array.isArray(json.nodes)) return false
-      this.deserialize(json)
-      console.info(
-        '[MockTransport] Restored persisted state (%d nodes, %d files)',
-        this.nodes.size,
-        this.files.size,
-      )
-      return true
+      const [catalogResp, passmanagerResp] = await Promise.all([
+        fetch('/api/mock-state').catch(() => undefined),
+        fetch('/api/mock-passmanager-state').catch(() => undefined),
+      ])
+
+      let restored = false
+
+      if (catalogResp?.ok) {
+        const persisted = (await catalogResp.json()) as PersistedState
+        if (persisted && persisted.version === 1 && Array.isArray(persisted.nodes)) {
+          this.deserialize(persisted)
+          restored = true
+          console.info(
+            '[MockTransport] Restored persisted catalog state (%d nodes, %d files)',
+            this.nodes.size,
+            this.files.size,
+          )
+        }
+      }
+
+      if (passmanagerResp?.ok) {
+        const persistedPassmanager = (await passmanagerResp.json()) as PersistedPassmanagerState
+        if (persistedPassmanager && persistedPassmanager.version === 1) {
+          this.deserializePassmanager(persistedPassmanager)
+          restored = true
+          console.info(
+            '[MockTransport] Restored persisted passmanager state (%d folders, %d entries)',
+            this.passmanagerFolders.size,
+            this.passmanagerEntries.size,
+          )
+        }
+      }
+
+      return restored
     } catch {
       return false
     }
@@ -241,12 +405,6 @@ export class MockTransport implements TransportLike {
     }
   }
 
-  private root(): MockNode {
-    const root = this.nodes.get(0)
-    if (!root) throw new Error('MockTransport root node missing')
-    return root
-  }
-
   private getNode(id: number): MockNode | undefined {
     return this.nodes.get(id)
   }
@@ -278,21 +436,74 @@ export class MockTransport implements TransportLike {
     return cur
   }
 
-  private readJsonFile(nodeId: number): unknown | undefined {
-    const bytes = this.files.get(nodeId)
-    if (!bytes) return undefined
-    try {
-      return JSON.parse(new TextDecoder().decode(bytes))
-    } catch {
-      return undefined
+  private ensureFileSourceRevision(node: MockNode): number {
+    if (node.type !== 1) return node.sourceRevision ?? 0
+    if (node.sourceRevision === undefined || node.sourceRevision <= 0) {
+      node.sourceRevision = nextSourceRevision(node.sourceRevision)
     }
+    return node.sourceRevision
+  }
+
+  private emitFileUpdated(node: MockNode): void {
+    const updateEvent: CatalogEvent = {
+      type: CatalogEventType.NODE_UPDATED,
+      nodeId: node.id,
+      timestamp: node.modtime,
+      version: 0,
+      metadata: {
+        size: node.size,
+        mime: node.mimeType,
+        modtime: node.modtime,
+        sourceRevision: node.sourceRevision,
+        mediaInspectedRevision: node.mediaInspectedRevision,
+        mediaInfo: node.mediaInfo ?? null,
+      },
+    }
+    this.emit('catalog:event', updateEvent)
+  }
+
+  private normalizePassmanagerFolderPath(value: unknown): string {
+    if (typeof value !== 'string') return ''
+    return value
+      .split('/')
+      .map((segment) => segment.trim())
+      .filter(Boolean)
+      .join('/')
+  }
+
+  private normalizeIconBackgroundColor(value: unknown): string | null {
+    if (value === null) return null
+    const color = toOptionalString(value)?.toLowerCase()
+    if (!color || color.length !== 7 || color.charAt(0) !== String.fromCharCode(35)) return null
+    for (let index = 1; index < color.length; index += 1) {
+      const code = color.charCodeAt(index)
+      if (!((code >= 48 && code <= 57) || (code >= 97 && code <= 102))) return null
+    }
+    return color
+  }
+
+  private ensurePassmanagerFolder(folderPath: string): void {
+    const normalized = this.normalizePassmanagerFolderPath(folderPath)
+    if (!normalized) return
+
+    let current = ''
+    for (const segment of normalized.split('/')) {
+      current = current ? `${current}/${segment}` : segment
+      this.passmanagerFolders.add(current)
+    }
+  }
+
+  private bumpPassmanagerRevision(): void {
+    this.passmanagerRevision += 1
+    this.emit('passmanager:changed', {revision: this.passmanagerRevision})
+    this.scheduleSave()
   }
 
   private resolvePassmanagerOtpTarget(params: {
     otpId?: string
     entryId?: string
     label?: string
-  }): {nodeId: number; label: string} | undefined {
+  }): {entryId: string; label: string; key: string} | undefined {
     const normalize = (value: unknown): string | undefined => {
       if (typeof value !== 'string') return undefined
       const trimmed = value.trim()
@@ -305,54 +516,31 @@ export class MockTransport implements TransportLike {
 
     if (!otpId && !entryId) return undefined
 
-    const rootId = this.findIdByPath('/.passmanager')
-    if (rootId === undefined) return undefined
+    for (const [currentEntryId, entry] of this.passmanagerEntries.entries()) {
+      if (entryId && currentEntryId !== entryId) continue
+      const otps = Array.isArray(entry.meta['otps'])
+        ? (entry.meta['otps'] as Array<{id?: unknown; label?: unknown}>)
+        : []
 
-    const walk = (dirId: number): {nodeId: number; label: string} | undefined => {
-      const dir = this.nodes.get(dirId)
-      if (!dir) return undefined
-
-      for (const childId of dir.children) {
-        const child = this.nodes.get(childId)
-        if (!child || (child.type !== 0 && child.type !== 255)) continue
-
-        const metaNodeId = child.children.find((id) => {
-          const node = this.nodes.get(id)
-          return node?.type === 1 && node.name === 'meta.json'
-        })
-        if (metaNodeId !== undefined) {
-          const meta = this.readJsonFile(metaNodeId) as
-            | {id?: string; otps?: Array<{id?: string; label?: string}>}
-            | undefined
-          if (!meta) continue
-
-          const otps = Array.isArray(meta.otps) ? meta.otps : []
-          if (otpId) {
-            const found = otps.find((otp) => normalize(otp?.id) === otpId)
-            if (found) {
-              const label = normalize(found.label) ?? normalize(found.id) ?? fallbackLabel ?? otpId
-              return {nodeId: child.id, label}
-            }
-          }
-
-          if (entryId && normalize(meta.id) === entryId) {
-            const label =
-              fallbackLabel ??
-              (otps.length === 1 ? (normalize(otps[0]?.label) ?? normalize(otps[0]?.id)) : undefined)
-            if (label) {
-              return {nodeId: child.id, label}
-            }
-          }
-          continue
+      if (otpId) {
+        const found = otps.find((otp) => normalize(otp?.id) === otpId)
+        if (found) {
+          const label = normalize(found.label) ?? normalize(found.id) ?? fallbackLabel ?? otpId
+          return {entryId: currentEntryId, label, key: `${currentEntryId}:${label}`}
         }
-
-        const nested = walk(child.id)
-        if (nested) return nested
       }
-      return undefined
+
+      if (entryId && currentEntryId === entryId) {
+        const label =
+          fallbackLabel ??
+          (otps.length === 1 ? (normalize(otps[0]?.label) ?? normalize(otps[0]?.id)) : undefined)
+        if (label) {
+          return {entryId: currentEntryId, label, key: `${currentEntryId}:${label}`}
+        }
+      }
     }
 
-    return walk(rootId)
+    return undefined
   }
 
   private createNode(params: {
@@ -375,6 +563,7 @@ export class MockTransport implements TransportLike {
       parentId: params.parentId,
       children: [],
       mimeType: params.mimeType,
+      mediaInfo: normalizeFileMediaInfo((params as {mediaInfo?: unknown}).mediaInfo),
     }
 
     this.nodes.set(node.id, node)
@@ -391,6 +580,8 @@ export class MockTransport implements TransportLike {
         type: node.type,
         size: node.size,
         mimeType: node.mimeType,
+        sourceRevision: node.sourceRevision,
+        mediaInfo: node.mediaInfo ?? null,
       },
     }
     this.emit('catalog:event', event)
@@ -503,603 +694,958 @@ export class MockTransport implements TransportLike {
       b: 0,
       m: node.modtime,
       y: node.mimeType,
+      r: node.sourceRevision,
+      q: node.mediaInspectedRevision,
+      u: node.mediaInfo ? toCompactFileMediaInfo(node.mediaInfo) : undefined,
       c: children,
     }
 
     return out
   }
 
-  // ── Passmanager domain helpers ─────────────────────────────
-
-  private ensurePassmanagerRoot(): number {
-    let rootId = this.findIdByPath('/.passmanager')
-    if (rootId === undefined) {
-      const node = this.createNode({parentId: 0, name: '.passmanager', type: 0})
-      rootId = node.id
+  private toCatalogSummaryJSON(id: number): CatalogJSON {
+    const full = this.toCatalogJSON(id)
+    const node = this.nodes.get(id)
+    return {
+      ...full,
+      c: undefined,
+      h: Boolean(node && (node.type === 0 || node.type === 255) && node.children.length > 0),
     }
-    return rootId
   }
 
-  private ensureGroupPathChain(groupPath: string): number {
-    const pmRoot = this.ensurePassmanagerRoot()
-    if (!groupPath || groupPath === '/') return pmRoot
+  private toCatalogFolderItem(node: MockNode) {
+    return {
+      node_id: node.id,
+      name: node.name,
+      is_dir: node.type === 0 || node.type === 255,
+      size: node.type === 1 ? node.size : null,
+      mime_type: node.mimeType ?? null,
+      media_info: node.mediaInfo ?? null,
+      media_inspected_revision: node.mediaInspectedRevision ?? 0,
+      created_at: node.modtime,
+      updated_at: node.modtime,
+    }
+  }
 
-    const parts = groupPath.split('/').filter(Boolean)
-    let currentId = pmRoot
-    for (const part of parts) {
-      const node = this.nodes.get(currentId)
-      if (!node) throw new Error(`Node missing during group ensure: ${currentId}`)
-      const childId = node.children.find((id) => this.nodes.get(id)?.name === part)
-      if (childId !== undefined) {
-        currentId = childId
-      } else {
-        const newNode = this.createNode({parentId: currentId, name: part, type: 0})
-        currentId = newNode.id
+  private mockNodeMatchesFilter(
+    parentPath: string,
+    node: MockNode,
+    filter?: CatalogFolderFilter | null,
+  ): boolean {
+    if (!filter?.include_hidden && node.name.startsWith('.')) return false
+
+    const query = filter?.query?.trim().toLowerCase()
+    if (query) {
+      const path = parentPath === '/' ? `/${node.name}` : `${parentPath}/${node.name}`
+      if (!node.name.toLowerCase().includes(query) && !path.toLowerCase().includes(query)) return false
+    }
+
+    const fileTypes = filter?.file_types ?? []
+    if (fileTypes.length > 0 && node.type === 1) {
+      const mime = node.mimeType?.toLowerCase() ?? ''
+      const ext = mockExtension(node.name)
+      if (!fileTypes.some((type) => mime.includes(type.toLowerCase()) || ext === type.toLowerCase())) {
+        return false
       }
     }
-    return currentId
+
+    return true
   }
 
-  private findEntryDirById(entryId: string): number | undefined {
-    const pmRoot = this.findIdByPath('/.passmanager')
-    if (pmRoot === undefined) return undefined
+  private compareMockNodes(sort?: CatalogFolderSort | null): (left: MockNode, right: MockNode) => number {
+    return (left, right) => {
+      const leftDir = left.type === 0 || left.type === 255
+      const rightDir = right.type === 0 || right.type === 255
+      if (leftDir !== rightDir) return leftDir ? -1 : 1
 
-    const walk = (dirId: number): number | undefined => {
-      const dir = this.nodes.get(dirId)
-      if (!dir) return undefined
-      for (const childId of dir.children) {
-        const child = this.nodes.get(childId)
-        if (!child || (child.type !== 0 && child.type !== 255)) continue
-        const metaFileId = child.children.find((id) => {
-          const n = this.nodes.get(id)
-          return n?.type === 1 && n.name === 'meta.json'
-        })
-        if (metaFileId !== undefined) {
-          const meta = this.readJsonFile(metaFileId) as {id?: string} | undefined
-          if (meta?.id === entryId) return child.id
-        } else {
-          const found = walk(child.id)
-          if (found !== undefined) return found
-        }
-      }
-      return undefined
+      const sortBy = sort?.by ?? 'name'
+      let result = 0
+      if (sortBy === 'size') result = left.size - right.size
+      else if (sortBy === 'date') result = left.modtime - right.modtime
+      else if (sortBy === 'type') result = mockExtension(left.name).localeCompare(mockExtension(right.name))
+      else result = left.name.localeCompare(right.name)
+
+      if (result === 0) result = left.name.localeCompare(right.name)
+      return sort?.direction === 'desc' ? -result : result
     }
-    return walk(pmRoot)
   }
 
-  private getMetaFileId(entryDirId: number): number | undefined {
-    const dir = this.nodes.get(entryDirId)
-    if (!dir) return undefined
-    return dir.children.find((id) => {
-      const n = this.nodes.get(id)
-      return n?.type === 1 && n.name === 'meta.json'
+  private getFolderPage(request: CatalogFolderPageRequest) {
+    const path = normalizePath(request.path || '/')
+    const id = this.findIdByPath(path)
+    if (id === undefined) return err(`Path not found: ${path}`)
+
+    const node = this.nodes.get(id)
+    if (!node) return err(`Path not found: ${path}`)
+
+    const limit = Math.max(1, Math.min(request.limit ?? 200, 500))
+    const offset = Math.max(0, request.offset ?? 0)
+    const children = node.children
+      .map((cid) => this.nodes.get(cid))
+      .filter((child): child is MockNode => Boolean(child))
+      .filter((child) => this.mockNodeMatchesFilter(path, child, request.filter))
+      .sort(this.compareMockNodes(request.sort))
+    const items = children.slice(offset, offset + limit).map((child) => this.toCatalogFolderItem(child))
+
+    return ok({
+      current_path: path,
+      version: 1,
+      total_count: children.length,
+      offset,
+      limit,
+      next_offset: offset + items.length < children.length ? offset + items.length : null,
+      reload_required: false,
+      items,
     })
   }
 
-  private getSecretFileId(entryDirId: number, secretType: string): number | undefined {
-    const dir = this.nodes.get(entryDirId)
-    if (!dir) return undefined
-    const fileName = `.${secretType}`
-    return dir.children.find((id) => {
-      const n = this.nodes.get(id)
-      return n?.type === 1 && n.name === fileName
-    })
+  private isMockMarkdownNote(node: MockNode): boolean {
+    if (node.type !== 1) return false
+    const ext = mockExtension(node.name)
+    const mime = node.mimeType?.split(';', 1)[0]?.trim().toLowerCase() ?? ''
+    return ext === 'md' || ext === 'markdown' || mime === 'text/markdown'
   }
 
-  private writeJsonToFile(nodeId: number, data: unknown): void {
-    const bytes = new TextEncoder().encode(JSON.stringify(data))
-    this.files.set(nodeId, bytes)
-    const node = this.nodes.get(nodeId)
-    if (node) {
-      node.size = bytes.byteLength
-      node.modtime = Date.now()
+  private collectMockNotes(parentPath: string, id: number, out: CatalogNotesListItem[]): void {
+    const node = this.nodes.get(id)
+    if (!node) return
+
+    for (const childId of node.children) {
+      const child = this.nodes.get(childId)
+      if (!child || child.name.startsWith('.')) continue
+
+      const path = parentPath === '/' ? `/${child.name}` : `${parentPath}/${child.name}`
+      if (child.type === 0 || child.type === 255) {
+        this.collectMockNotes(path, child.id, out)
+        continue
+      }
+
+      if (!this.isMockMarkdownNote(child)) continue
+
+      out.push({
+        node_id: child.id,
+        name: child.name,
+        path: normalizePath(path),
+        parent_path: mockParentPath(path),
+        size: child.size,
+        mime_type: child.mimeType ?? null,
+        source_revision: child.sourceRevision ?? 0,
+        created_at: child.modtime,
+        updated_at: child.modtime,
+      })
     }
-    this.scheduleSave()
+  }
+
+  private getNotesList() {
+    const items: CatalogNotesListItem[] = []
+    this.collectMockNotes('/', 0, items)
+    return ok({
+      version: 1,
+      items,
+    })
   }
 
   async sendCatalog(command: string, data: Record<string, unknown>): Promise<unknown> {
-    try {
-      switch (command) {
-        case 'catalog:syncInit': {
-          return ok({header: {version: 1, timestamp: Date.now()}, data: this.toCatalogJSON(0)})
-        }
+    if (command.startsWith('passmanager:')) {
+      return this.sendPassmanager(command, data)
+    }
 
-        case 'catalog:subscribe':
-        case 'catalog:unsubscribe': {
-          return ok(undefined)
-        }
-
-        case 'catalog:list': {
-          const path = toStringValue(data['path']) ?? '/'
-          const includeHidden = toBooleanValue(data['includeHidden'] ?? data['include_hidden']) ?? false
-          const id = this.findIdByPath(path)
-          if (id === undefined) return err(`Path not found: ${path}`)
-
-          const node = this.nodes.get(id)
-          if (!node) return err(`Path not found: ${path}`)
-
-          const items = node.children
-            .map((cid) => this.nodes.get(cid))
-            .filter((n): n is MockNode => Boolean(n))
-            .filter((n) => includeHidden || !n.name.startsWith('.'))
-            .map((n) => {
-              const nodePath = this.getPath(n.id)
-              return {
-                nodeId: n.id,
-                nodeType: n.type,
-                name: n.name,
-                size: n.size,
-                modtime: n.modtime,
-                isDir: n.type === 0 || n.type === 255,
-                isFile: n.type === 1,
-                isSymlink: n.type === 2,
-                path: nodePath,
-                hasChildren: n.children.length > 0,
-                mimeType: n.mimeType,
-              }
+    const result = await (async () => {
+      try {
+        switch (command) {
+          case 'catalog:sync:manifest': {
+            const root = this.nodes.get(0)
+            const children = root?.children ?? []
+            const rootSummaries = children
+              .map((id) => this.nodes.get(id))
+              .filter((node): node is MockNode => Boolean(node))
+              .filter((node) => !node.name.startsWith('.'))
+              .map((node) => this.toCatalogSummaryJSON(node.id))
+            return ok({
+              root_version: 1,
+              format: 'manifest',
+              manifest_budget_bytes: 128 * 1024,
+              shards: rootSummaries.map((node) => ({
+                shard_id: node.n,
+                version: 1,
+                size: node.s,
+                node_count: 1,
+                strategy: 'lazy',
+                has_deltas: false,
+                loaded: false,
+              })),
+              root_summaries: rootSummaries,
+              eager_data: {},
             })
-
-          return ok({currentPath: normalizePath(path), items})
-        }
-
-        case 'catalog:createDir': {
-          const name = toOptionalString(data['name'])
-          if (!name) return err('name is required')
-
-          const parentPath = toStringValue(data['parentPath'] ?? data['parent_path']) ?? '/'
-          const parentId = this.findIdByPath(parentPath)
-          if (parentId === undefined) return err(`Parent path not found: ${parentPath}`)
-
-          const parent = this.getNode(parentId)
-          if (!parent || (parent.type !== 0 && parent.type !== 255)) return err('Parent is not a directory')
-
-          const node = this.createNode({parentId, name, type: 0})
-          return ok({nodeId: node.id})
-        }
-
-        case 'catalog:rename': {
-          const nodeId = toNumberValue(data['nodeId'] ?? data['node_id'])
-          const newName = toOptionalString(data['newName'] ?? data['new_name'])
-          if (nodeId === undefined) return err('nodeId is required')
-          if (!newName) return err('newName is required')
-
-          this.renameNode(nodeId, newName)
-          return ok(undefined)
-        }
-
-        case 'catalog:delete': {
-          const nodeId = toNumberValue(data['nodeId'] ?? data['node_id'])
-          if (nodeId === undefined) return err('nodeId is required')
-
-          this.deleteNodeRecursive(nodeId)
-          return ok(undefined)
-        }
-
-        case 'catalog:move': {
-          const nodeId = toNumberValue(data['nodeId'] ?? data['node_id'])
-          const newParentPath = toStringValue(data['newParentPath'] ?? data['new_parent_path'])
-          const newName = toOptionalString(data['newName'] ?? data['new_name'])
-
-          if (nodeId === undefined) return err('nodeId is required')
-          if (!newParentPath) return err('newParentPath is required')
-
-          const newParentId = this.findIdByPath(newParentPath)
-          if (newParentId === undefined) return err(`New parent path not found: ${newParentPath}`)
-
-          this.moveNode({nodeId, newParentId, newName})
-          return ok(undefined)
-        }
-
-        case 'catalog:prepareUpload': {
-          const parentPath = toStringValue(data['parentPath'] ?? data['parent_path']) ?? '/'
-          const name = toOptionalString(data['name'])
-          const size = toNumberValue(data['size']) ?? 0
-          const chunkSize = toNumberValue(data['chunkSize'] ?? data['chunk_size'])
-          const mimeType = toOptionalString(data['mimeType'] ?? data['mime_type'])
-
-          if (!name) return err('name is required')
-
-          const parentId = this.findIdByPath(parentPath)
-          if (parentId === undefined) return err(`Parent path not found: ${parentPath}`)
-
-          const parent = this.getNode(parentId)
-          if (!parent || (parent.type !== 0 && parent.type !== 255)) return err('Parent is not a directory')
-
-          const node = this.createNode({parentId, name, type: 1, size, mimeType})
-
-          return ok({
-            nodeId: node.id,
-            meta: {
-              name: node.name,
-              type: node.mimeType ?? 'application/octet-stream',
-              chunkSize: chunkSize ?? 64 * 1024,
-            },
-          })
-        }
-
-        case 'passmanager:subscribe':
-        case 'passmanager:unsubscribe': {
-          return ok(undefined)
-        }
-
-        case 'passmanager:entry:save': {
-          const entryId = toOptionalString(data['entry_id']) ?? crypto.randomUUID()
-          const title = toOptionalString(data['title'])
-          if (!title) return err('title is required')
-          const urls = Array.isArray(data['urls']) ? (data['urls'] as string[]) : []
-          const username = toOptionalString(data['username'])
-          const groupPath = toOptionalString(data['group_path'])
-          const importSource = data['import_source']
-
-          const existingDirId = this.findEntryDirById(entryId)
-          if (existingDirId !== undefined) {
-            const metaFileId = this.getMetaFileId(existingDirId)
-            if (metaFileId !== undefined) {
-              const oldMeta = (this.readJsonFile(metaFileId) as Record<string, unknown>) ?? {}
-              this.writeJsonToFile(metaFileId, {
-                ...oldMeta,
-                id: entryId,
-                ...(importSource && typeof importSource === 'object' ? {import_source: importSource} : {}),
-                title,
-                urls,
-                username,
-                ...(Array.isArray(data['otps']) ? {otps: data['otps']} : {}),
-              })
-            }
-            return ok({entry_id: entryId})
           }
 
-          const parentId = groupPath ? this.ensureGroupPathChain(groupPath) : this.ensurePassmanagerRoot()
-          const entryDir = this.createNode({parentId, name: entryId, type: 0})
-          const metaFile = this.createNode({parentId: entryDir.id, name: 'meta.json', type: 1})
-          this.writeJsonToFile(metaFile.id, {
-            id: entryId,
-            ...(importSource && typeof importSource === 'object' ? {import_source: importSource} : {}),
-            title,
-            urls,
-            username,
-            ...(Array.isArray(data['otps']) ? {otps: data['otps']} : {}),
-          })
-          return ok({entry_id: entryId})
-        }
-
-        case 'passmanager:entry:read': {
-          const entryId = toOptionalString(data['entry_id'])
-          if (!entryId) return err('entry_id is required')
-          const dirId = this.findEntryDirById(entryId)
-          if (dirId === undefined) return err('entry_not_found')
-          const metaFileId = this.getMetaFileId(dirId)
-          if (metaFileId === undefined) return err('entry_not_found')
-          const meta = this.readJsonFile(metaFileId)
-          return ok({entry: meta})
-        }
-
-        case 'passmanager:entry:delete': {
-          const entryId = toOptionalString(data['entry_id'])
-          if (!entryId) return err('entry_id is required')
-          const dirId = this.findEntryDirById(entryId)
-          if (dirId === undefined) return err('entry_not_found')
-          this.deleteNodeRecursive(dirId)
-          return ok(undefined)
-        }
-
-        case 'passmanager:entry:move': {
-          const entryId = toOptionalString(data['entry_id'])
-          const targetGroupPath = toStringValue(data['target_group_path'])
-          if (!entryId) return err('entry_id is required')
-          if (targetGroupPath === undefined) return err('target_group_path is required')
-
-          const dirId = this.findEntryDirById(entryId)
-          if (dirId === undefined) return err('entry_not_found')
-
-          const newParentId = targetGroupPath
-            ? this.ensureGroupPathChain(targetGroupPath)
-            : this.ensurePassmanagerRoot()
-          this.moveNode({nodeId: dirId, newParentId})
-          return ok(undefined)
-        }
-
-        case 'passmanager:entry:rename': {
-          const entryId = toOptionalString(data['entry_id'])
-          const newTitle = toOptionalString(data['new_title'])
-          if (!entryId) return err('entry_id is required')
-          if (!newTitle) return err('new_title is required')
-
-          const dirId = this.findEntryDirById(entryId)
-          if (dirId === undefined) return err('entry_not_found')
-          const metaFileId = this.getMetaFileId(dirId)
-          if (metaFileId === undefined) return err('entry_not_found')
-
-          const meta = (this.readJsonFile(metaFileId) as Record<string, unknown>) ?? {}
-          meta['title'] = newTitle
-          this.writeJsonToFile(metaFileId, meta)
-          return ok(undefined)
-        }
-
-        case 'passmanager:entry:list': {
-          const pmRootId = this.findIdByPath('/.passmanager')
-          if (pmRootId === undefined) return ok({entries: [], folders: []})
-
-          const entries: Record<string, unknown>[] = []
-          const folders: Record<string, unknown>[] = []
-
-          const walk = (dirId: number, gPath: string) => {
-            const dir = this.nodes.get(dirId)
-            if (!dir) return
-            for (const childId of dir.children) {
-              const child = this.nodes.get(childId)
-              if (!child || (child.type !== 0 && child.type !== 255)) continue
-              const mfId = child.children.find((id) => {
-                const n = this.nodes.get(id)
-                return n?.type === 1 && n.name === 'meta.json'
-              })
-              if (mfId !== undefined) {
-                const meta = this.readJsonFile(mfId) as Record<string, unknown> | undefined
-                if (meta) entries.push({...meta, groupPath: gPath || undefined})
-              } else {
-                const childPath = gPath ? `${gPath}/${child.name}` : child.name
-                folders.push({path: childPath, name: child.name})
-                walk(child.id, childPath)
-              }
-            }
-          }
-
-          walk(pmRootId, '')
-          return ok({entries, folders})
-        }
-
-        case 'passmanager:secret:save': {
-          const entryId = toOptionalString(data['entry_id'] ?? data['entryId'])
-          const secretType = toOptionalString(data['secret_type'] ?? data['secretType'] ?? data['type'])
-          const hasValue = Object.prototype.hasOwnProperty.call(data, 'value')
-          const value = data['value']
-          if (!entryId) return err('entry_id is required')
-          if (!secretType) return err('secret_type is required')
-          if (!hasValue) return err('value is required')
-          const dirId = this.findEntryDirById(entryId)
-          if (dirId === undefined) return err('entry_not_found')
-
-          if (value === null) {
-            const fileId = this.getSecretFileId(dirId, secretType)
-            if (fileId !== undefined) this.deleteNodeRecursive(fileId)
+          case 'catalog:subscribe':
+          case 'catalog:unsubscribe': {
             return ok(undefined)
           }
 
-          if (typeof value !== 'string') {
-            return err('value must be string; use passmanager:secret:delete for null')
+          case 'catalog:folder:list': {
+            return this.getFolderPage({
+              path: toStringValue(data['path']) ?? '/',
+              offset: toNumberValue(data['offset']) ?? 0,
+              limit: toNumberValue(data['limit']),
+              expected_version: toNumberValue(data['expected_version'] ?? data['expectedVersion']),
+              sort: (data['sort'] as CatalogFolderSort | undefined) ?? null,
+              filter: (data['filter'] as CatalogFolderFilter | undefined) ?? null,
+            })
           }
 
-          const fileId = this.getSecretFileId(dirId, secretType)
-          let targetFileId = fileId
-          if (targetFileId === undefined) {
-            const node = this.createNode({parentId: dirId, name: `.${secretType}`, type: 1})
-            targetFileId = node.id
-          }
-
-          const bytes = new TextEncoder().encode(value)
-          this.files.set(targetFileId, bytes)
-          const fileNode = this.nodes.get(targetFileId)
-          if (fileNode) {
-            fileNode.size = bytes.byteLength
-            fileNode.modtime = Date.now()
-          }
-          this.scheduleSave()
-          return ok(undefined)
-        }
-
-        case 'passmanager:secret:read': {
-          const entryId = toOptionalString(data['entry_id'] ?? data['entryId'])
-          const secretType = toOptionalString(data['secret_type'] ?? data['secretType'] ?? data['type'])
-          if (!entryId) return err('entry_id is required')
-          if (!secretType) return err('secret_type is required')
-
-          const dirId = this.findEntryDirById(entryId)
-          if (dirId === undefined) return err('entry_not_found')
-
-          const fileId = this.getSecretFileId(dirId, secretType)
-          if (fileId === undefined) return err('secret_not_found')
-
-          const bytes = this.files.get(fileId)
-          if (!bytes) return err('secret_not_found')
-          return ok({value: new TextDecoder().decode(bytes)})
-        }
-
-        case 'passmanager:secret:delete': {
-          const entryId = toOptionalString(data['entry_id'] ?? data['entryId'])
-          const secretType = toOptionalString(data['secret_type'] ?? data['secretType'] ?? data['type'])
-          if (!entryId) return err('entry_id is required')
-          if (!secretType) return err('secret_type is required')
-
-          const dirId = this.findEntryDirById(entryId)
-          if (dirId === undefined) return err('entry_not_found')
-
-          const fileId = this.getSecretFileId(dirId, secretType)
-          if (fileId !== undefined) this.deleteNodeRecursive(fileId)
-          return ok(undefined)
-        }
-
-        case 'passmanager:group:ensure': {
-          const path = toOptionalString(data['path'])
-          if (!path) return err('path is required')
-          this.ensureGroupPathChain(path)
-          return ok(undefined)
-        }
-
-        case 'passmanager:group:list': {
-          const pmRootId = this.findIdByPath('/.passmanager')
-          if (pmRootId === undefined) return ok({groups: []})
-
-          const groups: Record<string, unknown>[] = []
-          const walkGroups = (dirId: number, gPath: string) => {
-            const dir = this.nodes.get(dirId)
-            if (!dir) return
-            for (const childId of dir.children) {
-              const child = this.nodes.get(childId)
-              if (!child || (child.type !== 0 && child.type !== 255)) continue
-              const hasMeta = child.children.some((id) => {
-                const n = this.nodes.get(id)
-                return n?.type === 1 && n.name === 'meta.json'
-              })
-              if (hasMeta) continue
-              const childPath = gPath ? `${gPath}/${child.name}` : child.name
-              groups.push({path: childPath, name: child.name})
-              walkGroups(child.id, childPath)
+          case 'catalog:folder:batch': {
+            const pages = Array.isArray(data['pages']) ? (data['pages'] as CatalogFolderPageRequest[]) : []
+            const seen = new Set<string>()
+            const out = []
+            for (const page of pages.slice(0, 4)) {
+              const key = JSON.stringify(page)
+              if (seen.has(key)) continue
+              seen.add(key)
+              const response = this.getFolderPage(page)
+              if (!response.ok) return response
+              out.push(response.result)
             }
+            return ok({pages: out, truncated: pages.length > 4, warnings: []})
           }
 
-          walkGroups(pmRootId, '')
-          return ok({groups})
-        }
-
-        case 'passmanager:root:import': {
-          const importFolders = Array.isArray(data['folders'])
-            ? (data['folders'] as (string | Record<string, unknown>)[])
-            : []
-          const importEntries = Array.isArray(data['entries'])
-            ? (data['entries'] as Record<string, unknown>[])
-            : []
-
-          const mode = toStringValue(data['mode']) ?? 'merge'
-          if (mode !== 'merge' && mode !== 'replace' && mode !== 'restore') {
-            return err('mode must be one of: merge, replace, restore')
+          case 'catalog:notes:list': {
+            return this.getNotesList()
           }
-          const allowDestructive = data['allow_destructive'] === true || data['allowDestructive'] === true
-          const destructiveMode = mode === 'replace' || mode === 'restore'
-          if (destructiveMode && !allowDestructive) {
-            return err('destructive root import requires allow_destructive=true')
-          }
-          const shouldClearExisting = destructiveMode && allowDestructive
 
-          if (shouldClearExisting) {
-            const pmRootId = this.findIdByPath('/.passmanager')
-            if (pmRootId !== undefined) {
-              const pmRoot = this.nodes.get(pmRootId)
-              if (pmRoot) {
-                for (const childId of [...pmRoot.children]) {
-                  this.deleteNodeRecursive(childId)
+          case 'catalog:list': {
+            const path = toStringValue(data['path']) ?? '/'
+            const includeHidden = toBooleanValue(data['includeHidden'] ?? data['include_hidden']) ?? false
+            const id = this.findIdByPath(path)
+            if (id === undefined) return err(`Path not found: ${path}`)
+
+            const node = this.nodes.get(id)
+            if (!node) return err(`Path not found: ${path}`)
+
+            const items = node.children
+              .map((cid) => this.nodes.get(cid))
+              .filter((n): n is MockNode => Boolean(n))
+              .filter((n) => includeHidden || !n.name.startsWith('.'))
+              .map((n) => {
+                const nodePath = this.getPath(n.id)
+                return {
+                  nodeId: n.id,
+                  nodeType: n.type,
+                  name: n.name,
+                  size: n.size,
+                  modtime: n.modtime,
+                  isDir: n.type === 0 || n.type === 255,
+                  isFile: n.type === 1,
+                  isSymlink: n.type === 2,
+                  path: nodePath,
+                  hasChildren: n.children.length > 0,
+                  mimeType: n.mimeType,
+                  sourceRevision: n.sourceRevision,
+                  mediaInspectedRevision: n.mediaInspectedRevision,
+                  mediaInfo: n.mediaInfo ?? null,
                 }
-              }
-            }
-          }
-
-          for (const folder of importFolders) {
-            // Handle both string[] (Rust contract) and {path: string}[] formats
-            const fPath =
-              typeof folder === 'string'
-                ? folder
-                : toOptionalString((folder as Record<string, unknown>)['path'])
-            if (fPath) this.ensureGroupPathChain(fPath)
-          }
-
-          for (const entry of importEntries) {
-            const id = toOptionalString(entry['id']) ?? crypto.randomUUID()
-            const title = toOptionalString(entry['title']) ?? 'Untitled'
-            // Handle both 'folderPath' (Rust export contract) and 'groupPath' (legacy)
-            const gp = toOptionalString(entry['folderPath'] ?? entry['groupPath'])
-            const parentId = gp ? this.ensureGroupPathChain(gp) : this.ensurePassmanagerRoot()
-            const entryDir = this.createNode({parentId, name: id, type: 0})
-            const metaFile = this.createNode({parentId: entryDir.id, name: 'meta.json', type: 1})
-            this.writeJsonToFile(metaFile.id, {...entry, id, title})
-          }
-          return ok(undefined)
-        }
-
-        case 'passmanager:root:export': {
-          const pmRootId = this.findIdByPath('/.passmanager')
-          if (pmRootId === undefined) return ok({root: {entries: [], folders: []}})
-
-          const entries: Record<string, unknown>[] = []
-          const folders: string[] = []
-
-          const walkExport = (dirId: number, gPath: string) => {
-            const dir = this.nodes.get(dirId)
-            if (!dir) return
-            for (const childId of dir.children) {
-              const child = this.nodes.get(childId)
-              if (!child || (child.type !== 0 && child.type !== 255)) continue
-              // Skip hidden system dirs (e.g. .icons)
-              if (child.name.startsWith('.')) continue
-              const mfId = child.children.find((id) => {
-                const n = this.nodes.get(id)
-                return n?.type === 1 && n.name === 'meta.json'
               })
-              if (mfId !== undefined) {
-                const meta = this.readJsonFile(mfId) as Record<string, unknown> | undefined
-                if (meta) {
-                  const {groupPath: _gp, ...rest} = meta
-                  // Use folderPath (Rust export contract), null for root-level entries
-                  entries.push({...rest, folderPath: gPath || null})
-                }
-              } else {
-                const childPath = gPath ? `${gPath}/${child.name}` : child.name
-                folders.push(childPath)
-                walkExport(child.id, childPath)
-              }
-            }
+
+            return ok({currentPath: normalizePath(path), items})
           }
 
-          walkExport(pmRootId, '')
-          folders.sort()
-          return ok({root: {entries, folders}})
-        }
+          case 'catalog:createDir': {
+            const name = toOptionalString(data['name'])
+            if (!name) return err('name is required')
 
-        case 'passmanager:otp:generate': {
-          const otpId = toOptionalString(data['otp_id'] ?? data['otpId'])
-          const entryId = toOptionalString(data['entry_id'] ?? data['entryId'])
-          const label = toStringValue(data['label'])
-          const resolved = this.resolvePassmanagerOtpTarget({otpId, entryId, label})
-          if (!resolved) return err('otp_id or entry_id is required')
-          const digits = toNumberValue(data['digits']) ?? 6
-          const period = toNumberValue(data['period']) ?? 30
-          const ts = toNumberValue(data['ts']) ?? Date.now()
-          const counter = Math.floor(ts / (period * 1000))
-          const mod = Math.pow(10, digits)
-          const value = (counter + resolved.nodeId) % mod
-          const otp = String(value).padStart(digits, '0')
-          return ok({otp})
-        }
-        case 'passmanager:otp:setSecret': {
-          const otpId = toOptionalString(data['otp_id'] ?? data['otpId'])
-          const entryId = toOptionalString(data['entry_id'] ?? data['entryId'])
-          const labelRaw = toStringValue(data['label'])
-          const label = labelRaw?.trim() || undefined
-          const resolved = this.resolvePassmanagerOtpTarget({otpId, entryId, label})
-          if (!resolved) return err('otp_id or entry_id is required')
-          const secretRaw = toStringValue(data['secret'])
-          const secret = secretRaw?.trim()
-          if (!secret) return err('non-empty secret is required')
-          const key = `${resolved.nodeId}:${resolved.label}`
-          this.otpSecrets.set(key, {
-            secret,
-            digits: toNumberValue(data['digits']) ?? 6,
-            period: toNumberValue(data['period']) ?? 30,
-          })
-          this.scheduleSave()
-          return ok(undefined)
-        }
-        case 'passmanager:otp:removeSecret': {
-          const otpId = toOptionalString(data['otp_id'] ?? data['otpId'])
-          const entryId = toOptionalString(data['entry_id'] ?? data['entryId'])
-          const resolved = this.resolvePassmanagerOtpTarget({otpId, entryId})
-          if (!resolved) return err('otp_id or entry_id is required')
-          const key = `${resolved.nodeId}:${resolved.label}`
-          this.otpSecrets.delete(key)
-          this.scheduleSave()
-          return ok(undefined)
-        }
+            const parentPath = toStringValue(data['parentPath'] ?? data['parent_path']) ?? '/'
+            const parentId = this.findIdByPath(parentPath)
+            if (parentId === undefined) return err(`Parent path not found: ${parentPath}`)
 
-        default:
-          return err(`Unsupported command: ${command}`)
+            const parent = this.getNode(parentId)
+            if (!parent || (parent.type !== 0 && parent.type !== 255)) return err('Parent is not a directory')
+
+            const node = this.createNode({parentId, name, type: 0})
+            return ok({nodeId: node.id})
+          }
+
+          case 'catalog:rename': {
+            const nodeId = toNumberValue(data['nodeId'] ?? data['node_id'])
+            const newName = toOptionalString(data['newName'] ?? data['new_name'])
+            if (nodeId === undefined) return err('nodeId is required')
+            if (!newName) return err('newName is required')
+
+            this.renameNode(nodeId, newName)
+            return ok(undefined)
+          }
+
+          case 'catalog:delete': {
+            const nodeId = toNumberValue(data['nodeId'] ?? data['node_id'])
+            if (nodeId === undefined) return err('nodeId is required')
+
+            this.deleteNodeRecursive(nodeId)
+            return ok(undefined)
+          }
+
+          case 'catalog:move': {
+            const nodeId = toNumberValue(data['nodeId'] ?? data['node_id'])
+            const newParentPath = toStringValue(data['newParentPath'] ?? data['new_parent_path'])
+            const newName = toOptionalString(data['newName'] ?? data['new_name'])
+
+            if (nodeId === undefined) return err('nodeId is required')
+            if (!newParentPath) return err('newParentPath is required')
+
+            const newParentId = this.findIdByPath(newParentPath)
+            if (newParentId === undefined) return err(`New parent path not found: ${newParentPath}`)
+
+            this.moveNode({nodeId, newParentId, newName})
+            return ok(undefined)
+          }
+
+          case 'catalog:source:metadata': {
+            const nodeId = toNumberValue(data['nodeId'] ?? data['node_id'])
+            if (nodeId === undefined) return err('nodeId is required')
+
+            const node = this.nodes.get(nodeId)
+            if (!node) return err(`NODE_NOT_FOUND:${nodeId}`)
+            if (node.type !== 1) return err(`ERR_NOT_FILE:${nodeId}`)
+            const sourceRevision = this.ensureFileSourceRevision(node)
+            this.scheduleSave()
+
+            return ok({
+              nodeId: node.id,
+              nodeType: node.type,
+              name: node.name,
+              mimeType: node.mimeType ?? null,
+              size: node.size,
+              sourceRevision,
+              mediaInspectedRevision: node.mediaInspectedRevision ?? null,
+              mediaInfo: node.mediaInfo ?? null,
+            })
+          }
+
+          case 'catalog:media:inspect': {
+            const nodeId = toNumberValue(data['nodeId'] ?? data['node_id'])
+            if (nodeId === undefined) return err('nodeId is required')
+
+            const node = this.nodes.get(nodeId)
+            if (!node) return err(`NODE_NOT_FOUND:${nodeId}`)
+            if (node.type !== 1) return err(`ERR_NOT_FILE:${nodeId}`)
+            const sourceRevision = this.ensureFileSourceRevision(node)
+            const mediaInfo = node.mediaInfo ?? inferMockMediaInfo(node.name, node.mimeType)
+            node.mediaInfo = mediaInfo
+            node.mediaInspectedRevision = sourceRevision
+            this.emitFileUpdated(node)
+            this.scheduleSave()
+
+            return ok({
+              nodeId: node.id,
+              mediaInfo,
+              sourceRevision,
+              mediaInspectedRevision: node.mediaInspectedRevision,
+            })
+          }
+
+          default:
+            return err(`Unsupported command: ${command}`)
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        this.lastError.set(msg)
+        return err(msg)
       }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      this.lastError.set(msg)
-      return err(msg)
-    }
+    })()
+
+    this.logTransportCall('catalog', command, data, result)
+    return result
+  }
+
+  async sendPassmanager(command: string, data: Record<string, unknown>): Promise<unknown> {
+    const result = await (async () => {
+      try {
+        switch (command) {
+          case 'passmanager:subscribe':
+          case 'passmanager:unsubscribe': {
+            return ok(undefined)
+          }
+
+          case 'passmanager:entry:save': {
+            const entryId = toOptionalString(data['entry_id'] ?? data['id']) ?? crypto.randomUUID()
+            const title = toOptionalString(data['title'])
+            const entryType = toOptionalString(data['entry_type'] ?? data['entryType']) ?? 'login'
+            if (!title) return err('title is required')
+            if (entryType !== 'login' && entryType !== 'payment_card') return err('invalid entry_type')
+            const existing = this.passmanagerEntries.get(entryId)
+            const folderPath = this.normalizePassmanagerFolderPath(
+              data['group_path'] ?? data['groupPath'] ?? data['folderPath'],
+            )
+            if (folderPath) {
+              this.ensurePassmanagerFolder(folderPath)
+            }
+
+            const nextMeta = structuredClone(existing?.meta ?? {})
+            const now = Date.now()
+            const createdTs =
+              toNumberValue(data['createdTs'] ?? data['created_ts']) ??
+              toNumberValue(existing?.meta['createdTs'] ?? existing?.meta['created_ts']) ??
+              now
+            const updatedTs = toNumberValue(data['updatedTs'] ?? data['updated_ts']) ?? now
+            nextMeta['id'] = entryId
+            nextMeta['title'] = title
+            nextMeta['entry_type'] = entryType
+            nextMeta['createdTs'] = createdTs
+            nextMeta['updatedTs'] = updatedTs
+            delete nextMeta['created_ts']
+            delete nextMeta['updated_ts']
+            if (folderPath) {
+              nextMeta['folderPath'] = folderPath
+            } else {
+              delete nextMeta['folderPath']
+            }
+            if ('icon_ref' in data || 'iconRef' in data) {
+              const iconRef = toOptionalString(data['icon_ref'] ?? data['iconRef'])
+              if (iconRef) nextMeta['iconRef'] = iconRef
+              else delete nextMeta['iconRef']
+            }
+            if ('tags' in data) {
+              const tags = normalizeCredentialTags(data['tags'])
+              if (tags.length > 0) nextMeta['tags'] = tags
+              else delete nextMeta['tags']
+            }
+            if (entryType === 'payment_card') {
+              const paymentCard =
+                data['payment_card'] && typeof data['payment_card'] === 'object'
+                  ? structuredClone(data['payment_card'])
+                  : data['paymentCard'] && typeof data['paymentCard'] === 'object'
+                    ? structuredClone(data['paymentCard'])
+                    : undefined
+              if (!paymentCard) return err('payment_card is required')
+              nextMeta['payment_card'] = paymentCard
+              delete nextMeta['username']
+              delete nextMeta['urls']
+              delete nextMeta['otps']
+              delete nextMeta['sshKeys']
+            } else {
+              nextMeta['username'] = toOptionalString(data['username']) ?? ''
+              nextMeta['urls'] = Array.isArray(data['urls']) ? structuredClone(data['urls']) : []
+              if (Array.isArray(data['otps'])) nextMeta['otps'] = structuredClone(data['otps'])
+              if (Array.isArray(data['sshKeys'])) nextMeta['sshKeys'] = structuredClone(data['sshKeys'])
+              delete nextMeta['payment_card']
+            }
+            const importSource = data['import_source']
+            if (importSource && typeof importSource === 'object') {
+              nextMeta['import_source'] = structuredClone(importSource)
+            }
+
+            this.passmanagerEntries.set(entryId, {
+              nodeId: existing?.nodeId ?? this.passmanagerNextNodeId++,
+              meta: nextMeta,
+            })
+            this.bumpPassmanagerRevision()
+            return ok({entry_id: entryId})
+          }
+
+          case 'passmanager:entry:read': {
+            const entryId = toOptionalString(data['entry_id'])
+            if (!entryId) return err('entry_id is required')
+            const entry = this.passmanagerEntries.get(entryId)
+            if (!entry) return err('entry_not_found')
+            return ok({entry: structuredClone(entry.meta)})
+          }
+
+          case 'passmanager:entry:delete': {
+            const entryId = toOptionalString(data['entry_id'])
+            if (!entryId) return err('entry_id is required')
+            if (!this.passmanagerEntries.has(entryId)) return err('entry_not_found')
+            this.passmanagerEntries.delete(entryId)
+            for (const key of [...this.passmanagerSecrets.keys()]) {
+              if (key.startsWith(`${entryId}:`)) this.passmanagerSecrets.delete(key)
+            }
+            for (const key of [...this.passmanagerOtpSecrets.keys()]) {
+              if (key.startsWith(`${entryId}:`)) this.passmanagerOtpSecrets.delete(key)
+            }
+            this.bumpPassmanagerRevision()
+            return ok(undefined)
+          }
+
+          case 'passmanager:entry:move': {
+            const entryId = toOptionalString(data['entry_id'])
+            if (!entryId) return err('entry_id is required')
+            const entry = this.passmanagerEntries.get(entryId)
+            if (!entry) return err('entry_not_found')
+            const targetGroupPath = this.normalizePassmanagerFolderPath(data['target_group_path'])
+            if (targetGroupPath) this.ensurePassmanagerFolder(targetGroupPath)
+            if (targetGroupPath) entry.meta['folderPath'] = targetGroupPath
+            else delete entry.meta['folderPath']
+            this.bumpPassmanagerRevision()
+            return ok(undefined)
+          }
+
+          case 'passmanager:entry:rename': {
+            const entryId = toOptionalString(data['entry_id'])
+            const newTitle = toOptionalString(data['new_title'])
+            if (!entryId) return err('entry_id is required')
+            if (!newTitle) return err('new_title is required')
+            const entry = this.passmanagerEntries.get(entryId)
+            if (!entry) return err('entry_not_found')
+            const now = Date.now()
+            entry.meta['createdTs'] =
+              toNumberValue(entry.meta['createdTs'] ?? entry.meta['created_ts']) ?? now
+            entry.meta['updatedTs'] = now
+            delete entry.meta['created_ts']
+            delete entry.meta['updated_ts']
+            entry.meta['title'] = newTitle
+            this.bumpPassmanagerRevision()
+            return ok(undefined)
+          }
+
+          case 'passmanager:entry:list': {
+            const entries = Array.from(this.passmanagerEntries.values())
+              .map(({meta}) => {
+                const folderPath = this.normalizePassmanagerFolderPath(
+                  meta['folderPath'] ?? meta['groupPath'],
+                )
+                const entry = structuredClone(meta) as Record<string, unknown>
+                if (folderPath) entry['groupPath'] = folderPath
+                return entry
+              })
+              .sort((left, right) => String(left['id'] ?? '').localeCompare(String(right['id'] ?? '')))
+            const folders = Array.from(this.passmanagerFolders)
+              .sort((left, right) => left.localeCompare(right))
+              .map((path) => ({path, name: path.split('/').pop() ?? path}))
+            return ok({entries, folders})
+          }
+
+          case 'passmanager:secret:save': {
+            const entryId = toOptionalString(data['entry_id'] ?? data['entryId'])
+            const secretType = toOptionalString(data['secret_type'] ?? data['secretType'] ?? data['type'])
+            const hasValue = Object.prototype.hasOwnProperty.call(data, 'value')
+            if (!entryId) return err('entry_id is required')
+            if (!secretType) return err('secret_type is required')
+            if (!hasValue) return err('value is required')
+            const entry = this.passmanagerEntries.get(entryId)
+            if (!entry) return err('entry_not_found')
+            const entryType = toOptionalString(entry.meta['entry_type']) ?? 'login'
+            if (
+              (entryType === 'login' && (secretType === 'card_pan' || secretType === 'card_cvv')) ||
+              (entryType === 'payment_card' && secretType === 'password')
+            ) {
+              return err('secret_type is incompatible with entry_type')
+            }
+            const key = `${entryId}:${secretType}`
+            const value = data['value']
+            if (value === null) {
+              this.passmanagerSecrets.delete(key)
+              if (secretType === 'card_pan') {
+                const paymentCard =
+                  entry.meta['payment_card'] && typeof entry.meta['payment_card'] === 'object'
+                    ? (entry.meta['payment_card'] as Record<string, unknown>)
+                    : undefined
+                if (paymentCard) delete paymentCard['last4']
+              }
+              this.bumpPassmanagerRevision()
+              return ok(undefined)
+            }
+            if (typeof value !== 'string') return err('value must be string')
+            const normalizedValue =
+              secretType === 'card_pan' || secretType === 'card_cvv' ? value.replace(/\D+/g, '') : value
+            this.passmanagerSecrets.set(key, normalizedValue)
+            if (secretType === 'card_pan') {
+              const paymentCard =
+                entry.meta['payment_card'] && typeof entry.meta['payment_card'] === 'object'
+                  ? (entry.meta['payment_card'] as Record<string, unknown>)
+                  : undefined
+              if (paymentCard) paymentCard['last4'] = normalizedValue.slice(-4)
+            }
+            this.bumpPassmanagerRevision()
+            return ok(undefined)
+          }
+
+          case 'passmanager:secret:read': {
+            const entryId = toOptionalString(data['entry_id'] ?? data['entryId'])
+            const secretType = toOptionalString(data['secret_type'] ?? data['secretType'] ?? data['type'])
+            if (!entryId) return err('entry_id is required')
+            if (!secretType) return err('secret_type is required')
+            const value = this.passmanagerSecrets.get(`${entryId}:${secretType}`)
+            if (value === undefined) return err('secret_not_found')
+            return ok({value})
+          }
+
+          case 'passmanager:secret:delete': {
+            const entryId = toOptionalString(data['entry_id'] ?? data['entryId'])
+            const secretType = toOptionalString(data['secret_type'] ?? data['secretType'] ?? data['type'])
+            if (!entryId) return err('entry_id is required')
+            if (!secretType) return err('secret_type is required')
+            this.passmanagerSecrets.delete(`${entryId}:${secretType}`)
+            if (secretType === 'card_pan') {
+              const entry = this.passmanagerEntries.get(entryId)
+              const paymentCard =
+                entry?.meta['payment_card'] && typeof entry.meta['payment_card'] === 'object'
+                  ? (entry.meta['payment_card'] as Record<string, unknown>)
+                  : undefined
+              if (paymentCard) delete paymentCard['last4']
+            }
+            this.bumpPassmanagerRevision()
+            return ok(undefined)
+          }
+
+          case 'passmanager:ssh:keygen': {
+            const entryId = toOptionalString(data['entry_id'] ?? data['entryId'])
+            const keyType = toOptionalString(data['key_type'] ?? data['keyType'])
+            const comment = toStringValue(data['comment']) ?? ''
+            if (!entryId) return err('entry_id is required')
+            if (!keyType) return err('key_type is required')
+            if (!this.passmanagerEntries.has(entryId)) return err('entry_not_found')
+            if (keyType !== 'ed25519' && keyType !== 'rsa' && keyType !== 'ecdsa') {
+              return err(`Unsupported SSH key type: ${keyType}`)
+            }
+
+            const generated = await createMockSshKeyMaterial(keyType, comment)
+            this.passmanagerSecrets.set(
+              `${entryId}:ssh_private_key:${generated.key_id}`,
+              generated.private_key_openssh,
+            )
+            this.passmanagerSecrets.set(
+              `${entryId}:ssh_public_key:${generated.key_id}`,
+              generated.public_key_openssh,
+            )
+            this.bumpPassmanagerRevision()
+
+            return ok({
+              key_id: generated.key_id,
+              public_key_openssh: generated.public_key_openssh,
+              fingerprint: generated.fingerprint,
+              key_type: generated.key_type,
+            })
+          }
+
+          case 'passmanager:group:ensure': {
+            const path = this.normalizePassmanagerFolderPath(data['path'])
+            if (!path) return err('path is required')
+            this.ensurePassmanagerFolder(path)
+            this.bumpPassmanagerRevision()
+            return ok(undefined)
+          }
+
+          case 'passmanager:group:list': {
+            const groups = Array.from(this.passmanagerFolders)
+              .sort((left, right) => left.localeCompare(right))
+              .map((path) => ({path, name: path.split('/').pop() ?? path}))
+            return ok({groups})
+          }
+
+          case 'passmanager:group:delete': {
+            const path = this.normalizePassmanagerFolderPath(data['path'])
+            if (!path) return err('path is required')
+            const prefix = `${path}/`
+            for (const [entryId, entry] of [...this.passmanagerEntries.entries()]) {
+              const entryFolder = this.normalizePassmanagerFolderPath(
+                entry.meta['folderPath'] ?? entry.meta['groupPath'],
+              )
+              if (entryFolder !== path && !entryFolder.startsWith(prefix)) continue
+              this.passmanagerEntries.delete(entryId)
+              for (const key of [...this.passmanagerSecrets.keys()]) {
+                if (key.startsWith(`${entryId}:`)) this.passmanagerSecrets.delete(key)
+              }
+              for (const key of [...this.passmanagerOtpSecrets.keys()]) {
+                if (key.startsWith(`${entryId}:`)) this.passmanagerOtpSecrets.delete(key)
+              }
+            }
+            for (const folder of [...this.passmanagerFolders]) {
+              if (folder === path || folder.startsWith(prefix)) this.passmanagerFolders.delete(folder)
+            }
+            for (const folder of [...this.passmanagerFolderMeta.keys()]) {
+              if (folder === path || folder.startsWith(prefix)) this.passmanagerFolderMeta.delete(folder)
+            }
+            this.bumpPassmanagerRevision()
+            return ok(undefined)
+          }
+
+          case 'passmanager:group:setMeta': {
+            const path = this.normalizePassmanagerFolderPath(data['path'])
+            if (!path) return err('path is required')
+            this.ensurePassmanagerFolder(path)
+            const nextMeta = {...(this.passmanagerFolderMeta.get(path) ?? {})}
+            let touched = false
+
+            if ('icon_ref' in data || 'iconRef' in data) {
+              touched = true
+              const iconRef = toOptionalString(data['icon_ref'] ?? data['iconRef'])
+              if (iconRef) nextMeta.iconRef = iconRef
+              else delete nextMeta.iconRef
+            }
+
+            if ('description' in data) {
+              touched = true
+              const description = toOptionalString(data['description'])
+              if (description) nextMeta.description = description
+              else delete nextMeta.description
+            }
+
+            if (!touched) return err('icon_ref or description is required')
+
+            if (!('iconRef' in nextMeta) && !('description' in nextMeta)) {
+              this.passmanagerFolderMeta.delete(path)
+            } else {
+              this.passmanagerFolderMeta.set(path, nextMeta)
+            }
+            this.bumpPassmanagerRevision()
+            return ok(undefined)
+          }
+
+          case 'passmanager:root:import': {
+            const mode = toStringValue(data['mode']) ?? 'merge'
+            if (mode !== 'merge' && mode !== 'replace' && mode !== 'restore') {
+              return err('mode must be one of: merge, replace, restore')
+            }
+            const allowDestructive = data['allow_destructive'] === true || data['allowDestructive'] === true
+            const destructiveMode = mode === 'replace' || mode === 'restore'
+            if (destructiveMode && !allowDestructive) {
+              return err('destructive root import requires allow_destructive=true')
+            }
+
+            if (destructiveMode && allowDestructive) {
+              this.passmanagerFolders.clear()
+              this.passmanagerFolderMeta.clear()
+              this.passmanagerEntries.clear()
+              this.passmanagerSecrets.clear()
+              this.passmanagerOtpSecrets.clear()
+            }
+
+            const importFolders = Array.isArray(data['folders'])
+              ? (data['folders'] as Array<string | Record<string, unknown>>)
+              : []
+            for (const folder of importFolders) {
+              const path =
+                typeof folder === 'string'
+                  ? this.normalizePassmanagerFolderPath(folder)
+                  : this.normalizePassmanagerFolderPath((folder as Record<string, unknown>)['path'])
+              if (path) this.ensurePassmanagerFolder(path)
+            }
+
+            const importEntries = Array.isArray(data['entries'])
+              ? (data['entries'] as Record<string, unknown>[])
+              : []
+            for (const rawEntry of importEntries) {
+              const entryId = toOptionalString(rawEntry['id'] ?? rawEntry['entry_id']) ?? crypto.randomUUID()
+              const folderPath = this.normalizePassmanagerFolderPath(
+                rawEntry['folderPath'] ?? rawEntry['groupPath'],
+              )
+              if (folderPath) this.ensurePassmanagerFolder(folderPath)
+              this.passmanagerEntries.set(entryId, {
+                nodeId: this.passmanagerEntries.get(entryId)?.nodeId ?? this.passmanagerNextNodeId++,
+                meta: {
+                  ...structuredClone(rawEntry),
+                  id: entryId,
+                  ...(folderPath ? {folderPath} : {}),
+                },
+              })
+            }
+
+            const foldersMeta = Array.isArray(data['folders_meta'] ?? data['foldersMeta'])
+              ? ((data['folders_meta'] ?? data['foldersMeta']) as Array<Record<string, unknown>>)
+              : []
+            for (const item of foldersMeta) {
+              const path = this.normalizePassmanagerFolderPath(item['path'])
+              if (!path) continue
+              this.ensurePassmanagerFolder(path)
+              const nextMeta: MockPassmanagerFolderMeta = {}
+              const iconRef = toOptionalString(item['iconRef'] ?? item['icon_ref'])
+              const description = toOptionalString(item['description'])
+              if (iconRef) nextMeta.iconRef = iconRef
+              if (description) nextMeta.description = description
+              if ('iconRef' in nextMeta || 'description' in nextMeta) {
+                this.passmanagerFolderMeta.set(path, nextMeta)
+              } else {
+                this.passmanagerFolderMeta.delete(path)
+              }
+            }
+
+            this.bumpPassmanagerRevision()
+            return ok(undefined)
+          }
+
+          case 'passmanager:root:export': {
+            const entries = Array.from(this.passmanagerEntries.values())
+              .map(({meta}) => {
+                const next = structuredClone(meta)
+                const folderPath = this.normalizePassmanagerFolderPath(
+                  next['folderPath'] ?? next['groupPath'],
+                )
+                if (folderPath) next['folderPath'] = folderPath
+                else next['folderPath'] = null
+                delete next['groupPath']
+                const entryId = toOptionalString(next['id'])
+                const entryType = toOptionalString(next['entry_type']) ?? 'login'
+                if (entryId) {
+                  if (entryType === 'payment_card') {
+                    const cardPan = this.passmanagerSecrets.get(`${entryId}:card_pan`)
+                    const cardCvv = this.passmanagerSecrets.get(`${entryId}:card_cvv`)
+                    const note = this.passmanagerSecrets.get(`${entryId}:note`)
+                    if (cardPan) next['card_pan'] = cardPan
+                    if (cardCvv) next['card_cvv'] = cardCvv
+                    if (note) next['note'] = note
+                  } else {
+                    const password = this.passmanagerSecrets.get(`${entryId}:password`)
+                    const note = this.passmanagerSecrets.get(`${entryId}:note`)
+                    if (password) next['password'] = password
+                    if (note) next['note'] = note
+                  }
+                }
+                return next
+              })
+              .sort((left, right) => String(left['id'] ?? '').localeCompare(String(right['id'] ?? '')))
+            const folders = Array.from(this.passmanagerFolders).sort((left, right) =>
+              left.localeCompare(right),
+            )
+            const foldersMeta = Array.from(this.passmanagerFolderMeta.entries())
+              .map(([path, meta]) => ({
+                path,
+                ...('iconRef' in meta ? {iconRef: meta.iconRef ?? null} : {}),
+                ...('description' in meta ? {description: meta.description ?? null} : {}),
+              }))
+              .sort((left, right) => left.path.localeCompare(right.path))
+            return ok({root: {version: 1, entries, folders, foldersMeta}})
+          }
+
+          case 'passmanager:otp:generate': {
+            const otpId = toOptionalString(data['otp_id'] ?? data['otpId'])
+            const entryId = toOptionalString(data['entry_id'] ?? data['entryId'])
+            const label = toStringValue(data['label'])
+            const resolved = this.resolvePassmanagerOtpTarget({otpId, entryId, label})
+            if (!resolved) return err('otp_id or entry_id is required')
+            const digits =
+              toNumberValue(data['digits']) ?? this.passmanagerOtpSecrets.get(resolved.key)?.digits ?? 6
+            const period =
+              toNumberValue(data['period']) ?? this.passmanagerOtpSecrets.get(resolved.key)?.period ?? 30
+            const ts = toNumberValue(data['ts']) ?? Date.now()
+            const entryNodeId = this.passmanagerEntries.get(resolved.entryId)?.nodeId ?? 0
+            const counter = Math.floor(ts / (period * 1000))
+            const mod = Math.pow(10, digits)
+            const value = (counter + entryNodeId) % mod
+            const otp = String(value).padStart(digits, '0')
+            return ok({otp})
+          }
+
+          case 'passmanager:otp:setSecret': {
+            const otpId = toOptionalString(data['otp_id'] ?? data['otpId'])
+            const entryId = toOptionalString(data['entry_id'] ?? data['entryId'])
+            const label = toStringValue(data['label'])
+            const resolved = this.resolvePassmanagerOtpTarget({otpId, entryId, label})
+            if (!resolved) return err('otp_id or entry_id is required')
+            const secret = toOptionalString(data['secret'])
+            if (!secret) return err('non-empty secret is required')
+            this.passmanagerOtpSecrets.set(resolved.key, {
+              secret,
+              digits: toNumberValue(data['digits']) ?? 6,
+              period: toNumberValue(data['period']) ?? 30,
+            })
+            this.bumpPassmanagerRevision()
+            return ok(undefined)
+          }
+
+          case 'passmanager:otp:removeSecret': {
+            const otpId = toOptionalString(data['otp_id'] ?? data['otpId'])
+            const entryId = toOptionalString(data['entry_id'] ?? data['entryId'])
+            const label = toStringValue(data['label'])
+            const resolved = this.resolvePassmanagerOtpTarget({otpId, entryId, label})
+            if (!resolved) return err('otp_id or entry_id is required')
+            this.passmanagerOtpSecrets.delete(resolved.key)
+            this.bumpPassmanagerRevision()
+            return ok(undefined)
+          }
+
+          case 'passmanager:icon:put': {
+            const contentBase64 = toOptionalString(data['content_base64'])
+            const mimeType = toOptionalString(data['mime_type']) ?? 'image/png'
+            const backgroundColor = this.normalizeIconBackgroundColor(data['background_color'])
+            if (!contentBase64) return err('content_base64 is required')
+            const bytes = base64ToUint8(contentBase64)
+            const digestInput = uint8ToArrayBuffer(bytes)
+            const digest = await crypto.subtle.digest('SHA-256', digestInput)
+            const hex = Array.from(new Uint8Array(digest))
+              .map((value) => value.toString(16).padStart(2, '0'))
+              .join('')
+            const iconRef = `sha256:${hex}`
+            const existing = this.passmanagerIcons.get(iconRef)
+            const now = Date.now()
+            this.passmanagerIcons.set(iconRef, {
+              icon_ref: iconRef,
+              mime_type: mimeType,
+              background_color: backgroundColor ?? existing?.background_color ?? null,
+              content_base64: contentBase64,
+              width: existing?.width ?? 0,
+              height: existing?.height ?? 0,
+              bytes: bytes.byteLength,
+              created_at: existing?.created_at ?? now,
+              updated_at: now,
+            })
+            this.bumpPassmanagerRevision()
+            return ok({
+              icon_ref: iconRef,
+              background_color: backgroundColor ?? existing?.background_color ?? null,
+            })
+          }
+
+          case 'passmanager:icon:get': {
+            const iconRef = toOptionalString(data['icon_ref'])
+            if (!iconRef) return err('icon_ref is required')
+            const icon = this.passmanagerIcons.get(iconRef)
+            if (!icon) return err('icon_not_found')
+            return ok(structuredClone(icon))
+          }
+
+          case 'passmanager:icon:list': {
+            return ok({
+              icons: Array.from(this.passmanagerIcons.values())
+                .map((icon) => structuredClone(icon))
+                .sort((left, right) => left.icon_ref.localeCompare(right.icon_ref)),
+            })
+          }
+
+          case 'passmanager:icon:setMeta': {
+            const iconRef = toOptionalString(data['icon_ref'])
+            if (!iconRef) return err('icon_ref is required')
+            const icon = this.passmanagerIcons.get(iconRef)
+            if (!icon) return err('icon_not_found')
+            icon.background_color = this.normalizeIconBackgroundColor(data['background_color'])
+            this.bumpPassmanagerRevision()
+            return ok(undefined)
+          }
+
+          case 'passmanager:icon:gc': {
+            const used = new Set<string>()
+            for (const {meta} of this.passmanagerEntries.values()) {
+              const iconRef = toOptionalString(meta['iconRef'] ?? meta['icon_ref'])
+              if (iconRef) used.add(iconRef)
+            }
+            for (const meta of this.passmanagerFolderMeta.values()) {
+              const iconRef = toOptionalString(meta.iconRef)
+              if (iconRef) used.add(iconRef)
+            }
+
+            let deleted = 0
+            for (const iconRef of [...this.passmanagerIcons.keys()]) {
+              if (used.has(iconRef)) continue
+              this.passmanagerIcons.delete(iconRef)
+              deleted += 1
+            }
+            if (deleted > 0) this.bumpPassmanagerRevision()
+            return ok({deleted})
+          }
+
+          default:
+            return err(`Unsupported command: ${command}`)
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        this.lastError.set(msg)
+        return err(msg)
+      }
+    })()
+
+    this.logTransportCall('passmanager', command, data, result)
+    return result
   }
 
   async uploadFile(
-    nodeId: number,
+    target: number | {parentPath?: string; name: string},
     file: File,
     opts?: {
       chunkSize?: number
@@ -1107,32 +1653,37 @@ export class MockTransport implements TransportLike {
       type?: string
       onProgress?: (c: number, t: number, p: number) => void
     },
-  ): Promise<void> {
+  ): Promise<{nodeId: number}> {
+    const nodeId =
+      typeof target === 'number'
+        ? target
+        : (() => {
+            const parentId = this.findIdByPath(target.parentPath ?? '/')
+            if (parentId === undefined) throw new Error(`Parent path not found: ${target.parentPath ?? '/'}`)
+            return this.createNode({
+              parentId,
+              name: target.name,
+              type: 1,
+              size: file.size,
+              mimeType: opts?.type ?? file.type,
+            }).id
+          })()
     const node = this.nodes.get(nodeId)
     if (!node) throw new Error(`Node not found: ${nodeId}`)
 
     const cs = opts?.chunkSize && opts.chunkSize > 0 ? Math.floor(opts.chunkSize) : 64 * 1024
     const totalChunks = Math.max(1, Math.ceil(file.size / cs))
 
-    const bytes = new Uint8Array(await file.arrayBuffer())
+    const bytes = await readFileBytes(file)
     this.files.set(nodeId, bytes)
 
     node.size = bytes.byteLength
     node.mimeType = opts?.type ?? (file.type || node.mimeType)
     node.modtime = Date.now()
-
-    const updateEvent: CatalogEvent = {
-      type: CatalogEventType.NODE_UPDATED,
-      nodeId,
-      timestamp: node.modtime,
-      version: 0,
-      metadata: {
-        size: node.size,
-        mime: node.mimeType,
-        modtime: node.modtime,
-      },
-    }
-    this.emit('catalog:event', updateEvent)
+    node.sourceRevision = nextSourceRevision(node.sourceRevision)
+    node.mediaInfo = null
+    node.mediaInspectedRevision = 0
+    this.emitFileUpdated(node)
 
     if (opts?.onProgress) {
       for (let chunk = 1; chunk <= totalChunks; chunk++) {
@@ -1143,11 +1694,81 @@ export class MockTransport implements TransportLike {
     }
 
     this.scheduleSave()
+    return {nodeId}
+  }
+
+  async sourceMetadata(nodeId: number): Promise<CatalogSourceMetadata> {
+    const node = this.nodes.get(nodeId)
+    if (!node) throw new Error(`NODE_NOT_FOUND:${nodeId}`)
+    if (node.type !== 1) throw new Error(`ERR_NOT_FILE:${nodeId}`)
+    const sourceRevision = this.ensureFileSourceRevision(node)
+    this.scheduleSave()
+
+    return {
+      nodeId: node.id,
+      nodeType: node.type,
+      name: node.name,
+      mimeType: node.mimeType ?? null,
+      size: node.size,
+      sourceRevision,
+      mediaInspectedRevision: node.mediaInspectedRevision ?? null,
+      mediaInfo: node.mediaInfo ?? null,
+    }
+  }
+
+  async replaceFile(
+    nodeId: number,
+    bytes: Uint8Array,
+    options: CatalogFileReplaceOptions,
+  ): Promise<CatalogFileReplaceResult> {
+    const node = this.nodes.get(nodeId)
+    if (!node) throw new Error(`NODE_NOT_FOUND:${nodeId}`)
+    if (node.type !== 1) throw new Error(`ERR_NOT_FILE:${nodeId}`)
+
+    const previousRevision = this.ensureFileSourceRevision(node)
+    const conflictMode = options.conflictMode ?? 'fail_if_stale'
+    if (
+      conflictMode !== 'overwrite' &&
+      options.expectedSourceRevision !== null &&
+      options.expectedSourceRevision !== previousRevision
+    ) {
+      const error = new Error('ERR_STALE_SOURCE') as Error & {code?: string}
+      error.code = 'ERR_STALE_SOURCE'
+      throw error
+    }
+
+    const copy = new Uint8Array(bytes)
+    this.files.set(nodeId, copy)
+
+    node.size = copy.byteLength
+    node.mimeType = options.mimeType ?? node.mimeType ?? 'application/octet-stream'
+    node.modtime = Date.now()
+    node.sourceRevision = nextSourceRevision(previousRevision)
+    node.mediaInfo = null
+    node.mediaInspectedRevision = 0
+    this.emitFileUpdated(node)
+    this.scheduleSave()
+
+    return {
+      nodeId,
+      size: node.size,
+      mimeType: node.mimeType,
+      modtime: node.modtime,
+      sourceRevision: node.sourceRevision,
+      mediaInfo: node.mediaInfo,
+      mediaInspectedRevision: node.mediaInspectedRevision,
+    }
   }
 
   async downloadFile(nodeId: number): Promise<AsyncIterable<Uint8Array>> {
     const bytes = this.files.get(nodeId)
-    if (!bytes) throw new Error(`File bytes not found: ${nodeId}`)
+    if (!bytes) {
+      const node = this.nodes.get(nodeId)
+      if (node?.type === 1 && node.size === 0) {
+        return (async function* (): AsyncIterable<Uint8Array> {})()
+      }
+      throw new Error(`File bytes not found: ${nodeId}`)
+    }
     const data = bytes
 
     const cs = 64 * 1024
@@ -1198,7 +1819,7 @@ export class MockTransport implements TransportLike {
     if (!otp_id && !entry_id) {
       throw new Error('generateOTP requires otpId or entryId')
     }
-    const res = (await this.sendCatalog('passmanager:otp:generate', {
+    const res = (await this.sendPassmanager('passmanager:otp:generate', {
       otp_id,
       entry_id,
       ts: params.ts ?? null,
@@ -1218,7 +1839,7 @@ export class MockTransport implements TransportLike {
     digits?: number
     period?: number
   }): Promise<void> {
-    const res = (await this.sendCatalog('passmanager:otp:setSecret', {
+    const res = (await this.sendPassmanager('passmanager:otp:setSecret', {
       otp_id: params.otpId,
       entry_id: params.entryId ?? null,
       secret: params.secret,
@@ -1231,10 +1852,35 @@ export class MockTransport implements TransportLike {
   }
 
   async removeOTPSecret(params: {otpId: string; entryId?: string}): Promise<void> {
-    const res = (await this.sendCatalog('passmanager:otp:removeSecret', {
+    const res = (await this.sendPassmanager('passmanager:otp:removeSecret', {
       otp_id: params.otpId,
       entry_id: params.entryId ?? null,
     })) as {ok: boolean; error?: string}
     if (!res.ok) throw new Error(res.error ?? 'passmanager:otp:removeSecret failed')
+  }
+
+  private logTransportCall(
+    channel: MockTransportLogChannel,
+    command: string,
+    data: Record<string, unknown>,
+    result: unknown,
+  ): void {
+    if (typeof window === 'undefined' || window.env !== 'dev' || typeof fetch !== 'function') {
+      return
+    }
+
+    const entry: MockTransportLogEntry = {
+      channel,
+      command,
+      data: structuredClone(data),
+      result: structuredClone(result),
+      at: Date.now(),
+    }
+
+    void fetch(MOCK_TRANSPORT_LOG_ENDPOINT, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(entry),
+    }).catch(() => {})
   }
 }

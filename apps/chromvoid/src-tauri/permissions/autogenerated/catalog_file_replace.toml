@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-catalog-file-replace"
+description = "Enables the catalog_file_replace command without any pre-configured scope."
+commands.allow = ["catalog_file_replace"]
+
+[[permission]]
+identifier = "deny-catalog-file-replace"
+description = "Denies the catalog_file_replace command without any pre-configured scope."
+commands.deny = ["catalog_file_replace"]

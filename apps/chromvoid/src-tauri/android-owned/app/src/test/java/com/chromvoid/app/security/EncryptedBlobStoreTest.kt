@@ -1,12 +1,9 @@
 package com.chromvoid.app.security
 
 import androidx.test.core.app.ApplicationProvider
-import com.chromvoid.app.PasskeyMetadata
 import org.junit.Assert.assertArrayEquals
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -57,32 +54,6 @@ class EncryptedBlobStoreTest {
         assertFalse(file.exists())
     }
 
-    @Test
-    fun passkeyMetadataStore_roundTripsAndRecoversCorruption() {
-        val keyProvider = MutableKeyProvider()
-        val file = tempFile("passkey-metadata")
-        val store = SystemPasskeyMetadataStore(blobStore(file, keyProvider))
-        val metadata =
-            PasskeyMetadata(
-                credentialIdB64Url = "cred-1",
-                rpId = "example.com",
-                userIdB64Url = "user-1",
-                userName = "alice@example.com",
-                userDisplayName = "Alice",
-                keyAlias = "chromvoid.passkey.cred-1",
-                signCount = 1,
-                createdAtEpochMs = 10L,
-                lastUsedEpochMs = 20L,
-            )
-
-        store.saveNew(metadata)
-        assertEquals(metadata, store.findByCredentialId("cred-1"))
-
-        file.writeBytes(byteArrayOf(0x01, 0x02, 0x03))
-        assertNull(store.findByCredentialId("cred-1"))
-        assertFalse(file.exists())
-    }
-
     private fun blobStore(
         file: File,
         keyProvider: MutableKeyProvider,
@@ -104,17 +75,38 @@ class EncryptedBlobStoreTest {
 
     private class MutableKeyProvider : KeystoreKeyProvider {
         private var key: SecretKey? = null
+        var loadExistingCalls = 0
+            private set
+        var getOrCreateCalls = 0
+            private set
+        var deleteCalls = 0
+            private set
+        var failGetOrCreate = false
 
-        override fun loadExisting(): SecretKey? = key
+        override fun loadExisting(): SecretKey? {
+            loadExistingCalls += 1
+            return key
+        }
 
         override fun getOrCreate(): SecretKey {
+            getOrCreateCalls += 1
+            if (failGetOrCreate) {
+                error("keystore unavailable")
+            }
             return key ?: KeyGenerator.getInstance("AES").apply { init(256) }.generateKey().also {
                 key = it
             }
         }
 
         override fun delete() {
+            deleteCalls += 1
             key = null
+        }
+
+        fun resetCounts() {
+            loadExistingCalls = 0
+            getOrCreateCalls = 0
+            deleteCalls = 0
         }
     }
 }

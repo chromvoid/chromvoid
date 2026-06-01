@@ -1,9 +1,11 @@
 node_modules
 .parcel-cache
 .env
+.playwright-cli
 .DS_Store
 .vscode
 .env.local
+apps/chromvoid/.android-adb-wifi-target.json
 dist
 dist.zip
 build
@@ -12,6 +14,7 @@ build
 *.rar
 coverage
 target/
+crates/core/bindings/
 # Generated Web Awesome styles (copied from node_modules during build)
 .auto-claude
 # OpenCode per-project MCP state
@@ -24,6 +27,7 @@ target/
 .mcp.json
 build-codex
 scripts/infra/timeweb-prod.secrets.env
+licence.dev.key
 # Terraform/OpenTofu local artifacts
 .terraform/
 .terraform.lock.hcl
@@ -32,5 +36,7 @@ scripts/infra/timeweb-prod.secrets.env
 crash.log
 crash.*.log
 .artifacts
+/packages/uikit/
 packages/uikit/docs/.vitepress/cache
 apps/chromvoid/src-tauri/gen/android/keystore.properties
+.codex-artifacts

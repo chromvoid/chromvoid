@@ -2,8 +2,8 @@ use super::super::helpers::*;
 use super::super::*;
 
 pub(in crate::volume_fuse::imp) fn handle_open(
-    fs: &mut PrivyFilesystem,
-    _req: &Request<'_>,
+    fs: &PrivyFilesystem,
+    _req: &Request,
     ino: u64,
     flags: i32,
     reply: ReplyOpen,
@@ -11,20 +11,20 @@ pub(in crate::volume_fuse::imp) fn handle_open(
     let mut entry = match fs.inode_table.get(ino) {
         Some(e) => e,
         None => {
-            reply.error(libc::ENOENT);
+            reply.error(fuse_errno(libc::ENOENT));
             return;
         }
     };
 
     if let Some(path) = build_catalog_path(&fs.inode_table, ino) {
         if is_system_path(&path) {
-            reply.error(libc::EACCES);
+            reply.error(fuse_errno(libc::EACCES));
             return;
         }
     }
 
     if entry.is_dir {
-        reply.error(libc::EISDIR);
+        reply.error(fuse_errno(libc::EISDIR));
         return;
     }
 
@@ -52,7 +52,7 @@ pub(in crate::volume_fuse::imp) fn handle_open(
             Ok(e) => e,
             Err(e) => {
                 fs.inode_table.remove(ino);
-                reply.error(e);
+                reply.error(fuse_errno(e));
                 return;
             }
         };
@@ -60,7 +60,7 @@ pub(in crate::volume_fuse::imp) fn handle_open(
         // If the name now resolves to a different node_id, treat this inode as stale.
         if fuse_ino_from_catalog_node_id(fresh.catalog_node_id) != ino {
             fs.inode_table.remove(ino);
-            reply.error(libc::ENOENT);
+            reply.error(fuse_errno(libc::ENOENT));
             return;
         }
 
@@ -75,7 +75,7 @@ pub(in crate::volume_fuse::imp) fn handle_open(
     if writeable {
         // Ensure staging dir exists.
         if std::fs::create_dir_all(&fs.staging_dir).is_err() {
-            reply.error(libc::EIO);
+            reply.error(fuse_errno(libc::EIO));
             return;
         }
 
@@ -88,7 +88,7 @@ pub(in crate::volume_fuse::imp) fn handle_open(
                 .open(&tmp_path)
                 .is_err()
             {
-                reply.error(libc::EIO);
+                reply.error(fuse_errno(libc::EIO));
                 return;
             }
 
@@ -100,26 +100,31 @@ pub(in crate::volume_fuse::imp) fn handle_open(
         } else {
             // Materialize current content to temp file for writable edits.
             if let Err(e) = fs.download_to_path(entry.catalog_node_id, &tmp_path) {
-                reply.error(e);
+                reply.error(fuse_errno(e));
                 return;
             }
         }
     }
 
-    if let Ok(mut map) = fs.open_files.lock() {
-        map.insert(
-            fh,
-            OpenFileState {
-                ino,
-                node_id: entry.catalog_node_id,
-                tmp_path,
-                writeable,
-                dirty: truncate,
-                read_stream: None,
-                read_pos: 0,
-            },
-        );
-    }
+    let mut map = match fs.open_files.lock() {
+        Ok(map) => map,
+        Err(_) => {
+            reply.error(fuse_errno(libc::EIO));
+            return;
+        }
+    };
+    map.insert(
+        fh,
+        OpenFileState {
+            ino,
+            node_id: entry.catalog_node_id,
+            tmp_path,
+            writeable,
+            dirty: truncate,
+            read_stream: None,
+            read_pos: 0,
+        },
+    );
 
-    reply.opened(fh, 0);
+    reply.opened(fuse_fh(fh), FopenFlags::empty());
 }

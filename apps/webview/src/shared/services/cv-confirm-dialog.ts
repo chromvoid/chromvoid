@@ -1,7 +1,14 @@
-import {XLitElement} from '@statx/lit'
-import {state} from '@statx/core'
-import {css, html, type TemplateResult} from 'lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {atom, wrap} from '@reatom/core'
+import {css, type TemplateResult} from 'lit'
+import {i18n} from 'root/i18n'
 import type {ConfirmDialogOptions} from './dialog-types.js'
+import {writeAndroidUnlockDebug} from './android-unlock-debug'
+import {AdaptiveModalSurface} from '../ui/adaptive-modal-surface.js'
+
+type CvConfirmDialogOptions = ConfirmDialogOptions & {
+  mode?: 'confirm' | 'alert'
+}
 
 const variantIcons: Record<string, TemplateResult> = {
   success: html`<svg width="24" height="24" viewBox="0 0 24 24" fill="none">
@@ -53,8 +60,9 @@ const variantIcons: Record<string, TemplateResult> = {
   </svg>`,
 }
 
-export class CvConfirmDialog extends XLitElement {
+export class CvConfirmDialog extends ReatomLitElement {
   static define() {
+    AdaptiveModalSurface.define()
     if (!customElements.get('cv-confirm-dialog')) {
       customElements.define('cv-confirm-dialog', this)
     }
@@ -66,7 +74,7 @@ export class CvConfirmDialog extends XLitElement {
         display: contents;
       }
 
-      cv-dialog {
+      adaptive-modal-surface {
         --cv-color-surface-elevated: var(--cv-color-surface, #ffffff);
         --cv-color-border: var(--cv-color-border, var(--cv-alpha-black-10));
         --cv-color-text: var(--cv-color-text, #1f2937);
@@ -75,57 +83,63 @@ export class CvConfirmDialog extends XLitElement {
         --cv-dialog-border-radius: var(--cv-radius-2, 12px);
         --cv-dialog-max-height: calc(100dvh - 32px);
         --cv-dialog-width: min(480px, calc(100vw - 32px));
+        --adaptive-modal-width: min(480px, calc(100vw - 32px));
+        --adaptive-modal-max-height: calc(100dvh - 32px);
         --cv-dialog-title-font-size: var(--cv-font-size-lg, 1.125rem);
       }
 
-      cv-dialog.size-s {
+      adaptive-modal-surface.size-s {
         --cv-dialog-width: min(320px, calc(100vw - 32px));
+        --adaptive-modal-width: min(320px, calc(100vw - 32px));
       }
 
-      cv-dialog.size-l {
+      adaptive-modal-surface.size-l {
         --cv-dialog-width: min(640px, calc(100vw - 32px));
+        --adaptive-modal-width: min(640px, calc(100vw - 32px));
       }
 
-      cv-dialog.size-xl {
+      adaptive-modal-surface.size-xl {
         --cv-dialog-width: min(800px, calc(100vw - 32px));
+        --adaptive-modal-width: min(800px, calc(100vw - 32px));
       }
 
-      cv-dialog::part(trigger) {
+      adaptive-modal-surface::part(trigger) {
         display: none;
       }
 
-      cv-dialog::part(content) {
+      adaptive-modal-surface::part(content) {
         gap: 0;
         padding: 0;
         overflow: hidden;
       }
 
-      cv-dialog::part(body) {
+      adaptive-modal-surface::part(body) {
         padding: 0;
       }
 
-      cv-dialog::part(footer) {
+      adaptive-modal-surface::part(footer) {
         display: block;
         padding: 0;
       }
 
-      cv-dialog::part(header) {
+      adaptive-modal-surface::part(header) {
         padding: var(--app-spacing-4, 1rem) var(--app-spacing-5, 1.25rem) 0;
       }
 
-      cv-dialog::part(title) {
+      adaptive-modal-surface::part(title) {
         margin: 0;
         font-size: var(--cv-font-size-lg, 1.125rem);
         color: var(--cv-color-text, #1f2937);
       }
 
-      cv-dialog::part(description) {
+      adaptive-modal-surface::part(description) {
         display: none;
       }
 
       .dialog-body {
         padding: var(--app-spacing-5, 1.25rem);
         line-height: var(--line-height-relaxed, 1.625);
+        min-inline-size: 0;
       }
 
       .dialog-footer {
@@ -142,6 +156,7 @@ export class CvConfirmDialog extends XLitElement {
       .message-container {
         text-align: center;
         padding: var(--app-spacing-4, 1rem) 0;
+        min-inline-size: 0;
       }
 
       .message-icon {
@@ -156,36 +171,42 @@ export class CvConfirmDialog extends XLitElement {
       }
 
       .message-icon.success {
-        background: color-mix(in oklch, var(--cv-color-success, #22c55e) 16%, transparent);
+        background: var(--cv-color-success-surface);
         color: var(--cv-color-success, #22c55e);
-        box-shadow: 0 0 0 1px color-mix(in oklch, var(--cv-color-success, #22c55e) 24%, transparent);
+        box-shadow: 0 0 0 1px var(--cv-color-success-surface-strong);
       }
       .message-icon.warning {
-        background: color-mix(in oklch, var(--cv-color-warning, #f59e0b) 16%, transparent);
+        background: var(--cv-color-warning-surface);
         color: var(--cv-color-warning, #f59e0b);
-        box-shadow: 0 0 0 1px color-mix(in oklch, var(--cv-color-warning, #f59e0b) 24%, transparent);
+        box-shadow: 0 0 0 1px var(--cv-color-warning-surface-strong);
       }
       .message-icon.danger {
-        background: color-mix(in oklch, var(--cv-color-danger, #ef4444) 16%, transparent);
+        background: var(--cv-color-danger-surface);
         color: var(--cv-color-danger, #ef4444);
-        box-shadow: 0 0 0 1px color-mix(in oklch, var(--cv-color-danger, #ef4444) 24%, transparent);
+        box-shadow: 0 0 0 1px var(--cv-color-danger-surface-strong);
       }
       .message-icon.info {
-        background: color-mix(in oklch, var(--cv-color-info, #3b82f6) 16%, transparent);
+        background: var(--cv-color-info-surface);
         color: var(--cv-color-info, #3b82f6);
-        box-shadow: 0 0 0 1px color-mix(in oklch, var(--cv-color-info, #3b82f6) 24%, transparent);
+        box-shadow: 0 0 0 1px var(--cv-color-info-surface-strong);
       }
       .message-icon.default {
-        background: color-mix(in oklch, var(--cv-color-primary, #6366f1) 16%, transparent);
+        background: var(--cv-color-primary-surface);
         color: var(--cv-color-primary, #6366f1);
-        box-shadow: 0 0 0 1px color-mix(in oklch, var(--cv-color-primary, #6366f1) 24%, transparent);
+        box-shadow: 0 0 0 1px var(--cv-color-primary-surface-strong);
       }
 
       .message-text {
+        display: inline-block;
+        max-inline-size: 100%;
         font-size: var(--cv-font-size-md, 1rem);
         line-height: var(--line-height-relaxed, 1.625);
         color: var(--cv-color-text-muted, #9aa6bf);
         margin: 0;
+        text-align: left;
+        white-space: pre-line;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
 
       @keyframes iconPop {
@@ -212,52 +233,106 @@ export class CvConfirmDialog extends XLitElement {
     `,
   ]
 
-  private opts: ConfirmDialogOptions = {}
-  private isOpen = state(false)
+  private opts: CvConfirmDialogOptions = {}
+  private isOpen = atom(false)
 
   private _resolve?: (value: boolean | null) => void
   private _result: boolean | null = null
   private shown = false
+  private closing = false
+  private showStartedAt = 0
+  private showToken = 0
 
-  configure(options: ConfirmDialogOptions) {
+  configure(options: CvConfirmDialogOptions) {
     this.opts = options
   }
 
   show(): Promise<boolean | null> {
     return new Promise((resolve) => {
+      const token = ++this.showToken
+      this.showStartedAt = performance.now()
       this.shown = false
+      this.closing = false
       this._result = null
       this._resolve = resolve
-      this.updateComplete.then(() => this.isOpen.set(true))
+      this.trace('show:requested')
+      void this.openAfterUpdate(token, resolve)
     })
   }
 
   close(result: boolean | null = null) {
+    this.showToken += 1
     this._result = result
+    this.closing = true
+    this.trace('close:requested', {result})
+    if (!this.isOpen() && !this.shown) {
+      this.resolveResult()
+      return
+    }
     this.isOpen.set(false)
+    this.trace('close:open-state-set', {result})
   }
 
-  private handleConfirm = () => this.close(true)
-  private handleCancel = () => this.close(false)
+  private async openAfterUpdate(token: number, resolve: (value: boolean | null) => void): Promise<void> {
+    await wrap(this.updateComplete)
+    if (token !== this.showToken || this.closing || this._resolve !== resolve) {
+      this.trace('show:skipped-stale', {token})
+      return
+    }
+    this.isOpen.set(true)
+  }
 
-  private handleKeydown = (e: KeyboardEvent) => {
+  private handleConfirm() {
+    this.close(true)
+  }
+
+  private handleCancel() {
+    this.close(false)
+  }
+
+  private handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
       e.preventDefault()
       this.close(true)
     }
   }
 
-  private handleAfterShow = () => {
+  private handleAfterShow() {
+    if (this.closing || !this.isOpen()) return
     this.shown = true
+    this.trace('after-show')
     this.dispatchEvent(new Event('cv-after-show', {bubbles: true}))
   }
 
-  private handleAfterHide = () => {
-    if (!this.shown) return
+  private handleAfterHide() {
+    if (!this.shown && !this.closing) return
     this.shown = false
-    this._resolve?.(this._result)
-    this._resolve = undefined
+    this.closing = false
+    this.trace('after-hide')
+    this.resolveResult()
     this.dispatchEvent(new Event('cv-after-hide', {bubbles: true}))
+  }
+
+  private resolveResult() {
+    if (!this._resolve) return
+    this.trace('resolve', {result: this._result})
+    const resolve = this._resolve
+    this._resolve = undefined
+    resolve(this._result)
+  }
+
+  private trace(event: string, meta: Record<string, unknown> = {}) {
+    const dtMs = this.showStartedAt > 0 ? Math.round(performance.now() - this.showStartedAt) : null
+    const payload = {
+      title: this.opts.title ?? null,
+      dt_ms: dtMs,
+      open: this.isOpen(),
+      shown: this.shown,
+      closing: this.closing,
+      ...meta,
+    }
+    console.info('[confirm-dialog]', event, payload)
+    writeAndroidUnlockDebug('confirm-dialog', event, payload)
   }
 
   private handleDialogChange(e: CustomEvent<{open?: boolean}>) {
@@ -273,22 +348,24 @@ export class CvConfirmDialog extends XLitElement {
     const confirmVariant = opts.confirmVariant === 'danger' ? 'danger' : 'primary'
     const size = opts.size || 'm'
     const closable = opts.closable !== false
+    const isAlert = opts.mode === 'alert'
 
     return html`
-      <cv-dialog
+      <adaptive-modal-surface
         class=${`size-${size}`}
+        presentation="dialog"
         .open=${this.isOpen()}
         .noHeader=${opts.noHeader ?? false}
         .closable=${closable}
         .closeOnEscape=${closable}
         .closeOnOutsidePointer=${closable}
-        .closeOnOutsideFocus=${closable}
+        .closeOnOutsideFocus=${false}
         @cv-change=${this.handleDialogChange}
         @cv-after-hide=${this.handleAfterHide}
         @cv-after-show=${this.handleAfterShow}
         @keydown=${this.handleKeydown}
       >
-        <span slot="title">${opts.title || 'Подтверждение'}</span>
+        <span slot="title">${opts.title || i18n('dialogs:confirm-title' as any)}</span>
         <div class="dialog-body">
           <div class="message-container">
             <div class="message-icon ${variant}">${variantIcons[variant] || variantIcons['default']}</div>
@@ -297,12 +374,18 @@ export class CvConfirmDialog extends XLitElement {
         </div>
 
         <div class="dialog-footer" slot="footer">
-          <cv-button variant="default" @click=${this.handleCancel}>${opts.cancelText || 'Отмена'}</cv-button>
+          ${isAlert
+            ? null
+            : html`
+                <cv-button variant="default" @click=${this.handleCancel}
+                  >${opts.cancelText || i18n('button:cancel' as any)}</cv-button
+                >
+              `}
           <cv-button variant=${confirmVariant} @click=${this.handleConfirm}
-            >${opts.confirmText || 'ОК'}</cv-button
+            >${opts.confirmText || i18n('button:ok' as any)}</cv-button
           >
         </div>
-      </cv-dialog>
+      </adaptive-modal-surface>
     `
   }
 }

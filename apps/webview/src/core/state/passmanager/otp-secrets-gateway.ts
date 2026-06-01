@@ -1,6 +1,7 @@
-import type {OTPGetParams, OTPSecretsGateway} from '@project/passmanager'
+import type {OTPGetParams} from '@project/passmanager/types'
+import type {OTPSecretsGateway} from '@project/passmanager/ports'
 import type {CatalogDeps} from './types'
-import type {CatalogTransport} from './catalog-transport'
+import type {PassmanagerTransport} from './passmanager-transport'
 
 import type {Logger} from '../../logger'
 import {defaultLogger} from '../../logger'
@@ -22,11 +23,11 @@ const OTP_MISS_RE = /(OTP_SECRET_NOT_FOUND|NODE_NOT_FOUND|not\s*found)/i
 export class CatalogOTPSecretsGateway implements OTPSecretsGateway {
   private readonly logger: Logger
 
-  constructor(catalog: CatalogDeps, transport: CatalogTransport, logger?: Logger)
-  constructor(catalog: CatalogDeps, transport: CatalogTransport, logger: unknown, ...legacy: unknown[])
+  constructor(catalog: CatalogDeps, transport: PassmanagerTransport, logger?: Logger)
+  constructor(catalog: CatalogDeps, transport: PassmanagerTransport, logger: unknown, ...legacy: unknown[])
   constructor(
     private readonly catalog: CatalogDeps,
-    private readonly transport: CatalogTransport,
+    private readonly transport: PassmanagerTransport,
     logger: unknown = defaultLogger,
     ...legacy: unknown[]
   ) {
@@ -50,9 +51,9 @@ export class CatalogOTPSecretsGateway implements OTPSecretsGateway {
 
   async getOTP(data: OTPGetParams): Promise<string | undefined> {
     try {
-      if (!this.transport.hasSendCatalog) throw new Error('passmanager transport not available')
+      if (!this.transport.hasSendPassmanager) throw new Error('passmanager transport not available')
 
-      const res = (await this.transport.sendCatalog('passmanager:otp:generate', {
+      const res = (await this.transport.sendPassmanager('passmanager:otp:generate', {
         otp_id: data.id,
         entry_id: data.entryId,
         ts: data.ts,
@@ -77,7 +78,7 @@ export class CatalogOTPSecretsGateway implements OTPSecretsGateway {
           message,
         })
       }
-      this.setError(ADAPTER_ERROR.OTP_GENERATE, 'Ошибка генерации OTP', e)
+      this.setError(ADAPTER_ERROR.OTP_GENERATE, 'Failed to generate OTP', e)
       return undefined
     }
   }
@@ -89,9 +90,9 @@ export class CatalogOTPSecretsGateway implements OTPSecretsGateway {
 
   async removeOTP(id: string): Promise<boolean> {
     try {
-      if (!this.transport.hasSendCatalog) throw new Error('passmanager transport not available')
+      if (!this.transport.hasSendPassmanager) throw new Error('passmanager transport not available')
 
-      const res = (await this.transport.sendCatalog('passmanager:otp:removeSecret', {
+      const res = (await this.transport.sendPassmanager('passmanager:otp:removeSecret', {
         otp_id: id,
       })) as {ok: boolean; error?: string}
 
@@ -100,16 +101,16 @@ export class CatalogOTPSecretsGateway implements OTPSecretsGateway {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       this.logger.warn('[OTP] removeSecret failed', {otpId: id, message})
-      this.setError(ADAPTER_ERROR.OTP_REMOVE, 'Ошибка удаления OTP секрета', e)
+      this.setError(ADAPTER_ERROR.OTP_REMOVE, 'Failed to remove OTP secret', e)
       return false
     }
   }
 
   async saveOTP(id: string, secret: string): Promise<boolean> {
     try {
-      if (!this.transport.hasSendCatalog) throw new Error('passmanager transport not available')
+      if (!this.transport.hasSendPassmanager) throw new Error('passmanager transport not available')
 
-      const res = (await this.transport.sendCatalog('passmanager:otp:setSecret', {
+      const res = (await this.transport.sendPassmanager('passmanager:otp:setSecret', {
         otp_id: id,
         secret,
       })) as {ok: boolean; error?: string}
@@ -121,7 +122,7 @@ export class CatalogOTPSecretsGateway implements OTPSecretsGateway {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       this.logger.warn('[OTP] setSecret failed', {otpId: id, message})
-      this.setError(ADAPTER_ERROR.OTP_SAVE, 'Ошибка сохранения OTP секрета', e)
+      this.setError(ADAPTER_ERROR.OTP_SAVE, 'Failed to save OTP secret', e)
       return false
     }
   }

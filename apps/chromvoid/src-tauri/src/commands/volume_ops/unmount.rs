@@ -47,9 +47,7 @@ pub(crate) async fn volume_unmount_inner_with_budget(
         let fuse_staging_dir = h.fuse_staging_dir();
         let join_res = tokio::time::timeout(join_timeout, h.join()).await;
         if join_res.is_err() {
-            if let Some(dir) = fuse_staging_dir {
-                let _ = std::fs::remove_dir_all(dir);
-            }
+            volume_manager::cleanup_fuse_staging_dir(fuse_staging_dir.as_ref());
 
             #[cfg(target_os = "macos")]
             {

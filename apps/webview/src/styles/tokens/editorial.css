@@ -86,57 +86,57 @@
 [theme="dark"],
 cv-theme-provider,
 cv-theme-provider[theme='dark'] {
-  /* Surfaces - ChromVoid dark base */
-  --surface-base: #070b12;
-  --surface-raised: #0a0e15;
-  --surface-overlay: #101722;
-  --surface-elevated: #181c23;
-  --surface-muted: #1c2027;
-  
+  /* Surfaces - sourced from canonical CV tokens */
+  --surface-base: var(--cv-color-bg);
+  --surface-raised: var(--cv-color-surface);
+  --surface-overlay: var(--cv-color-surface);
+  --surface-elevated: var(--cv-color-surface-2);
+  --surface-muted: var(--cv-color-surface-3);
+
   /* Text - High contrast */
-  --text-primary: #ffffff;
+  --text-primary: var(--cv-color-text-strongest);
   --text-secondary: var(--cv-alpha-white-70);
   --text-tertiary: var(--cv-alpha-white-50);
   --text-quaternary: var(--cv-alpha-white-30);
-  
+
   /* Borders - Subtle */
   --border-subtle: var(--cv-alpha-white-6);
   --border-default: var(--cv-alpha-white-10);
   --border-strong: var(--cv-alpha-white-15);
-  --border-focus: color-mix(in oklch, var(--cv-color-accent) 50%, transparent);
-  
+  --border-focus: var(--cv-color-accent-ring);
+
   /* Accent - Brand Cyan */
-  --accent: #00E5FF;
-  --accent-hover: #33e8ff;
-  --accent-muted: color-mix(in oklch, var(--cv-color-primary) 15%, transparent);
-  --accent-subtle: color-mix(in oklch, var(--cv-color-primary) 8%, transparent);
-  
+  --accent: var(--cv-color-primary);
+  --accent-hover: var(--cv-color-primary-dark);
+  --accent-muted: var(--cv-color-primary-surface-strong);
+  --accent-subtle: var(--cv-color-primary-subtle);
+
   /* Secondary Accent - Electric Purple */
-  --accent-secondary: #6200EA;
-  --accent-secondary-hover: #7c1fff;
-  --accent-secondary-muted: color-mix(in oklch, var(--accent-secondary) 15%, transparent);
-  
+  --accent-secondary: var(--cv-color-accent);
+  --accent-secondary-hover: var(--cv-color-accent-hover);
+  --accent-secondary-muted: var(--cv-color-accent-surface-strong);
+
   /* Status Colors - ChromVoid Brand */
-  --success: #00FF85;
-  --success-muted: color-mix(in oklch, var(--cv-color-success) 15%, transparent);
-  --warning: #FFAB00;
-  --warning-muted: color-mix(in oklch, var(--warning) 15%, transparent);
-  --error: #FF3D00;
-  --error-muted: color-mix(in oklch, var(--error) 15%, transparent);
-  --info: #00E5FF;
-  --info-muted: color-mix(in oklch, var(--cv-color-primary) 15%, transparent);
-  
+  --success: var(--cv-color-success);
+  --success-muted: var(--cv-color-success-surface);
+  --warning: var(--cv-color-warning);
+  --warning-muted: var(--cv-color-warning-surface);
+  --error: var(--cv-color-danger);
+  --error-muted: var(--cv-color-danger-surface);
+  --info: var(--cv-color-info);
+  --info-muted: var(--cv-color-info-surface);
+
   /* Shadows */
   --cv-shadow-sm: 0 1px 2px var(--cv-alpha-black-50);
   --cv-shadow-md: 0 4px 12px var(--cv-alpha-black-50);
   --cv-shadow-lg: 0 8px 24px var(--cv-alpha-black-65);
   --cv-shadow-xl: 0 16px 48px var(--cv-alpha-black-65);
-  --cv-shadow-glow: 0 0 24px color-mix(in oklch, var(--cv-color-primary) 25%, transparent);
-  
+  --cv-shadow-glow: 0 0 24px var(--cv-color-primary-ring);
+
   /* Interactive states */
   --hover-overlay: var(--cv-alpha-white-4);
   --active-overlay: var(--cv-alpha-white-8);
-  --selected-bg: color-mix(in oklch, var(--cv-color-primary) 12%, transparent);
+  --selected-bg: var(--cv-color-selected);
 }
 
 /* ========== LIGHT THEME ========== */
@@ -144,57 +144,57 @@ cv-theme-provider[theme='dark'] {
 [data-theme="light"],
 [theme="light"],
 cv-theme-provider[theme='light'] {
-  /* Surfaces - Warm white */
-  --surface-base: #fafafa;
-  --surface-raised: #ffffff;
-  --surface-overlay: #f5f5f5;
-  --surface-elevated: #ffffff;
-  --surface-muted: #f0f0f0;
-  
+  /* Surfaces - sourced from canonical CV tokens */
+  --surface-base: var(--cv-color-bg);
+  --surface-raised: var(--cv-color-surface);
+  --surface-overlay: var(--cv-color-surface-2);
+  --surface-elevated: var(--cv-color-surface);
+  --surface-muted: var(--cv-color-surface-3);
+
   /* Text - Softer black */
-  --text-primary: #111111;
+  --text-primary: var(--cv-color-text);
   --text-secondary: var(--cv-alpha-black-65);
   --text-tertiary: var(--cv-alpha-black-50);
   --text-quaternary: var(--cv-alpha-black-25);
-  
+
   /* Borders */
   --border-subtle: var(--cv-alpha-black-5);
   --border-default: var(--cv-alpha-black-10);
   --border-strong: var(--cv-alpha-black-10);
-  --border-focus: color-mix(in oklch, var(--cv-color-primary-dark) 50%, transparent);
-  
+  --border-focus: var(--cv-color-primary-ring);
+
   /* Accent - Slightly darker for contrast on white */
-  --accent: #00b4d4;
-  --accent-hover: #00c8eb;
-  --accent-muted: color-mix(in oklch, var(--cv-color-primary-dark) 12%, transparent);
-  --accent-subtle: color-mix(in oklch, var(--cv-color-primary-dark) 6%, transparent);
-  
+  --accent: var(--cv-color-primary);
+  --accent-hover: var(--cv-color-primary-dark);
+  --accent-muted: var(--cv-color-primary-surface-strong);
+  --accent-subtle: var(--cv-color-primary-subtle);
+
   /* Secondary Accent - Electric Purple */
-  --accent-secondary: #5000c8;
-  --accent-secondary-hover: #6200EA;
-  --accent-secondary-muted: color-mix(in oklch, var(--accent-secondary) 12%, transparent);
-  
+  --accent-secondary: var(--cv-color-accent);
+  --accent-secondary-hover: var(--cv-color-accent-hover);
+  --accent-secondary-muted: var(--cv-color-accent-surface);
+
   /* Status Colors - ChromVoid Brand (adjusted for light bg) */
-  --success: #00d970;
-  --success-muted: color-mix(in oklch, var(--cv-color-success) 12%, transparent);
-  --warning: #e69900;
-  --warning-muted: color-mix(in oklch, var(--warning) 12%, transparent);
-  --error: #e63300;
-  --error-muted: color-mix(in oklch, var(--error) 12%, transparent);
-  --info: #00b4d4;
-  --info-muted: color-mix(in oklch, var(--cv-color-primary-dark) 12%, transparent);
-  
+  --success: var(--cv-color-success);
+  --success-muted: var(--cv-color-success-surface);
+  --warning: var(--cv-color-warning);
+  --warning-muted: var(--cv-color-warning-surface);
+  --error: var(--cv-color-danger);
+  --error-muted: var(--cv-color-danger-surface);
+  --info: var(--cv-color-info);
+  --info-muted: var(--cv-color-info-surface);
+
   /* Shadows - Softer */
   --cv-shadow-sm: 0 1px 2px var(--cv-alpha-black-5);
   --cv-shadow-md: 0 4px 12px var(--cv-alpha-black-10);
   --cv-shadow-lg: 0 8px 24px var(--cv-alpha-black-10);
   --cv-shadow-xl: 0 16px 48px var(--cv-alpha-black-10);
-  --cv-shadow-glow: 0 0 24px color-mix(in oklch, var(--cv-color-primary-dark) 20%, transparent);
-  
+  --cv-shadow-glow: 0 0 24px var(--cv-color-primary-ring);
+
   /* Interactive states */
   --hover-overlay: var(--cv-alpha-black-5);
   --active-overlay: var(--cv-alpha-black-5);
-  --selected-bg: color-mix(in oklch, var(--cv-color-primary-dark) 8%, transparent);
+  --selected-bg: var(--cv-color-selected);
 }
 
 /* ========== ANIMATION KEYFRAMES ========== */
@@ -262,8 +262,8 @@ cv-theme-provider[theme='light'] {
  */
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation-duration: 200ms;
-  animation-timing-function: cubic-bezier(0.25, 1, 0.5, 1);
+  animation-duration: var(--cv-duration-normal);
+  animation-timing-function: var(--cv-easing-standard);
   /* 'both' ensures the animation applies styles before start and after end */
   animation-fill-mode: both;
 }
@@ -320,8 +320,8 @@ cv-theme-provider[theme='light'] {
 /* Gallery image base transition - applied via view-transition-name in component */
 ::view-transition-old(gallery-image),
 ::view-transition-new(gallery-image) {
-  animation-duration: 180ms;
-  animation-timing-function: var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1));
+  animation-duration: var(--cv-duration-normal);
+  animation-timing-function: var(--cv-easing-decelerate);
   animation-fill-mode: both;
 }
 
@@ -350,26 +350,26 @@ cv-theme-provider[theme='light'] {
 }
 
 ::view-transition-old(route-content) {
-  animation: 180ms var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1)) both vt-fade-out;
+  animation: var(--cv-duration-normal) var(--cv-easing-standard) both vt-fade-out;
 }
 
 ::view-transition-new(route-content) {
-  animation: 220ms var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1)) both vt-scale-in;
+  animation: var(--cv-duration-normal) var(--cv-easing-decelerate) both vt-scale-in;
 }
 
 /* Shell content transition - very subtle for sub-page changes within dashboard */
 ::view-transition-old(shell-content),
 ::view-transition-new(shell-content) {
-  animation-duration: 150ms;
-  animation-timing-function: var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1));
+  animation-duration: var(--cv-duration-fast);
+  animation-timing-function: var(--cv-easing-standard);
   animation-fill-mode: both;
 }
 
 /* Details panel - typically has CSS transitions, view-transition as enhancement */
 ::view-transition-old(details-panel),
 ::view-transition-new(details-panel) {
-  animation-duration: 200ms;
-  animation-timing-function: var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1));
+  animation-duration: var(--cv-duration-normal);
+  animation-timing-function: var(--cv-easing-decelerate);
   animation-fill-mode: both;
 }
 

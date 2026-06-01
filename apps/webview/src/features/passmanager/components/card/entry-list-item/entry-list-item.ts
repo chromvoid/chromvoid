@@ -3,7 +3,9 @@ import {pmEntryListItemBaseStyles, pmEntryListItemDesktopStyles} from './styles'
 
 export class PMEntryListItem extends PMEntryListItemBase {
   static define() {
-    customElements.define('pm-entry-list-item', this)
+    if (!customElements.get('pm-entry-list-item')) {
+      customElements.define('pm-entry-list-item', this)
+    }
   }
 
   static styles = [...pmEntryListItemBaseStyles, pmEntryListItemDesktopStyles]

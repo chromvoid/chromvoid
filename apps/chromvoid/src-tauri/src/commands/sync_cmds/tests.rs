@@ -169,6 +169,43 @@ fn test_reset_sync_state_clears_all() {
 }
 
 #[test]
+fn test_sync_runtime_reset_clears_instance_state() {
+    let runtime = SyncRuntimeState::new();
+    runtime.bootstrap(99, 1234).unwrap();
+    runtime
+        .set_writer_lock(Some(WriterLockInfo {
+            holder: "x".into(),
+            since_ms: 0,
+        }))
+        .unwrap();
+
+    assert!(runtime.is_active().unwrap());
+    assert!(runtime.current_cursor().unwrap().is_some());
+
+    runtime.reset().unwrap();
+
+    assert!(!runtime.is_active().unwrap());
+    assert!(runtime.current_cursor().unwrap().is_none());
+}
+
+#[test]
+fn test_sync_runtime_instances_are_isolated() {
+    let first = SyncRuntimeState::new();
+    let second = SyncRuntimeState::new();
+
+    first.bootstrap(10, 1000).unwrap();
+    second.bootstrap(20, 2000).unwrap();
+
+    assert_eq!(first.current_cursor().unwrap().unwrap().version, 10);
+    assert_eq!(second.current_cursor().unwrap().unwrap().version, 20);
+
+    first.reset().unwrap();
+
+    assert!(first.current_cursor().unwrap().is_none());
+    assert_eq!(second.current_cursor().unwrap().unwrap().version, 20);
+}
+
+#[test]
 fn test_write_result_serde() {
     let ok_result = WriteResult {
         ok: true,

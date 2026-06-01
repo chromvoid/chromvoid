@@ -16,10 +16,9 @@ export function setUiMode(mode: UiMode): void {
   } catch {}
 }
 
-/**
- * Синхронизирует режим UI с query-параметром `pmui=new|old`.
- * Если параметр присутствует — сохраняем его в localStorage.
- */
+/**Synchronizes the UI mode with the query parameter pmui=new|old.
+If the parameter is present, save it to localStorage.
+*/
 export function syncUiModeWithQuery(): UiMode {
   try {
     const url = new URL(window.location.href)

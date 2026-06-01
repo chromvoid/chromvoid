@@ -22,7 +22,7 @@ describe('Password Import Package Setup', () => {
 
   it('package.json should have correct main entry', () => {
     const pkgJson = JSON.parse(readFileSync(pkgJsonPath, 'utf-8'));
-    expect(pkgJson.main).toBe('./src/index.ts');
+    expect(pkgJson.main).toBe('./dist/index.js');
   });
 
   it('tsconfig.json should exist', () => {

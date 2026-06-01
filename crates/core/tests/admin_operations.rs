@@ -61,6 +61,7 @@ fn test_admin_erase_requires_confirmation() {
 
     let response = admin_erase(&mut router, MASTER_PASSWORD, false);
     assert_rpc_error(&response, "ERASE_NO_CONFIRM");
+    assert_eq!(response.error_message(), Some("Confirmation required"));
 }
 
 #[test]
@@ -69,6 +70,7 @@ fn test_admin_erase_invalid_master_password() {
 
     let response = admin_erase(&mut router, "wrong-password", true);
     assert_rpc_error(&response, "INVALID_MASTER_PASSWORD");
+    assert_eq!(response.error_message(), Some("Invalid master password"));
 }
 
 #[test]
@@ -144,6 +146,7 @@ fn test_admin_backup_stream_meta_contract() {
             (meta, buf.len() as u64)
         }
         RpcReply::Json(r) => panic!("expected stream reply, got JSON: {r:?}"),
+        RpcReply::RangeStream(_) => panic!("expected backup stream reply"),
     };
 
     assert!(
@@ -176,8 +179,16 @@ fn test_admin_restore_rejects_non_blank_storage() {
         Some(RpcInputStream::from_bytes(vec![0u8])),
     );
     match reply {
-        RpcReply::Json(r) => assert_rpc_error(&r, "STORAGE_NOT_BLANK"),
-        RpcReply::Stream(_) => panic!("admin:restore must return JSON response"),
+        RpcReply::Json(r) => {
+            assert_rpc_error(&r, "STORAGE_NOT_BLANK");
+            assert_eq!(
+                r.error_message(),
+                Some("Storage must be blank for restore. Use admin:erase first.")
+            );
+        }
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("admin:restore must return JSON response")
+        }
     }
 }
 
@@ -199,8 +210,15 @@ fn test_admin_restore_invalid_backup_format_is_typed_error() {
         Some(RpcInputStream::from_bytes(b"not-json".to_vec())),
     );
     match reply {
-        RpcReply::Json(r) => assert_rpc_error(&r, "INVALID_BACKUP"),
-        RpcReply::Stream(_) => panic!("admin:restore must return JSON response"),
+        RpcReply::Json(r) => {
+            assert_rpc_error(&r, "INVALID_BACKUP");
+            assert!(r
+                .error_message()
+                .is_some_and(|message| message.starts_with("Invalid backup format: ")));
+        }
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("admin:restore must return JSON response")
+        }
     }
 }
 
@@ -226,6 +244,7 @@ fn test_admin_restore_checksum_mismatch_is_typed_error() {
             buf
         }
         RpcReply::Json(r) => panic!("expected stream reply, got JSON: {r:?}"),
+        RpcReply::RangeStream(_) => panic!("expected backup stream reply"),
     };
 
     // Tamper bytes while keeping JSON parseable.
@@ -258,8 +277,13 @@ fn test_admin_restore_checksum_mismatch_is_typed_error() {
         router2.handle_with_stream(&restore_request, Some(RpcInputStream::from_bytes(tampered)));
 
     match reply {
-        RpcReply::Json(r) => assert_rpc_error(&r, "CHECKSUM_MISMATCH"),
-        RpcReply::Stream(_) => panic!("admin:restore must return JSON response"),
+        RpcReply::Json(r) => {
+            assert_rpc_error(&r, "CHECKSUM_MISMATCH");
+            assert_eq!(r.error_message(), Some("Checksum mismatch"));
+        }
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("admin:restore must return JSON response")
+        }
     }
 }
 
@@ -269,6 +293,10 @@ fn test_admin_backup_requires_master_password() {
 
     let response = router.handle(&RpcRequest::new("admin:backup", serde_json::json!({})));
     assert_rpc_error(&response, "EMPTY_PAYLOAD");
+    assert_eq!(
+        response.error_message(),
+        Some("master_password is required")
+    );
 }
 
 #[test]
@@ -277,6 +305,7 @@ fn test_admin_backup_wrong_master_password_is_typed_error() {
 
     let response = admin_backup(&mut router, "wrong-password");
     assert_rpc_error(&response, "INVALID_MASTER_PASSWORD");
+    assert_eq!(response.error_message(), Some("Invalid master password"));
 }
 
 #[test]
@@ -285,6 +314,7 @@ fn test_admin_backup_requires_stream() {
 
     let response = admin_backup(&mut router, MASTER_PASSWORD);
     assert_rpc_error(&response, "STREAM_REQUIRED");
+    assert_eq!(response.error_message(), Some("Streaming required"));
 }
 
 #[test]
@@ -296,6 +326,10 @@ fn test_admin_restore_requires_master_password() {
         serde_json::json!({"content": "somedata"}),
     ));
     assert_rpc_error(&response, "EMPTY_PAYLOAD");
+    assert_eq!(
+        response.error_message(),
+        Some("master_password is required")
+    );
 }
 
 #[test]
@@ -304,6 +338,7 @@ fn test_admin_restore_wrong_master_password_is_typed_error() {
 
     let response = admin_restore(&mut router, "wrong-password", "somedata");
     assert_rpc_error(&response, "INVALID_MASTER_PASSWORD");
+    assert_eq!(response.error_message(), Some("Invalid master password"));
 }
 
 #[test]
@@ -312,6 +347,7 @@ fn test_admin_restore_requires_stream() {
 
     let response = admin_restore(&mut router, MASTER_PASSWORD, "somedata");
     assert_rpc_error(&response, "NO_STREAM");
+    assert_eq!(response.error_message(), Some("No incoming stream"));
 }
 
 #[test]
@@ -339,6 +375,7 @@ fn test_admin_backup_restore_roundtrip_with_stream() {
             buf
         }
         RpcReply::Json(r) => panic!("expected stream reply, got JSON: {r:?}"),
+        RpcReply::RangeStream(_) => panic!("expected backup stream reply"),
     };
 
     let (mut router2, _temp_dir2) = create_router_with_master();
@@ -365,7 +402,9 @@ fn test_admin_backup_restore_roundtrip_with_stream() {
                 .and_then(|v| v.as_u64())
                 .is_some());
         }
-        RpcReply::Stream(_) => panic!("admin:restore must return JSON response"),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("admin:restore must return JSON response")
+        }
     }
 
     unlock_vault(&mut router2, "test_password");
@@ -401,6 +440,7 @@ fn test_admin_backup_restore_restores_master_artifacts() {
             buf
         }
         RpcReply::Json(r) => panic!("expected stream reply, got JSON: {r:?}"),
+        RpcReply::RangeStream(_) => panic!("expected backup stream reply"),
     };
 
     // Restore into a fresh blank storage (no master artifacts pre-seeded).
@@ -422,7 +462,9 @@ fn test_admin_backup_restore_restores_master_artifacts() {
     );
     match restore_reply {
         RpcReply::Json(r) => assert_rpc_ok(&r),
-        RpcReply::Stream(_) => panic!("admin:restore must return JSON response"),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("admin:restore must return JSON response")
+        }
     }
 
     let master_salt2 =

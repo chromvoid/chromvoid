@@ -1,10 +1,11 @@
+mod artifact;
 mod create;
 mod restore;
 
+use artifact::*;
 pub(crate) use create::*;
 pub(crate) use restore::*;
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -40,11 +41,4 @@ fn restore_cancel_session(adapter: &mut dyn CoreAdapter, restore_id: &str) {
         "restore:local:cancel".to_string(),
         serde_json::json!({ "restore_id": restore_id }),
     ));
-}
-
-fn abort_backup(adapter: &mut dyn CoreAdapter, backup_id: &str, backup_dir: Option<&PathBuf>) {
-    backup_cancel_session(adapter, backup_id);
-    if let Some(dir) = backup_dir {
-        let _ = std::fs::remove_dir_all(dir);
-    }
 }

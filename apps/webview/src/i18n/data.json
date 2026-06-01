@@ -978,18 +978,6 @@
   "details:toolbar": {"en": "Details toolbar", "ru": "Панель инструментов сведений"},
   "details:region:single": {"en": "File details", "ru": "Сведения о файле"},
   "details:region:multi": {"en": "Selection details", "ru": "Сведения о выделении"},
-  "sidebar:quick-access": {
-    "en": "Quick access",
-    "ru": "Быстрый доступ"
-  },
-  "sidebar:tags": {
-    "en": "Tags",
-    "ru": "Теги"
-  },
-  "sidebar:storage": {
-    "en": "Storage",
-    "ru": "Хранилище"
-  },
   "sidebar:status": {
     "en": "Status",
     "ru": "Статус"
@@ -1002,22 +990,6 @@
     "en": "System",
     "ru": "Система"
   },
-  "quick-access:starred": {
-    "en": "Starred",
-    "ru": "Помеченные"
-  },
-  "quick-access:recent": {
-    "en": "Recent",
-    "ru": "Недавние"
-  },
-  "quick-access:trash": {
-    "en": "Trash",
-    "ru": "Корзина"
-  },
-  "tags:work": {"en": "Work", "ru": "Работа"},
-  "tags:personal": {"en": "Personal", "ru": "Личное"},
-  "tags:scan": {"en": "Scan", "ru": "Скан"},
-  "tags:project": {"en": "Projects", "ru": "Проекты"},
   "details:show-hidden": {"en": "Show hidden", "ru": "Показывать скрытые"},
   "node:dir": {"en": "Folder", "ru": "Папка"},
   "node:file": {"en": "File", "ru": "Файл"},
@@ -1032,6 +1004,14 @@
   "theme:switch-to-light": {"en": "Switch to light theme", "ru": "Переключить на светлую тему"},
   "theme:title": {"en": "Theme", "ru": "Тема"},
   "language:title": {"en": "Language", "ru": "Язык"},
+  "notification:vault-locked-reason": {
+    "en": "Vault locked (${reason})",
+    "ru": "Хранилище заблокировано (${reason})"
+  },
+  "notification:remote-vault-locked": {
+    "en": "Remote vault locked on host device",
+    "ru": "Удалённое хранилище заблокировано на хост-устройстве"
+  },
   "copyright": {
     "en": "PT ChromVoid Data Labs ©",
     "ru": "PT ChromVoid Data Labs ©",
@@ -1317,6 +1297,30 @@
     "zh": "新密码",
     "ja": "新しいパスワード",
     "vi": "Mật khẩu mới"
+  },
+  "changepwd:confirm:title": {
+    "en": "Confirm new password",
+    "ru": "Подтвердите новый пароль"
+  },
+  "changepwd:backup-note": {
+    "en": "Backups created before this change will still require the old master password.",
+    "ru": "Резервные копии, созданные до смены, всё ещё требуют старый мастер-пароль."
+  },
+  "changepwd:same-password": {
+    "en": "New master password must be different from the current one",
+    "ru": "Новый мастер-пароль должен отличаться от текущего"
+  },
+  "changepwd:success": {
+    "en": "Master password changed. Create a new backup when you can.",
+    "ru": "Мастер-пароль изменён. Создайте новую резервную копию, когда сможете."
+  },
+  "changepwd:invalid-current": {
+    "en": "Current master password is incorrect",
+    "ru": "Текущий мастер-пароль неверный"
+  },
+  "changepwd:policy-error": {
+    "en": "New master password does not meet the password policy",
+    "ru": "Новый мастер-пароль не соответствует требованиям"
   },
   "button:changepwd": {
     "en": "Change master password",
@@ -2056,6 +2060,14 @@
     "en": "Ready",
     "ru": "Готово"
   },
+  "statusbar:android-share-pending": {
+    "en": "Shared files: ${count}",
+    "ru": "Файлы из Share: ${count}"
+  },
+  "statusbar:android-share-pending:detail": {
+    "en": "${count} shared file(s) waiting for unlock; unknown sizes: ${unknown}",
+    "ru": "${count} файл(ов) из Share ждут разблокировки; неизвестных размеров: ${unknown}"
+  },
   "statusbar:selection-mode": {
     "en": "Selection mode",
     "ru": "Режим выделения"
@@ -2092,9 +2104,21 @@
     "en": "Files",
     "ru": "Файлы"
   },
+  "navigation:notes": {
+    "en": "Notes",
+    "ru": "Заметки"
+  },
   "navigation:passwords": {
-    "en": "Passwords",
+    "en": "Credentials",
     "ru": "Пароли"
+  },
+  "navigation:otp-codes": {
+    "en": "OTPs",
+    "ru": "OTP"
+  },
+  "navigation:passkeys": {
+    "en": "Passkeys",
+    "ru": "Passkeys"
   },
   "navigation:command-palette": {
     "en": "Command palette",
@@ -2132,6 +2156,86 @@
     "en": "Collapse sidebar",
     "ru": "Свернуть боковую панель"
   },
+  "notes:quick_view:title": {
+    "en": "Notes",
+    "ru": "Заметки"
+  },
+  "notes:quick_view:subtitle": {
+    "en": "Markdown files across Files",
+    "ru": "Markdown-файлы из Файлов"
+  },
+  "notes:quick_view:search": {
+    "en": "Search notes",
+    "ru": "Поиск заметок"
+  },
+  "notes:quick_view:clear_filters": {
+    "en": "Clear filters",
+    "ru": "Очистить фильтры"
+  },
+  "notes:quick_view:open": {
+    "en": "Open note",
+    "ru": "Открыть заметку"
+  },
+  "notes:quick_view:view_mode": {
+    "en": "Notes view mode",
+    "ru": "Режим отображения заметок"
+  },
+  "notes:quick_view:view_mode:flat": {
+    "en": "Flat list",
+    "ru": "Плоский список"
+  },
+  "notes:quick_view:view_mode:hierarchy": {
+    "en": "Directory tree",
+    "ru": "Дерево директорий"
+  },
+  "notes:quick_view:expand_folder": {
+    "en": "Expand ${name}",
+    "ru": "Развернуть ${name}"
+  },
+  "notes:quick_view:collapse_folder": {
+    "en": "Collapse ${name}",
+    "ru": "Свернуть ${name}"
+  },
+  "notes:quick_view:folder_count": {
+    "en": "Notes: ${count}",
+    "ru": "Заметок: ${count}"
+  },
+  "notes:quick_view:summary:label": {
+    "en": "Notes summary",
+    "ru": "Сводка заметок"
+  },
+  "notes:quick_view:summary:total": {
+    "en": "Total",
+    "ru": "Всего"
+  },
+  "notes:quick_view:summary:visible": {
+    "en": "Visible",
+    "ru": "Видно"
+  },
+  "notes:quick_view:unavailable:title": {
+    "en": "Files catalog is unavailable",
+    "ru": "Каталог файлов недоступен"
+  },
+  "notes:quick_view:unavailable:description": {
+    "en": "Notes will appear after the Files catalog is available.",
+    "ru": "Заметки появятся после загрузки каталога файлов."
+  },
+  "notes:quick_view:empty:title": {
+    "en": "No Markdown notes",
+    "ru": "Markdown-заметок нет"
+  },
+  "notes:quick_view:empty:description": {
+    "en": "Create a Markdown note from Files to see it here.",
+    "ru": "Создайте Markdown-заметку в Файлах, чтобы увидеть её здесь."
+  },
+  "notes:quick_view:empty_filtered:title": {
+    "en": "No matching notes",
+    "ru": "Подходящих заметок нет"
+  },
+  "notes:quick_view:empty_filtered:description": {
+    "en": "Clear search to return to all visible Markdown notes.",
+    "ru": "Очистите поиск, чтобы вернуться ко всем видимым Markdown-заметкам."
+  },
   "notification:vault-locked": {
     "en": "Vault locked",
     "ru": "Хранилище заблокировано"
@@ -2159,6 +2263,10 @@
   "file-manager:create-folder": {
     "en": "Create folder",
     "ru": "Создать папку"
+  },
+  "file-manager:create-note": {
+    "en": "Create note",
+    "ru": "Создать заметку"
   },
   "file-manager:upload-files": {
     "en": "Upload files",
@@ -2301,8 +2409,12 @@
     "ru": "Поиск"
   },
   "file-manager:edit-in-command": {
-    "en": "Edit in ⌘K",
-    "ru": "Изменить в ⌘K"
+    "en": "Edit in ${shortcut}",
+    "ru": "Изменить в ${shortcut}"
+  },
+  "file-manager:edit-in-command-generic": {
+    "en": "Edit in command palette",
+    "ru": "Изменить в палитре команд"
   },
   "file-manager:search-current": {
     "en": "Search: ${query}",
@@ -2356,13 +2468,33 @@
     "en": "Share",
     "ru": "Поделиться"
   },
+  "action:save-to-gallery": {
+    "en": "Save to gallery",
+    "ru": "Сохранить в галерею"
+  },
   "details:metadata": {
     "en": "Details",
     "ru": "Детали"
   },
+  "details:system-metadata": {
+    "en": "System metadata",
+    "ru": "Системные метаданные"
+  },
+  "details:photo-metadata": {
+    "en": "Photo metadata",
+    "ru": "Метаданные фото"
+  },
   "details:path": {
     "en": "Path",
     "ru": "Путь"
+  },
+  "details:type": {
+    "en": "Type",
+    "ru": "Тип"
+  },
+  "details:created": {
+    "en": "Created",
+    "ru": "Создано"
   },
   "details:modified": {
     "en": "Modified",
@@ -2379,6 +2511,74 @@
   "details:bytes": {
     "en": "bytes",
     "ru": "байт"
+  },
+  "details:date-taken": {
+    "en": "Date taken",
+    "ru": "Дата съемки"
+  },
+  "details:camera": {
+    "en": "Camera",
+    "ru": "Камера"
+  },
+  "details:lens": {
+    "en": "Lens",
+    "ru": "Объектив"
+  },
+  "details:exposure": {
+    "en": "Exposure",
+    "ru": "Выдержка"
+  },
+  "details:aperture": {
+    "en": "Aperture",
+    "ru": "Диафрагма"
+  },
+  "details:iso": {
+    "en": "ISO",
+    "ru": "ISO"
+  },
+  "details:focal-length": {
+    "en": "Focal length",
+    "ru": "Фокусное расстояние"
+  },
+  "details:orientation": {
+    "en": "Orientation",
+    "ru": "Ориентация"
+  },
+  "details:gps": {
+    "en": "GPS",
+    "ru": "GPS"
+  },
+  "details:gps-unavailable-import-risk": {
+    "en": "Location may have been removed during import",
+    "ru": "Геоданные могли быть удалены при импорте"
+  },
+  "details:gps-unavailable-invalid": {
+    "en": "Stored GPS metadata is invalid",
+    "ru": "Сохраненные GPS-метаданные некорректны"
+  },
+  "details:gps-unavailable-too-large": {
+    "en": "Photo is too large for metadata extraction",
+    "ru": "Фото слишком большое для извлечения метаданных"
+  },
+  "details:latitude": {
+    "en": "Latitude",
+    "ru": "Широта"
+  },
+  "details:longitude": {
+    "en": "Longitude",
+    "ru": "Долгота"
+  },
+  "details:altitude": {
+    "en": "Altitude",
+    "ru": "Высота"
+  },
+  "details:metadata-loading": {
+    "en": "Loading photo metadata...",
+    "ru": "Загружаем метаданные фото..."
+  },
+  "details:metadata-unavailable": {
+    "en": "Photo metadata is unavailable",
+    "ru": "Метаданные фото недоступны"
   },
   "file-type:document": {
     "en": "Document",
@@ -2464,6 +2664,18 @@
     "en": "Clear filters",
     "ru": "Сбросить фильтры"
   },
+  "file-manager:summary:label": {
+    "en": "Files summary",
+    "ru": "Сводка файлов"
+  },
+  "file-manager:summary:items": {
+    "en": "Items",
+    "ru": "Элементы"
+  },
+  "file-manager:summary:selected": {
+    "en": "Selected",
+    "ru": "Выбрано"
+  },
   "file-manager:items-count": {
     "en": "Items: ${count}",
     "ru": "Элементов: ${count}"
@@ -2504,6 +2716,38 @@
     "en": "${completed} of ${total}",
     "ru": "${completed} из ${total}"
   },
+  "file-manager:transfer-summary:upload-active": {
+    "en": "Uploading files: ${count}",
+    "ru": "Загрузка файлов: ${count}"
+  },
+  "file-manager:transfer-summary:download-active": {
+    "en": "Downloading files: ${count}",
+    "ru": "Скачивание файлов: ${count}"
+  },
+  "file-manager:transfer-summary:mixed-active": {
+    "en": "Transferring files: ${count}",
+    "ru": "Передача файлов: ${count}"
+  },
+  "file-manager:transfer-summary:external-active": {
+    "en": "Preparing files: ${count}",
+    "ru": "Подготовка файлов: ${count}"
+  },
+  "file-manager:transfer-summary:failed": {
+    "en": "Needs attention: ${failed} failed",
+    "ru": "Нужно внимание: ошибок ${failed}"
+  },
+  "file-manager:transfer-summary:complete": {
+    "en": "Transfer complete",
+    "ru": "Передача завершена"
+  },
+  "file-manager:transfer-details-open": {
+    "en": "Open transfer details",
+    "ru": "Открыть детали передачи"
+  },
+  "file-manager:transfer-details-aria": {
+    "en": "${label}. ${progress}% complete. ${bytes}. Open transfer details.",
+    "ru": "${label}. Выполнено ${progress}%. ${bytes}. Открыть детали передачи."
+  },
   "upload:speed": {
     "en": "${speed}/s",
     "ru": "${speed}/с"
@@ -2527,6 +2771,10 @@
   "upload:uploading": {
     "en": "Uploading...",
     "ru": "Загрузка..."
+  },
+  "upload:queued": {
+    "en": "Queued",
+    "ru": "В очереди"
   },
   "upload:done": {
     "en": "Done",
@@ -2559,6 +2807,10 @@
   "media:image-position": {
     "en": "${current} of ${total}",
     "ru": "${current} из ${total}"
+  },
+  "media:image-position-compact": {
+    "en": "${current} / ${total}",
+    "ru": "${current} / ${total}"
   },
   "media:image": {
     "en": "Image ${index}",
@@ -2596,17 +2848,345 @@
     "en": "Unable to play video",
     "ru": "Невозможно воспроизвести видео"
   },
-  "storage:used": {
-    "en": "Used",
-    "ru": "Использовано"
+  "media:video-error-copy": {
+    "en": "Open it in a system app or download the file.",
+    "ru": "Откройте его в системном приложении или скачайте файл."
   },
-  "storage:used-short": {
-    "en": "Used: ${value}",
-    "ru": "Исп.: ${value}"
+  "media:video-native-launching": {
+    "en": "Opening native video player",
+    "ru": "Открываем нативный видеоплеер"
   },
-  "storage:total-short": {
-    "en": "Total: ${value}",
-    "ru": "Всего: ${value}"
+  "media:video-native-playing": {
+    "en": "Playing in native video player",
+    "ru": "Воспроизведение в нативном видеоплеере"
+  },
+  "media:video-native-closed": {
+    "en": "Native video player closed",
+    "ru": "Нативный видеоплеер закрыт"
+  },
+  "media:video-unsupported-open-external": {
+    "en": "This video format is not supported by the built-in player. Open it in a system app or download the file.",
+    "ru": "Этот видеоформат не поддерживается встроенным плеером. Откройте его в системном приложении или скачайте файл."
+  },
+  "media:fallback-limited-title": {
+    "en": "Streaming is unavailable",
+    "ru": "Потоковое воспроизведение недоступно"
+  },
+  "media:fallback-limited-copy": {
+    "en": "This media file is too large for compatibility playback. Open it in a system app or download it instead.",
+    "ru": "Этот медиафайл слишком большой для совместимого воспроизведения. Откройте его в системном приложении или скачайте."
+  },
+  "media:native-playback-unavailable-title": {
+    "en": "Native playback is unavailable",
+    "ru": "Нативное воспроизведение недоступно"
+  },
+  "media:android-native-not-ready-fallback-copy": {
+    "en": "Android playback did not become ready and this file is too large for compatibility playback. Open it in a system app or download it instead.",
+    "ru": "Android-воспроизведение не стало готовым, а файл слишком большой для совместимого воспроизведения. Откройте его в системном приложении или скачайте."
+  },
+  "media:android-audio-preparing-title": {
+    "en": "Preparing native audio…",
+    "ru": "Готовим нативное аудио…"
+  },
+  "media:android-audio-preparing-copy": {
+    "en": "Playback will start automatically as soon as Android is ready.",
+    "ru": "Воспроизведение начнётся автоматически, как только Android-плеер будет готов."
+  },
+  "media:audio-player": {
+    "en": "Audio player",
+    "ru": "Аудиоплеер"
+  },
+  "media:loading": {
+    "en": "Loading media...",
+    "ru": "Загружаем медиа..."
+  },
+  "media:now-playing": {
+    "en": "Now playing",
+    "ru": "Сейчас играет"
+  },
+  "media:audio-queue": {
+    "en": "Audio queue",
+    "ru": "Очередь аудио"
+  },
+  "media:signal-visualizer": {
+    "en": "Signal visualizer",
+    "ru": "Визуализация сигнала"
+  },
+  "media:previous-track": {
+    "en": "Previous track",
+    "ru": "Предыдущий трек"
+  },
+  "media:next-track": {
+    "en": "Next track",
+    "ru": "Следующий трек"
+  },
+  "media:play": {
+    "en": "Play",
+    "ru": "Воспроизвести"
+  },
+  "media:pause": {
+    "en": "Pause",
+    "ru": "Пауза"
+  },
+  "media:stop": {
+    "en": "Stop",
+    "ru": "Остановить"
+  },
+  "media:seek": {
+    "en": "Seek",
+    "ru": "Перемотка"
+  },
+  "media:open-player": {
+    "en": "Open player",
+    "ru": "Открыть плеер"
+  },
+  "media:current-track-actions": {
+    "en": "Current track actions",
+    "ru": "Действия с текущим треком"
+  },
+  "media:playback-position": {
+    "en": "Playback position",
+    "ru": "Позиция воспроизведения"
+  },
+  "media:audio-preparing-short": {
+    "en": "Preparing audio...",
+    "ru": "Подготовка аудио..."
+  },
+  "media:playback-failed": {
+    "en": "Could not play",
+    "ru": "Не удалось воспроизвести"
+  },
+  "file-preview:fallback-eyebrow": {
+    "en": "Open With",
+    "ru": "Открыть через"
+  },
+  "file-preview:fallback-title": {
+    "en": "Internal preview is unavailable",
+    "ru": "Внутренний просмотр недоступен"
+  },
+  "file-preview:preview-unavailable": {
+    "en": "This format is not supported by the built-in preview. Use a system app or download the file.",
+    "ru": "Этот формат не поддерживается встроенным просмотром. Откройте файл системным приложением или скачайте его."
+  },
+  "file-preview:text-too-large": {
+    "en": "Text preview is limited to files up to 1 MiB. Download the file or open it in a system app.",
+    "ru": "Текстовый просмотр доступен только для файлов до 1 МиБ. Скачайте файл или откройте его системным приложением."
+  },
+  "file-preview:text-invalid-encoding": {
+    "en": "Built-in text preview supports UTF-8 only. Download the file or open it in a system app.",
+    "ru": "Встроенный текстовый просмотр поддерживает только UTF-8. Скачайте файл или откройте его системным приложением."
+  },
+  "file-preview:image-unsupported": {
+    "en": "This image format could not be decoded by the built-in preview. Open it in a system app instead.",
+    "ru": "Этот формат изображения не удалось декодировать во встроенном просмотре. Откройте его системным приложением."
+  },
+  "markdown:mode:preview": {
+    "en": "Preview",
+    "ru": "Просмотр"
+  },
+  "markdown:mode:edit": {
+    "en": "Edit",
+    "ru": "Редактировать"
+  },
+  "markdown:mode-group": {
+    "en": "Markdown mode",
+    "ru": "Режим Markdown"
+  },
+  "markdown:preview-label": {
+    "en": "Rendered Markdown preview",
+    "ru": "Отрисованный Markdown-предпросмотр"
+  },
+  "markdown:editor-label": {
+    "en": "Markdown source editor",
+    "ru": "Редактор исходного Markdown"
+  },
+  "markdown:undo": {
+    "en": "Undo",
+    "ru": "Отменить"
+  },
+  "markdown:redo": {
+    "en": "Redo",
+    "ru": "Повторить"
+  },
+  "markdown:save": {
+    "en": "Save",
+    "ru": "Сохранить"
+  },
+  "markdown:saving": {
+    "en": "Saving...",
+    "ru": "Сохранение..."
+  },
+  "markdown:saved": {
+    "en": "Saved",
+    "ru": "Сохранено"
+  },
+  "markdown:saved:just-now": {
+    "en": "Saved just now",
+    "ru": "Сохранено только что"
+  },
+  "markdown:saved:minutes-ago": {
+    "en": "Saved {value} min ago",
+    "ru": "Сохранено {value} мин назад"
+  },
+  "markdown:saved:hours-ago": {
+    "en": "Saved {value} h ago",
+    "ru": "Сохранено {value} ч назад"
+  },
+  "markdown:saved:days-ago": {
+    "en": "Saved {value} d ago",
+    "ru": "Сохранено {value} д назад"
+  },
+  "markdown:type-label": {
+    "en": "Markdown",
+    "ru": "Markdown"
+  },
+  "markdown:save-unavailable": {
+    "en": "Save unavailable",
+    "ru": "Сохранение недоступно"
+  },
+  "markdown:format": {
+    "en": "Format",
+    "ru": "Форматировать"
+  },
+  "markdown:formatting": {
+    "en": "Formatting...",
+    "ru": "Форматирование..."
+  },
+  "markdown:rename": {
+    "en": "Rename note",
+    "ru": "Переименовать заметку"
+  },
+  "markdown:rename-label": {
+    "en": "Note name",
+    "ru": "Название заметки"
+  },
+  "markdown:renaming": {
+    "en": "Renaming...",
+    "ru": "Переименование..."
+  },
+  "markdown:dirty:title": {
+    "en": "Unsaved changes",
+    "ru": "Несохранённые изменения"
+  },
+  "markdown:dirty:dialog-label": {
+    "en": "Unsaved Markdown changes",
+    "ru": "Несохранённые изменения Markdown"
+  },
+  "markdown:dirty:copy": {
+    "en": "Save or discard changes before closing this note.",
+    "ru": "Сохраните или сбросьте изменения перед закрытием заметки."
+  },
+  "markdown:dirty:save": {
+    "en": "Save changes",
+    "ru": "Сохранить изменения"
+  },
+  "markdown:dirty:discard": {
+    "en": "Discard",
+    "ru": "Сбросить"
+  },
+  "markdown:dirty:cancel": {
+    "en": "Cancel",
+    "ru": "Отмена"
+  },
+  "markdown:cancel-changes": {
+    "en": "Cancel changes",
+    "ru": "Отменить изменения"
+  },
+  "markdown:stale:title": {
+    "en": "This note changed elsewhere",
+    "ru": "Заметка была изменена в другом месте"
+  },
+  "markdown:stale:copy": {
+    "en": "Reload the latest version or overwrite it with your local changes.",
+    "ru": "Загрузите последнюю версию или перезапишите её локальными изменениями."
+  },
+  "markdown:stale:reload": {
+    "en": "Reload",
+    "ru": "Обновить"
+  },
+  "markdown:stale:overwrite": {
+    "en": "Overwrite",
+    "ru": "Перезаписать"
+  },
+  "markdown:read-only:save-unavailable": {
+    "en": "Saving is unavailable in this runtime. You can keep editing locally, but changes cannot be written back.",
+    "ru": "Сохранение недоступно в этом режиме. Можно редактировать локально, но изменения нельзя записать обратно."
+  },
+  "markdown:fallback:text-too-large": {
+    "en": "Markdown preview is limited to notes up to 1 MiB. Download the file or open it in a system app.",
+    "ru": "Markdown-предпросмотр доступен только для заметок до 1 МиБ. Скачайте файл или откройте его системным приложением."
+  },
+  "markdown:fallback:text-invalid-encoding": {
+    "en": "Markdown notes must be UTF-8 text. Download the file or open it in a system app.",
+    "ru": "Markdown-заметки должны быть текстом в UTF-8. Скачайте файл или откройте его системным приложением."
+  },
+  "markdown:error:load-failed": {
+    "en": "Failed to load Markdown note.",
+    "ru": "Не удалось загрузить Markdown-заметку."
+  },
+  "markdown:error:render-failed": {
+    "en": "Failed to render Markdown preview.",
+    "ru": "Не удалось отобразить Markdown-предпросмотр."
+  },
+  "markdown:error:save-failed": {
+    "en": "Failed to save Markdown note.",
+    "ru": "Не удалось сохранить Markdown-заметку."
+  },
+  "markdown:error:format-failed": {
+    "en": "Failed to format Markdown note.",
+    "ru": "Не удалось отформатировать Markdown-заметку."
+  },
+  "markdown:error:text-too-large": {
+    "en": "Markdown preview is limited to notes up to 1 MiB.",
+    "ru": "Markdown-предпросмотр доступен только для заметок до 1 МиБ."
+  },
+  "markdown:error:text-invalid-encoding": {
+    "en": "Markdown notes must be UTF-8 text.",
+    "ru": "Markdown-заметки должны быть текстом в UTF-8."
+  },
+  "markdown:error:source-mismatch": {
+    "en": "The opened note no longer matches the selected file.",
+    "ru": "Открытая заметка больше не соответствует выбранному файлу."
+  },
+  "markdown:error:stale-source": {
+    "en": "The note changed since it was opened.",
+    "ru": "Заметка изменилась после открытия."
+  },
+  "markdown:error:read-only": {
+    "en": "Saving is unavailable for this note.",
+    "ru": "Сохранение этой заметки недоступно."
+  },
+  "markdown:error:not-found": {
+    "en": "The note was not found.",
+    "ru": "Заметка не найдена."
+  },
+  "markdown:error:not-file": {
+    "en": "The selected item is not a file.",
+    "ru": "Выбранный элемент не является файлом."
+  },
+  "markdown:error:access-denied": {
+    "en": "Access to this note was denied.",
+    "ru": "Доступ к этой заметке запрещён."
+  },
+  "markdown:error:attachment-upload-failed": {
+    "en": "Failed to attach image to this Markdown note.",
+    "ru": "Не удалось прикрепить изображение к Markdown-заметке."
+  },
+  "markdown:error:attachment-folder-invalid": {
+    "en": "Markdown attachment folder is invalid.",
+    "ru": "Папка вложений Markdown некорректна."
+  },
+  "markdown:error:attachment-not-image": {
+    "en": "Only image files can be attached to Markdown notes.",
+    "ru": "К Markdown-заметкам можно прикреплять только изображения."
+  },
+  "markdown:insert-image": {
+    "en": "Insert image",
+    "ru": "Вставить изображение"
+  },
+  "markdown:attaching-image": {
+    "en": "Attaching image",
+    "ru": "Изображение прикрепляется"
   },
   "command-bar:category:navigation": {
     "en": "Navigation",
@@ -2639,5 +3219,3349 @@
   "context-menu:title": {
     "en": "Context menu",
     "ru": "Контекстное меню"
+  },
+  "button:ok": {
+    "en": "OK",
+    "ru": "ОК"
+  },
+  "button:create": {
+    "en": "Create",
+    "ru": "Создать"
+  },
+  "button:rename": {
+    "en": "Rename",
+    "ru": "Переименовать"
+  },
+  "button:delete": {
+    "en": "Delete",
+    "ru": "Удалить"
+  },
+  "button:keep-imported-files": {
+    "en": "Keep imported files",
+    "ru": "Оставить импортированные файлы"
+  },
+  "button:delete-imported-files": {
+    "en": "Delete imported files",
+    "ru": "Удалить импортированные файлы"
+  },
+  "button:download": {
+    "en": "Download",
+    "ru": "Скачать"
+  },
+  "button:upload": {
+    "en": "Upload",
+    "ru": "Загрузить"
+  },
+  "button:export": {
+    "en": "Export",
+    "ru": "Экспорт"
+  },
+  "button:import": {
+    "en": "Import",
+    "ru": "Импорт"
+  },
+  "button:copy": {
+    "en": "Copy",
+    "ru": "Копировать"
+  },
+  "button:share": {
+    "en": "Share",
+    "ru": "Поделиться"
+  },
+  "button:preview": {
+    "en": "Preview",
+    "ru": "Просмотр"
+  },
+  "button:play": {
+    "en": "Play",
+    "ru": "Воспроизвести"
+  },
+  "button:open": {
+    "en": "Open",
+    "ru": "Открыть"
+  },
+  "button:allow": {
+    "en": "Allow",
+    "ru": "Разрешить"
+  },
+  "button:deny": {
+    "en": "Deny",
+    "ru": "Отклонить"
+  },
+  "dialogs:confirm-title": {
+    "en": "Confirmation",
+    "ru": "Подтверждение"
+  },
+  "dialogs:input-title": {
+    "en": "Input",
+    "ru": "Ввод данных"
+  },
+  "dialogs:field-required": {
+    "en": "This field is required",
+    "ru": "Это поле обязательно для заполнения"
+  },
+  "dialogs:validation-error": {
+    "en": "Validation error",
+    "ru": "Ошибка валидации"
+  },
+  "dialogs:max-length": {
+    "en": "Maximum length: ${max} characters",
+    "ru": "Максимальная длина: ${max} символов"
+  },
+  "dialogs:file-name-empty": {
+    "en": "File name cannot be empty",
+    "ru": "Имя файла не может быть пустым"
+  },
+  "dialogs:file-name-invalid": {
+    "en": "File name contains invalid characters: < > : \" / \\\\ | ? *",
+    "ru": "Имя файла содержит недопустимые символы: < > : \" / \\\\ | ? *"
+  },
+  "dialogs:file-name-reserved": {
+    "en": "This name is reserved by the system and cannot be used",
+    "ru": "Это имя зарезервировано системой и не может быть использовано"
+  },
+  "dialogs:file-name-dot-space": {
+    "en": "File name cannot start or end with a dot or space",
+    "ru": "Имя файла не может начинаться или заканчиваться точкой или пробелом"
+  },
+  "dialogs:folder-name-empty": {
+    "en": "Folder name cannot be empty",
+    "ru": "Имя папки не может быть пустым"
+  },
+  "dialogs:folder-name-invalid": {
+    "en": "Folder name contains invalid characters",
+    "ru": "Имя папки содержит недопустимые символы"
+  },
+  "dialogs:create-folder-title": {
+    "en": "Create New Folder",
+    "ru": "Создание новой папки"
+  },
+  "dialogs:folder-name-label": {
+    "en": "Folder name",
+    "ru": "Имя папки"
+  },
+  "dialogs:folder-name-placeholder": {
+    "en": "Enter folder name...",
+    "ru": "Введите имя папки..."
+  },
+  "dialogs:folder-created-in": {
+    "en": "Folder will be created in: ${path}",
+    "ru": "Папка будет создана в: ${path}"
+  },
+  "dialogs:folder-created-root": {
+    "en": "Folder will be created in the root directory",
+    "ru": "Папка будет создана в корневом каталоге"
+  },
+  "dialogs:create-markdown-note-title": {
+    "en": "Create Markdown Note",
+    "ru": "Создание Markdown-заметки"
+  },
+  "dialogs:markdown-note-name-label": {
+    "en": "Note name",
+    "ru": "Имя заметки"
+  },
+  "dialogs:markdown-note-name-placeholder": {
+    "en": "Enter note name...",
+    "ru": "Введите имя заметки..."
+  },
+  "dialogs:markdown-note-created-in": {
+    "en": "Markdown note will be created in: ${path}",
+    "ru": "Markdown-заметка будет создана в: ${path}"
+  },
+  "dialogs:markdown-note-created-root": {
+    "en": "Markdown note will be created in the root directory",
+    "ru": "Markdown-заметка будет создана в корневом каталоге"
+  },
+  "dialogs:markdown-note-extension-invalid": {
+    "en": "Use a .md extension or leave the extension empty",
+    "ru": "Используйте расширение .md или оставьте имя без расширения"
+  },
+  "dialogs:rename-file-title": {
+    "en": "Rename File",
+    "ru": "Переименование файла"
+  },
+  "dialogs:rename-folder-title": {
+    "en": "Rename Folder",
+    "ru": "Переименование папки"
+  },
+  "dialogs:new-name-label": {
+    "en": "New name",
+    "ru": "Новое имя"
+  },
+  "dialogs:new-name-file-placeholder": {
+    "en": "Enter new file name...",
+    "ru": "Введите новое имя файла..."
+  },
+  "dialogs:new-name-folder-placeholder": {
+    "en": "Enter new folder name...",
+    "ru": "Введите новое имя папки..."
+  },
+  "dialogs:rename-file-help": {
+    "en": "File will be renamed${suffix}",
+    "ru": "Файл будет переименован${suffix}"
+  },
+  "dialogs:rename-folder-help": {
+    "en": "Folder will be renamed${suffix}",
+    "ru": "Папка будет переименована${suffix}"
+  },
+  "dialogs:path-suffix": {
+    "en": " in ${path}",
+    "ru": " в ${path}"
+  },
+  "dialogs:delete-file-title": {
+    "en": "Delete File",
+    "ru": "Удаление файла"
+  },
+  "dialogs:delete-folder-title": {
+    "en": "Delete Folder",
+    "ru": "Удаление папки"
+  },
+  "dialogs:delete-items-title": {
+    "en": "Delete Selected Items",
+    "ru": "Удаление выбранных элементов"
+  },
+  "dialogs:delete-file-message": {
+    "en": "Do you really want to delete file \"${name}\"?\n\nThis action cannot be undone.",
+    "ru": "Вы действительно хотите удалить файл \"${name}\"?\n\nЭто действие необратимо."
+  },
+  "dialogs:delete-folder-message": {
+    "en": "Do you really want to delete folder \"${name}\"?\n\nThis action cannot be undone.",
+    "ru": "Вы действительно хотите удалить папку \"${name}\"?\n\nЭто действие необратимо."
+  },
+  "dialogs:delete-items-message": {
+    "en": "Do you really want to delete ${count} items?\n\nThis action cannot be undone.",
+    "ru": "Вы действительно хотите удалить ${count} элементов?\n\nЭто действие необратимо."
+  },
+  "dialogs:android-share-partial-title": {
+    "en": "Shared Files Partially Imported",
+    "ru": "Файлы из Share импортированы частично"
+  },
+  "dialogs:android-share-partial-message": {
+    "en": "${imported} file(s) were imported and ${failed} file(s) failed.",
+    "ru": "Импортировано файлов: ${imported}; не удалось импортировать: ${failed}."
+  },
+  "dialogs:android-share-partial-extra": {
+    "en": "+${count} more",
+    "ru": "Еще ${count}"
+  },
+  "catalog:sync-success": {
+    "en": "Catalog synchronized successfully",
+    "ru": "Каталог успешно синхронизирован"
+  },
+  "catalog:sync-retry": {
+    "en": "Catalog sync failed. Retrying in ${seconds}s (attempt ${attempt}/${total})",
+    "ru": "Сбой синхронизации каталога. Повтор через ${seconds}с (попытка ${attempt}/${total})"
+  },
+  "catalog:sync-failed": {
+    "en": "Failed to synchronize catalog",
+    "ru": "Не удалось синхронизировать каталог"
+  },
+  "catalog:refresh-success": {
+    "en": "Catalog updated",
+    "ru": "Каталог обновлен"
+  },
+  "catalog:refresh-failed": {
+    "en": "Failed to update catalog",
+    "ru": "Не удалось обновить каталог"
+  },
+  "uploads:file-uploaded": {
+    "en": "File \"${name}\" uploaded",
+    "ru": "Файл \"${name}\" загружен"
+  },
+  "uploads:file-upload-error": {
+    "en": "Upload error${suffix}: ${message}",
+    "ru": "Ошибка загрузки${suffix}: ${message}"
+  },
+  "uploads:name-suffix": {
+    "en": " \"${name}\"",
+    "ru": " \"${name}\""
+  },
+  "uploads:path-upload-desktop-only": {
+    "en": "Path upload is available only in desktop mode",
+    "ru": "Загрузка по пути доступна только в Desktop-режиме"
+  },
+  "uploads:native-upload-android-only": {
+    "en": "Native upload is available only in Android mode",
+    "ru": "Нативная загрузка доступна только в Android-режиме"
+  },
+  "uploads:native-upload-unavailable": {
+    "en": "Native upload is not available on this platform",
+    "ru": "Нативная загрузка недоступна на этой платформе"
+  },
+  "uploads:native-files-uploaded": {
+    "en": "Uploaded files: ${count}",
+    "ru": "Загружено файлов: ${count}"
+  },
+  "uploads:native-image-location-at-risk": {
+    "en": "Some uploaded photos may be missing location metadata",
+    "ru": "В некоторых загруженных фото могут отсутствовать геоданные"
+  },
+  "uploads:android-share-imported": {
+    "en": "Imported shared files: ${count}",
+    "ru": "Импортировано файлов из Share: ${count}"
+  },
+  "uploads:android-share-import-unsupported": {
+    "en": "Android shared files import is not available",
+    "ru": "Импорт файлов из Android Share недоступен"
+  },
+  "uploads:share-import-unsupported": {
+    "en": "Shared files import is not available",
+    "ru": "Импорт файлов из Share недоступен"
+  },
+  "uploads:android-share-import-remote-active": {
+    "en": "Shared files can be imported only into the local vault",
+    "ru": "Файлы из Share можно импортировать только в локальное хранилище"
+  },
+  "uploads:android-share-import-busy": {
+    "en": "Another shared files import is already running",
+    "ru": "Другой импорт файлов из Share уже выполняется"
+  },
+  "uploads:android-share-partial-kept": {
+    "en": "Kept imported files: ${imported}; failed: ${failed}",
+    "ru": "Оставлено импортированных файлов: ${imported}; не удалось импортировать: ${failed}"
+  },
+  "uploads:android-share-partial-deleted": {
+    "en": "Deleted partially imported files: ${deleted}; failed import(s): ${failed}",
+    "ru": "Удалено частично импортированных файлов: ${deleted}; не удалось импортировать: ${failed}"
+  },
+  "uploads:android-share-partial-cleanup-failed": {
+    "en": "Could not delete all partially imported files. Deleted: ${deleted}; cleanup failures: ${failedCleanup}",
+    "ru": "Не удалось удалить все частично импортированные файлы. Удалено: ${deleted}; ошибок удаления: ${failedCleanup}"
+  },
+  "uploads:services-unavailable": {
+    "en": "Services are unavailable",
+    "ru": "Сервисы недоступны"
+  },
+  "ssh-agent:title": {
+    "en": "SSH Signing Request",
+    "ru": "Запрос подписи SSH"
+  },
+  "ssh-agent:unknown-fingerprint": {
+    "en": "unknown",
+    "ru": "неизвестно"
+  },
+  "ssh-agent:default-key": {
+    "en": "SSH key",
+    "ru": "SSH ключ"
+  },
+  "ssh-agent:unknown-process": {
+    "en": "Unknown process",
+    "ru": "Неизвестный процесс"
+  },
+  "ssh-agent:unknown-source-warning": {
+    "en": "\n\nCould not determine the request source. Approve only if you trust this action.",
+    "ru": "\n\nИсточник запроса не удалось определить. Разрешайте только если вы уверены в действии."
+  },
+  "ssh-agent:host-line": {
+    "en": "\nHost (best-effort): ${host}",
+    "ru": "\nХост (best-effort): ${host}"
+  },
+  "ssh-agent:message": {
+    "en": "Process: ${process}\nKey: ${key}\nFingerprint: ${fingerprint}${hostLine}${warning}",
+    "ru": "Процесс: ${process}\nКлюч: ${key}\nFingerprint: ${fingerprint}${hostLine}${warning}"
+  },
+  "password-manager:password-copied": {
+    "en": "Password copied",
+    "ru": "Пароль скопирован"
+  },
+  "password-manager:password-copy-failed": {
+    "en": "Failed to copy password",
+    "ru": "Не удалось скопировать пароль"
+  },
+  "remote:rpc-error": {
+    "en": "RPC error",
+    "ru": "Ошибка RPC"
+  },
+  "file-manager:move-folder-self-error": {
+    "en": "Cannot move a folder into itself or its subfolder",
+    "ru": "Нельзя переместить папку в саму себя или её подпапку"
+  },
+  "file-manager:moved": {
+    "en": "Moved: \"${source}\" -> \"${target}\"",
+    "ru": "Перемещено: \"${source}\" -> \"${target}\""
+  },
+  "file-manager:move-failed": {
+    "en": "Failed to move: ${message}",
+    "ru": "Не удалось переместить: ${message}"
+  },
+  "file-manager:move:root-label": {
+    "en": "Files root",
+    "ru": "Корень файлов"
+  },
+  "file-manager:move:action": {
+    "en": "Move",
+    "ru": "Переместить"
+  },
+  "file-manager:move:title": {
+    "en": "Move",
+    "ru": "Переместить"
+  },
+  "file-manager:move:search-placeholder": {
+    "en": "Search folders",
+    "ru": "Поиск папок"
+  },
+  "file-manager:move:search-help": {
+    "en": "Use arrow keys to choose a folder",
+    "ru": "Используйте стрелки, чтобы выбрать папку"
+  },
+  "file-manager:move:list-aria-label": {
+    "en": "Move destination folders",
+    "ru": "Папки для перемещения"
+  },
+  "file-manager:move:selected-announce-prefix": {
+    "en": "Selected",
+    "ru": "Выбрано"
+  },
+  "file-manager:move:recent-title": {
+    "en": "Recent",
+    "ru": "Недавние"
+  },
+  "file-manager:move:root-subtitle": {
+    "en": "/",
+    "ru": "/"
+  },
+  "file-manager:move:source-missing": {
+    "en": "The item is no longer available",
+    "ru": "Элемент больше недоступен"
+  },
+  "file-manager:move:target-missing": {
+    "en": "Choose an available folder",
+    "ru": "Выберите доступную папку"
+  },
+  "file-manager:move:system-target": {
+    "en": "System folders cannot be used as move destinations",
+    "ru": "Системные папки нельзя использовать как цель перемещения"
+  },
+  "file-manager:move:system-source": {
+    "en": "System folders cannot be moved",
+    "ru": "Системные папки нельзя перемещать"
+  },
+  "file-manager:move:already-in-folder": {
+    "en": "Already in this folder",
+    "ru": "Уже в этой папке"
+  },
+  "file-manager:move:moved": {
+    "en": "Moved \"${source}\" to \"${target}\"",
+    "ru": "«${source}» перемещён в «${target}»"
+  },
+  "file-manager:move:moved-many": {
+    "en": "Moved ${count} items to \"${target}\"",
+    "ru": "Перемещено элементов: ${count}, папка: «${target}»"
+  },
+  "file-manager:move:undo": {
+    "en": "Undo",
+    "ru": "Отменить"
+  },
+  "file-manager:move:undo-success": {
+    "en": "Move undone",
+    "ru": "Перемещение отменено"
+  },
+  "file-manager:move:open-folder": {
+    "en": "Open folder",
+    "ru": "Открыть папку"
+  },
+  "file-manager:move:selected-count": {
+    "en": "${count} selected",
+    "ru": "Выбрано: ${count}"
+  },
+  "file-manager:move:generic-error": {
+    "en": "Move failed",
+    "ru": "Не удалось переместить"
+  },
+  "file-manager:open-folder-failed": {
+    "en": "Failed to open folder \"${name}\"",
+    "ru": "Не удалось открыть папку \"${name}\""
+  },
+  "file-manager:desktop-only-open": {
+    "en": "Opening is available only in the desktop app",
+    "ru": "Открытие доступно только в desktop приложении"
+  },
+  "file-manager:open-file-failed": {
+    "en": "Failed to open file",
+    "ru": "Не удалось открыть файл"
+  },
+  "file-manager:open-file-failed-detail": {
+    "en": "Failed to open file: ${message}",
+    "ru": "Не удалось открыть файл: ${message}"
+  },
+  "file-manager:renamed": {
+    "en": "\"${from}\" renamed to \"${to}\"",
+    "ru": "\"${from}\" переименован в \"${to}\""
+  },
+  "file-manager:rename-failed": {
+    "en": "Failed to rename file: ${message}",
+    "ru": "Не удалось переименовать файл: ${message}"
+  },
+  "file-manager:save-cancelled": {
+    "en": "Saving \"${name}\" was cancelled",
+    "ru": "Сохранение \"${name}\" отменено"
+  },
+  "file-manager:save-size-mismatch": {
+    "en": "File \"${name}\" was saved, but the size differs: ${actual} vs ${expected}. Path: ${path}",
+    "ru": "Файл \"${name}\" сохранён, но размер отличается: ${actual} vs ${expected}. Путь: ${path}"
+  },
+  "file-manager:saved": {
+    "en": "File \"${name}\" saved: ${path}",
+    "ru": "Файл \"${name}\" сохранён: ${path}"
+  },
+  "file-manager:download-size-error": {
+    "en": "Download error for \"${name}\": received ${actual} bytes out of ${expected} expected (chunks: ${chunks})",
+    "ru": "Ошибка загрузки \"${name}\": получено ${actual} байт из ожидаемых ${expected} (чанков: ${chunks})"
+  },
+  "file-manager:downloaded": {
+    "en": "File \"${name}\" downloaded",
+    "ru": "Файл \"${name}\" скачан"
+  },
+  "file-manager:download-failed": {
+    "en": "Failed to download file: ${message}",
+    "ru": "Не удалось скачать файл: ${message}"
+  },
+  "file-manager:saved-to-gallery": {
+    "en": "Image \"${name}\" saved to gallery",
+    "ru": "Изображение \"${name}\" сохранено в галерею"
+  },
+  "file-manager:saving-to-gallery": {
+    "en": "Saving \"${name}\" to gallery...",
+    "ru": "Сохраняем \"${name}\" в галерею..."
+  },
+  "file-manager:save-to-gallery-failed": {
+    "en": "Failed to save image to gallery: ${message}",
+    "ru": "Не удалось сохранить изображение в галерею: ${message}"
+  },
+  "file-manager:deleted": {
+    "en": "\"${name}\" deleted",
+    "ru": "\"${name}\" удален"
+  },
+  "file-manager:delete-failed": {
+    "en": "Failed to delete file: ${message}",
+    "ru": "Не удалось удалить файл: ${message}"
+  },
+  "file-manager:delete-item-failed": {
+    "en": "Failed to delete ${name}: ${message}",
+    "ru": "Не удалось удалить ${name}: ${message}"
+  },
+  "file-manager:selected-deleted": {
+    "en": "Selected items deleted",
+    "ru": "Выбранные элементы удалены"
+  },
+  "file-manager:root-directory": {
+    "en": "root directory",
+    "ru": "корневой каталог"
+  },
+  "file-manager:folder-created": {
+    "en": "Folder \"${name}\" created",
+    "ru": "Папка \"${name}\" создана"
+  },
+  "file-manager:note-created": {
+    "en": "Note \"${name}\" created",
+    "ru": "Заметка \"${name}\" создана"
+  },
+  "file-manager:create-folder-failed": {
+    "en": "Failed to create folder: ${message}",
+    "ru": "Не удалось создать папку: ${message}"
+  },
+  "file-manager:create-note-failed": {
+    "en": "Failed to create note: ${message}",
+    "ru": "Не удалось создать заметку: ${message}"
+  },
+  "file-manager:open-in-system": {
+    "en": "Open in system",
+    "ru": "Открыть в системе"
+  },
+  "file-manager:preparing-file": {
+    "en": "Preparing file...",
+    "ru": "Подготовка файла..."
+  },
+  "file-manager:opened-in-system": {
+    "en": "Opened in system",
+    "ru": "Открыто в системе"
+  },
+  "file-manager:open-failed-status": {
+    "en": "Failed to open",
+    "ru": "Не удалось открыть"
+  },
+  "file-manager:show-secret": {
+    "en": "Show secret",
+    "ru": "Показать секрет"
+  },
+  "file-manager:copy-secret": {
+    "en": "Copy secret",
+    "ru": "Копировать секрет"
+  },
+  "file-manager:read-secret-failed": {
+    "en": "Failed to read secret: ${message}",
+    "ru": "Не удалось прочитать секрет: ${message}"
+  },
+  "file-manager:secret-copied": {
+    "en": "Secret copied to clipboard",
+    "ru": "Секрет скопирован в буфер обмена"
+  },
+  "file-manager:copy-failed": {
+    "en": "Failed to copy: ${message}",
+    "ru": "Не удалось скопировать: ${message}"
+  },
+  "command-bar:go-to-files": {
+    "en": "Go to Files",
+    "ru": "Перейти к файлам"
+  },
+  "command-bar:go-to-notes": {
+    "en": "Go to Notes",
+    "ru": "Перейти к заметкам"
+  },
+  "command-bar:go-to-passwords": {
+    "en": "Go to Credentials",
+    "ru": "Перейти к паролям"
+  },
+  "command-bar:new-folder": {
+    "en": "New Folder",
+    "ru": "Новая папка"
+  },
+  "command-bar:new-note": {
+    "en": "New Note",
+    "ru": "Новая заметка"
+  },
+  "command-bar:upload-files": {
+    "en": "Upload Files",
+    "ru": "Загрузить файлы"
+  },
+  "command-bar:clear-search-query": {
+    "en": "Clear Search Query",
+    "ru": "Очистить поисковый запрос"
+  },
+  "command-bar:hide-hidden-files": {
+    "en": "Hide Hidden Files",
+    "ru": "Скрыть скрытые файлы"
+  },
+  "command-bar:show-hidden-files": {
+    "en": "Show Hidden Files",
+    "ru": "Показать скрытые файлы"
+  },
+  "command-bar:sort-descending": {
+    "en": "Sort Descending",
+    "ru": "Сортировать по убыванию"
+  },
+  "command-bar:sort-ascending": {
+    "en": "Sort Ascending",
+    "ru": "Сортировать по возрастанию"
+  },
+  "command-bar:reset-filters": {
+    "en": "Reset Filters",
+    "ru": "Сбросить фильтры"
+  },
+  "command-bar:filter-type": {
+    "en": "Filter type: ${label}",
+    "ru": "Фильтр по типу: ${label}"
+  },
+  "command-bar:remove-type": {
+    "en": "Remove type: ${label}",
+    "ru": "Убрать тип: ${label}"
+  },
+  "command-bar:enable-quick-filter": {
+    "en": "Enable quick filter: ${label}",
+    "ru": "Включить быстрый фильтр: ${label}"
+  },
+  "command-bar:disable-quick-filter": {
+    "en": "Disable quick filter: ${label}",
+    "ru": "Отключить быстрый фильтр: ${label}"
+  },
+  "command-bar:quick-filter:recent": {
+    "en": "Recent",
+    "ru": "Недавние"
+  },
+  "command-bar:quick-filter:otp": {
+    "en": "OTP",
+    "ru": "OTP"
+  },
+  "command-bar:quick-filter:files": {
+    "en": "With files",
+    "ru": "С файлами"
+  },
+  "command-bar:quick-filter:nopass": {
+    "en": "No password",
+    "ru": "Без пароля"
+  },
+  "command-bar:quick-filter:favorites": {
+    "en": "Favorites",
+    "ru": "Избранное"
+  },
+  "command-bar:quick-filter:ssh": {
+    "en": "SSH keys",
+    "ru": "SSH-ключи"
+  },
+  "command-bar:quick-filter:card": {
+    "en": "Cards",
+    "ru": "Карты"
+  },
+  "command-bar:create-entry": {
+    "en": "Create Entry",
+    "ru": "Создать запись"
+  },
+  "command-bar:create-group": {
+    "en": "Create Group",
+    "ru": "Создать группу"
+  },
+  "command-bar:clear-password-search": {
+    "en": "Clear Password Search",
+    "ru": "Очистить поиск по паролям"
+  },
+  "command-bar:sort-by": {
+    "en": "Sort by ${label}",
+    "ru": "Сортировать по ${label}"
+  },
+  "command-bar:group-by": {
+    "en": "Group by ${label}",
+    "ru": "Группировать по ${label}"
+  },
+  "command-bar:edit-entry": {
+    "en": "Edit Entry",
+    "ru": "Редактировать запись"
+  },
+  "command-bar:move-entry": {
+    "en": "Move Entry",
+    "ru": "Переместить запись"
+  },
+  "command-bar:delete-entry": {
+    "en": "Delete Entry",
+    "ru": "Удалить запись"
+  },
+  "command-bar:copy-all-entry": {
+    "en": "Copy All Entry Data",
+    "ru": "Копировать все данные записи"
+  },
+  "command-bar:view:list": {
+    "en": "View: List",
+    "ru": "Вид: Список"
+  },
+  "command-bar:view:grid": {
+    "en": "View: Grid",
+    "ru": "Вид: Сетка"
+  },
+  "command-bar:view:table": {
+    "en": "View: Table",
+    "ru": "Вид: Таблица"
+  },
+  "command-bar:clean": {
+    "en": "Clean",
+    "ru": "Очистить"
+  },
+  "command-bar:sort-field:name": {
+    "en": "name",
+    "ru": "имени"
+  },
+  "command-bar:sort-field:username": {
+    "en": "username",
+    "ru": "логину"
+  },
+  "command-bar:sort-field:modified": {
+    "en": "modified",
+    "ru": "изменению"
+  },
+  "command-bar:sort-field:created": {
+    "en": "created",
+    "ru": "созданию"
+  },
+  "command-bar:sort-field:website": {
+    "en": "website",
+    "ru": "сайту"
+  },
+  "command-bar:group-field:none": {
+    "en": "none",
+    "ru": "без группы"
+  },
+  "command-bar:group-field:folder": {
+    "en": "folder",
+    "ru": "папке"
+  },
+  "command-bar:group-field:website": {
+    "en": "website",
+    "ru": "сайту"
+  },
+  "command-bar:group-field:modified": {
+    "en": "modified",
+    "ru": "изменению"
+  },
+  "command-bar:group-field:security": {
+    "en": "security",
+    "ru": "безопасности"
+  },
+  "button:connect": {
+    "en": "Connect",
+    "ru": "Подключить"
+  },
+  "button:disconnect": {
+    "en": "Disconnect",
+    "ru": "Отключить"
+  },
+  "button:refresh": {
+    "en": "Refresh",
+    "ru": "Обновить"
+  },
+  "button:scan": {
+    "en": "Scan",
+    "ru": "Сканировать"
+  },
+  "button:continue": {
+    "en": "Continue",
+    "ru": "Продолжить"
+  },
+  "button:pair": {
+    "en": "Pair",
+    "ru": "Сопрячь"
+  },
+  "button:start": {
+    "en": "Start",
+    "ru": "Запустить"
+  },
+  "button:stop": {
+    "en": "Stop",
+    "ru": "Остановить"
+  },
+  "status:working": {
+    "en": "Working...",
+    "ru": "Выполняется..."
+  },
+  "status:paired": {
+    "en": "Paired",
+    "ru": "Сопряжено"
+  },
+  "status:connecting": {
+    "en": "Connecting",
+    "ru": "Подключение"
+  },
+  "status:disconnected": {
+    "en": "Disconnected",
+    "ru": "Отключено"
+  },
+  "status:syncing": {
+    "en": "Syncing",
+    "ru": "Синхронизация"
+  },
+  "status:ready": {
+    "en": "Ready",
+    "ru": "Готово"
+  },
+  "status:locked": {
+    "en": "Locked",
+    "ru": "Заблокировано"
+  },
+  "status:error": {
+    "en": "Error",
+    "ru": "Ошибка"
+  },
+  "time:just-now": {
+    "en": "just now",
+    "ru": "только что"
+  },
+  "time:seconds-ago": {
+    "en": "${value}s ago",
+    "ru": "${value}с назад"
+  },
+  "time:minutes-ago": {
+    "en": "${value} min ago",
+    "ru": "${value} мин назад"
+  },
+  "time:hours-ago": {
+    "en": "${value}h ago",
+    "ru": "${value}ч назад"
+  },
+  "gateway:back-to-files": {
+    "en": "Back to files",
+    "ru": "Назад к файлам"
+  },
+  "gateway:page-title": {
+    "en": "Extensions",
+    "ru": "Расширения"
+  },
+  "gateway:page-subtitle": {
+    "en": "Manage browser extension pairing and gateway access",
+    "ru": "Управление сопряжением расширений браузера и доступом к шлюзу"
+  },
+  "gateway:settings:title": {
+    "en": "Gateway access",
+    "ru": "Доступ к шлюзу"
+  },
+  "gateway:settings:hint": {
+    "en": "Control whether paired extensions can connect to the local gateway",
+    "ru": "Управляйте доступом сопряжённых расширений к локальному шлюзу"
+  },
+  "gateway:status:active": {
+    "en": "Enabled",
+    "ru": "Включён"
+  },
+  "gateway:status:disabled": {
+    "en": "Disabled",
+    "ru": "Отключён"
+  },
+  "gateway:settings:enable": {
+    "en": "Enable gateway",
+    "ru": "Включить шлюз"
+  },
+  "gateway:settings:access-duration": {
+    "en": "Access duration",
+    "ru": "Длительность доступа"
+  },
+  "gateway:settings:session-duration": {
+    "en": "Session duration",
+    "ru": "Длительность сессии"
+  },
+  "gateway:settings:duration:until-vault-locked": {
+    "en": "Until vault is locked",
+    "ru": "До блокировки хранилища"
+  },
+  "gateway:settings:duration:hours": {
+    "en": "${value}h",
+    "ru": "${value} ч"
+  },
+  "gateway:settings:duration:minutes": {
+    "en": "${value} min",
+    "ru": "${value} мин"
+  },
+  "gateway:extensions:title": {
+    "en": "Paired extensions",
+    "ru": "Сопряжённые расширения"
+  },
+  "gateway:extensions:hint": {
+    "en": "Review paired extensions and open their access policies",
+    "ru": "Просматривайте сопряжённые расширения и их политики доступа"
+  },
+  "gateway:extensions:paired": {
+    "en": "Paired: ${count}",
+    "ru": "Сопряжено: ${count}"
+  },
+  "gateway:extensions:empty": {
+    "en": "No paired extensions yet",
+    "ru": "Пока нет сопряжённых расширений"
+  },
+  "gateway:extensions:created": {
+    "en": "Created",
+    "ru": "Создано"
+  },
+  "gateway:extensions:last-active": {
+    "en": "Last active",
+    "ru": "Последняя активность"
+  },
+  "gateway:extensions:settings": {
+    "en": "Policy",
+    "ru": "Политика"
+  },
+  "gateway:extensions:revoke": {
+    "en": "Revoke",
+    "ru": "Отозвать"
+  },
+  "gateway:time:just-now": {
+    "en": "just now",
+    "ru": "только что"
+  },
+  "gateway:time:minutes-ago": {
+    "en": "${count} min ago",
+    "ru": "${count} мин назад"
+  },
+  "gateway:time:hours-ago": {
+    "en": "${count}h ago",
+    "ru": "${count}ч назад"
+  },
+  "gateway:pairing:title": {
+    "en": "Pair new extension",
+    "ru": "Сопряжение нового расширения"
+  },
+  "gateway:pairing:hint": {
+    "en": "Generate a PIN and complete pairing in the browser extension",
+    "ru": "Сгенерируйте PIN и завершите сопряжение в расширении браузера"
+  },
+  "gateway:pairing:badge:awaiting": {
+    "en": "Waiting",
+    "ru": "Ожидание"
+  },
+  "gateway:pairing:badge:locked": {
+    "en": "Locked",
+    "ru": "Заблокировано"
+  },
+  "gateway:pairing:badge:expired": {
+    "en": "Expired",
+    "ru": "Истекло"
+  },
+  "gateway:pairing:badge:error": {
+    "en": "Error",
+    "ru": "Ошибка"
+  },
+  "gateway:pairing:badge:starting": {
+    "en": "Starting",
+    "ru": "Запуск"
+  },
+  "gateway:pairing:start": {
+    "en": "Start pairing",
+    "ru": "Начать сопряжение"
+  },
+  "gateway:pairing:starting": {
+    "en": "Preparing pairing session...",
+    "ru": "Подготовка сессии сопряжения..."
+  },
+  "gateway:pairing:pin-expires": {
+    "en": "PIN expires in ${time}",
+    "ru": "PIN истечёт через ${time}"
+  },
+  "gateway:pairing:session-expires": {
+    "en": "Session expires in ${time}",
+    "ru": "Сессия истечёт через ${time}"
+  },
+  "gateway:pairing:attempts": {
+    "en": "Attempts left: ${remaining}/${max}",
+    "ru": "Осталось попыток: ${remaining}/${max}"
+  },
+  "gateway:pairing:pin-expired-title": {
+    "en": "PIN expired",
+    "ru": "Срок действия PIN истёк"
+  },
+  "gateway:pairing:pin-expired-text": {
+    "en": "The pairing session is still active for ${time}. Generate a fresh PIN to continue.",
+    "ru": "Сессия сопряжения ещё активна ${time}. Сгенерируйте новый PIN, чтобы продолжить."
+  },
+  "gateway:pairing:refresh-pin": {
+    "en": "Refresh PIN",
+    "ru": "Обновить PIN"
+  },
+  "gateway:pairing:too-many-attempts": {
+    "en": "Too many attempts",
+    "ru": "Слишком много попыток"
+  },
+  "gateway:pairing:try-again-in": {
+    "en": "Try again in ${time}",
+    "ru": "Повторите через ${time}"
+  },
+  "gateway:pairing:session-expired-title": {
+    "en": "Session expired",
+    "ru": "Сессия истекла"
+  },
+  "gateway:pairing:session-expired-text": {
+    "en": "The pairing session expired. Start a new one to continue.",
+    "ru": "Сессия сопряжения истекла. Начните новую, чтобы продолжить."
+  },
+  "gateway:pairing:start-new": {
+    "en": "Start new session",
+    "ru": "Начать новую сессию"
+  },
+  "gateway:pairing:failed": {
+    "en": "Pairing failed",
+    "ru": "Сопряжение не удалось"
+  },
+  "gateway:pairing:unknown-error": {
+    "en": "Unknown pairing error",
+    "ru": "Неизвестная ошибка сопряжения"
+  },
+  "gateway:policy:title": {
+    "en": "Extension policy",
+    "ru": "Политика расширения"
+  },
+  "gateway:policy:require-action": {
+    "en": "Require per-action approval",
+    "ru": "Требовать подтверждение для каждого действия"
+  },
+  "gateway:policy:require-site": {
+    "en": "Require site approval",
+    "ru": "Требовать подтверждение сайта"
+  },
+  "gateway:policy:site-allowlist": {
+    "en": "Site allowlist",
+    "ru": "Список разрешённых сайтов"
+  },
+  "gateway:policy:remove": {
+    "en": "Remove",
+    "ru": "Удалить"
+  },
+  "gateway:policy:allowlist-placeholder": {
+    "en": "Add origin and press Enter",
+    "ru": "Добавьте origin и нажмите Enter"
+  },
+  "gateway:policy:all-origins": {
+    "en": "All origins are allowed",
+    "ru": "Разрешены все origin"
+  },
+  "gateway:policy:active-grants": {
+    "en": "Active grants: ${count}",
+    "ru": "Активные разрешения: ${count}"
+  },
+  "gateway:policy:revoke-all": {
+    "en": "Revoke all",
+    "ru": "Отозвать все"
+  },
+  "gateway:policy:no-active-grants": {
+    "en": "No active grants",
+    "ru": "Нет активных разрешений"
+  },
+  "gateway:policy:ttl-expired": {
+    "en": "Expired",
+    "ru": "Истекло"
+  },
+  "gateway:policy:ttl-seconds": {
+    "en": "${count}s left",
+    "ru": "Осталось ${count} с"
+  },
+  "gateway:policy:ttl-minutes": {
+    "en": "${count} min left",
+    "ru": "Осталось ${count} мин"
+  },
+  "network-pair:title-desktop": {
+    "en": "Pair iPhone Host",
+    "ru": "Сопряжение с iPhone-хостом"
+  },
+  "network-pair:title-ios": {
+    "en": "iPhone Host Pairing",
+    "ru": "Сопряжение iPhone-хоста"
+  },
+  "network-pair:subtitle-desktop": {
+    "en": "Add an iPhone as a remote ChromVoid host",
+    "ru": "Добавьте iPhone как удалённый хост ChromVoid"
+  },
+  "network-pair:subtitle-ios": {
+    "en": "Create an iPhone host session for desktop remote mode",
+    "ru": "Создайте сессию iPhone-хоста для удалённого режима на компьютере"
+  },
+  "network-pair:intro-desktop": {
+    "en": "Paste the iPhone pairing offer, enter the 6-digit PIN shown on iPhone, and this desktop will store the paired iOS host for remote mode.",
+    "ru": "Вставьте предложение для сопряжения с iPhone, введите 6-значный PIN с экрана устройства, и этот компьютер сохранит связанный iOS-хост для удалённого режима."
+  },
+  "network-pair:intro-ios": {
+    "en": "Start iPhone host mode, share the offer with your desktop, then keep this screen open until pairing completes.",
+    "ru": "Запустите режим iPhone-хоста, передайте предложение на компьютер и держите этот экран открытым до завершения сопряжения."
+  },
+  "network-pair:intro-mobile": {
+    "en": "Start host mode on ${platform}, share the offer with your desktop, then keep this screen open until pairing completes.",
+    "ru": "Запустите режим хоста на ${platform}, передайте предложение на компьютер и держите этот экран открытым до завершения сопряжения."
+  },
+  "network-pair:device-label": {
+    "en": "Device Label",
+    "ru": "Имя устройства"
+  },
+  "network-pair:iphone-label": {
+    "en": "iPhone Label",
+    "ru": "Имя iPhone"
+  },
+  "network-pair:mobile-label": {
+    "en": "${platform} Label",
+    "ru": "Имя устройства ${platform}"
+  },
+  "network-pair:pairing-offer": {
+    "en": "Pairing Offer",
+    "ru": "Предложение для сопряжения"
+  },
+  "network-pair:pin": {
+    "en": "PIN",
+    "ru": "PIN"
+  },
+  "network-pair:pin-for-desktop": {
+    "en": "PIN for Desktop",
+    "ru": "PIN для компьютера"
+  },
+  "network-pair:presence": {
+    "en": "Presence",
+    "ru": "Присутствие"
+  },
+  "network-pair:paired-desktop": {
+    "en": "Paired Desktop",
+    "ru": "Сопряжённый компьютер"
+  },
+  "network-pair:default-device-desktop": {
+    "en": "ChromVoid Desktop",
+    "ru": "ChromVoid Desktop"
+  },
+  "network-pair:default-device-ios": {
+    "en": "ChromVoid iPhone",
+    "ru": "ChromVoid iPhone"
+  },
+  "network-pair:default-device-android": {
+    "en": "ChromVoid Android",
+    "ru": "ChromVoid Android"
+  },
+  "network-pair:status-paired": {
+    "en": "Paired with iPhone",
+    "ru": "Сопряжено с iPhone"
+  },
+  "network-pair:status-host-ready": {
+    "en": "Host Ready",
+    "ru": "Хост готов"
+  },
+  "network-pair:status-waiting-desktop": {
+    "en": "Waiting for Desktop",
+    "ru": "Ожидание компьютера"
+  },
+  "network-pair:button-pairing": {
+    "en": "Pairing...",
+    "ru": "Сопряжение..."
+  },
+  "network-pair:button-pair-with-iphone": {
+    "en": "Pair with iPhone",
+    "ru": "Сопрячь с iPhone"
+  },
+  "network-pair:button-start-iphone-host": {
+    "en": "Start iPhone Host",
+    "ru": "Запустить iPhone-хост"
+  },
+  "network-pair:button-start-mobile-host": {
+    "en": "Start",
+    "ru": "Запустить"
+  },
+  "network-pair:button-refresh-presence": {
+    "en": "Refresh Presence",
+    "ru": "Обновить присутствие"
+  },
+  "network-pair:error-pin-required": {
+    "en": "PIN is required",
+    "ru": "Требуется PIN"
+  },
+  "network-pair:error-offer-required": {
+    "en": "Pairing offer is required",
+    "ru": "Требуется предложение для сопряжения"
+  },
+  "network-pair:error-offer-format": {
+    "en": "Unsupported pairing offer format",
+    "ru": "Неподдерживаемый формат предложения для сопряжения"
+  },
+  "network-pair:error-offer-fields": {
+    "en": "Pairing offer is missing required fields",
+    "ru": "В предложении для сопряжения отсутствуют обязательные поля"
+  },
+  "remote:title": {
+    "en": "Remote Device",
+    "ru": "Удалённое устройство"
+  },
+  "remote:subtitle": {
+    "en": "Manage connection mode and remote devices",
+    "ru": "Управление режимом подключения и удалёнными устройствами"
+  },
+  "remote:pair-mobile-host": {
+    "en": "Pair Mobile Host",
+    "ru": "Сопрячь mobile-хост"
+  },
+  "remote:mobile-host-title": {
+    "en": "${platform} Remote Host",
+    "ru": "Удалённый хост ${platform}"
+  },
+  "remote:platform-android": {
+    "en": "Android",
+    "ru": "Android"
+  },
+  "remote:platform-ios": {
+    "en": "iPhone",
+    "ru": "iPhone"
+  },
+  "remote:platform-network": {
+    "en": "Network",
+    "ru": "Сеть"
+  },
+  "remote:peer-android-host": {
+    "en": "Android host",
+    "ru": "Android-хост"
+  },
+  "remote:connected-desktops": {
+    "en": "Connected desktops",
+    "ru": "Подключённые компьютеры"
+  },
+  "remote:connection-title": {
+    "en": "Connection Status",
+    "ru": "Состояние соединения"
+  },
+  "remote:connection-hint": {
+    "en": "Current USB connection state",
+    "ru": "Текущее состояние USB-соединения"
+  },
+  "remote:usb-devices-title": {
+    "en": "USB Devices",
+    "ru": "USB-устройства"
+  },
+  "remote:usb-devices-hint": {
+    "en": "Discovered devices on USB ports",
+    "ru": "Найденные устройства на USB-портах"
+  },
+  "remote:no-devices": {
+    "en": "No devices discovered. Click \"Scan\" to search for USB devices.",
+    "ru": "Устройства не найдены. Нажмите «Сканировать», чтобы выполнить поиск USB-устройств."
+  },
+  "remote:paired-devices-title": {
+    "en": "Paired Devices",
+    "ru": "Сопряжённые устройства"
+  },
+  "remote:paired-devices-hint": {
+    "en": "Previously connected and trusted devices",
+    "ru": "Ранее подключённые и доверенные устройства"
+  },
+  "remote:no-paired-devices": {
+    "en": "No paired devices",
+    "ru": "Нет сопряжённых устройств"
+  },
+  "remote:no-serial": {
+    "en": "No serial",
+    "ru": "Нет серийного номера"
+  },
+  "remote:no-serial-title": {
+    "en": "Device has no serial number",
+    "ru": "У устройства нет серийного номера"
+  },
+  "remote:serial": {
+    "en": "S/N: ${value}",
+    "ru": "S/N: ${value}"
+  },
+  "remote:paired-at": {
+    "en": "Paired: ${value}",
+    "ru": "Сопряжено: ${value}"
+  },
+  "remote:last-seen": {
+    "en": "Last seen: ${value}",
+    "ru": "Последний раз: ${value}"
+  },
+  "remote:operating-mode-title": {
+    "en": "Operating Mode",
+    "ru": "Режим работы"
+  },
+  "remote:operating-mode-hint": {
+    "en": "Switch between Local and Remote vault",
+    "ru": "Переключение между локальным и удалённым хранилищем"
+  },
+  "remote:connected-peer": {
+    "en": "Connected peer",
+    "ru": "Подключённый узел"
+  },
+  "remote:transport": {
+    "en": "Transport",
+    "ru": "Транспорт"
+  },
+  "remote:connect-to-peer": {
+    "en": "Connect to peer:",
+    "ru": "Подключиться к узлу:"
+  },
+  "remote:iphone-host": {
+    "en": "iPhone Host",
+    "ru": "iPhone-хост"
+  },
+  "remote:network-peer": {
+    "en": "Network Peer",
+    "ru": "Сетевой узел"
+  },
+  "remote:wake-connect": {
+    "en": "Wake & Connect",
+    "ru": "Разбудить и подключить"
+  },
+  "remote:no-network-peers": {
+    "en": "No paired network peers. Use Network Pairing to pair a device first.",
+    "ru": "Нет сопряжённых сетевых узлов. Сначала выполните сетевое сопряжение устройства."
+  },
+  "remote:sync-title": {
+    "en": "Sync Status",
+    "ru": "Статус синхронизации"
+  },
+  "remote:sync-realtime": {
+    "en": "Real-time data synchronization",
+    "ru": "Синхронизация данных в реальном времени"
+  },
+  "remote:sync-last": {
+    "en": "Last sync: ${time}",
+    "ru": "Последняя синхронизация: ${time}"
+  },
+  "remote:sync-error": {
+    "en": "Sync Error",
+    "ru": "Ошибка синхронизации"
+  },
+  "remote:writer-lock-title": {
+    "en": "Writer Lock Active",
+    "ru": "Блокировка записи активна"
+  },
+  "remote:writer-lock-hint": {
+    "en": "Write operations are blocked",
+    "ru": "Операции записи заблокированы"
+  },
+  "remote:lock-holder": {
+    "en": "Lock holder",
+    "ru": "Владелец блокировки"
+  },
+  "remote:writer-lock-message": {
+    "en": "Another device is currently writing. Your changes will be queued until the lock is released.",
+    "ru": "Другое устройство сейчас выполняет запись. Ваши изменения будут поставлены в очередь до снятия блокировки."
+  },
+  "remote:write-locked-by": {
+    "en": "Write locked by ${holder}",
+    "ru": "Запись заблокирована: ${holder}"
+  },
+  "remote:write-locked-by-other": {
+    "en": "Write locked by another device",
+    "ru": "Запись заблокирована другим устройством"
+  },
+  "remote:write-access": {
+    "en": "You have write access",
+    "ru": "У вас есть доступ на запись"
+  },
+  "remote:request-lock": {
+    "en": "Request Lock",
+    "ru": "Запросить блокировку"
+  },
+  "remote:peer-unreachable": {
+    "en": "Peer unreachable",
+    "ru": "Узел недоступен"
+  },
+  "remote:peer-unreachable-text": {
+    "en": "The paired device is not reachable. Check that it is online and on the same network.",
+    "ru": "Сопряжённое устройство недоступно. Проверьте, что оно в сети и находится в той же сети."
+  },
+  "remote:connection-progress": {
+    "en": "Connection in progress",
+    "ru": "Подключение в процессе"
+  },
+  "remote:syncing-with-phase": {
+    "en": "Syncing data with remote peer… ${phase}",
+    "ru": "Синхронизация данных с удалённым узлом… ${phase}"
+  },
+  "remote:establishing-transport": {
+    "en": "Establishing transport connection…",
+    "ru": "Установка транспортного соединения…"
+  },
+  "remote:please-wait": {
+    "en": "Please wait",
+    "ru": "Подождите"
+  },
+  "remote:vault-locked-other-title": {
+    "en": "Vault locked by another device",
+    "ru": "Хранилище заблокировано другим устройством"
+  },
+  "remote:vault-locked-other-holder": {
+    "en": "The writer lock is held by \"${holder}\". You can view data but cannot make changes.",
+    "ru": "Блокировка записи удерживается «${holder}». Вы можете просматривать данные, но не можете их изменять."
+  },
+  "remote:vault-locked-other-no-holder": {
+    "en": "The writer lock is held by another device. You can view data but cannot make changes.",
+    "ru": "Блокировка записи удерживается другим устройством. Вы можете просматривать данные, но не можете их изменять."
+  },
+  "remote:auto-checking": {
+    "en": "Auto-checking every ${seconds} seconds",
+    "ru": "Автопроверка каждые ${seconds} секунд"
+  },
+  "remote:mode-label-local": {
+    "en": "Local",
+    "ru": "Локальный"
+  },
+  "remote:mode-label-switching": {
+    "en": "Switching…",
+    "ru": "Переключение…"
+  },
+  "remote:mode-label-remote": {
+    "en": "Remote",
+    "ru": "Удалённый"
+  },
+  "remote:remove-host-title": {
+    "en": "Remove Paired Host",
+    "ru": "Удалить сопряжённый хост"
+  },
+  "remote:remove-host-message": {
+    "en": "Remove \"${label}\" from ${target}s? You will need to pair it again before reconnecting.",
+    "ru": "Удалить «${label}» из ${target}? Для повторного подключения его придётся заново сопрягать."
+  },
+  "remote:remove-target-ios": {
+    "en": "paired iPhone host",
+    "ru": "сопряжённые iPhone-хосты"
+  },
+  "remote:remove-target-network": {
+    "en": "paired network peer",
+    "ru": "сопряжённые сетевые узлы"
+  },
+  "remote:paired-host-removed": {
+    "en": "Paired host removed",
+    "ru": "Сопряжённый хост удалён"
+  },
+  "remote:remove-peer-failed": {
+    "en": "Failed to remove peer",
+    "ru": "Не удалось удалить узел"
+  },
+  "remote:sync-progress": {
+    "en": "Syncing… (${synced}/${total})",
+    "ru": "Синхронизация… (${synced}/${total})"
+  },
+  "remote:syncing-text": {
+    "en": "Syncing…",
+    "ru": "Синхронизация…"
+  },
+  "remote:reconnecting-text": {
+    "en": "Reconnecting…",
+    "ru": "Переподключение…"
+  },
+  "remote:writer-lock-toast-holder": {
+    "en": "Write locked by ${holder}. Wait or request lock.",
+    "ru": "Запись заблокирована: ${holder}. Подождите или запросите блокировку."
+  },
+  "remote:writer-lock-toast-other": {
+    "en": "Write locked by another device. Wait or request lock.",
+    "ru": "Запись заблокирована другим устройством. Подождите или запросите блокировку."
+  },
+  "network-pair:error-relay-missing": {
+    "en": "Server profile \"${profileId}\" has no relay URL configured.",
+    "ru": "У серверного профиля \"${profileId}\" не настроен relay URL."
+  },
+  "no-connection:description": {
+    "en": "Could not connect to the device. Check the USB-C cable and power, then try again.",
+    "ru": "Не удалось подключиться к устройству. Проверьте кабель USB-C и питание, затем повторите попытку."
+  },
+  "no-connection:status-connecting": {
+    "en": "Connecting…",
+    "ru": "Подключение…"
+  },
+  "no-connection:retry": {
+    "en": "Reconnect",
+    "ru": "Переподключиться"
+  },
+  "no-connection:reload": {
+    "en": "Reload page",
+    "ru": "Обновить страницу"
+  },
+  "no-connection:hint": {
+    "en": "Hint: if the issue persists, try another USB-C cable or port, or reboot the device.",
+    "ru": "Подсказка: если проблема сохраняется, попробуйте другой кабель или порт USB-C либо перезагрузите устройство."
+  },
+  "biometric-app-gate:eyebrow": {
+    "en": "App gate",
+    "ru": "Защита приложения"
+  },
+  "biometric-app-gate:retry": {
+    "en": "Try again",
+    "ru": "Повторить"
+  },
+  "biometric-app-gate:title-required": {
+    "en": "Biometric check required",
+    "ru": "Требуется биометрическая проверка"
+  },
+  "biometric-app-gate:title-prompting": {
+    "en": "Confirm it is you",
+    "ru": "Подтвердите, что это вы"
+  },
+  "biometric-app-gate:title-checking": {
+    "en": "Checking app access",
+    "ru": "Проверка доступа к приложению"
+  },
+  "biometric-app-gate:message-denied": {
+    "en": "Biometric verification did not succeed. Try again to continue to ChromVoid.",
+    "ru": "Биометрическая проверка не прошла. Повторите попытку, чтобы продолжить работу с ChromVoid."
+  },
+  "biometric-app-gate:message-cancelled": {
+    "en": "Verification was cancelled. Try again to continue to ChromVoid.",
+    "ru": "Проверка была отменена. Повторите попытку, чтобы продолжить работу с ChromVoid."
+  },
+  "biometric-app-gate:message-unavailable": {
+    "en": "Biometric app gate is unavailable right now. Try again or check device security settings.",
+    "ru": "Биометрическая защита приложения сейчас недоступна. Повторите попытку или проверьте настройки безопасности устройства."
+  },
+  "biometric-app-gate:message-internal": {
+    "en": "ChromVoid could not complete the biometric app gate. Try again.",
+    "ru": "ChromVoid не удалось завершить биометрическую проверку приложения. Повторите попытку."
+  },
+  "biometric-app-gate:message-resume": {
+    "en": "Verifying local access before showing the app again.",
+    "ru": "Проверяем локальный доступ перед повторным показом приложения."
+  },
+  "biometric-app-gate:message-open": {
+    "en": "Verifying local access before showing the app.",
+    "ru": "Проверяем локальный доступ перед показом приложения."
+  },
+  "biometric-app-gate:reason": {
+    "en": "Continue to ChromVoid",
+    "ru": "Продолжить в ChromVoid"
+  },
+  "biometric-app-gate:fallback-warning": {
+    "en": "Biometric app gate is unavailable for this attempt. Continuing without it.",
+    "ru": "Биометрическая защита недоступна для этой попытки. Продолжаем без неё."
+  },
+  "settings:title": {
+    "en": "Settings",
+    "ru": "Настройки"
+  },
+  "settings:subtitle": {
+    "en": "Configure session security and behavior",
+    "ru": "Настройка безопасности и поведения сессии"
+  },
+  "settings:application": {
+    "en": "Application",
+    "ru": "Приложение"
+  },
+  "settings:passwords-maintenance-title": {
+    "en": "Passwords",
+    "ru": "Пароли"
+  },
+  "settings:passwords-maintenance-description": {
+    "en": "Import, export, or clear password vault data.",
+    "ru": "Импорт, экспорт или очистка данных хранилища паролей."
+  },
+  "settings:passwords-maintenance-import": {
+    "en": "Import",
+    "ru": "Импорт"
+  },
+  "settings:passwords-maintenance-export": {
+    "en": "Export",
+    "ru": "Экспорт"
+  },
+  "settings:passwords-maintenance-clear": {
+    "en": "Clear",
+    "ru": "Очистить"
+  },
+  "settings:passwords-maintenance-import-success-title": {
+    "en": "Import complete",
+    "ru": "Импорт завершён"
+  },
+  "settings:passwords-maintenance-import-success-description": {
+    "en": "Passwords were imported successfully.",
+    "ru": "Пароли успешно импортированы."
+  },
+  "settings:passwords-maintenance-error-title": {
+    "en": "Password maintenance failed",
+    "ru": "Не удалось выполнить обслуживание паролей"
+  },
+  "settings:vault-password-title": {
+    "en": "Vault password",
+    "ru": "Пароль vault"
+  },
+  "settings:vault-password-description": {
+    "en": "Migrate the active local vault to a new vault password. Existing backups will still require the old password.",
+    "ru": "Перенести активный локальный vault на новый пароль. Уже созданные backup по-прежнему будут требовать старый пароль."
+  },
+  "settings:vault-password-current": {
+    "en": "Current vault password",
+    "ru": "Текущий пароль vault"
+  },
+  "settings:vault-password-new": {
+    "en": "New vault password",
+    "ru": "Новый пароль vault"
+  },
+  "settings:vault-password-confirm": {
+    "en": "Confirm new password",
+    "ru": "Повторите новый пароль"
+  },
+  "settings:vault-password-current-required": {
+    "en": "Enter the current vault password.",
+    "ru": "Введите текущий пароль vault."
+  },
+  "settings:vault-password-too-short": {
+    "en": "The new vault password must be at least 8 characters.",
+    "ru": "Новый пароль vault должен быть не короче 8 символов."
+  },
+  "settings:vault-password-mismatch": {
+    "en": "The confirmation does not match the new password.",
+    "ru": "Подтверждение не совпадает с новым паролем."
+  },
+  "settings:vault-password-same": {
+    "en": "The new vault password must differ from the current one.",
+    "ru": "Новый пароль vault должен отличаться от текущего."
+  },
+  "settings:vault-password-submit": {
+    "en": "Change vault password",
+    "ru": "Изменить пароль vault"
+  },
+  "settings:vault-password-progress-starting": {
+    "en": "Preparing chunks",
+    "ru": "Подготовка chunks"
+  },
+  "settings:vault-password-progress-summary": {
+    "en": "${done} of ${total} chunks",
+    "ru": "${done} из ${total} chunks"
+  },
+  "settings:vault-password-phase-preparing": {
+    "en": "Preparing",
+    "ru": "Подготовка"
+  },
+  "settings:vault-password-phase-scanning": {
+    "en": "Scanning",
+    "ru": "Сканирование"
+  },
+  "settings:vault-password-phase-writing": {
+    "en": "Writing",
+    "ru": "Запись"
+  },
+  "settings:vault-password-phase-validating": {
+    "en": "Validating",
+    "ru": "Проверка"
+  },
+  "settings:vault-password-phase-committing": {
+    "en": "Committing",
+    "ru": "Фиксация"
+  },
+  "settings:vault-password-phase-cleaning": {
+    "en": "Cleaning",
+    "ru": "Очистка"
+  },
+  "settings:vault-password-phase-completed": {
+    "en": "Completed",
+    "ru": "Готово"
+  },
+  "settings:vault-password-wrong-current": {
+    "en": "The current vault password is incorrect.",
+    "ru": "Текущий пароль vault неверный."
+  },
+  "settings:vault-password-policy-error": {
+    "en": "The new vault password does not match the password policy.",
+    "ru": "Новый пароль vault не соответствует политике паролей."
+  },
+  "settings:vault-password-cancelled": {
+    "en": "Vault password migration was cancelled before commit.",
+    "ru": "Миграция пароля vault отменена до фиксации."
+  },
+  "settings:vault-password-cancel-failed": {
+    "en": "Failed to request vault password migration cancellation.",
+    "ru": "Не удалось запросить отмену миграции пароля vault."
+  },
+  "settings:vault-password-already-running": {
+    "en": "Vault password migration is already in progress.",
+    "ru": "Миграция пароля vault уже выполняется."
+  },
+  "settings:vault-password-unsupported-mode": {
+    "en": "Vault password migration is available only for local vaults.",
+    "ru": "Миграция пароля vault доступна только для локальных vault."
+  },
+  "settings:vault-password-unavailable": {
+    "en": "Vault password migration is available only inside the desktop or mobile app.",
+    "ru": "Миграция пароля vault доступна только внутри desktop или mobile приложения."
+  },
+  "settings:vault-password-error": {
+    "en": "Vault password migration failed.",
+    "ru": "Не удалось выполнить миграцию пароля vault."
+  },
+  "settings:vault-password-success-title": {
+    "en": "Vault password changed",
+    "ru": "Пароль vault изменён"
+  },
+  "settings:vault-password-success-description": {
+    "en": "The active vault was re-encrypted under the new password.",
+    "ru": "Активный vault перезашифрован под новым паролем."
+  },
+  "settings:vault-password-backup-action": {
+    "en": "Create fresh backup",
+    "ru": "Создать новый backup"
+  },
+  "settings:vault-password-backup-recommendation": {
+    "en": "Create a fresh backup now. Older backups still open with the old vault password.",
+    "ru": "Создайте новый backup сейчас. Старые backup всё ещё открываются старым паролем vault."
+  },
+  "settings:language-hint": {
+    "en": "Changes the WebView language immediately and keeps it after reload.",
+    "ru": "Меняет язык WebView сразу и сохраняет его после перезагрузки."
+  },
+  "settings:markdown-attachment-folder": {
+    "en": "Markdown image attachments",
+    "ru": "Вложения изображений Markdown"
+  },
+  "settings:markdown-attachment-folder-hint": {
+    "en": "Catalog folder for images pasted or dropped into Markdown notes.",
+    "ru": "Папка каталога для изображений, вставленных или перетащенных в Markdown-заметки."
+  },
+  "markdown:attachments:error:absolute-path": {
+    "en": "Use an absolute catalog path, for example /attachments.",
+    "ru": "Укажите абсолютный путь каталога, например /attachments."
+  },
+  "markdown:attachments:error:non-root": {
+    "en": "Choose a folder below the catalog root.",
+    "ru": "Выберите папку внутри корня каталога."
+  },
+  "markdown:attachments:error:invalid-segment": {
+    "en": "Attachment folder paths cannot contain empty, current, or parent segments.",
+    "ru": "Путь папки вложений не может содержать пустые сегменты, . или ..."
+  },
+  "settings:session-security": {
+    "en": "Session Security",
+    "ru": "Безопасность сессии"
+  },
+  "settings:auto-lock-after": {
+    "en": "Auto-lock after",
+    "ru": "Автоблокировка через"
+  },
+  "settings:auto-lock-hint": {
+    "en": "Automatically lock the vault after a period of inactivity",
+    "ru": "Автоматически блокировать хранилище после периода бездействия"
+  },
+  "settings:lock-on-sleep": {
+    "en": "Lock when app is hidden or device sleeps",
+    "ru": "Блокировать при скрытии приложения или переходе устройства в сон"
+  },
+  "settings:lock-on-background": {
+    "en": "Lock vault when app goes to background",
+    "ru": "Блокировать хранилище при уходе приложения в фон"
+  },
+  "settings:lock-on-background-hint": {
+    "en": "When enabled, ChromVoid locks the vault whenever the mobile app is hidden or backgrounded.",
+    "ru": "Если включено, ChromVoid блокирует хранилище каждый раз, когда мобильное приложение скрыто или находится в фоне."
+  },
+  "settings:autofill-incompatible": {
+    "en": "Credential Provider / Autofill is incompatible with this option because requests require the vault to remain unlocked while the app is in the background.",
+    "ru": "Credential Provider / Autofill несовместим с этой опцией, потому что запросы требуют, чтобы хранилище оставалось разблокированным, пока приложение находится в фоне."
+  },
+  "settings:auto-mount": {
+    "en": "Auto-mount volume after unlock",
+    "ru": "Автоматически подключать том после разблокировки"
+  },
+  "settings:confirm-file-deletion": {
+    "en": "Confirm deletion in Files",
+    "ru": "Подтверждать удаление в «Файлах»"
+  },
+  "settings:confirm-file-deletion-hint": {
+    "en": "When disabled, files, folders, and selected items are deleted immediately from Files.",
+    "ru": "Если выключено, файлы, папки и выбранные элементы удаляются сразу."
+  },
+  "settings:auto-start-ssh-agent": {
+    "en": "Auto-start SSH agent after unlock",
+    "ru": "Автоматически запускать SSH-агент после разблокировки"
+  },
+  "settings:auto-start-ssh-agent-hint": {
+    "en": "On desktop, refresh loaded SSH identities after unlock and start the agent automatically when SSH keys are present.",
+    "ru": "На desktop обновлять загруженные SSH-идентичности после разблокировки и автоматически запускать агент, если в хранилище есть SSH-ключи."
+  },
+  "settings:ssh-agent-title": {
+    "en": "SSH Agent",
+    "ru": "SSH-агент"
+  },
+  "settings:ssh-agent-description": {
+    "en": "Desktop-only local SSH agent runtime backed by vault keys.",
+    "ru": "Локальный desktop SSH-агент, использующий ключи из хранилища."
+  },
+  "settings:ssh-agent-status-label": {
+    "en": "Status",
+    "ru": "Статус"
+  },
+  "settings:ssh-agent-running": {
+    "en": "Running",
+    "ru": "Запущен"
+  },
+  "settings:ssh-agent-stopped": {
+    "en": "Stopped",
+    "ru": "Остановлен"
+  },
+  "settings:ssh-agent-unknown": {
+    "en": "Unavailable",
+    "ru": "Недоступен"
+  },
+  "settings:ssh-agent-identities-label": {
+    "en": "Loaded identities",
+    "ru": "Загруженные идентичности"
+  },
+  "settings:ssh-agent-socket-label": {
+    "en": "Socket path",
+    "ru": "Путь к сокету"
+  },
+  "settings:ssh-agent-socket-unavailable": {
+    "en": "Start the agent to expose the socket path.",
+    "ru": "Запустите агент, чтобы увидеть путь к сокету."
+  },
+  "settings:ssh-agent-config-label": {
+    "en": "SSH config snippet",
+    "ru": "Фрагмент SSH config"
+  },
+  "settings:ssh-agent-config-unavailable": {
+    "en": "The live socket path appears after the agent starts.",
+    "ru": "Актуальный путь к сокету появится после запуска агента."
+  },
+  "settings:ssh-agent-config-hint": {
+    "en": "Add this snippet to ~/.ssh/config so OpenSSH tools use the ChromVoid agent.",
+    "ru": "Добавьте этот фрагмент в ~/.ssh/config, чтобы OpenSSH использовал агент ChromVoid."
+  },
+  "settings:ssh-agent-started": {
+    "en": "SSH agent started",
+    "ru": "SSH-агент запущен"
+  },
+  "settings:ssh-agent-socket-copied": {
+    "en": "SSH agent socket path copied to clipboard",
+    "ru": "Путь к сокету SSH-агента скопирован в буфер обмена"
+  },
+  "settings:require-biometrics": {
+    "en": "Require biometrics before showing the app",
+    "ru": "Требовать биометрию перед показом приложения"
+  },
+  "settings:require-biometrics-hint": {
+    "en": "On supported mobile devices, require a biometric app gate before showing the app after launch or resume. This does not unlock the vault by itself.",
+    "ru": "На поддерживаемых мобильных устройствах требовать биометрическую защиту приложения перед показом после запуска или возвращения. Это не разблокирует хранилище само по себе."
+  },
+  "settings:keep-screen-awake": {
+    "en": "Keep screen awake while vault is open (iPhone only)",
+    "ru": "Не выключать экран, пока хранилище открыто (только iPhone)"
+  },
+  "settings:keep-screen-awake-hint": {
+    "en": "Prevent the display from auto-sleeping while this app stays visible and the vault remains unlocked.",
+    "ru": "Предотвращать автоматический сон экрана, пока приложение остаётся видимым, а хранилище разблокировано."
+  },
+  "settings:android-quick-lock-title": {
+    "en": "Android quick lock",
+    "ru": "Быстрая блокировка Android"
+  },
+  "settings:android-quick-lock-description": {
+    "en": "Show Android system controls while the vault is unlocked.",
+    "ru": "Показывать системные элементы Android, пока хранилище разблокировано."
+  },
+  "settings:android-vault-status-notification": {
+    "en": "Show vault status notification",
+    "ru": "Показывать статус хранилища в шторке"
+  },
+  "settings:android-vault-status-notification-hint": {
+    "en": "Displays a persistent notification with a Lock action while the vault is open.",
+    "ru": "Показывает постоянное уведомление с кнопкой Lock, пока хранилище открыто."
+  },
+  "settings:android-quick-lock-tile": {
+    "en": "Quick Settings Lock Tile",
+    "ru": "Плитка Lock в Quick Settings"
+  },
+  "settings:android-quick-lock-tile-hint": {
+    "en": "Lets Android quick settings trigger the same vault lock action as the app.",
+    "ru": "Позволяет быстрым настройкам Android запускать ту же блокировку хранилища, что и приложение."
+  },
+  "settings:android-quick-lock-tile-add": {
+    "en": "Add Quick Settings Tile",
+    "ru": "Добавить плитку Quick Settings"
+  },
+  "settings:android-quick-lock-tile-manual-hint": {
+    "en": "Add the ChromVoid Lock tile from Android quick settings when it is available on this device.",
+    "ru": "Добавьте плитку ChromVoid Lock из быстрых настроек Android, если она доступна на этом устройстве."
+  },
+  "settings:android-quick-lock-tile-status-failed": {
+    "en": "Failed to query Android quick lock tile status",
+    "ru": "Не удалось проверить статус плитки быстрой блокировки Android"
+  },
+  "settings:android-quick-lock-tile-requested": {
+    "en": "Android opened the Quick Settings tile add flow",
+    "ru": "Android открыл добавление плитки Quick Settings"
+  },
+  "settings:android-quick-lock-tile-unsupported": {
+    "en": "This Android version cannot add the tile from the app",
+    "ru": "Эта версия Android не может добавить плитку из приложения"
+  },
+  "settings:android-quick-lock-tile-request-failed": {
+    "en": "Failed to request Android quick lock tile",
+    "ru": "Не удалось запросить плитку быстрой блокировки Android"
+  },
+  "settings:never": {
+    "en": "Never",
+    "ru": "Никогда"
+  },
+  "settings:1-minute": {
+    "en": "1 minute",
+    "ru": "1 минута"
+  },
+  "settings:5-minutes": {
+    "en": "5 minutes",
+    "ru": "5 минут"
+  },
+  "settings:15-minutes": {
+    "en": "15 minutes",
+    "ru": "15 минут"
+  },
+  "settings:30-minutes": {
+    "en": "30 minutes",
+    "ru": "30 минут"
+  },
+  "settings:1-hour": {
+    "en": "1 hour",
+    "ru": "1 час"
+  },
+  "settings:provider-title": {
+    "en": "Credential Provider / Autofill",
+    "ru": "Credential Provider / Autofill"
+  },
+  "settings:provider-description": {
+    "en": "To let Android apps request credentials from ChromVoid, choose it as the system Autofill provider.",
+    "ru": "Чтобы Android-приложения могли запрашивать учётные данные из ChromVoid, выберите его как системного провайдера Autofill."
+  },
+  "settings:provider-description-ios": {
+    "en": "To let iOS apps request credentials from ChromVoid, enable the Credential Provider extension in iOS settings.",
+    "ru": "Чтобы iOS-приложения могли запрашивать учётные данные из ChromVoid, включите Credential Provider extension в настройках iOS."
+  },
+  "settings:provider-selected": {
+    "en": "ChromVoid is selected as the Android Autofill provider",
+    "ru": "ChromVoid выбран как Android Autofill provider"
+  },
+  "settings:provider-missing": {
+    "en": "ChromVoid is not selected as the Android Autofill provider yet",
+    "ru": "ChromVoid ещё не выбран как Android Autofill provider"
+  },
+  "settings:provider-unknown": {
+    "en": "Current Android Autofill provider could not be verified",
+    "ru": "Не удалось определить текущий Android Autofill provider"
+  },
+  "settings:provider-unknown-ios": {
+    "en": "ChromVoid provider status must be checked in iOS settings",
+    "ru": "Статус провайдера ChromVoid нужно проверить в настройках iOS"
+  },
+  "settings:provider-open": {
+    "en": "Open Autofill Provider Settings",
+    "ru": "Открыть настройки Autofill Provider"
+  },
+  "settings:provider-open-ios": {
+    "en": "Open App Settings",
+    "ru": "Открыть настройки приложения"
+  },
+  "settings:provider-step-1": {
+    "en": "Tap the button above and choose ChromVoid in the Android Autofill provider picker.",
+    "ru": "Нажмите кнопку выше и выберите ChromVoid в списке Android Autofill provider."
+  },
+  "settings:provider-step-2": {
+    "en": "In Chrome, open Settings, then Password Manager, and enable “Autofill using another service” so Chrome can use external providers too.",
+    "ru": "В Chrome откройте Settings, затем Password Manager и включите «Autofill using another service», чтобы Chrome тоже мог использовать внешних провайдеров."
+  },
+  "settings:provider-step-1-ios": {
+    "en": "Open the app settings, then use iOS Password Options to allow ChromVoid for AutoFill.",
+    "ru": "Откройте настройки приложения, затем в iOS Password Options разрешите ChromVoid для AutoFill."
+  },
+  "settings:provider-step-2-ios": {
+    "en": "If ChromVoid is not listed yet, open the app once after unlocking the vault and then return to Password Options.",
+    "ru": "Если ChromVoid ещё нет в списке, откройте приложение после разблокировки хранилища и вернитесь в Password Options."
+  },
+  "passkeys:title": {
+    "en": "Passkeys",
+    "ru": "Passkeys"
+  },
+  "passkeys:description": {
+    "en": "Vault-backed passkeys are portable with your ChromVoid vault.",
+    "ru": "Vault-backed passkeys переносятся вместе с vault ChromVoid."
+  },
+  "passkeys:explainer-title": {
+    "en": "What is a passkey?",
+    "ru": "Что такое passkey?"
+  },
+  "passkeys:explainer-description": {
+    "en": "A passkey is a phishing-resistant sign-in credential based on a public/private key pair. The site keeps the public key, while ChromVoid protects the private key in your vault and uses it only after local device verification.",
+    "ru": "Passkey - это устойчивый к фишингу credential для входа на основе пары публичного и приватного ключей. Сайт хранит публичный ключ, а ChromVoid защищает приватный ключ в вашем vault и использует его только после локальной проверки устройства."
+  },
+  "passkeys:unsupported": {
+    "en": "Local passkey management is available in the Android app. On iOS, passkey creation and sign-in use the Credential Provider AutoFill sheet when iOS 17+ support is enabled.",
+    "ru": "Управление локальными passkeys доступно в Android-приложении. На iOS создание и вход по passkey работают через Credential Provider AutoFill, когда включена поддержка iOS 17+."
+  },
+  "passkeys:loading": {
+    "en": "Loading passkeys…",
+    "ru": "Загружаем passkeys…"
+  },
+  "passkeys:empty": {
+    "en": "No vault-backed passkeys are stored.",
+    "ru": "Vault-backed passkeys не найдены."
+  },
+  "passkeys:vault-section-title": {
+    "en": "Vault-backed passkeys",
+    "ru": "Vault-backed passkeys"
+  },
+  "passkeys:vault-section-description": {
+    "en": "Portable credentials stored in the ChromVoid vault.",
+    "ru": "Переносимые credentials, сохранённые в vault ChromVoid."
+  },
+  "passkeys:storage-vault": {
+    "en": "Portable",
+    "ru": "Portable"
+  },
+  "passkeys:last-used": {
+    "en": "Last used: ${value}",
+    "ru": "Последнее использование: ${value}"
+  },
+  "passkeys:last-used-never": {
+    "en": "Never",
+    "ru": "Никогда"
+  },
+  "passkeys:created": {
+    "en": "Created: ${value}",
+    "ru": "Создан: ${value}"
+  },
+  "passkeys:created-unknown": {
+    "en": "Unknown",
+    "ru": "Неизвестно"
+  },
+  "passkeys:sign-count": {
+    "en": "Sign count: ${value}",
+    "ru": "Счётчик входов: ${value}"
+  },
+  "passkeys:duplicate-badge": {
+    "en": "${count} duplicate credentials",
+    "ru": "Дубликатов credentials: ${count}"
+  },
+  "passkeys:show-duplicates": {
+    "en": "Show duplicates",
+    "ru": "Показать дубликаты"
+  },
+  "passkeys:hide-duplicates": {
+    "en": "Hide duplicates",
+    "ru": "Скрыть дубликаты"
+  },
+  "passkeys:local-credential": {
+    "en": "Credential ${id}",
+    "ru": "Credential ${id}"
+  },
+  "passkeys:delete-vault": {
+    "en": "Delete from vault",
+    "ru": "Удалить из vault"
+  },
+  "passkeys:delete-vault-confirm-title": {
+    "en": "Delete vault passkey?",
+    "ru": "Удалить vault passkey?"
+  },
+  "passkeys:delete-vault-confirm-message": {
+    "en": "This removes the portable ChromVoid passkey for ${account} on ${rpId} from the vault. Devices that sync this vault will lose this credential.",
+    "ru": "Это удалит переносимый passkey ChromVoid для ${account} на ${rpId} из vault. Устройства, которые синхронизируют этот vault, потеряют этот credential."
+  },
+  "passkeys:delete-vault-confirm-action": {
+    "en": "Delete from vault",
+    "ru": "Удалить из vault"
+  },
+  "passkeys:delete-note": {
+    "en": "Deleting a vault passkey removes the portable credential from this vault. It does not revoke anything on the relying party.",
+    "ru": "Удаление vault passkey убирает переносимый credential из этого vault. Это не отзывает credential на стороне relying party."
+  },
+  "passkeys:list-failed": {
+    "en": "Failed to load vault-backed passkeys",
+    "ru": "Не удалось загрузить vault-backed passkeys"
+  },
+  "passkeys:delete-failed": {
+    "en": "Failed to delete vault passkey",
+    "ru": "Не удалось удалить vault passkey"
+  },
+  "passkeys:delete-success": {
+    "en": "Android passkey deleted",
+    "ru": "Android passkey удалён"
+  },
+  "settings:provider-query-failed": {
+    "en": "Failed to query Android autofill provider status",
+    "ru": "Не удалось проверить статус Android autofill provider"
+  },
+  "settings:provider-open-failed": {
+    "en": "Failed to open Android autofill provider settings",
+    "ru": "Не удалось открыть настройки Android autofill provider"
+  },
+  "settings:license-title": {
+    "en": "License",
+    "ru": "Лицензия"
+  },
+  "settings:license-status-unknown": {
+    "en": "Unknown",
+    "ru": "Неизвестно"
+  },
+  "settings:license-status-pro": {
+    "en": "Pro active",
+    "ru": "Pro активна"
+  },
+  "settings:license-status-free": {
+    "en": "Free",
+    "ru": "Free"
+  },
+  "settings:license-state-unavailable": {
+    "en": "License state is unavailable",
+    "ru": "Статус лицензии недоступен"
+  },
+  "settings:activation-code-placeholder": {
+    "en": "Activation code",
+    "ru": "Код активации"
+  },
+  "settings:activation-code-label": {
+    "en": "Activation code",
+    "ru": "Код активации"
+  },
+  "settings:activation-code-help": {
+    "en": "Use the one-time code from purchase or support to activate Pro on this device.",
+    "ru": "Введите одноразовый код из покупки или поддержки, чтобы активировать Pro на этом устройстве."
+  },
+  "settings:license-activate": {
+    "en": "Activate",
+    "ru": "Активировать"
+  },
+  "settings:license-activated": {
+    "en": "Pro license activated",
+    "ru": "Pro-лицензия активирована"
+  },
+  "settings:license-activation-failed": {
+    "en": "License activation failed",
+    "ru": "Не удалось активировать лицензию"
+  },
+  "settings:license-seats-title": {
+    "en": "License seats",
+    "ru": "Seats лицензии"
+  },
+  "settings:license-seats-usage": {
+    "en": "Seats: ${used} of ${total} used, ${free} free",
+    "ru": "Seats: занято ${used} из ${total}, свободно ${free}"
+  },
+  "settings:license-seats-loading": {
+    "en": "Loading",
+    "ru": "Загрузка"
+  },
+  "settings:license-seats-unavailable": {
+    "en": "Unavailable",
+    "ru": "Недоступно"
+  },
+  "settings:license-seats-used": {
+    "en": "Used",
+    "ru": "Занято"
+  },
+  "settings:license-seats-available": {
+    "en": "Free",
+    "ru": "Свободно"
+  },
+  "settings:license-release-seat": {
+    "en": "Release this seat",
+    "ru": "Освободить этот seat"
+  },
+  "settings:license-release-seat-success": {
+    "en": "Seat released",
+    "ru": "Seat освобождён"
+  },
+  "settings:license-release-seat-failed": {
+    "en": "Failed to release seat",
+    "ru": "Не удалось освободить seat"
+  },
+  "settings:purchase-id-label": {
+    "en": "Purchase id",
+    "ru": "ID покупки"
+  },
+  "settings:license-cabinet-open": {
+    "en": "Open cabinet",
+    "ru": "Открыть кабинет"
+  },
+  "settings:license-cabinet-open-failed": {
+    "en": "Failed to open cabinet",
+    "ru": "Не удалось открыть кабинет"
+  },
+  "settings:purchase-id-help": {
+    "en": "Use this id for support and to find the license in your ChromVoid cabinet.",
+    "ru": "Используйте этот id для поддержки и поиска лицензии в кабинете ChromVoid."
+  },
+  "settings:license-public-key-missing": {
+    "en": "This app build is missing the license verification key. Install a build made with the current license public key.",
+    "ru": "В этой сборке нет ключа проверки лицензии. Установите сборку, собранную с текущим публичным ключом лицензий."
+  },
+  "settings:credential-provider-unsupported": {
+    "en": "Credential provider is not supported on this platform.",
+    "ru": "Credential provider не поддерживается на этой платформе."
+  },
+  "settings:credential-provider-license-required": {
+    "en": "Credential provider requires an active Pro license.",
+    "ru": "Для Credential provider нужна активная Pro-лицензия."
+  },
+  "settings:saved": {
+    "en": "Settings saved",
+    "ru": "Настройки сохранены"
+  },
+  "pro-access:unsupported-title": {
+    "en": "This feature is not available on this platform",
+    "ru": "Эта функция недоступна на этой платформе"
+  },
+  "pro-access:disabled-title": {
+    "en": "This feature is currently disabled",
+    "ru": "Эта функция сейчас отключена"
+  },
+  "pro-access:required-title": {
+    "en": "Pro license required",
+    "ru": "Требуется Pro-лицензия"
+  },
+  "pro-access:entitlement-unavailable": {
+    "en": "ChromVoid could not read the license state for the active Core.",
+    "ru": "ChromVoid не смог прочитать статус лицензии активного Core."
+  },
+  "pro-access:locked-pro": {
+    "en": "Activate a Pro license in Settings to use this feature.",
+    "ru": "Активируйте Pro-лицензию в настройках, чтобы использовать эту функцию."
+  },
+  "welcome:eyebrow-remote-host": {
+    "en": "REMOTE HOST",
+    "ru": "REMOTE HOST"
+  },
+  "welcome:eyebrow-local-vault": {
+    "en": "LOCAL VAULT",
+    "ru": "ЛОКАЛЬНОЕ ХРАНИЛИЩЕ"
+  },
+  "welcome:eyebrow-first-run": {
+    "en": "FIRST RUN",
+    "ru": "ПЕРВЫЙ ЗАПУСК"
+  },
+  "welcome:eyebrow-setup-path": {
+    "en": "SETUP PATH",
+    "ru": "ВЫБОР РЕЖИМА"
+  },
+  "welcome:proof-remote-connect": {
+    "en": "Desktop access waits for a paired iPhone host before the dashboard is opened.",
+    "ru": "Доступ с компьютера ждёт сопряжённый iPhone-хост до открытия панели."
+  },
+  "welcome:proof-remote-pair": {
+    "en": "Pairing stays inside the offer and PIN flow. The host still controls the final unlock.",
+    "ru": "Сопряжение идёт через предложение и PIN. Финальную разблокировку всё равно контролирует хост."
+  },
+  "welcome:proof-remote-wait": {
+    "en": "Transport is ready, but the vault remains sealed until the iPhone host unlocks locally.",
+    "ru": "Транспорт готов, но хранилище остаётся закрытым, пока iPhone-хост не разблокирует его локально."
+  },
+  "welcome:proof-unlock": {
+    "en": "Unlock happens on this device. Secrets stay sealed until the local vault is opened.",
+    "ru": "Разблокировка происходит на этом устройстве. Секреты остаются закрытыми, пока локальное хранилище не открыто."
+  },
+  "welcome:proof-create-master": {
+    "en": "The master password protects storage creation, backup, restore, and destructive operations.",
+    "ru": "Мастер-пароль защищает создание хранилища, резервное копирование, восстановление и опасные операции."
+  },
+  "welcome:proof-default": {
+    "en": "Choose whether this device stores data locally or waits for a paired host before the first unlock.",
+    "ru": "Выберите, будет ли устройство хранить данные локально или ждать сопряжённый хост до первой разблокировки."
+  },
+  "welcome:back-mode-selection": {
+    "en": "Back to mode selection",
+    "ru": "Назад к выбору режима"
+  },
+  "welcome:back-unlock-screen": {
+    "en": "Back to unlock screen",
+    "ru": "Назад к экрану разблокировки"
+  },
+  "welcome:back-remote-hosts": {
+    "en": "Back to remote hosts",
+    "ru": "Назад к удалённым хостам"
+  },
+  "welcome:disconnect-remote-transport": {
+    "en": "Disconnect remote transport",
+    "ru": "Отключить удалённый транспорт"
+  },
+  "welcome:remote-hosts-title": {
+    "en": "Paired Remote Hosts",
+    "ru": "Сопряжённые удалённые хосты"
+  },
+  "welcome:remote-hosts-desc": {
+    "en": "Choose a paired mobile host or pair a new one before entering the dashboard.",
+    "ru": "Выберите сопряжённый mobile-хост или добавьте новый перед входом в панель."
+  },
+  "welcome:refresh-hosts": {
+    "en": "Refresh Hosts",
+    "ru": "Обновить хосты"
+  },
+  "welcome:no-paired-hosts": {
+    "en": "No paired mobile hosts",
+    "ru": "Нет сопряжённых mobile-хостов"
+  },
+  "welcome:no-paired-hosts-desc": {
+    "en": "Pair your mobile host first, then come back here to connect once its vault is open locally.",
+    "ru": "Сначала сопрягите mobile-хост, затем вернитесь сюда для подключения после локального открытия его хранилища."
+  },
+  "welcome:pair-iphone-title": {
+    "en": "Pair With Mobile Host",
+    "ru": "Сопряжение с mobile-хостом"
+  },
+  "welcome:pair-iphone-desc": {
+    "en": "Paste the pairing offer from your mobile host and enter the PIN shown on the device.",
+    "ru": "Вставьте предложение для сопряжения с mobile-хоста и введите PIN, показанный на устройстве."
+  },
+  "welcome:waiting-for-peer": {
+    "en": "Waiting For ${peer}",
+    "ru": "Ожидание ${peer}"
+  },
+  "welcome:waiting-for-peer-desc": {
+    "en": "The transport is already connected. Open the vault directly on your iPhone to continue into the remote dashboard.",
+    "ru": "Транспорт уже подключён. Откройте хранилище прямо на iPhone, чтобы продолжить работу в удалённой панели."
+  },
+  "welcome:waiting-for-peer-hint": {
+    "en": "This desktop cannot unlock the host vault remotely. Access appears here automatically after the host opens it locally.",
+    "ru": "Этот компьютер не может удалённо открыть хранилище хоста. Доступ появится здесь автоматически после локального открытия на iPhone."
+  },
+  "welcome:unlock-vault": {
+    "en": "Unlock Vault",
+    "ru": "Открыть хранилище"
+  },
+  "welcome:connect-remote": {
+    "en": "Connect Remote",
+    "ru": "Подключить удалённо"
+  },
+  "welcome:mode-local-title": {
+    "en": "Local Storage",
+    "ru": "Локальное хранилище"
+  },
+  "welcome:mode-local-desc": {
+    "en": "Data stored on this device",
+    "ru": "Данные хранятся на этом устройстве"
+  },
+  "welcome:mode-local-badge": {
+    "en": "On-device only",
+    "ru": "Только на устройстве"
+  },
+  "welcome:mode-remote-title": {
+    "en": "Connect Remote",
+    "ru": "Подключить удалённо"
+  },
+  "welcome:mode-remote-desc": {
+    "en": "Connect to a paired iPhone whose vault is already open",
+    "ru": "Подключение к сопряжённому iPhone, у которого хранилище уже открыто"
+  },
+  "welcome:mode-remote-badge": {
+    "en": "Paired host",
+    "ru": "Сопряжённый хост"
+  },
+  "welcome:mode-remote-disabled": {
+    "en": "Desktop only",
+    "ru": "Только desktop"
+  },
+  "welcome:mode-change-later": {
+    "en": "Mode can be changed later in Settings",
+    "ru": "Режим можно будет изменить позже в Настройках"
+  },
+  "welcome:create-password": {
+    "en": "Create password",
+    "ru": "Создайте пароль"
+  },
+  "welcome:confirm-password": {
+    "en": "Confirm password",
+    "ru": "Подтвердите пароль"
+  },
+  "welcome:create-storage": {
+    "en": "Create Storage",
+    "ru": "Создать хранилище"
+  },
+  "welcome:remote-vault-title": {
+    "en": "Connect Remote Vault",
+    "ru": "Подключение удалённого хранилища"
+  },
+  "welcome:pair-iphone-hero-title": {
+    "en": "Pair Mobile Host",
+    "ru": "Сопрячь mobile-хост"
+  },
+  "welcome:wait-iphone-title": {
+    "en": "Waiting For iPhone Vault",
+    "ru": "Ожидание хранилища iPhone"
+  },
+  "welcome:remote-vault-desc": {
+    "en": "Connect to a paired iPhone host before opening the vault on this desktop.",
+    "ru": "Подключитесь к сопряжённому iPhone-хосту перед открытием хранилища на этом компьютере."
+  },
+  "welcome:pair-iphone-hero-desc": {
+    "en": "Paste the pairing offer from your mobile host and confirm it with the displayed PIN.",
+    "ru": "Вставьте предложение для сопряжения с mobile-хоста и подтвердите его показанным PIN."
+  },
+  "welcome:wait-iphone-desc": {
+    "en": "Transport is ready. Open the vault on your iPhone to continue into the remote dashboard.",
+    "ru": "Транспорт готов. Откройте хранилище на iPhone, чтобы перейти в удалённую панель."
+  },
+  "welcome:unlock-desc": {
+    "en": "Your device is locked. Enter your Vault Password to access data.",
+    "ru": "Устройство заблокировано. Введите пароль хранилища, чтобы получить доступ к данным."
+  },
+  "welcome:create-master-desc": {
+    "en": "Set up your master password to secure your storage.",
+    "ru": "Настройте мастер-пароль, чтобы защитить хранилище."
+  },
+  "welcome:choose-storage-desc": {
+    "en": "Welcome to ChromVoid. Choose how you want to store your data.",
+    "ru": "Добро пожаловать в ChromVoid. Выберите, как вы хотите хранить свои данные."
+  },
+  "welcome:master-required": {
+    "en": "Master Password is required",
+    "ru": "Требуется мастер-пароль"
+  },
+  "welcome:master-too-short": {
+    "en": "Master Password must be 12+ chars",
+    "ru": "Мастер-пароль должен содержать не менее 12 символов"
+  },
+  "welcome:master-mismatch": {
+    "en": "Master Passwords do not match",
+    "ru": "Мастер-пароли не совпадают"
+  },
+  "welcome:storage-created": {
+    "en": "Storage created! Now unlock your vault.",
+    "ru": "Хранилище создано. Теперь откройте его."
+  },
+  "welcome:vault-password": {
+    "en": "Vault Password",
+    "ru": "Пароль хранилища"
+  },
+  "welcome:master-password": {
+    "en": "Master Password",
+    "ru": "Мастер-пароль"
+  },
+  "welcome:vault-unlocked": {
+    "en": "Vault unlocked",
+    "ru": "Хранилище открыто"
+  },
+  "welcome:backup-destination": {
+    "en": "Select Backup Destination",
+    "ru": "Выберите место для резервной копии"
+  },
+  "welcome:backup-created": {
+    "en": "Backup created at: ${path}",
+    "ru": "Резервная копия создана в: ${path}"
+  },
+  "welcome:restore-continue": {
+    "en": "Continue",
+    "ru": "Продолжить"
+  },
+  "welcome:backup-folder": {
+    "en": "Select Backup Folder",
+    "ru": "Выберите папку с резервной копией"
+  },
+  "welcome:restore-title": {
+    "en": "Restore",
+    "ru": "Восстановление"
+  },
+  "welcome:restore-cancelled": {
+    "en": "Restore cancelled",
+    "ru": "Восстановление отменено"
+  },
+  "welcome:erase-device-title": {
+    "en": "Erase Device",
+    "ru": "Стереть устройство"
+  },
+  "welcome:device-erased": {
+    "en": "Device erased",
+    "ru": "Устройство очищено"
+  },
+  "welcome:storage-folder": {
+    "en": "Select Storage Folder",
+    "ru": "Выберите папку хранилища"
+  },
+  "welcome:remote-mode-unavailable": {
+    "en": "Remote mode is not available on this device",
+    "ru": "Удалённый режим недоступен на этом устройстве"
+  },
+  "welcome:remote-pairing": {
+    "en": "Pairing with iPhone host…",
+    "ru": "Сопряжение с iPhone-хостом…"
+  },
+  "welcome:remote-pairing-done": {
+    "en": "Pairing completed. Select the iPhone host to connect.",
+    "ru": "Сопряжение завершено. Выберите iPhone-хост для подключения."
+  },
+  "welcome:remote-removing": {
+    "en": "Removing paired host…",
+    "ru": "Удаление сопряжённого хоста…"
+  },
+  "welcome:remote-removed": {
+    "en": "Paired host removed.",
+    "ru": "Сопряжённый хост удалён."
+  },
+  "welcome:remote-connecting": {
+    "en": "Connecting to remote host…",
+    "ru": "Подключение к удалённому хосту…"
+  },
+  "welcome:remote-connected-wait": {
+    "en": "Transport connected. Waiting for the vault to be opened on your iPhone.",
+    "ru": "Транспорт подключён. Ожидаем открытия хранилища на iPhone."
+  },
+  "welcome:remote-connected-open": {
+    "en": "Transport connected. Open the vault on your iPhone to continue.",
+    "ru": "Транспорт подключён. Откройте хранилище на iPhone, чтобы продолжить."
+  },
+  "welcome:remote-transport-lost": {
+    "en": "Remote connection lost before unlock.",
+    "ru": "Удалённое соединение потеряно до разблокировки."
+  },
+  "welcome:system-title": {
+    "en": "System",
+    "ru": "Система"
+  },
+  "welcome:toggle-privacy": {
+    "en": "Toggle Privacy Blur",
+    "ru": "Переключить скрытие приватных данных"
+  },
+  "welcome:no-path-set": {
+    "en": "No path set",
+    "ru": "Путь не задан"
+  },
+  "welcome:change-location": {
+    "en": "Change Location",
+    "ru": "Изменить расположение"
+  },
+  "welcome:use-default-location": {
+    "en": "Use Default Location",
+    "ru": "Использовать путь по умолчанию"
+  },
+  "welcome:print-emergency-kit": {
+    "en": "Print Emergency Kit",
+    "ru": "Распечатать аварийный комплект"
+  },
+  "welcome:restore-stopping": {
+    "en": "Stopping restore. Waiting for current operation to finish safely.",
+    "ru": "Останавливаем восстановление. Ожидаем безопасного завершения текущей операции."
+  },
+  "welcome:restore-running": {
+    "en": "Restore is in progress. You can cancel it if needed.",
+    "ru": "Восстановление выполняется. При необходимости его можно отменить."
+  },
+  "welcome:restore-phase-starting": {
+    "en": "Preparing restore…",
+    "ru": "Подготовка восстановления…"
+  },
+  "welcome:restore-phase-metadata": {
+    "en": "Reading backup metadata…",
+    "ru": "Чтение метаданных бэкапа…"
+  },
+  "welcome:restore-phase-chunks": {
+    "en": "Restoring data…",
+    "ru": "Восстановление данных…"
+  },
+  "welcome:restore-phase-finishing": {
+    "en": "Finishing restore…",
+    "ru": "Завершение восстановления…"
+  },
+  "welcome:restore-phase-processing": {
+    "en": "Processing restore…",
+    "ru": "Обработка восстановления…"
+  },
+  "welcome:restore-canceling": {
+    "en": "Cancelling Restore...",
+    "ru": "Отмена восстановления..."
+  },
+  "welcome:cancel-restore": {
+    "en": "Cancel Restore",
+    "ru": "Отменить восстановление"
+  },
+  "welcome:device-utilities": {
+    "en": "Device utilities",
+    "ru": "Утилиты устройства"
+  },
+  "welcome:device-utilities-meta": {
+    "en": "Backup, restore, and destructive maintenance live here.",
+    "ru": "Здесь находятся резервное копирование, восстановление и опасные операции."
+  },
+  "welcome:device-utilities-note": {
+    "en": "Secondary actions stay collapsed by default so the primary unlock flow keeps focus.",
+    "ru": "Вторичные действия по умолчанию свернуты, чтобы не отвлекать от основного процесса разблокировки."
+  },
+  "welcome:emergency-kit-title": {
+    "en": "ChromVoid Emergency Kit",
+    "ru": "Аварийный комплект ChromVoid"
+  },
+  "welcome:emergency-kit-intro": {
+    "en": "IMPORTANT: Store this document in a secure location (e.g. safe deposit box). It contains the keys required to access your encrypted data. Without the Master Password, your data cannot be recovered.",
+    "ru": "ВАЖНО: храните этот документ в безопасном месте. Он содержит данные, необходимые для доступа к зашифрованной информации. Без мастер-пароля восстановление невозможно."
+  },
+  "welcome:kit-storage-location": {
+    "en": "Storage Location (Path)",
+    "ru": "Расположение хранилища (путь)"
+  },
+  "welcome:kit-default-location": {
+    "en": "Default Location",
+    "ru": "Расположение по умолчанию"
+  },
+  "welcome:kit-storage-help": {
+    "en": "This is where your encrypted vault files are stored on this device.",
+    "ru": "Здесь на этом устройстве хранятся зашифрованные файлы хранилища."
+  },
+  "welcome:kit-master-password": {
+    "en": "Master Password",
+    "ru": "Мастер-пароль"
+  },
+  "welcome:kit-master-help": {
+    "en": "CRITICAL: Used for Backup, Restore, and Erase operations. If lost, data recovery is impossible.",
+    "ru": "КРИТИЧЕСКИ ВАЖНО: используется для резервного копирования, восстановления и очистки. При утрате восстановление данных невозможно."
+  },
+  "welcome:kit-vault-password": {
+    "en": "Vault Password",
+    "ru": "Пароль хранилища"
+  },
+  "welcome:kit-vault-help": {
+    "en": "Used for daily access to your vault.",
+    "ru": "Используется для ежедневного доступа к хранилищу."
+  },
+  "welcome:kit-generated": {
+    "en": "Generated by ChromVoid on ${date} at ${time}",
+    "ru": "Сгенерировано ChromVoid ${date} в ${time}"
+  },
+  "button:back": {
+    "en": "Back",
+    "ru": "Назад"
+  },
+  "button:remove": {
+    "en": "Remove",
+    "ru": "Удалить"
+  },
+  "status:offline": {
+    "en": "Offline",
+    "ru": "Не в сети"
+  },
+  "status:waking": {
+    "en": "Waking",
+    "ru": "Пробуждение"
+  },
+  "errors:failed-to-copy": {
+    "en": "Failed to copy: ${message}",
+    "ru": "Не удалось скопировать: ${message}"
+  },
+  "welcome:entropy-very-weak": {
+    "en": "Very Weak",
+    "ru": "Очень слабый"
+  },
+  "welcome:entropy-weak": {
+    "en": "Weak",
+    "ru": "Слабый"
+  },
+  "welcome:entropy-fair": {
+    "en": "Fair",
+    "ru": "Средний"
+  },
+  "welcome:entropy-good": {
+    "en": "Good",
+    "ru": "Хороший"
+  },
+  "welcome:entropy-strong": {
+    "en": "Strong",
+    "ru": "Надёжный"
+  },
+  "welcome:peer-iphone-host": {
+    "en": "iPhone Host",
+    "ru": "iPhone-хост"
+  },
+  "welcome:peer-network-peer": {
+    "en": "Network Peer",
+    "ru": "Сетевой узел"
+  },
+  "welcome:wake-connect": {
+    "en": "Wake & Connect",
+    "ru": "Разбудить и подключить"
+  },
+  "welcome:connecting": {
+    "en": "Connecting…",
+    "ru": "Подключение…"
+  },
+  "welcome:refreshing": {
+    "en": "Refreshing…",
+    "ru": "Обновление…"
+  },
+  "welcome:pairing-offer": {
+    "en": "Pairing Offer",
+    "ru": "Предложение для сопряжения"
+  },
+  "welcome:pin": {
+    "en": "PIN",
+    "ru": "PIN"
+  },
+  "welcome:desktop-label": {
+    "en": "Desktop Label",
+    "ru": "Имя компьютера"
+  },
+  "welcome:desktop-label-placeholder": {
+    "en": "ChromVoid Desktop",
+    "ru": "ChromVoid Desktop"
+  },
+  "welcome:create-local-storage-title": {
+    "en": "Create Local Storage",
+    "ru": "Создание локального хранилища"
+  },
+  "welcome:unable-access-vault": {
+    "en": "Unable to access vault",
+    "ru": "Не удалось получить доступ к хранилищу"
+  },
+  "welcome:restore-cancel-request-failed": {
+    "en": "Failed to request restore cancellation",
+    "ru": "Не удалось запросить отмену восстановления"
+  },
+  "welcome:iphone-vault": {
+    "en": "iPhone vault",
+    "ru": "хранилище iPhone"
+  },
+  "welcome:remove-paired-host-title": {
+    "en": "Remove Paired Host",
+    "ru": "Удалить сопряжённый хост"
+  },
+  "welcome:remove-paired-host-message": {
+    "en": "Remove \"${label}\"? You will need to pair this ${target} again before reconnecting.",
+    "ru": "Удалить \"${label}\"? Перед повторным подключением потребуется снова сопрячь этот ${target}."
+  },
+  "welcome:paired-iphone-host": {
+    "en": "iPhone host",
+    "ru": "iPhone-хост"
+  },
+  "welcome:paired-network-peer": {
+    "en": "network peer",
+    "ru": "сетевой узел"
+  },
+  "welcome:remote-transport-not-ready": {
+    "en": "Remote transport did not become ready.",
+    "ru": "Удалённый транспорт не перешёл в готовое состояние."
+  },
+  "welcome:disconnecting": {
+    "en": "Disconnecting…",
+    "ru": "Отключение…"
+  },
+  "remote-storage:toolbar-storage": {
+    "en": "Storage",
+    "ru": "Хранилище"
+  },
+  "remote-storage:toolbar-confirm-export": {
+    "en": "Confirm Export",
+    "ru": "Подтверждение экспорта"
+  },
+  "remote-storage:toolbar-authorization": {
+    "en": "Authorization",
+    "ru": "Авторизация"
+  },
+  "remote-storage:toolbar-export-progress": {
+    "en": "Export in Progress",
+    "ru": "Экспорт выполняется"
+  },
+  "remote-storage:toolbar-export-result": {
+    "en": "Export Result",
+    "ru": "Результат экспорта"
+  },
+  "remote-storage:webdav-url-copied": {
+    "en": "WebDAV URL copied to clipboard",
+    "ru": "WebDAV URL скопирован в буфер обмена"
+  },
+  "remote-storage:select-export-folder": {
+    "en": "Select export folder",
+    "ru": "Выберите папку для экспорта"
+  },
+  "remote-storage:export-cancelled": {
+    "en": "Export cancelled by user.",
+    "ru": "Экспорт отменён пользователем."
+  },
+  "remote-storage:cancel-export-request-failed": {
+    "en": "Failed to request export cancellation",
+    "ru": "Не удалось запросить отмену экспорта"
+  },
+  "remote-storage:path-copied": {
+    "en": "Path copied to clipboard",
+    "ru": "Путь скопирован в буфер обмена"
+  },
+  "remote-storage:phase-starting": {
+    "en": "Preparing…",
+    "ru": "Подготовка…"
+  },
+  "remote-storage:phase-metadata": {
+    "en": "Saving metadata…",
+    "ru": "Сохранение метаданных…"
+  },
+  "remote-storage:phase-chunks": {
+    "en": "Exporting data…",
+    "ru": "Экспорт данных…"
+  },
+  "remote-storage:phase-finishing": {
+    "en": "Finishing…",
+    "ru": "Завершение…"
+  },
+  "remote-storage:phase-processing": {
+    "en": "Processing…",
+    "ru": "Обработка…"
+  },
+  "remote-storage:unknown-error": {
+    "en": "Unknown error",
+    "ru": "Неизвестная ошибка"
+  },
+  "remote-storage:back-to-storage": {
+    "en": "Back to storage",
+    "ru": "Назад к хранилищу"
+  },
+  "remote-storage:page-title": {
+    "en": "Storage and devices",
+    "ru": "Хранилище и устройства"
+  },
+  "remote-storage:page-subtitle": {
+    "en": "Manage mounted volumes and data backups",
+    "ru": "Управление монтированием томов и резервным копированием данных"
+  },
+  "remote-storage:stat-mode": {
+    "en": "Mode",
+    "ru": "Режим"
+  },
+  "remote-storage:mode-local": {
+    "en": "Local",
+    "ru": "Локальный"
+  },
+  "remote-storage:mode-browser": {
+    "en": "Browser",
+    "ru": "Браузер"
+  },
+  "remote-storage:stat-volume": {
+    "en": "Volume",
+    "ru": "Том"
+  },
+  "remote-storage:volume-mounted": {
+    "en": "Mounted",
+    "ru": "Подключён"
+  },
+  "remote-storage:volume-unmounted": {
+    "en": "Unmounted",
+    "ru": "Отключён"
+  },
+  "remote-storage:backup-title": {
+    "en": "Backups",
+    "ru": "Резервное копирование"
+  },
+  "remote-storage:backup-hint": {
+    "en": "Data export",
+    "ru": "Экспорт данных"
+  },
+  "remote-storage:available": {
+    "en": "Available",
+    "ru": "Доступно"
+  },
+  "remote-storage:desktop-only": {
+    "en": "Desktop only",
+    "ru": "Только desktop"
+  },
+  "remote-storage:encrypted-export": {
+    "en": "Encrypted export",
+    "ru": "Зашифрованный экспорт"
+  },
+  "remote-storage:encrypted-export-text": {
+    "en": "Create a full storage copy protected by the master password. Use it for backups or data transfer.",
+    "ru": "Создайте полную копию хранилища, защищённую мастер-паролем. Используйте её для резервного копирования или переноса данных."
+  },
+  "remote-storage:export-to-folder": {
+    "en": "Export to folder",
+    "ru": "Экспорт в папку"
+  },
+  "remote-storage:mounting-title": {
+    "en": "Volume mounting",
+    "ru": "Монтирование тома"
+  },
+  "remote-storage:mounting-hint": {
+    "en": "Access files through Finder/Explorer",
+    "ru": "Доступ к файлам через Finder/Explorer"
+  },
+  "remote-storage:volume-state-mounted": {
+    "en": "Mounted",
+    "ru": "Подключён"
+  },
+  "remote-storage:volume-state-mounting": {
+    "en": "Mounting…",
+    "ru": "Подключение…"
+  },
+  "remote-storage:volume-state-unmounting": {
+    "en": "Unmounting…",
+    "ru": "Отключение…"
+  },
+  "remote-storage:volume-state-driver-missing": {
+    "en": "Driver missing",
+    "ru": "Нет драйвера"
+  },
+  "remote-storage:volume-state-error": {
+    "en": "Error",
+    "ru": "Ошибка"
+  },
+  "remote-storage:volume-state-unmounted": {
+    "en": "Unmounted",
+    "ru": "Отключён"
+  },
+  "remote-storage:volume-unavailable-platform": {
+    "en": "Volume is not available on this platform",
+    "ru": "Том недоступен на этой платформе"
+  },
+  "remote-storage:security-title": {
+    "en": "Security notice",
+    "ru": "Внимание: безопасность"
+  },
+  "remote-storage:security-text": {
+    "en": "A mounted volume is a decrypted view of the data that other applications can see. Use it only in a trusted environment.",
+    "ru": "Примонтированный том — это расшифрованное представление данных, видимое другим приложениям. Используйте только в доверенной среде."
+  },
+  "remote-storage:mount-method": {
+    "en": "Connection method",
+    "ru": "Способ подключения"
+  },
+  "remote-storage:loading": {
+    "en": "Loading…",
+    "ru": "Загрузка…"
+  },
+  "remote-storage:not-installed": {
+    "en": "not installed",
+    "ru": "не установлен"
+  },
+  "remote-storage:driver-required": {
+    "en": "Driver installation required",
+    "ru": "Требуется установка драйвера"
+  },
+  "remote-storage:download-driver": {
+    "en": "Download ${label} →",
+    "ru": "Скачать ${label} →"
+  },
+  "remote-storage:webdav-title": {
+    "en": "WebDAV connection",
+    "ru": "WebDAV подключение"
+  },
+  "remote-storage:webdav-text": {
+    "en": "Use this URL to connect in Finder or Explorer:",
+    "ru": "Используйте этот URL для подключения в Finder или Explorer:"
+  },
+  "remote-storage:webdav-step-macos": {
+    "en": "macOS Finder: press Cmd+K → paste the URL → Connect",
+    "ru": "macOS Finder: нажмите Cmd+K → вставьте URL → Подключить"
+  },
+  "remote-storage:webdav-step-windows": {
+    "en": "Windows Explorer: Add a network location → paste the URL",
+    "ru": "Windows Explorer: «Добавить сетевое расположение» → вставьте URL"
+  },
+  "remote-storage:fuse-title": {
+    "en": "FUSE mount active",
+    "ru": "FUSE подключение активно"
+  },
+  "remote-storage:fuse-text": {
+    "en": "Files are available at:",
+    "ru": "Файлы доступны в:"
+  },
+  "remote-storage:mount-error": {
+    "en": "Mount error",
+    "ru": "Ошибка монтирования"
+  },
+  "remote-storage:action-mount": {
+    "en": "Mount",
+    "ru": "Подключить"
+  },
+  "remote-storage:action-unmount": {
+    "en": "Unmount",
+    "ru": "Отключить"
+  },
+  "remote-storage:action-copy-url": {
+    "en": "Copy URL",
+    "ru": "Копировать URL"
+  },
+  "remote-storage:wizard-title": {
+    "en": "Storage export",
+    "ru": "Экспорт хранилища"
+  },
+  "remote-storage:wizard-step-of": {
+    "en": "Step ${step} of ${total}",
+    "ru": "Шаг ${step} из ${total}"
+  },
+  "remote-storage:wizard-completed": {
+    "en": "Completed",
+    "ru": "Завершено"
+  },
+  "remote-storage:wizard-in-progress": {
+    "en": "In progress",
+    "ru": "В процессе"
+  },
+  "remote-storage:confirm-title": {
+    "en": "Choose where to save",
+    "ru": "Выберите место сохранения"
+  },
+  "remote-storage:confirm-description": {
+    "en": "Specify the folder for storing the storage backup.",
+    "ru": "Укажите папку для сохранения резервной копии хранилища."
+  },
+  "remote-storage:what-exported": {
+    "en": "What will be exported",
+    "ru": "Что будет экспортировано"
+  },
+  "remote-storage:what-exported-text": {
+    "en": "A full encrypted storage copy with all vaults and files. The master password will be required for restore.",
+    "ru": "Полная зашифрованная копия хранилища со всеми vault-ами и файлами. Для восстановления потребуется мастер-пароль."
+  },
+  "remote-storage:change-folder": {
+    "en": "Change folder",
+    "ru": "Изменить папку"
+  },
+  "remote-storage:choose-folder": {
+    "en": "Choose folder",
+    "ru": "Выбрать папку"
+  },
+  "remote-storage:default-folder-info": {
+    "en": "If no folder is selected, the backup will be saved to the app’s default folder.",
+    "ru": "Если папка не выбрана, резервная копия будет сохранена в папку приложения по умолчанию."
+  },
+  "remote-storage:password-title": {
+    "en": "Authorization",
+    "ru": "Авторизация"
+  },
+  "remote-storage:password-description": {
+    "en": "Enter the master password to create the backup.",
+    "ru": "Введите мастер-пароль для создания резервной копии."
+  },
+  "remote-storage:remember-password": {
+    "en": "Remember the password",
+    "ru": "Запомните пароль"
+  },
+  "remote-storage:remember-password-text": {
+    "en": "The same master password will be required to restore data from the backup. Make sure it is stored safely.",
+    "ru": "Этот же мастер-пароль потребуется для восстановления данных из резервной копии. Убедитесь, что он надёжно сохранён."
+  },
+  "remote-storage:start-export": {
+    "en": "Start export",
+    "ru": "Начать экспорт"
+  },
+  "remote-storage:progress-title": {
+    "en": "Export in progress",
+    "ru": "Экспорт выполняется"
+  },
+  "remote-storage:progress-description": {
+    "en": "Please do not close the application until completion.",
+    "ru": "Пожалуйста, не закрывайте приложение до завершения."
+  },
+  "remote-storage:progress-cancel-description": {
+    "en": "Cancellation requested. Wait for current operations to finish.",
+    "ru": "Запрос на отмену отправлен. Дождитесь завершения текущих операций."
+  },
+  "remote-storage:progress-block": {
+    "en": "Block ${current} of ${total}",
+    "ru": "Блок ${current} из ${total}"
+  },
+  "remote-storage:progress-initializing": {
+    "en": "Initializing…",
+    "ru": "Инициализация…"
+  },
+  "remote-storage:backup-running": {
+    "en": "Backup in progress",
+    "ru": "Выполняется резервное копирование"
+  },
+  "remote-storage:backup-running-text": {
+    "en": "Data is encrypted and written to disk. This may take several minutes depending on storage size.",
+    "ru": "Данные шифруются и записываются на диск. Это может занять несколько минут в зависимости от размера хранилища."
+  },
+  "remote-storage:backup-stopping": {
+    "en": "Stopping export",
+    "ru": "Остановка экспорта"
+  },
+  "remote-storage:backup-stopping-text": {
+    "en": "Waiting for the process to stop safely. This may take some time.",
+    "ru": "Ожидаем безопасную остановку процесса. Это может занять некоторое время."
+  },
+  "remote-storage:cancel-export": {
+    "en": "Cancel export",
+    "ru": "Отменить экспорт"
+  },
+  "remote-storage:canceling-export": {
+    "en": "Cancelling…",
+    "ru": "Отмена…"
+  },
+  "remote-storage:result-loading": {
+    "en": "Loading results…",
+    "ru": "Загрузка результатов…"
+  },
+  "remote-storage:result-success": {
+    "en": "Export completed successfully",
+    "ru": "Экспорт завершён успешно"
+  },
+  "remote-storage:result-success-hint": {
+    "en": "The storage backup was created and saved to disk",
+    "ru": "Резервная копия хранилища создана и сохранена на диск"
+  },
+  "remote-storage:files-saved": {
+    "en": "Files saved",
+    "ru": "Файлы сохранены"
+  },
+  "remote-storage:copy-path": {
+    "en": "Copy path",
+    "ru": "Скопировать путь"
+  },
+  "remote-storage:result-cancelled": {
+    "en": "Export cancelled",
+    "ru": "Экспорт отменён"
+  },
+  "remote-storage:result-error": {
+    "en": "Export error",
+    "ru": "Ошибка экспорта"
+  },
+  "remote-storage:result-cancelled-hint": {
+    "en": "The operation was stopped at the user’s request.",
+    "ru": "Операция была остановлена по запросу пользователя."
+  },
+  "remote-storage:result-error-hint": {
+    "en": "Failed to create backup",
+    "ru": "Не удалось создать резервную копию"
+  },
+  "remote-storage:operation-status": {
+    "en": "Operation status",
+    "ru": "Статус операции"
+  },
+  "remote-storage:error-details": {
+    "en": "Error details",
+    "ru": "Подробности ошибки"
+  },
+  "remote-storage:error-unknown-retry": {
+    "en": "Unknown error. Try again.",
+    "ru": "Неизвестная ошибка. Попробуйте ещё раз."
+  },
+  "remote-storage:run-again": {
+    "en": "Run again",
+    "ru": "Запустить снова"
+  },
+  "errors:load-session-settings": {
+    "en": "Failed to load session settings",
+    "ru": "Не удалось загрузить настройки сессии"
+  },
+  "errors:save-session-settings": {
+    "en": "Failed to save session settings",
+    "ru": "Не удалось сохранить настройки сессии"
+  },
+  "guidance:actions:dismiss": {
+    "en": "Dismiss",
+    "ru": "Скрыть"
+  },
+  "guidance:actions:later": {
+    "en": "Later",
+    "ru": "Позже"
+  },
+  "guidance:actions:got-it": {
+    "en": "Got it",
+    "ru": "Понятно"
+  },
+  "guidance:actions:open-help": {
+    "en": "Open help",
+    "ru": "Открыть справку"
+  },
+  "guidance:welcome.local-vs-remote:title": {
+    "en": "Choose where the vault lives",
+    "ru": "Выберите, где находится хранилище"
+  },
+  "guidance:welcome.local-vs-remote:body": {
+    "en": "Use a local vault for this device or connect to a remote vault when another device already owns the storage.",
+    "ru": "Используйте локальное хранилище на этом устройстве или подключитесь к удалённому, если данные уже находятся на другом устройстве."
+  },
+  "guidance:welcome.master-password:title": {
+    "en": "Create a master password you can recover",
+    "ru": "Создайте мастер-пароль, который сможете восстановить"
+  },
+  "guidance:welcome.master-password:body": {
+    "en": "This password protects the vault. Store the recovery materials before adding important data.",
+    "ru": "Этот пароль защищает хранилище. Сохраните материалы восстановления до добавления важных данных."
+  },
+  "guidance:welcome.backup-restore:title": {
+    "en": "Keep a recovery path",
+    "ru": "Сохраните путь восстановления"
+  },
+  "guidance:welcome.backup-restore:body": {
+    "en": "Backups and restore tools let you move the vault safely before replacing or erasing a device.",
+    "ru": "Резервные копии и восстановление помогают безопасно перенести хранилище перед заменой или очисткой устройства."
+  },
+  "guidance:welcome.erase-device-warning:title": {
+    "en": "Erase only after backup",
+    "ru": "Стирайте устройство только после резервной копии"
+  },
+  "guidance:welcome.erase-device-warning:body": {
+    "en": "Erasing removes local vault data from this device. Make a backup or confirm another device has the current vault first.",
+    "ru": "Стирание удаляет локальные данные хранилища с этого устройства. Сначала создайте резервную копию или убедитесь, что актуальное хранилище есть на другом устройстве."
+  },
+  "guidance:files.empty-state:title": {
+    "en": "Add your first encrypted file",
+    "ru": "Добавьте первый зашифрованный файл"
+  },
+  "guidance:files.empty-state:body": {
+    "en": "Create a folder or upload files here. They stay inside the vault and are available after unlock.",
+    "ru": "Создайте папку или загрузите файлы здесь. Они останутся внутри хранилища и будут доступны после разблокировки."
+  },
+  "guidance:notes.empty-state:title": {
+    "en": "Start a private note",
+    "ru": "Создайте приватную заметку"
+  },
+  "guidance:notes.empty-state:body": {
+    "en": "Notes are saved in the encrypted vault, so you can keep recovery codes and reminders near related files.",
+    "ru": "Заметки сохраняются в зашифрованном хранилище, поэтому коды восстановления и напоминания можно держать рядом с файлами."
+  },
+  "guidance:passwords.empty-state:title": {
+    "en": "Save the first password",
+    "ru": "Сохраните первый пароль"
+  },
+  "guidance:passwords.empty-state:body": {
+    "en": "Create an entry to keep credentials encrypted with the vault instead of storing them in the browser.",
+    "ru": "Создайте запись, чтобы хранить учётные данные в зашифрованном хранилище, а не в браузере."
+  },
+  "guidance:passwords.import-migration:title": {
+    "en": "Import without mixing providers",
+    "ru": "Импортируйте без смешения провайдеров"
+  },
+  "guidance:passwords.import-migration:body": {
+    "en": "Preview imported items first, resolve conflicts, and keep the browser or CSV provider unchanged until the vault copy looks right.",
+    "ru": "Сначала просмотрите импортированные записи, устраните конфликты и не меняйте браузер или CSV-провайдер, пока копия в хранилище не проверена."
+  },
+  "guidance:passwords.import-migration:help-action": {
+    "en": "Import help",
+    "ru": "Справка по импорту"
+  },
+  "guidance:passkeys.empty-state:title": {
+    "en": "Manage device passkeys",
+    "ru": "Управляйте passkey устройства"
+  },
+  "guidance:passkeys.empty-state:body": {
+    "en": "When the credential provider is enabled, ChromVoid can help manage passkeys backed by the vault.",
+    "ru": "Когда провайдер учётных данных включён, ChromVoid помогает управлять passkey, связанными с хранилищем."
+  },
+  "guidance:remote.setup-usb:title": {
+    "en": "Pair over USB",
+    "ru": "Подключите по USB"
+  },
+  "guidance:remote.setup-usb:body": {
+    "en": "Use USB pairing when this device can talk directly to the remote host.",
+    "ru": "Используйте USB-сопряжение, если это устройство может напрямую подключиться к удалённому хосту."
+  },
+  "guidance:remote.setup-network:title": {
+    "en": "Pair over the network",
+    "ru": "Подключите по сети"
+  },
+  "guidance:remote.setup-network:body": {
+    "en": "Network pairing lets this dashboard unlock or manage a vault hosted on another trusted device.",
+    "ru": "Сетевое сопряжение позволяет этой панели разблокировать или управлять хранилищем на другом доверенном устройстве."
+  },
+  "guidance:gateway.pair-extension:title": {
+    "en": "Pair the browser extension",
+    "ru": "Подключите расширение браузера"
+  },
+  "guidance:gateway.pair-extension:body": {
+    "en": "Start pairing here, then approve the extension so it can request vault actions through the desktop gateway.",
+    "ru": "Начните сопряжение здесь, затем подтвердите расширение, чтобы оно могло запрашивать действия хранилища через desktop gateway."
+  },
+  "guidance:pro.remote.blocked:title": {
+    "en": "Remote access is not available yet",
+    "ru": "Удалённый доступ пока недоступен"
+  },
+  "guidance:pro.remote.blocked:body": {
+    "en": "This state can mean Pro is locked, entitlement data is unavailable, rollout is disabled, or the platform does not support the feature.",
+    "ru": "Это может означать, что Pro заблокирован, данные доступа недоступны, rollout отключён или платформа не поддерживает функцию."
+  },
+  "guidance:pro.gateway.blocked:title": {
+    "en": "Browser extension gateway is blocked",
+    "ru": "Gateway расширения браузера заблокирован"
+  },
+  "guidance:pro.gateway.blocked:body": {
+    "en": "Check whether the platform supports the gateway, the rollout is enabled, and Pro entitlement is available.",
+    "ru": "Проверьте поддержку gateway на платформе, включён ли rollout и доступен ли Pro entitlement."
+  },
+  "guidance:pro.remote-storage.blocked:title": {
+    "en": "Mounted vault access is blocked",
+    "ru": "Доступ к смонтированному хранилищу заблокирован"
+  },
+  "guidance:pro.remote-storage.blocked:body": {
+    "en": "Mounted vault actions require platform support and an enabled entitlement state before files are exposed to the OS.",
+    "ru": "Действия со смонтированным хранилищем требуют поддержки платформы и активного entitlement перед передачей файлов ОС."
+  },
+  "guidance:pro.blocked.unsupported:body": {
+    "en": "This platform does not support the feature in the current runtime.",
+    "ru": "Эта платформа не поддерживает функцию в текущем runtime."
+  },
+  "guidance:pro.blocked.disabled-by-rollout:body": {
+    "en": "The feature is temporarily disabled by rollout policy for this build or account.",
+    "ru": "Функция временно отключена rollout-политикой для этой сборки или аккаунта."
+  },
+  "guidance:pro.blocked.entitlement-unavailable:body": {
+    "en": "ChromVoid could not read the active Core license state. Reconnect or refresh license data before retrying.",
+    "ru": "ChromVoid не смог прочитать статус лицензии активного Core. Переподключитесь или обновите данные лицензии перед повторной попыткой."
+  },
+  "guidance:pro.blocked.locked-pro:body": {
+    "en": "Activate a Pro license in Settings to unlock this feature.",
+    "ru": "Активируйте Pro-лицензию в настройках, чтобы разблокировать эту функцию."
+  },
+  "guidance:remote-storage.mount-warning:title": {
+    "en": "Mount only while you need OS access",
+    "ru": "Монтируйте только на время доступа из ОС"
+  },
+  "guidance:remote-storage.mount-warning:body": {
+    "en": "A mounted vault is decrypted for the operating system and apps. Lock it again when external access is no longer needed.",
+    "ru": "Смонтированное хранилище расшифровано для операционной системы и приложений. Заблокируйте его снова, когда внешний доступ больше не нужен."
+  },
+  "guidance:settings.ssh-agent:title": {
+    "en": "Use vault keys with SSH",
+    "ru": "Используйте ключи хранилища для SSH"
+  },
+  "guidance:settings.ssh-agent:body": {
+    "en": "Enable the SSH agent when desktop apps should request keys without exporting private material.",
+    "ru": "Включите SSH agent, если desktop-приложения должны запрашивать ключи без экспорта приватных данных."
+  },
+  "guidance:settings.mobile-autofill:title": {
+    "en": "Enable mobile autofill",
+    "ru": "Включите автозаполнение на мобильном"
+  },
+  "guidance:settings.mobile-autofill:body": {
+    "en": "Turn on the credential provider so Android or iOS can offer vault credentials in apps and browsers.",
+    "ru": "Включите провайдер учётных данных, чтобы Android или iOS могли предлагать данные хранилища в приложениях и браузерах."
+  },
+  "guidance:keyboard.shortcuts.files:title": {
+    "en": "Use keyboard shortcuts in files",
+    "ru": "Используйте клавиши в файлах"
+  },
+  "guidance:keyboard.shortcuts.files:body": {
+    "en": "Open the command palette for file actions, navigation, upload, and filtering without leaving the keyboard.",
+    "ru": "Откройте командную палитру для действий с файлами, навигации, загрузки и фильтрации без мыши."
+  },
+  "guidance:keyboard.shortcuts.passwords:title": {
+    "en": "Use keyboard shortcuts in passwords",
+    "ru": "Используйте клавиши в паролях"
+  },
+  "guidance:keyboard.shortcuts.passwords:body": {
+    "en": "The command palette helps create entries, switch groups, and run password actions from the keyboard.",
+    "ru": "Командная палитра помогает создавать записи, переключать группы и выполнять действия с паролями с клавиатуры."
+  },
+  "guidance:keyboard.shortcuts.notes:title": {
+    "en": "Use keyboard shortcuts in notes",
+    "ru": "Используйте клавиши в заметках"
+  },
+  "guidance:keyboard.shortcuts.notes:body": {
+    "en": "Use the command palette to create notes and move through note actions faster.",
+    "ru": "Используйте командную палитру, чтобы быстрее создавать заметки и выполнять действия с ними."
   }
 }

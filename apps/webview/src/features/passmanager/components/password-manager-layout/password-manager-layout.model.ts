@@ -1,25 +1,31 @@
-import {computed, state} from '@statx/core'
+import {atom, computed} from '@reatom/core'
 
-import {
-  Entry,
-  Group,
-  ManagerRoot,
-  filterValue,
-  i18n,
-  type QuickFilter,
-  quickFilters,
-  sortStorage,
-} from '@project/passmanager'
+import {Entry, Group, ManagerRoot} from '@project/passmanager/core'
+import {i18n} from '@project/passmanager/i18n'
+import {filterValue, quickFilters} from '@project/passmanager/select'
 import {defaultLogger} from 'root/core/logger'
+import {keyboardShortcutsModel} from 'root/shared/keyboard'
 import {openCommandPalette} from 'root/shared/services/command-palette'
+import {prefersReducedMotion} from 'root/utils/view-transitions'
+import {pmEntryEditorModel} from '../../models/pm-entry-editor.model'
+import {pmMotionModel, type PassmanagerMotionIntent} from '../../models/pm-motion.model'
+import {
+  getPassmanagerRoot,
+  getPassmanagerShowElement,
+  isPassmanagerLoading,
+  isPassmanagerReadOnly,
+  type PMRootShowElement,
+} from '../../models/pm-root.adapter'
 import {pmModel} from '../../password-manager.model'
+import type {PMDesktopToolbarActionSpec} from '../desktop-toolbar'
+import {PMEntryModel} from '../card/entry/entry.model'
+import {PMGroupModel} from '../group/group/group.model'
 import {groupBy, sortDirection, sortField} from '../list/sort-controls'
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'pm-sidebar-width'
 const MIN_SIDEBAR_WIDTH = 200
 const MAX_SIDEBAR_WIDTH = 500
 const DEFAULT_SIDEBAR_WIDTH = 300
-const ALLOWED_QUICK_FILTERS: QuickFilter[] = ['recent', 'otp', 'files', 'nopass', 'favorites']
 const INTERACTIVE_TARGET_SELECTOR = [
   'cv-button',
   'cv-menu-button',
@@ -56,14 +62,7 @@ function describeShowElement(showElement: PMShowElement): string {
   return String(showElement)
 }
 
-export type PMShowElement =
-  | ManagerRoot
-  | Group
-  | Entry
-  | 'createEntry'
-  | 'createGroup'
-  | 'importDialog'
-  | undefined
+export type PMShowElement = PMRootShowElement
 
 export type PMGlobalShortcutAction =
   | 'none'
@@ -74,40 +73,64 @@ export type PMGlobalShortcutAction =
   | 'open-first-search-result'
   | 'copy-password'
 
-export type PMMobileToolbarContext = {
-  title: string
-  canGoBack: boolean
-  backDisabled: boolean
-  showCommand: boolean
-}
-
-export type PMMobileCommandKind = 'passwords-list' | 'passwords-entry' | 'none'
-
-export type PMMobileCommandContext = {
-  kind: PMMobileCommandKind
+export type PMDesktopToolbarContext = {
   readOnly: boolean
-  hasActiveFilters: boolean
-  query: string
-  quickFilters: string[]
-  sortField: ReturnType<typeof sortField>
-  sortDirection: ReturnType<typeof sortDirection>
-  groupBy: ReturnType<typeof groupBy>
+  canGoBack: boolean
+  canCreateGroup: boolean
+  canCreateEntry: boolean
+  canOpenOtpView: boolean
+  canEdit: boolean
+  canDelete: boolean
+  canMove: boolean
+  actionContext: 'entry' | 'group' | 'none'
 }
 
-type ExecuteMobileCommandInput = {
-  isGroupEditActive: boolean
-  onEntryEdit: () => void
-  onEntryMove: () => void
-  onEntryDelete: () => void
-  onGroupEdit: () => void
-  onGroupDelete: () => void
+export type PMDesktopToolbarActionId =
+  | 'pm-back'
+  | 'pm-import'
+  | 'pm-export'
+  | 'pm-clean'
+  | 'pm-otp-view'
+  | 'pm-create-group'
+  | 'pm-create-entry'
+  | 'pm-edit'
+  | 'pm-delete'
+  | 'pm-move'
+
+export type PMDesktopToolbarSection = {
+  label: string
+  state?: 'active' | 'inactive'
+  actions: readonly PMDesktopToolbarActionSpec<PMDesktopToolbarActionId>[]
+}
+
+export type PasswordManagerMotionRenderState = {
+  kind: PassmanagerMotionIntent['kind']
+  direction: PassmanagerMotionIntent['direction']
+  target: string | null
+  reducedMotion: boolean
+}
+
+function describeDesktopToolbarContext(context: PMDesktopToolbarContext) {
+  return {
+    readOnly: context.readOnly,
+    canGoBack: context.canGoBack,
+    canCreateGroup: context.canCreateGroup,
+    canCreateEntry: context.canCreateEntry,
+    canOpenOtpView: context.canOpenOtpView,
+    canEdit: context.canEdit,
+    canDelete: context.canDelete,
+    canMove: context.canMove,
+    actionContext: context.actionContext,
+  }
 }
 
 export class PasswordManagerLayoutModel {
   private readonly logger = defaultLogger
+  private readonly entryActionsModel = new PMEntryModel()
+  private readonly groupActionsModel = new PMGroupModel()
 
-  readonly sidebarWidth = state(DEFAULT_SIDEBAR_WIDTH)
-  readonly isSidebarDragging = state(false)
+  readonly sidebarWidth = atom(DEFAULT_SIDEBAR_WIDTH)
+  readonly isSidebarDragging = atom(false)
   readonly sidebarWidthCss = computed(() => `${this.sidebarWidth()}px`)
   readonly hasActiveFilters = computed(
     () =>
@@ -122,23 +145,52 @@ export class PasswordManagerLayoutModel {
   private sidebarResizeStartWidth = DEFAULT_SIDEBAR_WIDTH
 
   isLoading(): boolean {
-    return window.passmanager?.isLoading?.() ?? false
+    return isPassmanagerLoading()
   }
 
   isReadOnly(): boolean {
-    return window.passmanager?.isReadOnly?.() ?? false
+    return isPassmanagerReadOnly()
   }
 
   isEditingEntry(): boolean {
-    return window.passmanager?.isEditMode?.() ?? false
+    const showElement = this.getCurrentShowElement()
+    return showElement instanceof Entry ? pmEntryEditorModel.isActiveForEntry(showElement.id) : false
+  }
+
+  handleTransientEntryBack(): boolean {
+    const showElement = this.getCurrentShowElement()
+    return showElement instanceof Entry ? pmEntryEditorModel.closeSurface(showElement.id) : false
   }
 
   shouldUseBrowserBackOnDesktop(): boolean {
-    return Boolean(window.passmanager?.isShowRoot)
+    return Boolean(getPassmanagerRoot()?.isShowRoot)
   }
 
   getCurrentShowElement(): PMShowElement {
-    return window.passmanager?.showElement?.() as PMShowElement
+    return getPassmanagerShowElement()
+  }
+
+  getMotionRenderState(): PasswordManagerMotionRenderState {
+    const intent = pmMotionModel.intent()
+    return {
+      kind: intent.kind,
+      direction: intent.direction,
+      target: intent.target,
+      reducedMotion: prefersReducedMotion(),
+    }
+  }
+
+  getGroupViewKey(): string {
+    const showElement = this.getCurrentShowElement()
+    if (showElement instanceof ManagerRoot) {
+      return `pm-group-view:root:${showElement.id}`
+    }
+
+    if (showElement instanceof Group) {
+      return `pm-group-view:group:${showElement.id}`
+    }
+
+    return 'pm-group-view:none'
   }
 
   createEntry(): void {
@@ -161,6 +213,174 @@ export class PasswordManagerLayoutModel {
     void pmModel.onImport()
   }
 
+  openOtpView(): void {
+    pmModel.openOtpView()
+  }
+
+  isDesktopToolbarAction(value: string | undefined): value is PMDesktopToolbarActionId {
+    return (
+      value === 'pm-back' ||
+      value === 'pm-import' ||
+      value === 'pm-export' ||
+      value === 'pm-clean' ||
+      value === 'pm-otp-view' ||
+      value === 'pm-create-group' ||
+      value === 'pm-create-entry' ||
+      value === 'pm-edit' ||
+      value === 'pm-delete' ||
+      value === 'pm-move'
+    )
+  }
+
+  executeDesktopToolbarAction(actionId: PMDesktopToolbarActionId): void {
+    this.logger.debug('[PassManager][DesktopToolbar] dispatch', {
+      actionId,
+      context: this.getDesktopToolbarContext(),
+      showElement: describeShowElement(this.getCurrentShowElement()),
+    })
+
+    switch (actionId) {
+      case 'pm-back':
+        this.goBackFromCurrent()
+        return
+      case 'pm-import':
+        this.importEntries()
+        return
+      case 'pm-export':
+        this.exportEntries()
+        return
+      case 'pm-clean':
+        this.fullClean()
+        return
+      case 'pm-otp-view':
+        this.openOtpView()
+        return
+      case 'pm-create-group':
+        this.createGroup()
+        return
+      case 'pm-create-entry':
+        this.createEntry()
+        return
+      case 'pm-edit':
+        this.editCurrentSelection()
+        return
+      case 'pm-delete':
+        this.deleteCurrentSelection()
+        return
+      case 'pm-move':
+        void this.moveCurrentSelection()
+        return
+    }
+  }
+
+  editCurrentSelection(): void {
+    const readOnly = this.isReadOnly()
+    const showElement = this.getCurrentShowElement()
+    const isEditingEntry = this.isEditingEntry()
+    this.logger.debug('[PassManager][DesktopToolbar] edit begin', {
+      readOnly,
+      showElement: describeShowElement(showElement),
+      isEditingEntry,
+    })
+    if (readOnly) {
+      this.logger.debug('[PassManager][DesktopToolbar] edit abort: readOnly')
+      return
+    }
+
+    if (showElement instanceof Entry && !isEditingEntry) {
+      this.entryActionsModel.startEntryEdit()
+      this.logger.debug('[PassManager][DesktopToolbar] edit entry dispatched', {
+        showElement: describeShowElement(showElement),
+      })
+      return
+    }
+
+    if (showElement instanceof Group) {
+      this.groupActionsModel.enterEditMode()
+      this.logger.debug('[PassManager][DesktopToolbar] edit group dispatched', {
+        showElement: describeShowElement(showElement),
+      })
+      return
+    }
+
+    this.logger.debug('[PassManager][DesktopToolbar] edit abort: unsupported context', {
+      showElement: describeShowElement(showElement),
+      isEditingEntry,
+    })
+  }
+
+  async moveCurrentSelection(): Promise<void> {
+    const readOnly = this.isReadOnly()
+    const showElement = this.getCurrentShowElement()
+    const isEditingEntry = this.isEditingEntry()
+    this.logger.debug('[PassManager][DesktopToolbar] move begin', {
+      readOnly,
+      showElement: describeShowElement(showElement),
+      isEditingEntry,
+    })
+    if (readOnly) {
+      this.logger.debug('[PassManager][DesktopToolbar] move abort: readOnly')
+      return
+    }
+
+    if (showElement instanceof Entry && !isEditingEntry) {
+      await this.entryActionsModel.moveEntryCard(showElement)
+      this.logger.debug('[PassManager][DesktopToolbar] move entry dispatched', {
+        showElement: describeShowElement(showElement),
+      })
+      return
+    }
+
+    if (showElement instanceof Group) {
+      await this.groupActionsModel.moveGroup(showElement)
+      this.logger.debug('[PassManager][DesktopToolbar] move group dispatched', {
+        showElement: describeShowElement(showElement),
+      })
+      return
+    }
+
+    this.logger.debug('[PassManager][DesktopToolbar] move abort: unsupported context', {
+      showElement: describeShowElement(showElement),
+      isEditingEntry,
+    })
+  }
+
+  deleteCurrentSelection(): void {
+    const readOnly = this.isReadOnly()
+    const showElement = this.getCurrentShowElement()
+    const isEditingEntry = this.isEditingEntry()
+    this.logger.debug('[PassManager][DesktopToolbar] delete begin', {
+      readOnly,
+      showElement: describeShowElement(showElement),
+      isEditingEntry,
+    })
+    if (readOnly) {
+      this.logger.debug('[PassManager][DesktopToolbar] delete abort: readOnly')
+      return
+    }
+
+    if (showElement instanceof Entry && !isEditingEntry) {
+      this.entryActionsModel.deleteEntryCard(showElement)
+      this.logger.debug('[PassManager][DesktopToolbar] delete entry dispatched', {
+        showElement: describeShowElement(showElement),
+      })
+      return
+    }
+
+    if (showElement instanceof Group) {
+      this.groupActionsModel.deleteGroup(showElement)
+      this.logger.debug('[PassManager][DesktopToolbar] delete group dispatched', {
+        showElement: describeShowElement(showElement),
+      })
+      return
+    }
+
+    this.logger.debug('[PassManager][DesktopToolbar] delete abort: unsupported context', {
+      showElement: describeShowElement(showElement),
+      isEditingEntry,
+    })
+  }
+
   handleImportComplete(event: Event): void {
     void pmModel.handleImportComplete(event)
   }
@@ -181,10 +401,6 @@ export class PasswordManagerLayoutModel {
     openCommandPalette({mode: 'search', source: 'keyboard'})
   }
 
-  openFiltersPalette(): void {
-    openCommandPalette({mode: 'filters', source: 'fab'})
-  }
-
   isShortcutBlocked(event: KeyboardEvent): boolean {
     const composedPath = event.composedPath()
     const deepTarget = composedPath[0] as EventTarget | null
@@ -198,11 +414,11 @@ export class PasswordManagerLayoutModel {
   }
 
   resolveGlobalShortcut(event: KeyboardEvent, shortcutBlocked: boolean): PMGlobalShortcutAction {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n' && !shortcutBlocked) {
+    if (!shortcutBlocked && keyboardShortcutsModel.matches('passmanager.createEntry', event)) {
       return 'create-entry'
     }
 
-    if (event.key === '/' && !shortcutBlocked) {
+    if (!shortcutBlocked && keyboardShortcutsModel.matches('passmanager.focusSearch', event)) {
       return 'focus-search'
     }
 
@@ -221,7 +437,7 @@ export class PasswordManagerLayoutModel {
       return 'open-first-search-result'
     }
 
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c' && !shortcutBlocked) {
+    if (!shortcutBlocked && keyboardShortcutsModel.matches('passmanager.copyPassword', event)) {
       return 'copy-password'
     }
 
@@ -260,55 +476,109 @@ export class PasswordManagerLayoutModel {
     this.isSidebarDragging.set(false)
   }
 
-  getMobileToolbarContext(isGroupEditActive: boolean): PMMobileToolbarContext {
+  getDesktopToolbarContext(): PMDesktopToolbarContext {
     const showElement = this.getCurrentShowElement()
-    if (!showElement) {
-      return {
-        title: i18n('root:title'),
-        canGoBack: false,
-        backDisabled: false,
-        showCommand: false,
-      }
+    const readOnly = this.isReadOnly()
+    const isEntryContext = showElement instanceof Entry && !this.isEditingEntry()
+    const isGroupContext = showElement instanceof Group
+
+    const context: PMDesktopToolbarContext = {
+      readOnly,
+      canGoBack: !(showElement instanceof ManagerRoot) || this.isEditingEntry(),
+      canCreateGroup: !readOnly,
+      canCreateEntry: !readOnly,
+      canOpenOtpView: Boolean(getPassmanagerRoot()) && !this.isLoading(),
+      canEdit: !readOnly && (isEntryContext || isGroupContext),
+      canDelete: !readOnly && (isEntryContext || isGroupContext),
+      canMove: !readOnly && (isEntryContext || isGroupContext),
+      actionContext: isEntryContext ? 'entry' : isGroupContext ? 'group' : 'none',
     }
 
-    const isEntryEdit = this.isEditingEntry()
-    const isListLike =
-      (showElement instanceof ManagerRoot || showElement instanceof Group) && !isGroupEditActive
-    const isEntryView = showElement instanceof Entry
-
-    return {
-      title: this.getContextTitle(showElement, isGroupEditActive),
-      canGoBack: !(showElement instanceof ManagerRoot) || isEntryEdit || isGroupEditActive,
-      backDisabled: false,
-      showCommand: !isEntryEdit && !isGroupEditActive && (isListLike || isEntryView),
-    }
-  }
-
-  handleMobileToolbarBack(input: {isGroupEditActive: boolean; onExitGroupEdit: () => void}): boolean {
-    const showElement = this.getCurrentShowElement()
-    this.logger.debug('[PassManager][MobileBack] provider begin', {
+    this.logger.debug('[PassManager][DesktopToolbar] context', {
       showElement: describeShowElement(showElement),
       isEditingEntry: this.isEditingEntry(),
-      isGroupEditActive: input.isGroupEditActive,
+      ...describeDesktopToolbarContext(context),
     })
 
-    if (!showElement) {
-      this.logger.debug('[PassManager][MobileBack] provider abort: no showElement')
-      return false
-    }
+    return context
+  }
 
-    if (input.isGroupEditActive) {
-      input.onExitGroupEdit()
-      this.logger.debug('[PassManager][MobileBack] provider exit group edit', {
-        showElement: describeShowElement(showElement),
-      })
-      return true
-    }
+  getDesktopToolbarSections(): readonly PMDesktopToolbarSection[] {
+    const context = this.getDesktopToolbarContext()
+    const selectionLabel =
+      context.actionContext === 'entry' ? 'Entry' : context.actionContext === 'group' ? 'Group' : 'Selection'
+    const selectionActions: PMDesktopToolbarSection['actions'] = [
+      {
+        id: 'pm-edit',
+        icon: 'pencil-square',
+        label: i18n('button:edit'),
+        disabled: !context.canEdit,
+      },
+      {
+        id: 'pm-move',
+        icon: 'folder-symlink',
+        label: i18n('button:move'),
+        disabled: !context.canMove,
+      },
+      {
+        id: 'pm-delete',
+        icon: 'trash',
+        label: i18n('button:remove'),
+        disabled: !context.canDelete,
+        danger: true,
+      },
+    ]
 
-    this.logger.debug('[PassManager][MobileBack] provider fallthrough to navigation history', {
-      showElement: describeShowElement(showElement),
-    })
-    return false
+    return [
+      {
+        label: 'Nav',
+        state: context.canGoBack ? 'active' : 'inactive',
+        actions: [
+          {
+            id: 'pm-back',
+            icon: 'arrow-left',
+            label: i18n('button:back'),
+            disabled: !context.canGoBack,
+          },
+        ],
+      },
+      {
+        label: 'Vault',
+        actions: [
+          {id: 'pm-import', icon: 'cloud-upload', label: i18n('import')},
+          {id: 'pm-export', icon: 'cloud-download', label: i18n('export')},
+          {
+            id: 'pm-otp-view',
+            icon: 'shield-check',
+            label: i18n('otp:quick_view:title' as never),
+            disabled: !context.canOpenOtpView,
+          },
+          {id: 'pm-clean', icon: 'trash', label: i18n('clean'), danger: true},
+        ],
+      },
+      {
+        label: 'Create',
+        actions: [
+          {
+            id: 'pm-create-group',
+            icon: 'folder-plus',
+            label: i18n('group:create:title'),
+            disabled: !context.canCreateGroup,
+          },
+          {
+            id: 'pm-create-entry',
+            icon: 'plus-lg',
+            label: i18n('enrty:create'),
+            disabled: !context.canCreateEntry,
+          },
+        ],
+      },
+      {
+        label: selectionLabel,
+        state: context.actionContext !== 'none' ? 'active' : 'inactive',
+        actions: selectionActions,
+      },
+    ]
   }
 
   shouldShowListFabActions(isGroupEditActive: boolean): boolean {
@@ -325,119 +595,8 @@ export class PasswordManagerLayoutModel {
     return !this.isEditingEntry() && !isGroupEditActive && showElement instanceof Entry
   }
 
-  getMobileCommandContext(isGroupEditActive: boolean): PMMobileCommandContext {
-    return {
-      kind: this.getMobileCommandKind(isGroupEditActive),
-      readOnly: this.isReadOnly(),
-      hasActiveFilters: this.hasActiveFilters(),
-      query: filterValue().trim(),
-      quickFilters: [...quickFilters()],
-      sortField: sortField(),
-      sortDirection: sortDirection(),
-      groupBy: groupBy(),
-    }
-  }
-
-  executeMobileCommand(
-    actionId: string,
-    payload: {query?: string} | undefined,
-    input: ExecuteMobileCommandInput,
-  ): boolean {
-    const commandContext = this.getMobileCommandContext(input.isGroupEditActive)
-    const isListContext = commandContext.kind === 'passwords-list'
-    const isEntryContext = commandContext.kind === 'passwords-entry'
-    const isReadOnly = commandContext.readOnly
-
-    switch (actionId) {
-      case 'pm-create-entry':
-        if (!isListContext || isReadOnly) return false
-        this.createEntry()
-        return true
-      case 'pm-create-group':
-        if (!isListContext || isReadOnly) return false
-        this.createGroup()
-        return true
-      case 'pm-filters':
-        if (!isListContext) return false
-        this.openFiltersPalette()
-        return true
-      case 'pm-export':
-        this.exportEntries()
-        return true
-      case 'pm-import':
-        this.importEntries()
-        return true
-      case 'pm-clean':
-        this.fullClean()
-        return true
-      case 'pm-search-set-query':
-        if (!isListContext) return false
-        filterValue.set((payload?.query ?? '').trim())
-        return true
-      case 'pm-search-clear-query':
-        if (!isListContext) return false
-        filterValue.set('')
-        return true
-      case 'pm-toggle-quick-filter': {
-        if (!isListContext) return false
-        const filter = payload?.query as QuickFilter | undefined
-        if (!filter || !ALLOWED_QUICK_FILTERS.includes(filter)) {
-          return false
-        }
-
-        this.toggleQuickFilter(filter)
-        return true
-      }
-      case 'pm-sort-direction-toggle':
-        if (!isListContext) return false
-        sortDirection.set(sortDirection() === 'asc' ? 'desc' : 'asc')
-        this.saveSortSettings()
-        return true
-      case 'pm-sort-field-name':
-      case 'pm-sort-field-username':
-      case 'pm-sort-field-modified':
-      case 'pm-sort-field-created':
-      case 'pm-sort-field-website': {
-        if (!isListContext) return false
-        const next = actionId.replace('pm-sort-field-', '') as ReturnType<typeof sortField>
-        sortField.set(next)
-        this.saveSortSettings()
-        return true
-      }
-      case 'pm-group-by-none':
-      case 'pm-group-by-folder':
-      case 'pm-group-by-website':
-      case 'pm-group-by-modified':
-      case 'pm-group-by-security': {
-        if (!isListContext) return false
-        const next = actionId.replace('pm-group-by-', '') as ReturnType<typeof groupBy>
-        groupBy.set(next)
-        this.saveSortSettings()
-        return true
-      }
-      case 'pm-entry-edit':
-        if (!isEntryContext || isReadOnly) return false
-        input.onEntryEdit()
-        return true
-      case 'pm-entry-move':
-        if (!isEntryContext || isReadOnly) return false
-        input.onEntryMove()
-        return true
-      case 'pm-entry-delete':
-        if (!isEntryContext || isReadOnly) return false
-        input.onEntryDelete()
-        return true
-      case 'pm-edit-group':
-        if (!isListContext || isReadOnly || !this.isInNonRootGroup()) return false
-        input.onGroupEdit()
-        return true
-      case 'pm-delete-group':
-        if (!isListContext || isReadOnly || !this.isInNonRootGroup()) return false
-        input.onGroupDelete()
-        return true
-      default:
-        return false
-    }
+  isGroupEditActive(): boolean {
+    return this.groupActionsModel.isEditMode()
   }
 
   private isInputLike(target: EventTarget | null): boolean {
@@ -461,9 +620,28 @@ export class PasswordManagerLayoutModel {
   }
 
   private isInteractiveTarget(target: EventTarget | null): boolean {
+    if (this.isListKeyboardRowTarget(target)) {
+      return false
+    }
+
     return target instanceof HTMLElement
       ? this.isInputLike(target) || target.matches(INTERACTIVE_TARGET_SELECTOR)
       : false
+  }
+
+  private isListKeyboardRowTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) {
+      return false
+    }
+
+    const rootNode = target.getRootNode()
+    const shadowHost = rootNode instanceof ShadowRoot ? rootNode.host : null
+
+    return (
+      target.classList.contains('list-item') ||
+      target.classList.contains('group-row') ||
+      (target.classList.contains('row') && shadowHost?.tagName.toLowerCase() === 'group-tree-view')
+    )
   }
 
   private getFirstSearchResult(): Group | Entry | undefined {
@@ -477,8 +655,9 @@ export class PasswordManagerLayoutModel {
       return (list?.[0] as Group | Entry) ?? undefined
     }
 
-    if (window.passmanager) {
-      return (window.passmanager.searched()?.[0] as Group | Entry) ?? undefined
+    const root = getPassmanagerRoot()
+    if (root) {
+      return (root.searched()?.[0] as Group | Entry) ?? undefined
     }
 
     return undefined
@@ -490,57 +669,4 @@ export class PasswordManagerLayoutModel {
     globalThis.localStorage?.setItem(SIDEBAR_WIDTH_STORAGE_KEY, clampedWidth.toString())
   }
 
-  private getContextTitle(
-    showElement: Exclude<PMShowElement, undefined>,
-    isGroupEditActive: boolean,
-  ): string {
-    if (showElement === 'createEntry') return i18n('entry:create:title')
-    if (showElement === 'createGroup') return i18n('group:create:title')
-    if (showElement === 'importDialog') return i18n('import:dialog:title')
-    if (this.isEditingEntry()) return i18n('entry:edit:title')
-    if (isGroupEditActive) return i18n('group:edit:title')
-    if (showElement instanceof Entry) return showElement.title || i18n('no_title')
-    if (showElement instanceof Group) return showElement.name || i18n('no_title')
-    return 'Passwords'
-  }
-
-  isInNonRootGroup(): boolean {
-    const showElement = this.getCurrentShowElement()
-    return showElement instanceof Group
-  }
-
-  private getMobileCommandKind(isGroupEditActive: boolean): PMMobileCommandKind {
-    const showElement = this.getCurrentShowElement()
-    if (!showElement || this.isEditingEntry() || isGroupEditActive) {
-      return 'none'
-    }
-
-    if (showElement instanceof Entry) {
-      return 'passwords-entry'
-    }
-
-    if (showElement instanceof ManagerRoot || showElement instanceof Group) {
-      return 'passwords-list'
-    }
-
-    return 'none'
-  }
-
-  private saveSortSettings(): void {
-    sortStorage.saveSettings({
-      sortField: sortField(),
-      sortDirection: sortDirection(),
-      groupBy: groupBy(),
-    })
-  }
-
-  private toggleQuickFilter(filter: QuickFilter): void {
-    const activeFilters = quickFilters()
-    if (activeFilters.includes(filter)) {
-      quickFilters.set(activeFilters.filter((item) => item !== filter))
-      return
-    }
-
-    quickFilters.set([...activeFilters, filter])
-  }
 }

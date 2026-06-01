@@ -1,8 +1,10 @@
 import {html, nothing} from 'lit'
 
 import {isTauriRuntime} from 'root/core/runtime/runtime'
+import {i18n} from 'root/i18n'
 
 import type {RemoteStorageModel} from '../remote-storage.model'
+import {renderRemoteStorageCallout} from '../render-callout'
 
 export const renderVolumeMountSection = ({model}: {model: RemoteStorageModel}) => {
   const status = model.volume.status()
@@ -21,18 +23,18 @@ export const renderVolumeMountSection = ({model}: {model: RemoteStorageModel}) =
   const stateLabel = (() => {
     switch (status.state) {
       case 'mounted':
-        return 'Подключён'
+        return i18n('remote-storage:volume-state-mounted')
       case 'mounting':
-        return 'Подключение...'
+        return i18n('remote-storage:volume-state-mounting')
       case 'unmounting':
-        return 'Отключение...'
+        return i18n('remote-storage:volume-state-unmounting')
       case 'driver_missing':
-        return 'Нет драйвера'
+        return i18n('remote-storage:volume-state-driver-missing')
       case 'error':
-        return 'Ошибка'
+        return i18n('remote-storage:volume-state-error')
       case 'unmounted':
       default:
-        return 'Отключён'
+        return i18n('remote-storage:volume-state-unmounted')
     }
   })()
 
@@ -45,41 +47,30 @@ export const renderVolumeMountSection = ({model}: {model: RemoteStorageModel}) =
     <section class="card">
       <div class="card-header">
         <div class="card-header-main">
-          <div
-            class="card-icon"
-            style="--card-icon-bg: color-mix(in oklch, ${isMounted
-              ? 'var(--cv-color-success)'
-              : 'var(--cv-color-info)'} 15%, var(--cv-color-surface)); --card-icon-color: ${isMounted
-              ? 'var(--cv-color-success)'
-              : 'var(--cv-color-info)'};"
-          >
+          <div class="card-icon ${isMounted ? 'card-icon-success' : 'card-icon-info'}">
             <cv-icon name="${isMounted ? 'hard-drive' : 'disc'}"></cv-icon>
           </div>
           <div class="card-title">
-            <div class="name">Монтирование тома</div>
-            <div class="hint">Доступ к файлам через Finder/Explorer</div>
+            <div class="name">${i18n('remote-storage:mounting-title')}</div>
+            <div class="hint">${i18n('remote-storage:mounting-hint')}</div>
           </div>
         </div>
         ${isDesktop
           ? html`<span class="badge ${isMounted ? 'success' : ''}">${stateLabel}</span>`
-          : html`<span class="badge">Только Desktop</span>`}
+          : html`<span class="badge">${i18n('remote-storage:desktop-only')}</span>`}
       </div>
       <div class="card-body">
-        <div class="alert danger">
-          <div class="alert-title">
-            <cv-icon name="shield-alert"></cv-icon>
-            Внимание: безопасность
-          </div>
-          <div class="alert-text">
-            Примонтированный том — это расшифрованное представление данных, видимое другим приложениям.
-            Используйте только в доверенной среде.
-          </div>
-        </div>
+        ${renderRemoteStorageCallout({
+          variant: 'danger',
+          icon: 'shield-alert',
+          title: i18n('remote-storage:security-title'),
+          text: i18n('remote-storage:security-text'),
+        })}
 
         ${isDesktop && !isMounted
           ? html`
               <div class="field-group">
-                <label class="field-label">Способ подключения</label>
+                <label class="field-label">${i18n('remote-storage:mount-method')}</label>
                 <select
                   class="field-select"
                   .value=${selected ?? ''}
@@ -87,11 +78,11 @@ export const renderVolumeMountSection = ({model}: {model: RemoteStorageModel}) =
                   @change=${model.onBackendChange}
                 >
                   ${backends.length === 0
-                    ? html`<option disabled selected>Загрузка...</option>`
+                    ? html`<option disabled selected>${i18n('remote-storage:loading')}</option>`
                     : backends.map(
                         (backend) => html`
                           <option value=${backend.id} ?disabled=${!backend.available}>
-                            ${backend.label}${!backend.available ? ' (не установлен)' : ''}
+                            ${backend.label}${!backend.available ? ` (${i18n('remote-storage:not-installed')})` : ''}
                           </option>
                         `,
                       )}
@@ -99,57 +90,54 @@ export const renderVolumeMountSection = ({model}: {model: RemoteStorageModel}) =
               </div>
               ${selectedInfo && !selectedInfo.available
                 ? html`
-                    <div class="alert">
-                      <div class="alert-title">
-                        <cv-icon name="download"></cv-icon>
-                        Требуется установка драйвера
-                      </div>
-                      <div class="alert-text">
-                        Для использования ${selectedInfo.label} необходимо установить драйвер.
+                    ${renderRemoteStorageCallout({
+                      variant: 'warning',
+                      icon: 'download',
+                      title: i18n('remote-storage:driver-required'),
+                      text: html`
+                        ${i18n('remote-storage:driver-required')}
                         ${selectedInfo.install_url
                           ? html` <a
+                              class="inline-link"
                               href=${selectedInfo.install_url}
                               target="_blank"
                               rel="noopener"
-                              style="color: var(--cv-color-brand); text-decoration: underline;"
                             >
-                              Скачать ${selectedInfo.label} →
+                              ${i18n('remote-storage:download-driver', {label: selectedInfo.label})}
                             </a>`
                           : nothing}
-                      </div>
-                    </div>
+                      `,
+                    })}
                   `
                 : nothing}
             `
           : nothing}
         ${isDesktop && isMounted && webdavUrl
           ? html`
-              <div class="alert info">
-                <div class="alert-title">
-                  <cv-icon name="globe"></cv-icon>
-                  WebDAV подключение
-                </div>
-                <div class="alert-text">Используйте этот URL для подключения в Finder или Explorer:</div>
-              </div>
+              ${renderRemoteStorageCallout({
+                variant: 'info',
+                icon: 'globe',
+                title: i18n('remote-storage:webdav-title'),
+                text: i18n('remote-storage:webdav-text'),
+              })}
               <div class="path-display">
                 <cv-icon name="link"></cv-icon>
                 ${webdavUrl}
               </div>
               <ol class="steps-list">
-                <li>macOS Finder: нажмите Cmd+K → вставьте URL → Подключить</li>
-                <li>Windows Explorer: «Добавить сетевое расположение» → вставьте URL</li>
+                <li>${i18n('remote-storage:webdav-step-macos')}</li>
+                <li>${i18n('remote-storage:webdav-step-windows')}</li>
               </ol>
             `
           : nothing}
         ${isDesktop && isMounted && status.backend === 'fuse' && displayMountpoint
           ? html`
-              <div class="alert success">
-                <div class="alert-title">
-                  <cv-icon name="folder-open"></cv-icon>
-                  FUSE подключение активно
-                </div>
-                <div class="alert-text">Файлы доступны в:</div>
-              </div>
+              ${renderRemoteStorageCallout({
+                variant: 'success',
+                icon: 'folder-open',
+                title: i18n('remote-storage:fuse-title'),
+                text: i18n('remote-storage:fuse-text'),
+              })}
               <div class="path-display">
                 <cv-icon name="folder"></cv-icon>
                 ${displayMountpoint}
@@ -158,39 +146,40 @@ export const renderVolumeMountSection = ({model}: {model: RemoteStorageModel}) =
           : nothing}
         ${status.error
           ? html`
-              <div class="alert danger">
-                <div class="alert-title">
-                  <cv-icon name="alert-triangle"></cv-icon>
-                  Ошибка монтирования
-                </div>
-                <div class="alert-text">${status.error}</div>
-              </div>
+              ${renderRemoteStorageCallout({
+                variant: 'danger',
+                icon: 'alert-triangle',
+                title: i18n('remote-storage:mount-error'),
+                text: status.error,
+              })}
             `
           : nothing}
 
         <div class="actions-row">
           ${!isMounted
             ? html`
-                <cv-button variant="primary" ?disabled=${!canMount} @click=${model.onVolumeMount}>
-                  <cv-icon name="play" slot="prefix"></cv-icon>
-                  Подключить
-                </cv-button>
+                <cv-guidance-anchor anchor-id="remote-storage.mount" surface="remote-storage" owner="remote-storage">
+                  <cv-button variant="primary" ?disabled=${!canMount} @click=${model.onVolumeMount}>
+                    <cv-icon name="play" slot="prefix"></cv-icon>
+                    ${i18n('remote-storage:action-mount')}
+                  </cv-button>
+                </cv-guidance-anchor>
               `
             : html`
                 <cv-button variant="default" @click=${model.onVolumeUnmount}>
                   <cv-icon name="square" slot="prefix"></cv-icon>
-                  Отключить
+                  ${i18n('remote-storage:action-unmount')}
                 </cv-button>
               `}
           <cv-button variant="default" ?disabled=${!isDesktop} @click=${model.onVolumeRefresh}>
             <cv-icon name="refresh-cw" slot="prefix"></cv-icon>
-            Обновить
+            ${i18n('button:refresh')}
           </cv-button>
           ${webdavUrl
             ? html`
                 <cv-button variant="default" @click=${model.copyVolumeUrl}>
                   <cv-icon name="copy" slot="prefix"></cv-icon>
-                  Копировать URL
+                  ${i18n('remote-storage:action-copy-url')}
                 </cv-button>
               `
             : nothing}

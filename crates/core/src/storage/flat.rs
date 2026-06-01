@@ -1,16 +1,36 @@
-//! Flat storage structure
+//! Flat storage handle and backend entry point.
 
-use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use getrandom::getrandom;
-
-use crate::error::{Error, Result};
-use crate::storage::FormatVersionFile;
+use crate::error::Result;
+use crate::storage::backend::{
+    ChunkWriteBatchTemp, StorageArtifactWriteError, StorageArtifactWriteOutcome,
+    StorageArtifactWriteTemp, StorageBackend,
+};
+use crate::storage::{
+    FormatVersionFile, StorageArtifact, StorageErasePreview, StorageTempNamespace,
+};
 use crate::types::SALT_SIZE;
 
-/// Flat chunk-based storage
+mod artifacts;
+mod batch;
+mod chunks;
+mod format;
+mod reset;
+mod temp;
+
+pub(crate) use batch::ChunkWriteBatch;
+pub(crate) use temp::{StorageTempArtifact, StorageTempFile};
+
+pub(super) const STORAGE_PERF_SLOW_IO: Duration = Duration::from_millis(50);
+
+pub(super) fn duration_ms(duration: Duration) -> f64 {
+    duration.as_secs_f64() * 1000.0
+}
+
+/// Flat chunk-based storage.
 ///
 /// Directory structure:
 /// ```text
@@ -22,378 +42,360 @@ use crate::types::SALT_SIZE;
 ///     │       └── 01a2b3...
 ///     └── ...
 /// ```
-#[derive(Debug, Clone)]
 pub struct Storage {
+    backend: std::sync::Arc<dyn super::backend::StorageBackend>,
+}
+
+#[derive(Debug)]
+pub(crate) struct FlatStorageBackend {
     base_path: PathBuf,
 }
 
-impl Storage {
-    /// Create a new storage instance
-    ///
-    /// Creates the directory structure if it doesn't exist
-    pub fn new(base_path: impl AsRef<Path>) -> Result<Self> {
-        let base_path = base_path.as_ref().to_path_buf();
-
-        // Create base directory and chunks directory
-        fs::create_dir_all(base_path.join("chunks"))?;
-
-        // ADR-003: format version file.
-        let format_path = base_path.join("format.version");
-        if !format_path.exists() {
-            let created_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-
-            let v = FormatVersionFile::new_default(created_at);
-            let bytes = serde_json::to_vec(&v).map_err(|e| {
-                Error::StorageIo(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            })?;
-            let mut file = File::create(&format_path)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
+impl Clone for Storage {
+    fn clone(&self) -> Self {
+        Self {
+            backend: self.backend.clone(),
         }
+    }
+}
 
-        Ok(Self { base_path })
+impl std::fmt::Debug for Storage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Storage")
+            .field("base_path", &self.base_path())
+            .finish()
+    }
+}
+
+impl Storage {
+    /// Create a new storage instance.
+    pub fn new(base_path: impl AsRef<Path>) -> Result<Self> {
+        Ok(Self {
+            backend: std::sync::Arc::new(FlatStorageBackend::new(base_path)?),
+        })
+    }
+
+    #[cfg(any(test, debug_assertions))]
+    pub(crate) fn from_backend(backend: std::sync::Arc<dyn StorageBackend>) -> Self {
+        Self { backend }
+    }
+
+    #[cfg(any(test, debug_assertions))]
+    pub(crate) fn fault_injecting_for_tests(
+        base_path: impl AsRef<Path>,
+        rule: Option<crate::storage::backend::fault::FaultRule>,
+    ) -> Result<(Self, crate::storage::backend::fault::FaultHandle)> {
+        let inner = std::sync::Arc::new(FlatStorageBackend::new(base_path)?);
+        let (backend, handle) =
+            crate::storage::backend::fault::FaultInjectingStorageBackend::wrap(inner, rule);
+        Ok((Self::from_backend(std::sync::Arc::new(backend)), handle))
     }
 
     pub fn read_format_version(&self) -> Result<FormatVersionFile> {
-        let format_path = self.base_path.join("format.version");
-        let bytes = match fs::read(&format_path) {
-            Ok(b) => b,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                // Treat a missing format.version as a blank/new storage state.
-                // This can happen after an erase (ADR-012) or manual deletion.
-                let created_at = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or(0);
-                let v = FormatVersionFile::new_default(created_at);
-                let out = serde_json::to_vec(&v).map_err(|e| {
-                    Error::StorageIo(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e.to_string(),
-                    ))
-                })?;
-                let mut file = File::create(&format_path)?;
-                file.write_all(&out)?;
-                file.sync_all()?;
-                return Ok(v);
-            }
-            Err(e) => return Err(Error::StorageIo(e)),
-        };
-        let v: FormatVersionFile = serde_json::from_slice(&bytes)
-            .map_err(|e| Error::InvalidDataFormat(format!("invalid format.version: {e}")))?;
-        Ok(v)
+        self.backend.read_format_version()
     }
 
     pub fn format_version(&self) -> Result<u64> {
-        Ok(self.read_format_version()?.v)
+        self.backend.format_version()
     }
 
-    /// Get or create the salt
-    ///
-    /// If salt file exists, read it. Otherwise, generate a new one and save it.
     pub fn get_or_create_salt(&self) -> Result<[u8; SALT_SIZE]> {
-        let salt_path = self.base_path.join("salt");
-
-        if salt_path.exists() {
-            // Read existing salt
-            let mut file = File::open(&salt_path)?;
-            let mut salt = [0u8; SALT_SIZE];
-            file.read_exact(&mut salt)?;
-            Ok(salt)
-        } else {
-            // Generate new salt
-            let mut salt = [0u8; SALT_SIZE];
-            getrandom(&mut salt).map_err(|e| {
-                Error::StorageIo(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            })?;
-
-            // Save salt
-            let mut file = File::create(&salt_path)?;
-            file.write_all(&salt)?;
-            file.sync_all()?;
-
-            Ok(salt)
-        }
+        self.backend.get_or_create_salt()
     }
 
-    /// Get or create the master salt (ADR-017)
-    ///
-    /// If `master.salt` exists, read it. Otherwise, generate a new one and save it.
     pub fn get_or_create_master_salt(&self) -> Result<[u8; SALT_SIZE]> {
-        let salt_path = self.base_path.join("master.salt");
-
-        if salt_path.exists() {
-            let mut file = File::open(&salt_path)?;
-            let mut salt = [0u8; SALT_SIZE];
-            file.read_exact(&mut salt)?;
-            Ok(salt)
-        } else {
-            let mut salt = [0u8; SALT_SIZE];
-            getrandom(&mut salt).map_err(|e| {
-                Error::StorageIo(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            })?;
-
-            let mut file = File::create(&salt_path)?;
-            file.write_all(&salt)?;
-            file.sync_all()?;
-
-            Ok(salt)
-        }
+        self.backend.get_or_create_master_salt()
     }
 
-    /// Check if salt exists
     pub fn salt_exists(&self) -> bool {
-        self.base_path.join("salt").exists()
+        self.backend.salt_exists()
     }
 
-    /// Get the path for a chunk
-    ///
-    /// Structure: `chunks/{name[0]}/{name[1:3]}/{name}`
-    fn chunk_path(&self, name: &str) -> Result<PathBuf> {
-        if name.len() < 3 {
-            return Err(Error::InvalidChunkName(format!(
-                "chunk name too short: {}",
-                name
-            )));
-        }
-
-        // Validate hex characters
-        if !name.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(Error::InvalidChunkName(format!(
-                "chunk name must be hex: {}",
-                name
-            )));
-        }
-
-        let first = &name[0..1];
-        let next_two = &name[1..3];
-
-        Ok(self
-            .base_path
-            .join("chunks")
-            .join(first)
-            .join(next_two)
-            .join(name))
-    }
-
-    /// Read a chunk by name
     pub fn read_chunk(&self, name: &str) -> Result<Vec<u8>> {
-        let path = self.chunk_path(name)?;
-
-        if !path.exists() {
-            return Err(Error::ChunkNotFound(name.to_string()));
-        }
-
-        let mut file = File::open(&path)?;
-        let mut data = Vec::new();
-        file.read_to_end(&mut data)?;
-
-        Ok(data)
+        self.backend.read_chunk(name)
     }
 
-    /// Get a chunk size in bytes without reading it.
     pub fn chunk_len(&self, name: &str) -> Result<u64> {
-        let path = self.chunk_path(name)?;
-
-        if !path.exists() {
-            return Err(Error::ChunkNotFound(name.to_string()));
-        }
-
-        let meta = fs::metadata(&path)?;
-        Ok(meta.len())
+        self.backend.chunk_len(name)
     }
 
-    /// Write a chunk
     pub fn write_chunk(&self, name: &str, data: &[u8]) -> Result<()> {
-        let path = self.chunk_path(name)?;
-
-        // Create parent directories
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        let mut file = File::create(&path)?;
-        file.write_all(data)?;
-        file.sync_all()?;
-
-        Ok(())
+        self.backend.write_chunk(name, data)
     }
 
-    /// Write a chunk without forcing fsync.
-    ///
-    /// This is significantly faster for bulk writes (e.g. file uploads) because
-    /// `sync_all()` on every chunk can dominate throughput.
     pub fn write_chunk_no_sync(&self, name: &str, data: &[u8]) -> Result<()> {
-        let path = self.chunk_path(name)?;
+        self.backend.write_chunk_no_sync(name, data)
+    }
 
-        let mut file = match File::create(&path) {
-            Ok(f) => f,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                if let Some(parent) = path.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                File::create(&path)?
-            }
-            Err(e) => return Err(Error::StorageIo(e)),
-        };
-        file.write_all(data)?;
-        Ok(())
+    pub(crate) fn begin_chunk_write_batch(&self, tx_id_hint: &str) -> ChunkWriteBatch {
+        ChunkWriteBatch::new(self.backend.clone(), tx_id_hint)
+    }
+
+    pub(crate) fn create_temp_file(
+        &self,
+        namespace: StorageTempNamespace,
+        prefix: &str,
+        suffix: &str,
+    ) -> Result<StorageTempFile> {
+        let file = self.backend.create_temp_file(namespace, prefix, suffix)?;
+        Ok(StorageTempFile::new(self.backend.clone(), namespace, file))
+    }
+
+    pub(crate) fn cleanup_temp_namespace(&self, namespace: StorageTempNamespace) -> Result<usize> {
+        self.backend.cleanup_temp_namespace(namespace)
+    }
+
+    pub(crate) fn cleanup_legacy_temp_files(
+        &self,
+        namespace: StorageTempNamespace,
+    ) -> Result<usize> {
+        self.backend.cleanup_legacy_temp_files(namespace)
     }
 
     pub fn sync(&self) -> Result<()> {
-        let dir = File::open(&self.base_path)?;
-        dir.sync_all()?;
-        Ok(())
+        self.backend.sync()
     }
 
-    /// Write a chunk atomically (best-effort): write temp file then rename.
     pub fn write_chunk_atomic(&self, name: &str, data: &[u8]) -> Result<()> {
-        let path = self.chunk_path(name)?;
-
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let tmp_path = path
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join(format!(".tmp.{}.{}", name, nonce));
-
-        let mut file = File::create(&tmp_path)?;
-        file.write_all(data)?;
-        file.sync_all()?;
-
-        fs::rename(&tmp_path, &path)?;
-        Ok(())
+        self.backend.write_chunk_atomic(name, data)
     }
 
-    /// Delete a chunk
     pub fn delete_chunk(&self, name: &str) -> Result<()> {
-        let path = self.chunk_path(name)?;
-
-        if path.exists() {
-            fs::remove_file(&path)?;
-        }
-
-        Ok(())
+        self.backend.delete_chunk(name)
     }
 
-    /// Check if a chunk exists
     pub fn chunk_exists(&self, name: &str) -> Result<bool> {
-        let path = self.chunk_path(name)?;
-        Ok(path.exists())
+        self.backend.chunk_exists(name)
     }
 
-    /// List all chunk names (for debugging/backup)
     pub fn list_chunks(&self) -> Result<Vec<String>> {
-        let chunks_dir = self.base_path.join("chunks");
-        let mut names = Vec::new();
-
-        if !chunks_dir.exists() {
-            return Ok(names);
-        }
-
-        // Iterate through first level (0-f)
-        for entry1 in fs::read_dir(&chunks_dir)? {
-            let entry1 = entry1?;
-            if !entry1.file_type()?.is_dir() {
-                continue;
-            }
-
-            // Iterate through second level (00-ff)
-            for entry2 in fs::read_dir(entry1.path())? {
-                let entry2 = entry2?;
-                if !entry2.file_type()?.is_dir() {
-                    continue;
-                }
-
-                // Iterate through chunk files
-                for entry3 in fs::read_dir(entry2.path())? {
-                    let entry3 = entry3?;
-                    if entry3.file_type()?.is_file() {
-                        if let Some(name) = entry3.file_name().to_str() {
-                            names.push(name.to_string());
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(names)
+        self.backend.list_chunks()
     }
 
-    /// Check whether any chunk exists without enumerating all names.
     pub fn has_any_chunk(&self) -> Result<bool> {
-        let chunks_dir = self.base_path.join("chunks");
-        if !chunks_dir.exists() {
-            return Ok(false);
-        }
-
-        for entry1 in fs::read_dir(&chunks_dir)? {
-            let entry1 = entry1?;
-            if !entry1.file_type()?.is_dir() {
-                continue;
-            }
-
-            for entry2 in fs::read_dir(entry1.path())? {
-                let entry2 = entry2?;
-                if !entry2.file_type()?.is_dir() {
-                    continue;
-                }
-
-                for entry3 in fs::read_dir(entry2.path())? {
-                    let entry3 = entry3?;
-                    if entry3.file_type()?.is_file() {
-                        return Ok(true);
-                    }
-                }
-            }
-        }
-
-        Ok(false)
+        self.backend.has_any_chunk()
     }
 
-    /// Get the base path
     pub fn base_path(&self) -> &Path {
-        &self.base_path
+        self.backend.base_path()
+    }
+
+    pub(crate) fn erase_preview(&self) -> StorageErasePreview {
+        StorageErasePreview {
+            storage_paths: vec![self.backend.base_path().to_string_lossy().to_string()],
+        }
     }
 
     pub fn erase_all(&self) -> Result<()> {
-        let chunks_dir = self.base_path.join("chunks");
-        if chunks_dir.exists() {
-            fs::remove_dir_all(&chunks_dir)?;
-        }
-        fs::create_dir_all(&chunks_dir)?;
+        self.reset_vault_contents().map(|_| ())
+    }
 
-        // Erase must return storage to a BLANK state (ADR-012).
-        // Keep directories, but remove all top-level files so a fresh init starts clean.
-        let format_path = self.base_path.join("format.version");
-        if format_path.exists() {
-            fs::remove_file(&format_path)?;
+    pub(crate) fn read_artifact(&self, artifact: StorageArtifact) -> Result<Option<Vec<u8>>> {
+        self.backend.read_artifact(artifact)
+    }
+
+    pub(crate) fn write_artifact_atomic(
+        &self,
+        artifact: StorageArtifact,
+        bytes: &[u8],
+    ) -> Result<()> {
+        self.write_artifact_durable(artifact, bytes)
+            .map(|_| ())
+            .map_err(|error| error.error)
+    }
+
+    pub(crate) fn write_artifact_durable(
+        &self,
+        artifact: StorageArtifact,
+        bytes: &[u8],
+    ) -> std::result::Result<StorageArtifactWriteOutcome, StorageArtifactWriteError> {
+        let temp = self
+            .backend
+            .write_artifact_temp(artifact, bytes)
+            .map_err(|error| StorageArtifactWriteError::new(error, false))?;
+
+        if let Err(error) = self.backend.sync_artifact_temp(&temp) {
+            let _ = self.backend.remove_artifact_temp(&temp);
+            return Err(StorageArtifactWriteError::new(error, false));
         }
 
-        let salt_path = self.base_path.join("salt");
-        if salt_path.exists() {
-            fs::remove_file(&salt_path)?;
+        if let Err(error) = self.backend.rename_artifact_temp(&temp) {
+            let _ = self.backend.remove_artifact_temp(&temp);
+            return Err(StorageArtifactWriteError::new(error, false));
         }
 
-        Ok(())
+        if let Err(error) = self.backend.sync_artifact_parent(&temp.parent_path) {
+            return Err(StorageArtifactWriteError::new(error, true));
+        }
+
+        if let Err(error) = self.backend.sync() {
+            return Err(StorageArtifactWriteError::new(error, true));
+        }
+
+        Ok(StorageArtifactWriteOutcome {
+            artifact: temp.artifact,
+        })
+    }
+
+    pub(crate) fn remove_artifact(&self, artifact: StorageArtifact) -> Result<()> {
+        self.backend.remove_artifact(artifact)
+    }
+
+    pub(crate) fn artifact_exists(&self, artifact: StorageArtifact) -> Result<bool> {
+        self.backend.artifact_exists(artifact)
+    }
+}
+
+impl StorageBackend for FlatStorageBackend {
+    fn base_path(&self) -> &Path {
+        FlatStorageBackend::base_path(self)
+    }
+
+    fn read_format_version(&self) -> Result<FormatVersionFile> {
+        FlatStorageBackend::read_format_version(self)
+    }
+
+    fn format_version(&self) -> Result<u64> {
+        FlatStorageBackend::format_version(self)
+    }
+
+    fn get_or_create_salt(&self) -> Result<[u8; SALT_SIZE]> {
+        FlatStorageBackend::get_or_create_salt(self)
+    }
+
+    fn get_or_create_master_salt(&self) -> Result<[u8; SALT_SIZE]> {
+        FlatStorageBackend::get_or_create_master_salt(self)
+    }
+
+    fn salt_exists(&self) -> bool {
+        FlatStorageBackend::salt_exists(self)
+    }
+
+    fn read_chunk(&self, name: &str) -> Result<Vec<u8>> {
+        FlatStorageBackend::read_chunk(self, name)
+    }
+
+    fn chunk_len(&self, name: &str) -> Result<u64> {
+        FlatStorageBackend::chunk_len(self, name)
+    }
+
+    fn write_chunk(&self, name: &str, data: &[u8]) -> Result<()> {
+        FlatStorageBackend::write_chunk(self, name, data)
+    }
+
+    fn write_chunk_no_sync(&self, name: &str, data: &[u8]) -> Result<()> {
+        FlatStorageBackend::write_chunk_no_sync(self, name, data)
+    }
+
+    fn write_chunk_atomic(&self, name: &str, data: &[u8]) -> Result<()> {
+        FlatStorageBackend::write_chunk_atomic(self, name, data)
+    }
+
+    fn write_chunk_batch_temp(
+        &self,
+        tx_id_hint: &str,
+        sequence: usize,
+        name: &str,
+        data: &[u8],
+    ) -> Result<ChunkWriteBatchTemp> {
+        FlatStorageBackend::write_chunk_batch_temp(self, tx_id_hint, sequence, name, data)
+    }
+
+    fn sync_chunk_batch_temp(&self, temp: &ChunkWriteBatchTemp) -> Result<()> {
+        FlatStorageBackend::sync_chunk_batch_temp(self, temp)
+    }
+
+    fn rename_chunk_batch_temp(&self, temp: &ChunkWriteBatchTemp) -> Result<()> {
+        FlatStorageBackend::rename_chunk_batch_temp(self, temp)
+    }
+
+    fn sync_chunk_batch_parent(&self, parent: &Path) -> Result<()> {
+        FlatStorageBackend::sync_chunk_batch_parent(self, parent)
+    }
+
+    fn remove_chunk_batch_temp(&self, temp: &ChunkWriteBatchTemp) -> Result<()> {
+        FlatStorageBackend::remove_chunk_batch_temp(self, temp)
+    }
+
+    fn delete_chunk(&self, name: &str) -> Result<()> {
+        FlatStorageBackend::delete_chunk(self, name)
+    }
+
+    fn chunk_exists(&self, name: &str) -> Result<bool> {
+        FlatStorageBackend::chunk_exists(self, name)
+    }
+
+    fn list_chunks(&self) -> Result<Vec<String>> {
+        FlatStorageBackend::list_chunks(self)
+    }
+
+    fn has_any_chunk(&self) -> Result<bool> {
+        FlatStorageBackend::has_any_chunk(self)
+    }
+
+    fn sync(&self) -> Result<()> {
+        FlatStorageBackend::sync(self)
+    }
+
+    fn read_artifact(&self, artifact: StorageArtifact) -> Result<Option<Vec<u8>>> {
+        FlatStorageBackend::read_artifact(self, artifact)
+    }
+
+    fn write_artifact_temp(
+        &self,
+        artifact: StorageArtifact,
+        bytes: &[u8],
+    ) -> Result<StorageArtifactWriteTemp> {
+        FlatStorageBackend::write_artifact_temp(self, artifact, bytes)
+    }
+
+    fn sync_artifact_temp(&self, temp: &StorageArtifactWriteTemp) -> Result<()> {
+        FlatStorageBackend::sync_artifact_temp(self, temp)
+    }
+
+    fn rename_artifact_temp(&self, temp: &StorageArtifactWriteTemp) -> Result<()> {
+        FlatStorageBackend::rename_artifact_temp(self, temp)
+    }
+
+    fn sync_artifact_parent(&self, parent: &Path) -> Result<()> {
+        FlatStorageBackend::sync_artifact_parent(self, parent)
+    }
+
+    fn remove_artifact_temp(&self, temp: &StorageArtifactWriteTemp) -> Result<()> {
+        FlatStorageBackend::remove_artifact_temp(self, temp)
+    }
+
+    fn remove_artifact(&self, artifact: StorageArtifact) -> Result<()> {
+        FlatStorageBackend::remove_artifact(self, artifact)
+    }
+
+    fn artifact_exists(&self, artifact: StorageArtifact) -> Result<bool> {
+        FlatStorageBackend::artifact_exists(self, artifact)
+    }
+
+    fn create_temp_file(
+        &self,
+        namespace: StorageTempNamespace,
+        prefix: &str,
+        suffix: &str,
+    ) -> Result<tempfile::NamedTempFile> {
+        FlatStorageBackend::create_temp_file(self, namespace, prefix, suffix)
+    }
+
+    fn sync_temp_file(&self, file: &mut File) -> Result<()> {
+        FlatStorageBackend::sync_temp_file(self, file)
+    }
+
+    fn sync_temp_namespace(&self, namespace: StorageTempNamespace) -> Result<()> {
+        FlatStorageBackend::sync_temp_namespace(self, namespace)
+    }
+
+    fn cleanup_temp_namespace(&self, namespace: StorageTempNamespace) -> Result<usize> {
+        FlatStorageBackend::cleanup_temp_namespace(self, namespace)
+    }
+
+    fn cleanup_legacy_temp_files(&self, namespace: StorageTempNamespace) -> Result<usize> {
+        FlatStorageBackend::cleanup_legacy_temp_files(self, namespace)
     }
 }
 

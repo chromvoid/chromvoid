@@ -4,8 +4,9 @@
   "exclude": ["node_modules/*", "/scripts/*"],
 
   "compilerOptions": {
-    "baseUrl": ".",
     "outDir": "./dist",
+    "rootDir": "../..",
+    "types": ["node", "chrome"],
     "paths": {
       "@chromvoid/scheme": ["../../packages/scheme/src/index.ts"],
       "@chromvoid/scheme/*": ["../../packages/scheme/src/*"],

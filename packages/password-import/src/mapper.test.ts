@@ -31,13 +31,9 @@ function createMockCatalog(): CatalogOperations & {
       return {nodeId}
     },
 
-    async prepareUpload(parentPath, name, size, chunkSize, mimeType) {
-      calls.push({method: 'prepareUpload', args: [parentPath, name, size, chunkSize, mimeType]})
+    async upload(parentPath, name, size, data, chunkSize, mimeType) {
+      calls.push({method: 'upload', args: [parentPath, name, size, data, chunkSize, mimeType]})
       return {nodeId: nextNodeId++}
-    },
-
-    async upload(nodeId, size, data) {
-      calls.push({method: 'upload', args: [nodeId, size, data]})
     },
 
     async setOTPSecret(params) {
@@ -85,7 +81,7 @@ describe('mapper', () => {
       const createDirCalls = catalog.calls.filter((c) => c.method === 'createDir')
       expect(createDirCalls[0]!.args[0]).toBe('GitHub')
 
-      const uploadCalls = catalog.calls.filter((c) => c.method === 'prepareUpload')
+      const uploadCalls = catalog.calls.filter((c) => c.method === 'upload')
       const fileNames = uploadCalls.map((c) => c.args[1])
       expect(fileNames).toContain('meta.json')
       expect(fileNames).toContain('.password')
@@ -111,7 +107,7 @@ describe('mapper', () => {
       await mapAndSaveEntry(catalog, entry)
 
       const allPaths = catalog.calls
-        .filter((c) => c.method === 'createDir' || c.method === 'prepareUpload')
+        .filter((c) => c.method === 'createDir' || c.method === 'upload')
         .flatMap((c) => c.args.filter((a): a is string => typeof a === 'string'))
       for (const p of allPaths) {
         expect(p).not.toContain('//')
@@ -138,7 +134,7 @@ describe('mapper', () => {
 
       await mapAndSaveEntry(catalog, entry)
 
-      const uploadCalls = catalog.calls.filter((c) => c.method === 'prepareUpload')
+      const uploadCalls = catalog.calls.filter((c) => c.method === 'upload')
       const fileNames = uploadCalls.map((c) => c.args[1])
       expect(fileNames).toContain('.fields.json')
     })
@@ -158,9 +154,22 @@ describe('mapper', () => {
       expect(putIconCalls).toHaveLength(1)
 
       const uploadCalls = catalog.calls.filter((c) => c.method === 'upload')
-      const metaUpload = uploadCalls[0]?.args[2] as Uint8Array
+      const metaUpload = uploadCalls[0]?.args[3] as Uint8Array
       const metaJson = JSON.parse(new TextDecoder().decode(metaUpload)) as {iconRef?: string}
       expect(metaJson.iconRef).toBe(`sha256:${'a'.repeat(64)}`)
+    })
+
+    it('should persist tags in login metadata', async () => {
+      const catalog = createMockCatalog()
+      const entry = makeEntry({tags: ['Work', 'Rotate']})
+
+      await mapAndSaveEntry(catalog, entry)
+
+      const metaUpload = catalog.calls.find(
+        (c) => c.method === 'upload' && c.args[3] instanceof Uint8Array,
+      )
+      const metaJson = JSON.parse(new TextDecoder().decode(metaUpload!.args[3] as Uint8Array))
+      expect(metaJson.tags).toEqual(['Work', 'Rotate'])
     })
 
     it('should not write .password for entries without password', async () => {
@@ -169,9 +178,50 @@ describe('mapper', () => {
 
       await mapAndSaveEntry(catalog, entry)
 
-      const uploadCalls = catalog.calls.filter((c) => c.method === 'prepareUpload')
+      const uploadCalls = catalog.calls.filter((c) => c.method === 'upload')
       const fileNames = uploadCalls.map((c) => c.args[1])
       expect(fileNames).not.toContain('.password')
+    })
+
+    it('should map card entries to payment_card metadata and card secret files', async () => {
+      const catalog = createMockCatalog()
+      const entry = makeEntry({
+        type: 'card',
+        password: undefined,
+        notes: 'Primary card',
+        paymentCard: {
+          cardholderName: 'John Doe',
+          expMonth: 12,
+          expYear: 2030,
+          brand: 'Visa',
+          number: '4111 1111 1111 1111',
+          cvv: '123',
+        },
+        tags: ['Finance'],
+      })
+
+      await mapAndSaveEntry(catalog, entry)
+
+      const uploadCalls = catalog.calls.filter((c) => c.method === 'upload')
+      const fileNames = uploadCalls.map((c) => c.args[1])
+      expect(fileNames).toContain('.card_pan')
+      expect(fileNames).toContain('.card_cvv')
+      expect(fileNames).not.toContain('.password')
+      expect(fileNames).not.toContain('.note')
+
+      const metaUpload = catalog.calls.find(
+        (c) => c.method === 'upload' && c.args[3] instanceof Uint8Array,
+      )
+      const metaJson = JSON.parse(new TextDecoder().decode(metaUpload!.args[3] as Uint8Array))
+      expect(metaJson.entryType).toBe('payment_card')
+      expect(metaJson.paymentCard).toEqual({
+        cardholderName: 'John Doe',
+        expMonth: 12,
+        expYear: 2030,
+        brand: 'visa',
+        last4: '1111',
+      })
+      expect(metaJson.tags).toEqual(['Finance'])
     })
 
     it('should call setOTPSecret for entries with OTP', async () => {
@@ -216,13 +266,13 @@ describe('mapper', () => {
       await mapAndSaveEntry(catalog, entry)
 
       const metaPrepare = catalog.calls
-        .filter((c) => c.method === 'prepareUpload')
+        .filter((c) => c.method === 'upload')
         .find((c) => c.args[1] === 'meta.json')
       expect(metaPrepare).toBeDefined()
 
-      const metaUpload = catalog.calls.find((c) => c.method === 'upload' && c.args[2] instanceof Uint8Array)
+      const metaUpload = catalog.calls.find((c) => c.method === 'upload' && c.args[3] instanceof Uint8Array)
       expect(metaUpload).toBeDefined()
-      const decoded = new TextDecoder().decode(metaUpload!.args[2] as Uint8Array)
+      const decoded = new TextDecoder().decode(metaUpload!.args[3] as Uint8Array)
       const parsed = JSON.parse(decoded)
       expect(parsed.import_source).toBeDefined()
       expect(parsed.import_source.original_id).toBe('entry-1')
@@ -238,7 +288,7 @@ describe('mapper', () => {
 
       await mapAndSaveEntry(catalog, entry)
 
-      const uploadCalls = catalog.calls.filter((c) => c.method === 'prepareUpload')
+      const uploadCalls = catalog.calls.filter((c) => c.method === 'upload')
       const noteUpload = uploadCalls.find((c) => c.args[1] === '.note')
       expect(noteUpload).toBeDefined()
     })
@@ -272,7 +322,7 @@ describe('mapper', () => {
 
       await mapAndSaveEntry(catalog, entry)
 
-      const uploadCalls = catalog.calls.filter((c) => c.method === 'prepareUpload')
+      const uploadCalls = catalog.calls.filter((c) => c.method === 'upload')
       const fileNames = uploadCalls.map((c) => c.args[1])
       expect(fileNames).not.toContain('.note')
     })
@@ -283,7 +333,7 @@ describe('mapper', () => {
 
       await mapAndSaveEntry(catalog, entry)
 
-      const uploadCalls = catalog.calls.filter((c) => c.method === 'prepareUpload')
+      const uploadCalls = catalog.calls.filter((c) => c.method === 'upload')
       const fileNames = uploadCalls.map((c) => c.args[1])
       expect(fileNames).not.toContain('.fields.json')
     })
@@ -456,7 +506,7 @@ describe('mapper', () => {
       expect(deleteCalls).toHaveLength(3)
       expect(deleteCalls.map((c) => c.args[0])).toEqual([201, 202, 203])
 
-      const uploadCalls = catalog.calls.filter((c) => c.method === 'prepareUpload')
+      const uploadCalls = catalog.calls.filter((c) => c.method === 'upload')
       const parentPaths = uploadCalls.map((c) => c.args[0])
       for (const p of parentPaths) {
         expect(p).toBe('/Social/GitHub')
@@ -497,7 +547,7 @@ describe('mapper', () => {
       await overwriteEntry(catalog, entry, existing)
 
       const uploadCalls = catalog.calls.filter((c) => c.method === 'upload')
-      const metaBytes = uploadCalls[0]?.args[2] as Uint8Array
+      const metaBytes = uploadCalls[0]?.args[3] as Uint8Array
       const meta = JSON.parse(new TextDecoder().decode(metaBytes)) as {
         id?: string
         import_source?: {original_id?: string}

@@ -1,10 +1,11 @@
-import {XLitElement} from '@statx/lit'
-import {CVBreadcrumb, CVBreadcrumbItem} from '@chromvoid/uikit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {CVBreadcrumb} from '@chromvoid/uikit/components/cv-breadcrumb'
+import {CVBreadcrumbItem} from '@chromvoid/uikit/components/cv-breadcrumb-item'
 
-import {css, html} from 'lit'
+import {css} from 'lit'
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 
-export class BreadcrumbsNav extends XLitElement {
+export class BreadcrumbsNav extends ReatomLitElement {
   static define() {
     CVBreadcrumb.define()
     CVBreadcrumbItem.define()
@@ -140,9 +141,10 @@ export class BreadcrumbsNav extends XLitElement {
   private renderBreadcrumbItems() {
     const parts = this.currentPath.split('/').filter(Boolean)
     const items = []
+    const isRoot = parts.length === 0
 
     items.push(html`
-      <cv-breadcrumb-item class="root" value="/" href="/">
+      <cv-breadcrumb-item class="root" value="/" href="/" ?current=${isRoot}>
         <cv-icon slot="prefix" name="house"></cv-icon>
         Home
       </cv-breadcrumb-item>
@@ -156,9 +158,10 @@ export class BreadcrumbsNav extends XLitElement {
 
       pathParts.push(part)
       const fullPath = '/' + pathParts.join('/')
+      const isCurrent = i === parts.length - 1
 
       items.push(html`
-        <cv-breadcrumb-item value=${fullPath} href=${fullPath}>${part}</cv-breadcrumb-item>
+        <cv-breadcrumb-item value=${fullPath} href=${fullPath} ?current=${isCurrent}>${part}</cv-breadcrumb-item>
       `)
     }
 

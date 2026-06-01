@@ -1,64 +1,60 @@
-/**
- * AppContext — DI-контейнер для замены глобальных window.*
- *
- * Предоставляет централизованный доступ к сервисам приложения
- * без использования глобальных переменных.
- *
- * Использование:
- * - import {getAppContext} from './shared/services/app-context.js'
- * - const {store, catalog, ws} = getAppContext()
- *
- * Преимущества:
- * - Явные зависимости
- * - Легко мокать в тестах
- * - Нет глобального состояния
- */
+/**AppContext is a DI container to replace global windows. *
+*
+* Provides centralized access to application services
+* without using global variables.
+*
+* Use of:
+* - import {getAppContext} from './shared/services/app-context.js'
+* - const {store, catalog, ws} = getAppContext()
+*
+* Advantages:
+- Explicit dependencies
+- Easy to wet in tests
+- No global state.
+*/
 import type {ChromVoidState} from '../../core/state/app-state.js'
-import type {CatalogFacade} from '../../core/catalog/catalog-facade.js'
 import type {CatalogService} from '../../core/catalog/catalog.js'
 import type {TransportLike} from '../../core/transport/transport.js'
+import {atom} from '@reatom/core'
+import type {Router, Routes} from '../../app/router/router.js'
 import type {Store} from '../../app/state/store.js'
 
-/**
- * Интерфейс контекста приложения
+/*** Application context interface
  */
 export interface AppContext {
-  /** Глобальный стор UI */
+  /**UI Global Storage*/
   store: Store
   /** Transport (WebSocket in browser, IPC in Tauri) */
   ws: TransportLike
-  /** Сервис каталога (legacy) */
+  /**Directory service (legacy)*/
   catalog: CatalogService
-  /** Состояние устройства */
+  /**Status of device*/
   state: ChromVoidState
-  /** Фасад каталога (новый API) */
-  catalogFacade?: CatalogFacade
+  /** Application router */
+  router: Router
 }
 
-/**
- * Внутреннее хранилище контекста
+type AppContextInit = AppContext | Partial<AppContext>
+
+function isCompleteAppContext(context: AppContextInit): context is AppContext {
+  return Boolean(context.store && context.ws && context.catalog && context.state && context.router)
+}
+
+/*** Internal context storage
  */
 let _context: AppContext | null = null
 
-/**
- * Инициализировать контекст приложения
+/*** Initialize the context of the application
  */
-export function initAppContext(context: AppContext): void {
+export function initAppContext(context: AppContextInit): void {
   if (_context !== null) {
     console.warn('AppContext already initialized, overwriting...')
   }
-  _context = context
-
-  // Экспортируем getAppContext в window для E2E-тестов
-  // Это позволяет Playwright получать доступ к контексту через page.evaluate
-  if (typeof window !== 'undefined') {
-    ;(window as unknown as {getAppContext: typeof getAppContext}).getAppContext = getAppContext
-  }
+  _context = isCompleteAppContext(context) ? context : createMockAppContext(context)
 }
 
-/**
- * Получить контекст приложения
- * @throws Error если контекст не инициализирован
+/*** Get the context of the application
+ * @throws Error if the context is not initialized
  */
 export function getAppContext(): AppContext {
   if (_context === null) {
@@ -67,55 +63,56 @@ export function getAppContext(): AppContext {
   return _context
 }
 
-/**
- * Получить контекст или null (для опциональных зависимостей)
+/**Get context or null (for optional dependencies)
  */
 export function tryGetAppContext(): AppContext | null {
   return _context
 }
 
-/**
- * Очистить контекст (для тестов)
+/**Clear the context (for tests)
  */
 export function clearAppContext(): void {
   _context = null
 }
 
-/**
- * Хелпер для удобного доступа к стору
+/**Helper for easy access to the stor
  */
 export function getStore(): Store {
   return getAppContext().store
 }
 
-/**
- * Хелпер для удобного доступа к WebSocket
+/**Helper for easy access to WebSocket
  */
 export function getWebSocket(): TransportLike {
   return getAppContext().ws
 }
 
-/**
- * Хелпер для удобного доступа к каталогу
+/**Helper for easy access to the catalog
  */
 export function getCatalog(): CatalogService {
   return getAppContext().catalog
 }
 
-/**
- * Хелпер для удобного доступа к состоянию
+/**Helper for easy access to the state
  */
 export function getDeviceState(): ChromVoidState {
   return getAppContext().state
 }
 
-/**
- * Создать mock-контекст для тестов
+/**Helper for easy access to router
+ */
+export function getRouter(): Router {
+  return getAppContext().router
+}
+
+/**Create a mock context for tests
  */
 export function createMockAppContext(overrides?: Partial<AppContext>): AppContext {
   const mockNotifications = {
     pushNotification: () => {},
   }
+  const route = atom<Routes>('dashboard')
+  const isLoading = atom(false)
 
   return {
     store: {
@@ -136,6 +133,10 @@ export function createMockAppContext(overrides?: Partial<AppContext>): AppContex
       data: () => null,
       ...overrides?.state,
     } as unknown as ChromVoidState,
+    router: {
+      route,
+      isLoading,
+    } satisfies Pick<Router, 'route' | 'isLoading'> as Router,
     ...overrides,
   }
 }

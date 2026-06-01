@@ -9,24 +9,21 @@ import androidx.fragment.app.FragmentActivity
 import com.chromvoid.app.PasskeyActivityBiometricRuntime
 import com.chromvoid.app.R
 import com.chromvoid.app.security.BiometricPromptRunner
-import java.security.Signature
 
 internal class BiometricPromptRunnerAdapter(
     private val biometricPromptRunner: BiometricPromptRunner,
 ) : PasskeyActivityBiometricRuntime {
     override fun authenticateAssertion(
         activity: FragmentActivity,
-        signature: Signature,
-        onSuccess: (Signature?) -> Unit,
+        onSuccess: () -> Unit,
         onError: (GetCredentialException) -> Unit,
     ) {
         biometricPromptRunner.authenticate(
             activity = activity,
             title = activity.getString(R.string.passkey_get_title),
             subtitle = activity.getString(R.string.passkey_prompt_subtitle),
-            cryptoObject = biometricPromptRunner.cryptoObject(signature),
-            onSuccess = { result ->
-                onSuccess(result.cryptoObject?.signature)
+            onSuccess = {
+                onSuccess()
             },
             onCancel = {
                 onError(

@@ -1,15 +1,37 @@
-import {XLitElement} from '@statx/lit'
-import {html, nothing} from 'lit'
+import type {CVTextareaInputEvent} from '@chromvoid/uikit/components/cv-textarea'
+import {createAfterRenderScheduler, html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {nothing, type PropertyValues} from 'lit'
 import {keyed} from 'lit/directives/keyed.js'
 
 import '@lit-labs/virtualizer'
 
-import {Entry, Group, i18n} from '@project/passmanager'
-import type {ManagerRoot} from '@project/passmanager'
+import {Entry, Group, type ManagerRoot} from '@project/passmanager/core'
+import {i18n} from '@project/passmanager/i18n'
+import {renderGuidanceInline} from 'root/features/guidance/render-guidance-inline'
+import {ScrollEdgeAffordanceModel} from 'root/shared/ui/scroll-edge-affordance.model'
+import type {PMWorkspaceContextItem} from '../../card/pm-workspace-header'
+import type {PMSummaryRailItem, PMSummaryRailTone} from '../../summary-rail'
 import {pmEntryMoveModel, type PMDragPayload} from '../../../models/pm-entry-move-model'
-import {PMGroupModel, type PMGroupRow, type PMToolbarAction} from './group.model'
+import {
+  pmDeleteMotionModel,
+  type PMDeleteMotionRow,
+  type PMDeleteVisibleRow,
+} from '../../../models/pm-delete-motion.model'
+import {getPassmanagerRoot} from '../../../models/pm-root.adapter'
+import {passmanagerNavigationController} from '../../../passmanager-navigation.controller'
+import {
+  PMGroupModel,
+  type PMGroupMetric,
+  type PMGroupPresentation,
+  type PMGroupRiskIndicator,
+  type PMGroupRow,
+} from './group.model'
 
 type PMEntryFocusableItem = HTMLElement & {
+  focusRow?: () => void
+}
+
+type PMGroupFocusableItem = HTMLElement & {
   focusRow?: () => void
 }
 
@@ -23,14 +45,28 @@ type PMPointerDragState = {
   active: boolean
 }
 
-export abstract class PMGroupBase extends XLitElement implements EventListenerObject {
-  protected readonly model = new PMGroupModel()
+export abstract class PMGroupBase extends ReatomLitElement implements EventListenerObject {
+  static properties = {
+    showToolbarActions: {type: Boolean, attribute: 'show-toolbar-actions'},
+  }
 
+  protected readonly model = new PMGroupModel()
+  private readonly scrollEdge = new ScrollEdgeAffordanceModel()
+
+  private readonly afterRenderScheduler = createAfterRenderScheduler(this)
   private dropTargetEl: HTMLElement | null = null
   private pointerDrag: PMPointerDragState | null = null
+  private renderedEditMode = false
+  private rangeVirtualizer: HTMLElement | null = null
+  private lastVirtualRows: PMGroupRow[] = []
+  private lastVirtualRange: {first: number; last: number} | null = null
 
   protected getCurrentGroup(): Group | ManagerRoot | null {
     return this.model.getCurrentGroup()
+  }
+
+  protected usesBlockStartScrollEdge(): boolean {
+    return false
   }
 
   protected isManagerRoot(item: unknown): item is ManagerRoot {
@@ -49,8 +85,11 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
     return this.model.getGroupDisplayName(group)
   }
 
-  protected setActiveItemById(id: string): void {
-    this.model.setActiveItemById(id)
+  protected setActiveItemById(id: string, shouldFocus = false): void {
+    const index = this.model.setActiveItemById(id)
+    if (shouldFocus && index !== null) {
+      this.ensureActiveItemVisible(index, true)
+    }
   }
 
   protected onEditClick(): void {
@@ -61,8 +100,24 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
     this.model.deleteGroup(group)
   }
 
+  protected handleEntryDelete(event: Event): void {
+    event.stopPropagation()
+
+    const entry = event instanceof CustomEvent ? event.detail : null
+    if (entry instanceof Entry) {
+      this.model.deleteEntry(entry)
+    }
+  }
+
   triggerEditAction(): void {
     this.model.enterEditMode()
+  }
+
+  triggerMoveAction(): void {
+    const group = this.getCurrentGroup()
+    if (group && !this.isManagerRoot(group)) {
+      void this.model.moveGroup(group as Group)
+    }
   }
 
   triggerDeleteAction(): void {
@@ -76,11 +131,34 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
     this.model.exitEditMode()
   }
 
+  protected override updated(changedProperties: PropertyValues): void {
+    super.updated(changedProperties)
+    this.syncVirtualizerRangeListener()
+    this.scrollEdge.scheduleMeasure()
+
+    const isEditMode = this.model.isEditMode()
+    if (isEditMode === this.renderedEditMode) {
+      return
+    }
+
+    this.renderedEditMode = isEditMode
+    if (!isEditMode) {
+      return
+    }
+
+    this.afterRenderScheduler.schedule(() => {
+      const workspaceHeader = this.renderRoot.querySelector<HTMLElement & {focusTitleInput?: () => void}>(
+        'pm-workspace-header',
+      )
+      workspaceHeader?.focusTitleInput?.()
+    })
+  }
+
   moveKeyboardFocus(step: number): boolean {
     const next = this.model.moveKeyboardFocus(step)
     if (next === null) return false
 
-    this.ensureActiveItemVisible(next)
+    this.ensureActiveItemVisible(next, true)
     return true
   }
 
@@ -94,6 +172,8 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
   }
 
   public override disconnectedCallback(): void {
+    this.afterRenderScheduler.cancel()
+    this.model.exitEditMode()
     super.disconnectedCallback()
     pmEntryMoveModel.unregisterDropZone(this.renderRoot as ShadowRoot)
     if (this.pointerDrag?.active) {
@@ -101,6 +181,11 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
     }
     this.pointerDrag = null
     this.cleanupPointerListeners()
+    if (this.rangeVirtualizer) {
+      this.rangeVirtualizer.removeEventListener('rangeChanged', this)
+      this.rangeVirtualizer = null
+    }
+    this.scrollEdge.dispose()
   }
 
   handleEvent(event: Event): void {
@@ -116,7 +201,22 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
 
     if (event.type === 'pointercancel') {
       this.onDocPointerCancel()
+      return
     }
+
+    if (event.type === 'rangeChanged') {
+      this.onVirtualRangeChanged(event)
+    }
+  }
+
+  private syncVirtualizerRangeListener(): void {
+    const next = this.renderRoot.querySelector('lit-virtualizer') as HTMLElement | null
+    if (next === this.rangeVirtualizer) return
+
+    this.rangeVirtualizer?.removeEventListener('rangeChanged', this)
+    this.rangeVirtualizer = next
+    this.rangeVirtualizer?.addEventListener('rangeChanged', this)
+    this.scrollEdge.bindScroller(this.rangeVirtualizer)
   }
 
   private getRowElementForIndex(index: number): HTMLElement | null {
@@ -169,12 +269,31 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
     }
 
     if (row.classList.contains('group-row-wrap')) {
+      const groupItem = row.querySelector('pm-group-list-item-mobile') as PMGroupFocusableItem | null
+      if (groupItem?.focusRow) {
+        groupItem.focusRow()
+        return
+      }
+
       const inner = row.querySelector('.group-row') as HTMLElement | null
       inner?.focus()
       return
     }
 
     row.focus()
+  }
+
+  private shouldPreserveListFocus(): boolean {
+    const active = this.renderRoot instanceof ShadowRoot ? this.renderRoot.activeElement : null
+    if (!(active instanceof HTMLElement)) {
+      return false
+    }
+
+    if (active.matches('.group-row, pm-entry-list-item, pm-entry-list-item-mobile, pm-group-list-item-mobile')) {
+      return true
+    }
+
+    return active.closest('.entry-row, .group-row-wrap, .group-row') != null
   }
 
   private ensureActiveItemVisible(index: number, shouldFocus = false): void {
@@ -188,11 +307,11 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
   }
 
   private getDropTargetId(group: Group | ManagerRoot): string | undefined {
-    return this.isManagerRoot(group) ? window.passmanager?.id : group.id
+    return this.isManagerRoot(group) ? getPassmanagerRoot()?.id : group.id
   }
 
   private isItemDragEnabled(item: Entry | Group): boolean {
-    const root = window.passmanager
+    const root = getPassmanagerRoot()
     if (!root || root.isReadOnly()) return false
     if (!pmEntryMoveModel.isDesktopDragEnabled()) return false
     return Boolean(item.id)
@@ -300,22 +419,16 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
   }
 
   private beginPointerDrag(drag: PMPointerDragState): void {
-    if (drag.kind === 'entry') {
-      pmEntryMoveModel.startDrag(drag.itemId)
-    } else {
-      pmEntryMoveModel.startGroupDrag(drag.itemId)
-    }
-
-    const label = this.getItemDragLabel(drag.itemId, drag.kind)
+    const label = this.model.startPointerDrag(drag.itemId, drag.kind)
     const ghost = document.createElement('div')
     ghost.style.cssText = [
       'position:fixed;left:0;top:0;pointer-events:none;z-index:99999',
       `transform:translate(${drag.startX + 14}px,${drag.startY + 14}px)`,
-      'background:var(--cv-color-surface-2,#222)',
-      'border:1.5px solid var(--cv-color-primary,#6366f1)',
+      'background:var(--cv-color-surface-2)',
+      'border:1.5px solid var(--cv-color-primary)',
       'border-radius:8px;padding:5px 12px',
       'font-size:12px;font-weight:600',
-      'color:var(--cv-color-text,#eee)',
+      'color:var(--cv-color-text)',
       'box-shadow:0 6px 20px var(--cv-alpha-black-35)',
       'white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis',
     ].join(';')
@@ -327,23 +440,15 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
     ;(document.body.style as any).webkitUserSelect = 'none'
   }
 
-  private getItemDragLabel(itemId: string, kind: 'entry' | 'group'): string {
-    const root = window.passmanager
-    if (!root) return ''
-
-    if (kind === 'group') return root.getGroup(itemId)?.name || '?'
-    return root.getEntry(itemId)?.title || i18n('no_title')
-  }
-
   private pointerHitTest(x: number, y: number): void {
     const drag = this.pointerDrag
     if (!drag) return
 
-    const payload: PMDragPayload = {kind: drag.kind, id: drag.itemId}
-    const hit = pmEntryMoveModel.hitTestDropTarget(x, y)
+    const payload: PMDragPayload = {domain: 'passmanager', kind: drag.kind, id: drag.itemId}
+    const hit = this.model.findPointerDropTarget(x, y, payload)
 
-    if (hit && pmEntryMoveModel.canDropToTarget(hit.id, payload)) {
-      pmEntryMoveModel.setDropTarget(hit.id)
+    if (hit) {
+      this.model.setPointerDropTarget(hit.id)
       if (this.renderRoot.contains(hit.el)) {
         this.setDropHighlight(hit.el)
       } else {
@@ -353,22 +458,22 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
     }
 
     this.clearDropHighlight()
-    pmEntryMoveModel.setDropTarget(null)
+    this.model.setPointerDropTarget(null)
   }
 
   private performPointerDrop(x: number, y: number): void {
     const drag = this.pointerDrag
     if (!drag) return
 
-    const payload: PMDragPayload = {kind: drag.kind, id: drag.itemId}
-    const hit = pmEntryMoveModel.hitTestDropTarget(x, y)
+    const payload: PMDragPayload = {domain: 'passmanager', kind: drag.kind, id: drag.itemId}
+    const hit = this.model.findPointerDropTarget(x, y, payload)
 
-    if (hit && pmEntryMoveModel.canDropToTarget(hit.id, payload)) {
-      pmEntryMoveModel.dropToTarget(hit.id, payload)
+    if (hit) {
+      void this.model.dropPointerPayload(hit.id, payload)
       return
     }
 
-    pmEntryMoveModel.clearDragState()
+    this.model.clearPointerDragState()
   }
 
   private endPointerDrag(): void {
@@ -377,7 +482,7 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
     }
 
     this.clearDropHighlight()
-    pmEntryMoveModel.clearDragState()
+    this.model.clearPointerDragState()
     document.body.style.userSelect = ''
     ;(document.body.style as any).webkitUserSelect = ''
     this.cleanupPointerListeners()
@@ -418,7 +523,7 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
     event.stopPropagation()
     this.clearDropHighlight()
     const dragPayload = pmEntryMoveModel.readDragPayload(event.dataTransfer)
-    pmEntryMoveModel.dropToTarget(targetId, dragPayload)
+    void pmEntryMoveModel.dropToTarget(targetId, dragPayload)
   }
 
   private onDragOverContentArea(event: DragEvent): void {
@@ -451,7 +556,7 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
 
     event.preventDefault()
     const dragPayload = pmEntryMoveModel.readDragPayload(event.dataTransfer)
-    pmEntryMoveModel.dropToTarget(targetId, dragPayload)
+    void pmEntryMoveModel.dropToTarget(targetId, dragPayload)
   }
 
   private onDragOverEmpty(event: DragEvent): void {
@@ -484,7 +589,7 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
     event.preventDefault()
     ;(event.currentTarget as HTMLElement).classList.remove('drop-active')
     const dragPayload = pmEntryMoveModel.readDragPayload(event.dataTransfer)
-    pmEntryMoveModel.dropToTarget(targetId, dragPayload)
+    void pmEntryMoveModel.dropToTarget(targetId, dragPayload)
   }
 
   private onEmptyDragLeave(event: DragEvent): void {
@@ -515,154 +620,242 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
     pmEntryMoveModel.setDropTarget(null)
   }
 
-  private getToolbarActionTarget(event: Event): HTMLElement | null {
-    for (const node of event.composedPath()) {
-      if (node instanceof HTMLElement && node.tagName.toLowerCase() === 'cv-toolbar-item') {
-        return node
-      }
+  protected getHeaderContextItems(group: Group, isRoot: boolean): PMWorkspaceContextItem[] {
+    if (isRoot) {
+      return [{label: i18n('root:title-short'), value: '', current: true}]
     }
 
-    return null
-  }
-
-  private handleToolbarItemClick(event: MouseEvent): void {
-    const item = this.getToolbarActionTarget(event)
-    if (!item || item.hasAttribute('disabled')) return
-
-    const action = item.dataset['action']
-    if (!this.model.isToolbarAction(action)) return
-
-    this.model.executeToolbarAction(action)
-  }
-
-  private handleToolbarItemKeydown(event: KeyboardEvent): void {
-    if (event.key !== 'Enter' && event.key !== ' ') return
-
-    const item = this.getToolbarActionTarget(event)
-    if (!item || item.hasAttribute('disabled')) return
-
-    const action = item.dataset['action']
-    if (!this.model.isToolbarAction(action)) return
-
-    if (event.key === ' ') {
-      event.preventDefault()
+    const parentSegments = group.name.split('/').filter(Boolean).slice(0, -1)
+    if (parentSegments.length === 0) {
+      return [{label: i18n('root:title-short'), value: ''}]
     }
 
-    this.model.executeToolbarAction(action)
+    return [
+      {label: i18n('root:title-short'), value: ''},
+      ...parentSegments.map((segment, index) => ({
+        label: segment,
+        value: parentSegments.slice(0, index + 1).join('/'),
+      })),
+    ]
   }
 
-  private renderToolbarAction(
-    action: PMToolbarAction,
-    icon: string,
-    label: string,
-    isReadOnly: boolean,
-    iconOnly = false,
-  ) {
-    const className = iconOnly ? 'group-action-item icon-only' : 'group-action-item'
+  protected onWorkspaceHeaderNavigate(event: CustomEvent<{value: string}>) {
+    const path = event.detail.value
+    passmanagerNavigationController.applyRoute(path ? {kind: 'group', groupPath: path} : {kind: 'root'})
+  }
+
+  protected onWorkspaceHeaderTitleInput(event: CustomEvent<{value: string}>) {
+    this.model.setEditedName(event.detail.value)
+  }
+
+  protected onGroupDescriptionInput(event: CVTextareaInputEvent) {
+    this.model.setEditedDescription(event.detail.value)
+  }
+
+  protected onGroupIconChange(event: CustomEvent<{iconRef: string | undefined}>) {
+    this.model.setEditedIconRef(event.detail.iconRef)
+  }
+
+  protected onEditCancel() {
+    this.model.syncEditDrafts()
+    this.model.exitEditMode()
+  }
+
+  protected onEditSave() {
+    void this.model.saveEdit()
+  }
+
+  protected renderTitleEditAction(isEditing: boolean) {
+    if (isEditing || this.model.isReadOnly()) {
+      return nothing
+    }
 
     return html`
-      <cv-toolbar-item
-        value=${action}
-        data-action=${action}
-        class=${className}
-        ?disabled=${isReadOnly}
-        aria-label=${iconOnly ? label : nothing}
-        title=${iconOnly ? label : nothing}
+      <cv-button unstyled
+        slot="title-end"
+        class="group-title-edit-action edit-icon-action"
+        type="button"
+        @click=${() => this.onEditClick()}
+        aria-label=${i18n('button:edit')}
+        title=${i18n('button:edit')}
       >
-        <span class="group-action-item-content">
-          <cv-icon class="group-action-item-icon" name=${icon}></cv-icon>
-          ${iconOnly ? nothing : html`${label}`}
-        </span>
-      </cv-toolbar-item>
+        <cv-icon name="pencil-square" aria-hidden="true"></cv-icon>
+      </cv-button>
     `
   }
 
-  protected renderHeader(group: Group) {
-    const {title, avatar} = this.getGroupMetadata(group)
+  protected renderInlineEditSupport() {
+    const error = this.model.editError()
 
     return html`
-      <pm-card-header>
-        <back-button slot="back"></back-button>
-        <pm-avatar-icon
-          slot="avatar"
-          class="title-avatar-icon"
-          .item=${group}
-          .letter=${avatar}
-        ></pm-avatar-icon>
-        <div class="title-content">
-          <h1 class="title-text">${title}</h1>
+      <div slot="support" class="group-inline-edit-stack">
+        <cv-textarea
+          class="group-inline-description-input"
+          name="description"
+          size="small"
+          rows="3"
+          .value=${this.model.editedDescription()}
+          placeholder=${i18n('group:description:placeholder')}
+          @cv-input=${this.onGroupDescriptionInput}
+        >
+          <span slot="label">${i18n('group:description')}</span>
+          ${error ? html`<div slot="help-text" class="error-text">${error}</div>` : nothing}
+        </cv-textarea>
+        <div class="group-inline-edit-actions">
+          <cv-button unstyled class="inline-edit-cancel" type="button" @click=${this.onEditCancel}>
+            ${i18n('button:cancel')}
+          </cv-button>
+          <cv-button unstyled class="inline-edit-save" type="button" @click=${this.onEditSave}>
+            ${i18n('button:save')}
+          </cv-button>
         </div>
-      </pm-card-header>
+      </div>
     `
   }
 
-  protected renderActions(isRoot: boolean) {
-    const isReadOnly = this.model.isReadOnly()
-    const toolbarKey = `${isRoot ? 'root' : 'group'}-${isReadOnly ? 'ro' : 'rw'}`
+  protected renderHeader(group: Group, summary: PMGroupPresentation, isRoot: boolean) {
+    const {title} = this.getGroupMetadata(group)
+    const isEditing = !isRoot && this.model.isEditMode()
+    const headerTitle = isEditing ? this.model.editedName() : title
+    const supportText = isEditing ? '' : group.description?.trim() || summary.supportText
+    const avatarLetter = (headerTitle.trim().charAt(0) || '?').toUpperCase()
 
-    return keyed(
-      toolbarKey,
-      html`
-        <cv-toolbar
-          aria-label=${i18n('group:actions')}
-          @click=${this.handleToolbarItemClick}
-          @keydown=${this.handleToolbarItemKeydown}
-        >
-          ${this.renderToolbarAction('create-entry', 'plus-lg', i18n('enrty:create'), isReadOnly)}
-          ${this.renderToolbarAction('create-group', 'plus-lg', i18n('group:create'), isReadOnly)}
-          ${isRoot
-            ? nothing
-            : html`
-                <cv-toolbar-separator value="group-actions-separator"></cv-toolbar-separator>
-                ${this.renderToolbarAction(
-                  'edit-group',
-                  'pencil-square',
-                  i18n('button:edit'),
-                  isReadOnly,
-                  true,
-                )}
-                ${this.renderToolbarAction('remove-group', 'x-lg', i18n('button:remove'), isReadOnly, true)}
-              `}
-        </cv-toolbar>
-      `,
-    )
+    return html`
+      <pm-workspace-header
+        .item=${group}
+        .contextLabel=${summary.scopeLabel}
+        .contextItems=${this.getHeaderContextItems(group, isRoot)}
+        .title=${headerTitle}
+        .supportText=${supportText}
+        .avatarLetter=${avatarLetter}
+        .avatarIcon=${'camera'}
+        .avatarIconRef=${isEditing ? this.model.editedIconRef() : group.iconRef}
+        .avatarInteractive=${isEditing}
+        .editableTitle=${isEditing}
+        .titlePlaceholder=${i18n('group:name')}
+        .updatedFormatted=${group.updatedFormatted}
+        .createdFormatted=${group.createdFormatted}
+        @pm-workspace-header-navigate=${this.onWorkspaceHeaderNavigate}
+        @pm-workspace-header-title-input=${this.onWorkspaceHeaderTitleInput}
+        @pm-icon-change=${this.onGroupIconChange}
+      >
+        <span slot="context-end" class="workspace-summary-value">${summary.visibleLabel}</span>
+        ${isEditing ? this.renderInlineEditSupport() : this.renderTitleEditAction(isEditing)}
+      </pm-workspace-header>
+    `
   }
 
-  protected renderEntryItem(item: Entry, active: boolean) {
+  protected renderGroupMetrics(summary: PMGroupPresentation) {
+    if (summary.metrics.length === 0) {
+      return nothing
+    }
+
+    const busy = summary.securityStatus === 'idle' || summary.securityStatus === 'loading'
+    const degraded = summary.securityStatus === 'degraded'
+    const title = degraded
+      ? `${i18n('metrics:title')}. ${i18n('metrics:degraded')}`
+      : i18n('metrics:title')
+
+    return html`
+      <pm-summary-rail
+        class="group-metrics-strip"
+        .items=${this.getGroupMetricItems(summary.metrics)}
+        .label=${title}
+        .busy=${busy}
+        data-security-status=${summary.securityStatus}
+      ></pm-summary-rail>
+      ${degraded ? html`<span class="group-metrics-status">${i18n('metrics:degraded')}</span>` : nothing}
+    `
+  }
+
+  private getGroupMetricItems(metrics: readonly PMGroupMetric[]): PMSummaryRailItem[] {
+    return metrics.map((metric) => ({
+      id: metric.id,
+      label: metric.label,
+      value: metric.value,
+      tone: this.getGroupMetricTone(metric),
+      loadingLabel: i18n('metrics:loading'),
+    }))
+  }
+
+  private getGroupMetricTone(metric: PMGroupMetric): PMSummaryRailTone {
+    if (metric.family === 'attribute') return 'primary'
+    if (metric.severity === 'critical') return 'danger'
+    if (metric.severity === 'warning') return 'warning'
+    return 'neutral'
+  }
+
+  protected renderGroupRiskDot(indicator: PMGroupRiskIndicator) {
+    if (!indicator) return nothing
+
+    return html`
+      <span
+        class="group-risk-dot"
+        data-severity=${indicator.severity}
+        role="img"
+        aria-label=${indicator.label}
+        title=${indicator.label}
+      ></span>
+    `
+  }
+
+
+  protected renderEntryItem(item: Entry, active: boolean, deleteExiting = false) {
     const dragEnabled = this.isItemDragEnabled(item)
 
     return html`
       <div
-        class="entry-row ${active ? 'active' : ''}"
+        class="entry-row"
         data-row-id=${item.id}
-        @pointerenter=${() => this.setActiveItemById(item.id)}
+        ?data-delete-exiting=${deleteExiting}
+        aria-hidden=${deleteExiting ? 'true' : nothing}
         @pointerdown=${dragEnabled
           ? (event: PointerEvent) => this.onItemPointerDown(event, item.id, 'entry')
           : nothing}
         @dragstart=${this.preventNativeDrag}
         @click=${() => this.setActiveItemById(item.id)}
+        @animationend=${deleteExiting
+          ? (event: AnimationEvent) => this.onDeleteExitAnimationEnd(event, item.id)
+          : undefined}
       >
-        <pm-entry-list-item .entry=${item} group></pm-entry-list-item>
+        <pm-entry-list-item
+          .entry=${item}
+          .activeRow=${active}
+          .rowTabIndex=${active ? 0 : -1}
+          .manageActiveRowState=${true}
+          @pm-entry-row-focus=${() => this.setActiveItemById(item.id)}
+          group
+        ></pm-entry-list-item>
       </div>
     `
   }
 
-  protected renderFolderItem(item: Group, active: boolean) {
+  protected renderFolderItem(item: Group, active: boolean, deleteExiting = false) {
     const dragEnabled = this.isItemDragEnabled(item)
+    const presentation = this.model.getGroupRowPresentation(item)
 
     return html`
-      <div class="group-row-wrap" data-row-id=${item.id}>
+      <div
+        class="group-row-wrap"
+        data-row-id=${item.id}
+        ?data-delete-exiting=${deleteExiting}
+        aria-hidden=${deleteExiting ? 'true' : nothing}
+        @animationend=${deleteExiting
+          ? (event: AnimationEvent) => this.onDeleteExitAnimationEnd(event, item.id)
+          : undefined}
+      >
         <div
           class="group-row ${active ? 'active' : ''}"
           data-drop-target-id=${item.id}
           role="button"
-          tabindex="-1"
-          @pointerenter=${() => this.setActiveItemById(item.id)}
+          tabindex=${active ? '0' : '-1'}
+          @focus=${() => this.setActiveItemById(item.id)}
           @pointerdown=${dragEnabled
             ? (event: PointerEvent) => this.onItemPointerDown(event, item.id, 'group')
             : nothing}
-          @click=${() => {
+          @click=${(event: MouseEvent) => {
             this.setActiveItemById(item.id)
+            ;(event.currentTarget as HTMLElement | null)?.focus({preventScroll: true})
             this.model.selectByID(item.id)
           }}
           @dragstart=${this.preventNativeDrag}
@@ -671,15 +864,26 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
           @drop=${(event: DragEvent) => this.onDropFolder(event, item.id)}
         >
           <pm-avatar-icon class="folder-custom-icon" .item=${item} icon="folder"></pm-avatar-icon>
-          <div class="group-name">${this.getGroupDisplayName(item)}</div>
-          <cv-badge size="small" variant="neutral" pill>${item.entries().length}</cv-badge>
+          <div class="group-copy">
+            <div class="group-name">${presentation.displayName}</div>
+            ${presentation.description
+              ? html`<div class="group-description">${presentation.description}</div>`
+              : nothing}
+          </div>
+          <div class="group-trail">
+            <span class="group-size">${presentation.entryCount}</span>
+            ${this.renderGroupRiskDot(presentation.riskIndicator)}
+            <cv-icon class="group-chevron" name="chevron-right"></cv-icon>
+          </div>
         </div>
       </div>
     `
   }
 
-  protected renderGroupItem(item: Entry | Group, active: boolean) {
-    return this.isGroup(item) ? this.renderFolderItem(item, active) : this.renderEntryItem(item, active)
+  protected renderGroupItem(item: Entry | Group, active: boolean, deleteExiting = false) {
+    return this.isGroup(item)
+      ? this.renderFolderItem(item, active, deleteExiting)
+      : this.renderEntryItem(item, active, deleteExiting)
   }
 
   protected renderGroupHeader(row: Extract<PMGroupRow, {kind: 'header'}>) {
@@ -687,22 +891,120 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
       <div class="group-header-row" data-row-id=${row.id}>
         <div class="group-header">
           ${row.icon ? html`<cv-icon name=${row.icon}></cv-icon>` : nothing}
-          ${row.label}
+          <span class="group-header-label">${row.label}</span>
           <span class="group-count">${row.count}</span>
         </div>
       </div>
     `
   }
 
-  protected renderRow(row: PMGroupRow, active: boolean) {
+  protected renderRow(row: PMDeleteMotionRow, active: boolean) {
+    const deleteExiting = row.deleteExiting === true
     switch (row.kind) {
       case 'header':
         return this.renderGroupHeader(row)
       case 'group':
-        return this.renderFolderItem(row.item, active)
+        return this.renderFolderItem(row.item, active, deleteExiting)
       case 'entry':
-        return this.renderEntryItem(row.item, active)
+        return this.renderEntryItem(row.item, active, deleteExiting)
     }
+  }
+
+  protected getVirtualListRenderKey(
+    group: Group | ManagerRoot,
+    items: PMGroupRow[],
+  ): string {
+    // Active-row changes must update rows in place; remounting the list resets scroll on focus/click.
+    return this.model.getListContextKey(group, items.length)
+  }
+
+  private getPreviousVisibleRows(): PMDeleteVisibleRow[] {
+    if (this.lastVirtualRows.length === 0) return []
+
+    const fallbackLast = Math.min(this.lastVirtualRows.length - 1, 39)
+    const range = this.lastVirtualRange ?? {first: 0, last: fallbackLast}
+    const first = Math.max(0, range.first)
+    const last = Math.min(this.lastVirtualRows.length - 1, range.last)
+    const rows: PMDeleteVisibleRow[] = []
+    for (let index = first; index <= last; index += 1) {
+      const row = this.lastVirtualRows[index]
+      if (row) rows.push({row, index})
+    }
+    return rows
+  }
+
+  private onVirtualRangeChanged(event: Event): void {
+    const detail = event as Event & {first?: number; last?: number}
+    if (typeof detail.first !== 'number' || typeof detail.last !== 'number') return
+    this.lastVirtualRange = {
+      first: Math.max(0, Math.floor(detail.first)),
+      last: Math.max(0, Math.floor(detail.last)),
+    }
+    this.scrollEdge.scheduleMeasure()
+  }
+
+  protected onDeleteExitAnimationEnd(event: AnimationEvent, id: string): void {
+    if (event.target !== event.currentTarget) return
+
+    const before = this.captureVisibleRowRects()
+    pmDeleteMotionModel.completeExit(id)
+
+    if (this.prefersReducedMotion()) return
+    void this.updateComplete.then(async () => {
+      await this.waitForVirtualizerLayout()
+      this.animateCompaction(before)
+      this.scrollEdge.scheduleMeasure()
+    })
+  }
+
+  private captureVisibleRowRects(): Map<string, DOMRect> {
+    const rows = new Map<string, DOMRect>()
+    for (const element of this.renderRoot.querySelectorAll<HTMLElement>('.entry-row[data-row-id], .group-row-wrap[data-row-id]')) {
+      if (element.hasAttribute('data-delete-exiting')) continue
+      const id = element.dataset['rowId']
+      if (!id) continue
+      rows.set(id, element.getBoundingClientRect())
+    }
+    return rows
+  }
+
+  private animateCompaction(before: Map<string, DOMRect>): void {
+    if (before.size === 0) return
+
+    for (const element of this.renderRoot.querySelectorAll<HTMLElement>('.entry-row[data-row-id], .group-row-wrap[data-row-id]')) {
+      if (element.hasAttribute('data-delete-exiting')) continue
+
+      const id = element.dataset['rowId']
+      const previous = id ? before.get(id) : undefined
+      if (!previous || typeof element.animate !== 'function') continue
+
+      const next = element.getBoundingClientRect()
+      const deltaX = previous.left - next.left
+      const deltaY = previous.top - next.top
+      if (Math.abs(deltaX) < 0.5 && Math.abs(deltaY) < 0.5) continue
+
+      element.animate(
+        [
+          {transform: `translate(${deltaX}px, ${deltaY}px)`},
+          {transform: 'translate(0, 0)'},
+        ],
+        {
+          duration: 180,
+          easing: 'cubic-bezier(0, 0, 0.2, 1)',
+        },
+      )
+    }
+  }
+
+  private async waitForVirtualizerLayout(): Promise<void> {
+    const virtualizer = this.renderRoot.querySelector('lit-virtualizer') as
+      | ({layoutComplete?: Promise<void>} & HTMLElement)
+      | null
+    await virtualizer?.layoutComplete?.catch(() => {})
+  }
+
+  private prefersReducedMotion(): boolean {
+    return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
   }
 
   protected renderEmptyState() {
@@ -710,72 +1012,91 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
     const targetId = group ? this.getDropTargetId(group) : undefined
 
     return html`
-      <div
-        class="empty"
-        data-drop-target-id=${targetId ?? nothing}
-        @dragover=${this.onDragOverEmpty}
-        @dragenter=${this.onDragOverEmpty}
-        @drop=${this.onDropEmpty}
-        @dragleave=${this.onEmptyDragLeave}
-      >
-        ${i18n('group:no_entries')}
-      </div>
+      <cv-guidance-anchor anchor-id="passwords.create-entry" surface="passwords" owner="passmanager">
+        <div
+          class="empty"
+          data-drop-target-id=${targetId ?? nothing}
+          data-mobile-dnd-target-id=${targetId ?? nothing}
+          @dragover=${this.onDragOverEmpty}
+          @dragenter=${this.onDragOverEmpty}
+          @drop=${this.onDropEmpty}
+          @dragleave=${this.onEmptyDragLeave}
+        >
+          ${i18n('group:no_entries')}
+          ${renderGuidanceInline('passwords.create-entry', 'passwords')}
+        </div>
+      </cv-guidance-anchor>
     `
   }
 
-  protected renderGroupsList(group: Group | ManagerRoot) {
-    const items = this.model.getUniqueRows(this.model.getVisibleRows(group))
+  protected renderGroupsList(group: Group | ManagerRoot, items: PMGroupRow[]) {
+    const previousVisibleRows = this.getPreviousVisibleRows()
+    pmDeleteMotionModel.syncVisibleExits(items, previousVisibleRows, this.lastVirtualRange)
+    const renderItems = pmDeleteMotionModel.decorateRows(items)
 
-    if (!items.length) {
+    if (!items.length && !renderItems.length) {
       this.model.resetKeyboardState()
+      this.lastVirtualRows = []
       return this.renderEmptyState()
     }
 
+    const shouldPreserveListFocus = this.shouldPreserveListFocus()
     const contextKey = this.model.getListContextKey(group, items.length)
-    const {restoredIndex} = this.model.syncKeyboardState(items, contextKey, group)
+    const {restoredIndex, activeIndex, contextChanged} = this.model.syncKeyboardState(
+      items,
+      contextKey,
+      group,
+    )
     if (restoredIndex !== null) {
       this.ensureActiveItemVisible(restoredIndex, true)
+    } else if (contextChanged && shouldPreserveListFocus && activeIndex >= 0) {
+      this.ensureActiveItemVisible(activeIndex, true)
     }
 
     const activeId = this.model.getActiveItemId()
     const currentGroupId = this.getDropTargetId(group)
+    const renderKey = this.getVirtualListRenderKey(group, renderItems)
+    const hasScrollBlockStart = this.usesBlockStartScrollEdge() && this.scrollEdge.hasBlockStartOverflow()
+    const hasScrollBlockEnd = this.scrollEdge.hasBlockEndOverflow()
+    this.lastVirtualRows = items
 
     return html`
-      <lit-virtualizer
-        class="group-virtual-list"
-        data-drop-target-id=${currentGroupId ?? nothing}
-        scroller
-        .items=${items}
-        .keyFunction=${(item: PMGroupRow) => item.id}
-        .renderItem=${(item: PMGroupRow) => this.renderRow(item, item.id === activeId)}
-        @dragover=${this.onDragOverContentArea}
-        @dragenter=${this.onDragOverContentArea}
-        @drop=${this.onDropContentArea}
-        @dragleave=${this.onContentDragLeave}
-      ></lit-virtualizer>
-    `
-  }
-
-  protected renderMetadata(group: Group) {
-    return html`
-      <div class="metadata-section">
-        <div>
-          <label>${i18n('ts:modified')}</label>
-          <strong>${group.updatedFormatted}</strong>
-        </div>
-        <div>
-          <label>${i18n('ts:created')}</label>
-          <strong>${group.createdFormatted}</strong>
-        </div>
+      <div
+        class="scroll-edge-frame pm-group-scroll-edge"
+        data-scroll-block-start=${String(hasScrollBlockStart)}
+        data-scroll-block-end=${String(hasScrollBlockEnd)}
+      >
+        ${keyed(renderKey, html`
+          <lit-virtualizer
+            class="group-virtual-list"
+            data-drop-target-id=${currentGroupId ?? nothing}
+            data-mobile-dnd-target-id=${currentGroupId ?? nothing}
+            scroller
+            .items=${renderItems}
+            .keyFunction=${(item: PMDeleteMotionRow) => item.id}
+            .renderItem=${(item: PMDeleteMotionRow) => this.renderRow(item, item.id === activeId)}
+            @rangeChanged=${this.onVirtualRangeChanged}
+            @dragover=${this.onDragOverContentArea}
+            @dragenter=${this.onDragOverContentArea}
+            @drop=${this.onDropContentArea}
+            @dragleave=${this.onContentDragLeave}
+          ></lit-virtualizer>
+        `)}
       </div>
     `
   }
 
   protected renderGroupContent(group: Group, isRoot: boolean) {
+    const items = this.model.getUniqueRows(this.model.getVisibleRows(group))
+    const summary = this.model.getGroupPresentation(group, items, isRoot)
+
     return html`
       <div class="wrapper">
-        ${this.renderHeader(group)} ${this.renderActions(isRoot)} ${this.renderGroupsList(group)}
-        ${this.renderMetadata(group)}
+        ${this.renderHeader(group, summary, isRoot)}
+        ${this.renderGroupMetrics(summary)}
+        <section class="content-shell">
+          ${this.renderGroupsList(group, items)}
+        </section>
       </div>
     `
   }
@@ -786,14 +1107,10 @@ export abstract class PMGroupBase extends XLitElement implements EventListenerOb
   }
 
   protected override render() {
-    if (!window.passmanager) return nothing
+    if (!getPassmanagerRoot()) return nothing
 
     const group = this.getCurrentGroup()
     if (!group) return nothing
-
-    if (this.model.isEditMode()) {
-      return html`<pm-group-edit @editEnd=${this.handleEditEnd}></pm-group-edit>`
-    }
 
     const isRoot = this.isManagerRoot(group)
     return isRoot ? this.renderRootContent(group) : this.renderGroupContent(group as Group, false)

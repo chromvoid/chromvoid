@@ -1,0 +1,21 @@
+[package]
+name = "tauri-plugin-ios-native-bridge"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+build = "build.rs"
+links = "tauri-plugin-ios-native-bridge"
+
+[lib]
+name = "tauri_plugin_ios_native_bridge"
+path = "src/lib.rs"
+
+[dependencies]
+tauri = { version = "2", default-features = false }
+serde = { version = "1", features = ["derive"] }
+
+[build-dependencies]
+tauri-plugin = { version = "2.5.4", features = ["build"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+tauri = { version = "2", default-features = false, features = ["wry"] }

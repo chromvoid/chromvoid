@@ -60,3 +60,43 @@ fn connection_state_is_copy() {
     let copied = state;
     assert_eq!(state, copied);
 }
+
+#[cfg(desktop)]
+#[test]
+fn remote_media_cancel_try_send_requires_split_feature() {
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+    let client = RemoteJsonClientHandle::new(
+        RemoteJsonSender::Network(tx),
+        std::sync::Arc::new(std::sync::Mutex::new(vec![])),
+    );
+
+    assert!(!client.try_send_cancel_media_inspection(7));
+    assert!(rx.try_recv().is_err());
+}
+
+#[cfg(desktop)]
+#[test]
+fn remote_media_cancel_try_send_enqueues_high_priority_request() {
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+    let client = RemoteJsonClientHandle::new(
+        RemoteJsonSender::Network(tx),
+        std::sync::Arc::new(std::sync::Mutex::new(vec![
+            chromvoid_core::rpc::types::CORE_FEATURE_REMOTE_MEDIA_INSPECTION_SPLIT_V1.to_string(),
+        ])),
+    );
+
+    assert!(client.try_send_cancel_media_inspection(42));
+    let request = rx.try_recv().expect("cancel request should be queued");
+
+    assert_eq!(request.request.command, "catalog:media:inspect:cancel");
+    assert_eq!(
+        request
+            .request
+            .data
+            .get("epoch")
+            .and_then(|value| value.as_u64()),
+        Some(42)
+    );
+    assert_eq!(request.priority, RemoteRpcPriority::High);
+    assert!(request.cancel_group.is_none());
+}

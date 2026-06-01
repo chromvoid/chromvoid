@@ -1,18 +1,17 @@
-/**
- * Swipe Gesture Utility для мобильного интерфейса
- * Поддерживает swipe в 4 направлениях с настраиваемыми параметрами
- */
+/**Swipe Gesture Utility for mobile interface
+* Supports swipe in 4 directions with customizable parameters
+*/
 
 export type SwipeDirection = 'left' | 'right' | 'up' | 'down'
 
 export interface SwipeOptions {
-  /** Минимальное расстояние для регистрации swipe (px) */
+  /**Minimum distance for swipe registration (px)*/
   threshold?: number
-  /** Максимальное отклонение перпендикулярно направлению (px) */
+  /**Maximum deviation perpendicular to direction (px)*/
   restraint?: number
-  /** Максимальное время для swipe жеста (ms) */
+  /**Maximum time for swipe gesture (MS)*/
   allowedTime?: number
-  /** Только touch устройства */
+  /**Only touch devices*/
   touchOnly?: boolean
   /** If returns true for (startX, startY), the gesture is not tracked */
   ignoreStartZone?: (x: number, y: number) => boolean
@@ -55,16 +54,16 @@ export class SwipeGesture {
   }
 
   private setupEventListeners() {
-    // Проверяем поддержку touch и pointer events
+    // Support for touch and pointer events
     const hasTouch = 'ontouchstart' in window
     const hasPointer = 'onpointerdown' in window
 
     if (hasTouch && (!this.options.touchOnly || !hasPointer)) {
-      // Touch события (приоритет для touch устройств)
+      // Touch events (priority for touch devices)
       this.element.addEventListener('touchstart', this.handleStart.bind(this), {passive: true})
       this.element.addEventListener('touchend', this.handleEnd.bind(this), {passive: true})
     } else if (hasPointer && !this.options.touchOnly) {
-      // Pointer события (поддержка мыши + touch)
+      // Pointer events (mouse support + touch)
       this.element.addEventListener('pointerdown', this.handleStart.bind(this))
       this.element.addEventListener('pointerup', this.handleEnd.bind(this))
       this.element.addEventListener('pointercancel', this.handleCancel.bind(this))
@@ -75,7 +74,7 @@ export class SwipeGesture {
     const touch = this.getEventCoordinates(event)
     if (!touch) return
 
-    // Только для touch устройств если указано
+    // Touch devices only if specified
     if (this.options.touchOnly && event.type.startsWith('pointer')) {
       const pointerEvent = event as PointerEvent
       if (pointerEvent.pointerType !== 'touch') return
@@ -104,32 +103,32 @@ export class SwipeGesture {
 
     this.isTracking = false
 
-    // Проверяем временные ограничения
+    // Checking time limits
     if (duration > this.options.allowedTime) return
 
-    // Определяем направление свайпа
+    // Identifying the swipe direction
     let direction: SwipeDirection | null = null
     let distance = 0
     let restraintDistance = 0
 
     if (distanceX >= this.options.threshold || distanceY >= this.options.threshold) {
       if (distanceX > distanceY) {
-        // Горизонтальный свайп
+        // Horizontal swipe
         direction = deltaX < 0 ? 'left' : 'right'
         distance = distanceX
         restraintDistance = distanceY
       } else {
-        // Вертикальный свайп
+        // Vertical swipe
         direction = deltaY < 0 ? 'up' : 'down'
         distance = distanceY
         restraintDistance = distanceX
       }
     }
 
-    // Проверяем ограничения на отклонение
+    // Checking the Rejection Limits
     if (!direction || restraintDistance > this.options.restraint) return
 
-    // Создаем event объект
+    // Create an event facility
     const swipeEvent: SwipeEvent = {
       direction,
       distance,
@@ -171,9 +170,8 @@ export class SwipeGesture {
     }
   }
 
-  /**
-   * Добавляет обработчик для определенного направления свайпа
-   */
+  /*** Adds a handler for a specific swipe direction
+*/
   on(direction: SwipeDirection, handler: SwipeHandler): void {
     if (!this.handlers.has(direction)) {
       this.handlers.set(direction, [])
@@ -181,9 +179,8 @@ export class SwipeGesture {
     this.handlers.get(direction)!.push(handler)
   }
 
-  /**
-   * Удаляет обработчик для определенного направления
-   */
+  /*** Remove the handler for a specific direction
+*/
   off(direction: SwipeDirection, handler: SwipeHandler): void {
     const handlers = this.handlers.get(direction)
     if (handlers) {
@@ -194,33 +191,29 @@ export class SwipeGesture {
     }
   }
 
-  /**
-   * Добавляет обработчики для нескольких направлений
-   */
+  /*** Adds handlers for multiple directions
+*/
   onMultiple(directions: SwipeDirection[], handler: SwipeHandler): void {
     directions.forEach((direction) => this.on(direction, handler))
   }
 
-  /**
-   * Очищает все обработчики
-   */
+  /*** Clears all handlers
+*/
   clear(): void {
     this.handlers.clear()
   }
 
-  /**
-   * Уничтожает экземпляр и убирает все обработчики
-   */
+  /*** Destroys the instance and removes all handlers
+*/
   destroy(): void {
     this.clear()
-    // Удаляем event listeners (для этого нужно сохранить ссылки на bound функции)
-    // Для простоты не реализуем полную очистку в базовой версии
+    // Delete event listeners (you need to save links to bound functions)
+    // For simplicity, we do not implement a full cleaning in the basic version.
   }
 }
 
-/**
- * Хелпер для быстрого создания swipe жестов
- */
+/**Helper to quickly create swipe gestures
+*/
 export function addSwipeGesture(
   element: HTMLElement,
   direction: SwipeDirection,
@@ -232,9 +225,8 @@ export function addSwipeGesture(
   return swipe
 }
 
-/**
- * Хелпер для swipe навигации (left/right)
- */
+/**Helper for swipe navigation (left/right)
+*/
 export function addSwipeNavigation(
   element: HTMLElement,
   onLeft: SwipeHandler,
@@ -247,16 +239,14 @@ export function addSwipeNavigation(
   return swipe
 }
 
-/**
- * Проверяет поддержку touch жестов на устройстве
- */
+/**Checks support for touch gestures on the device
+*/
 export function isTouchDevice(): boolean {
   return 'ontouchstart' in window || navigator.maxTouchPoints > 0
 }
 
-/**
- * Проверяет мобильное устройство по характеристикам экрана
- */
+/*** Checks the mobile device for the characteristics of the screen
+*/
 export function isMobileDevice(): boolean {
   return window.matchMedia('(hover: none) and (pointer: coarse)').matches
 }

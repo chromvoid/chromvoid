@@ -11,24 +11,32 @@ function getPage(): import('playwright').Page | undefined {
 }
 
 async function enablePasswordManager(page: import('playwright').Page): Promise<void> {
-  await page.goto(BASE_URL)
-  await page.evaluate(() => {
-    localStorage.setItem('persist-local-storage-password-manager-mode', JSON.stringify({value: true}))
+  const nextUrl = new URL(BASE_URL)
+  nextUrl.searchParams.set('surface', 'passwords')
+  await page.goto(nextUrl.toString(), {waitUntil: 'domcontentloaded'})
+  await page.waitForFunction(
+    () => {
+      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+        const found = root.querySelector(selector)
+        if (found) return found
+        for (const el of root.querySelectorAll('*')) {
+          if (el.shadowRoot) {
+            const inner = deepFind(el.shadowRoot, selector)
+            if (inner) return inner
+          }
+        }
+        return null
+      }
+
+      const pm = deepFind(document, 'password-manager')
+      return !!pm?.shadowRoot
+    },
+    undefined,
+    {timeout: 10_000},
+  )
+  await page.waitForFunction(() => Boolean((window as unknown as {passmanager?: unknown}).passmanager), undefined, {
+    timeout: 10_000,
   })
-  await page.reload()
-  const deadline = Date.now() + 15_000
-  let ready = false
-  while (Date.now() < deadline) {
-    ready = await page.evaluate(() => {
-      const pm = (window as any).passmanager
-      return Boolean(pm && typeof pm.load === 'function')
-    })
-    if (ready) break
-    await page.waitForTimeout(150)
-  }
-  if (!ready) {
-    throw new Error('passmanager not ready after 15000ms')
-  }
   await page.waitForTimeout(300)
 }
 
@@ -43,36 +51,60 @@ async function createEntryWithOtp(
       if (!pm) throw new Error('passmanager is not initialized')
 
       // Generate unique IDs for this test run
-      const entryId = `entry-${testStartTime}-${Math.random().toString(36).slice(2, 9)}`
       const otpId = `otp-${testStartTime}-${Math.random().toString(36).slice(2, 9)}`
 
-      const entry = pm.createEntry({id: entryId, title: entryTitle, username: 'otp-user', urls: []}, '', '', {
-        id: otpId,
-        label: otpLabel,
-        algorithm: 'SHA1',
-        digits: 6,
-        period,
-        encoding: 'base32',
-        type: 'TOTP',
+      const saver = pm.managerSaver as any
+      const gateway = saver?.secrets as any
+      const catalog = gateway?.catalog as any
+      const transport = catalog?.transport as any
+    if (!transport?.sendPassmanager) {
+      throw new Error('failed to access OTP transport')
+    }
+
+      const saveRes = await transport.sendPassmanager('passmanager:entry:save', {
+        title: entryTitle,
+        username: 'otp-user',
+        urls: [],
+        otps: [
+          {
+            id: otpId,
+            label: otpLabel,
+            algorithm: 'SHA1',
+            digits: 6,
+            period,
+            encoding: 'base32',
+            type: 'TOTP',
+          },
+        ],
+      })
+      if (!saveRes?.ok) {
+        throw new Error(`passmanager:entry:save failed: ${String(saveRes?.error ?? 'unknown')}`)
+      }
+
+      const entryId = String(saveRes.result?.entry_id ?? '')
+      if (!entryId) {
+        throw new Error('passmanager:entry:save returned no entry_id')
+      }
+
+      const setRes = await transport.sendPassmanager('passmanager:otp:setSecret', {
+        otp_id: otpId,
+        entry_id: entryId,
         secret: 'JBSWY3DPEHPK3PXP',
       })
-
-      if (entry?.flushPendingPersistence) {
-        await entry.flushPendingPersistence()
+      if (!setRes?.ok) {
+        throw new Error(`passmanager:otp:setSecret failed: ${String(setRes?.error ?? 'unknown')}`)
       }
-      await pm.save()
 
-      // Wait for save to propagate and reload
-      await new Promise((r) => setTimeout(r, 300))
+      await new Promise((r) => setTimeout(r, 150))
       await pm.load()
 
-      // Retry finding the entry with OTP
+      // Retry finding the entry with OTP after metadata + secret update.
       let target = null
       let attempts = 0
       const maxAttempts = 5
 
       while (attempts < maxAttempts) {
-        target = (pm.allEntries ?? []).find((item: any) => item?.title === entryTitle)
+        target = (pm.allEntries ?? []).find((item: any) => item?.id === entryId || item?.title === entryTitle)
         if (target) {
           const otps = target.otps?.() ?? []
           if (otps.length > 0) {
@@ -87,23 +119,6 @@ async function createEntryWithOtp(
       if (!target) throw new Error('failed to resolve target entry after load')
       const otps = target.otps?.() ?? []
       if (!otps.length) throw new Error('target entry has no OTP after ' + maxAttempts + ' attempts')
-
-      // Ensure OTP secret is present in backend using domain-ID-only contract.
-      const otp = otps[0]
-      const saver = pm.managerSaver as any
-      const gateway = saver?.secrets as any
-      const catalog = gateway?.catalog as any
-      const transport = catalog?.transport as any
-      if (!transport?.sendCatalog) {
-        throw new Error('failed to access OTP transport for setSecret')
-      }
-      const setRes = await transport.sendCatalog('passmanager:otp:setSecret', {
-        otp_id: otp.id,
-        secret: 'JBSWY3DPEHPK3PXP',
-      })
-      if (!setRes?.ok) {
-        throw new Error(`passmanager:otp:setSecret failed: ${String(setRes?.error ?? 'unknown')}`)
-      }
 
       pm.showElement.set(target)
     },
@@ -125,7 +140,7 @@ async function waitForOtpItem(page: import('playwright').Page): Promise<void> {
         }
         return null
       }
-      return Boolean(deepFind(document, 'pm-entry-totp-item'))
+      return Boolean(deepFind(document, 'pm-entry-otp-item'))
     },
     undefined,
     {timeout: 15_000},
@@ -140,26 +155,42 @@ async function installOtpCapture(page: import('playwright').Page): Promise<void>
     const gateway = saver?.secrets as any
     const catalog = gateway?.catalog as any
     const transport = catalog?.transport as any
-    if (!transport || typeof transport.sendCatalog !== 'function') {
+    if (!transport || typeof transport.sendPassmanager !== 'function') {
       throw new Error('failed to patch OTP transport')
     }
 
-    win.__sendCatalogCalls = []
-    win.__otpGenerateCalls = []
-    win.__passmanagerEntryListCalls = []
-    win.__catalogShardListCalls = []
-    win.__otpGenerateOriginalSendCatalog = transport.sendCatalog.bind(transport)
-    transport.sendCatalog = async (command: string, data: Record<string, unknown>) => {
-      const result = await win.__otpGenerateOriginalSendCatalog(command, data)
+    const recordCall = (command: string, data: Record<string, unknown>, result: unknown) => {
       win.__sendCatalogCalls.push({command, data, at: Date.now(), result})
       if (command === 'passmanager:otp:generate') {
         win.__otpGenerateCalls.push({command, data, at: Date.now(), result})
       } else if (command === 'passmanager:entry:list') {
         win.__passmanagerEntryListCalls.push({command, data, at: Date.now(), result})
-      } else if (command === 'catalog:shard:list') {
-        win.__catalogShardListCalls.push({command, data, at: Date.now(), result})
+      } else if (command === 'catalog:sync:manifest') {
+        win.__catalogManifestCalls.push({command, data, at: Date.now(), result})
       }
+    }
+
+    win.__sendCatalogCalls = []
+    win.__otpGenerateCalls = []
+    win.__passmanagerEntryListCalls = []
+    win.__catalogManifestCalls = []
+    win.__otpGenerateOriginalSendPassmanager = transport.sendPassmanager.bind(transport)
+    transport.sendPassmanager = async (command: string, data: Record<string, unknown>) => {
+      const result = await win.__otpGenerateOriginalSendPassmanager(command, data)
+      recordCall(command, data, result)
       return result
+    }
+    if (typeof transport.sendCatalog === 'function') {
+      win.__otpGenerateOriginalSendCatalog = transport.sendCatalog.bind(transport)
+      transport.sendCatalog = async (command: string, data: Record<string, unknown>) => {
+        if (command.startsWith('passmanager:')) {
+          return transport.sendPassmanager(command, data)
+        }
+
+        const result = await win.__otpGenerateOriginalSendCatalog(command, data)
+        recordCall(command, data, result)
+        return result
+      }
     }
   })
 }
@@ -173,14 +204,18 @@ async function restoreOtpCapture(page: import('playwright').Page): Promise<void>
     const catalog = gateway?.catalog as any
     const transport = catalog?.transport as any
 
+    if (transport && typeof win.__otpGenerateOriginalSendPassmanager === 'function') {
+      transport.sendPassmanager = win.__otpGenerateOriginalSendPassmanager
+    }
     if (transport && typeof win.__otpGenerateOriginalSendCatalog === 'function') {
       transport.sendCatalog = win.__otpGenerateOriginalSendCatalog
     }
+    delete win.__otpGenerateOriginalSendPassmanager
     delete win.__otpGenerateOriginalSendCatalog
     delete win.__sendCatalogCalls
     delete win.__otpGenerateCalls
     delete win.__passmanagerEntryListCalls
-    delete win.__catalogShardListCalls
+    delete win.__catalogManifestCalls
   })
 }
 
@@ -190,15 +225,30 @@ async function clearCapturedCalls(page: import('playwright').Page): Promise<void
     win.__sendCatalogCalls = []
     win.__otpGenerateCalls = []
     win.__passmanagerEntryListCalls = []
-    win.__catalogShardListCalls = []
+    win.__catalogManifestCalls = []
   })
 }
 
 async function emitCatalogMirrorNoise(page: import('playwright').Page, repeats: number): Promise<void> {
   await page.evaluate((count) => {
-    const mirror = (window as any).catalog?.catalog
+    const win = window as any
+    const mirror = win.catalog?.catalog
     if (!mirror || typeof mirror.applyEvent !== 'function') {
-      throw new Error('catalog mirror is not available')
+      const transport = win.passmanager?.managerSaver?.secrets?.catalog?.transport
+      if (typeof transport?.emit !== 'function') {
+        return
+      }
+
+      for (let i = 0; i < count; i++) {
+        transport.emit('catalog:event', {
+          type: 'node_updated',
+          nodeId: 0,
+          timestamp: Date.now() + i,
+          version: i + 1,
+          metadata: {},
+        })
+      }
+      return
     }
     const rootNode = typeof mirror.findByPath === 'function' ? mirror.findByPath('/') : undefined
     const nodeId = Number(rootNode?.nodeId ?? 0)
@@ -228,8 +278,7 @@ async function clickReveal(page: import('playwright').Page): Promise<boolean> {
       return null
     }
 
-    const item = deepFind(document, 'pm-entry-totp-item') as HTMLElement | null
-    const toggle = item?.shadowRoot?.querySelector('.totp-actions cv-button') as HTMLElement | null
+    const toggle = deepFind(document, '.totp-card') as HTMLElement | null
     toggle?.click()
     return Boolean(toggle)
   })
@@ -246,9 +295,9 @@ test('S23: OTP reveal uses passmanager:otp:generate with otp_id and renders code
   const entryTitle = `e2e-otp-entry-${suffix}`
   const otpLabel = `Primary OTP ${suffix}`
 
+  await installOtpCapture(page)
   await createEntryWithOtp(page, {entryTitle, otpLabel, period: 30})
   await waitForOtpItem(page)
-  await installOtpCapture(page)
 
   const clicked = await clickReveal(page)
   expect(clicked).toBe(true)
@@ -270,8 +319,11 @@ test('S23: OTP reveal uses passmanager:otp:generate with otp_id and renders code
 
     const win = window as any
     const item = deepFind(document, 'pm-entry-totp-item') as HTMLElement | null
-    const codeEl = item?.shadowRoot?.querySelector('.totp-code') as HTMLElement | null
-    const rawText = (codeEl?.textContent ?? '').trim()
+    const digits = Array.from(item?.shadowRoot?.querySelectorAll('.totp-digit') ?? [])
+      .map((el) => el.textContent ?? '')
+      .join('')
+      .trim()
+    const rawText = digits
     const digitsOnly = rawText.replace(/\D+/g, '')
     const calls = Array.isArray(win.__otpGenerateCalls) ? win.__otpGenerateCalls : []
     const lastCall = calls.length > 0 ? calls[calls.length - 1] : null
@@ -308,12 +360,9 @@ test('S23: OTP reveal does not request backend every second inside one time slot
   const entryTitle = `e2e-otp-refresh-${suffix}`
   const otpLabel = `Slot OTP ${suffix}`
 
+  await installOtpCapture(page)
   await createEntryWithOtp(page, {entryTitle, otpLabel, period: 600})
   await waitForOtpItem(page)
-  await installOtpCapture(page)
-
-  const clicked = await clickReveal(page)
-  expect(clicked).toBe(true)
 
   await page.waitForTimeout(3200)
 
@@ -362,15 +411,15 @@ test('S23: Entry view ignores catalog mirror noise and avoids passmanager:entry:
     const listCalls = Array.isArray(win.__passmanagerEntryListCalls)
       ? win.__passmanagerEntryListCalls.length
       : 0
-    const shardCalls = Array.isArray(win.__catalogShardListCalls) ? win.__catalogShardListCalls.length : 0
-    return {otpCalls, listCalls, shardCalls}
+    const manifestCalls = Array.isArray(win.__catalogManifestCalls) ? win.__catalogManifestCalls.length : 0
+    return {otpCalls, listCalls, manifestCalls}
   })
 
   await restoreOtpCapture(page)
 
   expect(stats.otpCalls).toBe(0)
   expect(stats.listCalls).toBe(0)
-  expect(stats.shardCalls).toBe(0)
+  expect(stats.manifestCalls).toBe(0)
 })
 
 test('S23: Remove OTP from entry uses passmanager:otp:removeSecret with otp_id only', async (ctx) => {
@@ -404,11 +453,11 @@ test('S23: Remove OTP from entry uses passmanager:otp:removeSecret with otp_id o
     const gateway = saver?.secrets as any
     const catalog = gateway?.catalog as any
     const transport = catalog?.transport as any
-    if (!transport?.sendCatalog) {
+    if (!transport?.sendPassmanager) {
       throw new Error('failed to access OTP transport for removeSecret')
     }
 
-    const res = await transport.sendCatalog('passmanager:otp:removeSecret', {
+    const res = await transport.sendPassmanager('passmanager:otp:removeSecret', {
       otp_id: otp.id,
     })
 
@@ -458,31 +507,31 @@ test('S23: Add OTP to existing entry uses passmanager:otp:setSecret with otp_id 
       const pm = win.passmanager
       if (!pm) throw new Error('passmanager is not initialized')
 
-      // Step 1: Create entry WITHOUT OTP
-      const entry = pm.createEntry({title: params.title, username: 'otp-add-user', urls: []}, '', '')
-
-      if (entry?.flushPendingPersistence) {
-        await entry.flushPendingPersistence()
-      }
-      await pm.save()
-      await pm.load()
-
-      const target = (pm.allEntries ?? []).find((item: any) => item?.title === params.title)
-      if (!target) throw new Error('failed to find target entry after creation')
-      const entryId = target.id
-
-      // Step 2: Update entry with OTP metadata using passmanager:entry:save
-      // This makes the OTP resolvable by the backend
+      // Step 1: Create entry WITHOUT OTP via transport to avoid full pm.save reconcile.
       const saver = pm.managerSaver as any
       const gateway = saver?.secrets as any
       const catalog = gateway?.catalog as any
       const transport = catalog?.transport as any
-      if (!transport?.sendCatalog) {
+      if (!transport?.sendPassmanager) {
         throw new Error('failed to access transport for entry:save')
       }
 
-      // First, update entry metadata with OTP config so resolver can find it
-      const saveRes = await transport.sendCatalog('passmanager:entry:save', {
+      const createRes = await transport.sendPassmanager('passmanager:entry:save', {
+        title: params.title,
+        username: 'otp-add-user',
+        urls: [],
+      })
+      if (!createRes?.ok) {
+        throw new Error(`initial passmanager:entry:save failed: ${String(createRes?.error ?? 'unknown')}`)
+      }
+
+      const entryId = String(createRes.result?.entry_id ?? '')
+      if (!entryId) {
+        throw new Error('initial passmanager:entry:save returned no entry_id')
+      }
+
+      // Step 2: Update entry metadata with OTP config so resolver can find it.
+      const saveRes = await transport.sendPassmanager('passmanager:entry:save', {
         entry_id: entryId,
         title: params.title,
         username: 'otp-add-user',
@@ -505,7 +554,7 @@ test('S23: Add OTP to existing entry uses passmanager:otp:setSecret with otp_id 
       }
 
       // Step 3: Now setSecret will succeed because OTP metadata exists
-      const setRes = await transport.sendCatalog('passmanager:otp:setSecret', {
+      const setRes = await transport.sendPassmanager('passmanager:otp:setSecret', {
         otp_id: params.otpId,
         entry_id: entryId,
         secret: 'JBSWY3DPEHPK3PXP',

@@ -1,6 +1,7 @@
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import {tauriInvoke} from 'root/core/transport/tauri/ipc'
 import {getAppContext} from 'root/shared/services/app-context'
+import {i18n} from 'root/i18n'
 
 import {getModeStatus, isRemoteMode, onConnectionStatus, onModeChanged, type RemoteHost} from './remote.model'
 
@@ -21,7 +22,7 @@ function isOk<T>(res: RpcResult<T>): res is RpcOk<T> {
 async function tauriRpc<T = unknown>(command: string, data: Record<string, unknown>): Promise<T> {
   const res = await tauriInvoke<RpcResult<RpcCommandResult<T>>>('rpc_dispatch', {args: {v: 1, command, data}})
   if (!isOk(res)) {
-    throw new Error(res.error || 'RPC error')
+    throw new Error(res.error || i18n('remote:rpc-error'))
   }
   if (!res.result || typeof res.result !== 'object' || res.result.command !== command) {
     throw new Error(`rpc_dispatch command mismatch: expected ${command}`)

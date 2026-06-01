@@ -1,6 +1,7 @@
 import {beforeEach, afterEach, describe, expect, it, vi} from 'vitest'
 
 import {CVInput, CVTextarea} from '@chromvoid/uikit'
+import {html} from '@chromvoid/uikit/reatom-lit'
 import {PMEntryCreateBase} from '../../src/features/passmanager/components/card/entry-create/entry-create-base'
 import {PMEntryCreateMobile} from '../../src/features/passmanager/components/card/entry-create/entry-create-mobile'
 
@@ -16,6 +17,15 @@ class TestEntryCreate extends PMEntryCreateBase {
   protected override onSubmit(e: Event) {
     e.preventDefault()
     this.onSubmitSpy()
+  }
+
+  protected override render() {
+    return html`
+      <form @submit=${this.onSubmit}>
+        <cv-input name="title"></cv-input>
+        <cv-textarea name="note"></cv-textarea>
+      </form>
+    `
   }
 }
 
@@ -47,6 +57,7 @@ describe('PMEntryCreateBase form submit behavior', () => {
     previousPassmanager = window.passmanager
     window.passmanager = {
       isReadOnly: vi.fn(() => false),
+      showElement: () => null,
     } as unknown as typeof window.passmanager
     CVInput.define()
     CVTextarea.define()
@@ -86,7 +97,7 @@ describe('PMEntryCreateBase form submit behavior', () => {
     expect(requestSubmitSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('resets scroll position and focuses title without scrolling on mobile connect', async () => {
+  it('resets scroll position without focusing title on mobile connect', async () => {
     const component = document.createElement('test-entry-create-mobile-scroll') as TestEntryCreateMobileScroll
     const scrollToSpy = vi.fn()
 
@@ -99,7 +110,7 @@ describe('PMEntryCreateBase form submit behavior', () => {
     await settle()
 
     expect(scrollToSpy).toHaveBeenCalledWith({top: 0, left: 0})
-    expect(component.focusCalls).toEqual([true])
+    expect(component.focusCalls).toEqual([])
   })
 
   it('disables native autofocus for the mobile title field', async () => {
@@ -112,14 +123,14 @@ describe('PMEntryCreateBase form submit behavior', () => {
     expect(titleInput?.hasAttribute('autofocus')).toBe(false)
   })
 
-  it('keeps native autofocus for the base create title field', async () => {
+  it('does not set native autofocus for the base create title field', async () => {
     const component = document.createElement('test-entry-create') as TestEntryCreate
     document.body.append(component)
     await settle()
 
     const titleInput = component.shadowRoot?.querySelector('cv-input[name="title"]') as HTMLElement | null
     expect(titleInput).not.toBeNull()
-    expect(titleInput?.hasAttribute('autofocus')).toBe(true)
+    expect(titleInput?.hasAttribute('autofocus')).toBe(false)
   })
 
   it('does not submit when Enter is pressed inside note textarea', async () => {

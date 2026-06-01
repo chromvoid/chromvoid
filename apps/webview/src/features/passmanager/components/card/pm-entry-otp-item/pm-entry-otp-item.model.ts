@@ -1,30 +1,42 @@
-import {state} from '@statx/core'
+import {action, atom, peek} from '@reatom/core'
 
-import type {OTP} from '@project/passmanager'
+import type {OTP} from '@project/passmanager/core'
 
 export class PMEntryOTPItemModel {
-  readonly otp = state<OTP | undefined>(undefined)
+  private readonly otpState = atom<OTP | undefined>(undefined, 'passmanager.entryOtpItem.otp')
 
   private previousOtp: OTP | undefined
 
-  setOtp(value: OTP | undefined): void {
-    if (this.previousOtp && this.previousOtp !== value) {
-      this.previousOtp.hide()
-    }
-
-    if (value && value !== this.previousOtp) {
-      value.hide()
-    }
-
-    this.previousOtp = this.otp.peek()
-    this.otp.set(value)
+  readonly state = {
+    otp: this.otpState,
   }
 
-  disconnect(): void {
-    this.otp.peek()?.hide()
+  readonly actions = {
+    setOtp: action((value: OTP | undefined) => {
+      if (this.previousOtp && this.previousOtp !== value) {
+        this.previousOtp.hide()
+      }
+
+      if (value && value !== this.previousOtp) {
+        value.hide()
+      }
+
+      this.otpState.set(value)
+      this.previousOtp = value
+    }, 'passmanager.entryOtpItem.setOtp'),
+
+    disconnect: action(() => {
+      this.otpState()?.hide()
+      this.previousOtp = undefined
+    }, 'passmanager.entryOtpItem.disconnect'),
   }
 
   isHotp(): boolean {
-    return this.otp.peek()?.type.peek() === 'HOTP'
+    const type = this.otpState()?.type
+    if (typeof type !== 'function') {
+      return false
+    }
+
+    return peek(type) === 'HOTP'
   }
 }

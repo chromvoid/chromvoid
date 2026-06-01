@@ -1,5 +1,7 @@
 use tauri::Manager;
 
+use std::ffi::OsStr;
+
 pub(crate) fn show_main_window(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
@@ -37,36 +39,47 @@ pub(crate) fn sanitize_filename(name: &str) -> String {
 }
 
 pub(crate) fn open_path_with_system(path: &std::path::Path) -> Result<(), String> {
+    spawn_system_open(path.as_os_str(), "file")
+}
+
+pub(crate) fn open_url_with_system(url: &str) -> Result<(), String> {
+    spawn_system_open(OsStr::new(url), "URL")
+}
+
+fn spawn_system_open(target: &OsStr, kind: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .arg(path)
+            .arg(target)
             .spawn()
-            .map_err(|e| format!("Failed to open file: {e}"))?;
+            .map_err(|e| format!("Failed to open {kind}: {e}"))?;
         return Ok(());
     }
 
     #[cfg(target_os = "windows")]
     {
-        let path_str = path.to_string_lossy().to_string();
         std::process::Command::new("cmd")
-            .args(["/C", "start", "", &path_str])
+            .args(["/C", "start", ""])
+            .arg(target)
             .spawn()
-            .map_err(|e| format!("Failed to open file: {e}"))?;
+            .map_err(|e| format!("Failed to open {kind}: {e}"))?;
         return Ok(());
     }
 
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("xdg-open")
-            .arg(path)
+            .arg(target)
             .spawn()
-            .map_err(|e| format!("Failed to open file: {e}"))?;
+            .map_err(|e| format!("Failed to open {kind}: {e}"))?;
         return Ok(());
     }
 
     #[allow(unreachable_code)]
-    Err("Unsupported platform".to_string())
+    {
+        let _ = (target, kind);
+        Err("Unsupported platform".to_string())
+    }
 }
 
 pub(crate) fn now_secs() -> u64 {

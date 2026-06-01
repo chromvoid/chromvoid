@@ -1,5 +1,6 @@
 import {isTauriRuntime} from 'root/core/runtime/runtime'
 import {tauriInvoke} from 'root/core/transport/tauri/ipc'
+import {i18n} from 'root/i18n'
 
 type RpcOk<T> = {ok: true; result: T}
 type RpcErr = {ok: false; error: string; code?: string | null}
@@ -11,7 +12,12 @@ export type SessionSettings = {
   lock_on_mobile_background: boolean
   require_biometric_app_gate: boolean
   auto_mount_after_unlock: boolean
+  auto_start_ssh_agent_after_unlock: boolean
   keep_screen_awake_when_unlocked: boolean
+  android_vault_status_notification_enabled: boolean
+  android_quick_lock_tile_enabled: boolean
+  confirm_file_deletion: boolean
+  markdown_attachment_folder_path: string
 }
 
 export const DEFAULT_SESSION_SETTINGS: SessionSettings = {
@@ -20,7 +26,12 @@ export const DEFAULT_SESSION_SETTINGS: SessionSettings = {
   lock_on_mobile_background: false,
   require_biometric_app_gate: true,
   auto_mount_after_unlock: false,
+  auto_start_ssh_agent_after_unlock: false,
   keep_screen_awake_when_unlocked: false,
+  android_vault_status_notification_enabled: true,
+  android_quick_lock_tile_enabled: true,
+  confirm_file_deletion: true,
+  markdown_attachment_folder_path: '/attachments',
 }
 
 function isOk<T>(res: RpcResult<T>): res is RpcOk<T> {
@@ -32,7 +43,7 @@ export async function loadSessionSettings(): Promise<SessionSettings> {
 
   const res = await tauriInvoke<RpcResult<SessionSettings>>('get_session_settings')
   if (!isOk(res)) {
-    throw new Error(res.error || 'Failed to load session settings')
+    throw new Error(res.error || i18n('errors:load-session-settings'))
   }
 
   return {
@@ -46,7 +57,7 @@ export async function saveSessionSettings(settings: SessionSettings): Promise<Se
 
   const res = await tauriInvoke<RpcResult<SessionSettings>>('set_session_settings', {settings})
   if (!isOk(res)) {
-    throw new Error(res.error || 'Failed to save session settings')
+    throw new Error(res.error || i18n('errors:save-session-settings'))
   }
 
   return {

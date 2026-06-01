@@ -1,1 +1,2 @@
-export {pmGroupCommonStyles, pmGroupDesktopStyles, pmGroupMobileStyles} from './group.styles'
+export {pmGroupCommonStyles} from './group.styles'
+export {pmGroupListItemMobileStyles} from './group-list-item-mobile.styles'

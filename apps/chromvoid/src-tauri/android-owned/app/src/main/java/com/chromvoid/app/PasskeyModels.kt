@@ -2,13 +2,11 @@ package com.chromvoid.app
 
 import com.chromvoid.app.shared.PendingRequestRecord
 
-data class PasskeyMetadata(
+data class AndroidPasskeySummary(
     val credentialIdB64Url: String,
     val rpId: String,
-    val userIdB64Url: String,
     val userName: String,
     val userDisplayName: String,
-    val keyAlias: String,
     val signCount: Long,
     val createdAtEpochMs: Long,
     val lastUsedEpochMs: Long,
@@ -37,10 +35,23 @@ data class CreatePasskeyRequestData(
     val supportedAlgorithms: Set<Int>,
     val excludeCredentialIds: Set<String>,
     val attestationPreference: String,
+    val credPropsRequested: Boolean = false,
+    val residentKeyRequired: Boolean = false,
 )
 
-data class CreatedPasskeyMaterial(
-    val metadata: PasskeyMetadata,
-    val credentialId: ByteArray,
-    val cosePublicKey: ByteArray,
+data class PasskeyCoreRequestPayload(
+    val requestJson: String,
+    val origin: String,
+    val clientDataHashB64Url: String?,
+    val selectedCredentialId: String? = null,
+)
+
+data class PasskeyCoreQueryResult(
+    val requestId: String,
+    val passkeys: List<AndroidPasskeySummary>,
+)
+
+data class PasskeyCoreOperationResult(
+    val credentialIdB64Url: String,
+    val responseJson: String,
 )

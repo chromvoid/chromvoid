@@ -13,4 +13,7 @@ pub use types::ConnectionState;
 pub use types::ModeTransition;
 #[cfg(desktop)]
 pub use types::RemoteHost;
+#[cfg(desktop)]
+pub use types::RemoteJsonClientHandle;
 pub use types::{CoreAdapter, CoreMode};
+pub use types::{RemoteCancelGroup, RemoteRpcPriority};

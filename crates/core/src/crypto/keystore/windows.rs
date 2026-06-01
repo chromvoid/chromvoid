@@ -42,10 +42,14 @@ pub fn probe_webauthn_capability_with(
 #[cfg(target_os = "windows")]
 fn default_webauthn_api_version() -> Option<u32> {
     #[link(name = "webauthn")]
+    // SAFETY: signature matches the Windows webauthn.dll export; the library is linked at load time on
+    // Windows.
     unsafe extern "system" {
         fn WebAuthNGetApiVersionNumber() -> u32;
     }
 
+    // SAFETY: webauthn.dll is linked at load time on Windows; WebAuthNGetApiVersionNumber takes no args
+    // and returns a u32 version number.
     Some(unsafe { WebAuthNGetApiVersionNumber() })
 }
 

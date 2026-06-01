@@ -8,7 +8,7 @@ use std::fs;
 use test_helpers::*;
 
 #[test]
-fn test_passmanager_shard_snapshot_chunk_exists_after_save() {
+fn test_eager_system_shard_snapshot_chunks_exist_after_save() {
     let (mut router, temp_dir, keystore) = create_test_router_with_keystore();
     let password = "test_password";
     unlock_vault(&mut router, password);
@@ -25,11 +25,13 @@ fn test_passmanager_shard_snapshot_chunk_exists_after_save() {
     let pepper = StoragePepper::get_or_create(keystore.as_ref()).expect("pepper");
     let vault_key = derive_vault_key_v2(password, &vault_salt, &pepper).expect("derive v2 key");
 
-    let shard_chunk = shard_chunk_name(&*vault_key, ".passmanager", 0);
     let storage = Storage::new(temp_dir.path()).expect("storage");
 
-    assert!(
-        storage.chunk_exists(&shard_chunk).expect("chunk_exists"),
-        "ADR-003 expects an eager shard snapshot chunk for .passmanager"
-    );
+    for shard_id in [".passmanager", ".passkeys"] {
+        let shard_chunk = shard_chunk_name(&*vault_key, shard_id, 0);
+        assert!(
+            storage.chunk_exists(&shard_chunk).expect("chunk_exists"),
+            "ADR-003/ADR-034 expects an eager shard snapshot chunk for {shard_id}"
+        );
+    }
 }

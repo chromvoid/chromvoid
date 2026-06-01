@@ -1,22 +1,29 @@
 use crate::app_state::AppState;
 #[cfg(any(desktop, test))]
 use crate::network;
+use crate::state_ext::lock_or_string_err;
 
 #[cfg(any(desktop, test))]
-pub(crate) fn legacy_paired_peers_path(state: &tauri::State<'_, AppState>) -> std::path::PathBuf {
-    let storage_root = state.storage_root.lock().unwrap();
-    storage_root.join("paired_network_peers.json")
+pub(crate) fn legacy_paired_peers_path(
+    state: &tauri::State<'_, AppState>,
+) -> Result<std::path::PathBuf, String> {
+    let storage_root = lock_or_string_err!(state.storage_root, "Storage root");
+    Ok(storage_root.join("paired_network_peers.json"))
 }
 
 #[cfg(any(desktop, test))]
-pub(crate) fn ios_paired_peers_path(state: &tauri::State<'_, AppState>) -> std::path::PathBuf {
-    let storage_root = state.storage_root.lock().unwrap();
-    storage_root.join("paired_ios_peers.json")
+pub(crate) fn ios_paired_peers_path(
+    state: &tauri::State<'_, AppState>,
+) -> Result<std::path::PathBuf, String> {
+    let storage_root = lock_or_string_err!(state.storage_root, "Storage root");
+    Ok(storage_root.join("paired_ios_peers.json"))
 }
 
-pub(crate) fn local_identity_path(state: &tauri::State<'_, AppState>) -> std::path::PathBuf {
-    let storage_root = state.storage_root.lock().unwrap();
-    storage_root.join("network_local_identity.json")
+pub(crate) fn local_identity_path(
+    state: &tauri::State<'_, AppState>,
+) -> Result<std::path::PathBuf, String> {
+    let storage_root = lock_or_string_err!(state.storage_root, "Storage root");
+    Ok(storage_root.join("network_local_identity.json"))
 }
 
 #[cfg(any(desktop, test))]

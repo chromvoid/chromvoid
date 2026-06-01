@@ -19,7 +19,13 @@ pub(super) async fn perform_pair_handshake(
     let psk = {
         let now = now_ms();
         let state = app_handle.state::<crate::AppState>();
-        let mut st = state.gateway.lock().ok()?;
+        let mut st = match state.gateway.lock() {
+            Ok(st) => st,
+            Err(_) => {
+                warn!("[gateway][pair] reject: gateway mutex poisoned");
+                return None;
+            }
+        };
 
         let s = match st.pairing.as_ref() {
             Some(s) => s,
@@ -136,14 +142,27 @@ pub(super) async fn perform_pair_handshake(
     };
 
     // Store the newly paired extension.
-    {
+    let (catalog_blocking_io_runtime, save_snapshot) = {
         let state = app_handle.state::<crate::AppState>();
-        let mut st = state.gateway.lock().ok()?;
+        let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
+        let mut st = match state.gateway.lock() {
+            Ok(st) => st,
+            Err(_) => {
+                warn!("[gateway][pair] reject: gateway mutex poisoned while storing pairing");
+                return None;
+            }
+        };
         st.upsert_paired_extension(ext_id.clone());
         // Store the gateway keypair so future IK reconnects work.
         st.ensure_gateway_keypair(&keypair);
-        st.save_config();
-    }
+        (catalog_blocking_io_runtime, st.config_save_snapshot())
+    };
+    crate::gateway::save_config_snapshot_best_effort(
+        catalog_blocking_io_runtime,
+        save_snapshot,
+        "Gateway pair handshake save",
+    )
+    .await;
 
     info!("[gateway][pair] pairing success: extension_id={ext_id}");
 
@@ -167,7 +186,10 @@ fn record_pairing_attempt(app_handle: &tauri::AppHandle) {
     let state = app_handle.state::<crate::AppState>();
     let mut st = match state.gateway.lock() {
         Ok(g) => g,
-        Err(_) => return,
+        Err(_) => {
+            warn!("[gateway][pair] failed to record pairing attempt: gateway mutex poisoned");
+            return;
+        }
     };
     if let Some(s) = st.pairing.as_mut() {
         if s.attempts_left > 0 {

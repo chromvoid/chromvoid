@@ -184,18 +184,6 @@ pub fn build_sign_response(signature: &[u8]) -> Vec<u8> {
     build_message(SSH_AGENT_SIGN_RESPONSE, &payload)
 }
 
-/// Encode an SSH signature in the standard wire format:
-/// string algorithm_name + string signature_blob
-pub fn encode_ssh_signature(algorithm: &str, sig_bytes: &[u8]) -> Vec<u8> {
-    let algo_bytes = algorithm.as_bytes();
-    let mut out = Vec::new();
-    out.extend_from_slice(&(algo_bytes.len() as u32).to_be_bytes());
-    out.extend_from_slice(algo_bytes);
-    out.extend_from_slice(&(sig_bytes.len() as u32).to_be_bytes());
-    out.extend_from_slice(sig_bytes);
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::{build_identities_answer, parse_identities_answer, SSH_AGENT_IDENTITIES_ANSWER};

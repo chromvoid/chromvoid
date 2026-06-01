@@ -1,43 +1,120 @@
-import {computed, state} from '@statx/core'
-import {save} from '@tauri-apps/plugin-dialog'
-import {getCurrentWindow} from '@tauri-apps/api/window'
+import {atom} from '@reatom/core'
 
 import type {AppContext} from 'root/shared/services/app-context'
 import {getAppContext} from 'root/shared/services/app-context'
-import {dialogService} from 'root/shared/services/dialog'
-import {CatalogUIService} from 'root/shared/services/catalog-ui'
-import {DragDropService} from 'root/shared/services/drag-drop'
-import {PASS_DIR} from 'root/core/pass-utils'
-import {isTauriRuntime} from 'root/core/runtime/runtime'
-import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
-import {tauriInvoke} from 'root/core/transport/tauri/ipc'
-import {isSuccess, type RpcResult} from '@chromvoid/scheme'
-import {isImageFile, isVideoFile, isPlayableVideoFile} from 'root/utils/mime-type'
-import {canShareFiles, shareFile} from 'root/shared/services/share'
+import {writeAndroidUnlockDebug} from 'root/shared/services/android-unlock-debug'
 
-import type {ContextMenuItem} from './components/context-menu'
-import type {FileItemData, FileListItem, SearchFilters} from 'root/shared/contracts/file-manager'
+import {FileUploadFlow} from './upload-flow.model'
+import {FileDownloadFlow} from './download-flow.model'
+import {FileMediaInspectionFlow} from './media-inspection-flow.model'
+import {FileListViewportModel} from './models/file-list-viewport.model'
+import {FileListModel} from './models/file-list.model'
+import {FileActionsModel} from './models/file-actions.model'
+import {FileDeletionMotionModel} from './models/file-deletion-motion.model'
+import {FileMoveModel, type FileDragPayload} from './models/file-move.model'
+import {FileManagerMobileToolbarModel} from './models/file-manager-mobile-toolbar.model'
+import type {FileManagerMobileToolbarAction} from './models/file-manager-mobile-toolbar.model'
+import {
+  createDefaultFileSearchFilters,
+  createFileSearchFilterActions,
+  hasNonDefaultFileSearchFilters,
+} from './models/file-search-filters.model'
+import type {FileManagerActionDescriptor} from './models/file-action-descriptors'
+import {
+  subscribeFileManagerCommand,
+  type FileManagerCommand,
+} from './services/file-manager-commands'
+import {openFileMoveDialog} from './services/file-move-dialog'
+import type {
+  FileItemData,
+  FileListVisibleRange,
+  FileListViewportSnapshot,
+  SearchFilters,
+} from 'root/shared/contracts/file-manager'
 
-type NotificationKind = 'success' | 'error' | 'warning' | 'info'
+let sharedFileManagerModel: FileManagerModel | undefined
+let sharedFileManagerCtx: AppContext | undefined
 
 export class FileManagerModel {
-  readonly isLoading = state(false)
-  readonly error = state<string | null>(null)
-  readonly isDragActive = state(false)
+  readonly isLoading = atom(false)
 
   private readonly ctx: AppContext
-  private readonly catalogUI = new CatalogUIService()
+  private readonly viewport = new FileListViewportModel()
+  private readonly mediaInspection: FileMediaInspectionFlow
+  private readonly fileList: FileListModel
+  private readonly upload: FileUploadFlow
+  private readonly download: FileDownloadFlow
+  private readonly actions: FileActionsModel
+  readonly deletionMotion = new FileDeletionMotionModel()
+  readonly fileMove: FileMoveModel
+  private readonly mobileToolbar: FileManagerMobileToolbarModel
+  readonly fileItems: FileListModel['fileItems']
+  readonly renderItems: FileListModel['renderItems']
+  readonly totalCount: FileListModel['totalCount']
+  readonly filteredCount: FileListModel['filteredCount']
+  readonly selectedCount: FileListModel['selectedCount']
+  readonly searchFilterActions = createFileSearchFilterActions({
+    read: () => this.searchFilters(),
+    write: (next) => this.commitSearchFilters(next),
+  })
 
-  private readonly catalogRevision = state(0)
   private connected = false
-
-  private unsubscribeMirror?: () => void
-  private unsubscribeAuth?: () => void
-  private dragDrop?: DragDropService
-  private unlistenTauriDragDrop?: () => void
+  private unsubscribeCommands?: () => void
 
   constructor(ctx: AppContext = getAppContext()) {
     this.ctx = ctx
+    this.mediaInspection = new FileMediaInspectionFlow(ctx)
+    this.fileList = new FileListModel(ctx, this.mediaInspection)
+    this.fileItems = this.fileList.fileItems
+    this.renderItems = this.fileList.renderItems
+    this.totalCount = this.fileList.totalCount
+    this.filteredCount = this.fileList.filteredCount
+    this.selectedCount = this.fileList.selectedCount
+    this.fileMove = new FileMoveModel(ctx, {
+      fileList: this.fileList,
+      isLoading: this.isLoading,
+      ensureVisibleRangeLoaded: () => this.fileList.ensureVisibleRangeLoaded(),
+    })
+    this.upload = new FileUploadFlow(ctx, () => this.currentPath())
+    this.download = new FileDownloadFlow(ctx)
+    this.actions = new FileActionsModel(ctx, {
+      isLoading: this.isLoading,
+      fileList: this.fileList,
+      viewport: this.viewport,
+      mediaInspection: this.mediaInspection,
+      download: this.download,
+      fileMove: this.fileMove,
+      deletionMotion: this.deletionMotion,
+      openMoveDialogForItem: (item) => this.openMoveDialogForItem(item),
+    })
+    this.mobileToolbar = new FileManagerMobileToolbarModel(this.fileList, this.actions, {
+      selectionMode: () => this.ctx.store.selectionMode(),
+      hasActiveSearchFilters: () => this.hasActiveSearchFilters(),
+      handleMobileBack: () => this.handleMobileBack(),
+      handleShareSelected: () => this.handleShareSelected(),
+      handleDownloadSelected: () => this.handleDownloadSelected(),
+      handleDeleteSelected: () => this.handleDeleteSelected(),
+      handleMoveSelected: () => {
+        void this.openMoveDialogForSelectedItems()
+      },
+      handleCreateMarkdownNote: () => this.handleCreateMarkdownNote(),
+      handleCreateDir: () => this.handleCreateDir(),
+      handleToolbarUpload: () => this.handleToolbarUpload(),
+      resetSearchFilters: () => this.resetSearchFilters(),
+      executeFileAction: (actionId, item) => this.executeFileAction(actionId, item),
+    })
+  }
+
+  get isDragActive() {
+    return this.upload.isDragActive
+  }
+
+  get fileListViewportRestore() {
+    return this.viewport.restore
+  }
+
+  get externalOpenPendingIds() {
+    return this.download.externalOpenPendingIds
   }
 
   get currentPath() {
@@ -52,91 +129,58 @@ export class FileManagerModel {
     return this.ctx.store.selectedNodeIds
   }
 
-  readonly fileItems = computed<FileListItem[]>(() => {
-    // Ensure recompute when catalog mirror changes.
-    void this.catalogRevision()
-    return this.getFileItems()
-  })
-
-  readonly filteredCount = computed<number>(() => {
-    return this.catalogUI.filterAndSort(this.fileItems(), this.searchFilters()).length
-  })
-
-  readonly totalFiles = computed<number>(() => this.fileItems().length)
-  readonly selectedCount = computed<number>(() => this.selectedItems().length)
-
   connect(): void {
     if (this.connected) return
     this.connected = true
+    writeAndroidUnlockDebug('file-manager-model', 'connect:start')
 
-    window.addEventListener('command-bar:command', this.onCommandBarCommand)
-    this.setupCatalogSubscription()
+    this.unsubscribeCommands = subscribeFileManagerCommand((command) => this.onFileManagerCommand(command))
+    writeAndroidUnlockDebug('file-manager-model', 'connect:command listener added')
+    this.fileList.connect()
+    void this.fileList.ensureVisibleRangeLoaded()
+    writeAndroidUnlockDebug('file-manager-model', 'connect:catalog subscription setup')
 
-    const {ws} = this.ctx
-    this.unsubscribeAuth = ws.connected.subscribe((isConnected: boolean) => {
-      if (isConnected) {
-        this.setupCatalogSubscription()
-      }
-    })
-
-    const caps = getRuntimeCapabilities()
-    const isTauri = isTauriRuntime()
-    this.dragDrop = new DragDropService({
-      onFiles: async (files: FileList) => {
-        // In Desktop (Tauri) we prefer path-based uploads via native drag-drop.
-        if (this.canUseNativePathUpload()) return
-        await this.handleFileUpload(files)
-      },
-      onActiveChange: (active: boolean) => {
-        this.isDragActive.set(active)
-      },
-    })
-    this.dragDrop.attach()
-
-    if (isTauri && caps.supports_native_path_io) {
-      void this.setupTauriDragDrop()
-    }
+    this.upload.connect()
   }
 
   cleanup(): void {
     if (!this.connected) return
     this.connected = false
 
-    if (this.unsubscribeMirror) {
-      this.unsubscribeMirror()
-      this.unsubscribeMirror = undefined
-    }
-    if (this.unsubscribeAuth) {
-      this.unsubscribeAuth()
-      this.unsubscribeAuth = undefined
-    }
-    this.dragDrop?.detach()
-    this.dragDrop = undefined
-
-    if (this.unlistenTauriDragDrop) {
-      try {
-        this.unlistenTauriDragDrop()
-      } catch {
-        // Best-effort cleanup.
-      }
-      this.unlistenTauriDragDrop = undefined
-    }
-
-    window.removeEventListener('command-bar:command', this.onCommandBarCommand)
-  }
-
-  clearError(): void {
-    this.error.set(null)
+    this.fileList.cleanup()
+    this.upload.cleanup()
+    this.unsubscribeCommands?.()
+    this.unsubscribeCommands = undefined
   }
 
   handleNavigate(path: string): void {
     const {store} = this.ctx
+    this.deletionMotion.resetForPath(path)
     store.setCurrentPath(path)
+    this.fileList.validateCurrentPath()
+    void this.fileList.ensureVisibleRangeLoaded()
   }
 
   handleFiltersChange(filters: SearchFilters): void {
+    this.searchFilterActions.setFilters(filters)
+  }
+
+  private commitSearchFilters(filters: SearchFilters): void {
     const {store} = this.ctx
     store.setSearchFilters(filters)
+    void this.fileList.ensureVisibleRangeLoaded()
+  }
+
+  ensureVisibleRangeLoaded(range: FileListVisibleRange): void {
+    void this.fileList.ensureVisibleRangeLoaded(range)
+  }
+
+  hasActiveSearchFilters(filters: SearchFilters = this.searchFilters()): boolean {
+    return hasNonDefaultFileSearchFilters(filters)
+  }
+
+  resetSearchFilters(): void {
+    this.searchFilterActions.setFilters(createDefaultFileSearchFilters())
   }
 
   handleSelectionChange(selectedNodeIds: number[]): void {
@@ -144,750 +188,243 @@ export class FileManagerModel {
     store.setSelectedItems(selectedNodeIds)
   }
 
+  saveFileListViewportSnapshot(snapshot: FileListViewportSnapshot): void {
+    this.viewport.saveSnapshot(snapshot)
+  }
+
+  clearFileListViewportRestore(revision: number): void {
+    this.viewport.clearRestore(revision)
+  }
+
+  activatePendingDocumentReturnViewport(): void {
+    this.viewport.activatePendingDocumentReturn(this.currentPath())
+  }
+
+  setSelectionMode(enabled: boolean): void {
+    this.ctx.store.setSelectionMode(enabled)
+  }
+
+  exitSelectionMode(): void {
+    this.setSelectionMode(false)
+  }
+
+  handleMobileBack(): boolean {
+    if (this.ctx.store.selectionMode()) {
+      this.exitSelectionMode()
+      return true
+    }
+
+    if (this.selectedItems().length === 0) {
+      return false
+    }
+
+    this.ctx.store.setSelectedItems([])
+    return true
+  }
+
   getFileItemById(nodeId: number): FileItemData | null {
-    const items = this.getFileItems()
-    return items.find((i) => i.id === nodeId) ?? null
+    return this.fileList.getFileItemById(nodeId)
   }
 
-  async handleMove(source: FileItemData, target: FileItemData): Promise<void> {
-    const {catalog, store} = this.ctx
-    try {
-      if (!target?.isDir) return
-      if (!source || source.id === target.id) return
-      const sourcePath = source.path || ''
-      const targetPath = target.path || '/'
-      // Нельзя перемещать папку в саму себя или в своего потомка
-      if (source.isDir && targetPath.startsWith(sourcePath)) {
-        this.showNotification('warning', 'Нельзя переместить папку в саму себя или её подпапку')
-        return
-      }
-      // Если родитель уже совпадает — ничего не делаем
-      try {
-        const parentPath = sourcePath.endsWith('/')
-          ? sourcePath.slice(0, sourcePath.lastIndexOf('/', sourcePath.length - 2) + 1) || '/'
-          : sourcePath.slice(0, sourcePath.lastIndexOf('/') + 1) || '/'
-        if (parentPath === targetPath) return
-      } catch {
-        // Ignore parent path parse issues.
-      }
-
-      this.isLoading.set(true)
-      // Для API используем UI-путь (без префикса /root)
-      await catalog.api.move(source.id, targetPath)
-      try {
-        await catalog.refresh()
-      } catch {
-        // ignore
-      }
-      try {
-        store.setSelectedItems([])
-      } catch {
-        // ignore
-      }
-      this.showNotification('success', `Перемещено: "${source.name}" → "${target.name}"`)
-    } catch (error) {
-      this.showNotification(
-        'error',
-        `Не удалось переместить: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    } finally {
-      this.isLoading.set(false)
-    }
+  getDisabledMoveTargetPaths(items: FileItemData[]): string[] {
+    return this.fileMove.getDisabledTargetPaths(items)
   }
 
-  async handleItemOpen(item: FileItemData): Promise<void> {
-    const {catalog, store} = this.ctx
-    if (!item.isDir) return
-
-    // Формируем новый путь с правильной нормализацией
-    const currentPath = this.currentPath()
-    const newPath = this.buildDirectoryPath(currentPath, item.name)
-
-    // Проверяем что новый путь отличается от текущего
-    if (newPath === currentPath) {
-      return
-    }
-
-    // Валидируем что папка существует в каталоге
-    try {
-      if (catalog?.catalog) {
-        // Проверяем доступность пути
-        catalog.catalog.getChildren(newPath)
-        // Если не выбросилась ошибка, значит путь валидный
-        store.setCurrentPath(newPath)
-      }
-    } catch {
-      this.showNotification('error', `Не удалось открыть папку "${item.name}"`)
-    }
+  handleMove(source: FileItemData, target: FileItemData): Promise<void> {
+    return this.actions.handleMove(source, target)
   }
 
-  async handleOpen(item: FileItemData): Promise<void> {
-    if (item.isDir) {
-      await this.handleItemOpen(item)
-      return
-    }
-
-    if (isImageFile(item.name)) {
-      window.dispatchEvent(
-        new CustomEvent('open-gallery', {
-          detail: {fileId: item.id},
-        }),
-      )
-      return
-    }
-
-    if (isPlayableVideoFile(item.name)) {
-      window.dispatchEvent(
-        new CustomEvent('open-video', {
-          detail: {fileId: item.id, fileName: item.name},
-        }),
-      )
-      return
-    }
-
-    await this.handleOpenExternal(item)
+  async handleDroppedMove(target: FileItemData, payload: FileDragPayload): Promise<void> {
+    if (!target.isDir) return
+    await this.fileMove.dropToTarget(target.path || '/', payload)
   }
 
-  async handleShare(item: FileItemData): Promise<void> {
-    if (item.isDir) return
-    await shareFile(item.id, item.name)
+  async openMoveDialogForItem(item: FileItemData): Promise<boolean> {
+    if (!this.fileMove.canOpenMoveDialogForItems([item])) return false
+
+    const targetPath = await openFileMoveDialog({
+      itemId: item.id,
+      selectedPath: this.fileMove.getItemParentPath(item),
+      disabledPaths: this.fileMove.getDisabledTargetPaths([item]),
+      useMobilePicker: this.isMobileLayout(),
+      onConfirm: (nextTargetPath) => this.fileMove.moveItemById(item.id, nextTargetPath),
+    })
+
+    return targetPath !== null
   }
 
-  async handleOpenExternal(item: FileItemData): Promise<void> {
-    if (item.isDir) return
-    const caps = getRuntimeCapabilities()
-    if (!caps.supports_open_external) {
-      if (canShareFiles()) {
-        await this.handleShare(item)
-        return
-      }
-      this.showNotification('info', 'Открытие доступно только в desktop приложении')
-      return
-    }
-    try {
-      const res = await tauriInvoke<RpcResult<unknown>>('catalog_open_external', {
-        args: {nodeId: item.id},
-      })
-      if (!res || typeof res !== 'object') {
-        this.showNotification('error', 'Не удалось открыть файл')
-        return
-      }
-      if (!isSuccess(res)) {
-        const msg = res.error || 'Не удалось открыть файл'
-        this.showNotification('error', msg)
-        return
-      }
-    } catch (error) {
-      this.showNotification(
-        'error',
-        `Не удалось открыть файл: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    }
+  async openMoveDialogForSelectedItems(): Promise<boolean> {
+    const items = this.fileList.getSelectedFileItems()
+    if (!this.fileMove.canOpenMoveDialogForItems(items)) return false
+
+    const targetPath = await openFileMoveDialog({
+      selectedPath: this.currentPath(),
+      disabledPaths: this.fileMove.getDisabledTargetPaths(items),
+      useMobilePicker: this.isMobileLayout(),
+      onConfirm: (nextTargetPath) =>
+        this.fileMove.moveItemsByIds(
+          items.map((item) => item.id),
+          nextTargetPath,
+        ),
+    })
+
+    return targetPath !== null
   }
 
-  async handleRename(item: FileItemData): Promise<void> {
-    const {catalog} = this.ctx
-    const currentPath = this.currentPath()
-    const newNameRaw = item.isDir
-      ? await dialogService.showRenameFolderDialog(item.name, currentPath)
-      : await dialogService.showRenameFileDialog(item.name, currentPath)
-    const newName = newNameRaw?.trim()
-    if (!newName || newName === item.name) return
-
-    try {
-      this.isLoading.set(true)
-      await catalog.api.rename(item.id, newName)
-      this.showNotification('success', `"${item.name}" переименован в "${newName}"`)
-    } catch (error) {
-      this.showNotification(
-        'error',
-        `Не удалось переименовать файл: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    } finally {
-      this.isLoading.set(false)
-    }
+  handleItemOpen(item: FileItemData): Promise<void> {
+    return this.actions.handleItemOpen(item)
   }
 
-  async handleDownload(item: FileItemData): Promise<void> {
-    const {catalog, ws, store} = this.ctx
-    if (item.isDir) return
-
-    let taskId: string | null = null
-
-    try {
-      const caps = getRuntimeCapabilities()
-      if (caps.supports_native_path_io && ws.kind === 'tauri' && typeof ws.downloadFilePath === 'function') {
-        const targetPath = await save({defaultPath: item.name})
-        if (!targetPath) {
-          this.showNotification('info', `Сохранение "${item.name}" отменено`)
-          return
-        }
-
-        const totalBytes = typeof item.size === 'number' ? Math.max(0, Math.floor(item.size)) : 0
-        taskId = store.createDownloadTask(item.name, totalBytes).id
-
-        const startTime = Date.now()
-        let lastUiUpdate = 0
-        const result = await ws.downloadFilePath(item.id, targetPath, {
-          totalBytes,
-          onProgress: (writtenBytes: number, total: number, percent: number) => {
-            const now = Date.now()
-            if (percent < 100 && now - lastUiUpdate < 120) return
-            lastUiUpdate = now
-
-            const totalSafe = total > 0 ? total : totalBytes
-            const loaded = Math.min(Math.max(0, writtenBytes), totalSafe > 0 ? totalSafe : writtenBytes)
-            const elapsed = Math.max(0.001, (Date.now() - startTime) / 1000)
-            const speed = loaded / elapsed
-            const eta = totalSafe > 0 ? (totalSafe - loaded) / Math.max(1, speed) : 0
-            if (taskId) store.updateUploadTask(taskId, {loaded, speed, eta: Number.isFinite(eta) ? eta : 0})
-          },
-        })
-
-        try {
-          if (typeof ws.statPath === 'function') {
-            const st = await ws.statPath(targetPath)
-            if (st.size !== result.bytes_written) {
-              this.showNotification(
-                'warning',
-                `Файл "${item.name}" сохранён, но размер отличается: ${st.size} vs ${result.bytes_written}. Путь: ${targetPath}`,
-              )
-              return
-            }
-          }
-        } catch (e) {
-          console.warn('[dashboard] statPath after download failed', e)
-        }
-
-        if (taskId) {
-          store.updateUploadTask(taskId, {loaded: totalBytes})
-          store.updateUploadTask(taskId, {status: 'done'})
-        }
-
-        this.showNotification('success', `Файл "${item.name}" сохранён: ${targetPath}`)
-        return
-      }
-
-      const totalBytes = typeof item.size === 'number' ? Math.max(0, Math.floor(item.size)) : 0
-      taskId = store.createDownloadTask(item.name, totalBytes).id
-
-      const stream = await catalog.api.download(item.id)
-      const chunks: ArrayBuffer[] = []
-      let total = 0
-      let chunkCount = 0
-      const startTime = Date.now()
-      let lastUiUpdate = 0
-      for await (const chunk of stream) {
-        const copy = new ArrayBuffer(chunk.byteLength)
-        new Uint8Array(copy).set(chunk)
-        chunks.push(copy)
-        total += copy.byteLength
-        chunkCount++
-
-        const now = Date.now()
-        if (totalBytes > 0 && now - lastUiUpdate >= 120) {
-          lastUiUpdate = now
-          const loaded = Math.min(total, totalBytes)
-          const elapsed = Math.max(0.001, (Date.now() - startTime) / 1000)
-          const speed = loaded / elapsed
-          const eta = (totalBytes - loaded) / Math.max(1, speed)
-          if (taskId) store.updateUploadTask(taskId, {loaded, speed, eta: Number.isFinite(eta) ? eta : 0})
-        }
-      }
-
-      const expectedSize = item.size ?? total
-      if (expectedSize && total !== expectedSize) {
-        if (taskId) store.updateUploadTask(taskId, {status: 'error'})
-        this.showNotification(
-          'error',
-          `Ошибка загрузки "${item.name}": получено ${total} байт из ожидаемых ${expectedSize} (чанков: ${chunkCount})`,
-        )
-        return
-      }
-
-      const ext = item.name.split('.').pop()?.toLowerCase()
-      const mime =
-        ext === 'png'
-          ? 'image/png'
-          : ext === 'jpg' || ext === 'jpeg'
-            ? 'image/jpeg'
-            : ext === 'gif'
-              ? 'image/gif'
-              : ext === 'webp'
-                ? 'image/webp'
-                : 'application/octet-stream'
-      const blob = new Blob(chunks, {type: mime})
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = item.name
-      a.rel = 'noopener'
-      a.style.display = 'none'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      // Let the browser start the download before revoking the URL.
-      window.setTimeout(() => URL.revokeObjectURL(url), 30_000)
-
-      if (taskId) {
-        store.updateUploadTask(taskId, {loaded: totalBytes || total})
-        store.updateUploadTask(taskId, {status: 'done'})
-      }
-
-      this.showNotification('success', `Файл "${item.name}" скачан`)
-    } catch (error) {
-      if (taskId) store.updateUploadTask(taskId, {status: 'error'})
-      this.showNotification(
-        'error',
-        `Не удалось скачать файл: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    }
+  handleOpen(item: FileItemData): Promise<void> {
+    return this.actions.handleOpen(item)
   }
 
-  async handleDelete(item: FileItemData): Promise<void> {
-    const {catalog, store} = this.ctx
-    const confirmed = await dialogService.showDeleteConfirmDialog([item.name], item.isDir)
-    if (!confirmed) return
-
-    try {
-      this.isLoading.set(true)
-      await catalog.api.delete(item.id)
-      try {
-        await catalog.refresh()
-      } catch {
-        // ignore
-      }
-      try {
-        store.setSelectedItems([])
-      } catch {
-        // ignore
-      }
-      this.showNotification('success', `"${item.name}" удален`)
-    } catch (error) {
-      this.showNotification(
-        'error',
-        `Не удалось удалить файл: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    } finally {
-      this.isLoading.set(false)
-    }
+  handleShare(item: FileItemData): Promise<void> {
+    return this.actions.handleShare(item)
   }
 
-  async handleDownloadSelected(): Promise<void> {
-    const selected = this.selectedItems()
-    if (selected.length === 0) return
-    const items = this.fileItems().filter((i) => selected.includes(i.id))
-    for (const item of items) {
-      if (!item.isDir) {
-        await this.handleDownload(item)
-      }
-    }
+  shareFileById(item: {
+    fileId: number
+    fileName: string
+    mimeType?: string
+    lastModified?: number
+  }): Promise<void> {
+    return this.actions.shareFileById(item)
   }
 
-  async handleDeleteSelected(): Promise<void> {
-    const {catalog, store} = this.ctx
-    const selected = this.selectedItems()
-    if (selected.length === 0) return
-
-    const items = this.fileItems().filter((i) => selected.includes(i.id))
-    const confirmed = await dialogService.showDeleteConfirmDialog(items.map((i) => i.name))
-    if (!confirmed) return
-    for (const item of items) {
-      try {
-        await catalog.api.delete(item.id)
-      } catch (error) {
-        this.showNotification(
-          'error',
-          `Не удалось удалить ${item.name}: ${error instanceof Error ? error.message : String(error)}`,
-        )
-      }
-    }
-    try {
-      await catalog.refresh()
-    } catch {
-      // ignore
-    }
-    try {
-      store.setSelectedItems([])
-    } catch {
-      // ignore
-    }
-    this.showNotification('success', 'Выбранные элементы удалены')
+  handleShareSelected(): Promise<void> {
+    return this.actions.handleShareSelected()
   }
 
-  async handleCreateDir(): Promise<void> {
-    const {catalog} = this.ctx
-    const currentPath = this.currentPath()
-    const displayPath = currentPath === '/' ? 'корневой каталог' : currentPath
-
-    const name = await dialogService.showCreateFolderDialog(displayPath)
-    if (!name) return
-
-    try {
-      this.isLoading.set(true)
-      // Для API: в корне передаём undefined, иначе — UI-путь
-      await catalog.api.createDir(name, currentPath === '/' ? undefined : currentPath)
-      try {
-        await catalog.refresh()
-      } catch {
-        // ignore
-      }
-      this.showNotification('success', `Папка "${name}" создана`)
-    } catch (error) {
-      this.showNotification(
-        'error',
-        `Не удалось создать папку: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    } finally {
-      this.isLoading.set(false)
-    }
+  handleSaveToGallery(item: FileItemData): Promise<void> {
+    return this.actions.handleSaveToGallery(item)
   }
 
-  async handleFileUpload(files: FileList): Promise<void> {
-    const {store} = this.ctx
-    for (const file of Array.from(files)) {
-      // Для API: передаём UI-путь; стор сам преобразует корень в undefined
-      await store.startUploadFile(this.currentPath(), file)
-    }
+  handleOpenExternal(item: FileItemData): Promise<void> {
+    return this.actions.handleOpenExternal(item)
   }
 
-  async handlePathUpload(paths: string[]): Promise<void> {
-    const {store} = this.ctx
-    for (const p of paths) {
-      await store.startUploadPath(this.currentPath(), p)
-    }
+  handleRename(item: FileItemData): Promise<void> {
+    return this.actions.handleRename(item)
+  }
+
+  renameFileById(input: {
+    fileId: number
+    fileName: string
+    newName: string
+    currentPath?: string
+  }): Promise<string | null> {
+    return this.actions.renameFileById(input)
+  }
+
+  handleDownload(item: FileItemData): Promise<void> {
+    return this.actions.handleDownload(item)
+  }
+
+  handleDelete(item: FileItemData): Promise<void> {
+    return this.actions.handleDelete(item)
+  }
+
+  handleDownloadSelected(): Promise<void> {
+    return this.actions.handleDownloadSelected()
+  }
+
+  handleDeleteSelected(): Promise<void> {
+    return this.actions.handleDeleteSelected()
+  }
+
+  handleCreateDir(): Promise<void> {
+    return this.actions.handleCreateDir()
+  }
+
+  handleCreateMarkdownNote(): Promise<void> {
+    return this.actions.handleCreateMarkdownNote()
+  }
+
+  handleFileUpload(files: FileList): Promise<void> {
+    return this.upload.handleFileUpload(files)
+  }
+
+  handlePathUpload(paths: string[]): Promise<void> {
+    return this.upload.handlePathUpload(paths)
+  }
+
+  handleNativeUpload(): Promise<void> {
+    return this.upload.handleNativeUpload()
+  }
+
+  getMobileToolbarActions(): FileManagerMobileToolbarAction[] {
+    return this.mobileToolbar.actions()
+  }
+
+  executeMobileCommand(actionId: string): boolean {
+    return this.mobileToolbar.executeCommand(actionId)
+  }
+
+  registerToolbarUploadTrigger(trigger: () => void): () => void {
+    return this.upload.registerToolbarUploadTrigger(trigger)
   }
 
   openDetailsPanel(item: FileItemData): void {
-    if (item.isDir) return
-    this.ctx.store.openDetailsPanel(item.id)
+    this.actions.openDetailsPanel(item)
   }
 
-  getContextMenuItems(item: FileItemData): ContextMenuItem[] {
-    const isSecretFile = !item.isDir && ['.password', '.note', '.seed', '.private-key'].includes(item.name)
-
-    const isImage = !item.isDir && isImageFile(item.name)
-    const isVideo = !item.isDir && isVideoFile(item.name)
-    const isPlayableVideo = !item.isDir && isPlayableVideoFile(item.name)
-    const showShare = canShareFiles()
-
-    const items: ContextMenuItem[] = [
-      {
-        id: 'open',
-        label: item.isDir ? 'Открыть' : isImage ? 'Просмотр' : isPlayableVideo ? 'Воспроизвести' : 'Открыть',
-        icon: item.isDir
-          ? 'folder-open'
-          : isImage
-            ? 'eye'
-            : isPlayableVideo
-              ? 'play-circle'
-              : 'box-arrow-up-right',
-        action: () => {
-          void this.handleOpen(item)
-        },
-      },
-      {
-        id: 'open-external',
-        label: 'Открыть в системе',
-        icon: 'box-arrow-up-right',
-        action: () => {
-          void this.handleOpenExternal(item)
-        },
-        disabled: item.isDir,
-        shortcut: 'Ctrl+O',
-      },
-      ...(showShare && !item.isDir
-        ? ([
-            {
-              id: 'share',
-              label: 'Поделиться',
-              icon: 'share',
-              action: () => {
-                void this.handleShare(item)
-              },
-            },
-          ] as ContextMenuItem[])
-        : ([] as ContextMenuItem[])),
-      {id: 'separator-1', label: '', icon: '', action: () => {}, separator: true},
-      ...(isSecretFile
-        ? ([
-            {
-              id: 'secret-show',
-              label: 'Показать секрет',
-              icon: 'eye',
-              action: async () => {
-                try {
-                  const text = await this.readSecretAsText(item.id)
-                  alert(text)
-                } catch (e) {
-                  const msg = e instanceof Error ? e.message : String(e)
-                  this.showNotification('error', `Не удалось прочитать секрет: ${msg}`)
-                }
-              },
-            },
-            {
-              id: 'secret-copy',
-              label: 'Копировать секрет',
-              icon: 'clipboard',
-              action: async () => {
-                try {
-                  const text = await this.readSecretAsText(item.id)
-                  await navigator.clipboard.writeText(text)
-                  this.showNotification('success', 'Секрет скопирован в буфер обмена')
-                } catch (e) {
-                  const msg = e instanceof Error ? e.message : String(e)
-                  this.showNotification('error', `Не удалось скопировать: ${msg}`)
-                }
-              },
-            },
-            {id: 'secret-sep', label: '', icon: '', action: () => {}, separator: true},
-          ] as ContextMenuItem[])
-        : ([] as ContextMenuItem[])),
-
-      {
-        id: 'rename',
-        label: 'Переименовать',
-        icon: 'pencil',
-        action: () => {
-          void this.handleRename(item)
-        },
-        shortcut: 'F2',
-      },
-      {
-        id: 'download',
-        label: 'Скачать',
-        icon: 'download',
-        action: () => {
-          void this.handleDownload(item)
-        },
-        disabled: item.isDir,
-      },
-      {id: 'separator-2', label: '', icon: '', action: () => {}, separator: true},
-      {
-        id: 'delete',
-        label: 'Удалить',
-        icon: 'trash',
-        action: () => {
-          void this.handleDelete(item)
-        },
-        shortcut: 'Del',
-      },
-    ]
-
-    return items
+  getActionDescriptors(item: FileItemData): FileManagerActionDescriptor[] {
+    return this.actions.getActionsForItem(item)
   }
 
-  readonly onCommandBarCommand = (e: Event) => {
-    const detail = (e as CustomEvent).detail as
-      | {action?: string; files?: FileList; paths?: string[]}
-      | undefined
-    const action = detail?.action
+  executeFileAction(actionId: string, item: FileItemData): boolean {
+    return this.actions.executeAction(actionId, item)
+  }
 
-    if (action === 'new-folder') {
+  private onFileManagerCommand(command: FileManagerCommand): void {
+    if (command.kind === 'create-dir') {
       void this.handleCreateDir()
       return
     }
 
-    if (action === 'upload-files') {
-      const files = detail?.files
-      if (files && files.length > 0) {
-        void this.handleFileUpload(files)
-      }
+    if (command.kind === 'create-markdown-note') {
+      void this.handleCreateMarkdownNote()
       return
     }
 
-    if (action === 'upload-paths') {
-      const paths = detail?.paths
-      if (Array.isArray(paths) && paths.length > 0) {
-        void this.handlePathUpload(paths)
-      }
-    }
-  }
-
-  private setupTauriDragDrop = async () => {
-    try {
-      const win = getCurrentWindow()
-
-      // NOTE: Tauri drag-drop events carry native file paths.
-      this.unlistenTauriDragDrop = await win.onDragDropEvent((event: unknown) => {
-        const payload = (event as {payload?: unknown})?.payload ?? event
-        const type = (payload as {type?: string})?.type
-
-        if (type === 'enter') {
-          this.isDragActive.set(true)
-          return
-        }
-
-        if (type === 'leave') {
-          this.isDragActive.set(false)
-          return
-        }
-
-        if (type === 'drop') {
-          this.isDragActive.set(false)
-
-          const paths = (payload as {paths?: unknown})?.paths
-          if (this.canUseNativePathUpload() && Array.isArray(paths) && paths.length > 0) {
-            void this.handlePathUpload(paths.filter((p): p is string => typeof p === 'string'))
-          }
-        }
-      })
-    } catch {
-      // Best-effort: web drag-drop still works.
-    }
-  }
-
-  private setupCatalogSubscription = () => {
-    const {catalog, ws} = this.ctx
-    if (this.unsubscribeMirror) {
-      this.unsubscribeMirror()
-      this.unsubscribeMirror = undefined
-    }
-
-    if (!catalog || !ws?.connected()) {
+    if (command.kind === 'upload-files') {
+      void this.handleFileUpload(command.files)
       return
     }
 
-    try {
-      this.unsubscribeMirror = catalog.catalog.subscribe(() => {
-        this.validateCurrentPath()
-        this.bumpCatalogRevision()
-      })
-
-      // Force initial refresh.
-      this.bumpCatalogRevision()
-    } catch {
-      // Ошибка подписки на каталог, будет повторная попытка при аутентификации
-    }
-  }
-
-  private bumpCatalogRevision() {
-    this.catalogRevision.set(this.catalogRevision() + 1)
-  }
-
-  private validateCurrentPath = () => {
-    const {catalog} = this.ctx
-    if (!catalog?.catalog) {
+    if (command.kind === 'upload-paths') {
+      void this.handlePathUpload(command.paths)
       return
     }
 
-    const currentPath = this.currentPath()
-    if (this.isPassManagerPath(currentPath)) {
-      this.ctx.store.setCurrentPath('/')
-      return
-    }
-    if (currentPath === '/') {
-      return
-    }
-
-    try {
-      const children = catalog.catalog.getChildren(currentPath)
-      void children
-    } catch {
-      this.ctx.store.setCurrentPath('/')
-      this.showNotification('warning', 'Каталог был обновлен, возвращение в корневую папку')
+    if (command.kind === 'native-upload') {
+      void this.handleNativeUpload()
     }
   }
 
-  private buildDirectoryPath(currentPath: string, itemName: string): string {
-    const basePath = currentPath.endsWith('/') ? currentPath : currentPath + '/'
-    const newPath = basePath + itemName + '/'
-    return newPath.replace(/\/+/g, '/')
+  private handleToolbarUpload(): Promise<void> {
+    return this.upload.handleToolbarUpload()
   }
 
-  private async readSecretAsText(nodeId: number): Promise<string> {
-    const {catalog} = this.ctx
-    const stream = await catalog.secrets.read(nodeId)
-    const decoder = new TextDecoder()
-    let text = ''
-    for await (const chunk of stream) {
-      text += decoder.decode(chunk, {stream: true})
-    }
-    text += decoder.decode()
-    return text
+  private isMobileLayout(): boolean {
+    return (this.ctx.store as {layoutMode?: () => string}).layoutMode?.() === 'mobile'
   }
 
-  private showNotification(type: NotificationKind, message: string) {
-    this.ctx.store.pushNotification(type, message)
+  isExternalOpenPending(nodeId: number): boolean {
+    return this.actions.isExternalOpenPending(nodeId)
   }
 
-  private canUseNativePathUpload(): boolean {
-    return (
-      isTauriRuntime() &&
-      getRuntimeCapabilities().supports_native_path_io &&
-      this.ctx.store.remoteSessionState() === 'inactive'
-    )
+  isSharePending(nodeId: number): boolean {
+    return this.actions.isSharePending(nodeId)
+  }
+}
+
+export function getFileManagerModel(ctx: AppContext = getAppContext()): FileManagerModel {
+  if (!sharedFileManagerModel || sharedFileManagerCtx !== ctx) {
+    sharedFileManagerCtx = ctx
+    sharedFileManagerModel = new FileManagerModel(ctx)
   }
 
-  private isPassManagerPath(path: string): boolean {
-    const normalized = path.startsWith('/') ? path : '/' + path
-    const roots = [PASS_DIR, '.wallet'].map((root) => (root.startsWith('/') ? root : '/' + root))
-    return roots.some((root) => normalized === root || normalized.startsWith(root + '/'))
-  }
-
-  private getFileItems(): FileListItem[] {
-    const {catalog, ws} = this.ctx
-    if (!catalog?.catalog || !ws?.connected()) {
-      return []
-    }
-
-    const currentPath = this.currentPath()
-
-    if (this.isPassManagerPath(currentPath)) {
-      this.ctx.store.setCurrentPath('/')
-      return []
-    }
-
-    try {
-      const children = catalog.catalog.getChildren(currentPath)
-      if (!children || !Array.isArray(children)) {
-        if (currentPath !== '/') {
-          this.validateCurrentPath()
-        }
-        return []
-      }
-
-      const selected = this.selectedItems()
-      const items = children
-        .filter((node) => {
-          if (node.name == null) return false
-          const name = String(node.name)
-          if (node.name === '/') return false
-          if (currentPath === '/' && node.isDir && node.name === 'root') return false
-
-          // macOS can create AppleDouble sidecar files on WebDAV/remote FS.
-          // These are implementation details and should never appear in WebView listings.
-          if (name.startsWith('._')) return false
-          if (name === '.DS_Store') return false
-          if (name === PASS_DIR || name === '.wallet') return false
-
-          return true
-        })
-        .map((node) => {
-          const entryId = node.isDir ? node.nodeId : undefined
-          const pmMeta = entryId ? catalog.getEntryMeta(entryId) : undefined
-          const displayName = pmMeta?.title ? String(pmMeta.title) : node.name || ''
-          if (entryId) {
-            void catalog.ensureEntryMeta(entryId)
-          }
-
-          return {
-            id: node.nodeId,
-            path: node.path ?? '',
-            name: displayName,
-            isDir: node.isDir,
-            size: node.size,
-            lastModified: node.modtime !== undefined ? Number(node.modtime) : undefined,
-            selected: selected.includes(node.nodeId),
-          } satisfies FileListItem
-        })
-
-      return items
-    } catch {
-      if (currentPath !== '/') {
-        this.validateCurrentPath()
-      }
-      return []
-    }
-  }
+  return sharedFileManagerModel
 }

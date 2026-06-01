@@ -1,10 +1,10 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html} from 'lit'
+import {css} from 'lit'
 
 import {hostLayoutPaintContainStyles, sharedStyles} from 'root/shared/ui/shared-styles'
 
-export class FileManagerDesktopLayout extends XLitElement {
+export class FileManagerDesktopLayout extends ReatomLitElement {
   static elementName = 'file-manager-desktop-layout'
 
   static define() {
@@ -39,7 +39,7 @@ export class FileManagerDesktopLayout extends XLitElement {
         flex: 1;
         display: flex;
         flex-direction: column;
-        background: var(--cv-color-surface);
+        background: transparent;
         border-radius: 12px;
         border: 1px solid var(--cv-color-border);
         overflow: hidden;
@@ -56,7 +56,7 @@ export class FileManagerDesktopLayout extends XLitElement {
 
       .file-list-area {
         flex: 1;
-        padding: 20px;
+        padding: 0;
         min-height: 0;
         display: flex;
         contain: layout style;

@@ -1,9 +1,10 @@
-import {XLitElement} from '@statx/lit'
-import {css, html} from 'lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {css} from 'lit'
 
+import {i18n} from 'root/i18n'
 import {biometricAppGateModel} from './biometric-app-gate.model'
 
-export class BiometricAppGate extends XLitElement {
+export class BiometricAppGate extends ReatomLitElement {
   static elementName = 'biometric-app-gate'
 
   static define(): void {
@@ -21,7 +22,7 @@ export class BiometricAppGate extends XLitElement {
         padding: 24px;
         box-sizing: border-box;
         background:
-          radial-gradient(circle at top, color-mix(in oklch, var(--cv-color-primary-dark) 22%, transparent), transparent 42%),
+          radial-gradient(circle at top, var(--cv-color-primary-surface-strong), transparent 42%),
           linear-gradient(180deg, var(--cv-color-surface) 0%, var(--cv-color-bg) 100%);
         color: var(--cv-color-text-strong);
       }
@@ -56,7 +57,7 @@ export class BiometricAppGate extends XLitElement {
         line-height: 1.5;
       }
 
-      button {
+      cv-button {
         margin-top: 22px;
         min-width: 148px;
         padding: 12px 18px;
@@ -69,7 +70,7 @@ export class BiometricAppGate extends XLitElement {
         cursor: pointer;
       }
 
-      button:disabled {
+      cv-button[disabled] {
         opacity: 0.6;
         cursor: default;
       }
@@ -79,11 +80,11 @@ export class BiometricAppGate extends XLitElement {
   protected render() {
     return html`
       <section class="panel" aria-live="polite">
-        <div class="eyebrow">App gate</div>
+        <div class="eyebrow">${i18n('biometric-app-gate:eyebrow' as any)}</div>
         <h1>${biometricAppGateModel.title()}</h1>
         <p>${biometricAppGateModel.message()}</p>
         ${biometricAppGateModel.showRetry()
-          ? html`<button type="button" @click=${this.handleRetry}>Try again</button>`
+          ? html`<cv-button unstyled type="button" @click=${this.handleRetry}>${i18n('biometric-app-gate:retry' as any)}</cv-button>`
           : ''}
       </section>
     `

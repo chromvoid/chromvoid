@@ -1,6 +1,7 @@
 import {css} from 'lit'
-import {ReatomLitElement, html} from '@chromvoid/uikit'
-import type {CVSelectChangeEvent} from '@chromvoid/uikit'
+import {html} from '@chromvoid/uikit/html'
+import {ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import type {CVSelectChangeEvent} from '@chromvoid/uikit/components/cv-select'
 
 import {i18n} from '../i18n'
 

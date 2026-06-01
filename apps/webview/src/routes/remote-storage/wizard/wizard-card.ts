@@ -1,4 +1,5 @@
 import {html, nothing} from 'lit'
+import {i18n} from 'root/i18n'
 
 import {type TransferStep, type TransferResult} from '../remote-storage.model'
 
@@ -29,20 +30,17 @@ export const renderRemoteStorageWizard = ({
     <section class="card card-full">
       <div class="card-header">
         <div class="card-header-main">
-          <div
-            class="card-icon"
-            style="--card-icon-bg: color-mix(in oklch, var(--cv-color-brand) 15%, var(--cv-color-surface)); --card-icon-color: var(--cv-color-brand);"
-          >
+          <div class="card-icon card-icon-primary">
             <cv-icon name="archive"></cv-icon>
           </div>
           <div class="card-title">
-            <div class="name">Экспорт хранилища</div>
-            <div class="hint">Шаг ${stepNumber} из 4</div>
+            <div class="name">${i18n('remote-storage:wizard-title')}</div>
+            <div class="hint">${i18n('remote-storage:wizard-step-of', {step: stepNumber, total: 4})}</div>
           </div>
         </div>
         ${step === 'result' && transferResult?.success
-          ? html`<span class="badge success">Завершено</span>`
-          : html`<span class="badge info">В процессе</span>`}
+          ? html`<span class="badge success">${i18n('remote-storage:wizard-completed')}</span>`
+          : html`<span class="badge info">${i18n('remote-storage:wizard-in-progress')}</span>`}
       </div>
       <div class="card-body">
         <div class="wizard">
@@ -50,7 +48,7 @@ export const renderRemoteStorageWizard = ({
             ${[1, 2, 3, 4].map((num, i) => html`
               ${i > 0 ? html`<div class="wizard-step-line ${num <= stepNumber ? 'completed' : ''}"></div>` : nothing}
               <div class="wizard-step-indicator ${num === stepNumber ? 'active' : num < stepNumber ? 'completed' : ''}">
-                ${num < stepNumber ? html`<cv-icon name="check" style="font-size: 14px;"></cv-icon>` : num}
+                ${num < stepNumber ? html`<cv-icon class="wizard-step-check-icon" name="check"></cv-icon>` : num}
               </div>
             `)}
           </div>

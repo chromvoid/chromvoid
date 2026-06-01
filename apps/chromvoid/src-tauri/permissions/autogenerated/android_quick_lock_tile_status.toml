@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-android-quick-lock-tile-status"
+description = "Enables the android_quick_lock_tile_status command without any pre-configured scope."
+commands.allow = ["android_quick_lock_tile_status"]
+
+[[permission]]
+identifier = "deny-android-quick-lock-tile-status"
+description = "Denies the android_quick_lock_tile_status command without any pre-configured scope."
+commands.deny = ["android_quick_lock_tile_status"]

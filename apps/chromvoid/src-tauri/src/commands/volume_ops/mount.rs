@@ -14,7 +14,10 @@ use crate::volume_webdav;
 use super::helpers::resolve_volume_backend_choice;
 use super::helpers::volume_status_from_vm;
 #[cfg(target_os = "macos")]
-use super::macos::{macos_prepare_volumes_mountpoint, macos_volumes_mountpoint_owned_by_user};
+use super::macos::{
+    macos_open_path_best_effort, macos_prepare_volumes_mountpoint,
+    macos_volumes_mountpoint_owned_by_user,
+};
 
 pub(crate) async fn volume_mount_inner(
     app: tauri::AppHandle,
@@ -143,10 +146,11 @@ pub(crate) async fn volume_mount_inner(
             let mut last_err: Option<String> = None;
 
             for mountpoint in mount_candidates {
-                match volume_fuse::start_fuse_server(
+                match volume_fuse::start_fuse_server_with_app(
                     mountpoint,
                     staging_dir.clone(),
                     adapter.clone(),
+                    app.clone(),
                 )
                 .await
                 {
@@ -154,7 +158,7 @@ pub(crate) async fn volume_mount_inner(
                         #[cfg(target_os = "macos")]
                         {
                             let mp = h.mountpoint().clone();
-                            let _ = std::process::Command::new("open").arg(&mp).spawn();
+                            macos_open_path_best_effort(&mp);
                         }
 
                         let st = {

@@ -1,4 +1,4 @@
-//! ADR-004: legacy RPC command aliases must remain supported.
+//! Legacy catalog sync commands are intentionally removed.
 
 mod test_helpers;
 
@@ -6,32 +6,22 @@ use chromvoid_core::rpc::types::RpcRequest;
 use test_helpers::*;
 
 #[test]
-fn test_catalog_sync_init_legacy_alias_is_supported() {
+fn test_legacy_catalog_sync_init_commands_are_unknown() {
     let (mut router, _temp_dir) = create_test_router();
     unlock_vault(&mut router, "test_password");
 
-    let canonical = router.handle(&RpcRequest::new("catalog:sync:init", serde_json::json!({})));
-    assert_rpc_ok(&canonical);
-
-    let legacy = router.handle(&RpcRequest::new("catalog:syncInit", serde_json::json!({})));
-    assert_rpc_ok(&legacy);
-
-    let c = canonical.result().unwrap();
-    let l = legacy.result().unwrap();
-
-    // Minimal contract: both commands return the same v2 sharded shape.
-    assert_eq!(c.get("format").and_then(|v| v.as_str()), Some("sharded"));
-    assert_eq!(l.get("format").and_then(|v| v.as_str()), Some("sharded"));
-    assert!(c.get("root_version").and_then(|v| v.as_u64()).is_some());
-    assert!(l.get("root_version").and_then(|v| v.as_u64()).is_some());
-    assert!(c.get("shards").and_then(|v| v.as_array()).is_some());
-    assert!(l.get("shards").and_then(|v| v.as_array()).is_some());
-    assert!(c.get("eager_data").is_some());
-    assert!(l.get("eager_data").is_some());
+    for command in [
+        "catalog:sync:init",
+        "catalog:syncInit",
+        "catalog:sync:delta",
+    ] {
+        let response = router.handle(&RpcRequest::new(command, serde_json::json!({})));
+        assert_rpc_error(&response, "UNKNOWN_COMMAND");
+    }
 }
 
 #[test]
-fn test_catalog_sync_shard_legacy_alias_is_supported() {
+fn test_catalog_sync_shard_is_the_only_shard_sync_command() {
     let (mut router, _temp_dir) = create_test_router();
     unlock_vault(&mut router, "test_password");
 
@@ -45,28 +35,17 @@ fn test_catalog_sync_shard_legacy_alias_is_supported() {
     ));
     assert_rpc_ok(&canonical);
 
-    let legacy = router.handle(&RpcRequest::new(
-        "catalog:shard:sync",
-        serde_json::json!({"shard_id": "docs", "from_version": 0}),
-    ));
-    assert_rpc_ok(&legacy);
-
     let c = canonical.result().unwrap();
-    let l = legacy.result().unwrap();
 
     assert_eq!(c.get("shard_id").and_then(|v| v.as_str()), Some("docs"));
-    assert_eq!(l.get("shard_id").and_then(|v| v.as_str()), Some("docs"));
-
-    assert_eq!(
-        c.get("requires_full_load").and_then(|v| v.as_bool()),
-        l.get("requires_full_load").and_then(|v| v.as_bool())
-    );
     assert!(
         c.get("deltas").and_then(|v| v.as_array()).is_some(),
         "deltas must be an array"
     );
-    assert!(
-        l.get("deltas").and_then(|v| v.as_array()).is_some(),
-        "deltas must be an array"
-    );
+
+    let legacy = router.handle(&RpcRequest::new(
+        "catalog:shard:sync",
+        serde_json::json!({"shard_id": "docs", "from_version": 0}),
+    ));
+    assert_rpc_error(&legacy, "UNKNOWN_COMMAND");
 }

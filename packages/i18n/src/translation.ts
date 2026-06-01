@@ -34,8 +34,15 @@ export const createI18n = <const T extends TransStore, L extends Lang>(
     setDocumentLang(lang)
   }
 
+  let cachedLang: Lang = lang
+  const translationCache = new Map<keyof T, unknown>()
+
   const setLang = action((value: Lang) => {
     langState.set(value)
+    if (cachedLang !== value) {
+      cachedLang = value
+      translationCache.clear()
+    }
     if (syncDocumentLang) {
       setDocumentLang(value)
     }
@@ -45,7 +52,21 @@ export const createI18n = <const T extends TransStore, L extends Lang>(
     key: K,
     values: V | undefined = undefined,
   ): I18nResult<T, K, L, V> => {
-    const translation = readTranslation(data, key, langState(), fallbackLang)
+    const currentLang = langState()
+    if (currentLang !== cachedLang) {
+      cachedLang = currentLang
+      translationCache.clear()
+    }
+
+    let translation: unknown
+    if (values === undefined && translationCache.has(key)) {
+      translation = translationCache.get(key)
+    } else {
+      translation = readTranslation(data, key, currentLang, fallbackLang)
+      if (values === undefined) {
+        translationCache.set(key, translation)
+      }
+    }
 
     if (translation === undefined) {
       return key as I18nResult<T, K, L, V>
@@ -55,7 +76,7 @@ export const createI18n = <const T extends TransStore, L extends Lang>(
       return translation as I18nResult<T, K, L, V>
     }
 
-    return replaceValues(translation, values) as I18nResult<T, K, L, V>
+    return replaceValues(translation as string, values) as I18nResult<T, K, L, V>
   }
 
   return {

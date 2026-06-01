@@ -1,4 +1,5 @@
 use super::*;
+use crate::catalog::{PASSKEYS_SHARD_ID, PASSMANAGER_SHARD_ID};
 
 fn create_test_catalog() -> CatalogNode {
     let mut root = CatalogNode::new_root();
@@ -6,6 +7,9 @@ fn create_test_catalog() -> CatalogNode {
     let mut passmanager = CatalogNode::new_dir(1, PASSMANAGER_SHARD_ID.to_string());
     passmanager.add_child(CatalogNode::new_file(2, "bank.txt".to_string(), 100, None));
     root.add_child(passmanager);
+
+    let passkeys = CatalogNode::new_dir(6, PASSKEYS_SHARD_ID.to_string());
+    root.add_child(passkeys);
 
     let mut docs = CatalogNode::new_dir(3, "documents".to_string());
     docs.add_child(CatalogNode::new_file(
@@ -22,6 +26,10 @@ fn create_test_catalog() -> CatalogNode {
     root
 }
 
+fn count_nodes(node: &CatalogNode) -> usize {
+    1 + node.children().iter().map(count_nodes).sum::<usize>()
+}
+
 #[test]
 fn test_sharded_catalog_manager_new() {
     let manager = ShardedCatalogManager::new();
@@ -36,8 +44,9 @@ fn test_split_into_shards() {
 
     let shards = split_into_shards(&root, None);
 
-    assert_eq!(shards.len(), 3);
+    assert_eq!(shards.len(), 4);
     assert!(shards.iter().any(|s| s.shard_id == PASSMANAGER_SHARD_ID));
+    assert!(shards.iter().any(|s| s.shard_id == PASSKEYS_SHARD_ID));
     assert!(shards.iter().any(|s| s.shard_id == "documents"));
     assert!(shards.iter().any(|s| s.shard_id == "photos"));
 }
@@ -49,10 +58,13 @@ fn test_create_root_index_from_shards() {
 
     let index = create_root_index_from_shards(&shards);
 
-    assert_eq!(index.shards.len(), 3);
+    assert_eq!(index.shards.len(), 4);
 
     let pm_meta = index.get_shard(PASSMANAGER_SHARD_ID).unwrap();
     assert_eq!(pm_meta.strategy, LoadStrategy::Eager);
+
+    let passkeys_meta = index.get_shard(PASSKEYS_SHARD_ID).unwrap();
+    assert_eq!(passkeys_meta.strategy, LoadStrategy::Eager);
 
     let docs_meta = index.get_shard("documents").unwrap();
     assert_eq!(docs_meta.strategy, LoadStrategy::Lazy);
@@ -65,8 +77,9 @@ fn test_merge_shards_to_catalog() {
 
     let merged = merge_shards_to_catalog(&shards);
 
-    assert_eq!(merged.children().len(), 3);
+    assert_eq!(merged.children().len(), 4);
     assert!(merged.find_child(PASSMANAGER_SHARD_ID).is_some());
+    assert!(merged.find_child(PASSKEYS_SHARD_ID).is_some());
     assert!(merged.find_child("documents").is_some());
     assert!(merged.find_child("photos").is_some());
 }
@@ -116,6 +129,22 @@ fn test_eager_shard_ids() {
     let manager = ShardedCatalogManager::from_root_index(index);
     let eager_ids = manager.eager_shard_ids();
 
-    assert_eq!(eager_ids.len(), 1);
+    assert_eq!(eager_ids.len(), 2);
     assert!(eager_ids.contains(&PASSMANAGER_SHARD_ID.to_string()));
+    assert!(eager_ids.contains(&PASSKEYS_SHARD_ID.to_string()));
+}
+
+#[test]
+fn test_sharded_catalog_fixture_payload_budget() {
+    let root = create_test_catalog();
+    let shards = split_into_shards(&root, None);
+    let bytes = serde_json::to_vec(&shards).expect("shards serialize");
+    let node_count = shards
+        .iter()
+        .map(|shard| count_nodes(&shard.root))
+        .sum::<usize>();
+
+    assert_eq!(shards.len(), 4);
+    assert_eq!(node_count, 6);
+    assert!(bytes.len() < 1_200);
 }

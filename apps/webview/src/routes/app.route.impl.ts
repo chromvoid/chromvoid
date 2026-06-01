@@ -1,74 +1,125 @@
-import {XLitElement} from '@statx/lit'
-import {html, nothing, type TemplateResult} from 'lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {nothing, type PropertyValues, type TemplateResult} from 'lit'
 
 import {navigationModel} from 'root/app/navigation/navigation.model'
-import {getAppContext} from 'root/shared/services/app-context'
+import type {SurfaceId} from 'root/app/navigation/navigation.types'
+import {markStartupContentReadyWhenStable} from 'root/app/bootstrap/startup-readiness'
+import {markStartupTimeline} from 'root/app/bootstrap/startup-timeline'
+import {
+  moduleAccessModel,
+  type ModuleAccessState,
+  type ModuleAccessStatus,
+  type ProFeatureKey,
+} from 'root/core/pro/module-access.model'
+import {guidanceCompletionBridge, guidanceModel} from 'root/core/guidance'
+import {i18n} from 'root/i18n'
+import {getAppContext, getRouter} from 'root/shared/services/app-context'
 import {openCommandPalette} from 'root/shared/services/command-palette'
+import {subscribeAfterInitial} from 'root/shared/services/subscribed-signal'
+import {
+  emitFileActionCommand,
+  subscribeFileCommand,
+  type FileCommand,
+  type FileOpenCommand,
+} from 'root/shared/services/file-command-service'
 import type {Routes} from 'root/app/router/router'
+import {getFileManagerModel} from 'root/features/file-manager/file-manager.model'
+import {viewTransition} from 'root/utils/view-transitions'
 
 import {FileAppShell} from 'root/features/shell/components/file-app-shell'
-import {FileDetailsPanel} from 'root/features/file-manager/components/file-details-panel'
-import {ImageGallery} from 'root/features/media/components/image-gallery'
-import {ImageGalleryMobile} from 'root/features/media/components/image-gallery-mobile'
-import {VideoPlayer} from 'root/features/media/components/video-player'
-import {VideoPlayerMobile} from 'root/features/media/components/video-player-mobile'
-import {GatewayPage} from './gateway/gateway-page'
+import {StatusBar} from 'root/features/shell/components/status-bar'
+import {AudioPlayer} from 'root/features/media/components/audio-player'
+import type {GalleryCloseDetail} from 'root/features/media/components/image-gallery-v2/gallery.types'
+import {MediaPlaybackHost} from 'root/features/media/components/media-playback-host'
+import {mediaPlaybackModel} from 'root/features/media/models/media-playback.model'
+import {AppGuidanceHost} from 'root/features/guidance'
 import {BiometricAppGate} from './biometric-app-gate/biometric-app-gate'
 import {biometricAppGateModel} from './biometric-app-gate/biometric-app-gate.model'
-import {RemotePage} from './remote/remote-page'
-import {SettingsPage} from './settings/settings-page'
-import {NetworkPairPage} from './network-pair/network-pair'
 import {appRouteStyles} from './app.route.styles'
 import {ChromVoidAppModel, type MobileToolbarState} from './app.route.model'
 
-export class ChromVoidApp extends XLitElement {
+const STARTUP_ROUTE_READINESS_SETTLE_MS = 360
+
+declare global {
+  interface Window {
+    __chromvoidGuidanceE2E?: {
+      guidanceModel: typeof guidanceModel
+      moduleAccessModel: typeof moduleAccessModel
+    }
+  }
+}
+
+export class ChromVoidApp extends ReatomLitElement {
   static elementName = 'chromvoid-app'
   static define() {
     if (!customElements.get(this.elementName)) {
       customElements.define(this.elementName, this as unknown as CustomElementConstructor)
     }
-    FileDetailsPanel.define()
     FileAppShell.define()
-    GatewayPage.define()
+    StatusBar.define()
+    AudioPlayer.define()
+    MediaPlaybackHost.define()
+    AppGuidanceHost.define()
     BiometricAppGate.define()
-    RemotePage.define()
-    ImageGallery.define()
-    ImageGalleryMobile.define()
-    VideoPlayer.define()
-    VideoPlayerMobile.define()
-    SettingsPage.define()
-    NetworkPairPage.define()
   }
   static styles = appRouteStyles
 
-  private readonly model = new ChromVoidAppModel(
-    () => this.requestUpdate(),
-    () => this.updateComplete,
-  )
+  private readonly model = new ChromVoidAppModel()
+  private unsubscribeFileCommand?: () => void
+  private unbindRouteTransition?: () => void
+  private startupRouteReadinessTimerId = 0
 
   connectedCallback(): void {
     super.connectedCallback()
     this.model.connect()
+    guidanceCompletionBridge.connect()
+    this.installGuidanceE2EBridge()
     window.addEventListener('keydown', this.onKeydown)
-    window.addEventListener('open-gallery', this.handleOpenGallery as unknown as EventListener)
-    window.addEventListener('open-video', this.handleOpenVideo as unknown as EventListener)
+    this.unsubscribeFileCommand = subscribeFileCommand(this.handleFileCommand)
+    this.setupRouteTransitions()
   }
 
   disconnectedCallback(): void {
-    window.removeEventListener('open-video', this.handleOpenVideo as unknown as EventListener)
-    window.removeEventListener('open-gallery', this.handleOpenGallery as unknown as EventListener)
+    this.uninstallGuidanceE2EBridge()
+    this.unbindRouteTransition?.()
+    this.unbindRouteTransition = undefined
+    window.clearTimeout(this.startupRouteReadinessTimerId)
+    this.unsubscribeFileCommand?.()
+    this.unsubscribeFileCommand = undefined
     window.removeEventListener('keydown', this.onKeydown)
+    guidanceCompletionBridge.disconnect()
     this.model.disconnect()
     super.disconnectedCallback()
+  }
+
+  protected override firstUpdated(changedProperties: PropertyValues): void {
+    super.firstUpdated(changedProperties)
+    this.scheduleStartupReadinessForRoute(getRouter().route())
+  }
+
+  private installGuidanceE2EBridge(): void {
+    if (window.env !== 'dev') return
+    try {
+      if (new URL(window.location.href).searchParams.get('e2eGuidance') !== '1') return
+      window.__chromvoidGuidanceE2E = {guidanceModel, moduleAccessModel}
+    } catch {}
+  }
+
+  private uninstallGuidanceE2EBridge(): void {
+    if (window.__chromvoidGuidanceE2E?.guidanceModel === guidanceModel) {
+      delete window.__chromvoidGuidanceE2E
+    }
   }
 
   private renderShellDetails() {
     const data = this.model.getShellDetailsData()
     if (!data) return nothing
+    const externalOpenPending = getFileManagerModel(getAppContext()).isExternalOpenPending(data.id)
 
     return html`<file-details-panel
       slot="details"
       open
+      .externalOpenPending=${externalOpenPending}
       .data=${{
         mode: 'single' as const,
         id: data.id,
@@ -77,9 +128,12 @@ export class ChromVoidApp extends XLitElement {
         size: data.size,
         path: data.path,
         lastModified: data.lastModified,
+        sourceRevision: data.sourceRevision,
+        mimeType: data.mimeType,
       }}
       @close=${this.onShellCloseDetails}
       @action=${this.onDetailsPanelAction}
+      @open-gallery=${this.handleOpenGallery}
       @open-video=${this.handleOpenVideo}
     ></file-details-panel>`
   }
@@ -97,6 +151,11 @@ export class ChromVoidApp extends XLitElement {
     }
 
     if (route === 'dashboard') {
+      const moduleAccess = moduleAccessModel.surfaceAccess(surface)
+      if (moduleAccess && moduleAccess.status !== 'enabled') {
+        return this.renderModuleAccessState(surface, moduleAccess)
+      }
+
       if (surface === 'remote') {
         return html`<remote-page .hideBackLink=${hideMobileBackLinks}></remote-page>`
       }
@@ -106,20 +165,105 @@ export class ChromVoidApp extends XLitElement {
       if (surface === 'remote-storage') {
         return html`<remote-storage-page .hideBackLink=${hideMobileBackLinks}></remote-storage-page>`
       }
-      if (surface === 'network-pair') {
-        return html`<network-pair-page .hideBackLink=${hideMobileBackLinks}></network-pair-page>`
-      }
       if (surface === 'settings') {
         return html`<settings-page .hideBackLink=${hideMobileBackLinks}></settings-page>`
       }
+      if (surface === 'passkeys') {
+        return html`<passkeys-page .hideBackLink=${hideMobileBackLinks}></passkeys-page>`
+      }
       if (surface === 'passwords') {
         return html`<password-manager></password-manager>`
+      }
+      if (surface === 'notes') {
+        return store.layoutMode() === 'mobile'
+          ? html`<notes-quick-view-mobile></notes-quick-view-mobile>`
+          : html`<notes-quick-view></notes-quick-view>`
+      }
+
+      if (this.model.markdownDocumentPending() || this.model.markdownDocumentData()) {
+        return html`<markdown-document-page
+          .data=${this.model.markdownDocumentData()}
+          ?pending=${this.model.markdownDocumentPending()}
+          @close=${this.onMarkdownDocumentClose}
+        ></markdown-document-page>`
       }
 
       return html`<chromvoid-file-manager></chromvoid-file-manager>`
     }
 
     return ''
+  }
+
+  private getProAccessGuidanceSurface(surface: SurfaceId): 'remote' | 'gateway' | 'remote-storage' | null {
+    if (surface === 'remote' || surface === 'gateway' || surface === 'remote-storage') return surface
+    return null
+  }
+
+  private renderModuleAccessState(surface: SurfaceId, access: ModuleAccessState): TemplateResult {
+    const title =
+      access.status === 'unsupported'
+        ? i18n('pro-access:unsupported-title')
+        : access.status === 'disabled_by_rollout'
+          ? i18n('pro-access:disabled-title')
+          : i18n('pro-access:required-title')
+    const detail =
+      access.status === 'entitlement_unavailable'
+        ? i18n('pro-access:entitlement-unavailable')
+        : access.status === 'locked_pro'
+          ? i18n('pro-access:locked-pro')
+          : access.denial_code || access.feature_key
+
+    const content = html`
+      <section class="pro-access-state" aria-live="polite">
+        <cv-icon name=${access.status === 'unsupported' ? 'circle-slash' : 'lock'}></cv-icon>
+        <h1>${title}</h1>
+        <p>${detail}</p>
+        <div class="pro-access-state__actions">
+          <button class="pro-access-state__button" @click=${this.handleOpenSettings}>
+            ${i18n('navigation:settings')}
+          </button>
+          <button
+            class="pro-access-state__button pro-access-state__button--secondary"
+            data-surface=${surface}
+            data-feature=${access.feature_key}
+            data-status=${access.status}
+            @click=${this.handleBlockedAccessHelp}
+          >
+            ${i18n('guidance:actions:open-help')}
+          </button>
+        </div>
+      </section>
+    `
+    const guidanceSurface = this.getProAccessGuidanceSurface(surface)
+    if (!guidanceSurface) return content
+
+    return html`
+      <cv-guidance-anchor anchor-id="pro.access-state" surface=${guidanceSurface} owner="module-access">
+        ${content}
+      </cv-guidance-anchor>
+    `
+  }
+
+  private handleOpenSettings() {
+    navigationModel.navigateToSurface('settings')
+  }
+
+  private handleBlockedAccessHelp(event: Event): void {
+    const button = event.currentTarget as HTMLElement | null
+    const surface = button?.dataset['surface'] as SurfaceId | undefined
+    const feature = button?.dataset['feature'] as ProFeatureKey | undefined
+    const reason = button?.dataset['status'] as ModuleAccessStatus | undefined
+    if (!surface || !feature || !reason) return
+
+    const guidanceSurface = this.getProAccessGuidanceSurface(surface)
+    if (!guidanceSurface) return
+
+    guidanceModel.openBlockedAction({
+      surface: guidanceSurface,
+      anchorId: 'pro.access-state',
+      feature,
+      reason,
+    })
   }
 
   private renderMobileTopToolbar(state: MobileToolbarState): TemplateResult | typeof nothing {
@@ -129,14 +273,19 @@ export class ChromVoidApp extends XLitElement {
       <mobile-top-toolbar
         slot="mobile-topbar"
         .title=${state.title}
+        .subtitle=${state.subtitle ?? ''}
+        .status=${state.status ?? null}
         .leading=${state.leading}
         .menuOpen=${getAppContext().store.sidebarOpen()}
         .actions=${state.actions}
+        .maxVisible=${state.maxVisible}
+        .overflowFromIndex=${state.overflowFromIndex}
         ?back-disabled=${state.backDisabled}
         ?show-command=${state.showCommand}
+        ?command-active=${Boolean(state.commandActive)}
         @mobile-toolbar-leading=${this.onMobileToolbarLeading}
         @mobile-toolbar-command=${this.onMobileToolbarCommand}
-        @mobile-toolbar-action=${(e: CustomEvent) => state.actionProvider?.executeMobileCommand?.(e.detail.actionId)}
+        @mobile-toolbar-action=${this.onMobileToolbarAction}
       >
       </mobile-top-toolbar>
     `
@@ -148,6 +297,11 @@ export class ChromVoidApp extends XLitElement {
     mobileToolbar: MobileToolbarState,
   ): TemplateResult {
     const {store} = getAppContext()
+    const surface = navigationModel.currentSurface()
+    const contentScrollMode =
+      store.layoutMode() === 'mobile' && (surface === 'files' || surface === 'notes')
+        ? 'surface'
+        : 'shell'
 
     return html`
       <file-app-shell
@@ -155,6 +309,8 @@ export class ChromVoidApp extends XLitElement {
         ?data-details-open=${isDetailsOpen}
         ?data-sidebar-open=${store.sidebarOpen()}
         ?data-dual-pane=${store.dualPaneMode()}
+        .edgeBackDisabled=${this.model.galleryOpen()}
+        .contentScrollMode=${contentScrollMode}
         @close-sidebar=${this.onShellCloseSidebar}
         @close-details=${this.onShellCloseDetails}
         @open-sidebar=${this.onShellOpenSidebar}
@@ -169,31 +325,80 @@ export class ChromVoidApp extends XLitElement {
     `
   }
 
+  private renderRouteContentFrame(
+    route: Routes | 'biometric-gate',
+    content: TemplateResult | typeof nothing | '',
+  ): TemplateResult {
+    return html`<div class="route-content" data-route=${route}>${content}</div>`
+  }
+
   private onDetailsPanelAction = (e: CustomEvent) => {
     const {action, fileId} = e.detail
-    window.dispatchEvent(
-      new CustomEvent('file-action', {
-        detail: {action, fileId},
-      }),
-    )
+    emitFileActionCommand({kind: 'action', action: String(action), fileId: Number(fileId)})
   }
 
   private handleOpenGallery = (e: CustomEvent) => {
     const {fileId} = e.detail
-    this.model.openGallery({fileId: Number(fileId)})
+    this.handleFileOpenCommand({kind: 'gallery', fileId: Number(fileId)})
   }
 
-  private onGalleryClose = () => {
-    this.model.closeGallery()
+  private onGalleryClose = (event: CustomEvent<GalleryCloseDetail>) => {
+    this.model.closeGallery({preserveHistoryEntry: event.detail?.reason === 'swipe-dismiss'})
   }
 
   private handleOpenVideo = (e: CustomEvent) => {
     const {fileId, fileName} = e.detail
-    this.model.openVideoPlayer(Number(fileId), String(fileName))
+    this.handleFileOpenCommand({kind: 'video', fileId: Number(fileId), fileName: String(fileName)})
+  }
+
+  private handleFileCommand = (command: FileCommand) => {
+    switch (command.kind) {
+      case 'action':
+        return
+      case 'document':
+      case 'gallery':
+      case 'preview':
+      case 'video':
+      case 'audio':
+        this.handleFileOpenCommand(command)
+        return
+    }
+  }
+
+  private handleFileOpenCommand = (command: FileOpenCommand) => {
+    switch (command.kind) {
+      case 'document':
+        this.model.openMarkdownDocument(command.fileId)
+        return
+      case 'gallery':
+        this.model.openGallery({fileId: command.fileId})
+        return
+      case 'video':
+        this.model.openVideoPlayer(command.fileId, command.fileName)
+        return
+      case 'audio':
+        this.model.openAudioPlayer(command.fileId, command.fileName)
+        return
+      case 'preview':
+        this.model.openPreview(command.fileId)
+        return
+    }
   }
 
   private onVideoPlayerClose = () => {
     this.model.closeVideoPlayer()
+  }
+
+  private onAudioPlayerClose = () => {
+    this.model.closeAudioPlayer()
+  }
+
+  private onPreviewClose = () => {
+    this.model.closePreview()
+  }
+
+  private onMarkdownDocumentClose() {
+    this.model.closeFilesDocument()
   }
 
   private applyGallerySlideDirection(direction: 'forward' | 'backward'): void {
@@ -225,25 +430,35 @@ export class ChromVoidApp extends XLitElement {
     if (!this.model.galleryOpen()) return nothing
 
     const {store} = getAppContext()
+    const fileManagerModel = getFileManagerModel(getAppContext())
+    const images = this.model.galleryImages()
+    const currentIndex = this.model.galleryIndex()
+    const currentImage = images[currentIndex]
+    const sharePending = currentImage ? fileManagerModel.isSharePending(currentImage.id) : false
+
     if (store.layoutMode() === 'mobile') {
       return html`
         <image-gallery-mobile
-          .images=${this.model.galleryImages()}
-          .currentIndex=${this.model.galleryIndex()}
+          .images=${images}
+          .currentIndex=${currentIndex}
           .open=${this.model.galleryOpen()}
+          .sharePending=${sharePending}
           @close=${this.onGalleryClose}
           @navigate=${this.onGalleryNavigate}
+          @action=${this.onDetailsPanelAction}
         ></image-gallery-mobile>
       `
     }
 
     return html`
       <image-gallery
-        .images=${this.model.galleryImages()}
-        .currentIndex=${this.model.galleryIndex()}
+        .images=${images}
+        .currentIndex=${currentIndex}
         .open=${this.model.galleryOpen()}
+        .sharePending=${sharePending}
         @close=${this.onGalleryClose}
         @navigate=${this.onGalleryNavigate}
+        @action=${this.onDetailsPanelAction}
       ></image-gallery>
     `
   }
@@ -256,9 +471,21 @@ export class ChromVoidApp extends XLitElement {
     return html`
       <div class="media-overlay-pending" aria-live="polite" aria-busy="true">
         <div class="loading-spinner"></div>
-        <span>Loading media...</span>
+        <span>${i18n('media:loading')}</span>
       </div>
     `
+  }
+
+  private renderMediaPlaybackHost(): TemplateResult {
+    return html`<media-playback-host></media-playback-host>`
+  }
+
+  private renderAudioPlayerOverlay(): TemplateResult | typeof nothing {
+    if (!mediaPlaybackModel.fullPlayerOpen() || mediaPlaybackModel.sessionKind() !== 'audio') {
+      return nothing
+    }
+
+    return html`<audio-player @close=${this.onAudioPlayerClose} @action=${this.onDetailsPanelAction}></audio-player>`
   }
 
   private renderVideoPlayerOverlay(): TemplateResult | typeof nothing {
@@ -270,8 +497,13 @@ export class ChromVoidApp extends XLitElement {
         <video-player-mobile
           .fileId=${this.model.videoPlayerFileId()}
           .fileName=${this.model.videoPlayerFileName()}
+          .mimeType=${this.model.videoPlayerMimeType()}
+          .mediaInfo=${this.model.videoPlayerMediaInfo()}
+          .lastModified=${this.model.videoPlayerLastModified()}
+          .sourceSize=${this.model.videoPlayerFileSize()}
           .open=${this.model.videoPlayerOpen()}
           @close=${this.onVideoPlayerClose}
+          @action=${this.onDetailsPanelAction}
         ></video-player-mobile>
       `
     }
@@ -280,14 +512,37 @@ export class ChromVoidApp extends XLitElement {
       <video-player
         .fileId=${this.model.videoPlayerFileId()}
         .fileName=${this.model.videoPlayerFileName()}
+        .mimeType=${this.model.videoPlayerMimeType()}
+        .mediaInfo=${this.model.videoPlayerMediaInfo()}
+        .lastModified=${this.model.videoPlayerLastModified()}
+        .sourceSize=${this.model.videoPlayerFileSize()}
         .open=${this.model.videoPlayerOpen()}
         @close=${this.onVideoPlayerClose}
+        @action=${this.onDetailsPanelAction}
       ></video-player>
     `
   }
 
+  private renderPreviewOverlay(): TemplateResult | typeof nothing {
+    const data = this.model.previewData()
+    if (!data) return nothing
+    const fileManagerModel = getFileManagerModel(getAppContext())
+    const externalOpenPending = fileManagerModel.isExternalOpenPending(data.fileId)
+    const sharePending = fileManagerModel.isSharePending(data.fileId)
+
+    return html`
+      <file-preview
+        .data=${data}
+        .externalOpenPending=${externalOpenPending}
+        .sharePending=${sharePending}
+        @close=${this.onPreviewClose}
+        @action=${this.onDetailsPanelAction}
+      ></file-preview>
+    `
+  }
+
   private getMobileToolbarState(route: Routes) {
-    return this.model.getMobileToolbarState(route, this.renderRoot)
+    return this.model.getMobileToolbarState(route)
   }
 
   private onMobileToolbarLeading = (e: Event) => {
@@ -296,18 +551,80 @@ export class ChromVoidApp extends XLitElement {
       getAppContext().store.setSidebarOpen(!getAppContext().store.sidebarOpen())
       return
     }
-    this.model.handleMobileBack(this.renderRoot)
+    this.model.handleMobileBack()
   }
 
   private onMobileToolbarCommand = () => {
-    openCommandPalette({mode: 'all', source: 'mobile-toolbar'})
+    openCommandPalette({mode: 'search', source: 'mobile-toolbar'})
   }
 
-  private onTagClick = (e: CustomEvent) => {
-    const tag = e.detail?.tag?.key as string
-    if (!tag) return
-    const path = `/Tags/${tag}`
-    navigationModel.navigateFilesPath(path)
+  private setupRouteTransitions(): void {
+    this.unbindRouteTransition?.()
+    this.model.initializeRenderedRoute(getRouter().route())
+    this.unbindRouteTransition = subscribeAfterInitial(getRouter().route, () => {
+      const newRoute = getRouter().route()
+      this.scheduleStartupReadinessForRoute(newRoute)
+
+      const plan = this.model.planRenderedRouteTransition(newRoute, biometricAppGateModel.shouldBlockSurface())
+
+      if (plan.intent.kind === 'surface-change') {
+        void viewTransition(async () => {
+          this.model.commitRenderedRouteTransition(plan)
+          await this.updateComplete
+        })
+      }
+    })
+  }
+
+  private scheduleStartupReadinessForRoute(route: Routes): void {
+    window.clearTimeout(this.startupRouteReadinessTimerId)
+
+    if (route === 'loading' || route === 'welcome') {
+      markStartupTimeline('web.startup-readiness.app-route-owned-by-child', {route})
+      return
+    }
+
+    const {ws} = getAppContext()
+    if (route === 'no-connection' && ws.kind === 'tauri' && !ws.connected()) {
+      markStartupTimeline('web.startup-readiness.app-route-skip-transient', {
+        connected: ws.connected(),
+        connecting: ws.connecting(),
+        route,
+      })
+      return
+    }
+
+    markStartupTimeline('web.startup-readiness.app-route-scheduled', {
+      delayMs: STARTUP_ROUTE_READINESS_SETTLE_MS,
+      route,
+    })
+
+    this.startupRouteReadinessTimerId = window.setTimeout(() => {
+      const currentRoute = getRouter().route()
+      if (currentRoute !== route) {
+        markStartupTimeline('web.startup-readiness.app-route-skip-after-settle', {
+          currentRoute,
+          scheduledRoute: route,
+        })
+        return
+      }
+
+      markStartupTimeline('web.startup-readiness.app-route-stable', {route: currentRoute})
+      markStartupContentReadyWhenStable(this, {
+        criticalSelectors: [`.route-content[data-route="${currentRoute}"]`],
+      })
+    }, STARTUP_ROUTE_READINESS_SETTLE_MS)
+  }
+
+  private onMobileToolbarAction(e: Event) {
+    const actionId = (e as CustomEvent<{actionId?: string}>).detail?.actionId
+    if (!actionId) return
+
+    const state = this.getMobileToolbarState(getRouter().route())
+    const handled = state.executeAction?.(actionId) ?? false
+    if (!handled) {
+      return
+    }
   }
 
   private onShellCloseSidebar = () => {
@@ -315,7 +632,7 @@ export class ChromVoidApp extends XLitElement {
   }
 
   private onShellCloseDetails = () => {
-    navigationModel.goBack()
+    navigationModel.closeOverlay()
   }
 
   private onShellOpenSidebar = () => {
@@ -331,36 +648,45 @@ export class ChromVoidApp extends XLitElement {
   }
 
   private onNavigateBack = () => {
-    this.model.handleMobileBack(this.renderRoot)
+    this.model.handleMobileBack()
+  }
+
+  private focusDashboardCreateDirActionTarget = (): boolean => {
+    const fileManager = this.renderRoot?.querySelector('chromvoid-file-manager') as
+      | (HTMLElement & {focusDashboardCreateDirActionTarget?: () => boolean})
+      | null
+
+    return fileManager?.focusDashboardCreateDirActionTarget?.() ?? false
   }
 
   private onKeydown = (e: KeyboardEvent) => {
-    this.model.handleKeydown(e, this.renderRoot)
+    this.model.handleKeydown(e, this.focusDashboardCreateDirActionTarget)
   }
 
   protected renderContent() {
-    const route = window.router.route()
+    const route = this.model.renderedRoute()
 
     if (route === 'no-connection') {
-      return html`<no-connection></no-connection>`
+      return this.renderRouteContentFrame(route, html`<no-connection></no-connection>`)
     }
 
     if (biometricAppGateModel.shouldBlockSurface()) {
-      return html`<biometric-app-gate></biometric-app-gate>`
+      return this.renderRouteContentFrame('biometric-gate', html`<biometric-app-gate></biometric-app-gate>`)
     }
 
     if (route === 'welcome') {
-      return html`<welcome-page></welcome-page>`
+      return this.renderRouteContentFrame(route, html`<welcome-page></welcome-page>`)
     }
 
     const isDetailsOpen = navigationModel.isDetailsOpen()
     const mobileToolbar = this.getMobileToolbarState(route)
     const routeContent = this.renderRoute(route)
 
-    return html`
+    return this.renderRouteContentFrame(route, html`
       ${this.renderShell(routeContent, isDetailsOpen, mobileToolbar)} ${this.renderGallery()}
-      ${this.renderVideoPlayerOverlay()} ${this.renderPendingMediaOverlay()}
-    `
+      ${this.renderPreviewOverlay()} ${this.renderVideoPlayerOverlay()} ${this.renderAudioPlayerOverlay()}
+      ${this.renderPendingMediaOverlay()} ${this.renderMediaPlaybackHost()} <app-guidance-host></app-guidance-host>
+    `)
   }
 
   render() {

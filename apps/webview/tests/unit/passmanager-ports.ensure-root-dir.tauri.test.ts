@@ -53,7 +53,7 @@ describe('CatalogPasswordsRepository.ensureRootDir (tauri quirks)', () => {
 
     const out = await repo.readRoot<{version: number}>()
 
-    expect(out?.version).toBe(2)
+    expect(out?.version).toBe(3)
     expect(catalog.lastError.set).not.toHaveBeenCalled()
   })
 
@@ -71,7 +71,7 @@ describe('CatalogPasswordsRepository.ensureRootDir (tauri quirks)', () => {
 
     const out = await repo.readRoot<{version: number; entries: unknown[]; folders: string[]}>()
 
-    expect(out?.version).toBe(2)
+    expect(out?.version).toBe(3)
     expect(out?.entries).toEqual([])
     expect(out?.folders).toEqual([])
     expect(catalog.lastError.set).not.toHaveBeenCalled()

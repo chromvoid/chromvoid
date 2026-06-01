@@ -92,6 +92,7 @@ fn test_erase_execute_invalid_master_password() {
 
     let response = erase_execute(&mut router, token, "wrong-password");
     assert_rpc_error(&response, "INVALID_MASTER_PASSWORD");
+    assert_eq!(response.error_message(), Some("Invalid master password"));
 }
 
 #[test]
@@ -100,8 +101,9 @@ fn test_erase_execute_invalid_token() {
 
     // Token must be obtained via erase:confirm; a random one should be rejected.
     let response = erase_execute(&mut router, "invalid-token", MASTER_PASSWORD);
-    // ADR-004: Erase токен невалиден/просрочен => ERASE_TOKEN_EXPIRED
+    // ADR-004: Erase token invalid / expired => ERASE TOKEN EXPIRED
     assert_rpc_error(&response, "ERASE_TOKEN_EXPIRED");
+    assert_eq!(response.error_message(), Some("Erase token expired"));
 }
 
 #[test]

@@ -21,6 +21,7 @@ if (typeof document === 'undefined') {
   const noop = () => {}
   ;(globalThis as unknown as {document: unknown}).document = {
     body: {appendChild: noop, removeChild: noop},
+    querySelector: () => ({setAttribute: noop}),
     createElement: () => ({
       click: noop,
       set href(_v: string) {},

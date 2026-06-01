@@ -18,8 +18,25 @@ pub struct GatewayState {
 impl GatewayState {
     pub fn load_or_default(config_path: PathBuf) -> Self {
         let config = match std::fs::read(&config_path) {
-            Ok(bytes) => serde_json::from_slice::<GatewayConfig>(&bytes).unwrap_or_default(),
-            Err(_) => GatewayConfig::default(),
+            Ok(bytes) => match serde_json::from_slice::<GatewayConfig>(&bytes) {
+                Ok(config) => config,
+                Err(error) => {
+                    tracing::warn!(
+                        "gateway: failed to parse config {}: {error}",
+                        config_path.display()
+                    );
+                    GatewayConfig::default()
+                }
+            },
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!(
+                        "gateway: failed to read config {}: {error}",
+                        config_path.display()
+                    );
+                }
+                GatewayConfig::default()
+            }
         };
         Self {
             config,
@@ -30,10 +47,18 @@ impl GatewayState {
     }
 
     pub fn save_config(&self) {
-        let Ok(json) = serde_json::to_vec_pretty(&self.config) else {
-            return;
-        };
-        let _ = std::fs::write(&self.config_path, json);
+        if let Err(error) =
+            crate::helpers::storage::write_json_pretty_atomic(&self.config_path, &self.config)
+        {
+            tracing::warn!(
+                "gateway: failed to save config {}: {error}",
+                self.config_path.display()
+            );
+        }
+    }
+
+    pub(crate) fn config_save_snapshot(&self) -> (PathBuf, GatewayConfig) {
+        (self.config_path.clone(), self.config.clone())
     }
 
     pub fn start_pairing(&mut self, pairing_token: String, pin: String) -> PairingSession {

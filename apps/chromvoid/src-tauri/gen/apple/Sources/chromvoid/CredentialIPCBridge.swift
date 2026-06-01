@@ -107,6 +107,9 @@ enum CredentialIPCBridge {
     static let requestKey = "credential_provider.request"
     static let responseKey = "credential_provider.response"
     static let schemaVersion = 2
+    static let passkeyCreateCommand = "credential_provider:passkey:create"
+    static let passkeyGetCommand = "credential_provider:passkey:get"
+    static let passkeyQueryCommand = "credential_provider:passkey:query"
 
     // Darwin notification names for cross-process signaling
     static let requestNotification = "com.chromvoid.credential.request" as CFString
@@ -166,6 +169,13 @@ enum CredentialIPCBridge {
         return "apple adapter requires ios or macos"
     }
 
+    static func passkeysLiteStatusPayload() -> [String: Any] {
+        [
+            "passkeysLiteAvailable": passkeysLiteReady(),
+            "passkeysLiteReason": passkeysLiteUnsupportedReason() ?? NSNull(),
+        ]
+    }
+
     static func sanitizedMetadata(_ value: Any) -> Any {
         if let map = value as? [String: Any] {
             var out: [String: Any] = [:]
@@ -215,6 +225,131 @@ enum CredentialIPCBridge {
 
     static func sanitizeAdapterMetadataForTesting(_ value: Any) -> Any {
         sanitizedMetadata(value)
+    }
+
+    static func passkeysLiteStatusPayloadForTesting() -> [String: Any] {
+        passkeysLiteStatusPayload()
+    }
+
+    static func passkeyRegistrationPayloadForTesting(
+        relyingPartyIdentifier: String,
+        userName: String,
+        userHandle: Data,
+        clientDataHash: Data,
+        supportedAlgorithms: [Int]
+    ) -> [String: Any] {
+        passkeyRegistrationPayload(
+            relyingPartyIdentifier: relyingPartyIdentifier,
+            userName: userName,
+            userHandle: userHandle,
+            clientDataHash: clientDataHash,
+            supportedAlgorithms: supportedAlgorithms
+        )
+    }
+
+    static func passkeyAssertionPayloadForTesting(
+        relyingPartyIdentifier: String,
+        credentialID: Data?,
+        clientDataHash: Data,
+        allowedCredentialIDs: [Data]
+    ) -> [String: Any] {
+        passkeyAssertionPayload(
+            relyingPartyIdentifier: relyingPartyIdentifier,
+            credentialID: credentialID,
+            clientDataHash: clientDataHash,
+            allowedCredentialIDs: allowedCredentialIDs
+        )
+    }
+
+    // MARK: - Passkeys-lite payload helpers
+
+    static func passkeyRegistrationPayload(
+        relyingPartyIdentifier: String,
+        userName: String,
+        userHandle: Data,
+        clientDataHash: Data,
+        supportedAlgorithms: [Int]
+    ) -> [String: Any] {
+        [
+            "platform": platform,
+            "platform_version_major": platformVersionMajor,
+            "request": [
+                "rp": [
+                    "id": relyingPartyIdentifier,
+                    "name": relyingPartyIdentifier,
+                ],
+                "user": [
+                    "id": base64URLEncode(userHandle),
+                    "name": userName,
+                    "displayName": userName,
+                ],
+                "challenge": base64URLEncode(clientDataHash),
+                "origin": syntheticOrigin(for: relyingPartyIdentifier),
+                "pubKeyCredParams": supportedAlgorithms.map { algorithm in
+                    [
+                        "type": "public-key",
+                        "alg": algorithm,
+                    ]
+                },
+                "attestation": "none",
+                "clientDataHash": base64URLEncode(clientDataHash),
+            ],
+        ]
+    }
+
+    static func passkeyAssertionPayload(
+        relyingPartyIdentifier: String,
+        credentialID: Data?,
+        clientDataHash: Data,
+        allowedCredentialIDs: [Data]
+    ) -> [String: Any] {
+        var payload: [String: Any] = [
+            "platform": platform,
+            "platform_version_major": platformVersionMajor,
+            "request": [
+                "rpId": relyingPartyIdentifier,
+                "challenge": base64URLEncode(clientDataHash),
+                "origin": syntheticOrigin(for: relyingPartyIdentifier),
+                "allowCredentials": allowedCredentialIDs.map { credentialID in
+                    [
+                        "type": "public-key",
+                        "id": base64URLEncode(credentialID),
+                    ]
+                },
+                "clientDataHash": base64URLEncode(clientDataHash),
+            ],
+        ]
+
+        if let credentialID {
+            payload["credentialIdB64Url"] = base64URLEncode(credentialID)
+        }
+
+        return payload
+    }
+
+    static func base64URLEncode(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    static func base64URLDecode(_ value: String) -> Data? {
+        var base64 = value
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = base64.count % 4
+        if remainder > 0 {
+            base64.append(String(repeating: "=", count: 4 - remainder))
+        }
+        return Data(base64Encoded: base64)
+    }
+
+    static func syntheticOrigin(for relyingPartyIdentifier: String) -> String {
+        if relyingPartyIdentifier.hasPrefix("https://") || relyingPartyIdentifier.hasPrefix("http://") {
+            return relyingPartyIdentifier
+        }
+        return "https://\(relyingPartyIdentifier)"
     }
 
     // MARK: - Request/Response IPC

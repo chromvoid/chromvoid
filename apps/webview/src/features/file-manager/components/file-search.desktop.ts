@@ -1,11 +1,15 @@
-import {css, html} from 'lit'
+import {css} from 'lit'
+import {html} from '@chromvoid/uikit/reatom-lit'
 
 import {i18n} from 'root/i18n'
+import {keyboardShortcutsModel} from 'root/shared/keyboard'
+import {openCommandPalette} from 'root/shared/services/command-palette'
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 
-import type {SearchFilters, ViewMode} from 'root/shared/contracts/file-manager'
+import type {ViewMode} from 'root/shared/contracts/file-manager'
+import {hasNonDefaultFileSearchFilters} from '../models/file-search-filters.model'
 import {getFileTypeLabel, getSortLabel, getViewLabel} from './file-manager-labels'
-import {FileSearchBase, DEFAULT_FILTERS} from './file-search.base'
+import {FileSearchBase} from './file-search.base'
 
 const VIEW_ICONS: Record<ViewMode, string> = {
   list: 'list',
@@ -85,7 +89,7 @@ export class FileSearch extends FileSearchBase {
           border-color var(--cv-duration-fast) var(--cv-easing-standard),
           box-shadow var(--cv-duration-fast) var(--cv-easing-standard),
           transform var(--cv-duration-fast) var(--cv-easing-standard);
-        box-shadow: 0 1px 2px color-mix(in oklch, black 5%, transparent);
+        box-shadow: 0 1px 2px var(--cv-alpha-black-5);
 
         cv-icon {
           width: 14px;
@@ -97,10 +101,10 @@ export class FileSearch extends FileSearchBase {
 
         &:hover {
           background: var(--cv-color-hover);
-          border-color: color-mix(in oklch, var(--cv-color-primary) 40%, var(--cv-color-border));
+          border-color: var(--cv-color-primary-border-strong);
           box-shadow:
-            0 2px 6px color-mix(in oklch, black 8%, transparent),
-            0 0 0 1px color-mix(in oklch, var(--cv-color-primary) 10%, transparent);
+            0 2px 6px var(--cv-alpha-black-8),
+            0 0 0 1px var(--cv-color-primary-subtle);
 
           cv-icon {
             color: var(--cv-color-primary);
@@ -109,7 +113,7 @@ export class FileSearch extends FileSearchBase {
 
         &:active {
           transform: scale(0.97);
-          box-shadow: 0 1px 2px color-mix(in oklch, black 5%, transparent);
+          box-shadow: 0 1px 2px var(--cv-alpha-black-5);
         }
       }
 
@@ -122,11 +126,11 @@ export class FileSearch extends FileSearchBase {
         border: 1px solid var(--cv-color-border-muted);
         background: var(--cv-color-surface-2);
         overflow: hidden;
-        box-shadow: 0 1px 2px color-mix(in oklch, black 5%, transparent);
+        box-shadow: 0 1px 2px var(--cv-alpha-black-5);
       }
 
       .chipgroup--danger {
-        border-color: color-mix(in oklch, var(--cv-color-danger) 35%, var(--cv-color-border-muted));
+        border-color: var(--cv-color-danger-border-strong);
       }
 
       .chipgroup__main {
@@ -192,7 +196,7 @@ export class FileSearch extends FileSearchBase {
         }
 
         &:hover {
-          background: color-mix(in oklch, var(--cv-color-danger) 20%, transparent);
+          background: var(--cv-color-danger-surface-strong);
           color: var(--cv-color-danger);
         }
       }
@@ -234,182 +238,173 @@ export class FileSearch extends FileSearchBase {
     `,
   ]
 
-  private openCommandPalette = () => {
-    // CommandBar listens on window keydown for Cmd/Ctrl+K.
-    window.dispatchEvent(new KeyboardEvent('keydown', {key: 'k', metaKey: true}))
-    window.dispatchEvent(new KeyboardEvent('keydown', {key: 'k', ctrlKey: true}))
+  private openCommandPalette() {
+    openCommandPalette({mode: 'all'})
   }
 
-  private set<K extends keyof SearchFilters>(key: K, value: SearchFilters[K]) {
-    this.emit({...this.filters, [key]: value})
+  private getEditInCommandTitle(): string {
+    const shortcut = keyboardShortcutsModel.label('app.commandPalette.open')
+    return shortcut
+      ? i18n('file-manager:edit-in-command', {shortcut})
+      : i18n('file-manager:edit-in-command-generic')
   }
 
-  private resetAll = () => {
-    this.emit({...DEFAULT_FILTERS})
+  private resetAll() {
+    this.getFilterActions().reset()
   }
 
-  private toggleSortDirection = () => {
-    this.set('sortDirection', this.filters.sortDirection === 'asc' ? 'desc' : 'asc')
+  private toggleSortDirection() {
+    this.getFilterActions().toggleSortDirection()
   }
 
-  private cycleViewMode = () => {
-    const next: ViewMode =
-      this.filters.viewMode === 'list' ? 'grid' : this.filters.viewMode === 'grid' ? 'table' : 'list'
-    this.set('viewMode', next)
+  private cycleViewMode() {
+    this.getFilterActions().cycleViewMode()
   }
 
-  private removeFileType = (typeValue: string) => {
-    this.set(
-      'fileTypes',
-      this.filters.fileTypes.filter((t) => t !== typeValue),
-    )
+  private removeFileType(typeValue: string) {
+    this.getFilterActions().removeFileType(typeValue)
   }
 
-  private clearQuery = () => {
-    this.set('query', '')
+  private clearQuery() {
+    this.getFilterActions().clearQuery()
   }
 
-  private hideHiddenFiles = () => {
-    this.set('showHidden', false)
+  private hideHiddenFiles() {
+    this.getFilterActions().hideHiddenFiles()
   }
 
   render() {
     const {filters} = this
 
-    const hasNonDefaults =
-      filters.query !== DEFAULT_FILTERS.query ||
-      filters.sortBy !== DEFAULT_FILTERS.sortBy ||
-      filters.sortDirection !== DEFAULT_FILTERS.sortDirection ||
-      filters.viewMode !== DEFAULT_FILTERS.viewMode ||
-      filters.showHidden !== DEFAULT_FILTERS.showHidden ||
-      filters.fileTypes.length > 0
+    const hasNonDefaults = hasNonDefaultFileSearchFilters(filters)
 
     const sortArrow = filters.sortDirection === 'asc' ? '↑' : '↓'
     const sortLabel = this.compact
       ? `${getSortLabel(filters.sortBy)} ${sortArrow}`
-      : `${i18n('file-manager:sort-current' as any, {sort: getSortLabel(filters.sortBy)})} ${sortArrow}`
+      : `${i18n('file-manager:sort-current', {sort: getSortLabel(filters.sortBy)})} ${sortArrow}`
+    const editInCommandTitle = this.getEditInCommandTitle()
 
     return html`
       <div class="bar">
         ${this.compact ? '' : html`<span class="stats">${this.filteredFiles}/${this.totalFiles}</span>`}
 
-        <div class="chips" role="list" aria-label=${i18n('file-manager:active-filters' as any)}>
+        <div class="chips" role="list" aria-label=${i18n('file-manager:active-filters')}>
           ${this.compact
             ? ''
             : html`
-                <button
+                <cv-button unstyled
                   class="chip"
                   type="button"
                   role="listitem"
                   @click=${this.cycleViewMode}
-                  title=${i18n('file-manager:change-view' as any)}
+                  title=${i18n('file-manager:change-view')}
                 >
-                  <cv-icon name=${VIEW_ICONS[filters.viewMode]}></cv-icon>
+                  <cv-icon slot="prefix" name=${VIEW_ICONS[filters.viewMode]}></cv-icon>
                   <span class="chip__label"
-                    >${i18n('file-manager:view-current' as any, {view: getViewLabel(filters.viewMode)})}</span
+                    >${i18n('file-manager:view-current', {view: getViewLabel(filters.viewMode)})}</span
                   >
-                </button>
+                </cv-button>
               `}
 
-          <button
+          <cv-button unstyled
             class="chip"
             type="button"
             role="listitem"
             @click=${this.toggleSortDirection}
-            title=${i18n('file-manager:toggle-sort-direction' as any)}
+            title=${i18n('file-manager:toggle-sort-direction')}
           >
-            <cv-icon name="arrow-up-down"></cv-icon>
+            <cv-icon slot="prefix" name="arrow-up-down"></cv-icon>
             <span class="chip__label">${sortLabel}</span>
-          </button>
+          </cv-button>
 
           ${filters.query
             ? html`
                 <span
                   class="chipgroup chipgroup--danger"
                   role="listitem"
-                  title=${i18n('file-manager:search' as any)}
+                  title=${i18n('file-manager:search')}
                 >
-                  <button
+                  <cv-button unstyled
                     class="chipgroup__main"
                     type="button"
                     @click=${this.openCommandPalette}
-                    title=${i18n('file-manager:edit-in-command' as any)}
+                    title=${editInCommandTitle}
                   >
-                    <cv-icon name="search"></cv-icon>
+                    <cv-icon slot="prefix" name="search"></cv-icon>
                     <span class="chip__label"
-                      >${i18n('file-manager:search-current' as any, {query: filters.query})}</span
+                      >${i18n('file-manager:search-current', {query: filters.query})}</span
                     >
-                  </button>
-                  <button
+                  </cv-button>
+                  <cv-button unstyled
                     class="chip__close"
                     type="button"
                     @click=${this.clearQuery}
-                    aria-label=${i18n('file-manager:clear-search' as any)}
+                    aria-label=${i18n('file-manager:clear-search')}
                   >
                     <cv-icon name="x"></cv-icon>
-                  </button>
+                  </cv-button>
                 </span>
               `
             : ''}
           ${filters.showHidden
             ? html`
-                <span class="chipgroup" role="listitem" title=${i18n('file-manager:hidden-files' as any)}>
-                  <button
+                <span class="chipgroup" role="listitem" title=${i18n('file-manager:hidden-files')}>
+                  <cv-button unstyled
                     class="chipgroup__main"
                     type="button"
                     @click=${this.openCommandPalette}
-                    title=${i18n('file-manager:edit-in-command' as any)}
+                    title=${editInCommandTitle}
                   >
-                    <cv-icon name="eye"></cv-icon>
-                    <span class="chip__label">${i18n('file-manager:show-hidden' as any)}</span>
-                  </button>
-                  <button
+                    <cv-icon slot="prefix" name="eye"></cv-icon>
+                    <span class="chip__label">${i18n('file-manager:show-hidden')}</span>
+                  </cv-button>
+                  <cv-button unstyled
                     class="chip__close"
                     type="button"
                     @click=${this.hideHiddenFiles}
-                    aria-label=${i18n('file-manager:hide-hidden-files' as any)}
+                    aria-label=${i18n('file-manager:hide-hidden-files')}
                   >
                     <cv-icon name="x"></cv-icon>
-                  </button>
+                  </cv-button>
                 </span>
               `
             : ''}
           ${filters.fileTypes.map((type) => {
             const label = getFileTypeLabel(type)
             return html`
-              <span class="chipgroup" role="listitem" title=${i18n('file-manager:file-type' as any)}>
-                <button
+              <span class="chipgroup" role="listitem" title=${i18n('file-manager:file-type')}>
+                <cv-button unstyled
                   class="chipgroup__main"
                   type="button"
                   @click=${this.openCommandPalette}
-                  title=${i18n('file-manager:edit-in-command' as any)}
+                  title=${editInCommandTitle}
                 >
-                  <cv-icon name="tag"></cv-icon>
+                  <cv-icon slot="prefix" name="tag"></cv-icon>
                   <span class="chip__label">${label}</span>
-                </button>
-                <button
+                </cv-button>
+                <cv-button unstyled
                   class="chip__close"
                   type="button"
                   @click=${() => this.removeFileType(type)}
-                  aria-label=${i18n('file-manager:remove-filter' as any, {label})}
+                  aria-label=${i18n('file-manager:remove-filter', {label})}
                 >
                   <cv-icon name="x"></cv-icon>
-                </button>
+                </cv-button>
               </span>
             `
           })}
           ${hasNonDefaults
             ? html`
-                <button
+                <cv-button unstyled
                   class="chip chip--muted"
                   type="button"
                   role="listitem"
                   @click=${this.resetAll}
-                  title=${i18n('button:reset' as any)}
+                  title=${i18n('button:reset')}
                 >
-                  <cv-icon name="refresh-cw"></cv-icon>
-                  <span class="chip__label">${i18n('button:reset' as any)}</span>
-                </button>
+                  <cv-icon slot="prefix" name="refresh-cw"></cv-icon>
+                  <span class="chip__label">${i18n('button:reset')}</span>
+                </cv-button>
               `
             : ''}
         </div>

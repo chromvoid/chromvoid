@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-catalog-thumbnail-image"
+description = "Enables the catalog_thumbnail_image command without any pre-configured scope."
+commands.allow = ["catalog_thumbnail_image"]
+
+[[permission]]
+identifier = "deny-catalog-thumbnail-image"
+description = "Denies the catalog_thumbnail_image command without any pre-configured scope."
+commands.deny = ["catalog_thumbnail_image"]

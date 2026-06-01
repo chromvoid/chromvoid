@@ -4,10 +4,7 @@ use chromvoid_protocol::{RemoteTransport, TransportError, TransportType};
 use futures_util::{SinkExt, StreamExt};
 use rustls::ClientConfig;
 use sha2::{Digest, Sha256};
-use std::{
-    sync::{Arc, OnceLock},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{
     connect_async, connect_async_tls_with_config,
@@ -18,20 +15,6 @@ use tokio_tungstenite::{
 use tracing::{info, warn};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
-static CRYPTO_PROVIDER_INIT: OnceLock<Result<(), String>> = OnceLock::new();
-
-fn ensure_crypto_provider_installed() -> Result<(), String> {
-    CRYPTO_PROVIDER_INIT
-        .get_or_init(|| {
-            if rustls::crypto::CryptoProvider::get_default().is_some() {
-                return Ok(());
-            }
-            rustls::crypto::ring::default_provider()
-                .install_default()
-                .map_err(|_| "install rustls crypto provider failed".to_string())
-        })
-        .clone()
-}
 
 pub struct TcpStealthTransport {
     tx: futures_util::stream::SplitSink<
@@ -117,7 +100,7 @@ impl TcpStealthTransport {
         bearer_token: Option<&str>,
         relay_context: Option<(&str, &str)>,
     ) -> Result<Self, String> {
-        ensure_crypto_provider_installed()?;
+        super::rustls_crypto::ensure_rustls_crypto_provider_installed()?;
 
         let room_id_len = relay_context.map_or(0, |(_, room_id)| room_id.len());
         info!(
@@ -148,16 +131,14 @@ impl TcpStealthTransport {
                 .insert(HeaderName::from_static("authorization"), value);
         }
 
-        let (ws_stream, response) = if target_url.starts_with("wss://") && pinned_cert_pem.is_some()
+        let (ws_stream, response) = if let (true, Some(pinned_cert_pem)) =
+            (target_url.starts_with("wss://"), pinned_cert_pem)
         {
             info!(
                 target_url = %target_url,
                 "TCP stealth connecting with pinned TLS connector"
             );
-            let connector = build_pinned_tls_connector(
-                pinned_cert_pem.expect("guarded by is_some check"),
-                pinned_cert_sha256,
-            )?;
+            let connector = build_pinned_tls_connector(pinned_cert_pem, pinned_cert_sha256)?;
             match tokio::time::timeout(
                 CONNECT_TIMEOUT,
                 connect_async_tls_with_config(request, None, false, Some(connector)),

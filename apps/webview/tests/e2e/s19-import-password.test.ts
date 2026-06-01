@@ -1,5 +1,5 @@
 import {expect, test} from 'vitest'
-import * as passwordImport from '../../../../packages/password-import/src/index'
+import * as passwordImport from '@chromvoid/password-import'
 
 // Test that password-import package is available
 test('Import Password → Package is available', () => {
@@ -11,6 +11,7 @@ test('Import Password → Parsers can be imported', async () => {
   expect(typeof passwordImport.parseKeePass).toBe('function')
   expect(typeof passwordImport.parseCSV).toBe('function')
   expect(typeof passwordImport.parseBitwardenJson).toBe('function')
+  expect(typeof passwordImport.parse1Password1PUX).toBe('function')
 
   // Test that mapper is available
   expect(typeof passwordImport.detectConflicts).toBe('function')

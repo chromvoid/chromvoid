@@ -32,6 +32,8 @@ impl JniAndroidKeystoreBackend {
             return Err(KeystoreError::Unavailable);
         }
 
+        // SAFETY: ctx.vm() returns a non-null JavaVM* (null-checked above on line 31);
+        // lifetime tied to the JVM which outlives this process.
         let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
             .map_err(|e| KeystoreError::Other(format!("{operation_name}: {e}")))?;
 
@@ -50,6 +52,8 @@ impl JniAndroidKeystoreBackend {
             return Err(KeystoreError::Unavailable);
         }
 
+        // SAFETY: ctx.context() returns a non-null Android Context jobject (null-checked above on line 49);
+        // we mem::forget it on line 59 to avoid double-deleting the global ref owned by ndk_context.
         let context = unsafe { JObject::from_raw(ctx.context().cast()) };
         let class_loader = env
             .call_method(&context, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])

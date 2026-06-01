@@ -1,10 +1,50 @@
+use crate::app_state::AppState;
+use crate::gateway;
+use crate::state_ext::{lock_or_rpc_err, lock_or_tauri_rpc_err};
+use crate::types::*;
 use serde_json::Value;
 use tracing::info;
 
-use crate::app_state::AppState;
-use crate::gateway;
-use crate::state_ext::lock_or_rpc_err;
-use crate::types::*;
+async fn browser_extension_guard<T>(state: &tauri::State<'_, AppState>) -> Option<RpcResult<T>> {
+    crate::pro::guard_pro_feature_async(
+        state,
+        chromvoid_core::license::PRO_FEATURE_BROWSER_EXTENSION,
+    )
+    .await
+    .err()
+    .map(|error| match error {
+        RpcResult::Error { error, code, .. } => RpcResult::Error {
+            ok: false,
+            error,
+            code,
+        },
+        RpcResult::Success { .. } => RpcResult::Error {
+            ok: false,
+            error: "Pro license required".to_string(),
+            code: Some("PRO_REQUIRED".to_string()),
+        },
+    })
+}
+
+fn browser_extension_guard_sync<T>(state: &tauri::State<'_, AppState>) -> Option<RpcResult<T>> {
+    crate::pro::guard_pro_feature(
+        state,
+        chromvoid_core::license::PRO_FEATURE_BROWSER_EXTENSION,
+    )
+    .err()
+    .map(|error| match error {
+        RpcResult::Error { error, code, .. } => RpcResult::Error {
+            ok: false,
+            error,
+            code,
+        },
+        RpcResult::Success { .. } => RpcResult::Error {
+            ok: false,
+            error: "Pro license required".to_string(),
+            code: Some("PRO_REQUIRED".to_string()),
+        },
+    })
+}
 
 #[tauri::command]
 pub(crate) fn gateway_get_config(
@@ -15,26 +55,49 @@ pub(crate) fn gateway_get_config(
 }
 
 #[tauri::command]
-pub(crate) fn gateway_set_enabled(
+pub(crate) async fn gateway_set_enabled(
     state: tauri::State<'_, AppState>,
     enabled: bool,
-) -> RpcResult<gateway::GatewayConfig> {
-    let mut st = lock_or_rpc_err!(state.gateway, "Gateway");
-    st.config.enabled = enabled;
-    st.save_config();
-    info!("[gateway] set_enabled: {}", st.config.enabled);
-    rpc_ok(st.config.clone())
+) -> TauriRpcResult<gateway::GatewayConfig> {
+    if enabled {
+        if let Some(error) = browser_extension_guard(&state).await {
+            return Ok(error);
+        }
+    }
+    let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
+    let (config, save_snapshot) = {
+        let mut st = lock_or_tauri_rpc_err!(state.gateway, "Gateway");
+        st.config.enabled = enabled;
+        info!("[gateway] set_enabled: {}", st.config.enabled);
+        (st.config.clone(), st.config_save_snapshot())
+    };
+    gateway::save_config_snapshot_best_effort(
+        catalog_blocking_io_runtime,
+        save_snapshot,
+        "Gateway set enabled",
+    )
+    .await;
+    Ok(rpc_ok(config))
 }
 
 #[tauri::command]
-pub(crate) fn gateway_set_access_duration(
+pub(crate) async fn gateway_set_access_duration(
     state: tauri::State<'_, AppState>,
     duration: gateway::AccessDuration,
-) -> RpcResult<gateway::GatewayConfig> {
-    let mut st = lock_or_rpc_err!(state.gateway, "Gateway");
-    st.config.access_duration = duration;
-    st.save_config();
-    rpc_ok(st.config.clone())
+) -> TauriRpcResult<gateway::GatewayConfig> {
+    let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
+    let (config, save_snapshot) = {
+        let mut st = lock_or_tauri_rpc_err!(state.gateway, "Gateway");
+        st.config.access_duration = duration;
+        (st.config.clone(), st.config_save_snapshot())
+    };
+    gateway::save_config_snapshot_best_effort(
+        catalog_blocking_io_runtime,
+        save_snapshot,
+        "Gateway set access duration",
+    )
+    .await;
+    Ok(rpc_ok(config))
 }
 
 #[tauri::command]
@@ -46,14 +109,26 @@ pub(crate) fn gateway_list_paired(
 }
 
 #[tauri::command]
-pub(crate) fn gateway_revoke_extension(
+pub(crate) async fn gateway_revoke_extension(
     state: tauri::State<'_, AppState>,
     id: String,
-) -> RpcResult<Vec<gateway::PairedExtension>> {
-    let mut st = lock_or_rpc_err!(state.gateway, "Gateway");
-    st.revoke_extension(&id);
-    st.save_config();
-    rpc_ok(st.config.paired_extensions.clone())
+) -> TauriRpcResult<Vec<gateway::PairedExtension>> {
+    let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
+    let (paired_extensions, save_snapshot) = {
+        let mut st = lock_or_tauri_rpc_err!(state.gateway, "Gateway");
+        st.revoke_extension(&id);
+        (
+            st.config.paired_extensions.clone(),
+            st.config_save_snapshot(),
+        )
+    };
+    gateway::save_config_snapshot_best_effort(
+        catalog_blocking_io_runtime,
+        save_snapshot,
+        "Gateway revoke extension",
+    )
+    .await;
+    Ok(rpc_ok(paired_extensions))
 }
 
 #[tauri::command]
@@ -62,6 +137,9 @@ pub(crate) fn gateway_start_pairing(
 ) -> RpcResult<GatewayPairingInfo> {
     use rand::RngCore;
 
+    if let Some(error) = browser_extension_guard_sync(&state) {
+        return error;
+    }
     let mut st = lock_or_rpc_err!(state.gateway, "Gateway");
 
     let mut token_bytes = [0u8; 16];
@@ -89,13 +167,26 @@ pub(crate) fn gateway_start_pairing(
 }
 
 #[tauri::command]
-pub(crate) fn gateway_set_session_duration(
+pub(crate) async fn gateway_set_session_duration(
     state: tauri::State<'_, AppState>,
     mins: u32,
-) -> RpcResult<u32> {
-    let mut st = lock_or_rpc_err!(state.gateway, "Gateway");
-    let clamped = st.set_session_max_duration(mins);
-    rpc_ok(clamped)
+) -> TauriRpcResult<u32> {
+    let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
+    let (clamped, save_snapshot) = {
+        let mut st = lock_or_tauri_rpc_err!(state.gateway, "Gateway");
+        st.config.session_max_duration_mins = mins.clamp(15, 240);
+        (
+            st.config.session_max_duration_mins,
+            st.config_save_snapshot(),
+        )
+    };
+    gateway::save_config_snapshot_best_effort(
+        catalog_blocking_io_runtime,
+        save_snapshot,
+        "Gateway set session duration",
+    )
+    .await;
+    Ok(rpc_ok(clamped))
 }
 
 #[tauri::command]
@@ -107,22 +198,67 @@ pub(crate) fn gateway_cancel_pairing(state: tauri::State<'_, AppState>) -> RpcRe
 }
 
 #[tauri::command]
-pub(crate) fn gateway_get_capability_policy(
+pub(crate) async fn gateway_get_capability_policy(
     state: tauri::State<'_, AppState>,
     extension_id: String,
-) -> RpcResult<gateway::CapabilityPolicy> {
-    let mut st = lock_or_rpc_err!(state.gateway, "Gateway");
-    rpc_ok(st.get_or_create_policy(&extension_id))
+) -> TauriRpcResult<gateway::CapabilityPolicy> {
+    let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
+    let (policy, save_snapshot) = {
+        let mut st = lock_or_tauri_rpc_err!(state.gateway, "Gateway");
+        if let Some(policy) = st
+            .config
+            .capability_policies
+            .iter()
+            .find(|policy| policy.extension_id == extension_id)
+        {
+            (policy.clone(), None)
+        } else {
+            let policy = gateway::CapabilityPolicy::default_for(extension_id);
+            st.config.capability_policies.push(policy.clone());
+            (policy, Some(st.config_save_snapshot()))
+        }
+    };
+    if let Some(save_snapshot) = save_snapshot {
+        gateway::save_config_snapshot_best_effort(
+            catalog_blocking_io_runtime,
+            save_snapshot,
+            "Gateway get capability policy",
+        )
+        .await;
+    }
+    Ok(rpc_ok(policy))
 }
 
 #[tauri::command]
-pub(crate) fn gateway_set_capability_policy(
+pub(crate) async fn gateway_set_capability_policy(
     state: tauri::State<'_, AppState>,
     policy: gateway::CapabilityPolicy,
-) -> RpcResult<gateway::CapabilityPolicy> {
-    let mut st = lock_or_rpc_err!(state.gateway, "Gateway");
-    st.set_policy(policy.clone());
-    rpc_ok(policy)
+) -> TauriRpcResult<gateway::CapabilityPolicy> {
+    if let Some(error) = browser_extension_guard(&state).await {
+        return Ok(error);
+    }
+    let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
+    let save_snapshot = {
+        let mut st = lock_or_tauri_rpc_err!(state.gateway, "Gateway");
+        if let Some(existing) = st
+            .config
+            .capability_policies
+            .iter_mut()
+            .find(|existing| existing.extension_id == policy.extension_id)
+        {
+            *existing = policy.clone();
+        } else {
+            st.config.capability_policies.push(policy.clone());
+        }
+        st.config_save_snapshot()
+    };
+    gateway::save_config_snapshot_best_effort(
+        catalog_blocking_io_runtime,
+        save_snapshot,
+        "Gateway set capability policy",
+    )
+    .await;
+    Ok(rpc_ok(policy))
 }
 
 #[tauri::command]
@@ -135,6 +271,9 @@ pub(crate) fn gateway_issue_action_grant(
 ) -> RpcResult<gateway::ActionGrant> {
     use rand::RngCore;
 
+    if let Some(error) = browser_extension_guard_sync(&state) {
+        return error;
+    }
     let mut st = lock_or_rpc_err!(state.gateway, "Gateway");
 
     let now = gateway::state::now_ms();
@@ -170,6 +309,9 @@ pub(crate) fn gateway_issue_site_grant(
 ) -> RpcResult<gateway::SiteGrant> {
     use rand::RngCore;
 
+    if let Some(error) = browser_extension_guard_sync(&state) {
+        return error;
+    }
     let mut st = lock_or_rpc_err!(state.gateway, "Gateway");
 
     let now = gateway::state::now_ms();

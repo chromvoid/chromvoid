@@ -170,17 +170,8 @@ pub struct ServerProfileStore {
 
 impl ServerProfileStore {
     pub fn load(path: &Path) -> Self {
-        let profiles = if path.exists() {
-            match std::fs::read_to_string(path) {
-                Ok(contents) => {
-                    serde_json::from_str::<HashMap<String, StoredServerProfile>>(&contents)
-                        .unwrap_or_default()
-                }
-                Err(_) => HashMap::new(),
-            }
-        } else {
-            HashMap::new()
-        };
+        let profiles =
+            crate::helpers::storage::read_json_or_default(path, "network: server profile store");
 
         Self {
             path: path.to_path_buf(),
@@ -189,9 +180,7 @@ impl ServerProfileStore {
     }
 
     pub fn save(&self) -> Result<(), String> {
-        let json =
-            serde_json::to_string_pretty(&self.profiles).map_err(|e| format!("serialize: {e}"))?;
-        std::fs::write(&self.path, json).map_err(|e| format!("write: {e}"))
+        crate::helpers::storage::write_json_pretty_atomic(&self.path, &self.profiles)
     }
 
     pub fn list(&self) -> Vec<ImportedProfile> {

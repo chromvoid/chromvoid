@@ -1,4 +1,5 @@
 use super::*;
+use crate::catalog::CatalogMediaKind;
 
 fn create_test_tree() -> CatalogNode {
     let mut root = CatalogNode::new_root();
@@ -105,6 +106,121 @@ fn test_apply_delta_update() {
     let docs = root.find_child("docs").unwrap();
     let readme = docs.find_child("readme.txt").unwrap();
     assert_eq!(readme.size, 999);
+}
+
+#[test]
+fn test_apply_delta_sets_media_info() {
+    let mut root = create_test_tree();
+    let media_info = CatalogMediaInfo {
+        kind: CatalogMediaKind::Audio,
+        audio_tracks: 1,
+        video_tracks: 0,
+        playback_mime_type: Some("audio/mp4".to_string()),
+    };
+    let fields = PartialNode {
+        media_info: Some(Some(media_info.clone())),
+        ..Default::default()
+    };
+    let delta = DeltaEntry::update(1, "/docs/readme.txt", fields);
+
+    assert!(apply_delta(&mut root, &delta));
+
+    let docs = root.find_child("docs").unwrap();
+    let readme = docs.find_child("readme.txt").unwrap();
+    assert_eq!(readme.media_info, Some(media_info));
+}
+
+#[test]
+fn test_apply_delta_clears_media_info() {
+    let mut root = create_test_tree();
+    let docs = root.find_child_mut("docs").unwrap();
+    let readme = docs.find_child_mut("readme.txt").unwrap();
+    readme.media_info = Some(CatalogMediaInfo {
+        kind: CatalogMediaKind::Video,
+        audio_tracks: 1,
+        video_tracks: 1,
+        playback_mime_type: None,
+    });
+
+    let fields = PartialNode {
+        media_info: Some(None),
+        ..Default::default()
+    };
+    let delta = DeltaEntry::update(1, "/docs/readme.txt", fields);
+
+    assert!(apply_delta(&mut root, &delta));
+
+    let docs = root.find_child("docs").unwrap();
+    let readme = docs.find_child("readme.txt").unwrap();
+    assert_eq!(readme.media_info, None);
+}
+
+#[test]
+fn test_apply_delta_preserves_media_info_when_absent() {
+    let mut root = create_test_tree();
+    let media_info = CatalogMediaInfo {
+        kind: CatalogMediaKind::Audio,
+        audio_tracks: 1,
+        video_tracks: 0,
+        playback_mime_type: None,
+    };
+    let docs = root.find_child_mut("docs").unwrap();
+    let readme = docs.find_child_mut("readme.txt").unwrap();
+    readme.media_info = Some(media_info.clone());
+
+    let fields = PartialNode {
+        size: Some(777),
+        ..Default::default()
+    };
+    let delta = DeltaEntry::update(1, "/docs/readme.txt", fields);
+
+    assert!(apply_delta(&mut root, &delta));
+
+    let docs = root.find_child("docs").unwrap();
+    let readme = docs.find_child("readme.txt").unwrap();
+    assert_eq!(readme.size, 777);
+    assert_eq!(readme.media_info, Some(media_info));
+}
+
+#[test]
+fn test_partial_node_media_info_serde_supports_set_and_clear() {
+    let media_info = CatalogMediaInfo {
+        kind: CatalogMediaKind::Audio,
+        audio_tracks: 2,
+        video_tracks: 0,
+        playback_mime_type: Some("audio/mp4".to_string()),
+    };
+    let set_fields = PartialNode {
+        media_info: Some(Some(media_info.clone())),
+        ..Default::default()
+    };
+
+    let set_value = serde_json::to_value(&set_fields).expect("partial node should serialize");
+    assert_eq!(
+        set_value.get("media_info"),
+        Some(&serde_json::json!({
+            "k": "audio",
+            "a": 2,
+            "v": 0,
+            "m": "audio/mp4"
+        }))
+    );
+    let set_roundtrip: PartialNode =
+        serde_json::from_value(set_value).expect("partial node should deserialize");
+    assert_eq!(set_roundtrip.media_info, Some(Some(media_info)));
+
+    let clear_value = serde_json::to_value(PartialNode {
+        media_info: Some(None),
+        ..Default::default()
+    })
+    .expect("partial node should serialize");
+    assert_eq!(
+        clear_value.get("media_info"),
+        Some(&serde_json::Value::Null)
+    );
+    let clear_roundtrip: PartialNode =
+        serde_json::from_value(clear_value).expect("partial node should deserialize");
+    assert_eq!(clear_roundtrip.media_info, Some(None));
 }
 
 #[test]

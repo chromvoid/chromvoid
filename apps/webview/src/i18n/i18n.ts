@@ -1,7 +1,7 @@
-import type {Lang} from '@statx/i18n'
-import {createI18n} from '@statx/i18n'
+import type {Lang} from '@project/i18n'
+import {createI18n} from '@project/i18n'
 
-import {setPasswordManagerLang} from '@project/passmanager'
+import {setPasswordManagerLang} from '@project/passmanager/i18n'
 
 import data from './data.json'
 
@@ -32,8 +32,9 @@ const available = ['en', 'es', 'fr', 'id', 'it', 'ja', 'ru', 'tr', 'uk', 'vi', '
 export const {i18n, setLang, getLang, langState} = createI18n(
   data,
   (localStorage.getItem(localStorageKey) as Lang) ?? 'en',
+  {fallbackLang: 'en'},
 )
-langState.subscribe((value) => {
+langState.subscribe((value: Lang) => {
   localStorage.setItem(localStorageKey, value)
   setPasswordManagerLang(value)
 })

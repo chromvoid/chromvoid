@@ -6,7 +6,15 @@ let server: ViteDevServer | undefined
 export async function ensureViteStarted(): Promise<ViteDevServer> {
   if (server) return server
 
-  // Проверяем, не запущен ли уже внешний dev-сервер на 4400
+  const getExternalServerStub = () =>
+    (server = {
+      async listen() {
+        return this
+      },
+      async close() {},
+    } as unknown as ViteDevServer)
+
+  // Check to see if an external dev server is running on 4400
   try {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 1000)
@@ -15,16 +23,11 @@ export async function ensureViteStarted(): Promise<ViteDevServer> {
     })
     clearTimeout(timeout)
     if (res.ok) {
-      // Внешний сервер уже работает – возвращаем заглушку
-      return (server = {
-        async listen() {
-          return this
-        },
-        async close() {},
-      } as unknown as ViteDevServer)
+      // The external server is already working – return the plug
+      return getExternalServerStub()
     }
   } catch {
-    // недоступен – поднимем свой сервер ниже
+    // Inaccessible – let’s take your server down
   }
 
   server = await createServer({
@@ -33,7 +36,30 @@ export async function ensureViteStarted(): Promise<ViteDevServer> {
     configFile: path.resolve(__dirname, '../../vite.config.ts'),
     logLevel: 'error',
   })
-  await server.listen()
+  try {
+    await server.listen()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (!message.includes('Port 4400 is already in use')) {
+      throw error
+    }
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 1000)
+    try {
+      const res = await fetch('http://localhost:4400/index.html', {
+        signal: controller.signal,
+      })
+      if (res.ok) {
+        await server.close()
+        return getExternalServerStub()
+      }
+    } finally {
+      clearTimeout(timeout)
+    }
+
+    throw error
+  }
   return server
 }
 

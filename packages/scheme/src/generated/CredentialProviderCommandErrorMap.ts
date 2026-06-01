@@ -10,4 +10,5 @@ export type CredentialProviderCommandErrorMap = {
   'credential_provider:recordUse': Array<string>
   'credential_provider:passkey:create': Array<string>
   'credential_provider:passkey:get': Array<string>
+  'credential_provider:passkey:query': Array<string>
 }

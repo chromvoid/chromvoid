@@ -5,22 +5,33 @@ use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 use chromvoid_core::rpc::{RpcInputStream, RpcReply, RpcRouter};
 use test_helpers::*;
 
-fn prepare_upload(
+fn upload_create(
     router: &mut RpcRouter,
     name: &str,
     size: u64,
     parent_path: &str,
     mime_type: &str,
 ) -> RpcResponse {
-    router.handle(&RpcRequest::new(
-        "catalog:prepareUpload",
-        serde_json::json!({
-            "name": name,
-            "size": size,
-            "parent_path": parent_path,
-            "mime_type": mime_type,
-        }),
-    ))
+    let reply = router.handle_with_stream(
+        &RpcRequest::new(
+            "catalog:upload",
+            serde_json::json!({
+                "name": name,
+                    "total_size": size,
+                "size": size,
+                    "offset": 0,
+                "parent_path": parent_path,
+                "mime_type": mime_type,
+            }),
+        ),
+        Some(RpcInputStream::from_bytes(vec![0; size as usize])),
+    );
+    match reply {
+        RpcReply::Json(response) => response,
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:upload must return JSON response")
+        }
+    }
 }
 
 fn upload_bytes(router: &mut RpcRouter, node_id: u64, bytes: Vec<u8>) {
@@ -35,7 +46,9 @@ fn upload_bytes(router: &mut RpcRouter, node_id: u64, bytes: Vec<u8>) {
 
     match router.handle_with_stream(&upload_request, Some(RpcInputStream::from_bytes(bytes))) {
         RpcReply::Json(r) => assert_rpc_ok(&r),
-        RpcReply::Stream(_) => panic!("catalog:upload must return JSON response"),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:upload must return JSON response")
+        }
     }
 }
 
@@ -50,7 +63,9 @@ fn secret_write_bytes(router: &mut RpcRouter, node_id: u64, bytes: Vec<u8>) {
 
     match router.handle_with_stream(&write_request, Some(RpcInputStream::from_bytes(bytes))) {
         RpcReply::Json(r) => assert_rpc_ok(&r),
-        RpcReply::Stream(_) => panic!("catalog:secret:write must return JSON response"),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:secret:write must return JSON response")
+        }
     }
 }
 
@@ -85,7 +100,7 @@ fn ensure_entry(router: &mut RpcRouter) {
     .to_string()
     .into_bytes();
 
-    let meta_resp = prepare_upload(
+    let meta_resp = upload_create(
         router,
         "meta.json",
         meta.len() as u64,
@@ -96,7 +111,7 @@ fn ensure_entry(router: &mut RpcRouter) {
     upload_bytes(router, get_node_id(&meta_resp), meta);
 
     let pwd = b"correct horse battery staple".to_vec();
-    let pwd_resp = prepare_upload(
+    let pwd_resp = upload_create(
         router,
         ".password",
         pwd.len() as u64,
@@ -153,7 +168,7 @@ fn ensure_entry_with_meta(
     .to_string()
     .into_bytes();
 
-    let meta_resp = prepare_upload(
+    let meta_resp = upload_create(
         router,
         "meta.json",
         meta.len() as u64,
@@ -179,7 +194,7 @@ fn ensure_entry_with_raw_meta(router: &mut RpcRouter, dir_name: &str, meta: serd
     let parent = format!("/.passmanager/{dir_name}");
     let encoded = meta.to_string().into_bytes();
 
-    let meta_resp = prepare_upload(
+    let meta_resp = upload_create(
         router,
         "meta.json",
         encoded.len() as u64,
@@ -188,6 +203,30 @@ fn ensure_entry_with_raw_meta(router: &mut RpcRouter, dir_name: &str, meta: serd
     );
     assert_rpc_ok(&meta_resp);
     upload_bytes(router, get_node_id(&meta_resp), encoded);
+
+    set_bypass_system_shard_guards(false);
+}
+
+fn ensure_entry_with_raw_meta_bytes(router: &mut RpcRouter, dir_name: &str, meta_bytes: &[u8]) {
+    set_bypass_system_shard_guards(true);
+
+    if list_dir(router, "/.passmanager").is_ok() == false {
+        assert_rpc_ok(&create_dir(router, ".passmanager"));
+    }
+
+    let created = create_dir_at(router, "/.passmanager", dir_name);
+    assert_rpc_ok(&created);
+
+    let parent = format!("/.passmanager/{dir_name}");
+    let meta_resp = upload_create(
+        router,
+        "meta.json",
+        meta_bytes.len() as u64,
+        &parent,
+        "application/json",
+    );
+    assert_rpc_ok(&meta_resp);
+    upload_bytes(router, get_node_id(&meta_resp), meta_bytes.to_vec());
 
     set_bypass_system_shard_guards(false);
 }
@@ -221,7 +260,7 @@ fn ensure_entry_with_otps(
     .to_string()
     .into_bytes();
 
-    let meta_resp = prepare_upload(
+    let meta_resp = upload_create(
         router,
         "meta.json",
         meta.len() as u64,
@@ -264,9 +303,14 @@ fn provider_open_session(router: &mut RpcRouter) -> String {
 }
 
 fn provider_list(router: &mut RpcRouter) -> RpcResponse {
+    provider_list_with_debug(router, false)
+}
+
+fn provider_list_with_debug(router: &mut RpcRouter, include_debug: bool) -> RpcResponse {
     router.handle(&RpcRequest::new(
         "credential_provider:list",
         serde_json::json!({
+          "include_debug": include_debug,
           "context": {
             "kind": "web",
             "origin": "https://app.example.com/login",
@@ -398,6 +442,93 @@ fn test_credential_provider_get_secret_requires_allowlist_and_returns_secret() {
 }
 
 #[test]
+fn test_credential_provider_list_debug_reports_web_context_miss() {
+    let (mut router, _temp_dir) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "test"));
+    ensure_entry(&mut router);
+
+    let listed_without_debug = router.handle(&RpcRequest::new(
+        "credential_provider:list",
+        serde_json::json!({
+          "context": {
+            "kind": "web",
+            "origin": "https://github.com/login",
+            "domain": "github.com",
+          }
+        }),
+    ));
+    assert_rpc_ok(&listed_without_debug);
+    assert!(listed_without_debug
+        .result()
+        .and_then(|value| value.get("debug"))
+        .is_none());
+
+    let listed = router.handle(&RpcRequest::new(
+        "credential_provider:list",
+        serde_json::json!({
+          "include_debug": true,
+          "context": {
+            "kind": "web",
+            "origin": "https://github.com/login",
+            "domain": "github.com",
+          }
+        }),
+    ));
+    assert_rpc_ok(&listed);
+
+    let result = listed
+        .result()
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let candidates = result
+        .get("candidates")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert!(candidates.is_empty());
+
+    let debug = result.get("debug").expect("debug diagnostics");
+    assert!(result
+        .get("candidates")
+        .and_then(|value| value.as_array())
+        .is_some());
+    assert!(debug
+        .get("context")
+        .and_then(|value| value.as_object())
+        .is_some());
+    assert!(debug
+        .get("collection")
+        .and_then(|value| value.as_object())
+        .is_some());
+    assert_eq!(
+        debug.get("entry_count").and_then(|value| value.as_u64()),
+        Some(1)
+    );
+    assert_eq!(
+        debug
+            .get("candidate_count")
+            .and_then(|value| value.as_u64()),
+        Some(0)
+    );
+
+    let entry = debug
+        .get("entries")
+        .and_then(|value| value.as_array())
+        .and_then(|items| items.first())
+        .expect("debug entry");
+    assert_eq!(
+        entry.get("matched").and_then(|value| value.as_bool()),
+        Some(false)
+    );
+    assert_eq!(
+        entry
+            .get("rejection_reason")
+            .and_then(|value| value.as_str()),
+        Some("web_context_miss")
+    );
+}
+
+#[test]
 fn test_credential_provider_list_includes_multiple_otp_options() {
     let (mut router, _temp_dir) = create_test_router();
     assert_rpc_ok(&unlock_vault(&mut router, "test"));
@@ -516,6 +647,16 @@ fn test_credential_provider_get_secret_uses_selected_otp_id() {
     assert!(!otp_main.is_empty());
     assert!(!otp_backup.is_empty());
     assert_ne!(otp_main, otp_backup);
+
+    let provider_session = provider_open_session(&mut router);
+    let secret_missing = provider_get_secret(
+        &mut router,
+        &provider_session,
+        "cred-otp-multi",
+        Some("otp-missing"),
+    );
+    assert_rpc_error(&secret_missing, "NO_MATCH");
+    assert_eq!(secret_missing.error_message(), Some("No OTP match"));
 }
 
 #[test]
@@ -553,6 +694,47 @@ fn test_credential_provider_get_secret_rejects_hotp_option() {
         Some("otp-counter"),
     );
     assert_rpc_error(&hotp_secret, "OTP_GENERATE_FAILED");
+}
+
+#[test]
+fn test_credential_provider_get_secret_degrades_missing_default_otp_to_null() {
+    let (mut router, _temp_dir) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "test"));
+
+    ensure_entry_with_otps(
+        &mut router,
+        "OtpMissingSecret",
+        "cred-otp-missing-secret",
+        serde_json::json!([
+            {"id": "otp-main", "label": "Main", "type": "TOTP"}
+        ]),
+        &[],
+    );
+
+    let listed = router.handle(&RpcRequest::new(
+        "credential_provider:list",
+        serde_json::json!({
+          "context": {
+            "kind": "web",
+            "origin": "https://otp.example.com/verify",
+            "domain": "otp.example.com",
+          }
+        }),
+    ));
+    assert_rpc_ok(&listed);
+
+    let provider_session = provider_open_session(&mut router);
+    let secret = provider_get_secret(
+        &mut router,
+        &provider_session,
+        "cred-otp-missing-secret",
+        None,
+    );
+    assert_rpc_ok(&secret);
+    assert_eq!(
+        secret.result().and_then(|value| value.get("otp")),
+        Some(&serde_json::Value::Null)
+    );
 }
 
 #[test]
@@ -738,5 +920,191 @@ fn test_credential_provider_list_supports_legacy_string_url_entries() {
     assert_eq!(
         usernames,
         vec!["alice@object".to_string(), "alice@string".to_string()]
+    );
+}
+
+#[test]
+fn test_credential_provider_list_tolerates_scalar_url_and_object_otp_meta() {
+    let (mut router, _temp_dir) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "test"));
+
+    ensure_entry_with_raw_meta(
+        &mut router,
+        "GitHub Scalar Url",
+        serde_json::json!({
+          "id": "cred-gh-scalar",
+          "title": "GitHub Scalar Url",
+          "username": "alice@scalar",
+          "urls": "https://github.com/login",
+          "otps": {
+            "label": "default",
+            "type": "TOTP"
+          }
+        }),
+    );
+
+    let listed = router.handle(&RpcRequest::new(
+        "credential_provider:list",
+        serde_json::json!({
+          "context": {
+            "kind": "web",
+            "origin": "https://github.com/settings/profile",
+            "domain": "github.com",
+          }
+        }),
+    ));
+    assert_rpc_ok(&listed);
+
+    let candidates = listed
+        .result()
+        .and_then(|r| r.get("candidates"))
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(
+        candidates[0].get("credential_id").and_then(|v| v.as_str()),
+        Some("cred-gh-scalar")
+    );
+    assert_eq!(
+        candidates[0].get("username").and_then(|v| v.as_str()),
+        Some("alice@scalar")
+    );
+}
+
+#[test]
+fn test_credential_provider_list_supports_url_rules_alias_and_app_id_alias() {
+    let (mut router, _temp_dir) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "test"));
+
+    ensure_entry_with_raw_meta(
+        &mut router,
+        "GitHub Url Rules Alias",
+        serde_json::json!({
+          "entry_id": "cred-gh-rules",
+          "title": "GitHub Url Rules Alias",
+          "username": "alice@rules",
+          "appId": "com.github.android",
+          "url_rules": [
+            {"value": "https://github.com/session", "match": "base_domain"}
+          ],
+          "otps": []
+        }),
+    );
+
+    let listed = router.handle(&RpcRequest::new(
+        "credential_provider:list",
+        serde_json::json!({
+          "context": {
+            "kind": "web",
+            "origin": "https://github.com/settings/profile",
+            "domain": "github.com",
+          }
+        }),
+    ));
+    assert_rpc_ok(&listed);
+
+    let candidates = listed
+        .result()
+        .and_then(|r| r.get("candidates"))
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(
+        candidates[0].get("credential_id").and_then(|v| v.as_str()),
+        Some("cred-gh-rules")
+    );
+}
+
+#[test]
+fn test_credential_provider_debug_reports_invalid_meta_json() {
+    let (mut router, _temp_dir) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "test"));
+
+    ensure_entry_with_raw_meta_bytes(
+        &mut router,
+        "Broken Meta",
+        br#"{"id":"cred-broken","title":"Broken Meta","urls":["https://github.com",]}"#,
+    );
+
+    let listed = router.handle(&RpcRequest::new(
+        "credential_provider:list",
+        serde_json::json!({
+          "include_debug": true,
+          "context": {
+            "kind": "web",
+            "origin": "https://github.com/login",
+            "domain": "github.com",
+          }
+        }),
+    ));
+    assert_rpc_ok(&listed);
+
+    let debug = listed
+        .result()
+        .and_then(|result| result.get("debug"))
+        .cloned()
+        .expect("debug diagnostics");
+    assert_eq!(
+        debug.get("entry_count").and_then(|value| value.as_u64()),
+        Some(0)
+    );
+    assert_eq!(
+        debug
+            .get("collection")
+            .and_then(|value| value.get("meta_parse_failed_count"))
+            .and_then(|value| value.as_u64()),
+        Some(1)
+    );
+}
+
+#[test]
+fn test_credential_provider_debug_reports_non_object_meta_root() {
+    let (mut router, _temp_dir) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "test"));
+
+    ensure_entry_with_raw_meta_bytes(
+        &mut router,
+        "Array Meta Root",
+        br#"[{"id":"cred-array-root"}]"#,
+    );
+
+    let listed = router.handle(&RpcRequest::new(
+        "credential_provider:list",
+        serde_json::json!({
+          "include_debug": true,
+          "context": {
+            "kind": "web",
+            "origin": "https://github.com/login",
+            "domain": "github.com",
+          }
+        }),
+    ));
+    assert_rpc_ok(&listed);
+
+    let debug = listed
+        .result()
+        .and_then(|result| result.get("debug"))
+        .cloned()
+        .expect("debug diagnostics");
+    let sampled_skip = debug
+        .get("collection")
+        .and_then(|value| value.get("sampled_skips"))
+        .and_then(|value| value.as_array())
+        .and_then(|items| items.first())
+        .cloned()
+        .expect("sampled skip");
+    assert_eq!(
+        sampled_skip.get("reason").and_then(|value| value.as_str()),
+        Some("meta_parse_failed")
+    );
+    assert_eq!(
+        sampled_skip
+            .get("details")
+            .and_then(|value| value.get("serde_error"))
+            .and_then(|value| value.as_str()),
+        Some("meta root is not a JSON object")
     );
 }

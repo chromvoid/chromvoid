@@ -1,9 +1,8 @@
-import {state} from '@statx/core'
-import {CVToolbar, CVToolbarItem} from '@chromvoid/uikit'
 import {Group} from '@project/passmanager'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {PMGroup} from '../../src/features/passmanager/components/group/group'
+import {atom} from '@reatom/core'
 
 type RootLike = {
   id: string
@@ -16,23 +15,16 @@ type RootLike = {
 
 type PassmanagerMock = {
   id: string
-  showElement: ReturnType<typeof state<any>>
+  showElement: ReturnType<typeof atom<any>>
   isReadOnly: () => boolean
   setShowElement: ReturnType<typeof vi.fn>
   entriesList: () => Array<Group>
 }
 
 let pmGroupDefined = false
-let toolbarDefined = false
 let originalPassmanager: unknown
 
 function ensureDefined() {
-  if (!toolbarDefined) {
-    CVToolbarItem.define()
-    CVToolbar.define()
-    toolbarDefined = true
-  }
-
   if (!pmGroupDefined) {
     PMGroup.define()
     pmGroupDefined = true
@@ -67,11 +59,11 @@ function createRootMock(): RootLike {
 
 function createPassmanagerMock(current: Group | RootLike, readOnly = false): {
   passmanager: PassmanagerMock
-  readOnlyState: ReturnType<typeof state<boolean>>
+  readOnlyState: ReturnType<typeof atom<boolean>>
   showElementSetSpy: ReturnType<typeof vi.spyOn>
 } {
-  const showElement = state<any>(current)
-  const readOnlyState = state(readOnly)
+  const showElement = atom<any>(current)
+  const readOnlyState = atom(readOnly)
   const passmanager = {
     id: 'pm-id',
     showElement,
@@ -107,8 +99,8 @@ function getToolbar(element: PMGroup) {
   return element.shadowRoot?.querySelector('cv-toolbar') as HTMLElement | null
 }
 
-function getAction(element: PMGroup, action: string) {
-  return element.shadowRoot?.querySelector(`cv-toolbar-item[data-action="${action}"]`) as HTMLElement | null
+function getTitleEditAction(element: PMGroup) {
+  return element.shadowRoot?.querySelector('.group-title-edit-action') as HTMLElement | null
 }
 
 describe('PMGroup toolbar actions', () => {
@@ -118,7 +110,7 @@ describe('PMGroup toolbar actions', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders root actions as 2 toolbar items without separator', async () => {
+  it('does not render the legacy inline toolbar for root content', async () => {
     const {passmanager} = createPassmanagerMock(createRootMock())
     const element = await renderGroup(passmanager)
 
@@ -126,91 +118,76 @@ describe('PMGroup toolbar actions', () => {
     const items = element.shadowRoot?.querySelectorAll('cv-toolbar-item')
     const separator = element.shadowRoot?.querySelector('cv-toolbar-separator')
 
-    expect(toolbar).not.toBeNull()
-    expect(items?.length).toBe(2)
+    expect(toolbar).toBeNull()
+    expect(items?.length).toBe(0)
     expect(separator).toBeNull()
-    expect(getAction(element, 'create-entry')).not.toBeNull()
-    expect(getAction(element, 'create-group')).not.toBeNull()
   })
 
-  it('renders non-root actions with separator and executes click handlers', async () => {
-    const group = createMockGroup('group-click')
-    const {passmanager, showElementSetSpy} = createPassmanagerMock(group)
+  it('renders root summary metadata in the header without the legacy collection shell heading', async () => {
+    const {passmanager} = createPassmanagerMock(createRootMock())
     const element = await renderGroup(passmanager)
 
-    const items = element.shadowRoot?.querySelectorAll('cv-toolbar-item')
-    const separators = element.shadowRoot?.querySelectorAll('cv-toolbar-separator')
-    expect(items?.length).toBe(4)
-    expect(separators?.length).toBe(1)
+    const summary = element.shadowRoot?.querySelector('.workspace-summary-value')
+    const header = element.shadowRoot?.querySelector('pm-workspace-header') as HTMLElement | null
+    const meta = header?.shadowRoot?.querySelector('.workspace-meta')
+    const legacyMetadata = element.shadowRoot?.querySelector('.metadata-section')
+    const legacyHeading = element.shadowRoot?.querySelector('.content-shell-head')
 
-    getAction(element, 'create-entry')?.click()
-    expect(passmanager.setShowElement).toHaveBeenCalledWith('createEntry', group)
-
-    getAction(element, 'create-group')?.click()
-    expect(showElementSetSpy).toHaveBeenCalledWith('createGroup')
-
-    passmanager.showElement.set(group)
-    await flush(element)
-
-    getAction(element, 'remove-group')?.click()
-    expect(group.remove).toHaveBeenCalledTimes(1)
+    expect(summary?.textContent).toContain('0 groups')
+    expect(summary?.textContent).toContain('0 entries')
+    expect(meta?.textContent).toContain('2026-03-01')
+    expect(meta?.textContent).toContain('2026-03-02')
+    expect(legacyMetadata).toBeNull()
+    expect(legacyHeading).toBeNull()
   })
 
-  it('supports Enter and Space activation for toolbar items', async () => {
-    const group = createMockGroup('group-keyboard')
+  it('renders no inline toolbar for non-root groups and keeps title edit in the header', async () => {
+    const group = createMockGroup('group-click')
     const {passmanager} = createPassmanagerMock(group)
     const element = await renderGroup(passmanager)
 
-    const removeAction = getAction(element, 'remove-group')
-    const removeEvent = new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, composed: true, cancelable: true})
-    removeAction?.dispatchEvent(removeEvent)
-    expect(group.remove).toHaveBeenCalledTimes(1)
+    expect(getToolbar(element)).toBeNull()
+    expect(element.shadowRoot?.querySelectorAll('cv-toolbar-item')).toHaveLength(0)
 
-    const createAction = getAction(element, 'create-entry')
-    const spaceEvent = new KeyboardEvent('keydown', {key: ' ', bubbles: true, composed: true, cancelable: true})
-    createAction?.dispatchEvent(spaceEvent)
-    expect(spaceEvent.defaultPrevented).toBe(true)
-    expect(passmanager.setShowElement).toHaveBeenCalledWith('createEntry', group)
+    const editAction = getTitleEditAction(element)
+    expect(editAction).not.toBeNull()
+
+    editAction?.click()
+    await flush(element)
+
+    const header = element.shadowRoot?.querySelector('pm-workspace-header') as HTMLElement & {
+      editableTitle?: boolean
+    }
+    expect(header?.editableTitle).toBe(true)
   })
 
-  it('blocks toolbar actions in readonly mode for click and keyboard', async () => {
+  it('hides the title edit affordance in readonly mode', async () => {
     const group = createMockGroup('group-readonly')
     const {passmanager} = createPassmanagerMock(group, true)
     const element = await renderGroup(passmanager)
 
-    const items = Array.from(element.shadowRoot?.querySelectorAll('cv-toolbar-item') ?? [])
-    expect(items.length).toBe(4)
-    expect(items.every((item) => item.hasAttribute('disabled'))).toBe(true)
-
-    getAction(element, 'create-entry')?.click()
-    const enterEvent = new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, composed: true, cancelable: true})
-    getAction(element, 'remove-group')?.dispatchEvent(enterEvent)
-
+    expect(getToolbar(element)).toBeNull()
+    expect(getTitleEditAction(element)).toBeNull()
     expect(passmanager.setShowElement).not.toHaveBeenCalled()
     expect(group.remove).not.toHaveBeenCalled()
   })
 
-  it('recreates toolbar when readonly state changes', async () => {
+  it('updates the title edit affordance when readonly state changes', async () => {
     const group = createMockGroup('group-recreate')
     const {passmanager, readOnlyState} = createPassmanagerMock(group, false)
     const element = await renderGroup(passmanager)
 
-    const firstToolbar = getToolbar(element)
-    expect(firstToolbar).not.toBeNull()
-    expect(getAction(element, 'create-entry')?.hasAttribute('disabled')).toBe(false)
+    expect(getToolbar(element)).toBeNull()
+    expect(getTitleEditAction(element)).not.toBeNull()
 
     readOnlyState.set(true)
     await flush(element)
-    const secondToolbar = getToolbar(element)
-    expect(secondToolbar).not.toBeNull()
-    expect(secondToolbar).not.toBe(firstToolbar)
-    expect(getAction(element, 'create-entry')?.hasAttribute('disabled')).toBe(true)
+    expect(getToolbar(element)).toBeNull()
+    expect(getTitleEditAction(element)).toBeNull()
 
     readOnlyState.set(false)
     await flush(element)
-    const thirdToolbar = getToolbar(element)
-    expect(thirdToolbar).not.toBeNull()
-    expect(thirdToolbar).not.toBe(secondToolbar)
-    expect(getAction(element, 'create-entry')?.hasAttribute('disabled')).toBe(false)
+    expect(getToolbar(element)).toBeNull()
+    expect(getTitleEditAction(element)).not.toBeNull()
   })
 })

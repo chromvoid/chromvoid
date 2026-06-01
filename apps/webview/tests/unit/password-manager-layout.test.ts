@@ -1,21 +1,122 @@
-import {state} from '@statx/core'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 import {resolveLayoutMode} from '../../src/app/layout/layout-mode'
 import type {LayoutMode} from '../../src/app/layout/layout-mode'
 import {pmModel} from '../../src/features/passmanager/password-manager.model'
+import {atom} from '@reatom/core'
+import {Entry, Group, ManagerRoot} from '@project/passmanager'
+import {
+  PasswordManagerLayoutModel,
+  PasswordManagerDesktopLayout,
+  PasswordManagerMobileLayout,
+} from '../../src/features/passmanager/components/password-manager-layout'
+import {passwordManagerLayoutStyles} from '../../src/features/passmanager/components/password-manager-layout/password-manager-layout.styles'
+import {
+  PASSMANAGER_NO_MOTION_INTENT,
+  pmMotionModel,
+} from '../../src/features/passmanager/models/pm-motion.model'
+import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
+
+const originalMatchMedia = window.matchMedia
+
+function stylesToText(styles: unknown): string {
+  const values = Array.isArray(styles) ? styles : [styles]
+  return values
+    .map((value) => {
+      if (value == null) return ''
+      return typeof value === 'object' && 'cssText' in (value as object)
+        ? String((value as {cssText: string}).cssText)
+        : String(value)
+    })
+    .join('\n')
+}
+
+function setReducedMotion(matches: boolean): void {
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)' ? matches : false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })),
+  })
+}
+
+function createGroup(id: string, name: string) {
+  return new Group({
+    id,
+    name,
+    entries: [],
+    createdTs: Date.now(),
+    updatedTs: Date.now(),
+  } as any)
+}
+
+function createEntry(parent: Group, id: string, title: string) {
+  return new Entry(parent, {
+    id,
+    title,
+    urls: [],
+    username: '',
+    createdTs: Date.now(),
+    updatedTs: Date.now(),
+    otps: [],
+  } as any)
+}
+
+function createRootFixture() {
+  const root = new ManagerRoot({} as any)
+  const group = createGroup('group-layout-motion', 'Group Layout Motion')
+  const entry = createEntry(group, 'entry-layout-motion', 'Entry Layout Motion')
+  group.entries.set([entry])
+  root.entries.set([group])
+  return {root, group, entry}
+}
+
+async function settle(element: HTMLElement & {updateComplete?: Promise<unknown>}) {
+  await Promise.resolve()
+  await element.updateComplete
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  await element.updateComplete
+}
+
+function mockGroupTreeMetrics(metrics: {clientHeight: number; scrollHeight: number}) {
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.tagName.toLowerCase() === 'group-tree-view' ? metrics.clientHeight : 0
+  })
+  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.tagName.toLowerCase() === 'group-tree-view' ? metrics.scrollHeight : 0
+  })
+}
 
 describe('password-manager layout selection', () => {
   afterEach(() => {
+    document
+      .querySelectorAll('password-manager-desktop-layout, password-manager-mobile-layout')
+      .forEach((element) => element.remove())
+    setPassmanagerRoot(undefined)
+    pmMotionModel.reset()
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: originalMatchMedia,
+    })
     clearAppContext()
     if (pmModel.alive()) {
       pmModel.cleanup()
     }
+    vi.restoreAllMocks()
   })
 
   function setupContext(mode: LayoutMode) {
-    const layoutMode = state<LayoutMode>(mode)
+    const layoutMode = atom<LayoutMode>(mode)
     const ctx = createMockAppContext({
       store: {
         layoutMode,
@@ -128,6 +229,192 @@ describe('password-manager layout selection', () => {
     })
   })
 
+  describe('OTP quick view shell rendering', () => {
+    it('desktop layout renders the OTP quick view for otpView state', async () => {
+      const root = new ManagerRoot({} as any)
+      root.entries.set([])
+      root.showElement.set('otpView')
+      setPassmanagerRoot(root)
+      PasswordManagerDesktopLayout.define()
+
+      const element = document.createElement(
+        'password-manager-desktop-layout',
+      ) as PasswordManagerDesktopLayout
+      document.body.appendChild(element)
+      await element.updateComplete
+
+      expect(element.shadowRoot?.querySelector('pm-otp-quick-view')).not.toBeNull()
+      expect(element.shadowRoot?.querySelector('pm-group')).toBeNull()
+    })
+
+    it('mobile layout renders the OTP quick view for otpView state', async () => {
+      const root = new ManagerRoot({} as any)
+      root.entries.set([])
+      root.showElement.set('otpView')
+      setPassmanagerRoot(root)
+      PasswordManagerMobileLayout.define()
+
+      const element = document.createElement(
+        'password-manager-mobile-layout',
+      ) as PasswordManagerMobileLayout
+      document.body.appendChild(element)
+      await element.updateComplete
+
+      expect(element.shadowRoot?.querySelector('pm-otp-quick-view-mobile')).not.toBeNull()
+      expect(element.shadowRoot?.querySelector('pm-group-mobile')).toBeNull()
+    })
+  })
+
+  describe('desktop sidebar scroll edge', () => {
+    it('toggles the group tree bottom edge when the sidebar tree reaches the end', async () => {
+      mockGroupTreeMetrics({clientHeight: 320, scrollHeight: 960})
+      const root = new ManagerRoot({} as any)
+      root.entries.set([])
+      setPassmanagerRoot(root)
+      PasswordManagerDesktopLayout.define()
+
+      const element = document.createElement(
+        'password-manager-desktop-layout',
+      ) as PasswordManagerDesktopLayout
+      document.body.appendChild(element)
+      await settle(element)
+
+      const frame = element.shadowRoot?.querySelector<HTMLElement>('.sidebar-tree-scroll-frame')
+      const tree = element.shadowRoot?.querySelector<HTMLElement>('group-tree-view.scrollable')
+      expect(frame).not.toBeNull()
+      expect(tree).not.toBeNull()
+      expect(frame?.getAttribute('data-scroll-block-end')).toBe('true')
+
+      tree!.scrollTop = 640
+      tree!.dispatchEvent(new Event('scroll'))
+      await settle(element)
+
+      expect(frame?.getAttribute('data-scroll-block-end')).toBe('false')
+    })
+  })
+
+  describe('motion render boundary', () => {
+    it('model reads Password Manager motion intent without becoming the direction source', () => {
+      setReducedMotion(true)
+      pmMotionModel.setIntent({
+        kind: 'surface-change',
+        direction: 'forward',
+        target: 'entry:entry-layout-motion',
+      })
+
+      const model = new PasswordManagerLayoutModel()
+
+      expect(model.getMotionRenderState()).toEqual({
+        kind: 'surface-change',
+        direction: 'forward',
+        target: 'entry:entry-layout-motion',
+        reducedMotion: true,
+      })
+
+      pmMotionModel.reset()
+      expect(model.getMotionRenderState()).toEqual({
+        ...PASSMANAGER_NO_MOTION_INTENT,
+        reducedMotion: true,
+      })
+    })
+
+    it.each([
+      ['root', (fixture: ReturnType<typeof createRootFixture>) => fixture.root],
+      ['group', (fixture: ReturnType<typeof createRootFixture>) => fixture.group],
+      ['entry', (fixture: ReturnType<typeof createRootFixture>) => fixture.entry],
+      ['createEntry', () => 'createEntry' as const],
+      ['createGroup', () => 'createGroup' as const],
+      ['importDialog', () => 'importDialog' as const],
+      ['otpView', () => 'otpView' as const],
+    ])('desktop layout renders one pm-content wrapper for %s state', async (_name, resolveShowElement) => {
+      const fixture = createRootFixture()
+      fixture.root.showElement.set(resolveShowElement(fixture) as never)
+      setPassmanagerRoot(fixture.root)
+      PasswordManagerDesktopLayout.define()
+
+      const element = document.createElement(
+        'password-manager-desktop-layout',
+      ) as PasswordManagerDesktopLayout
+      document.body.appendChild(element)
+      await element.updateComplete
+
+      expect(element.shadowRoot?.querySelectorAll('.pm-content')).toHaveLength(1)
+    })
+
+    it.each([
+      ['root', (fixture: ReturnType<typeof createRootFixture>) => fixture.root],
+      ['group', (fixture: ReturnType<typeof createRootFixture>) => fixture.group],
+      ['entry', (fixture: ReturnType<typeof createRootFixture>) => fixture.entry],
+      ['createEntry', () => 'createEntry' as const],
+      ['createGroup', () => 'createGroup' as const],
+      ['importDialog', () => 'importDialog' as const],
+      ['otpView', () => 'otpView' as const],
+    ])('mobile layout renders one pm-content wrapper for %s state', async (_name, resolveShowElement) => {
+      const fixture = createRootFixture()
+      fixture.root.showElement.set(resolveShowElement(fixture) as never)
+      setPassmanagerRoot(fixture.root)
+      PasswordManagerMobileLayout.define()
+
+      const element = document.createElement(
+        'password-manager-mobile-layout',
+      ) as PasswordManagerMobileLayout
+      document.body.appendChild(element)
+      await element.updateComplete
+
+      expect(element.shadowRoot?.querySelectorAll('.pm-content')).toHaveLength(1)
+    })
+
+    it('desktop and mobile layouts render motion attributes from pmMotionModel', async () => {
+      const fixture = createRootFixture()
+      fixture.root.showElement.set(fixture.entry)
+      setPassmanagerRoot(fixture.root)
+      pmMotionModel.setIntent({
+        kind: 'surface-change',
+        direction: 'forward',
+        target: `entry:${fixture.entry.id}`,
+      })
+      PasswordManagerDesktopLayout.define()
+      PasswordManagerMobileLayout.define()
+
+      const desktop = document.createElement(
+        'password-manager-desktop-layout',
+      ) as PasswordManagerDesktopLayout
+      const mobile = document.createElement(
+        'password-manager-mobile-layout',
+      ) as PasswordManagerMobileLayout
+      document.body.append(desktop, mobile)
+      await desktop.updateComplete
+      await mobile.updateComplete
+
+      for (const element of [desktop, mobile]) {
+        const content = element.shadowRoot?.querySelector('.pm-content') as HTMLElement | null
+        expect(content).not.toBeNull()
+        expect(content?.getAttribute('data-motion-kind')).toBe('surface-change')
+        expect(content?.getAttribute('data-motion-direction')).toBe('forward')
+        expect(content?.getAttribute('data-motion-target')).toBe(`entry:${fixture.entry.id}`)
+        expect(content?.getAttribute('data-reduced-motion')).toBe('false')
+      }
+    })
+
+    it('pm-content owns feature-local motion styles', () => {
+      const cssText = stylesToText(passwordManagerLayoutStyles)
+
+      expect(cssText).toContain('.pm-content')
+      expect(cssText).toContain('view-transition-name: pm-content;')
+      expect(cssText).toContain('animation-duration: var(--cv-duration-normal);')
+      expect(cssText).toContain('animation-timing-function: var(--cv-easing-standard);')
+      expect(cssText).toContain("data-motion-direction='forward'")
+      expect(cssText).toContain("data-motion-direction='back'")
+      expect(cssText).toContain("data-motion-direction='open'")
+      expect(cssText).toContain("data-motion-direction='close'")
+      expect(cssText).toContain("data-motion-direction='replace'")
+      expect(cssText).toContain('@media (prefers-reduced-motion: reduce)')
+      expect(cssText).toMatch(
+        /@keyframes pm-content-reduced-motion\s*{[\s\S]*from\s*{[\s\S]*opacity: 0;[\s\S]*to\s*{[\s\S]*opacity: 1;/,
+      )
+    })
+  })
+
   describe('layout switching does not recreate PM root', () => {
     it('pmModel.alive remains true across layout mode change', () => {
       const {layoutMode} = setupContext('desktop')
@@ -142,9 +429,9 @@ describe('password-manager layout selection', () => {
       const fakeManager = {
         clean: mockClean,
         load: mockLoad,
-        showElement: state(null),
-        isLoading: state(false),
-        isReadOnly: state(false),
+        showElement: atom(null),
+        isLoading: atom(false),
+        isReadOnly: atom(false),
       }
 
       ;(window as any).passmanager = undefined

@@ -9,6 +9,8 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import com.chromvoid.app.shared.ConnectionNotificationFactory
+import com.chromvoid.app.shared.ForegroundServiceSupport
+import com.chromvoid.app.shared.NativeRuntimeLoader
 
 /**
  * Foreground service that keeps the WebRTC/WSS connection alive when the app is backgrounded.
@@ -20,6 +22,7 @@ import com.chromvoid.app.shared.ConnectionNotificationFactory
  */
 class ConnectionForegroundService : Service() {
     private lateinit var notificationFactory: ConnectionNotificationFactory
+    private var foregroundStarted = false
 
     companion object {
         private const val TAG = "ChromVoid/ConnectionFg"
@@ -41,7 +44,7 @@ class ConnectionForegroundService : Service() {
                 action = ACTION_START
                 deviceName?.let { putExtra(EXTRA_DEVICE_NAME, it) }
             }
-            context.startForegroundService(intent)
+            ForegroundServiceSupport.startForegroundService(context, intent, TAG)
         }
 
         /**
@@ -49,10 +52,7 @@ class ConnectionForegroundService : Service() {
          */
         @JvmStatic
         fun stop(context: Context) {
-            val intent = Intent(context, ConnectionForegroundService::class.java).apply {
-                action = ACTION_STOP
-            }
-            context.startService(intent)
+            context.stopService(Intent(context, ConnectionForegroundService::class.java))
         }
     }
 
@@ -66,47 +66,71 @@ class ConnectionForegroundService : Service() {
         when (intent?.action) {
             ACTION_START -> {
                 val deviceName = intent.getStringExtra(EXTRA_DEVICE_NAME) ?: "Desktop"
-                val notification = notificationFactory.build(deviceName)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startForeground(
-                        NOTIFICATION_ID,
-                        notification,
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-                    )
-                } else {
-                    startForeground(NOTIFICATION_ID, notification)
+                if (!enterForeground(notificationFactory.build(deviceName))) {
+                    stopSelf(startId)
+                    return START_NOT_STICKY
                 }
+                return START_STICKY
             }
             ACTION_STOP, ACTION_DISCONNECT -> {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                stopConnectionService()
+                return START_NOT_STICKY
             }
             else -> {
                 // Unknown action — start with default notification to avoid crash.
-                val notification = notificationFactory.build("Desktop")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startForeground(
-                        NOTIFICATION_ID,
-                        notification,
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-                    )
-                } else {
-                    startForeground(NOTIFICATION_ID, notification)
+                if (!enterForeground(notificationFactory.build("Desktop"))) {
+                    stopSelf(startId)
+                    return START_NOT_STICKY
                 }
+                return START_STICKY
             }
         }
-        return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        stopForegroundIfStarted()
         super.onDestroy()
         // Notify Rust side that the service was destroyed (e.g., by system kill).
-        runCatching { nativeOnServiceStopped() }
+        runCatching {
+            NativeRuntimeLoader.runWhenLoaded(TAG) { nativeOnServiceStopped() }
+        }
             .onFailure { error ->
                 Log.w(TAG, "Failed to notify native connection shutdown", error)
             }
+    }
+
+    private fun enterForeground(notification: Notification): Boolean {
+        val started =
+            ForegroundServiceSupport.enterForeground(
+                this,
+                NOTIFICATION_ID,
+                notification,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                } else {
+                    null
+                },
+                TAG,
+            )
+        foregroundStarted = started
+        return started
+    }
+
+    private fun stopConnectionService() {
+        stopForegroundIfStarted()
+        stopSelf()
+    }
+
+    private fun stopForegroundIfStarted() {
+        if (!foregroundStarted) return
+        runCatching {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        }.onFailure { error ->
+            Log.w(TAG, "Failed to stop connection foreground notification", error)
+        }
+        foregroundStarted = false
     }
 
     // ── JNI callback — implemented in Rust (.so) ──────────────────────────

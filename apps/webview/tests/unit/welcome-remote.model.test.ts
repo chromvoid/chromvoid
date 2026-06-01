@@ -1,7 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
-import {state} from '@statx/core'
 
 import {navigationModel} from '../../src/app/navigation/navigation.model'
+import {atom} from '@reatom/core'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 import {WelcomeRemoteModel} from '../../src/routes/welcome/welcome-remote.model'
 import {remoteSessionModel} from '../../src/routes/remote/remote-session.model'
@@ -39,8 +39,8 @@ describe('WelcomeRemoteModel', () => {
     const stateUpdate = vi.fn((next: Record<string, unknown>) => {
       Object.assign(stateData, next)
     })
-    const remoteSessionState = state<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive')
-    const remoteSessionPeerId = state<string | null>(null)
+    const remoteSessionState = atom<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive')
+    const remoteSessionPeerId = atom<string | null>(null)
     const setRemoteSessionWaiting = vi.fn((peerId: string | null) => {
       remoteSessionPeerId.set(peerId)
       remoteSessionState.set('waiting_host_unlock')
@@ -170,8 +170,8 @@ describe('WelcomeRemoteModel', () => {
     const stateUpdate = vi.fn((next: Record<string, unknown>) => {
       Object.assign(stateData, next)
     })
-    const remoteSessionState = state<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive')
-    const remoteSessionPeerId = state<string | null>(null)
+    const remoteSessionState = atom<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive')
+    const remoteSessionPeerId = atom<string | null>(null)
     const setRemoteSessionWaiting = vi.fn((peerId: string | null) => {
       remoteSessionPeerId.set(peerId)
       remoteSessionState.set('waiting_host_unlock')
@@ -293,8 +293,8 @@ describe('WelcomeRemoteModel', () => {
     let remoteModePeerId: string | null = 'peer-1'
     let connectionState: 'ready' | 'error' | 'disconnected' = 'error'
     const switchTargets: string[] = []
-    const remoteSessionState = state<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive')
-    const remoteSessionPeerId = state<string | null>(null)
+    const remoteSessionState = atom<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive')
+    const remoteSessionPeerId = atom<string | null>(null)
 
     initAppContext(
       createMockAppContext({

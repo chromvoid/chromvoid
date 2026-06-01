@@ -4,15 +4,26 @@ use crate::gateway::protocol::{error_codes, Frame, FrameType};
 #[test]
 fn upload_stream_commands() {
     assert!(is_upload_stream_command("catalog:upload"));
+    assert!(is_upload_stream_command("catalog:file:replace"));
     assert!(is_upload_stream_command("catalog:secret:write"));
+    assert!(is_upload_stream_command("catalog:derivative:write"));
     assert!(!is_upload_stream_command("catalog:list"));
     assert!(!is_upload_stream_command("vault:unlock"));
+}
+
+#[test]
+fn full_upload_stream_commands() {
+    assert!(is_full_upload_stream_command("catalog:file:replace"));
+    assert!(is_full_upload_stream_command("catalog:derivative:write"));
+    assert!(!is_full_upload_stream_command("catalog:upload"));
+    assert!(!is_full_upload_stream_command("catalog:secret:write"));
 }
 
 #[test]
 fn download_stream_commands() {
     assert!(is_download_stream_command("catalog:download"));
     assert!(is_download_stream_command("catalog:secret:read"));
+    assert!(is_download_stream_command("catalog:derivative:read"));
     assert!(is_download_stream_command("vault:export:download"));
     assert!(!is_download_stream_command("catalog:list"));
 }

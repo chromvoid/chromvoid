@@ -21,6 +21,7 @@ use base64::{engine::general_purpose, Engine as _};
 use chromvoid_lib::{detect_fuse_driver, FuseDriverStatus};
 use common::{catalog_download, catalog_find_child, sha256_hex, TestVault};
 use std::ffi::OsStr;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::Barrier;
 use std::time::{Duration, Instant};
@@ -2209,27 +2210,8 @@ async fn e2e_backup_restore_round_trip() {
         "restore:local:start returned empty restore_id"
     );
 
-    for (i, name) in chunk_names.iter().enumerate() {
-        let chunk_path = backup_chunk_path(&chunks_root, name);
-        let bytes = std::fs::read(&chunk_path).expect("read backup chunk");
-        let data_b64 = general_purpose::STANDARD.encode(bytes);
-        let is_last = (i + 1) as u64 == chunk_count;
-        let mut a = vault.adapter.lock().expect("adapter lock");
-        let res = a.handle(&chromvoid_core::rpc::types::RpcRequest::new(
-            "restore:local:uploadChunk".to_string(),
-            serde_json::json!({
-                "restore_id": restore_id.clone(),
-                "chunk_index": i as u64,
-                "chunk_name": name,
-                "data": data_b64,
-                "is_last": is_last,
-            }),
-        ));
-        match res {
-            chromvoid_core::rpc::types::RpcResponse::Success { .. } => {}
-            other => panic!("restore:local:uploadChunk failed: {other:?}"),
-        }
-    }
+    assert_eq!(chunk_names.len() as u64, chunk_count);
+    restore_upload_all_chunks(&vault, &restore_id, backup_dir.path(), &chunk_names);
 
     let meta_bytes =
         std::fs::read(backup_dir.path().join("metadata.enc")).expect("read metadata.enc");
@@ -2973,28 +2955,52 @@ fn restore_upload_all_chunks(
     chunk_names: &[String],
 ) {
     let chunks_root = backup_dir.join("chunks");
-    for (idx, name) in chunk_names.iter().enumerate() {
-        let chunk_path = backup_chunk_path(&chunks_root, name);
-        let bytes = std::fs::read(&chunk_path).expect("read backup chunk");
-        let data_b64 = general_purpose::STANDARD.encode(bytes);
-        let is_last = idx + 1 == chunk_names.len();
+    let mut pack = Vec::new();
+    let manifest_chunks: Vec<_> = chunk_names
+        .iter()
+        .map(|name| {
+            let chunk_path = backup_chunk_path(&chunks_root, name);
+            let bytes = std::fs::read(&chunk_path).expect("read backup chunk");
+            pack.extend_from_slice(&bytes);
+            serde_json::json!({
+                "name": name,
+                "size": bytes.len() as u64,
+            })
+        })
+        .collect();
+    let manifest = serde_json::json!({
+        "v": 2,
+        "chunk_count": chunk_names.len() as u64,
+        "total_size": pack.len() as u64,
+        "chunks": manifest_chunks,
+    });
 
-        let res = {
-            let mut a = vault.adapter.lock().expect("adapter lock");
-            a.handle(&chromvoid_core::rpc::types::RpcRequest::new(
-                "restore:local:uploadChunk".to_string(),
-                serde_json::json!({
-                    "restore_id": restore_id,
-                    "chunk_index": idx as u64,
-                    "chunk_name": name,
-                    "data": data_b64,
-                    "is_last": is_last,
-                }),
-            ))
-        };
-        match res {
-            chromvoid_core::rpc::types::RpcResponse::Success { .. } => {}
-            other => panic!("restore:local:uploadChunk failed: {other:?}"),
+    let request = chromvoid_core::rpc::types::RpcRequest::new(
+        "restore:local:uploadPack".to_string(),
+        serde_json::json!({
+            "restore_id": restore_id,
+            "manifest": manifest,
+        }),
+    );
+    let res = {
+        let mut a = vault.adapter.lock().expect("adapter lock");
+        a.handle_with_stream(
+            &request,
+            Some(chromvoid_core::rpc::RpcInputStream::new(Box::new(
+                Cursor::new(pack),
+            ))),
+        )
+    };
+    match res {
+        chromvoid_core::rpc::RpcReply::Json(chromvoid_core::rpc::types::RpcResponse::Success {
+            ..
+        }) => {}
+        chromvoid_core::rpc::RpcReply::Json(other) => {
+            panic!("restore:local:uploadPack failed: {other:?}")
+        }
+        chromvoid_core::rpc::RpcReply::Stream(_)
+        | chromvoid_core::rpc::RpcReply::RangeStream(_) => {
+            panic!("restore:local:uploadPack must return JSON response")
         }
     }
 }

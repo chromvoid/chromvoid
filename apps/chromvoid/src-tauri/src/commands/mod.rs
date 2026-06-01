@@ -1,5 +1,7 @@
 pub(crate) mod catalog;
+pub(crate) mod external_url;
 pub(crate) mod passmanager;
+pub(crate) mod startup;
 pub(crate) mod vault;
 
 #[cfg(desktop)]

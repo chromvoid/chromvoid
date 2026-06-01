@@ -28,6 +28,7 @@ export type {CatalogOperations} from './mapper.js'
 export {parseKeePass, KeePassParseError} from './parsers/keepass.js'
 export {parseCSV} from './parsers/csv.js'
 export {parseBitwardenJson} from './parsers/bitwarden.js'
+export {parse1Password1PUX} from './parsers/1password.js'
 
 export {
   MOBILE_FILE_PICKER_LIFECYCLE_END_EVENT,
@@ -37,4 +38,5 @@ export {
 } from './ui/mobile-file-picker-lifecycle.js'
 export type {MobileFilePickerLifecycleStartDetail} from './ui/mobile-file-picker-lifecycle.js'
 
-export {ImportDialog, setImportCatalogOps, setExistingEntriesMap} from './ui/import-dialog.js'
+export {ImportDialog} from './ui/import-dialog.js'
+export {setImportCatalogOps, setExistingEntriesMap} from './ui/import-dialog-state.js'

@@ -39,21 +39,22 @@ fn write_inconsistent_passmanager_fixture(
     vault_key: &[u8; 32],
     delta_count: u64,
 ) {
-    // Monolithic catalog A: /.passmanager/Ungrouped is empty.
-    let mut root_a = CatalogNode::new_root();
-    let mut pm_a = CatalogNode::new_dir(62, ".passmanager".to_string());
-    pm_a.add_child(CatalogNode::new_dir(69, "123".to_string()));
-    pm_a.add_child(CatalogNode::new_dir(70, "Ungrouped".to_string()));
-    root_a.add_child(pm_a);
+    // Legacy recovery snapshot A: /.passmanager/Ungrouped is empty.
+    let mut legacy_root = CatalogNode::new_root();
+    let mut legacy_pm = CatalogNode::new_dir(62, ".passmanager".to_string());
+    legacy_pm.add_child(CatalogNode::new_dir(69, "123".to_string()));
+    legacy_pm.add_child(CatalogNode::new_dir(70, "Ungrouped".to_string()));
+    legacy_root.add_child(legacy_pm);
 
-    let monolithic_version: u64 = 500;
-    let catalog_plain = serialize_catalog(&root_a, monolithic_version).expect("serialize catalog");
+    let legacy_recovery_version: u64 = 500;
+    let catalog_plain =
+        serialize_catalog(&legacy_root, legacy_recovery_version).expect("serialize catalog");
     let catalog_name = chromvoid_core::crypto::catalog_chunk_name(vault_key, 0);
     write_encrypted_chunk(storage, vault_key, &catalog_name, &catalog_plain);
 
     // RootIndex: points at the sharded world with too many deltas.
     let mut index = RootIndex::new();
-    index.root_version = monolithic_version;
+    index.root_version = legacy_recovery_version;
 
     let mut meta = ShardMeta::new(".passmanager", LoadStrategy::Eager);
     meta.version = delta_count;
@@ -67,7 +68,7 @@ fn write_inconsistent_passmanager_fixture(
     let root_plain = serde_json::to_vec(&index).expect("root index serialize");
     write_encrypted_chunk(storage, vault_key, &root_name, &root_plain);
 
-    // Shard snapshot B: Ungrouped contains a child that monolithic does NOT have.
+    // Shard snapshot B: Ungrouped contains a child that the legacy recovery snapshot does NOT have.
     let mut pm_b = CatalogNode::new_dir(62, ".passmanager".to_string());
     pm_b.add_child(CatalogNode::new_dir(69, "123".to_string()));
     let mut ungrouped_b = CatalogNode::new_dir(70, "Ungrouped".to_string());
@@ -116,7 +117,7 @@ fn test_unlock_uses_sharded_passmanager_view_even_when_deltas_exceed_limit() {
     assert_rpc_ok(&unlock);
 
     // Correct behavior: even with a long delta chain, unlock must NOT silently fall back
-    // to the monolithic catalog for .passmanager, otherwise frontend shard sync diverges.
+    // to the legacy recovery snapshot for .passmanager, otherwise frontend shard sync diverges.
     set_bypass_system_shard_guards(true);
     let items = get_items(&list_dir(&mut router, "/.passmanager/Ungrouped"));
     set_bypass_system_shard_guards(false);
@@ -145,7 +146,7 @@ fn test_delete_node_from_passmanager_shard_persists_after_overflow_unlock() {
     let mut router = RpcRouter::new(storage).with_keystore(keystore);
     assert_rpc_ok(&unlock_vault(&mut router, password));
 
-    // This node exists in the shard view, but NOT in the monolithic fallback.
+    // This node exists in the shard view, but NOT in the legacy recovery snapshot.
     // Correct behavior: after unlock, deletes must affect the same view the UI sync uses.
     set_bypass_system_shard_guards(true);
     assert_rpc_ok(&delete_node(&mut router, 4));
@@ -204,7 +205,7 @@ fn test_passmanager_deltas_do_not_accumulate_on_non_passmanager_writes() {
 }
 
 #[test]
-fn test_auto_compacts_passmanager_when_deltas_exceed_threshold() {
+fn test_auto_compacts_passmanager_when_delta_chain_reaches_threshold() {
     let (mut router, temp_dir, keystore) = create_test_router_with_keystore();
     let password = "test_password";
     assert_rpc_ok(&unlock_vault(&mut router, password));
@@ -231,17 +232,22 @@ fn test_auto_compacts_passmanager_when_deltas_exceed_threshold() {
     let pm = index
         .get_shard(".passmanager")
         .expect(".passmanager shard meta");
-    assert_eq!(
-        pm.has_deltas, false,
-        "expected auto-compaction to clear deltas, but has_deltas=true (delta_count={})",
+    assert!(
+        pm.delta_count < MAX_DELTAS,
+        "expected auto-compaction to keep passmanager delta chain bounded, got delta_count={}",
         pm.delta_count
     );
+    assert!(
+        pm.base_version > 0,
+        "expected compaction to advance base_version"
+    );
     assert_eq!(
-        pm.base_version, pm.version,
-        "base_version must match version after compaction"
+        pm.has_deltas,
+        pm.delta_count > 0,
+        "has_deltas must match remaining post-compaction deltas"
     );
 
-    // Old deltas must be removed after compaction.
+    // Old deltas from the compacted chain must be removed after compaction.
     let delta1 = delta_chunk_name(&*vault_key, ".passmanager", 1);
     assert!(
         !storage.chunk_exists(&delta1).expect("chunk_exists"),

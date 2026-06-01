@@ -12,6 +12,7 @@ const __dirname = path.dirname(__filename);
 const appRoot = path.resolve(__dirname, '..');
 const srcTauriDir = path.join(appRoot, 'src-tauri');
 const iconsDir = path.join(srcTauriDir, 'icons');
+const androidOwnedResDir = path.join(srcTauriDir, 'android-owned', 'app', 'src', 'main', 'res');
 const androidResDir = path.join(srcTauriDir, 'gen', 'android', 'app', 'src', 'main', 'res');
 const iosIconSetDir = path.join(
   srcTauriDir,
@@ -29,8 +30,14 @@ const sourceIcon = path.resolve(
 const scales = {
   desktop: parseScale('ICON_SCALE_DESKTOP', 0.93),
   ios: parseScale('ICON_SCALE_IOS', 0.92),
-  android: parseScale('ICON_SCALE_ANDROID', 0.84),
+  android: parseScale('ICON_SCALE_ANDROID', 0.67),
 };
+const androidLauncherBackground = '#030507';
+const androidSplashLogoPath = path.join(
+  androidOwnedResDir,
+  'drawable-nodpi',
+  'splash_logo.png',
+);
 
 function parseScale(envName, fallback) {
   const rawValue = process.env[envName];
@@ -125,6 +132,20 @@ async function copyAndroidTree(fromDir, toDir) {
   await fs.cp(fromDir, toDir, { recursive: true });
 }
 
+async function writeAndroidLauncherBackground(filePath) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(
+    filePath,
+    `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n  <color name="ic_launcher_background">${androidLauncherBackground}</color>\n</resources>\n`,
+  );
+}
+
+async function writeAndroidSplashLogo(sourcePath) {
+  // Keep Android launch morph stable: the splash bitmap must share launcher foreground padding.
+  await fs.mkdir(path.dirname(androidSplashLogoPath), { recursive: true });
+  await fs.copyFile(sourcePath, androidSplashLogoPath);
+}
+
 async function syncAndroidLauncherResources(fromDir, toDir) {
   const entries = await fs.readdir(fromDir, { withFileTypes: true });
 
@@ -134,6 +155,7 @@ async function syncAndroidLauncherResources(fromDir, toDir) {
       const toPath = path.join(toDir, entry.name);
 
       if (entry.isDirectory()) {
+        if (entry.name === 'values') return;
         await fs.mkdir(toPath, { recursive: true });
         await syncAndroidLauncherResources(fromPath, toPath);
         return;
@@ -171,6 +193,11 @@ async function main() {
     await copyRootFiles(tempDesktopOut, iconsDir);
     await copyIosIcons(path.join(tempIosOut, 'ios'), iosIconSetDir);
     await copyAndroidTree(path.join(tempAndroidOut, 'android'), path.join(iconsDir, 'android'));
+    await writeAndroidLauncherBackground(
+      path.join(iconsDir, 'android', 'values', 'ic_launcher_background.xml'),
+    );
+    await writeAndroidSplashLogo(androidIcon);
+    await fs.rm(path.join(androidResDir, 'values'), { recursive: true, force: true });
     await syncAndroidLauncherResources(path.join(tempAndroidOut, 'android'), androidResDir);
 
     const summary = [
@@ -178,6 +205,7 @@ async function main() {
       `desktop=${scales.desktop}`,
       `ios=${scales.ios}`,
       `android=${scales.android}`,
+      `androidSplash=${path.relative(appRoot, androidSplashLogoPath)}`,
     ].join(', ');
 
     console.log(`Icons regenerated successfully: ${summary}`);

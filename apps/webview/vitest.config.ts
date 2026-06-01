@@ -10,5 +10,8 @@ export default defineConfig({
     setupFiles: ['tests/e2e/setup.ts'],
     hookTimeout: 60000,
     testTimeout: 60000,
+    fileParallelism: false,
+    maxWorkers: 1,
+    minWorkers: 1,
   },
 })

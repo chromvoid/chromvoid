@@ -1,16 +1,33 @@
-import {html} from 'lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {css, nothing} from 'lit'
 import {i18n} from 'root/i18n'
 
-import type {NetworkPairPhase} from 'root/routes/network-pair/network-pair.model'
-import type {NetworkPairedPeer} from 'root/routes/remote/remote.model'
+import {remoteHostsFlowStyles} from 'root/routes/remote/remote-hosts-flow.styles'
+import {
+  renderRemoteHostsPanel,
+  renderRemotePairPanel,
+  renderRemoteWaitPanel,
+} from 'root/routes/remote/remote-hosts-flow.render'
 
-import type {PasswordFeedback, WelcomeSetupStep} from '../welcome.model'
+import type {WelcomeSectionLayout} from '../welcome-section-layout'
+import {
+  welcomeSectionCalloutStyles,
+  welcomeSectionHostStyles,
+  welcomeSectionMobileButtonStyles,
+} from '../welcome-section.styles'
+import type {PasswordFeedback, WelcomeSetupModel} from '../welcome-setup.model'
 
 function renderEntropyMeter(passwordStrength: PasswordFeedback) {
   const {score, feedback} = passwordStrength
-  if (!passwordStrength) return ''
+  if (!passwordStrength) return nothing
 
-  const scoreText = ['Very Weak', 'Weak', 'Fair', 'Good', 'Strong'][score]
+  const scoreText = [
+    i18n('welcome:entropy-very-weak'),
+    i18n('welcome:entropy-weak'),
+    i18n('welcome:entropy-fair'),
+    i18n('welcome:entropy-good'),
+    i18n('welcome:entropy-strong'),
+  ][score]
 
   return html`
     <div class="entropy-meter score-${score}">
@@ -22,9 +39,7 @@ function renderEntropyMeter(passwordStrength: PasswordFeedback) {
       </div>
       <div class="entropy-text">
         <span class="entropy-score">${scoreText}</span>
-        ${feedback.warning
-          ? html`<span class="entropy-warning"> — ${feedback.warning}</span>`
-          : ''}
+        ${feedback.warning ? html`<span class="entropy-warning"> - ${feedback.warning}</span>` : nothing}
       </div>
     </div>
   `
@@ -51,475 +66,423 @@ function renderModeIcon(kind: 'local' | 'remote') {
   `
 }
 
-function renderRemotePeerItem({
-  peer,
-  activePeerId,
-  removingPeerId,
-  onConnectRemotePeer,
-  onRemoveRemotePeer,
-}: {
-  peer: NetworkPairedPeer
-  activePeerId: string | null
-  removingPeerId: string | null
-  onConnectRemotePeer: (peerId: string) => void
-  onRemoveRemotePeer: (peer: NetworkPairedPeer) => void
-}) {
-  const platformLabel = peer.platform === 'ios' ? 'iPhone Host' : 'Network Peer'
-  const statusLabel = peer.platform === 'ios' ? peer.status ?? 'offline' : null
-  const statusClass =
-    statusLabel === 'ready' ? 'success' : statusLabel === 'waking' ? 'warning' : statusLabel === 'offline' ? 'danger' : ''
-  const isActive = activePeerId === peer.peer_id
-  const isRemoving = removingPeerId === peer.peer_id
-  const actionLabel =
-    isActive ? 'Connecting…' : peer.platform === 'ios' && statusLabel !== 'ready' ? 'Wake & Connect' : 'Connect'
+export class WelcomeSetupSection extends ReatomLitElement {
+  static properties = {
+    model: {attribute: false},
+    layout: {type: String, reflect: true},
+  }
 
-  return html`
-    <div class="remote-peer">
-      <div class="remote-peer-main">
-        <div class="remote-peer-title">${peer.label || peer.peer_id}</div>
-        <div class="remote-peer-meta">${peer.peer_id}</div>
-      </div>
-      <div class="remote-peer-badges">
-        <span class="mode-badge">${platformLabel}</span>
-        ${statusLabel ? html`<span class="mode-badge status-${statusClass || 'neutral'}">${statusLabel}</span>` : ''}
-      </div>
-      <div class="remote-peer-actions">
-        <cv-button variant="primary" ?disabled=${isActive || isRemoving} .loading=${isActive} @click=${() => onConnectRemotePeer(peer.peer_id)}>
-          ${actionLabel}
-        </cv-button>
-        <cv-button variant="danger" ?disabled=${isActive || isRemoving} .loading=${isRemoving} @click=${() => onRemoveRemotePeer(peer)}>
-          Remove
-        </cv-button>
-      </div>
-    </div>
-  `
-}
+  static styles = [
+    welcomeSectionHostStyles,
+    welcomeSectionCalloutStyles,
+    welcomeSectionMobileButtonStyles,
+    remoteHostsFlowStyles,
+    css`
+      :host {
+        --meter-score-0: var(--cv-color-danger);
+        --meter-score-1: var(--cv-color-warning-dark);
+        --meter-score-2: var(--cv-color-warning);
+        --meter-score-3: var(--cv-color-success-dark);
+        --meter-score-4: var(--cv-color-success);
+      }
 
-function renderRemoteConnectStep({
-  isNeedInit,
-  remoteLoadingPeers,
-  remotePeers,
-  remoteRemovingPeerId,
-  remoteActivePeerId,
-  remoteStatusText,
-  remoteErrorText,
-  onRefreshRemotePeers,
-  onOpenRemotePair,
-  onBackFromRemoteConnect,
-  onConnectRemotePeer,
-  onRemoveRemotePeer,
-}: {
-  isNeedInit: boolean
-  remoteLoadingPeers: boolean
-  remotePeers: NetworkPairedPeer[]
-  remoteRemovingPeerId: string | null
-  remoteActivePeerId: string | null
-  remoteStatusText: string | null
-  remoteErrorText: string | null
-  onRefreshRemotePeers: () => void
-  onOpenRemotePair: () => void
-  onBackFromRemoteConnect: () => void
-  onConnectRemotePeer: (peerId: string) => void
-  onRemoveRemotePeer: (peer: NetworkPairedPeer) => void
-}) {
-  return html`
-    <div class="back-link" @click=${onBackFromRemoteConnect}>
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path d="M19 12H5M12 19l-7-7 7-7" />
-      </svg>
-      ${isNeedInit ? 'Back to mode selection' : 'Back to unlock screen'}
-    </div>
+      .welcome-actions {
+        display: grid;
+        gap: var(--app-spacing-3);
+      }
 
-    <div class="step active">
-      <div class="step-title">Paired Remote Hosts</div>
-      <div class="step-desc">Choose a paired iPhone host or pair a new one before entering the dashboard.</div>
+      .setup-card {
+        display: grid;
+        gap: var(--app-spacing-2);
+        padding: var(--app-spacing-4);
+        background: var(--cv-color-surface-3);
+        border-radius: 12px;
+        border: 1px solid transparent;
+      }
 
-      ${remoteStatusText ? html`<cv-callout variant="info">${remoteStatusText}</cv-callout>` : ''}
-      ${remoteErrorText ? html`<cv-callout variant="danger">${remoteErrorText}</cv-callout>` : ''}
+      .setup-title {
+        font-weight: 600;
+        font-size: 1rem;
+        color: var(--cv-color-text);
+      }
 
-      <div class="remote-actions">
-        <cv-button variant="primary" ?disabled=${remoteLoadingPeers} @click=${onRefreshRemotePeers}>
-          ${remoteLoadingPeers ? 'Refreshing…' : 'Refresh Hosts'}
-        </cv-button>
-        <cv-button variant="ghost" @click=${onOpenRemotePair}>Pair iPhone</cv-button>
-      </div>
+      .setup-desc {
+        font-size: 0.875rem;
+        color: var(--cv-color-text-muted);
+      }
 
-      ${remotePeers.length > 0
-        ? html`<div class="remote-peer-list">
-            ${remotePeers.map((peer) =>
-              renderRemotePeerItem({
-                peer,
-                activePeerId: remoteActivePeerId,
-                removingPeerId: remoteRemovingPeerId,
-                onConnectRemotePeer,
-                onRemoveRemotePeer,
-              }),
-            )}
-          </div>`
-        : html`
-            <div class="empty-remote-state">
-              <div class="step-title">No paired iPhone hosts</div>
-              <div class="step-desc">
-                Pair your iPhone first, then come back here to connect once its vault is open locally.
+      .password-form-grid {
+        display: grid;
+        gap: var(--app-spacing-3);
+        margin-top: var(--app-spacing-3);
+      }
+
+      .entropy-meter {
+        display: flex;
+        flex-direction: column;
+        gap: var(--app-spacing-1);
+        margin-top: var(--app-spacing-2);
+      }
+
+      .entropy-bar {
+        display: flex;
+        gap: var(--app-spacing-1);
+        height: 4px;
+      }
+
+      .entropy-segment {
+        flex: 1;
+        background: var(--cv-color-surface-3);
+        border-radius: 2px;
+        transition: background-color 0.3s ease;
+      }
+
+      .entropy-text {
+        font-size: 0.75rem;
+        text-align: right;
+        font-weight: 500;
+      }
+
+      .entropy-warning {
+        opacity: 0.7;
+        font-weight: 400;
+      }
+
+      .score-0 .entropy-segment:nth-child(1) {
+        background: var(--meter-score-0);
+      }
+
+      .score-1 .entropy-segment:nth-child(1),
+      .score-1 .entropy-segment:nth-child(2) {
+        background: var(--meter-score-1);
+      }
+
+      .score-2 .entropy-segment:nth-child(1),
+      .score-2 .entropy-segment:nth-child(2),
+      .score-2 .entropy-segment:nth-child(3) {
+        background: var(--meter-score-2);
+      }
+
+      .score-3 .entropy-segment:nth-child(-n + 3),
+      .score-3 .entropy-segment:nth-child(4) {
+        background: var(--meter-score-3);
+      }
+
+      .score-4 .entropy-segment {
+        background: var(--meter-score-4);
+      }
+
+      .score-0 .entropy-score {
+        color: var(--meter-score-0);
+      }
+
+      .score-1 .entropy-score {
+        color: var(--meter-score-1);
+      }
+
+      .score-2 .entropy-score {
+        color: var(--meter-score-2);
+      }
+
+      .score-3 .entropy-score {
+        color: var(--meter-score-3);
+      }
+
+      .score-4 .entropy-score {
+        color: var(--meter-score-4);
+      }
+
+      .mode-cards {
+        display: grid;
+        gap: var(--app-spacing-4);
+      }
+
+      .mode-card {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: var(--app-spacing-4);
+        padding: var(--app-spacing-5);
+        background: linear-gradient(
+          180deg,
+          var(--cv-color-surface-secondary-glass-strong) 0%,
+          var(--cv-color-surface-3) 100%
+        );
+        border: 1px solid var(--cv-color-border);
+        border-radius: 14px;
+        cursor: pointer;
+        align-items: center;
+        transition:
+          border-color var(--cv-duration-fast) var(--cv-easing-standard),
+          background-color var(--cv-duration-fast) var(--cv-easing-standard),
+          transform var(--cv-duration-fast) var(--cv-easing-standard),
+          box-shadow var(--cv-duration-fast) var(--cv-easing-standard);
+      }
+
+      .mode-card:hover {
+        border-color: var(--cv-color-border-accent);
+        background: var(--cv-color-primary-surface);
+        box-shadow:
+          0 0 0 1px var(--cv-color-primary-ring),
+          0 14px 28px var(--cv-alpha-black-20);
+        transform: translateY(-1px);
+      }
+
+      .mode-card.disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .mode-card.disabled:hover {
+        border-color: var(--cv-color-border);
+        background: linear-gradient(
+          180deg,
+          var(--cv-color-surface-secondary-glass-strong) 0%,
+          var(--cv-color-surface-3) 100%
+        );
+        box-shadow: none;
+        transform: none;
+      }
+
+      .mode-icon {
+        inline-size: 48px;
+        block-size: 48px;
+        display: grid;
+        place-items: center;
+        border-radius: 14px;
+        border: 1px solid var(--cv-color-primary-border);
+        background: var(--cv-color-primary-surface);
+        color: var(--cv-color-brand);
+        box-shadow: inset 0 1px 0 var(--cv-alpha-white-5);
+      }
+
+      .mode-card-remote .mode-icon {
+        color: var(--cv-color-accent);
+        background: var(--cv-color-accent-surface);
+      }
+
+      .mode-icon svg {
+        inline-size: 24px;
+        block-size: 24px;
+      }
+
+      .mode-content {
+        display: grid;
+        gap: 6px;
+      }
+
+      .mode-title {
+        font-weight: 600;
+        font-size: 1rem;
+        color: var(--cv-color-text);
+      }
+
+      .mode-desc {
+        font-size: 0.875rem;
+        color: var(--cv-color-text-muted);
+      }
+
+      .setup-footer {
+        display: grid;
+        gap: var(--app-spacing-3);
+      }
+
+      .master-warning {
+        margin-top: var(--app-spacing-3);
+        font-size: 0.8rem;
+      }
+
+      :host([layout='mobile']) .welcome-actions,
+      :host([layout='mobile']) .setup-footer,
+      :host([layout='mobile']) .remote-actions {
+        gap: var(--app-spacing-3);
+      }
+
+      :host([layout='mobile']) .mode-cards {
+        gap: var(--app-spacing-3);
+      }
+
+      :host([layout='mobile']) .mode-card {
+        padding: var(--app-spacing-4);
+      }
+
+      :host([layout='mobile']) .back-link {
+        padding-inline-start: 2px;
+      }
+    `,
+  ]
+
+  declare model?: WelcomeSetupModel
+  declare layout: WelcomeSectionLayout
+
+  constructor() {
+    super()
+    this.layout = 'desktop'
+  }
+
+  static define() {
+    if (!customElements.get('welcome-setup-section')) {
+      customElements.define('welcome-setup-section', this)
+    }
+  }
+
+  protected render() {
+    if (!this.model) {
+      return nothing
+    }
+
+    const setupStep = this.model.effectiveStep()
+    const busy = this.model.busy()
+    const setupInProgress = this.model.setupInProgress()
+    const creationState = this.model.creationState()
+    const isNeedInit = this.model.isNeedInit()
+    const isDesktopRemoteSupported = this.model.isDesktopRemoteSupported()
+
+    if (setupStep === 'remote-connect') {
+      return renderRemoteHostsPanel({
+        model: this.model.remote,
+        actions: {
+          onOpenPairIos: this.model.onOpenRemotePair,
+          onConnectPeer: this.model.onConnectRemotePeer,
+          onRemovePeer: this.model.onRemoveRemotePeer,
+        },
+        ui: {
+          hostsBackLink: {
+            label: isNeedInit ? i18n('welcome:back-mode-selection') : i18n('welcome:back-unlock-screen'),
+            onBack: this.model.onBackFromRemoteConnect,
+          },
+        },
+      })
+    }
+
+    if (setupStep === 'remote-pair') {
+      return renderRemotePairPanel({
+        model: this.model.remote,
+        actions: {
+          onBackToHosts: this.model.onBackFromRemotePair,
+          onSubmitPairing: this.model.onSubmitRemotePair,
+        },
+        ui: {
+          pairBackLink: {
+            label: i18n('welcome:back-remote-hosts'),
+            onBack: this.model.onBackFromRemotePair,
+          },
+        },
+      })
+    }
+
+    if (setupStep === 'remote-wait') {
+      return renderRemoteWaitPanel({
+        model: this.model.remote,
+        actions: {
+          onDisconnectTransport: this.model.onBackFromRemoteWait,
+        },
+        ui: {
+          waitBackLink: {
+            label: i18n('welcome:disconnect-remote-transport'),
+            onBack: this.model.onBackFromRemoteWait,
+          },
+        },
+      })
+    }
+
+    if (!isNeedInit) {
+      return html`
+        <div class="welcome-actions">
+          <cv-button variant="primary" ?disabled=${busy} .loading=${setupInProgress} @click=${this.model.onUnlock}>
+            ${i18n('welcome:unlock-vault')}
+          </cv-button>
+          ${isDesktopRemoteSupported
+            ? html`
+                <cv-button variant="ghost" ?disabled=${busy} @click=${this.model.onSelectRemoteMode}>
+                  ${i18n('welcome:connect-remote')}
+                </cv-button>
+              `
+            : nothing}
+        </div>
+      `
+    }
+
+    if (setupStep === 'mode-select' || setupStep === null) {
+      return html`
+        <cv-guidance-anchor anchor-id="welcome.vault-mode" surface="welcome" owner="welcome">
+          <div class="mode-cards">
+            <div class="mode-card mode-card-local" @click=${this.model.onSelectLocalMode}>
+              <div class="mode-icon">${renderModeIcon('local')}</div>
+              <div class="mode-content">
+                <div class="mode-title">${i18n('welcome:mode-local-title')}</div>
+                <div class="mode-desc">${i18n('welcome:mode-local-desc')}</div>
+                <div class="mode-badge">${i18n('welcome:mode-local-badge')}</div>
               </div>
-              <cv-button variant="primary" @click=${onOpenRemotePair}>Pair iPhone</cv-button>
             </div>
-          `}
-    </div>
-  `
-}
-
-function renderRemotePairStep({
-  remotePairPhase,
-  remotePairError,
-  remotePairOffer,
-  remotePairPin,
-  remotePairDeviceLabel,
-  onBackFromRemotePair,
-  onRemoteOfferInput,
-  onRemotePinInput,
-  onRemoteDeviceLabelInput,
-  onSubmitRemotePair,
-}: {
-  remotePairPhase: NetworkPairPhase
-  remotePairError: string | null
-  remotePairOffer: string
-  remotePairPin: string
-  remotePairDeviceLabel: string
-  onBackFromRemotePair: () => void
-  onRemoteOfferInput: (event: Event) => void
-  onRemotePinInput: (event: Event) => void
-  onRemoteDeviceLabelInput: (event: Event) => void
-  onSubmitRemotePair: () => void
-}) {
-  const pairBusy = remotePairPhase === 'connecting' || remotePairPhase === 'starting'
-
-  return html`
-    <div class="back-link" @click=${onBackFromRemotePair}>
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path d="M19 12H5M12 19l-7-7 7-7" />
-      </svg>
-      Back to remote hosts
-    </div>
-
-    <div class="step active">
-      <div class="step-title">Pair With iPhone</div>
-      <div class="step-desc">Paste the pairing offer from your iPhone and enter the PIN shown on the phone.</div>
-
-      ${remotePairError ? html`<cv-callout variant="danger">${remotePairError}</cv-callout>` : ''}
-
-      <div class="remote-form-grid">
-        <label class="remote-field">
-          <span class="remote-field-label">Pairing Offer</span>
-          <cv-textarea
-            class="remote-textarea"
-            placeholder="chromvoid://pair-ios?session_id=..."
-            .value=${remotePairOffer}
-            @cv-input=${onRemoteOfferInput}
-          ></cv-textarea>
-        </label>
-
-        <label class="remote-field">
-          <span class="remote-field-label">PIN</span>
-          <cv-input
-            type="text"
-            inputmode="numeric"
-            placeholder="123456"
-            .value=${remotePairPin}
-            @cv-input=${onRemotePinInput}
-          ></cv-input>
-        </label>
-
-        <label class="remote-field">
-          <span class="remote-field-label">Desktop Label</span>
-          <cv-input
-            type="text"
-            placeholder="ChromVoid Desktop"
-            .value=${remotePairDeviceLabel}
-            @cv-input=${onRemoteDeviceLabelInput}
-          ></cv-input>
-        </label>
-      </div>
-    </div>
-
-    <div class="remote-actions">
-      <cv-button variant="primary" ?disabled=${pairBusy} .loading=${pairBusy} @click=${onSubmitRemotePair}>
-        Pair iPhone
-      </cv-button>
-      <cv-button variant="ghost" @click=${onBackFromRemotePair}>Cancel</cv-button>
-    </div>
-  `
-}
-
-function renderRemoteWaitStep({
-  remoteConnectedPeerLabel,
-  remoteStatusText,
-  remoteErrorText,
-  onBackFromRemoteWait,
-}: {
-  remoteConnectedPeerLabel: string
-  remoteStatusText: string | null
-  remoteErrorText: string | null
-  onBackFromRemoteWait: () => void
-}) {
-  return html`
-    <div class="back-link" @click=${onBackFromRemoteWait}>
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path d="M19 12H5M12 19l-7-7 7-7" />
-      </svg>
-      Disconnect remote transport
-    </div>
-
-    <div class="step active">
-      <div class="step-title">Waiting For ${remoteConnectedPeerLabel}</div>
-      <div class="step-desc">
-        The transport is already connected. Open the vault directly on your iPhone to continue into the remote dashboard.
-      </div>
-
-      ${remoteStatusText ? html`<cv-callout variant="info">${remoteStatusText}</cv-callout>` : ''}
-      ${remoteErrorText ? html`<cv-callout variant="danger">${remoteErrorText}</cv-callout>` : ''}
-
-      <div class="hint-block">
-        <div class="hint-text">This desktop cannot unlock the host vault remotely. Access appears here automatically after the host opens it locally.</div>
-      </div>
-    </div>
-
-    <div class="remote-actions">
-      <cv-button variant="ghost" @click=${onBackFromRemoteWait}>Disconnect</cv-button>
-    </div>
-  `
-}
-
-export function renderWelcomeVaultContent({
-  isNeedInit,
-  busy,
-  setupStep,
-  creationP1,
-  creationP2,
-  passwordStrength,
-  isDesktopRemoteSupported,
-  remotePeers,
-  remoteLoadingPeers,
-  remoteRemovingPeerId,
-  remoteActivePeerId,
-  remoteStatusText,
-  remoteErrorText,
-  remoteConnectedPeerLabel,
-  remotePairPhase,
-  remotePairError,
-  remotePairOffer,
-  remotePairPin,
-  remotePairDeviceLabel,
-  onUnlock,
-  onSelectLocalMode,
-  onSelectRemoteMode,
-  onBackToModeSelect,
-  onOpenRemotePair,
-  onBackFromRemoteConnect,
-  onBackFromRemotePair,
-  onBackFromRemoteWait,
-  onMasterPasswordInput,
-  onMasterPasswordConfirmInput,
-  onCreateMasterSubmit,
-  onRefreshRemotePeers,
-  onConnectRemotePeer,
-  onRemoveRemotePeer,
-  onRemoteOfferInput,
-  onRemotePinInput,
-  onRemoteDeviceLabelInput,
-  onSubmitRemotePair,
-}: {
-  isNeedInit: boolean
-  busy: boolean
-  setupStep: WelcomeSetupStep
-  creationP1: string
-  creationP2: string
-  passwordStrength: PasswordFeedback
-  isDesktopRemoteSupported: boolean
-  remotePeers: NetworkPairedPeer[]
-  remoteLoadingPeers: boolean
-  remoteRemovingPeerId: string | null
-  remoteActivePeerId: string | null
-  remoteStatusText: string | null
-  remoteErrorText: string | null
-  remoteConnectedPeerLabel: string
-  remotePairPhase: NetworkPairPhase
-  remotePairError: string | null
-  remotePairOffer: string
-  remotePairPin: string
-  remotePairDeviceLabel: string
-  onUnlock: () => void
-  onSelectLocalMode: () => void
-  onSelectRemoteMode: () => void
-  onBackToModeSelect: () => void
-  onOpenRemotePair: () => void
-  onBackFromRemoteConnect: () => void
-  onBackFromRemotePair: () => void
-  onBackFromRemoteWait: () => void
-  onMasterPasswordInput: (event: Event) => void
-  onMasterPasswordConfirmInput: (event: Event) => void
-  onCreateMasterSubmit: (event: Event) => void
-  onRefreshRemotePeers: () => void
-  onConnectRemotePeer: (peerId: string) => void
-  onRemoveRemotePeer: (peer: NetworkPairedPeer) => void
-  onRemoteOfferInput: (event: Event) => void
-  onRemotePinInput: (event: Event) => void
-  onRemoteDeviceLabelInput: (event: Event) => void
-  onSubmitRemotePair: () => void
-}) {
-  if (setupStep === 'remote-connect') {
-    return renderRemoteConnectStep({
-      isNeedInit,
-      remoteLoadingPeers,
-      remotePeers,
-      remoteRemovingPeerId,
-      remoteActivePeerId,
-      remoteStatusText,
-      remoteErrorText,
-      onRefreshRemotePeers,
-      onOpenRemotePair,
-      onBackFromRemoteConnect,
-      onConnectRemotePeer,
-      onRemoveRemotePeer,
-    })
-  }
-
-  if (setupStep === 'remote-pair') {
-    return renderRemotePairStep({
-      remotePairPhase,
-      remotePairError,
-      remotePairOffer,
-      remotePairPin,
-      remotePairDeviceLabel,
-      onBackFromRemotePair,
-      onRemoteOfferInput,
-      onRemotePinInput,
-      onRemoteDeviceLabelInput,
-      onSubmitRemotePair,
-    })
-  }
-
-  if (setupStep === 'remote-wait') {
-    return renderRemoteWaitStep({
-      remoteConnectedPeerLabel,
-      remoteStatusText,
-      remoteErrorText,
-      onBackFromRemoteWait,
-    })
-  }
-
-  if (!isNeedInit) {
-    return html`
-      <div class="welcome-actions">
-        <cv-button variant="primary" ?disabled=${busy} .loading=${busy} @click=${onUnlock}>Unlock Vault</cv-button>
-        ${isDesktopRemoteSupported
-          ? html`<cv-button variant="ghost" ?disabled=${busy} @click=${onSelectRemoteMode}>Connect Remote</cv-button>`
-          : ''}
-      </div>
-    `
-  }
-
-  if (setupStep === 'mode-select' || setupStep === null) {
-    return html`
-      <div class="mode-cards">
-        <div class="mode-card mode-card-local" @click=${onSelectLocalMode}>
-          <div class="mode-icon">${renderModeIcon('local')}</div>
-          <div class="mode-content">
-            <div class="mode-title">Local Storage</div>
-            <div class="mode-desc">Data stored on this device</div>
-            <div class="mode-badge">On-device only</div>
+            <div class="mode-card mode-card-remote ${isDesktopRemoteSupported ? '' : 'disabled'}" @click=${this.model.onSelectRemoteMode}>
+              <div class="mode-icon">${renderModeIcon('remote')}</div>
+              <div class="mode-content">
+                <div class="mode-title">${i18n('welcome:mode-remote-title')}</div>
+                <div class="mode-desc">${i18n('welcome:mode-remote-desc')}</div>
+                <div class="mode-badge">
+                  ${isDesktopRemoteSupported ? i18n('welcome:mode-remote-badge') : i18n('welcome:mode-remote-disabled')}
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-        <div class="mode-card mode-card-remote ${isDesktopRemoteSupported ? '' : 'disabled'}" @click=${onSelectRemoteMode}>
-          <div class="mode-icon">${renderModeIcon('remote')}</div>
-          <div class="mode-content">
-            <div class="mode-title">Connect Remote</div>
-            <div class="mode-desc">Connect to a paired iPhone whose vault is already open</div>
-            <div class="mode-badge">${isDesktopRemoteSupported ? 'Paired host' : 'Desktop only'}</div>
-          </div>
-        </div>
-      </div>
-      <cv-callout variant="info">Mode can be changed later in Settings</cv-callout>
-    `
-  }
+        </cv-guidance-anchor>
+        <cv-callout variant="info">${i18n('welcome:mode-change-later')}</cv-callout>
+      `
+    }
 
-  return html`
-    <div class="back-link" @click=${onBackToModeSelect}>
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path d="M19 12H5M12 19l-7-7 7-7" />
-      </svg>
-      Back to mode selection
-    </div>
-
-    <div class="step">
-      <div class="step-title">${i18n('onboard:step:master:title')}</div>
-      <div class="step-desc">${i18n('onboard:step:master:desc')}</div>
-
-      <form class="password-form-grid" @submit=${onCreateMasterSubmit}>
-        <div>
-          <cv-input
-            type="password"
-            placeholder="Create password"
-            password-toggle
-            .value=${creationP1}
-            @cv-input=${onMasterPasswordInput}
-          ></cv-input>
-          ${creationP1 ? renderEntropyMeter(passwordStrength) : ''}
-        </div>
-
-        <cv-input
-          type="password"
-          password-toggle
-          placeholder="Confirm password"
-          enterkeyhint="done"
-          .value=${creationP2}
-          @cv-input=${onMasterPasswordConfirmInput}
-        ></cv-input>
-
-        <cv-button variant="primary" type="submit" ?disabled=${busy} .loading=${busy}
-          >Create Storage</cv-button
+    return html`
+      <div class="back-link" @click=${this.model.onBackToModeSelect}>
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
         >
-      </form>
-    </div>
+          <path d="M19 12H5M12 19l-7-7 7-7" />
+        </svg>
+        ${i18n('welcome:back-mode-selection')}
+      </div>
 
-    <div class="step-footer">
-      <cv-callout class="master-warning" variant="warning">${i18n('onboard:master:warning')}</cv-callout>
-    </div>
-  `
+      <cv-guidance-anchor anchor-id="welcome.master-password" surface="welcome" owner="welcome">
+        <div class="setup-card">
+          <div class="setup-title">${i18n('onboard:step:master:title')}</div>
+          <div class="setup-desc">${i18n('onboard:step:master:desc')}</div>
+
+          <form class="password-form-grid" @submit=${this.model.handleCreateMasterSubmit}>
+            <div>
+              <cv-input
+                type="password"
+                placeholder=${i18n('welcome:create-password')}
+                password-toggle
+                .value=${creationState.p1}
+                @cv-input=${this.model.handleMasterPasswordInput}
+              ></cv-input>
+              ${creationState.p1 ? renderEntropyMeter(this.model.passwordStrength()) : nothing}
+            </div>
+
+            <cv-input
+              type="password"
+              password-toggle
+              placeholder=${i18n('welcome:confirm-password')}
+              enterkeyhint="done"
+              .value=${creationState.p2}
+              @cv-input=${this.model.handleMasterPasswordConfirmInput}
+            ></cv-input>
+
+            <cv-button variant="primary" type="submit" ?disabled=${busy} .loading=${setupInProgress}>
+              ${i18n('welcome:create-storage')}
+            </cv-button>
+          </form>
+        </div>
+      </cv-guidance-anchor>
+
+      <div class="setup-footer">
+        <cv-callout class="master-warning" variant="warning">${i18n('onboard:master:warning')}</cv-callout>
+      </div>
+    `
+  }
 }

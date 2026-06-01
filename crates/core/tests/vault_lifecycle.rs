@@ -111,6 +111,7 @@ fn test_double_unlock_fails() {
 
     let response = unlock_vault(&mut router, "test");
     assert_rpc_error(&response, "VAULT_ALREADY_UNLOCKED");
+    assert_eq!(response.error_message(), Some("Already unlocked"));
 }
 
 #[test]
@@ -137,6 +138,51 @@ fn test_operations_after_lock() {
 
     let response = list_dir(&mut router, "/");
     assert_rpc_error(&response, "VAULT_REQUIRED");
+}
+
+#[test]
+fn test_vault_rekey_error_contracts() {
+    let (mut router, _temp_dir) = create_test_router();
+
+    let locked = router.handle(&RpcRequest::new(
+        "vault:rekey",
+        serde_json::json!({
+            "current_password": "test",
+            "new_password": "new-password",
+        }),
+    ));
+    assert_rpc_error(&locked, "VAULT_REQUIRED");
+    assert_eq!(locked.error_message(), Some("Vault not unlocked"));
+
+    assert_rpc_ok(&unlock_vault(&mut router, "test"));
+
+    let policy = router.handle(&RpcRequest::new(
+        "vault:rekey",
+        serde_json::json!({
+            "current_password": "test",
+            "new_password": "short",
+        }),
+    ));
+    assert_rpc_error(&policy, "REKEY_PASSWORD_POLICY");
+    assert_eq!(
+        policy.error_message(),
+        Some(
+            "Vault rekey password policy failed: new vault password must be at least 8 characters"
+        )
+    );
+
+    let wrong_current = router.handle(&RpcRequest::new(
+        "vault:rekey",
+        serde_json::json!({
+            "current_password": "wrong-password",
+            "new_password": "new-password",
+        }),
+    ));
+    assert_rpc_error(&wrong_current, "REKEY_INVALID_CURRENT_PASSWORD");
+    assert_eq!(
+        wrong_current.error_message(),
+        Some("Current vault password is invalid")
+    );
 }
 
 // ============================================================================
@@ -265,15 +311,15 @@ fn test_vault_switching() {
 fn root_version(response: &chromvoid_core::rpc::types::RpcResponse) -> u64 {
     response
         .result()
-        .expect("sync.init must return result")
+        .expect("sync manifest must return result")
         .get("root_version")
-        .expect("sync.init result must include root_version")
+        .expect("sync manifest result must include root_version")
         .as_u64()
         .expect("root_version must be u64")
 }
 
 #[test]
-fn test_sync_init_returns_catalog_structure() {
+fn test_sync_manifest_returns_catalog_structure() {
     let (mut router, _temp_dir) = create_test_router();
     unlock_vault(&mut router, "test");
 
@@ -284,11 +330,11 @@ fn test_sync_init_returns_catalog_structure() {
     assert_rpc_ok(&response);
 
     let result = response.result().unwrap();
-    // ADR-004: catalog:sync:init must support v2 sharded response.
+    // Catalog sync manifest must return the manifest response.
     assert_eq!(
         result.get("format").and_then(|v| v.as_str()),
-        Some("sharded"),
-        "ADR-004 expects v2 sync.init sharded response"
+        Some("manifest"),
+        "catalog sync manifest must return the manifest response shape"
     );
     assert!(result.get("root_version").is_some());
     assert!(result.get("shards").is_some());

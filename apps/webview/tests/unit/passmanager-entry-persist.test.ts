@@ -86,11 +86,9 @@ class OtpMetaFailSaver extends MemorySaver {
   saveOtpCalls = 0
 
   async saveEntryMeta(data: {id: string}): Promise<boolean> {
+    void data
     this.saveEntryMetaCalls += 1
-    if (this.saveEntryMetaCalls >= 2) {
-      return false
-    }
-    return super.saveEntryMeta(data)
+    return false
   }
 
   async saveOTP(_id: string, _secret: string): Promise<boolean> {

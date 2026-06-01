@@ -9,6 +9,9 @@
   --app-spacing-6: 24px;
   --app-spacing-7: 32px;
   --app-spacing-8: 40px;
+  --app-surface-gutter-desktop: var(--app-spacing-2);
+  --app-surface-gutter-mobile: var(--app-spacing-3);
+  --app-surface-gutter-compact: var(--app-spacing-2);
 
   /* Easing primitives (referenced from component styles via var()). */
   --cv-easing-standard: cubic-bezier(0.2, 0, 0, 1);
@@ -50,6 +53,6 @@
   --swipe-area-height: 64px;
 
   /* Legacy/compat tokens still referenced in code. */
-  --bars-background: var(--cv-color-surface-2, #f6f6f7);
-  --bars-color: var(--cv-color-text, #1f2937);
+  --bars-background: var(--cv-color-surface-2);
+  --bars-color: var(--cv-color-text);
 }

@@ -1,10 +1,10 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {html, nothing, type TemplateResult} from 'lit'
+import {nothing, type TemplateResult} from 'lit'
 import {ifDefined} from 'lit/directives/if-defined.js'
 
-import type {CVIcon} from '@chromvoid/uikit'
-import {i18n} from '@project/passmanager'
+import type {CVIcon} from '@chromvoid/uikit/components/cv-icon'
+import {i18n} from '@project/passmanager/i18n'
 
 import {
   PMEntryMovePickerModel,
@@ -14,7 +14,7 @@ import {
 
 let pickerSequence = 0
 
-export class PMEntryMoveBase extends XLitElement {
+export class PMEntryMoveBase extends ReatomLitElement {
   protected readonly model = new PMEntryMovePickerModel()
 
   private readonly pickerId = ++pickerSequence
@@ -33,6 +33,14 @@ export class PMEntryMoveBase extends XLitElement {
 
   get entryId(): string {
     return this.model.getEntryId()
+  }
+
+  set disabledIds(value: string[]) {
+    this.model.setDisabledIds(value)
+  }
+
+  get disabledIds(): string[] {
+    return this.model.getDisabledIds()
   }
 
   private get listboxId(): string {
@@ -173,28 +181,34 @@ export class PMEntryMoveBase extends XLitElement {
       >
         ${option.hasChildren && !hasSearch
           ? html`
-              <button
+              <cv-button unstyled
                 class="chevron"
                 type="button"
                 aria-label=${option.expanded ? i18n('button:collapse_group') : i18n('button:expand_group')}
                 data-option-path=${ifDefined(option.path ?? undefined)}
-                @click=${this.handleToggleExpanded}
-              >
-                <cv-icon name=${option.expanded ? 'chevron-down' : 'chevron-right'}></cv-icon>
-              </button>
-            `
-          : html`<button class="chevron" type="button" aria-hidden="true" tabindex="-1"></button>`}
+              @click=${this.handleToggleExpanded}
+            >
+              <cv-icon name=${option.expanded ? 'chevron-down' : 'chevron-right'}></cv-icon>
+            </cv-button>
+          `
+          : html`<cv-button unstyled class="chevron" type="button" aria-hidden="true" button-tabindex="-1"></cv-button>`}
         <div class="label">
           ${this.renderIndent(option.depth)}
           <cv-icon class="folder-icon" name=${option.isRoot ? 'folder2-open' : 'folder'}></cv-icon>
-          <span class="name ${option.isRoot ? 'root' : ''}">${option.label}</span>
+          <span class="label-text">
+            <span class="name ${option.isRoot ? 'root' : ''}">${option.label}</span>
+            ${option.subtitle ? html`<span class="subtitle">${option.subtitle}</span>` : nothing}
+          </span>
         </div>
+        ${selected
+          ? html`<cv-icon class="row-check" name="check" aria-hidden="true"></cv-icon>`
+          : html`<span class="row-check-spacer" aria-hidden="true"></span>`}
       </div>
     `
   }
 
-  private renderRecent(disabledId: string): TemplateResult | typeof nothing {
-    const recentTargets = this.model.getRecentTargets(disabledId)
+  private renderRecent(disabledIds: string[]): TemplateResult | typeof nothing {
+    const recentTargets = this.model.getRecentTargets(disabledIds)
     if (recentTargets.length === 0) return nothing
 
     return html`
@@ -203,14 +217,14 @@ export class PMEntryMoveBase extends XLitElement {
         <div class="recent-items">
           ${recentTargets.map(
             (target) => html`
-              <button
+              <cv-button unstyled
                 class="recent-btn"
                 type="button"
                 data-target-id=${target.id}
                 @click=${this.handleRecentClick}
               >
-                ${target.label}
-              </button>
+                ${target.isRoot ? i18n('dialog:move:root_label') : target.label}
+              </cv-button>
             `,
           )}
         </div>
@@ -246,7 +260,7 @@ export class PMEntryMoveBase extends XLitElement {
           ></cv-input>
         </div>
 
-        ${view.hasSearch ? nothing : this.renderRecent(view.disabledId)}
+        ${view.hasSearch ? nothing : this.renderRecent(view.disabledIds)}
 
         <div class="tree-wrap">
           <div

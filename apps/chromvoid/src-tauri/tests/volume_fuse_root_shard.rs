@@ -6,7 +6,7 @@
 //! In the sharded catalog model, root-level files are their own shards, and the
 //! file node lives at `/` within that shard.
 //!
-//! Regression: if `catalog:prepareUpload` refreshed metadata for an existing
+//! Regression: if `catalog:upload creation` refreshed metadata for an existing
 //! placeholder but failed to record a shard delta when `rel_path == "/"`, then
 //! after a restart/unlock the reconstructed shard would keep the old size
 //! (often 0), and macOS/macFUSE could treat the file as empty.

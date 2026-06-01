@@ -42,7 +42,6 @@ class ChromVoidCredentialProviderService : CredentialProviderService() {
         val passkeyQueryHandler =
             PasskeyQueryHandler(
                 bridgeGateway = graph.bridgeGateway,
-                passkeyStore = graph.passkeyMetadataStore,
                 requestRegistry = graph.passkeyRequestRegistry,
                 entryFactory = entryFactory,
             )
@@ -103,8 +102,6 @@ class ChromVoidCredentialProviderService : CredentialProviderService() {
         val builder = BeginCreateCredentialResponse.Builder()
         val exception =
             PasskeyCreateEntryHandler(
-                bridgeGateway = graph.bridgeGateway,
-                passkeyStore = graph.passkeyMetadataStore,
                 requestRegistry = graph.passkeyRequestRegistry,
                 entryFactory = CredentialProviderEntryFactory(applicationContext),
             ).handle(request, builder)
@@ -124,7 +121,7 @@ class ChromVoidCredentialProviderService : CredentialProviderService() {
             return
         }
         val graph = applicationContext.androidAppGraph()
-        graph.passkeyMetadataStore.clearTransientState(graph.passkeyRequestRegistry)
+        graph.passkeyRequestRegistry.clear()
         callback.onResult(null)
     }
 

@@ -1,9 +1,15 @@
-import {state} from '@statx/core'
+import {action, atom} from '@reatom/core'
 
 export class PMCardHeaderModel {
-  readonly hasAvatarSlot = state(true)
+  private readonly hasAvatarSlotState = atom(true, 'passmanager.cardHeader.hasAvatarSlot')
 
-  setHasAvatarSlot(value: boolean): void {
-    this.hasAvatarSlot.set(value)
+  readonly state = {
+    hasAvatarSlot: this.hasAvatarSlotState,
+  }
+
+  readonly actions = {
+    setHasAvatarSlot: action((value: boolean) => {
+      this.hasAvatarSlotState.set(value)
+    }, 'passmanager.cardHeader.setHasAvatarSlot'),
   }
 }

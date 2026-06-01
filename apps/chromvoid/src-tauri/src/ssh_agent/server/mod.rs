@@ -4,7 +4,10 @@ mod models;
 mod upstream;
 
 pub use listener::run_agent;
-pub use models::{AgentShared, Identity};
+pub use models::{
+    AgentShared, ApprovalEmitterHandle, ApprovalEventEmitter, Identity, PrivateKeyPem,
+    ReadPrivateKeyFuture, SignApprovalEventPayload, TauriApprovalEventEmitter,
+};
 
 use crate::ssh_agent::signing::public_key_blob_from_openssh;
 use tracing::warn;

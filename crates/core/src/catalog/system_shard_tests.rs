@@ -11,6 +11,19 @@ fn test_system_shard_wallet() {
 }
 
 #[test]
+fn test_system_shard_passkeys() {
+    assert!(is_system_shard_id(".passkeys"));
+}
+
+#[test]
+fn test_eager_system_shards_include_passkeys() {
+    assert!(is_eager_system_shard_id(".passmanager"));
+    assert!(is_eager_system_shard_id(".passkeys"));
+    assert!(!is_eager_system_shard_id(".wallet"));
+    assert_eq!(eager_system_shard_ids(), &[".passmanager", ".passkeys"]);
+}
+
+#[test]
 fn test_non_system_shard_docs() {
     assert!(!is_system_shard_id("documents"));
 }
@@ -29,6 +42,7 @@ fn test_non_system_shard_without_leading_dot() {
 fn test_non_system_shard_superset_names() {
     assert!(!is_system_shard_id(".passmanager2"));
     assert!(!is_system_shard_id(".wallets"));
+    assert!(!is_system_shard_id(".passkeys2"));
 }
 
 #[test]
@@ -58,6 +72,14 @@ fn test_shard_id_from_path_double_slashes() {
 #[test]
 fn test_shard_id_from_path_wallet() {
     assert_eq!(shard_id_from_path("/.wallet"), Some(".wallet".to_string()));
+}
+
+#[test]
+fn test_shard_id_from_path_passkeys() {
+    assert_eq!(
+        shard_id_from_path("/.passkeys/github"),
+        Some(".passkeys".to_string())
+    );
 }
 
 #[test]
@@ -93,6 +115,12 @@ fn test_is_system_path_double_slashes() {
 #[test]
 fn test_is_system_path_wallet() {
     assert!(is_system_path("/.wallet"));
+}
+
+#[test]
+fn test_is_system_path_passkeys() {
+    assert!(is_system_path("/.passkeys"));
+    assert!(is_system_path("/.passkeys/github"));
 }
 
 #[test]

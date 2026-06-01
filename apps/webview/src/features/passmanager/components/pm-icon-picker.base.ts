@@ -1,11 +1,10 @@
-import {state} from '@statx/core'
-import type {State} from '@statx/core'
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html, nothing} from 'lit'
+import {css, nothing} from 'lit'
 
-import {i18n} from '@project/passmanager'
-import {type PMStoredIcon, pmIconStore} from '../models/pm-icon-store'
+import {i18n} from '@project/passmanager/i18n'
+import {AdaptiveModalSurface} from 'root/shared/ui/adaptive-modal-surface'
+import {PMIconPickerModel, type PMIconPickerUploadPhase} from './pm-icon-picker.model'
 
 export type PMIconPickerOnChange = (iconRef: string | undefined) => void
 
@@ -16,123 +15,385 @@ export const pmIconPickerBaseStyles = css`
     display: block;
   }
 
-  .icon-row {
-    display: grid;
-    grid-template-columns: 48px 1fr;
-    gap: var(--cv-space-3);
+  .icon-trigger {
+    display: inline-flex;
     align-items: center;
+    justify-content: center;
+    inline-size: var(--pm-icon-picker-trigger-inline-size, var(--pm-icon-picker-trigger-size, 56px));
+    block-size: var(--pm-icon-picker-trigger-block-size, var(--pm-icon-picker-trigger-size, 56px));
+    padding: 0;
+    border: 1px solid var(--pm-icon-picker-trigger-border, var(--cv-color-border-strong));
+    border-radius: var(--pm-icon-picker-trigger-radius, var(--cv-radius-3, 14px));
+    background: var(--pm-icon-picker-trigger-bg, var(--cv-gradient-surface));
+    box-shadow:
+      inset 0 1px 0 var(--cv-alpha-white-22),
+      var(--pm-icon-picker-trigger-shadow, 0 14px 30px var(--cv-alpha-black-20));
+    cursor: pointer;
+    transition:
+      transform var(--cv-duration-fast),
+      border-color var(--cv-duration-normal),
+      background-color var(--cv-duration-normal);
+  }
+
+  .icon-trigger--with-label {
+    justify-content: flex-start;
+    gap: var(--pm-icon-picker-trigger-label-gap, var(--cv-space-3));
+    padding-inline: var(--pm-icon-picker-trigger-label-padding-inline, var(--cv-space-3));
+  }
+
+  .icon-trigger:hover {
+    border-color: var(--pm-icon-picker-trigger-hover-border, var(--cv-color-border-accent));
+    transform: translateY(-1px);
+  }
+
+  .icon-trigger:focus-visible {
+    outline: 2px solid var(--cv-color-primary-dark);
+    outline-offset: 2px;
   }
 
   .icon-preview {
-    width: 48px;
-    height: 48px;
-    --pm-avatar-radius: var(--cv-radius-2);
+    width: var(--pm-icon-picker-preview-size, 28px);
+    height: var(--pm-icon-picker-preview-size, 28px);
+    --pm-avatar-radius: 8px;
     --pm-avatar-image-fit: contain;
-    --pm-avatar-image-padding: 6px;
-    --pm-avatar-contrast: var(--pm-avatar-contrast-base);
-    --pm-avatar-shadow-opacity: 30%;
+    --pm-avatar-image-padding: 4px;
     --pm-avatar-icon-size: 24px;
+    --pm-avatar-icon-color: var(--cv-color-text-strong);
   }
 
-  .icon-actions {
-    display: flex;
+  .icon-trigger-label {
+    overflow: hidden;
+    min-width: 0;
+    color: var(--pm-icon-picker-trigger-label-color, var(--cv-color-text));
+    font-size: var(--pm-icon-picker-trigger-label-font-size, var(--cv-font-size-sm));
+    font-weight: var(--pm-icon-picker-trigger-label-font-weight, var(--cv-font-weight-semibold));
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  adaptive-modal-surface {
+    display: none;
+    --adaptive-modal-overlay-color: var(--cv-color-overlay);
+    --adaptive-modal-sheet-max-height: min(78dvh, calc(100dvh - 24px));
+    --adaptive-modal-sheet-border-radius: var(--cv-radius-4) var(--cv-radius-4) 0 0;
+    --adaptive-modal-sheet-grabber-color: var(--cv-color-primary-border-strong);
+  }
+
+  adaptive-modal-surface[open] {
+    display: inline-block;
+  }
+
+  adaptive-modal-surface::part(trigger) {
+    display: none;
+  }
+
+  adaptive-modal-surface::part(content) {
+    max-width: min(400px, calc(100vw - var(--cv-space-4)));
+    overflow: hidden;
+    border-color: var(--cv-color-border-strong);
+    background: var(--cv-gradient-surface);
+    box-shadow:
+      0 -24px 64px var(--cv-alpha-black-50),
+      inset 0 1px 0 var(--cv-alpha-white-8);
+  }
+
+  adaptive-modal-surface::part(handle) {
+    padding-block: var(--cv-space-3) var(--cv-space-1);
+  }
+
+  adaptive-modal-surface::part(grabber) {
+    width: 56px;
+    height: 5px;
+    background: var(--cv-gradient-divider-subtle);
+  }
+
+  adaptive-modal-surface::part(header) {
+    align-items: center;
+    padding: var(--cv-space-2) var(--cv-space-5) var(--cv-space-3);
+    border-block-end: 1px solid var(--cv-color-border-faint);
+    background: var(--cv-gradient-surface);
+  }
+
+  adaptive-modal-surface::part(title) {
+    font-size: var(--cv-font-size-lg);
+    font-weight: var(--cv-font-weight-semibold);
+    letter-spacing: 0;
+  }
+
+  adaptive-modal-surface::part(header-close) {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--cv-radius-2);
+    color: var(--cv-color-text-muted);
+  }
+
+  adaptive-modal-surface::part(header-close):hover {
+    color: var(--cv-color-text);
+    background: var(--cv-color-surface-highlight);
+  }
+
+  adaptive-modal-surface::part(body) {
+    padding: var(--cv-space-4) var(--cv-space-5) var(--cv-space-5);
+  }
+
+  .dialog-body {
+    display: grid;
+    gap: var(--cv-space-4);
+  }
+
+  .dialog-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--cv-space-2);
-    flex-wrap: wrap;
   }
 
-  .icon-error {
-    margin-top: 4px;
-    color: var(--cv-color-danger);
-    font-size: var(--cv-font-size-xs);
+  .dialog-actions cv-button {
+    min-width: 0;
+    width: 100%;
+    --cv-button-min-height: 44px;
+    --cv-button-padding-inline: var(--cv-space-2);
+    --cv-button-gap: var(--cv-space-1);
+    --cv-button-font-size: var(--cv-font-size-xs);
+    --cv-button-font-weight: var(--cv-font-weight-semibold);
+    --cv-button-border-radius: var(--cv-radius-2);
   }
 
-  .icon-library-wrap {
-    margin-top: var(--cv-space-3);
+  .dialog-actions cv-button::part(base) {
+    box-shadow: inset 0 1px 0 var(--cv-alpha-white-8);
+  }
+
+  .dialog-actions cv-icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .dialog-upload-progress {
     display: grid;
     gap: var(--cv-space-2);
+    padding: var(--cv-space-3);
+    border: 1px solid var(--cv-color-primary-border);
+    border-radius: var(--cv-radius-3);
+    background: var(--cv-color-primary-subtle);
+    box-shadow: inset 0 1px 0 var(--cv-alpha-white-8);
   }
 
-  .icon-library-header {
+  .dialog-upload-progress-copy {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .dialog-upload-progress-label {
+    color: var(--cv-color-text);
+    font-size: var(--cv-font-size-sm);
+    font-weight: var(--cv-font-weight-semibold);
+    line-height: 1.35;
+  }
+
+  .dialog-upload-progress-file {
+    overflow: hidden;
+    color: var(--cv-color-text-muted);
+    font-size: var(--cv-font-size-xs);
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dialog-upload-progress-track {
+    position: relative;
+    overflow: hidden;
+    height: 5px;
+    border-radius: var(--cv-radius-pill);
+    background: var(--cv-color-surface-2);
+  }
+
+  .dialog-upload-progress-bar {
+    position: absolute;
+    inset-block: 0;
+    inset-inline: 0;
+    border-radius: inherit;
+    background: var(--cv-gradient-progress-primary);
+    background-size: 220% 100%;
+    opacity: 0.9;
+    animation: pm-icon-upload-progress 1.1s linear infinite;
+  }
+
+  @keyframes pm-icon-upload-progress {
+    from {
+      background-position: 220% 0;
+    }
+
+    to {
+      background-position: 0 0;
+    }
+  }
+
+  .dialog-library-block {
+    display: grid;
+    gap: var(--cv-space-3);
+  }
+
+  .dialog-library-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--cv-space-2);
-    color: var(--cv-color-text-muted);
+    color: var(--cv-color-text);
     font-size: var(--cv-font-size-xs);
+    font-weight: var(--cv-font-weight-semibold);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
 
-  .icon-library {
+  .dialog-library-count {
+    min-width: 24px;
+    padding: 2px var(--cv-space-2);
+    border-radius: var(--cv-radius-pill);
+    border: 1px solid var(--cv-color-border-faint);
+    background: var(--cv-color-surface-2);
+    color: var(--cv-color-text-muted);
+    font-size: 0.6875rem;
+    line-height: 1.45;
+    text-align: center;
+  }
+
+  .dialog-library {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(42px, 1fr));
-    gap: var(--cv-space-1);
+    grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+    gap: var(--cv-space-3);
   }
 
-  .icon-library-item {
+  .dialog-library-item {
+    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-height: 42px;
-    border-radius: var(--cv-radius-2);
+    min-height: 58px;
+    aspect-ratio: 1;
+    border-radius: var(--cv-radius-3);
     border: 1px solid var(--cv-color-border);
-    background: var(--cv-color-surface-2);
+    background: var(--cv-gradient-surface-deep);
+    box-shadow: inset 0 1px 0 var(--cv-alpha-white-6);
     transition:
       border-color var(--cv-duration-normal),
       background-color var(--cv-duration-normal),
+      box-shadow var(--cv-duration-normal),
       transform var(--cv-duration-fast);
     cursor: pointer;
     padding: 0;
   }
 
-  .icon-library-item:hover {
+  .dialog-library-item:hover {
     border-color: var(--cv-color-border-accent);
     background: var(--cv-color-bg);
     transform: translateY(-1px);
   }
 
-  .icon-library-item.selected {
+  .dialog-library-item.selected {
     border-color: var(--cv-color-primary-dark);
     background: var(--cv-color-primary-subtle);
-    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--cv-color-primary) 35%, transparent);
+    box-shadow:
+      inset 0 0 0 1px var(--cv-color-primary-border-strong),
+      0 0 0 3px var(--cv-color-primary-ring);
   }
 
-  .icon-library-item-preview {
-    width: 26px;
-    height: 26px;
-    --pm-avatar-radius: 6px;
+  .dialog-library-item.selected::after {
+    content: '';
+    position: absolute;
+    inset-block-start: 7px;
+    inset-inline-end: 7px;
+    width: 8px;
+    height: 8px;
+    border-radius: var(--cv-radius-pill);
+    background: var(--cv-color-primary);
+    box-shadow: 0 0 0 2px var(--cv-color-bg);
+  }
+
+  .dialog-library-item-preview {
+    width: 34px;
+    height: 34px;
+    --pm-avatar-radius: 8px;
     --pm-avatar-image-fit: contain;
     --pm-avatar-image-padding: 3px;
-    --pm-avatar-icon-size: 16px;
+    --pm-avatar-icon-size: 20px;
   }
 
-  .icon-library-note {
+  .dialog-empty {
+    text-align: center;
     color: var(--cv-color-text-muted);
+    font-size: var(--cv-font-size-sm);
+    padding: var(--cv-space-5) var(--cv-space-3);
+    border: 1px dashed var(--cv-color-border-muted);
+    border-radius: var(--cv-radius-3);
+    background: var(--cv-color-surface-glass-subtle);
+  }
+
+  .dialog-error {
+    color: var(--cv-color-danger);
     font-size: var(--cv-font-size-xs);
+    padding: var(--cv-space-3);
+    border: 1px solid var(--cv-color-danger-border);
+    border-radius: var(--cv-radius-2);
+    background: var(--cv-color-danger-surface);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dialog-upload-progress-bar {
+      animation: none;
+      opacity: 0.78;
+    }
+  }
+
+  @media (max-width: 420px) {
+    adaptive-modal-surface::part(content) {
+      max-width: 100vw;
+    }
+
+    adaptive-modal-surface::part(header) {
+      padding-inline: var(--cv-space-4);
+    }
+
+    adaptive-modal-surface::part(body) {
+      padding-inline: var(--cv-space-4);
+    }
+
+    .dialog-library {
+      grid-template-columns: repeat(auto-fill, minmax(54px, 1fr));
+      gap: var(--cv-space-2);
+    }
   }
 `
 
-export abstract class PMIconPickerBase extends XLitElement {
-  static elementName = 'pm-icon-picker' as const
+type PMIconRefSource = string | undefined | (() => string | undefined)
+
+export abstract class PMIconPickerBase extends ReatomLitElement {
+  static elementName = 'pm-icon-picker'
 
   static properties = {
     iconRef: {attribute: false},
     icon: {type: String},
+    triggerLabel: {type: String, attribute: 'trigger-label'},
     onChange: {type: Function, attribute: false},
   }
 
-  private _iconRef: string | undefined | State<string | undefined> = undefined
+  private _iconRef: PMIconRefSource = undefined
   private _icon = 'person-circle'
+  declare triggerLabel: string
   declare onChange?: PMIconPickerOnChange
 
-  protected iconError = state('')
-  protected iconListError = state('')
-  protected isLoadingIcons = state(false)
-  protected storedIcons = state<PMStoredIcon[]>([])
+  protected readonly iconPickerModel = new PMIconPickerModel()
+
+  constructor() {
+    super()
+    this.triggerLabel = ''
+  }
 
   get iconRef() {
     return this._iconRef
   }
 
-  set iconRef(value: string | undefined | State<string | undefined>) {
+  set iconRef(value: PMIconRefSource) {
     const next = typeof value === 'string' || typeof value === 'function' ? value : undefined
     if (next === this._iconRef) return
     const prev = this._iconRef
@@ -154,7 +415,21 @@ export abstract class PMIconPickerBase extends XLitElement {
 
   override connectedCallback() {
     super.connectedCallback()
-    void this.loadStoredIcons()
+    AdaptiveModalSurface.define()
+    this.iconPickerModel.connect()
+  }
+
+  override disconnectedCallback() {
+    super.disconnectedCallback()
+    this.iconPickerModel.disconnect()
+  }
+
+  public openChooser() {
+    this.iconPickerModel.openChooser()
+  }
+
+  protected shouldRenderTrigger(): boolean {
+    return true
   }
 
   protected getIconRef(): string | undefined {
@@ -169,92 +444,94 @@ export abstract class PMIconPickerBase extends XLitElement {
     return !!this.getIconRef()
   }
 
+  protected isIconUploading(): boolean {
+    return this.iconPickerModel.isUploading()
+  }
+
   protected onPickIcon() {
+    if (this.isIconUploading()) return
     const input = this.shadowRoot?.querySelector<HTMLInputElement>('#icon-file')
     input?.click()
   }
 
-  protected onIconReset() {
-    this.iconError.set('')
-    this.fireChange(undefined)
+  protected onTriggerClick() {
+    this.openChooser()
   }
 
-  protected onPickStoredIcon(iconRef: string) {
-    this.iconError.set('')
-    this.fireChange(iconRef)
+  protected onDialogChange(e: CustomEvent<{open: boolean}>) {
+    if (typeof e.detail.open !== 'boolean') return
+    this.iconPickerModel.setDialogOpen(e.detail.open)
   }
 
-  protected onStoredIconClick(event: Event) {
+  protected closeDialog() {
+    this.iconPickerModel.closeDialog()
+  }
+
+  protected onDialogIconClick(event: Event) {
     const target = event.currentTarget
     if (!(target instanceof HTMLElement)) return
     const iconRef = (target.dataset['iconRef'] ?? '').trim()
     if (!iconRef) return
-    this.onPickStoredIcon(iconRef)
+    const pickedRef = this.iconPickerModel.pickStoredIcon(iconRef)
+    if (pickedRef) {
+      this.fireChange(pickedRef)
+    }
+    this.closeDialog()
+  }
+
+  protected onIconReset() {
+    this.fireChange(this.iconPickerModel.resetIcon())
+  }
+
+  protected onDialogReset() {
+    if (this.isIconUploading()) return
+    this.onIconReset()
+    this.closeDialog()
+  }
+
+  protected onPickStoredIcon(iconRef: string) {
+    const pickedRef = this.iconPickerModel.pickStoredIcon(iconRef)
+    if (pickedRef) {
+      this.fireChange(pickedRef)
+    }
   }
 
   protected onReloadIcons() {
-    void this.loadStoredIcons()
+    this.iconPickerModel.reloadIcons()
   }
 
   protected async onIconFileChange(e: Event) {
     const input = e.target as HTMLInputElement
     const file = input.files?.[0]
     if (!file) return
-    this.iconError.set('')
-    try {
-      const iconRef = await pmIconStore.uploadIcon(file)
-      this.addStoredIcon(iconRef)
-      this.fireChange(iconRef)
-      void this.loadStoredIcons()
-    } catch (error) {
-      this.iconError.set(error instanceof Error ? error.message : String(error))
+    if (this.isIconUploading()) {
+      input.value = ''
+      return
     }
-    input.value = ''
-  }
-
-  private addStoredIcon(iconRef: string) {
-    const ref = iconRef.trim()
-    if (!ref) return
-    const current = this.storedIcons()
-    if (current.some((icon) => icon.iconRef === ref)) return
-
-    this.storedIcons.set([
-      {
-        iconRef: ref,
-        mimeType: 'image/png',
-        width: 0,
-        height: 0,
-        bytes: 0,
-        createdAt: 0,
-        updatedAt: 0,
-      },
-      ...current,
-    ])
-  }
-
-  private async loadStoredIcons() {
-    this.isLoadingIcons.set(true)
-    this.iconListError.set('')
     try {
-      const icons = await pmIconStore.listIcons()
-      this.storedIcons.set(icons)
-    } catch (error) {
-      this.iconListError.set(error instanceof Error ? error.message : String(error))
+      const iconRef = await this.iconPickerModel.uploadFile(file)
+      if (iconRef) {
+        this.fireChange(iconRef)
+      }
     } finally {
-      this.isLoadingIcons.set(false)
+      input.value = ''
+    }
+  }
+
+  private getUploadStatusLabel(phase: PMIconPickerUploadPhase): string {
+    switch (phase) {
+      case 'preparing':
+        return i18n('icon:upload:preparing')
+      case 'uploading':
+        return i18n('icon:upload:uploading')
+      case 'refreshing':
+        return i18n('icon:upload:refreshing')
+      default:
+        return ''
     }
   }
 
   protected fireChange(iconRef: string | undefined) {
-    const iconRefSource = this.iconRef
-    if (
-      typeof iconRefSource === 'function' &&
-      'set' in iconRefSource &&
-      typeof iconRefSource.set === 'function'
-    ) {
-      iconRefSource.set(iconRef)
-    }
-
     this.onChange?.(iconRef)
     this.dispatchEvent(
       new CustomEvent('pm-icon-change', {
@@ -265,79 +542,149 @@ export abstract class PMIconPickerBase extends XLitElement {
     )
   }
 
-  protected renderIconLibrary() {
-    const currentRef = this.getIconRef() ?? ''
-    const icons = this.storedIcons()
-    const hasIcons = icons.length > 0
-    const isLoading = this.isLoadingIcons()
-    const listError = this.iconListError()
+  protected renderTrigger() {
+    const triggerLabel = this.triggerLabel.trim()
+    return html`
+      <cv-button
+        unstyled
+        class=${triggerLabel ? 'icon-trigger icon-trigger--with-label' : 'icon-trigger'}
+        type="button"
+        aria-label=${i18n('icon:choose')}
+        title=${i18n('icon:title')}
+        @click=${this.onTriggerClick}
+      >
+        <pm-avatar-icon class="icon-preview" .iconRef=${this.iconRef} .icon=${this.icon}></pm-avatar-icon>
+        ${triggerLabel ? html`<span class="icon-trigger-label">${triggerLabel}</span>` : nothing}
+      </cv-button>
+    `
+  }
 
-    if (!hasIcons && !isLoading && !listError) {
-      return nothing
-    }
+  protected renderDialogBody() {
+    const currentRef = this.getIconRef() ?? ''
+    const icons = this.iconPickerModel.storedIcons()
+    const isLoading = this.iconPickerModel.isLoadingIcons()
+    const listError = this.iconPickerModel.iconListError()
+    const uploadError = this.iconPickerModel.iconError()
+    const uploadState = this.iconPickerModel.iconUploadState()
+    const isUploadingIcon = uploadState.phase !== 'idle'
+    const uploadLabel = this.getUploadStatusLabel(uploadState.phase)
 
     return html`
-      <div class="icon-library-wrap">
-        <div class="icon-library-header">
-          <span>${i18n('icon:saved')}</span>
-          <cv-button type="button" size="small" variant="default" @click=${this.onReloadIcons}
-            >${i18n('button:refresh')}</cv-button
+      <div class="dialog-body" aria-busy=${isUploadingIcon ? 'true' : 'false'}>
+        <div class="dialog-actions">
+          <cv-button
+            type="button"
+            size="small"
+            variant="primary"
+            .loading=${isUploadingIcon}
+            ?disabled=${isUploadingIcon}
+            @click=${this.onPickIcon}
           >
+            <cv-icon slot="prefix" name="upload" size="s" aria-hidden="true"></cv-icon>
+            ${i18n('button:upload')}
+          </cv-button>
+          <cv-button
+            type="button"
+            size="small"
+            variant="default"
+            @click=${this.onDialogReset}
+            ?disabled=${isUploadingIcon || !this.hasIcon()}
+          >
+            <cv-icon slot="prefix" name="rotate-ccw" size="s" aria-hidden="true"></cv-icon>
+            ${i18n('button:reset')}
+          </cv-button>
+          <cv-button
+            type="button"
+            size="small"
+            variant="default"
+            @click=${this.onReloadIcons}
+            ?disabled=${isUploadingIcon}
+          >
+            <cv-icon slot="prefix" name="refresh-cw" size="s" aria-hidden="true"></cv-icon>
+            ${i18n('button:refresh')}
+          </cv-button>
         </div>
-        ${hasIcons
+
+        ${isUploadingIcon
           ? html`
-              <div class="icon-library" role="listbox" aria-label=${i18n('icon:saved')}>
-                ${icons.map((icon) => {
-                  const selected = icon.iconRef === currentRef
-                  return html`
-                    <button
-                      type="button"
-                      role="option"
-                      class=${selected ? 'icon-library-item selected' : 'icon-library-item'}
-                      aria-selected=${selected}
-                      data-icon-ref=${icon.iconRef}
-                      title=${icon.iconRef}
-                      @click=${this.onStoredIconClick}
-                    >
-                      <pm-avatar-icon
-                        class="icon-library-item-preview"
-                        .iconRef=${icon.iconRef}
-                        .icon=${this.icon}
-                      ></pm-avatar-icon>
-                    </button>
-                  `
-                })}
+              <div class="dialog-upload-progress" role="status" aria-live="polite">
+                <div class="dialog-upload-progress-copy">
+                  <span class="dialog-upload-progress-label">${uploadLabel}</span>
+                  ${uploadState.fileName
+                    ? html`<span class="dialog-upload-progress-file" title=${uploadState.fileName}>
+                        ${uploadState.fileName}
+                      </span>`
+                    : nothing}
+                </div>
+                <div class="dialog-upload-progress-track" aria-hidden="true">
+                  <span class="dialog-upload-progress-bar"></span>
+                </div>
               </div>
             `
           : nothing}
-        ${isLoading ? html`<div class="icon-library-note">${i18n('icon:loading')}</div>` : nothing}
-        ${listError ? html`<div class="icon-error">${listError}</div>` : nothing}
+
+        <div class="dialog-library-block">
+          <div class="dialog-library-header">
+            <span>${i18n('icon:saved')}</span>
+            ${icons.length > 0 ? html`<span class="dialog-library-count">${icons.length}</span>` : nothing}
+          </div>
+
+          ${icons.length > 0
+            ? html`
+                <div class="dialog-library" role="listbox" aria-label=${i18n('icon:saved')}>
+                  ${icons.map((icon) => {
+                    const selected = icon.iconRef === currentRef
+                    return html`
+                      <cv-button
+                        unstyled
+                        type="button"
+                        role="option"
+                        class=${selected ? 'dialog-library-item selected' : 'dialog-library-item'}
+                        aria-selected=${selected}
+                        data-icon-ref=${icon.iconRef}
+                        title=${icon.iconRef}
+                        @click=${this.onDialogIconClick}
+                      >
+                        <pm-avatar-icon
+                          class="dialog-library-item-preview"
+                          .iconRef=${icon.iconRef}
+                          .icon=${this.icon}
+                        ></pm-avatar-icon>
+                      </cv-button>
+                    `
+                  })}
+                </div>
+              `
+            : nothing}
+          ${isLoading ? html`<div class="dialog-empty">${i18n('icon:loading')}</div>` : nothing}
+          ${!isLoading && icons.length === 0 && !listError
+            ? html`<div class="dialog-empty">${i18n('icon:empty')}</div>`
+            : nothing}
+          ${listError ? html`<div class="dialog-error">${listError}</div>` : nothing}
+          ${uploadError ? html`<div class="dialog-error">${uploadError}</div>` : nothing}
+        </div>
       </div>
+    `
+  }
+
+  protected renderDialog() {
+    return html`
+      <adaptive-modal-surface
+        .open=${this.iconPickerModel.dialogOpen()}
+        @cv-change=${this.onDialogChange}
+        .closeOnOutsidePointer=${true}
+      >
+        <span slot="title">${i18n('icon:title')}</span>
+        ${this.renderDialogBody()}
+      </adaptive-modal-surface>
     `
   }
 
   protected render() {
     return html`
-      <div class="icon-row">
-        <pm-avatar-icon class="icon-preview" .iconRef=${this.iconRef} .icon=${this.icon}></pm-avatar-icon>
-        <div class="icon-actions">
-          <cv-button type="button" size="small" variant="default" @click=${this.onPickIcon}
-            >${i18n('button:upload')}</cv-button
-          >
-          <cv-button
-            type="button"
-            size="small"
-            variant="default"
-            @click=${this.onIconReset}
-            ?disabled=${!this.hasIcon()}
-          >
-            ${i18n('button:reset')}
-          </cv-button>
-        </div>
-      </div>
+      ${this.shouldRenderTrigger() ? this.renderTrigger() : nothing}
       <input id="icon-file" type="file" accept=${ICON_ACCEPT} @change=${this.onIconFileChange} hidden />
-      ${this.renderIconLibrary()}
-      ${this.iconError() ? html`<div class="icon-error">${this.iconError()}</div>` : nothing}
+      ${this.renderDialog()}
     `
   }
 }

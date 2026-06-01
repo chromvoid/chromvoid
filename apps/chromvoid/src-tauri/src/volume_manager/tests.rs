@@ -15,6 +15,17 @@ mod tests {
     }
 
     #[test]
+    fn backend_join_runtime_is_isolated_per_volume_manager() {
+        let first = VolumeManager::new();
+        let second = VolumeManager::new();
+
+        assert!(!Arc::ptr_eq(
+            &first.backend_join_runtime(),
+            &second.backend_join_runtime()
+        ));
+    }
+
+    #[test]
     fn locked_to_unlocked() {
         let mut vm = VolumeManager::new();
         vm.notify_unlocked();
@@ -336,6 +347,33 @@ mod tests {
 
         assert!(shutdown_flag.load(Ordering::Acquire));
         assert!(shutdown_rx.try_recv().is_ok());
+    }
+
+    #[tokio::test]
+    async fn fuse_handle_join_signals_shutdown_and_removes_staging_dir() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mountpoint = temp.path().join("mnt");
+        let staging_dir = temp.path().join("staging");
+        std::fs::create_dir_all(&staging_dir).expect("create staging dir");
+
+        let shutdown_flag = Arc::new(AtomicBool::new(false));
+        let (shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
+        let task = tokio::spawn(async move {
+            let _ = shutdown_rx.recv().await;
+        });
+
+        let handle = FuseSessionHandle::new(
+            mountpoint,
+            staging_dir.clone(),
+            shutdown_flag.clone(),
+            shutdown_tx,
+            task,
+        );
+
+        handle.join().await;
+
+        assert!(shutdown_flag.load(Ordering::Acquire));
+        assert!(!staging_dir.exists());
     }
 
     #[test]

@@ -2,6 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {CVInput, CVSwitch, CVTextarea} from '@chromvoid/uikit'
 import {PMEntryCreateBase} from '../../src/features/passmanager/components/card/entry-create/entry-create-base'
+import {PMEntryOTPCreate} from '../../src/features/passmanager/components/card/entry-otp-create'
 
 class TestEntryCreate extends PMEntryCreateBase {
   static define() {
@@ -46,6 +47,7 @@ describe('PMEntryCreateBase switch integration', () => {
     CVInput.define()
     CVSwitch.define()
     CVTextarea.define()
+    PMEntryOTPCreate.define()
     TestEntryCreate.define()
   })
 
@@ -78,7 +80,12 @@ describe('PMEntryCreateBase switch integration', () => {
 
     await clickSwitch(component, otpSwitch)
 
-    expect(component.shadowRoot?.querySelector('pm-entry-otp-create')).not.toBeNull()
+    const otpCreate = component.shadowRoot?.querySelector('pm-entry-otp-create') as
+      | (HTMLElement & {updateComplete?: Promise<unknown>})
+      | null
+    expect(otpCreate).not.toBeNull()
+    await otpCreate?.updateComplete
+    expect(otpCreate?.shadowRoot?.querySelector('.qr-scan-button')).not.toBeNull()
   })
 
   it('shows SSH generator after toggling the cv-switch', async () => {

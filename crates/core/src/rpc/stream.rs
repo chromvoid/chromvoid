@@ -21,6 +21,24 @@ pub struct RpcStreamMeta {
     pub chunk_size: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+pub struct RpcRangeStreamMeta {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub mime_type: String,
+    #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
+    pub file_size: u64,
+    pub chunk_size: u32,
+    #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
+    pub range_offset: u64,
+    #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
+    pub range_length: u64,
+    #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
+    pub source_revision: u64,
+}
+
 pub struct RpcInputStream {
     reader: Box<dyn Read + Send>,
 }
@@ -46,7 +64,13 @@ pub struct RpcOutputStream {
     pub reader: Box<dyn Read + Send>,
 }
 
+pub struct RpcRangeOutputStream {
+    pub meta: RpcRangeStreamMeta,
+    pub reader: Box<dyn Read + Send>,
+}
+
 pub enum RpcReply {
     Json(RpcResponse),
     Stream(RpcOutputStream),
+    RangeStream(RpcRangeOutputStream),
 }

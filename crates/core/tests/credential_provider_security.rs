@@ -6,22 +6,33 @@ use chromvoid_core::rpc::{RpcInputStream, RpcReply, RpcRouter};
 use std::time::{SystemTime, UNIX_EPOCH};
 use test_helpers::*;
 
-fn prepare_upload(
+fn upload_create(
     router: &mut RpcRouter,
     name: &str,
     size: u64,
     parent_path: &str,
     mime_type: &str,
 ) -> RpcResponse {
-    router.handle(&RpcRequest::new(
-        "catalog:prepareUpload",
-        serde_json::json!({
-            "name": name,
-            "size": size,
-            "parent_path": parent_path,
-            "mime_type": mime_type,
-        }),
-    ))
+    let reply = router.handle_with_stream(
+        &RpcRequest::new(
+            "catalog:upload",
+            serde_json::json!({
+                "name": name,
+                    "total_size": size,
+                "size": size,
+                    "offset": 0,
+                "parent_path": parent_path,
+                "mime_type": mime_type,
+            }),
+        ),
+        Some(RpcInputStream::from_bytes(vec![0; size as usize])),
+    );
+    match reply {
+        RpcReply::Json(response) => response,
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:upload must return JSON response")
+        }
+    }
 }
 
 fn upload_bytes(router: &mut RpcRouter, node_id: u64, bytes: Vec<u8>) {
@@ -36,7 +47,9 @@ fn upload_bytes(router: &mut RpcRouter, node_id: u64, bytes: Vec<u8>) {
 
     match router.handle_with_stream(&upload_request, Some(RpcInputStream::from_bytes(bytes))) {
         RpcReply::Json(r) => assert_rpc_ok(&r),
-        RpcReply::Stream(_) => panic!("catalog:upload must return JSON response"),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:upload must return JSON response")
+        }
     }
 }
 
@@ -51,7 +64,9 @@ fn secret_write_bytes(router: &mut RpcRouter, node_id: u64, bytes: Vec<u8>) {
 
     match router.handle_with_stream(&write_request, Some(RpcInputStream::from_bytes(bytes))) {
         RpcReply::Json(r) => assert_rpc_ok(&r),
-        RpcReply::Stream(_) => panic!("catalog:secret:write must return JSON response"),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:secret:write must return JSON response")
+        }
     }
 }
 
@@ -64,7 +79,7 @@ fn ensure_entry(router: &mut RpcRouter) {
 
     let created = create_dir_at(router, "/.passmanager", "Example");
     assert_rpc_ok(&created);
-    let entry_node_id = get_node_id(&created);
+    let _entry_node_id = get_node_id(&created);
 
     let meta = serde_json::json!({
       "id": "cred-example",
@@ -86,7 +101,7 @@ fn ensure_entry(router: &mut RpcRouter) {
     .to_string()
     .into_bytes();
 
-    let meta_resp = prepare_upload(
+    let meta_resp = upload_create(
         router,
         "meta.json",
         meta.len() as u64,
@@ -97,7 +112,7 @@ fn ensure_entry(router: &mut RpcRouter) {
     upload_bytes(router, get_node_id(&meta_resp), meta);
 
     let pwd = b"correct horse battery staple".to_vec();
-    let pwd_resp = prepare_upload(
+    let pwd_resp = upload_create(
         router,
         ".password",
         pwd.len() as u64,
@@ -122,6 +137,34 @@ fn ensure_entry(router: &mut RpcRouter) {
     assert_rpc_ok(&otp_set);
 
     set_bypass_system_shard_guards(false);
+}
+
+fn ensure_payment_card_entry(router: &mut RpcRouter) {
+    let created = router.handle(&RpcRequest::new(
+        "passmanager:entry:save",
+        serde_json::json!({
+          "id": "card-example",
+          "title": "Personal Visa",
+          "entry_type": "payment_card",
+          "payment_card": {
+            "cardholder_name": "JOHN DOE",
+            "brand": "visa",
+            "exp_month": 12,
+            "exp_year": 2030
+          }
+        }),
+    ));
+    assert_rpc_ok(&created);
+
+    let saved_pan = router.handle(&RpcRequest::new(
+        "passmanager:secret:save",
+        serde_json::json!({
+          "entry_id": "card-example",
+          "secret_type": "card_pan",
+          "value": "4111111111111111"
+        }),
+    ));
+    assert_rpc_ok(&saved_pan);
 }
 
 fn provider_open_session(router: &mut RpcRouter) -> String {
@@ -245,6 +288,26 @@ fn test_provider_session_ttl_is_60_seconds() {
     assert!(
         expires_at_ms >= min_expected && expires_at_ms <= max_expected,
         "provider session TTL should be ~60s, got expires_at_ms={expires_at_ms}, expected [{min_expected}, {max_expected}]"
+    );
+}
+
+#[test]
+fn test_payment_card_entries_do_not_appear_in_provider_candidates() {
+    let (mut router, _temp_dir) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "test"));
+    ensure_payment_card_entry(&mut router);
+
+    let listed = provider_list(&mut router);
+    assert_rpc_ok(&listed);
+    let candidates = listed
+        .result()
+        .and_then(|v| v.get("candidates"))
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        candidates.is_empty(),
+        "payment_card must not leak into credential provider"
     );
 }
 

@@ -2,11 +2,11 @@ use super::super::helpers::*;
 use super::super::*;
 
 pub(in crate::volume_fuse::imp) fn handle_readdir(
-    fs: &mut PrivyFilesystem,
-    _req: &Request<'_>,
+    fs: &PrivyFilesystem,
+    _req: &Request,
     ino: u64,
     _fh: u64,
-    offset: i64,
+    offset: u64,
     mut reply: ReplyDirectory,
 ) {
     trace!(target: "chromvoid_lib::volume_fuse::imp", ino, fh = _fh, offset, "FUSE readdir");
@@ -17,14 +17,14 @@ pub(in crate::volume_fuse::imp) fn handle_readdir(
         match build_catalog_path(&fs.inode_table, ino) {
             Some(p) => p,
             None => {
-                reply.error(libc::ENOENT);
+                reply.error(fuse_errno(libc::ENOENT));
                 return;
             }
         }
     };
 
     if is_system_path(&dir_path) {
-        reply.error(libc::EACCES);
+        reply.error(fuse_errno(libc::EACCES));
         return;
     }
 
@@ -48,7 +48,7 @@ pub(in crate::volume_fuse::imp) fn handle_readdir(
     let mut adapter = match fs.adapter.lock() {
         Ok(a) => a,
         Err(_) => {
-            reply.error(libc::EIO);
+            reply.error(fuse_errno(libc::EIO));
             return;
         }
     };
@@ -60,7 +60,7 @@ pub(in crate::volume_fuse::imp) fn handle_readdir(
     ) {
         Ok(v) => v,
         Err(e) => {
-            reply.error(e);
+            reply.error(fuse_errno(e));
             return;
         }
     };
@@ -68,7 +68,7 @@ pub(in crate::volume_fuse::imp) fn handle_readdir(
     let res: CatalogListResponse = match serde_json::from_value(value) {
         Ok(r) => r,
         Err(_) => {
-            reply.error(libc::EIO);
+            reply.error(fuse_errno(libc::EIO));
             return;
         }
     };
@@ -127,7 +127,7 @@ pub(in crate::volume_fuse::imp) fn handle_readdir(
     }
 
     for (i, (child_ino, ft, name)) in entries.iter().enumerate().skip(offset as usize) {
-        if reply.add(*child_ino, (i + 1) as i64, *ft, name) {
+        if reply.add(fuse_ino(*child_ino), (i + 1) as u64, *ft, name) {
             break;
         }
     }

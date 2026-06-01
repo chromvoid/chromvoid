@@ -1,17 +1,18 @@
-import {XLitElement} from '@statx/lit'
+import {ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {sortStorage} from '@project/passmanager'
+import {sortStorage} from '@project/passmanager/sort-storage'
 
 import {
   sortField,
   sortDirection,
   groupBy,
+  viewMode,
   type SortField,
-  type SortDirection,
   type GroupBy,
+  type ViewMode,
 } from './sort-controls'
 
-export abstract class SortControlsBase extends XLitElement {
+export abstract class SortControlsBase extends ReatomLitElement {
   connectedCallback() {
     super.connectedCallback()
     this.loadSavedSettings()
@@ -21,7 +22,8 @@ export abstract class SortControlsBase extends XLitElement {
     const settings = sortStorage.loadSettings()
     sortField.set(settings.sortField)
     sortDirection.set(settings.sortDirection)
-    groupBy.set(settings.groupBy)
+    groupBy.set(settings.groupBy as GroupBy)
+    viewMode.set(settings.viewMode)
   }
 
   protected saveCurrentSettings() {
@@ -29,6 +31,7 @@ export abstract class SortControlsBase extends XLitElement {
       sortField: sortField(),
       sortDirection: sortDirection(),
       groupBy: groupBy(),
+      viewMode: viewMode(),
     })
   }
 
@@ -44,6 +47,11 @@ export abstract class SortControlsBase extends XLitElement {
 
   protected setGroupBy(value: GroupBy) {
     groupBy.set(value)
+    this.saveCurrentSettings()
+  }
+
+  protected setViewMode(value: ViewMode) {
+    viewMode.set(value)
     this.saveCurrentSettings()
   }
 }

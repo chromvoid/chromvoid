@@ -1,22 +1,22 @@
-import {stateLocalStorage} from '@statx/persist'
+import {css} from 'lit'
+import {html} from '@chromvoid/uikit/reatom-lit'
+import {functionalMotionStyles} from 'root/shared/ui/shared-styles'
 
-import {css, html} from 'lit'
-
-import {i18n} from '@project/passmanager'
-import type {CVIcon} from '@chromvoid/uikit'
+import {i18n} from '@project/passmanager/i18n'
+import type {CVIcon} from '@chromvoid/uikit/components/cv-icon'
 
 import type {SortControls} from './sort-controls'
 import {PMSearchBase, searchBaseStyles} from './search-base'
 
-// Состояние сворачивания фильтров (сохраняется в localStorage)
-const filtersExpanded = stateLocalStorage<boolean>(false, {name: 'pm_filters_expanded'})
-
 export class PMSearch extends PMSearchBase {
   static define() {
-    customElements.define('pm-search', this)
+    if (!customElements.get('pm-search')) {
+      customElements.define('pm-search', this)
+    }
   }
   static styles = [
     searchBaseStyles,
+    functionalMotionStyles,
     css`
       /* ===== TOGGLE BUTTON ===== */
       .toggle-filters {
@@ -25,8 +25,8 @@ export class PMSearch extends PMSearchBase {
         justify-content: center;
         width: 28px;
         height: 28px;
-        border: 1px solid color-mix(in oklch, var(--cv-color-border) 60%, transparent);
-        background: var(--cv-color-surface-2);
+        border: 1px solid transparent;
+        background: transparent;
         border-radius: var(--cv-radius-1);
         cursor: pointer;
         color: var(--cv-color-text-muted);
@@ -39,25 +39,28 @@ export class PMSearch extends PMSearchBase {
         }
 
         &:hover {
-          border-color: var(--cv-color-primary);
           color: var(--cv-color-primary);
-          background: color-mix(in oklch, var(--cv-color-primary) 10%, transparent);
+          background: var(--cv-color-primary-subtle);
         }
 
         &.expanded cv-icon {
           transform: rotate(180deg);
         }
+
+        &.expanded {
+          color: var(--cv-color-primary);
+          background: var(--cv-color-primary-subtle);
+        }
       }
 
       /* ===== COLLAPSIBLE FILTERS ===== */
       .filters-panel {
-        display: grid;
-        gap: calc(var(--cv-space-2) * 0.75);
-        overflow: hidden;
+        --motion-panel-reveal-distance: -6px;
       }
 
-      .filters-panel.collapsed {
-        display: none;
+      .filters-panel .motion-panel-reveal__inner {
+        display: grid;
+        gap: var(--cv-space-2);
       }
 
       @media (hover: none) and (pointer: coarse) {
@@ -74,29 +77,38 @@ export class PMSearch extends PMSearchBase {
     `,
   ]
 
-  private onToggleFiltersPanel = () => {
-    filtersExpanded.set(!filtersExpanded())
+  private onToggleFiltersPanel() {
+    this.searchModel.toggleFiltersPanel()
   }
 
   render() {
     const {className, isInvalid, isSearched} = this.getSearchState()
-    const isExpanded = filtersExpanded()
+    const isExpanded = this.searchModel.isFiltersPanelExpanded()
 
     return html`
       <div class="search-header">
         ${this.renderSearchInput(className, isInvalid, isSearched)}
-        <button
+        <cv-button unstyled
+          type="button"
           class="toggle-filters ${isExpanded ? 'expanded' : ''}"
+          aria-expanded=${String(isExpanded)}
           @click=${this.onToggleFiltersPanel}
           title=${isExpanded ? i18n('button:hide_filters') : i18n('button:show_filters')}
         >
           <cv-icon name="sliders"></cv-icon>
-        </button>
+        </cv-button>
       </div>
 
       ${this.renderQuickFilters()}
 
-      <div class="filters-panel ${isExpanded ? '' : 'collapsed'}">${this.renderSortControls()}</div>
+      <div
+        class="filters-panel motion-panel-reveal"
+        data-expanded=${String(isExpanded)}
+        aria-hidden=${String(!isExpanded)}
+        ?inert=${!isExpanded}
+      >
+        <div class="motion-panel-reveal__inner">${this.renderSortControls()}</div>
+      </div>
     `
   }
 

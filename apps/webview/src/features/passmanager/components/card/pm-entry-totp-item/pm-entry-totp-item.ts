@@ -1,10 +1,12 @@
 import {PMEntryTOTPItemBase} from './pm-entry-totp-item-base'
-import {pmEntryTOTPItemDesktopStyles, pmEntryTOTPItemSharedStyles} from './styles'
+import {pmEntryTOTPItemSharedStyles} from './styles'
 
 export class PMEntryTOTPItem extends PMEntryTOTPItemBase {
   static define() {
-    customElements.define('pm-entry-totp-item', this)
+    if (!customElements.get('pm-entry-totp-item')) {
+      customElements.define('pm-entry-totp-item', this)
+    }
   }
 
-  static styles = [...pmEntryTOTPItemSharedStyles, pmEntryTOTPItemDesktopStyles]
+  static styles = pmEntryTOTPItemSharedStyles
 }

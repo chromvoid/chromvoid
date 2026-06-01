@@ -2,10 +2,8 @@ mod test_helpers;
 
 use chromvoid_core::crypto::keystore::InMemoryKeystore;
 use chromvoid_core::rpc::types::RpcRequest;
-use chromvoid_core::rpc::RpcRouter;
-use chromvoid_core::rpc::{RpcInputStream, RpcReply};
+use chromvoid_core::rpc::{RpcInputStream, RpcReply, RpcRouter};
 use chromvoid_core::storage::Storage;
-use std::io::Read;
 use std::sync::Arc;
 use tempfile::TempDir;
 use test_helpers::*;
@@ -15,92 +13,32 @@ fn router_for_path(storage_path: &std::path::Path, keystore: Arc<InMemoryKeystor
     RpcRouter::new(storage).with_keystore(keystore)
 }
 
-fn prepare_upload(
+fn upload_create(
     router: &mut RpcRouter,
     name: &str,
     size: u64,
     parent_path: &str,
     mime_type: &str,
 ) -> chromvoid_core::rpc::types::RpcResponse {
-    router.handle(&RpcRequest::new(
-        "catalog:prepareUpload",
-        serde_json::json!({
-            "name": name,
-            "size": size,
-            "parent_path": parent_path,
-            "mime_type": mime_type,
-        }),
-    ))
-}
-
-fn upload_bytes(router: &mut RpcRouter, node_id: u64, bytes: Vec<u8>) {
-    let upload_request = RpcRequest::new(
-        "catalog:upload",
-        serde_json::json!({
-            "node_id": node_id,
-            "size": bytes.len(),
-            "offset": 0,
-        }),
+    let reply = router.handle_with_stream(
+        &RpcRequest::new(
+            "catalog:upload",
+            serde_json::json!({
+                "name": name,
+                    "total_size": size,
+                "size": size,
+                    "offset": 0,
+                "parent_path": parent_path,
+                "mime_type": mime_type,
+            }),
+        ),
+        Some(RpcInputStream::from_bytes(vec![0; size as usize])),
     );
-
-    match router.handle_with_stream(&upload_request, Some(RpcInputStream::from_bytes(bytes))) {
-        RpcReply::Json(r) => assert_rpc_ok(&r),
-        RpcReply::Stream(_) => panic!("catalog:upload must return JSON response"),
-    }
-}
-
-fn secret_write_bytes(router: &mut RpcRouter, node_id: u64, bytes: Vec<u8>) {
-    let write_request = RpcRequest::new(
-        "catalog:secret:write",
-        serde_json::json!({
-            "node_id": node_id,
-            "size": bytes.len(),
-        }),
-    );
-
-    match router.handle_with_stream(&write_request, Some(RpcInputStream::from_bytes(bytes))) {
-        RpcReply::Json(r) => assert_rpc_ok(&r),
-        RpcReply::Stream(_) => panic!("catalog:secret:write must return JSON response"),
-    }
-}
-
-fn download_bytes(router: &mut RpcRouter, node_id: u64) -> Vec<u8> {
-    let download_request = RpcRequest::new(
-        "catalog:download",
-        serde_json::json!({
-            "node_id": node_id,
-        }),
-    );
-
-    match router.handle_with_stream(&download_request, None) {
-        RpcReply::Stream(mut out) => {
-            let mut downloaded = Vec::new();
-            out.reader
-                .read_to_end(&mut downloaded)
-                .expect("read stream");
-            downloaded
+    match reply {
+        RpcReply::Json(response) => response,
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:upload must return JSON response")
         }
-        RpcReply::Json(r) => panic!("expected stream reply, got JSON: {r:?}"),
-    }
-}
-
-fn secret_read_bytes(router: &mut RpcRouter, node_id: u64) -> Vec<u8> {
-    let read_request = RpcRequest::new(
-        "catalog:secret:read",
-        serde_json::json!({
-            "node_id": node_id,
-        }),
-    );
-
-    match router.handle_with_stream(&read_request, None) {
-        RpcReply::Stream(mut out) => {
-            let mut downloaded = Vec::new();
-            out.reader
-                .read_to_end(&mut downloaded)
-                .expect("read stream");
-            downloaded
-        }
-        RpcReply::Json(r) => panic!("expected stream reply, got JSON: {r:?}"),
     }
 }
 
@@ -122,7 +60,7 @@ fn test_passmanager_entry_persists_across_restart() {
     );
 
     let entry_path = "/.passmanager/Example";
-    let upload_resp = prepare_upload(
+    let upload_resp = upload_create(
         &mut router,
         "meta.json",
         100,

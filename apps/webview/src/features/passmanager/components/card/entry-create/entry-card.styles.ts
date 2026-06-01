@@ -3,6 +3,7 @@ import {css} from 'lit'
 export const pmEntryCardStyles = css`
   :host {
     container-type: inline-size;
+    --entry-avatar-bg: var(--cv-color-primary-dark);
   }
 
   cv-input{
@@ -39,7 +40,7 @@ export const pmEntryCardStyles = css`
       font-size: var(--cv-font-size-sm);
       font-weight: var(--cv-font-weight-semibold);
       color: white;
-      background: var(--entry-avatar-bg, color-mix(in oklch, var(--cv-color-primary), black 10%));
+      background: var(--entry-avatar-bg, var(--cv-color-primary-dark));
       box-shadow: var(--cv-shadow-sm);
     }
 
@@ -57,7 +58,7 @@ export const pmEntryCardStyles = css`
     justify-content: space-between;
     gap: var(--cv-space-2);
     padding: var(--cv-space-2) var(--cv-space-3);
-    background: color-mix(in oklch, var(--cv-color-surface-2) 85%, var(--cv-color-primary) 5%);
+    background: var(--cv-color-surface-2);
     border: 1px solid var(--cv-color-border);
     border-radius: var(--cv-radius-2);
     position: sticky;
@@ -65,7 +66,7 @@ export const pmEntryCardStyles = css`
     z-index: 10;
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    box-shadow: 0 2px 8px color-mix(in oklch, black 10%, transparent);
+    box-shadow: 0 2px 8px var(--cv-alpha-black-10);
 
     .title {
       flex: 1 1 auto;
@@ -206,14 +207,22 @@ export const pmEntryCardStyles = css`
     &::part(input),
     &::part(base) {
       border-color: var(--cv-color-danger);
-      box-shadow: inset 0 0 0 1px var(--cv-color-danger);
+    }
+
+    &::part(base) {
+      outline: 1px solid var(--cv-color-danger);
+      outline-offset: -1px;
     }
 
     &:focus-within {
       &::part(input),
       &::part(base) {
         border-color: var(--cv-color-danger);
-        box-shadow: inset 0 0 0 2px color-mix(in oklch, var(--cv-color-danger) 50%, transparent);
+      }
+
+      &::part(base) {
+        outline: 2px solid var(--cv-color-danger-ring);
+        outline-offset: -2px;
       }
     }
   }

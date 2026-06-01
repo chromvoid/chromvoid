@@ -1,15 +1,24 @@
-import {XLitElement} from '@statx/lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, html} from 'lit'
+import {css} from 'lit'
 
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 
-import type {FileListItem, SearchFilters} from 'root/shared/contracts/file-manager'
+import type {
+  FileListRenderItem,
+  FileListVisibleRange,
+  FileListViewportRestoreState,
+  SearchFilters,
+} from 'root/shared/contracts/file-manager'
+import type {FileDeletionMotionModel} from '../models/file-deletion-motion.model'
+import type {FileSearchFilterActions} from '../models/file-search-filters.model'
 
-export class DashboardFileList extends XLitElement {
+export class DashboardFileList extends ReatomLitElement {
   static define() {
-    // подкомпоненты регистрируются снаружи: virtual-file-list, file-item
-    customElements.define('dashboard-file-list', this)
+    // Subcomponents are registered externally: virtual-file-list, file-item-desktop, file-item-mobile
+    if (!customElements.get('dashboard-file-list')) {
+      customElements.define('dashboard-file-list', this)
+    }
   }
 
   static get properties() {
@@ -18,19 +27,29 @@ export class DashboardFileList extends XLitElement {
       filters: {type: Object},
       selectedItems: {type: Array, attribute: 'selected-items'},
       selectionMode: {type: Boolean, attribute: 'selection-mode'},
+      pendingExternalOpenIds: {type: Array, attribute: 'pending-external-open-ids'},
       containerHeight: {type: Number, attribute: 'container-height'},
       currentPath: {type: String, attribute: 'current-path'},
       mobile: {type: Boolean},
+      restoreViewport: {type: Object, attribute: false},
+      itemsPreFiltered: {type: Boolean, attribute: 'items-pre-filtered'},
+      deletionMotion: {attribute: false},
+      filterActions: {attribute: false},
     }
   }
 
-  declare items: FileListItem[]
+  declare items: FileListRenderItem[]
   declare filters: SearchFilters
   declare selectedItems: number[]
   declare selectionMode: boolean
+  declare pendingExternalOpenIds: number[]
   declare containerHeight: number
   declare currentPath: string
   declare mobile: boolean
+  declare restoreViewport: FileListViewportRestoreState | null
+  declare itemsPreFiltered: boolean
+  declare deletionMotion: FileDeletionMotionModel | null
+  declare filterActions: FileSearchFilterActions | null
 
   constructor() {
     super()
@@ -45,9 +64,14 @@ export class DashboardFileList extends XLitElement {
     }
     this.selectedItems = []
     this.selectionMode = false
+    this.pendingExternalOpenIds = []
     this.containerHeight = 400
     this.currentPath = '/'
     this.mobile = false
+    this.restoreViewport = null
+    this.itemsPreFiltered = false
+    this.deletionMotion = null
+    this.filterActions = null
   }
 
   static styles = [
@@ -91,22 +115,42 @@ export class DashboardFileList extends XLitElement {
     this.dispatchEvent(new CustomEvent('navigate', {detail: e.detail, bubbles: true}))
   }
 
+  private onViewportStateChange(e: CustomEvent) {
+    this.dispatchEvent(new CustomEvent('viewport-state-change', {detail: e.detail, bubbles: true}))
+  }
+
+  private onViewportStateRestored(e: CustomEvent) {
+    this.dispatchEvent(new CustomEvent('viewport-state-restored', {detail: e.detail, bubbles: true}))
+  }
+
+  private onVisibleRangeChange(e: CustomEvent<FileListVisibleRange>) {
+    this.dispatchEvent(new CustomEvent('visible-range-change', {detail: e.detail, bubbles: true}))
+  }
+
   render() {
     return html`
       <div class="file-list-container">
         <virtual-file-list
           .items=${this.items}
           .filters=${this.filters}
+          .filterActions=${this.filterActions}
           .selectedItems=${this.selectedItems}
           .selectionMode=${this.selectionMode}
+          .pendingExternalOpenIds=${this.pendingExternalOpenIds}
           .containerHeight=${this.containerHeight}
           .currentPath=${this.currentPath}
           .mobile=${this.mobile}
+          .restoreViewport=${this.restoreViewport}
+          .itemsPreFiltered=${this.itemsPreFiltered}
+          .deletionMotion=${this.deletionMotion}
           @selection-change=${this.onSelectionChange}
           @selection-mode-requested=${this.onSelectionModeRequested}
           @item-action=${this.onItemAction}
           @filters-change=${this.onFiltersChange}
           @navigate=${this.onNavigate}
+          @viewport-state-change=${this.onViewportStateChange}
+          @viewport-state-restored=${this.onViewportStateRestored}
+          @visible-range-change=${this.onVisibleRangeChange}
         ></virtual-file-list>
       </div>
     `

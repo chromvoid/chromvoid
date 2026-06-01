@@ -6,17 +6,19 @@ import androidx.credentials.GetCredentialResponse
 import androidx.credentials.exceptions.CreateCredentialException
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.fragment.app.FragmentActivity
-import java.security.Signature
 
 internal data class ResolvedGetPasskeyRequest(
     val requestData: GetPasskeyRequestData,
+    val requestJson: String,
     val origin: String,
     val clientDataHash: ByteArray?,
 )
 
 internal data class ResolvedCreatePasskeyRequest(
     val requestData: CreatePasskeyRequestData,
+    val requestJson: String,
     val origin: String,
+    val clientDataHash: ByteArray?,
 )
 
 internal sealed interface GetRequestResolution {
@@ -39,25 +41,10 @@ internal sealed interface CreateRequestResolution {
     ) : CreateRequestResolution
 }
 
-internal interface PasskeyActivityCryptoRuntime {
-    fun beginAssertionSignature(metadata: PasskeyMetadata): Signature
-
-    fun signAssertion(
-        signature: Signature,
-        authenticatorData: ByteArray,
-        clientDataHash: ByteArray,
-    ): ByteArray
-
-    fun credentialIdBytes(metadata: PasskeyMetadata): ByteArray
-    fun userIdBytes(metadata: PasskeyMetadata): ByteArray
-    fun createCredential(request: CreatePasskeyRequestData): CreatedPasskeyMaterial
-}
-
 internal interface PasskeyActivityBiometricRuntime {
     fun authenticateAssertion(
         activity: FragmentActivity,
-        signature: Signature,
-        onSuccess: (Signature?) -> Unit,
+        onSuccess: () -> Unit,
         onError: (GetCredentialException) -> Unit,
     )
 

@@ -12,24 +12,30 @@
 //! the handshake completes but the connection is delegated to the pairing flow
 //! via `pairing::confirm_pairing` semantics rather than hard-rejected.
 
-use std::io::Read as _;
-use std::sync::Arc;
-use std::sync::Mutex;
+mod accept;
+mod listener;
+mod rpc_loop;
+mod state;
+
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use chromvoid_core::rpc::types::{RpcRequest, RpcResponse, PROTOCOL_VERSION};
-use chromvoid_core::rpc::{RpcInputStream, RpcReply, RpcStreamMeta};
-use chromvoid_protocol::{
-    frame_continuation, frame_from_heartbeat, Frame, FrameType, NoiseTransport, RemoteTransport,
-    TransportType, FLAG_HAS_CONTINUATION,
-};
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
+use tracing::info;
 
 use super::connection::NetworkConnectionManager;
 use super::paired_peers::{PairedPeer, PairedPeerStore};
 use super::signaling::SignalingClient;
-use crate::core_adapter::{CoreAdapter, LocalCoreAdapter};
+use crate::core_adapter::CoreAdapter;
+#[cfg(test)]
+use accept::hex_decode;
+use listener::listener_loop;
+#[cfg(test)]
+use listener::{wait_until_next_accept_ready, AcceptErrorClass, RetryBackoffState};
+#[cfg(test)]
+use state::AcceptorInner;
+pub use state::MobileAcceptorRuntimeState;
+use state::PeerConnection;
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -67,119 +73,7 @@ pub struct AcceptorStatus {
     pub room_id: Option<String>,
 }
 
-/// Outcome of a Noise handshake — either a known paired peer or an unknown peer
-/// whose remote public key needs to be routed through the pairing flow.
-enum HandshakeOutcome {
-    /// Peer is known (found in `PairedPeerStore`). Ready for io_task.
-    Paired {
-        noise: NoiseTransport,
-        peer_id: String,
-        label: String,
-    },
-    /// Peer is unknown. The handshake completed (transport mode established)
-    /// but the remote pubkey is not in the paired store. The caller should
-    /// delegate to the pairing confirmation flow.
-    UnknownPeer {
-        _noise: NoiseTransport,
-        remote_pubkey: Vec<u8>,
-    },
-}
-
 // ── Internal state ─────────────────────────────────────────────────────
-
-const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
-const STREAM_CHUNK_SIZE: usize = 1024 * 1024;
-
-fn frame_from_rpc_response(message_id: u64, resp: &RpcResponse) -> Frame {
-    let payload = serde_json::to_vec(resp).unwrap_or_else(|_| b"{}".to_vec());
-    Frame {
-        frame_type: FrameType::RpcResponse,
-        message_id,
-        flags: 0,
-        payload,
-    }
-}
-
-fn frame_stream_meta_response(message_id: u64, meta: &RpcStreamMeta) -> Frame {
-    let payload = serde_json::to_vec(meta).unwrap_or_else(|_| b"{}".to_vec());
-    Frame {
-        frame_type: FrameType::RpcResponse,
-        message_id,
-        flags: FLAG_HAS_CONTINUATION,
-        payload,
-    }
-}
-
-fn is_upload_stream_command(command: &str) -> bool {
-    matches!(command, "catalog:upload" | "catalog:secret:write")
-}
-
-fn is_download_stream_command(command: &str) -> bool {
-    matches!(
-        command,
-        "catalog:download" | "catalog:secret:read" | "vault:export:download"
-    )
-}
-
-/// Per-peer connection tracking: NetworkConnectionManager for state + shutdown handle.
-struct PeerConnection {
-    conn_mgr: NetworkConnectionManager,
-    shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
-}
-
-struct AcceptorInner {
-    state: AcceptorState,
-    relay_url: Option<String>,
-    room_id: Option<String>,
-    connected_peers: Vec<ConnectedPeer>,
-    /// Send `()` to shut down the background listener task.
-    shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
-    /// Per-peer connection state: NetworkConnectionManager + io_task channel.
-    peer_connections: Vec<(String, PeerConnection)>,
-}
-
-impl AcceptorInner {
-    fn new() -> Self {
-        Self {
-            state: AcceptorState::Idle,
-            relay_url: None,
-            room_id: None,
-            connected_peers: Vec::new(),
-            shutdown_tx: None,
-            peer_connections: Vec::new(),
-        }
-    }
-
-    fn status(&self) -> AcceptorStatus {
-        AcceptorStatus {
-            state: self.state,
-            connected_peers: self.connected_peers.clone(),
-            relay_url: self.relay_url.clone(),
-            room_id: self.room_id.clone(),
-        }
-    }
-}
-
-static ACCEPTOR: Mutex<Option<AcceptorInner>> = Mutex::new(None);
-static SHARED_APP_ADAPTER: Mutex<Option<Arc<Mutex<Box<dyn CoreAdapter>>>>> = Mutex::new(None);
-
-fn with_acceptor<F, R>(f: F) -> R
-where
-    F: FnOnce(&mut AcceptorInner) -> R,
-{
-    let mut guard = ACCEPTOR.lock().unwrap();
-    let inner = guard.get_or_insert_with(AcceptorInner::new);
-    f(inner)
-}
-
-pub fn register_shared_app_adapter(adapter: Arc<Mutex<Box<dyn CoreAdapter>>>) {
-    let mut guard = SHARED_APP_ADAPTER.lock().unwrap();
-    *guard = Some(adapter);
-}
-
-fn shared_app_adapter() -> Option<Arc<Mutex<Box<dyn CoreAdapter>>>> {
-    SHARED_APP_ADAPTER.lock().unwrap().as_ref().cloned()
-}
 
 #[allow(dead_code)] // Used by tests and runtime listener loop
 fn now_ms() -> u64 {
@@ -202,33 +96,37 @@ fn force_wss_acceptor_for_test() -> bool {
 
 /// High-level API for the mobile acceptor.
 ///
-/// Wraps the module-level static state and provides a struct-based interface
+/// Wraps app-scoped runtime state and provides a struct-based interface
 /// for starting/stopping the listener and querying status.
 pub struct MobileAcceptor;
 
 impl MobileAcceptor {
     /// Begin listening for incoming Desktop connections.
     pub async fn start(
+        runtime: Arc<MobileAcceptorRuntimeState>,
+        adapter: Option<Arc<Mutex<Box<dyn CoreAdapter>>>>,
         relay_url: &str,
         room_id: &str,
         storage_root: &std::path::Path,
     ) -> Result<AcceptorStatus, String> {
-        start_listening(relay_url, room_id, storage_root).await
+        start_listening(runtime, adapter, relay_url, room_id, storage_root).await
     }
 
     /// Stop listening and disconnect all peers.
-    pub fn stop() -> AcceptorStatus {
-        stop_listening()
+    pub fn stop(runtime: &MobileAcceptorRuntimeState) -> Result<AcceptorStatus, String> {
+        stop_listening(runtime)
     }
 
     /// Get current acceptor status + connected peers.
-    pub fn status() -> AcceptorStatus {
-        get_status()
+    pub fn status(runtime: &MobileAcceptorRuntimeState) -> Result<AcceptorStatus, String> {
+        get_status(runtime)
     }
 
     /// Get list of currently connected Desktop peers.
-    pub fn connected_peers() -> Vec<ConnectedPeer> {
-        get_connected_peers()
+    pub fn connected_peers(
+        runtime: &MobileAcceptorRuntimeState,
+    ) -> Result<Vec<ConnectedPeer>, String> {
+        get_connected_peers(runtime)
     }
 }
 
@@ -241,6 +139,8 @@ impl MobileAcceptor {
 /// entirely and waits for direct WSS relay connections on the published room.
 /// Returns the room_id that Desktop should target.
 pub async fn start_listening(
+    runtime: Arc<MobileAcceptorRuntimeState>,
+    adapter: Option<Arc<Mutex<Box<dyn CoreAdapter>>>>,
     relay_url: &str,
     room_id: &str,
     storage_root: &std::path::Path,
@@ -253,7 +153,7 @@ pub async fn start_listening(
     }
 
     // Prevent double-start.
-    let current = with_acceptor(|a| a.state);
+    let current = runtime.with_acceptor(|a| a.state)?;
     info!(
         "mobile_acceptor: start_listening requested relay={} room_id={} current_state={:?}",
         relay_url, room_id, current
@@ -289,12 +189,25 @@ pub async fn start_listening(
         None
     };
 
+    let generation = runtime.begin_listener_task()?;
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
     // Transition to Listening and store metadata.
     let relay_owned = relay_url.to_string();
     let room_owned = room_id.to_string();
-    let status = with_acceptor(|a| {
+    let status = runtime.with_acceptor(|a| {
+        if let Some(tx) = a.shutdown_tx.take() {
+            let _ = tx.send(());
+        }
+        for (_id, pc) in a.peer_connections.iter_mut() {
+            pc.conn_mgr.disconnect();
+            if let Some(tx) = pc.shutdown_tx.take() {
+                let _ = tx.send(());
+            }
+            if let Some(handle) = pc.task_handle.take() {
+                handle.abort();
+            }
+        }
         a.state = AcceptorState::Listening;
         a.relay_url = Some(relay_owned.clone());
         a.room_id = Some(room_owned.clone());
@@ -302,13 +215,17 @@ pub async fn start_listening(
         a.peer_connections.clear();
         a.shutdown_tx = Some(shutdown_tx);
         a.status()
-    });
+    })?;
 
     let storage_root = storage_root.to_path_buf();
+    let listener_runtime = runtime.clone();
 
     // Spawn background listener task.
-    tokio::spawn(async move {
+    let listener_handle = tokio::spawn(async move {
         listener_loop(
+            listener_runtime,
+            generation,
+            adapter,
             signaling,
             shutdown_rx,
             storage_root,
@@ -317,6 +234,7 @@ pub async fn start_listening(
         )
         .await;
     });
+    runtime.store_listener_task(generation, listener_handle)?;
 
     info!(
         "mobile_acceptor: listening relay={} room_id={} state={:?}",
@@ -326,54 +244,45 @@ pub async fn start_listening(
 }
 
 /// Stop listening and disconnect all peers.
-pub fn stop_listening() -> AcceptorStatus {
-    with_acceptor(|a| {
-        // Signal the background task to shut down.
-        if let Some(tx) = a.shutdown_tx.take() {
-            let _ = tx.send(());
-        }
-        // Disconnect all peer connection managers.
-        for (_id, pc) in a.peer_connections.iter_mut() {
-            pc.conn_mgr.disconnect();
-            if let Some(tx) = pc.shutdown_tx.take() {
-                let _ = tx.send(());
-            }
-        }
-        a.state = AcceptorState::Idle;
-        a.relay_url = None;
-        a.room_id = None;
-        a.connected_peers.clear();
-        a.peer_connections.clear();
-        info!("Mobile acceptor stopped");
-        a.status()
-    })
+pub fn stop_listening(runtime: &MobileAcceptorRuntimeState) -> Result<AcceptorStatus, String> {
+    let status = runtime.cancel_all_tasks()?;
+    info!("Mobile acceptor stopped");
+    Ok(status)
 }
 
 /// Get current acceptor status + connected peers.
-pub fn get_status() -> AcceptorStatus {
-    with_acceptor(|a| a.status())
+pub fn get_status(runtime: &MobileAcceptorRuntimeState) -> Result<AcceptorStatus, String> {
+    runtime.with_acceptor(|a| a.status())
 }
 
 /// Get list of currently connected Desktop peers.
-pub fn get_connected_peers() -> Vec<ConnectedPeer> {
-    with_acceptor(|a| a.connected_peers.clone())
+pub fn get_connected_peers(
+    runtime: &MobileAcceptorRuntimeState,
+) -> Result<Vec<ConnectedPeer>, String> {
+    runtime.with_acceptor(|a| a.connected_peers.clone())
 }
 
 // ── Peer management (called from listener task) ────────────────────────
 
 /// Record a new connected peer. Transitions state to Connected.
-#[allow(dead_code)] // Called by listener task at runtime
-pub(crate) fn add_connected_peer(peer: ConnectedPeer) {
-    with_acceptor(|a| {
+#[cfg(test)]
+pub(crate) fn add_connected_peer(
+    runtime: &MobileAcceptorRuntimeState,
+    peer: ConnectedPeer,
+) -> Result<(), String> {
+    runtime.with_acceptor(|a| {
         a.connected_peers.push(peer);
         a.state = AcceptorState::Connected;
-    });
+    })
 }
 
 /// Remove a peer by ID. If no peers left, transitions to Listening.
-#[allow(dead_code)] // Called by listener task at runtime
-pub(crate) fn remove_connected_peer(peer_id: &str) {
-    with_acceptor(|a| {
+#[cfg(test)]
+pub(crate) fn remove_connected_peer(
+    runtime: &MobileAcceptorRuntimeState,
+    peer_id: &str,
+) -> Result<(), String> {
+    runtime.with_acceptor(|a| {
         a.connected_peers.retain(|p| p.peer_id != peer_id);
         a.peer_connections.retain(|(id, _)| id != peer_id);
         if a.connected_peers.is_empty()
@@ -386,25 +295,29 @@ pub(crate) fn remove_connected_peer(peer_id: &str) {
                 AcceptorState::Idle
             };
         }
-    });
+    })
 }
 
-/// Transition to Handshaking state (called when signaling offer received).
-pub(crate) fn set_handshaking() {
-    with_acceptor(|a| {
-        if a.state == AcceptorState::Listening {
-            a.state = AcceptorState::Handshaking;
-        }
-    });
+pub(crate) fn set_handshaking_if_current(
+    runtime: &MobileAcceptorRuntimeState,
+    generation: u64,
+) -> Result<bool, String> {
+    runtime
+        .with_acceptor_if_current(generation, |a| {
+            if a.state == AcceptorState::Listening {
+                a.state = AcceptorState::Handshaking;
+            }
+        })
+        .map(|result| result.is_some())
 }
 
 /// Transition to Disconnected state (called on unexpected connection loss).
 #[allow(dead_code)] // Called on unexpected connection loss at runtime
-pub(crate) fn set_disconnected() {
-    with_acceptor(|a| {
+pub(crate) fn set_disconnected(runtime: &MobileAcceptorRuntimeState) -> Result<(), String> {
+    runtime.with_acceptor(|a| {
         a.state = AcceptorState::Disconnected;
         a.connected_peers.clear();
-    });
+    })
 }
 
 /// Check if a peer is known (paired) by looking up their public key.
@@ -418,1013 +331,64 @@ pub fn is_peer_known(peer_pubkey: &[u8], store: &PairedPeerStore) -> Option<Pair
 
 // ── Background listener ────────────────────────────────────────────────
 
-/// IK msg1 minimum size (96+ bytes: encrypted static key + ephemeral).
-/// XX msg1 is ~32 bytes (just ephemeral key).
-const IK_MSG1_MIN_SIZE: usize = 96;
-
 /// Timeout for WebRTC responder before falling back to WSS.
 #[cfg(any(desktop, test))]
 const WEBRTC_RESPONDER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
-const NEXT_ACCEPT_READY_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
-const RETRY_DELAY_OTHER_BASE_MS: u64 = 500;
-const RETRY_DELAY_OTHER_CAP_MS: u64 = 5_000;
-const RETRY_DELAY_PRE_HANDSHAKE_BASE_MS: u64 = 1_000;
-const RETRY_DELAY_PRE_HANDSHAKE_CAP_MS: u64 = 10_000;
-const RETRY_DELAY_RATE_LIMIT_BASE_MS: u64 = 5_000;
-const RETRY_DELAY_RATE_LIMIT_CAP_MS: u64 = 30_000;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AcceptErrorClass {
-    RoomFull,
-    RoomExpired,
-    ModeMismatch,
-    RateLimit,
-    PreMsg1Closed,
-    Other,
-}
-
-impl AcceptErrorClass {
-    fn classify(error: &str) -> Self {
-        let error = error.to_ascii_lowercase();
-        if error.contains("429 too many requests")
-            || error.contains("code=4029")
-            || error.contains("reason=rate limit exceeded")
-        {
-            Self::RateLimit
-        } else if error.contains("code=4001") || error.contains("reason=room full") {
-            Self::RoomFull
-        } else if error.contains("code=4002") || error.contains("reason=room expired") {
-            Self::RoomExpired
-        } else if error.contains("code=4003")
-            || error.contains("reason=room mode mismatch")
-            || error.contains("reason=mode mismatch")
-        {
-            Self::ModeMismatch
-        } else if error.contains("msg1 recv")
-            && (error.contains("wss closed")
-                || error.contains("without close frame")
-                || error.contains("transport closed"))
-        {
-            Self::PreMsg1Closed
-        } else {
-            Self::Other
-        }
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::RoomFull => "room_full",
-            Self::RoomExpired => "room_expired",
-            Self::ModeMismatch => "mode_mismatch",
-            Self::RateLimit => "rate_limit",
-            Self::PreMsg1Closed => "pre_msg1_closed",
-            Self::Other => "other",
-        }
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-struct RetryBackoffState {
-    pre_handshake_failures: usize,
-    rate_limit_failures: usize,
-    other_failures: usize,
-    last_logged_class: Option<AcceptErrorClass>,
-    last_logged_delay_ms: Option<u64>,
-}
-
-impl RetryBackoffState {
-    fn note_msg1_received(&mut self) {
-        self.pre_handshake_failures = 0;
-    }
-
-    fn note_success(&mut self) {
-        *self = Self::default();
-    }
-
-    fn register_failure(&mut self, class: AcceptErrorClass) -> (usize, std::time::Duration, bool) {
-        let (failure_count, retry_delay) = match class {
-            AcceptErrorClass::RateLimit => {
-                self.rate_limit_failures += 1;
-                self.pre_handshake_failures = 0;
-                self.other_failures = 0;
-                (
-                    self.rate_limit_failures,
-                    capped_backoff(
-                        RETRY_DELAY_RATE_LIMIT_BASE_MS,
-                        self.rate_limit_failures,
-                        RETRY_DELAY_RATE_LIMIT_CAP_MS,
-                    ),
-                )
-            }
-            AcceptErrorClass::RoomFull
-            | AcceptErrorClass::RoomExpired
-            | AcceptErrorClass::PreMsg1Closed => {
-                self.pre_handshake_failures += 1;
-                self.rate_limit_failures = 0;
-                self.other_failures = 0;
-                (
-                    self.pre_handshake_failures,
-                    capped_backoff(
-                        RETRY_DELAY_PRE_HANDSHAKE_BASE_MS,
-                        self.pre_handshake_failures,
-                        RETRY_DELAY_PRE_HANDSHAKE_CAP_MS,
-                    ),
-                )
-            }
-            AcceptErrorClass::ModeMismatch | AcceptErrorClass::Other => {
-                self.other_failures += 1;
-                self.pre_handshake_failures = 0;
-                self.rate_limit_failures = 0;
-                (
-                    self.other_failures,
-                    capped_backoff(
-                        RETRY_DELAY_OTHER_BASE_MS,
-                        self.other_failures,
-                        RETRY_DELAY_OTHER_CAP_MS,
-                    ),
-                )
-            }
-        };
-
-        let retry_delay_ms = retry_delay.as_millis() as u64;
-        let should_warn = self.last_logged_class != Some(class)
-            || self.last_logged_delay_ms != Some(retry_delay_ms);
-        self.last_logged_class = Some(class);
-        self.last_logged_delay_ms = Some(retry_delay_ms);
-
-        (failure_count, retry_delay, should_warn)
-    }
-}
-
-#[derive(Debug, Default)]
-struct AcceptAttemptProgress {
-    saw_msg1: bool,
-}
-
-fn capped_backoff(base_ms: u64, failure_count: usize, cap_ms: u64) -> std::time::Duration {
-    let shift = failure_count.saturating_sub(1).min(16) as u32;
-    let multiplier = 1u64 << shift;
-    std::time::Duration::from_millis(base_ms.saturating_mul(multiplier).min(cap_ms))
-}
-
-async fn wait_until_next_accept_ready(
-    shutdown_rx: &mut tokio::sync::oneshot::Receiver<()>,
-) -> bool {
-    let mut logged_block = false;
-
-    loop {
-        let blocked = with_acceptor(|a| {
-            if a.connected_peers.is_empty() {
-                None
-            } else {
-                Some((a.state, a.connected_peers.len(), a.room_id.clone()))
-            }
-        });
-
-        let Some((state, peer_count, room_id)) = blocked else {
-            return true;
-        };
-
-        if !logged_block {
-            if state == AcceptorState::Connected {
-                info!(
-                    "mobile_acceptor: delaying next accept until active peer disconnects room_id={:?} peer_count={}",
-                    room_id, peer_count
-                );
-            } else {
-                warn!(
-                    "mobile_acceptor: delaying next accept with active peers in unexpected state={:?} room_id={:?} peer_count={}",
-                    state, room_id, peer_count
-                );
-            }
-            logged_block = true;
-        }
-
-        tokio::select! {
-            biased;
-
-            _ = &mut *shutdown_rx => return false,
-            _ = tokio::time::sleep(NEXT_ACCEPT_READY_POLL_INTERVAL) => {}
-        }
-    }
-}
-
-/// Main listener loop: accepts connections via WebRTC (primary) or WSS (fallback).
-///
-/// For each connection attempt:
-/// 1. Try WebRTC responder via signaling (primary path)
-/// 2. If WebRTC fails, try WSS relay transport (fallback path)
-/// 3. Perform Noise handshake over whichever transport succeeded
-/// 4. Create NetworkConnectionManager + spawn io_task
-async fn listener_loop(
-    mut signaling: Option<SignalingClient>,
-    mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
-    storage_root: std::path::PathBuf,
-    relay_url: String,
-    room_id: String,
-) {
-    let mut retry_state = RetryBackoffState::default();
-    loop {
-        if !wait_until_next_accept_ready(&mut shutdown_rx).await {
-            info!("Mobile acceptor listener shutting down");
-            break;
-        }
-
-        tokio::select! {
-            biased;
-
-            _ = &mut shutdown_rx => {
-                info!("Mobile acceptor listener shutting down");
-                break;
-            }
-
-            result = async {
-                let mut progress = AcceptAttemptProgress::default();
-                let result = accept_connection(
-                    signaling.as_mut(),
-                    &storage_root,
-                    &relay_url,
-                    &room_id,
-                    &mut progress,
-                )
-                .await;
-                (result, progress)
-            } => {
-                let (result, progress) = result;
-                match result {
-                    Ok(peer_id) => {
-                        retry_state.note_success();
-                        info!("Desktop peer connected: {}", peer_id);
-                    }
-                    Err(e) => {
-                        if progress.saw_msg1 {
-                            retry_state.note_msg1_received();
-                        }
-                        with_acceptor(|a| {
-                            if a.state == AcceptorState::Handshaking {
-                                a.state = AcceptorState::Listening;
-                            }
-                        });
-                        let class = AcceptErrorClass::classify(&e);
-                        let (failure_count, retry_delay, should_warn) =
-                            retry_state.register_failure(class);
-                        let retry_delay_ms = retry_delay.as_millis() as u64;
-                        if should_warn {
-                            warn!(
-                                "mobile_acceptor: accept retry scheduled relay={} room_id={} class={} failure_count={} pre_handshake_failures={} delay_ms={} error={}",
-                                relay_url,
-                                room_id,
-                                class.label(),
-                                failure_count,
-                                retry_state.pre_handshake_failures,
-                                retry_delay_ms,
-                                e
-                            );
-                        } else {
-                            info!(
-                                "mobile_acceptor: accept retry scheduled relay={} room_id={} class={} failure_count={} pre_handshake_failures={} delay_ms={} error={}",
-                                relay_url,
-                                room_id,
-                                class.label(),
-                                failure_count,
-                                retry_state.pre_handshake_failures,
-                                retry_delay_ms,
-                                e
-                            );
-                        }
-                        tokio::select! {
-                            biased;
-
-                            _ = &mut shutdown_rx => {
-                                info!("Mobile acceptor listener shutting down");
-                                break;
-                            }
-
-                            _ = tokio::time::sleep(retry_delay) => {}
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-async fn send_encrypted_frame(
-    transport: &mut dyn RemoteTransport,
-    noise: &mut NoiseTransport,
-    frame: Frame,
-) -> Result<(), String> {
-    let encrypted = noise
-        .encrypt(&frame.encode())
-        .map_err(|e| format!("encrypt: {e}"))?;
-    transport
-        .send(&encrypted)
-        .await
-        .map_err(|e| format!("send: {e}"))
-}
-
-async fn recv_decrypted_frame(
-    transport: &mut dyn RemoteTransport,
-    noise: &mut NoiseTransport,
-) -> Result<Frame, String> {
-    let bytes = transport.recv().await.map_err(|e| format!("recv: {e}"))?;
-    let decrypted = noise.decrypt(&bytes).map_err(|e| format!("decrypt: {e}"))?;
-    Frame::decode(&decrypted).map_err(|e| format!("decode: {e}"))
-}
-
-async fn run_host_rpc_loop(
-    mut transport: Box<dyn RemoteTransport>,
-    mut noise: NoiseTransport,
-    storage_root: std::path::PathBuf,
-    peer_id: String,
-    mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
-) -> Result<(), String> {
-    enum HostRpcAdapter {
-        Shared(Arc<Mutex<Box<dyn CoreAdapter>>>),
-        Local(LocalCoreAdapter),
-    }
-
-    impl HostRpcAdapter {
-        fn load(storage_root: std::path::PathBuf) -> Result<Self, String> {
-            if let Some(adapter) = shared_app_adapter() {
-                info!("mobile_acceptor: using shared app adapter for host rpc loop");
-                return Ok(Self::Shared(adapter));
-            }
-
-            warn!("mobile_acceptor: shared app adapter missing, falling back to LocalCoreAdapter");
-            Ok(Self::Local(LocalCoreAdapter::new(storage_root)?))
-        }
-
-        fn handle(&mut self, req: &RpcRequest) -> Result<RpcResponse, String> {
-            match self {
-                Self::Shared(adapter) => {
-                    let mut adapter = adapter
-                        .lock()
-                        .map_err(|_| "shared adapter mutex poisoned".to_string())?;
-                    let resp = adapter.handle(req);
-                    adapter.save()?;
-                    Ok(resp)
-                }
-                Self::Local(adapter) => {
-                    let resp = adapter.handle(req);
-                    adapter.save()?;
-                    Ok(resp)
-                }
-            }
-        }
-
-        fn handle_with_stream(
-            &mut self,
-            req: &RpcRequest,
-            stream: Option<RpcInputStream>,
-        ) -> Result<RpcReply, String> {
-            match self {
-                Self::Shared(adapter) => {
-                    let mut adapter = adapter
-                        .lock()
-                        .map_err(|_| "shared adapter mutex poisoned".to_string())?;
-                    let reply = adapter.handle_with_stream(req, stream);
-                    adapter.save()?;
-                    Ok(reply)
-                }
-                Self::Local(adapter) => {
-                    let reply = adapter.handle_with_stream(req, stream);
-                    adapter.save()?;
-                    Ok(reply)
-                }
-            }
-        }
-    }
-
-    let mut adapter = HostRpcAdapter::load(storage_root)?;
-    let mut anti_replay = chromvoid_protocol::AntiReplay::new();
-    let mut heartbeat_interval = tokio::time::interval(HEARTBEAT_INTERVAL);
-    let mut server_msg_id = rand::random::<u64>() | 1;
-
-    loop {
-        tokio::select! {
-            biased;
-
-            _ = &mut shutdown_rx => {
-                info!("mobile_acceptor: host rpc loop shutdown peer_id={}", peer_id);
-                let _ = transport.close().await;
-                return Ok(());
-            }
-
-            _ = heartbeat_interval.tick() => {
-                let heartbeat = frame_from_heartbeat(server_msg_id, PROTOCOL_VERSION);
-                server_msg_id = server_msg_id.wrapping_add(1).max(1);
-                send_encrypted_frame(transport.as_mut(), &mut noise, heartbeat).await?;
-            }
-
-            frame = recv_decrypted_frame(transport.as_mut(), &mut noise) => {
-                let frame = frame?;
-                match frame.frame_type {
-                    FrameType::Heartbeat => continue,
-                    FrameType::Error => return Err("peer sent error frame".to_string()),
-                    FrameType::RpcResponse => continue,
-                    FrameType::RpcRequest => {}
-                }
-
-                anti_replay
-                    .check(frame.message_id)
-                    .map_err(|e| format!("anti_replay: {e}"))?;
-
-                let req: RpcRequest = serde_json::from_slice(&frame.payload)
-                    .map_err(|e| format!("request parse: {e}"))?;
-
-                if is_upload_stream_command(&req.command) && frame.has_continuation() {
-                    let total_size = req.data.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let mut offset = req.data.get("offset").and_then(|v| v.as_u64()).unwrap_or(0);
-                    anti_replay.set_active_stream(frame.message_id);
-
-                    let mut stream_ok = true;
-                    loop {
-                        let chunk_frame = recv_decrypted_frame(transport.as_mut(), &mut noise).await?;
-                        if chunk_frame.frame_type != FrameType::RpcRequest || chunk_frame.message_id != frame.message_id {
-                            let err = RpcResponse::Error {
-                                ok: false,
-                                error: "stream message_id mismatch".to_string(),
-                                code: Some("INVALID_FORMAT".to_string()),
-                            };
-                            let _ = send_encrypted_frame(
-                                transport.as_mut(),
-                                &mut noise,
-                                frame_from_rpc_response(frame.message_id, &err),
-                            ).await;
-                            stream_ok = false;
-                            break;
-                        }
-
-                        anti_replay
-                            .check(chunk_frame.message_id)
-                            .map_err(|e| format!("anti_replay: {e}"))?;
-
-                        let mut chunk_data = req.data.clone();
-                        let Some(obj) = chunk_data.as_object_mut() else {
-                            let err = RpcResponse::Error {
-                                ok: false,
-                                error: "upload request data must be an object".to_string(),
-                                code: Some("BAD_REQUEST".to_string()),
-                            };
-                            let _ = send_encrypted_frame(
-                                transport.as_mut(),
-                                &mut noise,
-                                frame_from_rpc_response(frame.message_id, &err),
-                            ).await;
-                            stream_ok = false;
-                            break;
-                        };
-                        obj.insert("offset".to_string(), serde_json::json!(offset));
-                        obj.insert("size".to_string(), serde_json::json!(total_size));
-
-                        let chunk_req = RpcRequest {
-                            v: PROTOCOL_VERSION,
-                            command: req.command.clone(),
-                            data: chunk_data,
-                        };
-
-                        match adapter.handle_with_stream(
-                            &chunk_req,
-                            Some(RpcInputStream::from_bytes(chunk_frame.payload.clone())),
-                        )? {
-                            RpcReply::Json(resp) => {
-                                if !resp.is_ok() {
-                                    let _ = send_encrypted_frame(
-                                        transport.as_mut(),
-                                        &mut noise,
-                                        frame_from_rpc_response(frame.message_id, &resp),
-                                    ).await;
-                                    stream_ok = false;
-                                    break;
-                                }
-                            }
-                            RpcReply::Stream(_) => {
-                                let err = RpcResponse::Error {
-                                    ok: false,
-                                    error: "unexpected streaming response for upload".to_string(),
-                                    code: Some("STREAM_UNEXPECTED".to_string()),
-                                };
-                                let _ = send_encrypted_frame(
-                                    transport.as_mut(),
-                                    &mut noise,
-                                    frame_from_rpc_response(frame.message_id, &err),
-                                ).await;
-                                stream_ok = false;
-                                break;
-                            }
-                        }
-
-                        offset += chunk_frame.payload.len() as u64;
-                        if !chunk_frame.has_continuation() {
-                            break;
-                        }
-                    }
-
-                    anti_replay.clear_active_stream();
-
-                    if !stream_ok {
-                        return Err(format!("host upload stream aborted peer_id={}", peer_id));
-                    }
-
-                    let success = RpcResponse::success(serde_json::json!({"uploaded": offset}));
-                    send_encrypted_frame(
-                        transport.as_mut(),
-                        &mut noise,
-                        frame_from_rpc_response(frame.message_id, &success),
-                    ).await?;
-                    continue;
-                }
-
-                if is_download_stream_command(&req.command) {
-                    match adapter.handle_with_stream(&req, None)? {
-                        RpcReply::Stream(output) => {
-                            send_encrypted_frame(
-                                transport.as_mut(),
-                                &mut noise,
-                                frame_stream_meta_response(frame.message_id, &output.meta),
-                            ).await?;
-
-                            let mut reader = output.reader;
-                            let mut current_buf = vec![0u8; STREAM_CHUNK_SIZE];
-                            let mut n = reader.read(&mut current_buf).unwrap_or(0);
-
-                            while n > 0 {
-                                let mut next_buf = vec![0u8; STREAM_CHUNK_SIZE];
-                                let next_n = reader.read(&mut next_buf).unwrap_or(0);
-                                let has_more = next_n > 0;
-                                let chunk = frame_continuation(
-                                    FrameType::RpcResponse,
-                                    frame.message_id,
-                                    current_buf[..n].to_vec(),
-                                    has_more,
-                                );
-                                send_encrypted_frame(transport.as_mut(), &mut noise, chunk).await?;
-                                current_buf = next_buf;
-                                n = next_n;
-                            }
-                        }
-                        RpcReply::Json(resp) => {
-                            send_encrypted_frame(
-                                transport.as_mut(),
-                                &mut noise,
-                                frame_from_rpc_response(frame.message_id, &resp),
-                            ).await?;
-                        }
-                    }
-                    continue;
-                }
-
-                let resp = adapter.handle(&req)?;
-                send_encrypted_frame(
-                    transport.as_mut(),
-                    &mut noise,
-                    frame_from_rpc_response(frame.message_id, &resp),
-                ).await?;
-            }
-        }
-    }
-}
-
-/// Accept a single incoming Desktop connection.
-///
-/// Full flow:
-/// 1. Transport setup: WebRTC responder (primary), WSS relay (fallback)
-/// 2. Noise IK handshake for known peers, XX for unknown
-/// 3. Peer identity verification against `PairedPeerStore`
-/// 4. For unknown peers: delegate to pairing flow
-/// 5. Create `NetworkConnectionManager` + `spawn_network_io_task`
-/// 6. Register connected peer
-async fn accept_connection(
-    _signaling: Option<&mut SignalingClient>,
-    storage_root: &std::path::Path,
-    relay_url: &str,
-    room_id: &str,
-    progress: &mut AcceptAttemptProgress,
-) -> Result<String, String> {
-    use super::wss_transport::WssTransport;
-    use chromvoid_protocol::MAX_HANDSHAKE_MSG;
-
-    info!(
-        "mobile_acceptor: accept_connection:start relay={} room_id={}",
-        relay_url, room_id
-    );
-
-    let (mut transport, transport_type): (Box<dyn RemoteTransport>, TransportType) = {
-        #[cfg(desktop)]
-        {
-            use super::fallback::default_ice_servers;
-            use super::webrtc_transport::WebRtcTransport;
-
-            if force_wss_acceptor_for_test() {
-                info!(
-                    "mobile_acceptor: forcing WSS transport on desktop for test relay={} room_id={}",
-                    relay_url, room_id
-                );
-                let wss = WssTransport::connect_with_context(
-                    relay_url,
-                    room_id,
-                    "mobile_acceptor_test_force_wss",
-                )
-                .await
-                .map_err(|e| format!("WSS connect failed: {e}"))?;
-                info!("WSS relay transport established (forced test override)");
-                (Box::new(wss), TransportType::WssRelay)
-            } else {
-                let signaling =
-                    _signaling.ok_or("signaling client missing on desktop".to_string())?;
-                let ice_servers = default_ice_servers();
-                let webrtc_result = tokio::time::timeout(
-                    WEBRTC_RESPONDER_TIMEOUT,
-                    WebRtcTransport::connect_as_responder(signaling, ice_servers),
-                )
-                .await;
-
-                match webrtc_result {
-                    Ok(Ok(t)) => {
-                        info!("WebRTC responder transport established");
-                        (Box::new(t), TransportType::WebRtcDataChannel)
-                    }
-                    Ok(Err(e)) => {
-                        warn!("WebRTC responder failed: {e}, falling back to WSS");
-                        let wss = WssTransport::connect_with_context(
-                            relay_url,
-                            room_id,
-                            "mobile_acceptor_webrtc_fallback_error",
-                        )
-                        .await
-                        .map_err(|e| format!("WSS fallback also failed: {e}"))?;
-                        info!("WSS relay transport established (fallback)");
-                        (Box::new(wss), TransportType::WssRelay)
-                    }
-                    Err(_) => {
-                        warn!("WebRTC responder timed out, falling back to WSS");
-                        let wss = WssTransport::connect_with_context(
-                            relay_url,
-                            room_id,
-                            "mobile_acceptor_webrtc_fallback_timeout",
-                        )
-                        .await
-                        .map_err(|e| format!("WSS fallback also failed: {e}"))?;
-                        info!("WSS relay transport established (fallback after timeout)");
-                        (Box::new(wss), TransportType::WssRelay)
-                    }
-                }
-            }
-        }
-        #[cfg(not(desktop))]
-        {
-            let wss = WssTransport::connect_with_context(
-                relay_url,
-                room_id,
-                "mobile_acceptor_mobile_only",
-            )
-            .await
-            .map_err(|e| format!("WSS connect failed: {e}"))?;
-            info!("WSS relay transport established (mobile-only)");
-            (Box::new(wss), TransportType::WssRelay)
-        }
-    };
-
-    // Step 2: Noise handshake over the established transport.
-    info!(
-        "mobile_acceptor: awaiting noise msg1 relay={} room_id={} transport_type={:?}",
-        relay_url, room_id, transport_type
-    );
-    let msg1 = transport
-        .recv()
-        .await
-        .map_err(|e| format!("noise msg1 recv: {e}"))?;
-    info!(
-        "mobile_acceptor: received noise msg1 relay={} room_id={} len={}",
-        relay_url,
-        room_id,
-        msg1.len()
-    );
-    progress.saw_msg1 = true;
-    set_handshaking();
-
-    let store_path = storage_root.join("paired_network_peers.json");
-    let store = PairedPeerStore::load(&store_path);
-
-    let mut buf = vec![0u8; MAX_HANDSHAKE_MSG];
-    let outcome = if msg1.len() >= IK_MSG1_MIN_SIZE {
-        noise_ik_responder(transport.as_mut(), &msg1, &mut buf, &store).await?
-    } else {
-        noise_xx_responder(transport.as_mut(), &msg1, &mut buf, &store).await?
-    };
-
-    // Step 3: Handle handshake outcome.
-    let (noise_transport, peer_id, label) = match outcome {
-        HandshakeOutcome::Paired {
-            noise,
-            peer_id,
-            label,
-        } => (noise, peer_id, label),
-        HandshakeOutcome::UnknownPeer {
-            _noise,
-            remote_pubkey,
-        } => {
-            // Unknown peer — delegate to pairing flow.
-            // The Noise session is established but we don't start io_task yet.
-            // Instead, we signal that a pairing confirmation is needed.
-            // The remote pubkey is hex-encoded for the pairing module.
-            let _ = _noise;
-            let pubkey_hex = remote_pubkey
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect::<String>();
-            warn!(
-                "Unknown peer with pubkey {} — pairing confirmation required",
-                pubkey_hex
-            );
-            // Transition back to Listening — the pairing flow is handled
-            // out-of-band via Task 2's confirm_pairing API.
-            with_acceptor(|a| {
-                if a.state == AcceptorState::Handshaking {
-                    a.state = AcceptorState::Listening;
-                }
-            });
-            return Err(format!("unknown_peer:{}", pubkey_hex));
-        }
-    };
-
-    let transport_type_name = match transport_type {
-        TransportType::WebRtcDataChannel => "webrtc",
-        TransportType::WssRelay => "wss",
-        _ => "unknown",
-    };
-    info!(
-        "Noise handshake completed with peer={} ({})",
-        peer_id, transport_type_name
-    );
-
-    // Step 4: Create NetworkConnectionManager for state tracking.
-    let mut conn_mgr = NetworkConnectionManager::new();
-    conn_mgr.transition(crate::core_adapter::ConnectionState::Syncing);
-
-    // Step 5: Spawn the host responder loop. It owns both the raw transport and the Noise session.
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-    let task_storage_root = storage_root.to_path_buf();
-    let task_peer_id = peer_id.clone();
-    tokio::spawn(async move {
-        let result = run_host_rpc_loop(
-            transport,
-            noise_transport,
-            task_storage_root,
-            task_peer_id.clone(),
-            shutdown_rx,
-        )
-        .await;
-        if let Err(error) = result {
-            warn!(
-                "mobile_acceptor: host rpc loop ended peer_id={} error={}",
-                task_peer_id, error
-            );
-        } else {
-            info!(
-                "mobile_acceptor: host rpc loop stopped peer_id={}",
-                task_peer_id
-            );
-        }
-        remove_connected_peer(&task_peer_id);
-    });
-
-    // Step 6: Update last_seen timestamp.
-    {
-        let mut store = PairedPeerStore::load(&store_path);
-        store.touch(&peer_id);
-        let _ = store.save();
-    }
-
-    // Step 7: Register the connected peer with conn_mgr and io_task channel.
-    let peer = ConnectedPeer {
-        peer_id: peer_id.clone(),
-        label: label.clone(),
-        connected_at_ms: now_ms(),
-        transport_type: transport_type_name.to_string(),
-    };
-    add_connected_peer(peer);
-    with_acceptor(|a| {
-        a.peer_connections.push((
-            peer_id.clone(),
-            PeerConnection {
-                conn_mgr,
-                shutdown_tx: Some(shutdown_tx),
-            },
-        ));
-    });
-
-    Ok(peer_id)
-}
-
-/// IK responder handshake over a transport (2 messages).
-///
-/// The initiator sends msg1 containing their encrypted static key + ephemeral.
-/// We respond with msg2, then transition to transport mode.
-/// Returns `HandshakeOutcome::Paired` if the remote key is in the store,
-/// or `HandshakeOutcome::UnknownPeer` if not (should not happen for IK, but handled).
-async fn noise_ik_responder(
-    transport: &mut (dyn RemoteTransport + '_),
-    msg1: &[u8],
-    buf: &mut [u8],
-    store: &PairedPeerStore,
-) -> Result<HandshakeOutcome, String> {
-    use chromvoid_protocol::NOISE_PARAMS_IK;
-    use snow::params::NoiseParams;
-
-    // Find any paired peer to get our local private key.
-    let all_peers = store.list();
-    let first_peer = all_peers
-        .first()
-        .ok_or("no paired peers — cannot perform IK handshake")?;
-    let local_privkey = hex_decode(&first_peer.client_privkey_hex)?;
-
-    let params: NoiseParams = NOISE_PARAMS_IK
-        .parse()
-        .map_err(|e: snow::Error| format!("IK params: {e}"))?;
-
-    let mut responder = snow::Builder::new(params)
-        .local_private_key(&local_privkey)
-        .map_err(|e| format!("IK local_private_key: {e}"))?
-        .build_responder()
-        .map_err(|e| format!("IK build_responder: {e}"))?;
-
-    // IK msg1: -> e, es, s, ss (from initiator — already received)
-    responder
-        .read_message(msg1, buf)
-        .map_err(|e| format!("IK msg1 read: {e}"))?;
-
-    let remote_pubkey = responder
-        .get_remote_static()
-        .ok_or("IK: no remote static key")?
-        .to_vec();
-
-    // IK msg2: <- e, ee, se (our response)
-    let len = responder
-        .write_message(&[], buf)
-        .map_err(|e| format!("IK msg2 write: {e}"))?;
-    transport
-        .send(&buf[..len])
-        .await
-        .map_err(|e| format!("IK msg2 send: {e}"))?;
-
-    let ts = responder
-        .into_transport_mode()
-        .map_err(|e| format!("IK into_transport: {e}"))?;
-
-    let noise = NoiseTransport::new(ts, remote_pubkey.clone());
-
-    match is_peer_known(&remote_pubkey, store) {
-        Some(paired) => Ok(HandshakeOutcome::Paired {
-            noise,
-            peer_id: paired.peer_id,
-            label: paired.label,
-        }),
-        None => Ok(HandshakeOutcome::UnknownPeer {
-            _noise: noise,
-            remote_pubkey,
-        }),
-    }
-}
-
-/// XX responder handshake over a transport (3 messages).
-///
-/// Used when the initiator is unknown or when IK is not applicable.
-/// msg1 is already received; we send msg2, receive msg3, then check identity.
-/// Returns `HandshakeOutcome::Paired` if known, `HandshakeOutcome::UnknownPeer` if not.
-async fn noise_xx_responder(
-    transport: &mut (dyn RemoteTransport + '_),
-    msg1: &[u8],
-    buf: &mut [u8],
-    store: &PairedPeerStore,
-) -> Result<HandshakeOutcome, String> {
-    use chromvoid_protocol::NOISE_PARAMS_XX;
-    use snow::params::NoiseParams;
-
-    let params: NoiseParams = NOISE_PARAMS_XX
-        .parse()
-        .map_err(|e: snow::Error| format!("XX params: {e}"))?;
-
-    // Use the first paired peer's key if available, otherwise generate ephemeral.
-    let all_peers = store.list();
-    let local_privkey = if let Some(peer) = all_peers.first() {
-        hex_decode(&peer.client_privkey_hex)?
-    } else {
-        let kp = snow::Builder::new(params.clone())
-            .generate_keypair()
-            .map_err(|e| format!("XX keygen: {e}"))?;
-        kp.private
-    };
-
-    let mut responder = snow::Builder::new(params)
-        .local_private_key(&local_privkey)
-        .map_err(|e| format!("XX local_private_key: {e}"))?
-        .build_responder()
-        .map_err(|e| format!("XX build_responder: {e}"))?;
-
-    // XX msg1: <- e (already received)
-    responder
-        .read_message(msg1, buf)
-        .map_err(|e| format!("XX msg1 read: {e}"))?;
-
-    // XX msg2: -> e, ee, s, es
-    let len2 = responder
-        .write_message(&[], buf)
-        .map_err(|e| format!("XX msg2 write: {e}"))?;
-    transport
-        .send(&buf[..len2])
-        .await
-        .map_err(|e| format!("XX msg2 send: {e}"))?;
-
-    // XX msg3: <- s, se
-    let msg3 = transport
-        .recv()
-        .await
-        .map_err(|e| format!("XX msg3 recv: {e}"))?;
-    responder
-        .read_message(&msg3, buf)
-        .map_err(|e| format!("XX msg3 read: {e}"))?;
-
-    let remote_pubkey = responder
-        .get_remote_static()
-        .ok_or("XX: no remote static key")?
-        .to_vec();
-
-    let ts = responder
-        .into_transport_mode()
-        .map_err(|e| format!("XX into_transport: {e}"))?;
-
-    let noise = NoiseTransport::new(ts, remote_pubkey.clone());
-
-    match is_peer_known(&remote_pubkey, store) {
-        Some(paired) => Ok(HandshakeOutcome::Paired {
-            noise,
-            peer_id: paired.peer_id,
-            label: paired.label,
-        }),
-        None => Ok(HandshakeOutcome::UnknownPeer {
-            _noise: noise,
-            remote_pubkey,
-        }),
-    }
-}
-
-/// Decode a hex string to bytes.
-fn hex_decode(s: &str) -> Result<Vec<u8>, String> {
-    let s = s.trim();
-    if s.len() % 2 != 0 {
-        return Err("hex string has odd length".to_string());
-    }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| {
-            u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| format!("invalid hex at {i}: {e}"))
-        })
-        .collect()
-}
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
     use std::sync::Mutex;
     use std::time::Duration;
 
-    static ACCEPTOR_TEST_LOCK: Mutex<()> = Mutex::new(());
+    static TEST_ACCEPTOR_LOCK: Mutex<()> = Mutex::new(());
 
     /// Helper: create a fresh AcceptorInner for isolated testing.
     fn fresh() -> AcceptorInner {
         AcceptorInner::new()
     }
 
-    fn reset_global_acceptor() {
-        let mut guard = ACCEPTOR.lock().unwrap();
-        *guard = Some(AcceptorInner::new());
+    fn fresh_runtime() -> MobileAcceptorRuntimeState {
+        MobileAcceptorRuntimeState::new()
+    }
+
+    struct DropFlag(Arc<AtomicBool>);
+
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
     }
 
     #[test]
     fn force_wss_acceptor_override_only_enables_for_explicit_test_env() {
-        let _guard = ACCEPTOR_TEST_LOCK
+        let _guard = TEST_ACCEPTOR_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let original = std::env::var_os("CHROMVOID_TEST_FORCE_WSS_ACCEPTOR");
 
+        // SAFETY: env mutation in test fixture; serialised by ACCEPTOR_TEST_LOCK Mutex (line 325) and restored at end of test.
         unsafe {
             std::env::remove_var("CHROMVOID_TEST_FORCE_WSS_ACCEPTOR");
         }
         assert!(!force_wss_acceptor_for_test());
 
+        // SAFETY: env mutation in test fixture; serialised by ACCEPTOR_TEST_LOCK Mutex (line 325) and restored at end of test.
         unsafe {
             std::env::set_var("CHROMVOID_TEST_FORCE_WSS_ACCEPTOR", "1");
         }
         assert!(force_wss_acceptor_for_test());
 
         match original {
+            // SAFETY: env mutation in test fixture; serialised by ACCEPTOR_TEST_LOCK Mutex (line 325) and restored at end of test.
             Some(value) => unsafe {
                 std::env::set_var("CHROMVOID_TEST_FORCE_WSS_ACCEPTOR", value);
             },
+            // SAFETY: env mutation in test fixture; serialised by ACCEPTOR_TEST_LOCK Mutex (line 325) and restored at end of test.
             None => unsafe {
                 std::env::remove_var("CHROMVOID_TEST_FORCE_WSS_ACCEPTOR");
             },
@@ -1452,6 +416,204 @@ mod tests {
         assert_eq!(status.relay_url.as_deref(), Some("wss://relay.test"));
         assert_eq!(status.room_id.as_deref(), Some("room-abc"));
         assert!(status.connected_peers.is_empty());
+    }
+
+    #[test]
+    fn runtime_instances_are_isolated() {
+        let first = fresh_runtime();
+        let second = fresh_runtime();
+
+        first
+            .with_acceptor(|a| {
+                a.state = AcceptorState::Listening;
+                a.room_id = Some("room-a".to_string());
+            })
+            .unwrap();
+
+        let first_status = get_status(&first).unwrap();
+        let second_status = get_status(&second).unwrap();
+
+        assert_eq!(first_status.state, AcceptorState::Listening);
+        assert_eq!(first_status.room_id.as_deref(), Some("room-a"));
+        assert_eq!(second_status.state, AcceptorState::Idle);
+        assert!(second_status.room_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn listener_replacement_invalidates_and_aborts_previous_task() {
+        let runtime = fresh_runtime();
+        let generation = runtime.begin_listener_task().expect("begin listener");
+        let dropped = Arc::new(AtomicBool::new(false));
+        let drop_flag = DropFlag(dropped.clone());
+        let handle = tokio::spawn(async move {
+            let _drop_flag = drop_flag;
+            std::future::pending::<()>().await;
+        });
+        runtime
+            .store_listener_task(generation, handle)
+            .expect("store listener");
+
+        let replacement_generation = runtime.begin_listener_task().expect("replace listener");
+
+        assert!(!runtime.is_generation_current(generation));
+        assert!(runtime.is_generation_current(replacement_generation));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(dropped.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn cancel_all_tasks_aborts_listener_and_peer_handles() {
+        let runtime = fresh_runtime();
+        let generation = runtime.begin_listener_task().expect("begin listener");
+        let listener_dropped = Arc::new(AtomicBool::new(false));
+        let listener_drop_flag = DropFlag(listener_dropped.clone());
+        let listener_handle = tokio::spawn(async move {
+            let _drop_flag = listener_drop_flag;
+            std::future::pending::<()>().await;
+        });
+        runtime
+            .store_listener_task(generation, listener_handle)
+            .expect("store listener");
+
+        let peer_dropped = Arc::new(AtomicBool::new(false));
+        let peer_drop_flag = DropFlag(peer_dropped.clone());
+        let peer_handle = tokio::spawn(async move {
+            let _drop_flag = peer_drop_flag;
+            std::future::pending::<()>().await;
+        });
+        let (shutdown_tx, _shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        runtime
+            .with_acceptor(|a| {
+                a.state = AcceptorState::Connected;
+                a.relay_url = Some("wss://relay.test".to_string());
+                a.room_id = Some("room-123".to_string());
+                a.connected_peers.push(ConnectedPeer {
+                    peer_id: "desktop-1".to_string(),
+                    label: "Desktop".to_string(),
+                    connected_at_ms: now_ms(),
+                    transport_type: "wss".to_string(),
+                });
+                a.peer_connections.push((
+                    "desktop-1".to_string(),
+                    PeerConnection {
+                        conn_mgr: NetworkConnectionManager::new(),
+                        generation,
+                        shutdown_tx: Some(shutdown_tx),
+                        task_handle: Some(peer_handle),
+                    },
+                ));
+            })
+            .expect("seed peer");
+
+        let status = runtime.cancel_all_tasks().expect("cancel all");
+
+        assert_eq!(status.state, AcceptorState::Idle);
+        assert!(status.connected_peers.is_empty());
+        assert!(status.relay_url.is_none());
+        assert!(status.room_id.is_none());
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(listener_dropped.load(Ordering::Acquire));
+        assert!(peer_dropped.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn stale_generation_cannot_add_connected_peer() {
+        let runtime = fresh_runtime();
+        let generation = runtime.begin_listener_task().expect("begin listener");
+        let stale_generation = generation.saturating_sub(1);
+        let peer = ConnectedPeer {
+            peer_id: "desktop-1".to_string(),
+            label: "Desktop".to_string(),
+            connected_at_ms: now_ms(),
+            transport_type: "wss".to_string(),
+        };
+        let added = runtime
+            .add_peer_if_current(
+                stale_generation,
+                peer,
+                PeerConnection {
+                    conn_mgr: NetworkConnectionManager::new(),
+                    generation: stale_generation,
+                    shutdown_tx: None,
+                    task_handle: None,
+                },
+            )
+            .expect("add stale peer");
+
+        assert!(!added);
+        assert!(get_connected_peers(&runtime).unwrap().is_empty());
+        assert_eq!(get_status(&runtime).unwrap().state, AcceptorState::Idle);
+    }
+
+    #[test]
+    fn stale_generation_cannot_remove_current_peer() {
+        let runtime = fresh_runtime();
+        let generation = runtime.begin_listener_task().expect("begin listener");
+        let peer = ConnectedPeer {
+            peer_id: "desktop-1".to_string(),
+            label: "Desktop".to_string(),
+            connected_at_ms: now_ms(),
+            transport_type: "wss".to_string(),
+        };
+        assert!(runtime
+            .add_peer_if_current(
+                generation,
+                peer,
+                PeerConnection {
+                    conn_mgr: NetworkConnectionManager::new(),
+                    generation,
+                    shutdown_tx: None,
+                    task_handle: None,
+                },
+            )
+            .expect("add peer"));
+
+        let removed = runtime
+            .remove_peer_if_current(generation.saturating_sub(1), "desktop-1")
+            .expect("remove stale peer");
+
+        assert!(!removed);
+        assert_eq!(get_connected_peers(&runtime).unwrap().len(), 1);
+        assert_eq!(
+            get_status(&runtime).unwrap().state,
+            AcceptorState::Connected
+        );
+    }
+
+    #[tokio::test]
+    async fn clear_listener_task_only_clears_current_generation() {
+        let runtime = fresh_runtime();
+        let generation = runtime.begin_listener_task().expect("begin listener");
+        let handle = tokio::spawn(async {});
+        runtime
+            .store_listener_task(generation, handle)
+            .expect("store listener");
+
+        runtime
+            .clear_listener_task_if_current(generation.saturating_sub(1))
+            .expect("clear stale listener");
+        assert!(runtime
+            .with_acceptor(|a| a.listener_task.is_some())
+            .expect("listener task status"));
+
+        runtime
+            .clear_listener_task_if_current(generation)
+            .expect("clear current listener");
+        assert!(!runtime
+            .with_acceptor(|a| a.listener_task.is_some())
+            .expect("listener task status"));
+    }
+
+    #[test]
+    fn poisoned_runtime_mutex_returns_controlled_error() {
+        let runtime = fresh_runtime();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = runtime.with_acceptor(|_| panic!("poison mobile acceptor mutex"));
+        }));
+
+        let error = runtime.cancel_all_tasks().expect_err("poison error");
+
+        assert_eq!(error, "Mobile acceptor mutex poisoned");
     }
 
     #[test]
@@ -1727,23 +889,26 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn wait_until_next_accept_ready_blocks_while_peer_is_connected() {
-        let _guard = ACCEPTOR_TEST_LOCK.lock().unwrap();
-        reset_global_acceptor();
-        with_acceptor(|a| {
-            a.state = AcceptorState::Connected;
-            a.relay_url = Some("wss://relay.test".to_string());
-            a.room_id = Some("room-123".to_string());
-            a.connected_peers.push(ConnectedPeer {
-                peer_id: "desktop-1".to_string(),
-                label: "Desktop".to_string(),
-                connected_at_ms: now_ms(),
-                transport_type: "wss".to_string(),
-            });
-        });
+        let runtime = std::sync::Arc::new(fresh_runtime());
+        runtime
+            .with_acceptor(|a| {
+                a.state = AcceptorState::Connected;
+                a.relay_url = Some("wss://relay.test".to_string());
+                a.room_id = Some("room-123".to_string());
+                a.connected_peers.push(ConnectedPeer {
+                    peer_id: "desktop-1".to_string(),
+                    label: "Desktop".to_string(),
+                    connected_at_ms: now_ms(),
+                    transport_type: "wss".to_string(),
+                });
+            })
+            .unwrap();
 
         let (_shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-        let wait_task =
-            tokio::spawn(async move { wait_until_next_accept_ready(&mut shutdown_rx).await });
+        let wait_runtime = runtime.clone();
+        let wait_task = tokio::spawn(async move {
+            wait_until_next_accept_ready(&wait_runtime, &mut shutdown_rx).await
+        });
 
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(
@@ -1751,7 +916,7 @@ mod tests {
             "listener gate must keep waiting while peer is still connected"
         );
 
-        remove_connected_peer("desktop-1");
+        remove_connected_peer(&runtime, "desktop-1").unwrap();
 
         let ready = tokio::time::timeout(Duration::from_secs(1), wait_task)
             .await
@@ -1761,30 +926,37 @@ mod tests {
             ready,
             "gate should report ready when peer list becomes empty"
         );
-        assert_eq!(get_status().state, AcceptorState::Listening);
+        assert_eq!(
+            get_status(&runtime).unwrap().state,
+            AcceptorState::Listening
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn wait_until_next_accept_ready_returns_immediately_after_last_peer_removed() {
-        let _guard = ACCEPTOR_TEST_LOCK.lock().unwrap();
-        reset_global_acceptor();
-        with_acceptor(|a| {
-            a.state = AcceptorState::Connected;
-            a.relay_url = Some("wss://relay.test".to_string());
-            a.room_id = Some("room-123".to_string());
-            a.connected_peers.push(ConnectedPeer {
-                peer_id: "desktop-1".to_string(),
-                label: "Desktop".to_string(),
-                connected_at_ms: now_ms(),
-                transport_type: "wss".to_string(),
-            });
-        });
+        let runtime = fresh_runtime();
+        runtime
+            .with_acceptor(|a| {
+                a.state = AcceptorState::Connected;
+                a.relay_url = Some("wss://relay.test".to_string());
+                a.room_id = Some("room-123".to_string());
+                a.connected_peers.push(ConnectedPeer {
+                    peer_id: "desktop-1".to_string(),
+                    label: "Desktop".to_string(),
+                    connected_at_ms: now_ms(),
+                    transport_type: "wss".to_string(),
+                });
+            })
+            .unwrap();
 
-        remove_connected_peer("desktop-1");
-        assert_eq!(get_status().state, AcceptorState::Listening);
+        remove_connected_peer(&runtime, "desktop-1").unwrap();
+        assert_eq!(
+            get_status(&runtime).unwrap().state,
+            AcceptorState::Listening
+        );
 
         let (_shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-        let ready = wait_until_next_accept_ready(&mut shutdown_rx).await;
+        let ready = wait_until_next_accept_ready(&runtime, &mut shutdown_rx).await;
         assert!(
             ready,
             "listener gate should allow the next accept after peer removal"
@@ -1793,34 +965,39 @@ mod tests {
 
     #[test]
     fn reconnect_after_last_peer_reuses_same_room_lifecycle() {
-        let _guard = ACCEPTOR_TEST_LOCK.lock().unwrap();
-        reset_global_acceptor();
-        with_acceptor(|a| {
-            a.state = AcceptorState::Connected;
-            a.relay_url = Some("wss://relay.test".to_string());
-            a.room_id = Some("room-123".to_string());
-            a.connected_peers.push(ConnectedPeer {
-                peer_id: "desktop-1".to_string(),
-                label: "Desktop 1".to_string(),
-                connected_at_ms: now_ms(),
-                transport_type: "wss".to_string(),
-            });
-        });
+        let runtime = fresh_runtime();
+        runtime
+            .with_acceptor(|a| {
+                a.state = AcceptorState::Connected;
+                a.relay_url = Some("wss://relay.test".to_string());
+                a.room_id = Some("room-123".to_string());
+                a.connected_peers.push(ConnectedPeer {
+                    peer_id: "desktop-1".to_string(),
+                    label: "Desktop 1".to_string(),
+                    connected_at_ms: now_ms(),
+                    transport_type: "wss".to_string(),
+                });
+            })
+            .unwrap();
 
-        remove_connected_peer("desktop-1");
-        let after_disconnect = get_status();
+        remove_connected_peer(&runtime, "desktop-1").unwrap();
+        let after_disconnect = get_status(&runtime).unwrap();
         assert_eq!(after_disconnect.state, AcceptorState::Listening);
         assert_eq!(after_disconnect.room_id.as_deref(), Some("room-123"));
         assert!(after_disconnect.connected_peers.is_empty());
 
-        add_connected_peer(ConnectedPeer {
-            peer_id: "desktop-2".to_string(),
-            label: "Desktop 2".to_string(),
-            connected_at_ms: now_ms(),
-            transport_type: "wss".to_string(),
-        });
+        add_connected_peer(
+            &runtime,
+            ConnectedPeer {
+                peer_id: "desktop-2".to_string(),
+                label: "Desktop 2".to_string(),
+                connected_at_ms: now_ms(),
+                transport_type: "wss".to_string(),
+            },
+        )
+        .unwrap();
 
-        let after_reconnect = get_status();
+        let after_reconnect = get_status(&runtime).unwrap();
         assert_eq!(after_reconnect.state, AcceptorState::Connected);
         assert_eq!(after_reconnect.room_id.as_deref(), Some("room-123"));
         assert_eq!(after_reconnect.connected_peers.len(), 1);
@@ -1860,6 +1037,7 @@ mod tests {
             client_privkey_hex: "aabbcc".to_string(),
             last_seen: 0,
             paired_at: 0,
+            platform: "desktop".to_string(),
         };
         store.upsert(peer);
         store.save().unwrap();
@@ -1917,8 +1095,9 @@ mod tests {
     #[test]
     fn mobile_acceptor_struct_api_delegates() {
         // MobileAcceptor::status() should return the same as get_status()
-        let status = MobileAcceptor::status();
-        let status2 = get_status();
+        let runtime = fresh_runtime();
+        let status = MobileAcceptor::status(&runtime).unwrap();
+        let status2 = get_status(&runtime).unwrap();
         assert_eq!(status.state, status2.state);
     }
 
@@ -1942,7 +1121,9 @@ mod tests {
             "desktop-1".to_string(),
             PeerConnection {
                 conn_mgr,
+                generation: 0,
                 shutdown_tx: None,
+                task_handle: None,
             },
         ));
         assert_eq!(a.peer_connections.len(), 1);

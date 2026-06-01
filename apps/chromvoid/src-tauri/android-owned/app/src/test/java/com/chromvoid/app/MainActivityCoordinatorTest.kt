@@ -67,6 +67,37 @@ class MainActivityCoordinatorTest {
     }
 
     @Test
+    fun passwordSavePayload_clearsTokenWhenScriptThrows() {
+        val gateway = FakePasswordSaveGateway()
+        val store = DefaultPasswordSaveRequestStore(context, FixedClock())
+        val emitterEvaluator = RecordingEvaluator(throwOnEvaluate = true)
+        val coordinator =
+            MainActivityCoordinator(
+                bridgeGateway = gateway,
+                passwordSaveRequestStore = store,
+                passwordSaveReviewController = PasswordSaveReviewController(CurrentActivityRegistry()),
+                passwordSaveBridge =
+                    PasswordSaveWebViewBridge(
+                        bridgeGateway = gateway,
+                        requestStore = store,
+                        reviewController = PasswordSaveReviewController(CurrentActivityRegistry()),
+                        emitter = PasswordSaveWebViewEmitter(emitterEvaluator),
+                    ),
+            )
+
+        coordinator.consumePasswordSavePayload(
+            Intent().putExtra(ChromVoidPasswordSaveActivity.EXTRA_REQUEST_TOKEN, "token-throw"),
+        )
+        assertNotNull(store.current())
+
+        coordinator.dispatchPendingPasswordSaveToWebView(WebView(context))
+
+        assertEquals(1, gateway.requestCalls)
+        assertEquals(0, gateway.markLaunchedCalls)
+        assertNull(store.current())
+    }
+
+    @Test
     fun dispatchBackToWebView_keepsTaskWhenHandled() {
         val moveCalls = mutableListOf<Unit>()
         val coordinator = coordinatorForBackDispatch(RecordingEvaluator(result = "true"))
