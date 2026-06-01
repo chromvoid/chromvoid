@@ -65,8 +65,26 @@ export class FileMoveBase extends ReatomLitElement {
   }
 
   private scrollOptionIntoView(key: string): void {
-    const option = this.renderRoot.querySelector<HTMLElement>(`#${this.optionId(key)}`)
-    option?.scrollIntoView({block: 'nearest'})
+    const optionId = this.optionId(key)
+    const option = Array.from(this.renderRoot.querySelectorAll<HTMLElement>('.row')).find(
+      (element) => element.id === optionId,
+    )
+    const scrollContainer = this.renderRoot.querySelector<HTMLElement>('.tree-wrap')
+    if (!option || !scrollContainer) return
+
+    const optionTop = option.offsetTop
+    const optionBottom = optionTop + option.offsetHeight
+    const visibleTop = scrollContainer.scrollTop
+    const visibleBottom = visibleTop + scrollContainer.clientHeight
+
+    if (optionTop < visibleTop) {
+      scrollContainer.scrollTop = optionTop
+      return
+    }
+
+    if (optionBottom > visibleBottom) {
+      scrollContainer.scrollTop = optionBottom - scrollContainer.clientHeight
+    }
   }
 
   private dispatchMoveSelected(path: string): void {
@@ -132,7 +150,7 @@ export class FileMoveBase extends ReatomLitElement {
     const element = event.currentTarget as HTMLElement | null
     const optionPath = element?.dataset['optionPath']
     if (!optionPath) return
-    this.model.toggleExpanded(optionPath)
+    void this.model.toggleExpanded(optionPath)
   }
 
   private handleRecentClick(event: Event): void {

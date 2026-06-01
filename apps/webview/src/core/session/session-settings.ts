@@ -1,3 +1,5 @@
+import {atom} from '@reatom/core'
+
 import {isTauriRuntime} from 'root/core/runtime/runtime'
 import {tauriInvoke} from 'root/core/transport/tauri/ipc'
 import {i18n} from 'root/i18n'
@@ -17,6 +19,7 @@ export type SessionSettings = {
   android_vault_status_notification_enabled: boolean
   android_quick_lock_tile_enabled: boolean
   confirm_file_deletion: boolean
+  show_hidden_files: boolean
   markdown_attachment_folder_path: string
 }
 
@@ -31,37 +34,51 @@ export const DEFAULT_SESSION_SETTINGS: SessionSettings = {
   android_vault_status_notification_enabled: true,
   android_quick_lock_tile_enabled: true,
   confirm_file_deletion: true,
+  show_hidden_files: false,
   markdown_attachment_folder_path: '/attachments',
 }
+
+export const sessionSettingsState = atom<SessionSettings>({...DEFAULT_SESSION_SETTINGS})
 
 function isOk<T>(res: RpcResult<T>): res is RpcOk<T> {
   return typeof res === 'object' && res !== null && 'ok' in res && (res as {ok: unknown}).ok === true
 }
 
 export async function loadSessionSettings(): Promise<SessionSettings> {
-  if (!isTauriRuntime()) return {...DEFAULT_SESSION_SETTINGS}
+  if (!isTauriRuntime()) {
+    const settings = {...DEFAULT_SESSION_SETTINGS}
+    sessionSettingsState.set(settings)
+    return settings
+  }
 
   const res = await tauriInvoke<RpcResult<SessionSettings>>('get_session_settings')
   if (!isOk(res)) {
     throw new Error(res.error || i18n('errors:load-session-settings'))
   }
 
-  return {
+  const settings = {
     ...DEFAULT_SESSION_SETTINGS,
     ...res.result,
   }
+  sessionSettingsState.set(settings)
+  return settings
 }
 
 export async function saveSessionSettings(settings: SessionSettings): Promise<SessionSettings> {
-  if (!isTauriRuntime()) return settings
+  if (!isTauriRuntime()) {
+    sessionSettingsState.set(settings)
+    return settings
+  }
 
   const res = await tauriInvoke<RpcResult<SessionSettings>>('set_session_settings', {settings})
   if (!isOk(res)) {
     throw new Error(res.error || i18n('errors:save-session-settings'))
   }
 
-  return {
+  const savedSettings = {
     ...DEFAULT_SESSION_SETTINGS,
     ...res.result,
   }
+  sessionSettingsState.set(savedSettings)
+  return savedSettings
 }

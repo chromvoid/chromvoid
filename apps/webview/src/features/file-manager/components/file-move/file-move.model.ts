@@ -1,5 +1,10 @@
-import {atom} from '@reatom/core'
+import {atom, wrap} from '@reatom/core'
 
+import {
+  CATALOG_FOLDER_PAGE_MAX_ITEMS,
+  type CatalogFolderPageRequest,
+  type CatalogFolderState,
+} from 'root/core/catalog/local-catalog/types'
 import {normalizePath, splitPath} from 'root/core/catalog/local-catalog/path'
 import {getAppContext} from 'root/shared/services/app-context'
 import {i18n} from 'root/i18n'
@@ -96,10 +101,21 @@ export class FileMovePickerModel {
     return nextPath
   }
 
-  toggleExpanded(path: string): void {
+  async toggleExpanded(path: string): Promise<void> {
     const normalizedPath = normalizePath(path || '/')
     if (normalizedPath === '/') return
-    this.setExpanded(normalizedPath, !this.expandedPaths().has(normalizedPath))
+    const expanded = !this.expandedPaths().has(normalizedPath)
+    this.setExpanded(normalizedPath, expanded)
+    if (!expanded) return
+
+    await this.ensureChildrenLoaded(normalizedPath)
+    if (this.expandedPaths().has(normalizedPath)) {
+      if (!this.hasChildTarget(normalizedPath)) {
+        this.setExpanded(normalizedPath, false)
+        return
+      }
+      this.expandedPaths.set(new Set(this.expandedPaths()))
+    }
   }
 
   setExpanded(path: string, expanded: boolean): void {
@@ -183,6 +199,45 @@ export class FileMovePickerModel {
 
   private get moveModel() {
     return getFileManagerModel(getAppContext()).fileMove
+  }
+
+  private async ensureChildrenLoaded(path: string): Promise<void> {
+    const ctx = getAppContext()
+    const loader = ctx.catalog as unknown as {
+      ensureFolderRangeLoaded?: (request: CatalogFolderPageRequest, queryKey?: string) => Promise<void>
+    }
+    if (typeof loader.ensureFolderRangeLoaded !== 'function') return
+
+    const catalog = ctx.catalog?.catalog as
+      | {
+          getChildren?: (path: string) => unknown[]
+          getFolderState?: (path: string, queryKey?: string) => CatalogFolderState | undefined
+        }
+      | undefined
+    const children = catalog?.getChildren?.(path) ?? []
+    if (children.length > 0) return
+
+    const state = catalog?.getFolderState?.(path)
+    await wrap(
+      loader.ensureFolderRangeLoaded(
+        {
+          path,
+          offset: 0,
+          limit: CATALOG_FOLDER_PAGE_MAX_ITEMS,
+          expected_version: state?.version ?? null,
+          sort: {by: 'name', direction: 'asc'},
+          filter: {include_hidden: true},
+        },
+        'default',
+      ),
+    )
+  }
+
+  private hasChildTarget(path: string): boolean {
+    return this.moveModel.listTargets().some((target) => {
+      if (target.isRoot) return false
+      return this.getParentPath(target.path) === path
+    })
   }
 
   private getCurrentItemParentPath(): string {

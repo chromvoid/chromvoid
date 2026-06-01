@@ -30,6 +30,9 @@ pub struct SessionSettings {
     /// Ask for confirmation before deleting files or folders in Files.
     #[serde(default = "default_confirm_file_deletion")]
     pub confirm_file_deletion: bool,
+    /// Show dotfiles in Files listings by default.
+    #[serde(default)]
+    pub show_hidden_files: bool,
     /// Absolute catalog folder where Markdown pasted/dropped image attachments are stored.
     #[serde(default = "default_markdown_attachment_folder_path")]
     pub markdown_attachment_folder_path: String,
@@ -49,6 +52,7 @@ impl Default for SessionSettings {
                 default_android_vault_status_notification_enabled(),
             android_quick_lock_tile_enabled: default_android_quick_lock_tile_enabled(),
             confirm_file_deletion: default_confirm_file_deletion(),
+            show_hidden_files: false,
             markdown_attachment_folder_path: default_markdown_attachment_folder_path(),
         }
     }

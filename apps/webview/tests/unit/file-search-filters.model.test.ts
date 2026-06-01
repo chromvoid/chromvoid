@@ -60,6 +60,32 @@ describe('file search filter actions', () => {
     })
   })
 
+  it('resets to injected default filters', () => {
+    let filters: SearchFilters = {
+      ...createDefaultFileSearchFilters({showHidden: true}),
+      query: 'report',
+      fileTypes: ['documents'],
+    }
+    const actions = createFileSearchFilterActions({
+      read: () => filters,
+      write: (next) => {
+        filters = next
+      },
+      getDefaults: () => createDefaultFileSearchFilters({showHidden: true}),
+    })
+
+    actions.reset()
+
+    expect(filters).toEqual({
+      query: '',
+      sortBy: 'name',
+      sortDirection: 'asc',
+      viewMode: 'list',
+      showHidden: true,
+      fileTypes: [],
+    })
+  })
+
   it('derives UI filter state from default filters', () => {
     const defaults = createDefaultFileSearchFilters()
 
@@ -70,5 +96,11 @@ describe('file search filter actions', () => {
     expect(hasNonDefaultFileSearchFilters({...defaults, query: 'report'})).toBe(true)
     expect(hasMobileFilterBadge({...defaults, query: 'report'})).toBe(false)
     expect(hasContentFiltering({...defaults, query: 'report'})).toBe(true)
+
+    const hiddenByDefault = createDefaultFileSearchFilters({showHidden: true})
+    expect(hasNonDefaultFileSearchFilters(hiddenByDefault, hiddenByDefault)).toBe(false)
+    expect(hasMobileFilterBadge(hiddenByDefault, hiddenByDefault)).toBe(false)
+    expect(hasContentFiltering(hiddenByDefault, hiddenByDefault)).toBe(false)
+    expect(hasContentFiltering({...hiddenByDefault, showHidden: false}, hiddenByDefault)).toBe(true)
   })
 })

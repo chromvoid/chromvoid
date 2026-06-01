@@ -1,7 +1,12 @@
-import {describe, expect, it, vi} from 'vitest'
+import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import type {Atom} from '../../src/core/transport/transport'
+import {
+  DEFAULT_SESSION_SETTINGS,
+  sessionSettingsState,
+} from '../../src/core/session/session-settings'
 import {FileManagerModel} from '../../src/features/file-manager/file-manager.model'
+import type {SearchFilters} from '../../src/shared/contracts/file-manager'
 import type {AppContext} from '../../src/shared/services/app-context'
 
 function createAtom<T>(initial: T): Atom<T> {
@@ -26,6 +31,10 @@ function createAtom<T>(initial: T): Atom<T> {
 }
 
 describe('FileManagerModel connect', () => {
+  afterEach(() => {
+    sessionSettingsState.set({...DEFAULT_SESSION_SETTINGS})
+  })
+
   it('rebinds catalog mirror only on ws reconnect transitions', () => {
     const connected = createAtom(true)
     const unsubscribeMirror = vi.fn()
@@ -213,5 +222,60 @@ describe('FileManagerModel connect', () => {
     expect(ctx.store.selectionMode()).toBe(false)
     expect(ctx.store.selectedNodeIds()).toEqual([])
     expect(model.handleMobileBack()).toBe(false)
+  })
+
+  it('uses session hidden-files preference as the filter reset default', () => {
+    sessionSettingsState.set({...DEFAULT_SESSION_SETTINGS, show_hidden_files: true})
+    const connected = createAtom(true)
+    const searchFilters = createAtom<SearchFilters>({
+      query: 'report',
+      sortBy: 'date',
+      sortDirection: 'desc',
+      viewMode: 'grid',
+      showHidden: false,
+      fileTypes: ['documents'],
+    })
+
+    const ctx = {
+      ws: {
+        kind: 'ws',
+        connected,
+        connecting: createAtom(false),
+        lastError: createAtom<string | undefined>(undefined),
+      },
+      store: {
+        currentPath: createAtom('/'),
+        setCurrentPath: vi.fn(),
+        selectionMode: createAtom(false),
+        setSelectionMode: vi.fn(),
+        searchFilters,
+        setSearchFilters(next: SearchFilters) {
+          searchFilters.set(next)
+        },
+        selectedNodeIds: createAtom<number[]>([]),
+        pushNotification: vi.fn(),
+      },
+      catalog: {
+        catalog: {
+          subscribe: vi.fn(() => vi.fn()),
+          getChildren: vi.fn().mockReturnValue([]),
+        },
+      },
+      state: {
+        data: createAtom({}),
+      },
+    } as unknown as AppContext
+
+    const model = new FileManagerModel(ctx)
+    model.resetSearchFilters()
+
+    expect(searchFilters()).toEqual({
+      query: '',
+      sortBy: 'name',
+      sortDirection: 'asc',
+      viewMode: 'list',
+      showHidden: true,
+      fileTypes: [],
+    })
   })
 })

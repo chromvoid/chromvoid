@@ -3,6 +3,11 @@ import {atom} from '@reatom/core'
 import type {AppContext} from 'root/shared/services/app-context'
 import {getAppContext} from 'root/shared/services/app-context'
 import {writeAndroidUnlockDebug} from 'root/shared/services/android-unlock-debug'
+import {
+  DEFAULT_SESSION_SETTINGS,
+  loadSessionSettings,
+  sessionSettingsState,
+} from 'root/core/session/session-settings'
 
 import {FileUploadFlow} from './upload-flow.model'
 import {FileDownloadFlow} from './download-flow.model'
@@ -56,10 +61,13 @@ export class FileManagerModel {
   readonly searchFilterActions = createFileSearchFilterActions({
     read: () => this.searchFilters(),
     write: (next) => this.commitSearchFilters(next),
+    getDefaults: () => this.getDefaultSearchFilters(),
   })
 
   private connected = false
   private unsubscribeCommands?: () => void
+  private unsubscribeSessionSettings?: () => void
+  private currentShowHiddenDefault = DEFAULT_SESSION_SETTINGS.show_hidden_files
 
   constructor(ctx: AppContext = getAppContext()) {
     this.ctx = ctx
@@ -136,6 +144,8 @@ export class FileManagerModel {
 
     this.unsubscribeCommands = subscribeFileManagerCommand((command) => this.onFileManagerCommand(command))
     writeAndroidUnlockDebug('file-manager-model', 'connect:command listener added')
+    this.setupSessionSettingsSync()
+    void this.ensureSessionSettingsLoaded()
     this.fileList.connect()
     void this.fileList.ensureVisibleRangeLoaded()
     writeAndroidUnlockDebug('file-manager-model', 'connect:catalog subscription setup')
@@ -151,6 +161,8 @@ export class FileManagerModel {
     this.upload.cleanup()
     this.unsubscribeCommands?.()
     this.unsubscribeCommands = undefined
+    this.unsubscribeSessionSettings?.()
+    this.unsubscribeSessionSettings = undefined
   }
 
   handleNavigate(path: string): void {
@@ -171,16 +183,47 @@ export class FileManagerModel {
     void this.fileList.ensureVisibleRangeLoaded()
   }
 
+  private getDefaultSearchFilters(): SearchFilters {
+    return createDefaultFileSearchFilters({
+      showHidden: sessionSettingsState().show_hidden_files,
+    })
+  }
+
+  private setupSessionSettingsSync(): void {
+    if (this.unsubscribeSessionSettings) return
+
+    this.unsubscribeSessionSettings = sessionSettingsState.subscribe((settings) => {
+      const nextDefault = settings.show_hidden_files
+      const previousDefault = this.currentShowHiddenDefault
+      this.currentShowHiddenDefault = nextDefault
+
+      const filters = this.searchFilters()
+      if (filters.showHidden === nextDefault || filters.showHidden !== previousDefault) {
+        return
+      }
+
+      this.commitSearchFilters({...filters, showHidden: nextDefault})
+    })
+  }
+
+  private async ensureSessionSettingsLoaded(): Promise<void> {
+    try {
+      await loadSessionSettings()
+    } catch (error) {
+      console.warn('Failed to load session settings for Files', error)
+    }
+  }
+
   ensureVisibleRangeLoaded(range: FileListVisibleRange): void {
     void this.fileList.ensureVisibleRangeLoaded(range)
   }
 
   hasActiveSearchFilters(filters: SearchFilters = this.searchFilters()): boolean {
-    return hasNonDefaultFileSearchFilters(filters)
+    return hasNonDefaultFileSearchFilters(filters, this.getDefaultSearchFilters())
   }
 
   resetSearchFilters(): void {
-    this.searchFilterActions.setFilters(createDefaultFileSearchFilters())
+    this.searchFilterActions.setFilters(this.getDefaultSearchFilters())
   }
 
   handleSelectionChange(selectedNodeIds: number[]): void {

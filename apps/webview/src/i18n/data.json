@@ -4944,6 +4944,14 @@
     "en": "Catalog folder for images pasted or dropped into Markdown notes.",
     "ru": "Папка каталога для изображений, вставленных или перетащенных в Markdown-заметки."
   },
+  "settings:show-hidden-files": {
+    "en": "Show dotfiles in Files",
+    "ru": "Показывать файлы с точкой в «Файлах»"
+  },
+  "settings:show-hidden-files-hint": {
+    "en": "Files whose names start with a dot are shown by default.",
+    "ru": "Файлы, имена которых начинаются с точки, будут отображаться по умолчанию."
+  },
   "markdown:attachments:error:absolute-path": {
     "en": "Use an absolute catalog path, for example /attachments.",
     "ru": "Укажите абсолютный путь каталога, например /attachments."

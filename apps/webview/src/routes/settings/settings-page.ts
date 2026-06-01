@@ -794,6 +794,11 @@ export class SettingsPage extends ReatomLitElement {
     void this.model.setConfirmFileDeletion(checkbox.checked)
   }
 
+  private handleShowHiddenFilesChange(event: Event) {
+    const checkbox = event.target as HTMLInputElement
+    void this.model.setShowHiddenFiles(checkbox.checked)
+  }
+
   private handleMarkdownAttachmentFolderChange(event: Event) {
     const input = event.target as HTMLInputElement
     void this.model.setMarkdownAttachmentFolderPath(input.value)
@@ -1066,6 +1071,19 @@ export class SettingsPage extends ReatomLitElement {
                 .value=${settings.markdown_attachment_folder_path}
                 @change=${this.handleMarkdownAttachmentFolderChange}
               />
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-copy">
+              <label class="settings-checkbox-row">
+                <input
+                  type="checkbox"
+                  .checked=${settings.show_hidden_files}
+                  @change=${this.handleShowHiddenFilesChange}
+                />
+                <span>${i18n('settings:show-hidden-files')}</span>
+              </label>
+              <p class="settings-description">${i18n('settings:show-hidden-files-hint')}</p>
             </div>
           </div>
         </div>

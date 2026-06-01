@@ -19,16 +19,19 @@ export type FileSearchFilterActions = {
 type FileSearchFilterActionsOptions = {
   read: () => SearchFilters
   write: (next: SearchFilters) => void
+  getDefaults?: () => SearchFilters
 }
 
-export const createDefaultFileSearchFilters = (): SearchFilters => ({
-  query: '',
-  sortBy: 'name',
-  sortDirection: 'asc',
-  viewMode: 'list',
-  showHidden: false,
-  fileTypes: [],
-})
+export function createDefaultFileSearchFilters(defaults: Partial<SearchFilters> = {}): SearchFilters {
+  return {
+    query: defaults.query ?? '',
+    sortBy: defaults.sortBy ?? 'name',
+    sortDirection: defaults.sortDirection ?? 'asc',
+    viewMode: defaults.viewMode ?? 'list',
+    showHidden: defaults.showHidden ?? false,
+    fileTypes: defaults.fileTypes ? [...defaults.fileTypes] : [],
+  }
+}
 
 function cloneFilters(filters: SearchFilters): SearchFilters {
   return {
@@ -37,8 +40,10 @@ function cloneFilters(filters: SearchFilters): SearchFilters {
   }
 }
 
-export function hasNonDefaultFileSearchFilters(filters: SearchFilters): boolean {
-  const defaults = createDefaultFileSearchFilters()
+export function hasNonDefaultFileSearchFilters(
+  filters: SearchFilters,
+  defaults = createDefaultFileSearchFilters(),
+): boolean {
   return (
     filters.query !== defaults.query ||
     filters.sortBy !== defaults.sortBy ||
@@ -49,8 +54,10 @@ export function hasNonDefaultFileSearchFilters(filters: SearchFilters): boolean 
   )
 }
 
-export function hasMobileFilterBadge(filters: SearchFilters): boolean {
-  const defaults = createDefaultFileSearchFilters()
+export function hasMobileFilterBadge(
+  filters: SearchFilters,
+  defaults = createDefaultFileSearchFilters(),
+): boolean {
   return (
     filters.sortBy !== defaults.sortBy ||
     filters.sortDirection !== defaults.sortDirection ||
@@ -60,8 +67,10 @@ export function hasMobileFilterBadge(filters: SearchFilters): boolean {
   )
 }
 
-export function hasContentFiltering(filters: SearchFilters): boolean {
-  const defaults = createDefaultFileSearchFilters()
+export function hasContentFiltering(
+  filters: SearchFilters,
+  defaults = createDefaultFileSearchFilters(),
+): boolean {
   return (
     filters.query.trim() !== '' ||
     filters.showHidden !== defaults.showHidden ||
@@ -72,6 +81,7 @@ export function hasContentFiltering(filters: SearchFilters): boolean {
 export function createFileSearchFilterActions({
   read,
   write,
+  getDefaults = createDefaultFileSearchFilters,
 }: FileSearchFilterActionsOptions): FileSearchFilterActions {
   const setFilters = (next: SearchFilters): void => {
     write(cloneFilters(next))
@@ -90,7 +100,7 @@ export function createFileSearchFilterActions({
     setFilters,
     patchFilters,
     reset(): void {
-      setFilters(createDefaultFileSearchFilters())
+      setFilters(getDefaults())
     },
     clearQuery(): void {
       patchFilters({query: ''})

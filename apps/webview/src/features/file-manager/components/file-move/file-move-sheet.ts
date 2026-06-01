@@ -42,7 +42,8 @@ export class FileMoveSheet extends ReatomLitElement {
     }
 
     adaptive-modal-surface::part(content) {
-      block-size: var(--adaptive-modal-sheet-max-height);
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      block-size: min(var(--adaptive-modal-sheet-max-height), calc(100dvh - var(--cv-bottom-sheet-safe-top)));
       overflow: hidden;
       background: var(--cv-color-surface);
     }
@@ -83,12 +84,14 @@ export class FileMoveSheet extends ReatomLitElement {
       display: grid;
       min-block-size: 0;
       block-size: 100%;
+      overflow: hidden;
       padding: var(--cv-space-2) var(--cv-space-5) var(--cv-space-4);
     }
 
     file-move-mobile {
       display: grid;
       min-block-size: 0;
+      block-size: 100%;
     }
 
     .footer-action::part(base) {

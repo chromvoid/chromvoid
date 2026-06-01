@@ -22,7 +22,9 @@ export class FileMoveMobile extends FileMoveBase {
     css`
       :host {
         --file-move-indent-step: 10px;
+        display: grid;
         min-block-size: 0;
+        block-size: 100%;
       }
 
       .layout {
@@ -43,9 +45,12 @@ export class FileMoveMobile extends FileMoveBase {
 
       .tree-wrap {
         grid-row: 3;
+        block-size: 100%;
         min-block-size: 0;
         max-block-size: none;
         overflow: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
       }
 
       .tree {

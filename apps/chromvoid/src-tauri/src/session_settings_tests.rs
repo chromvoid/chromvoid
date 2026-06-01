@@ -11,6 +11,7 @@ fn default_auto_mount_is_false() {
     assert!(s.android_vault_status_notification_enabled);
     assert!(s.android_quick_lock_tile_enabled);
     assert!(s.confirm_file_deletion);
+    assert!(!s.show_hidden_files);
     assert_eq!(s.markdown_attachment_folder_path, "/attachments");
 }
 
@@ -30,6 +31,7 @@ fn round_trip_persistence() {
     settings.android_vault_status_notification_enabled = false;
     settings.android_quick_lock_tile_enabled = false;
     settings.confirm_file_deletion = false;
+    settings.show_hidden_files = true;
     settings.markdown_attachment_folder_path = "/notes/assets".to_string();
     settings.save(&path);
 
@@ -44,6 +46,7 @@ fn round_trip_persistence() {
     assert!(!loaded.android_vault_status_notification_enabled);
     assert!(!loaded.android_quick_lock_tile_enabled);
     assert!(!loaded.confirm_file_deletion);
+    assert!(loaded.show_hidden_files);
     assert_eq!(loaded.markdown_attachment_folder_path, "/notes/assets");
 }
 
@@ -66,6 +69,7 @@ fn backward_compat_missing_field() {
     assert!(loaded.android_vault_status_notification_enabled);
     assert!(loaded.android_quick_lock_tile_enabled);
     assert!(loaded.confirm_file_deletion);
+    assert!(!loaded.show_hidden_files);
     assert_eq!(loaded.markdown_attachment_folder_path, "/attachments");
 }
 
@@ -82,6 +86,7 @@ fn load_nonexistent_returns_default() {
     assert!(loaded.android_vault_status_notification_enabled);
     assert!(loaded.android_quick_lock_tile_enabled);
     assert!(loaded.confirm_file_deletion);
+    assert!(!loaded.show_hidden_files);
     assert_eq!(loaded.markdown_attachment_folder_path, "/attachments");
 }
 

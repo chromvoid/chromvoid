@@ -266,6 +266,10 @@ class SettingsPageModel {
     await this.saveSettings({...this.settings(), confirm_file_deletion: checked})
   }
 
+  async setShowHiddenFiles(checked: boolean): Promise<void> {
+    await this.saveSettings({...this.settings(), show_hidden_files: checked})
+  }
+
   async setMarkdownAttachmentFolderPath(rawValue: string): Promise<void> {
     const normalized = normalizeMarkdownAttachmentFolderPath(rawValue)
     if (!normalized.ok) {

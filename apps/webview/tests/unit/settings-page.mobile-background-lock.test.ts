@@ -120,6 +120,7 @@ describe('Session settings mobile background lock', () => {
       android_vault_status_notification_enabled: true,
       android_quick_lock_tile_enabled: true,
       confirm_file_deletion: true,
+      show_hidden_files: false,
       markdown_attachment_folder_path: '/attachments',
     })
     expect(tauriInvoke).toHaveBeenCalledWith('get_session_settings')

@@ -312,8 +312,12 @@ describe('openFileMoveDialog', () => {
     expect(styleText).toContain('--adaptive-modal-sheet-max-height: 100dvh;')
     expect(styleText).toContain('--cv-bottom-sheet-expanded-height: 100dvh;')
     expect(styleText).toContain('--cv-bottom-sheet-middle-height: min(72dvh, 560px);')
-    expect(styleText).toContain('block-size: var(--adaptive-modal-sheet-max-height);')
+    expect(styleText).toContain('grid-template-rows: auto auto minmax(0, 1fr) auto;')
+    expect(styleText).toContain(
+      'block-size: min(var(--adaptive-modal-sheet-max-height), calc(100dvh - var(--cv-bottom-sheet-safe-top)));',
+    )
     expect(styleText).toContain('block-size: 100%;')
+    expect(styleText).toContain('overflow: hidden;')
     expect(styleText).toContain('padding: var(--cv-space-5) var(--cv-space-5) var(--cv-space-2);')
     expect(styleText).toContain(
       'padding: var(--cv-space-2) var(--cv-space-5) max(var(--cv-space-5), env(safe-area-inset-bottom));',
