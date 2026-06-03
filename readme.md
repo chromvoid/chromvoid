@@ -1,96 +1,50 @@
 # ChromVoid
 
-Privacy-first encrypted vault. Stores passwords, files, and secrets locally with end-to-end encryption. No accounts, no cloud lock-in, no trust required.
+ChromVoid is a local-first encrypted vault for passwords, OTP, notes, files, and related secret workflows.
 
-## How it works
+It is built for people who want control over where their secrets live: on a local device, or on a phone that acts as the source of truth. ChromVoid does not make a cloud account the source of truth for your vault.
 
-All data lives in encrypted chunks on your device. The core is written in Rust and handles cryptography, storage, and sync. The UI runs in a WebView and talks to the core through an RPC layer over Tauri IPC or a Noise Protocol secure channel.
+## What ChromVoid helps with
 
-**Storage model**: Segmented catalog — Root Index + Shard Snapshots + Delta Logs. Optimized for 10k+ entries, incremental sync, and plausible deniability. Chunk names are deterministic but key-dependent; all payloads use AEAD encryption (ChaCha20-Poly1305) with context binding.
+- **Passwords and OTP** - store login records, passwords, one-time password profiles, and private notes in an encrypted vault.
+- **Notes and files** - keep sensitive documents and folder-based work inside the vault. Mounted Vault supports workflows where an unlocked vault appears as a normal desktop folder.
+- **Local and mobile-host modes** - use a vault locally on desktop or mobile, or let a phone hold the secrets while desktop connects as a thin client.
+- **Autofill without a browser vault** - use the browser extension or supported Credential Provider integrations without storing secrets in the browser profile.
+- **Imports** - bring data in from common password managers such as 1Password, Bitwarden, and Chrome.
+- **Emergency Access** - configure delayed, controlled release for a trusted recipient. This is not instant password recovery.
+- **Deniability-oriented design** - use decoy and hidden vaults for coercion-aware workflows. The limits depend on the threat model, storage medium, and operational habits.
 
-**Sync**: Devices pair via Noise Protocol (Noise_XX_25519_ChaChaPoly_BLAKE2s) over WebRTC, WSS, or USB. No central server required. Append-only deltas minimize traffic.
+## Security posture
 
-**Emergency access**: Dead man's switch via escrow service. Split-key design — the server never sees plaintext. Owner can cancel during delay window.
+ChromVoid is a security tool, not legal advice or a replacement for operational security.
 
-## Architecture
+The product is designed around a few practical boundaries:
 
-```
-┌─────────────────────────────────────────────────┐
-│                   Applications                   │
-│  Desktop (Tauri)  ·  Browser Extension  ·  Relay │
-├─────────────────────────────────────────────────┤
-│                    WebView UI                     │
-│        Lit + Reatom · UIKit · Headless a11y      │
-├─────────────────────────────────────────────────┤
-│               RPC / Secure Channel               │
-│       Noise Protocol · Tauri IPC · WebRTC        │
-├─────────────────────────────────────────────────┤
-│                    Rust Core                      │
-│   Crypto · Storage · Catalog · Sync · PassMgr    │
-└─────────────────────────────────────────────────┘
-```
+- secrets stay with you, locally or on your phone;
+- the browser extension is a thin shell and does not become a second vault;
+- supported autofill paths require local vault state instead of background cloud access;
+- a locked vault should fail closed rather than unlock silently in the background;
+- deniability is conditional and should be evaluated against a concrete threat model.
 
-### Rust Core (`crates/`)
+If a device is compromised while the vault is open, the live session becomes the sensitive boundary. ChromVoid reduces exposure paths, but it cannot make an actively observed open session safe.
 
-- `core` — encryption, vault storage format, RPC router, catalog, sync engine
-- `protocol` — Noise Protocol secure channel framing, transport abstractions
-- `fuser` — FUSE mount for vault-as-filesystem
-- `cli` — command-line interface
+## Repository
 
-### Applications (`apps/`)
+This monorepo contains the ChromVoid application code, shared packages, and supporting services.
 
-- `chromvoid` — Tauri desktop app (macOS, Windows, Linux)
-- `webview` — shared WebView UI for desktop and mobile
-- `browser-extensions` — Chrome/Firefox extension for autofill
-- `relay` — relay server for device-to-device connectivity
-
-### Shared Packages (`packages/`)
-
-- `headless` — framework-agnostic WAI-ARIA APG headless components (Reatom v1000)
-- `uikit` — Lit web components, visual design system
-- `passmanager` — password manager domain model and service layer
-- `scheme` — shared TypeScript types generated from Rust via ts-rs
-- `i18n` — localization
-- `ui` — shared UI utilities
-- `utils` — common utilities
-- `password-import` — import from 1Password, Bitwarden, Chrome, etc.
-
-## Security model
-
-- **Zero-knowledge** — vault is encrypted at rest and in transit. The server (if used) never accesses plaintext.
-- **AEAD encryption** — ChaCha20-Poly1305 with per-chunk unique nonce and context-bound AAD.
-- **Noise Protocol** — mutual authentication and forward secrecy for all device-to-device communication.
-- **System shard isolation** — internal namespaces (`.passmanager`, `.wallet`) are blocked from generic file interfaces; access only through domain-specific RPC.
-- **No accounts** — capability-token auth where applicable. No user database to breach.
-- **Plausible deniability** — flat chunk storage reveals no meaningful structure without keys.
-
-## Tech stack
-
-| Layer     | Stack                                                    |
-| --------- | -------------------------------------------------------- |
-| Core      | Rust, ChaCha20-Poly1305, X25519, BLAKE2s, Noise Protocol |
-| Desktop   | Tauri v2, WebView                                        |
-| Frontend  | Lit, Reatom v1000, TypeScript                            |
-| Backend   | Rust, Axum, Tower, PostgreSQL, Redis                     |
-| Transport | WebRTC, WSS, USB, Noise XX/IK/XXpsk0                    |
-
-## Monorepo structure
-
-```
+```text
 chromvoid/
-├── apps/                 # Desktop, extension, relay
-├── backend/              # Rust backend services + landings
-├── crates/               # Rust core, protocol, FUSE, CLI
-├── packages/             # Shared TS packages (headless, uikit, passmanager, ...)
+├── apps/                 # Desktop app, WebView UI, browser extension, relay
+├── backend/              # Backend services, landing pages, licensing, payments
+├── crates/               # Rust core, protocol, FUSE, CLI, platform bridges
+├── packages/             # Shared TypeScript packages and UI libraries
 └── tests/                # Integration and E2E tests
 ```
 
+The codebase is organized around a Rust core, a shared WebView application UI, browser and platform integrations, and reusable TypeScript packages. Technical details live in the relevant package, crate, and feature documentation rather than in this README.
+
 ## License
 
-ChromVoid uses a mixed-license model.
+ChromVoid uses a mixed `AGPL-3.0-only + Commercial` licensing model, with some standalone reusable packages under permissive licenses.
 
-- `crates/core`, `crates/protocol`, the desktop/web/extension apps, and product UI packages are `AGPL-3.0-only`
-- `packages/headless-ui` remains `MIT`
-- `backend/`, `apps/relay/`, paid features, and internal business/ops assets are commercial / proprietary
-
-See `LICENSE` and `LICENSING.md` for the path-level matrix.
+See [LICENSING.md](LICENSING.md) for the authoritative path-level license matrix. Package-level license fields remain authoritative where they are present.
