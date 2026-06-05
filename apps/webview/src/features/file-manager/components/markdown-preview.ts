@@ -116,7 +116,7 @@ export class MarkdownPreview extends ReatomLitElement {
         block-size: 100%;
         min-block-size: 0;
         color: var(--cv-color-text);
-        --markdown-editor-keyboard-clearance: var(--visual-viewport-bottom-inset, 0px);
+        --markdown-editor-keyboard-clearance: var(--mobile-keyboard-scroll-clearance, 0px);
       }
 
       .markdown-preview {
@@ -229,9 +229,8 @@ export class MarkdownPreview extends ReatomLitElement {
       }
 
       cv-callout.markdown-status-callout {
-        --cv-callout-padding-block: var(--app-spacing-3);
-        --cv-callout-padding-inline: var(--app-spacing-4);
-        --cv-callout-border-radius: var(--cv-radius-3);
+        --cv-callout-compact-padding-inline: var(--app-spacing-4);
+        --cv-callout-compact-border-radius: var(--cv-radius-3);
         flex: 1 1 auto;
         min-inline-size: 0;
         line-height: 1.5;
@@ -597,12 +596,7 @@ export class MarkdownPreview extends ReatomLitElement {
       }
 
       .stale-overflow {
-        --cv-menu-button-gap: 0;
         --cv-menu-button-min-height: 36px;
-        --cv-menu-button-padding-inline: 0;
-        --cv-menu-button-padding-block: 0;
-        --cv-menu-button-menu-offset: 4px;
-        --cv-menu-button-menu-min-inline-size: 180px;
         flex: 0 0 auto;
         margin-inline-start: auto;
       }
@@ -745,32 +739,13 @@ export class MarkdownPreview extends ReatomLitElement {
           min-block-size: 0;
         }
 
-        .content {
-          padding-block-end: var(--markdown-editor-keyboard-clearance);
-        }
 
         .rendered-markdown {
-          padding-inline-start: max(var(--app-spacing-4), env(safe-area-inset-left));
-          padding-inline-end: max(var(--app-spacing-4), env(safe-area-inset-right));
-          padding-block-start: var(--app-spacing-4);
-          padding-block-end: calc(
-            var(--app-spacing-4) + var(--markdown-preview-fab-clearance)
-          );
-          scroll-padding-block-end: var(--markdown-preview-fab-clearance);
+          padding: var(--app-spacing-2) var(--app-spacing-4);
         }
 
         .source-editor {
-          --markdown-editor-last-line-clearance: 1lh;
-          padding-inline-start: max(var(--app-spacing-4), env(safe-area-inset-left));
-          padding-inline-end: max(var(--app-spacing-4), env(safe-area-inset-right));
-          padding-block-start: var(--app-spacing-4);
-          padding-block-end: calc(
-            var(--app-spacing-4) + var(--markdown-editor-last-line-clearance)
-          );
-          scroll-padding-block-end: calc(
-            var(--markdown-editor-keyboard-clearance) + var(--app-spacing-4) +
-              var(--markdown-editor-last-line-clearance)
-          );
+          padding: var(--app-spacing-2) var(--app-spacing-4);
           font-size: var(--cv-font-size-base);
           line-height: 1.6;
         }
@@ -2008,7 +1983,7 @@ export class MarkdownPreview extends ReatomLitElement {
       return html`
         <div class="markdown-status-block">
           <div class="markdown-status-row">
-            <cv-callout class="markdown-status-callout" variant="warning" role="alert">
+            <cv-callout class="markdown-status-callout" variant="warning" density="compact" role="alert">
               <cv-icon slot="icon" name="exclamation-triangle" size="s"></cv-icon>
               <div class="markdown-status-body">
                 <strong>${i18n('markdown:stale:title')}</strong>
@@ -2018,6 +1993,7 @@ export class MarkdownPreview extends ReatomLitElement {
             <cv-menu-button
               class="stale-overflow"
               variant="ghost"
+              preset="icon-overflow"
               aria-label=${i18n('markdown:stale:more-actions' as any)}
               @cv-input=${this.handleStaleOverflow}
             >
@@ -2045,7 +2021,7 @@ export class MarkdownPreview extends ReatomLitElement {
 
     if (state.readOnlyReasonKey) {
       return html`
-        <cv-callout class="markdown-status-callout" variant="warning" role="status" aria-live="polite">
+        <cv-callout class="markdown-status-callout" variant="warning" density="compact" role="status" aria-live="polite">
           <cv-icon slot="icon" name="info" size="s"></cv-icon>
           <span>${i18n(state.readOnlyReasonKey)}</span>
         </cv-callout>
@@ -2054,7 +2030,7 @@ export class MarkdownPreview extends ReatomLitElement {
 
     if (state.errorKey) {
       return html`
-        <cv-callout class="markdown-status-callout" variant="danger" role="alert">
+        <cv-callout class="markdown-status-callout" variant="danger" density="compact" role="alert">
           <cv-icon slot="icon" name="exclamation-triangle" size="s"></cv-icon>
           <span>${i18n(state.errorKey)}</span>
         </cv-callout>

@@ -16,7 +16,7 @@ mod session;
 #[cfg(desktop)]
 pub(crate) use config_persistence::save_config_snapshot_best_effort;
 #[cfg(desktop)]
-pub use server::spawn_gateway_server;
+pub(crate) use server::spawn_gateway_server;
 pub use state::{hex_encode, GatewayConfig, GatewayState};
 pub use types::{
     AccessDuration, ActionGrant, AllowedCommands, CapabilityPolicy, CommandCategory, GrantStore,

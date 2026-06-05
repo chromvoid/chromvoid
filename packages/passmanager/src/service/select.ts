@@ -137,6 +137,7 @@ export const filterRule = (entry: Entry, filterValue: string) => {
 
 export function getEffectiveSelectedCredentialTagFilters(
   entries: readonly Entry[] | undefined | null,
+  catalogTags: readonly string[] = [],
 ): CredentialTagKey[] {
-  return pruneCredentialTagKeys(selectedCredentialTagFilters(), buildCredentialTagOptions(entries ?? []))
+  return pruneCredentialTagKeys(selectedCredentialTagFilters(), buildCredentialTagOptions(entries ?? [], catalogTags))
 }

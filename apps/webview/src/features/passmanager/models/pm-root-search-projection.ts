@@ -110,7 +110,7 @@ class PMRootSearchProjectionModel {
 
       const query = filterValue()
       const activeFilters = quickFilters()
-      const selectedTags = getEffectiveSelectedCredentialTagFilters(root.allEntries)
+      const selectedTags = getEffectiveSelectedCredentialTagFilters(root.allEntries, root.credentialTags())
       const currentSort = {
         groupBy: groupBy(),
         sortField: sortField(),

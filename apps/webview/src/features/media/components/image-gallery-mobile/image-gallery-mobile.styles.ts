@@ -213,13 +213,9 @@ export const imageGalleryMobileStyles = [
     }
 
     .header-menu-button {
-      --cv-menu-button-gap: 0;
       --cv-menu-button-min-height: 44px;
-      --cv-menu-button-padding-inline: 0;
-      --cv-menu-button-padding-block: 0;
-      --cv-menu-button-menu-offset: 6px;
-      --cv-menu-button-menu-min-inline-size: 220px;
-      --cv-menu-button-menu-max-inline-size: min(280px, calc(100vw - 16px));
+      --cv-menu-button-icon-overflow-menu-offset: 6px;
+      --cv-menu-button-icon-overflow-menu-min-inline-size: 220px;
       --cv-menu-button-menu-z-index: 1005;
       inline-size: 44px;
       block-size: 44px;
@@ -312,17 +308,6 @@ export const imageGalleryMobileStyles = [
       --image-gallery-sheet-border-strong: rgba(0, 229, 255, 0.28);
       --image-gallery-sheet-text: #eef5ff;
       --image-gallery-sheet-muted: rgba(238, 245, 255, 0.66);
-      --cv-bottom-sheet-z-index: 1004;
-      --cv-bottom-sheet-overlay-color: var(--cv-alpha-black-55);
-      --cv-bottom-sheet-collapsed-height: 204px;
-      --cv-bottom-sheet-middle-height: min(58dvh, 500px);
-      --cv-bottom-sheet-expanded-height: calc(
-        100dvh - max(var(--app-spacing-2), var(--safe-area-top, 0px)) - 6px
-      );
-      --cv-bottom-sheet-max-height: var(--cv-bottom-sheet-expanded-height);
-      --cv-bottom-sheet-border-radius: 20px 20px 0 0;
-      --cv-bottom-sheet-grabber-color: var(--cv-color-primary-border-strong);
-      --cv-bottom-sheet-dismiss-duration: 180ms;
       --image-gallery-sheet-handle-block-size: 28px;
     }
 

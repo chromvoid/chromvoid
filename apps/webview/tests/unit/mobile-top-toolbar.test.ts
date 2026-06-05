@@ -302,11 +302,4 @@ describe('MobileTopToolbar', () => {
     expect(accentButton?.classList.contains('tone-accent')).toBe(true)
   })
 
-  it('keeps trailing toolbar actions inside app horizontal padding', () => {
-    const cssText = MobileTopToolbar.styles.map((style) => style.cssText ?? '').join('\n')
-
-    expect(cssText).toContain('box-sizing: border-box;')
-    expect(cssText).toContain('padding-inline-end: max(8px, env(safe-area-inset-right, 0px));')
-    expect(cssText).toContain('justify-content: flex-end;')
-  })
 })

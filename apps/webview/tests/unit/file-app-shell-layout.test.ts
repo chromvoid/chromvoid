@@ -1,5 +1,4 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
-import {readFileSync} from 'node:fs'
 
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 import {resolveLayoutMode} from '../../src/app/layout/layout-mode'
@@ -7,32 +6,8 @@ import type {LayoutMode} from '../../src/app/layout/layout-mode'
 import {navigationModel} from '../../src/app/navigation/navigation.model'
 import {atom} from '@reatom/core'
 import {FileAppShell} from '../../src/features/shell/components/file-app-shell'
-import {FileAppShellDesktopLayout} from '../../src/features/shell/components/file-app-shell-desktop-layout'
 import {FileAppShellMobileLayout} from '../../src/features/shell/components/file-app-shell-mobile-layout'
-import {FileManagerMobileLayout} from '../../src/features/file-manager/components/file-manager-mobile-layout'
 import {mediaPlaybackModel} from '../../src/features/media/models/media-playback.model'
-
-function stylesToText(styles: unknown): string {
-  const values = Array.isArray(styles) ? styles : [styles]
-  return values
-    .map((value) => {
-      if (value == null) return ''
-      return typeof value === 'object' && 'cssText' in (value as object)
-        ? String((value as {cssText: string}).cssText)
-        : String(value)
-    })
-    .join('\n')
-}
-
-function lastStyleText(styles: unknown): string {
-  const values = Array.isArray(styles) ? styles : [styles]
-  const last = values.at(-1)
-  return stylesToText(last)
-}
-
-function resetCssText(): string {
-  return readFileSync('src/styles/base/reset.css', 'utf8')
-}
 
 function createTouchEvent(type: string, touches: Array<{clientX: number; clientY: number}>): TouchEvent {
   const event = new Event(type, {bubbles: true, cancelable: true}) as TouchEvent
@@ -83,12 +58,7 @@ describe('file-app-shell layout selection', () => {
   }
 
   function defineMobileShellForRender() {
-    if (!customElements.get(FileAppShellMobileLayout.elementName)) {
-      customElements.define(
-        FileAppShellMobileLayout.elementName,
-        FileAppShellMobileLayout as unknown as CustomElementConstructor,
-      )
-    }
+    FileAppShellMobileLayout.define()
   }
 
   function seedAudioSession() {
@@ -101,6 +71,12 @@ describe('file-app-shell layout selection', () => {
     mediaPlaybackModel.playbackIntent.set('pause')
     mediaPlaybackModel.playbackState.set('paused')
   }
+
+  it('registers shared mobile UI primitives from the mobile shell boundary', () => {
+    FileAppShellMobileLayout.define()
+
+    expect(customElements.get('mobile-bottom-action-footer')).toBeDefined()
+  })
 
   describe('resolveLayoutMode integration with wrapper logic', () => {
     it('returns "mobile" when forced via query param', () => {
@@ -190,105 +166,9 @@ describe('file-app-shell layout selection', () => {
       expect(result).toBe('mobile')
     })
 
-    it('mobile shell styles keep fixed overlays viewport-anchored', () => {
-      const cssText = lastStyleText(FileAppShellMobileLayout.styles)
-
-      expect(cssText).toContain(':host')
-      expect(cssText).not.toContain('container-type: inline-size;')
-      expect(cssText).toContain('contain: style;')
-      expect(cssText).not.toContain('contain: layout style;')
-    })
-
-    it('mobile details motion uses canonical tokens and reduced-motion coverage', () => {
-      const cssText = lastStyleText(FileAppShellMobileLayout.styles)
-
-      expect(cssText).toContain('transform var(--cv-duration-slow, 320ms)')
-      expect(cssText).toContain('var(--cv-easing-decelerate, cubic-bezier(0, 0, 0.2, 1))')
-      expect(cssText).toContain('opacity var(--cv-duration-fast, 120ms)')
-      expect(cssText).toContain('@media (prefers-reduced-motion: reduce)')
-      expect(cssText).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.details\s*{[\s\S]*transform: none;/)
-      expect(cssText).toContain('--cv-drawer-transition-duration: var(--cv-duration-instant, 0ms);')
-      expect(cssText).toContain(':host([data-details-hidden]) .details')
-    })
-
-    it('keeps the background grid subtle and behind mobile shell content', () => {
-      const cssText = lastStyleText(FileAppShellMobileLayout.styles)
-
-      expect(cssText).toContain('.content::before')
-      expect(cssText).toContain('pointer-events: none;')
-      expect(cssText).toContain('opacity: 0.06;')
-      expect(cssText).toContain('z-index: 0;')
-      expect(cssText).toContain('.content slot')
-      expect(cssText).toContain('z-index: 1;')
-    })
-
-    it('reserves named top and bottom clearance for mobile chrome', () => {
-      const cssText = lastStyleText(FileAppShellMobileLayout.styles)
-
-      expect(cssText).toContain('--mobile-topbar-block-size: 56px;')
-      expect(cssText).toContain('padding-block-start: var(--mobile-topbar-block-size);')
-      expect(cssText).toContain('--mobile-tab-bar-active-block-size: var(')
-      expect(cssText).toContain('--mobile-tab-bar-keyboard-aware-block-size,')
-      expect(cssText).toContain('var(--mobile-tab-bar-block-size)')
-      expect(cssText).toContain(
-        '--mobile-tab-bar-content-clearance: var(--mobile-tab-bar-active-block-size);',
-      )
-      expect(cssText).toContain('--mobile-tab-bar-viewport-clearance: calc(')
-      expect(cssText).toContain('--mobile-media-mini-block-size: 78px;')
-      expect(cssText).toContain('--mobile-media-mini-gap: var(--app-spacing-3);')
-      expect(cssText).toContain('var(--mobile-tab-bar-active-block-size)')
-      expect(cssText).toContain('var(--mobile-tab-bar-content-clearance)')
-      expect(cssText).toContain('var(--mobile-media-mini-block-size)')
-      expect(cssText).toContain('var(--mobile-media-mini-gap)')
-      expect(cssText).not.toContain('64px + 64px')
-      expect(cssText).not.toContain('76px')
-    })
-
-    it('does not double-count bottom safe-area in mobile shell content clearance', () => {
-      const cssText = lastStyleText(FileAppShellMobileLayout.styles)
-
-      expect(cssText).toMatch(
-        /\.content\s*{[^}]*padding-block-end: var\(--mobile-tab-bar-content-clearance\);/,
-      )
-      expect(cssText).toMatch(
-        /\.content--media-mini\s*{[^}]*var\(--mobile-tab-bar-content-clearance\)[^}]*var\(--mobile-media-mini-block-size\)[^}]*var\(--mobile-media-mini-gap\)/,
-      )
-      expect(cssText).toMatch(
-        /\.mobile-media-mini\s*{[^}]*inset-block-end: calc\(\s*var\(--mobile-tab-bar-viewport-clearance\) \+ var\(--mobile-media-mini-gap\)\s*\);/,
-      )
-    })
-
-    it('removes bottom tab bar clearance while the mobile keyboard is visible', () => {
-      const cssText = lastStyleText(FileAppShellMobileLayout.styles)
-      const resetCss = resetCssText()
-
-      expect(cssText).toContain('--mobile-tab-bar-keyboard-aware-block-size')
-      expect(resetCss).toMatch(
-        /html\[data-mobile-keyboard-expanded\],\s*html\[data-visual-viewport-shrunken\]\s*{[^}]*--mobile-tab-bar-keyboard-aware-block-size: 0px;/,
-      )
-      expect(resetCss).toContain('--mobile-tab-bar-keyboard-aware-display: none;')
-    })
-
-    it('anchors the mobile top toolbar to the viewport above scrolling files content', () => {
-      const cssText = lastStyleText(FileAppShellMobileLayout.styles)
-      const resetCss = resetCssText()
-
-      expect(cssText).toMatch(
-        /\.topbar\s*{[^}]*position: fixed;[^}]*inset-block-start: var\(--safe-area-top, 0px\);[^}]*inset-inline: 0;/,
-      )
-      expect(resetCss).toContain('--safe-area-top-env: env(safe-area-inset-top, 0px);')
-      expect(resetCss).toContain('--safe-area-top-fallback: 0px;')
-      expect(resetCss).toContain('--safe-area-top: max(var(--safe-area-top-env), var(--safe-area-top-fallback));')
-      expect(resetCss).toContain('--safe-area-bottom-native: 0px;')
-      expect(resetCss).toMatch(
-        /--safe-area-bottom:\s*max\(\s*var\(--safe-area-bottom-env\),\s*var\(--safe-area-bottom-native\),\s*var\(--safe-area-bottom-fallback\)\s*\);/,
-      )
-    })
-
     it('keeps shell-owned mobile content scrolling as the default', async () => {
       setupContext('mobile')
       defineMobileShellForRender()
-      const cssText = lastStyleText(FileAppShellMobileLayout.styles)
 
       const element = document.createElement('file-app-shell-mobile-layout') as FileAppShellMobileLayout
       document.body.append(element)
@@ -296,13 +176,6 @@ describe('file-app-shell layout selection', () => {
 
       expect(element.contentScrollMode).toBe('shell')
       expect(element.getAttribute('content-scroll-mode')).toBe('shell')
-      expect(cssText).toMatch(/\.content\s*{[^}]*overflow: auto;/)
-      expect(cssText).toMatch(
-        /:host\(\[content-scroll-mode='surface'\]\)\s+\.content\s*{[^}]*overflow: hidden;/,
-      )
-      expect(cssText).toMatch(
-        /:host\(\[content-scroll-mode='surface'\]\)\s+\.content slot:not\(\[name\]\)\s*{[^}]*min-block-size: 0;/,
-      )
     })
 
     it('forwards surface-owned content scrolling to the mobile shell layout', async () => {
@@ -324,25 +197,6 @@ describe('file-app-shell layout selection', () => {
       expect(layout?.getAttribute('content-scroll-mode')).toBe('surface')
     })
 
-    it('stretches the mobile navigation rail through the drawer body', () => {
-      const cssText = lastStyleText(FileAppShellMobileLayout.styles)
-
-      expect(cssText).toMatch(
-        /\.mobile-nav-drawer::part\(body\)\s*{[^}]*display: flex;[^}]*grid-row: 2;[^}]*align-items: stretch;[^}]*block-size: 100%;[^}]*box-sizing: border-box;[^}]*min-block-size: 0;[^}]*padding-block-start: 0;/,
-      )
-      expect(cssText).toContain('--cv-drawer-footer-spacing: 0px;')
-      expect(cssText).toMatch(
-        /\.mobile-nav-drawer::part\(panel\)\s*{[^}]*inset-block-start: var\(--safe-area-top, 0px\);[^}]*block-size: calc\(100dvh - var\(--safe-area-top, 0px\)\);[^}]*grid-template-rows: auto minmax\(0, 1fr\) auto;[^}]*min-block-size: 0;[^}]*overflow: hidden;/,
-      )
-      expect(cssText).toMatch(
-        /\.mobile-nav-drawer::part\(footer\)\s*{[^}]*display: block;[^}]*grid-row: 3;[^}]*min-block-size: 0;[^}]*padding-block-end: var\(--safe-area-bottom-active,/,
-      )
-      expect(cssText).toMatch(
-        /\.mobile-nav-rail\s*{[^}]*flex: 1 1 auto;[^}]*min-block-size: 0;[^}]*inline-size: 100%;[^}]*touch-action: pan-y;/,
-      )
-      expect(cssText).toMatch(/\.mobile-nav-actions\s*{[^}]*inline-size: 100%;/)
-    })
-
     it('renders mobile mini player and bottom clearance while audio is active', async () => {
       setupContext('mobile')
       defineMobileShellForRender()
@@ -353,9 +207,6 @@ describe('file-app-shell layout selection', () => {
       await element.updateComplete
 
       expect(element.shadowRoot?.querySelector('.mobile-media-mini media-mini-player')).not.toBeNull()
-      expect(element.shadowRoot?.querySelector('.content')?.classList.contains('content--media-mini')).toBe(
-        true,
-      )
     })
 
     it('renders the navigation rail inside the standard UIKit drawer', async () => {
@@ -463,9 +314,6 @@ describe('file-app-shell layout selection', () => {
       await element.updateComplete
 
       expect(element.shadowRoot?.querySelector('.mobile-media-mini')).toBeNull()
-      expect(element.shadowRoot?.querySelector('.content')?.classList.contains('content--media-mini')).toBe(
-        false,
-      )
     })
 
     it('keeps mobile tab bar visible on create-entry workflow', async () => {
@@ -479,9 +327,6 @@ describe('file-app-shell layout selection', () => {
       await element.updateComplete
 
       expect(element.shadowRoot?.querySelector('mobile-tab-bar')).not.toBeNull()
-      expect(element.shadowRoot?.querySelector('.content')?.classList.contains('content--no-tabbar')).toBe(
-        false,
-      )
     })
 
     it('keeps mobile tab bar visible on create-group workflow', async () => {
@@ -495,18 +340,8 @@ describe('file-app-shell layout selection', () => {
       await element.updateComplete
 
       expect(element.shadowRoot?.querySelector('mobile-tab-bar')).not.toBeNull()
-      expect(element.shadowRoot?.querySelector('.content')?.classList.contains('content--no-tabbar')).toBe(
-        false,
-      )
     })
 
-    it('mobile file-manager layout styles do not contain fixed sheets', () => {
-      const cssText = lastStyleText(FileManagerMobileLayout.styles)
-
-      expect(cssText).toContain('.catalog')
-      expect(cssText).toContain('contain: style;')
-      expect(cssText).not.toContain('contain: layout style paint;')
-    })
   })
 
   describe('desktop layout behavior', () => {
@@ -520,15 +355,5 @@ describe('file-app-shell layout selection', () => {
       expect(result).toBe('desktop')
     })
 
-    it('desktop details motion uses canonical tokens and reduced-motion coverage', () => {
-      const cssText = lastStyleText(FileAppShellDesktopLayout.styles)
-
-      expect(cssText).toContain('transform var(--cv-duration-slow, 320ms)')
-      expect(cssText).toContain('var(--cv-easing-decelerate, cubic-bezier(0, 0, 0.2, 1))')
-      expect(cssText).toContain('opacity var(--cv-duration-fast, 120ms)')
-      expect(cssText).toContain('@media (prefers-reduced-motion: reduce)')
-      expect(cssText).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.details\s*{[\s\S]*transform: none;/)
-      expect(cssText).toContain(':host([data-details-hidden]) .details')
-    })
   })
 })

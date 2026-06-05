@@ -1,6 +1,7 @@
 import {css} from 'lit'
 import {html} from '@chromvoid/uikit/reatom-lit'
 
+import {CvEmptyState} from 'root/shared/ui/empty-state'
 import {PMEntryOTPItem} from '../card/pm-entry-otp-item'
 import {PMSummaryRail} from '../summary-rail'
 import {PMOtpQuickViewBase} from './otp-quick-view-base'
@@ -59,21 +60,9 @@ export class PMOtpQuickViewMobile extends PMOtpQuickViewBase {
 
       cv-input.search {
         flex: 1 1 auto;
-        --cv-input-height: 42px;
-        --cv-input-padding-inline: 14px;
-        --cv-input-font-size: 16px;
-        --cv-input-border-radius: 14px;
-        --cv-input-background: var(--cv-color-surface-2);
-        --cv-input-border-color: var(--cv-color-border-glass);
-        --cv-input-placeholder-color: var(--cv-color-text-muted);
-        --cv-input-icon-size: 20px;
-        box-shadow:
+        --cv-input-search-mobile-shadow:
           inset 0 1px 2px var(--cv-alpha-black-10),
           0 1px 0 var(--cv-alpha-white-4);
-      }
-
-      cv-input.search:hover {
-        --cv-input-border-color: var(--cv-color-primary-border);
       }
 
       .clear-filters--compact {
@@ -88,11 +77,16 @@ export class PMOtpQuickViewMobile extends PMOtpQuickViewBase {
   ]
 
   static define() {
+    CvEmptyState.define()
     PMEntryOTPItem.define()
     PMSummaryRail.define()
     if (!customElements.get('pm-otp-quick-view-mobile')) {
       customElements.define('pm-otp-quick-view-mobile', this)
     }
+  }
+
+  protected override getSearchInputPreset(): string {
+    return 'search-mobile'
   }
 
   render() {

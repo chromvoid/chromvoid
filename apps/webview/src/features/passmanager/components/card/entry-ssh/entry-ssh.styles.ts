@@ -5,12 +5,6 @@ export const entrySshSharedStyles = css`
     display: block;
   }
 
-  .entry-ssh-surface {
-    border: 1px solid var(--cv-color-border-strong);
-    border-radius: var(--cv-radius-2);
-    background: var(--cv-color-surface-2);
-  }
-
   .entry-ssh-inline {
     display: flex;
     align-items: center;

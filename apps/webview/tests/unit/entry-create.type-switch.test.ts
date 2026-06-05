@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
-import {CVInput, CVTextarea} from '@chromvoid/uikit'
+import {CVCombobox, CVInput, CVTextarea} from '@chromvoid/uikit'
 import {PMEntryCreateDesktop} from '../../src/features/passmanager/components/card/entry-create/entry-create'
 import {PMEntryCreateMobile} from '../../src/features/passmanager/components/card/entry-create/entry-create-mobile'
 
@@ -25,6 +25,7 @@ describe('PMEntryCreate entry type switch', () => {
 
     CVInput.define()
     CVTextarea.define()
+    CVCombobox.define()
     PMEntryCreateDesktop.define()
     PMEntryCreateMobile.define()
 
@@ -70,11 +71,18 @@ describe('PMEntryCreate entry type switch', () => {
     const section = component.shadowRoot?.querySelector('.mobile-tags-section')
     expect(section).not.toBeNull()
 
-    const combobox = section?.querySelector('cv-combobox.entry-tags-combobox')
-    expect(combobox?.getAttribute('max-tags-visible')).toBe('1')
+    const combobox = section?.querySelector('cv-combobox.entry-tags-combobox') as
+      | (HTMLElement & {shadowRoot?: ShadowRoot; updateComplete?: Promise<unknown>})
+      | null
+    await combobox?.updateComplete
 
-    const addButton = section?.querySelector('.entry-tags-add cv-button')
-    expect(addButton?.getAttribute('aria-label')).toBe('Add tag')
+    expect(combobox?.getAttribute('max-tags-visible')).toBe('1')
+    expect(combobox?.getAttribute('type')).toBe('select-only')
+    expect(combobox?.shadowRoot?.querySelector('[part="input"]')).toBeNull()
+    expect(combobox?.shadowRoot?.querySelector('[part="trigger"]')).not.toBeNull()
+
+    const manageButton = section?.querySelector('.entry-tags-manage')
+    expect(manageButton?.getAttribute('aria-label')).toBe('Manage tags')
   })
 
 })

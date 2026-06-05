@@ -144,6 +144,7 @@ export class MediaMiniPlayer extends ReatomLitElement {
         class="media-mini-menu"
         size="medium"
         variant="ghost"
+        preset="icon-overflow"
         close-on-select
         aria-label=${i18n('media:current-track-actions' as any)}
         @click=${this.handleControlEvent}

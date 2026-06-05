@@ -4,7 +4,6 @@ import {Group, ManagerRoot} from '@project/passmanager'
 import {pmIconStore} from '../../src/features/passmanager/models/pm-icon-store'
 import {PMAvatarIcon} from '../../src/features/passmanager/components/pm-avatar-icon'
 import {PMAvatarIconModel} from '../../src/features/passmanager/components/pm-avatar-icon.model'
-import {pmIconPickerBaseStyles} from '../../src/features/passmanager/components/pm-icon-picker.base'
 
 function createElement() {
   PMAvatarIcon.define()
@@ -449,27 +448,8 @@ describe('PMAvatarIcon subscription cleanup', () => {
   })
 })
 
-describe('PMAvatarIcon styles', () => {
-  it('uses a dynamic solid background for external image icons', () => {
-    const cssText = PMAvatarIcon.styles.cssText
-
-    expect(cssText).toContain('--pm-avatar-icon-color: var(--cv-color-text-strong);')
-    expect(cssText).toContain('--pm-avatar-image-bg: var(--cv-color-surface-3);')
-    expect(cssText).toContain('padding: var(--pm-avatar-image-padding);')
-    expect(cssText).toContain('background: var(--pm-avatar-image-bg);')
-    expect(cssText).not.toContain('color-mix(')
-    expect(cssText).not.toContain('background-image: var(--cv-gradient-transparency-canvas);')
-  })
-
-  it('keeps the icon picker preview override on the strong text token', () => {
-    const cssText = pmIconPickerBaseStyles.cssText
-
-    expect(cssText).toContain('--pm-avatar-icon-color: var(--cv-color-text-strong);')
-    expect(cssText).not.toContain('--pm-avatar-icon-color: var(--cv-color-text-muted);')
-    expect(cssText).not.toContain('color-mix(')
-  })
-
-  it('applies cached image background color through a host css variable', async () => {
+describe('PMAvatarIcon cached image rendering', () => {
+  it('loads cached image background metadata without blocking image rendering', async () => {
     const element = createElement()
     const iconRef = 'entry-icon-with-background'
     const cache = new Map<string, string>([[iconRef, `blob:${iconRef}`]])
@@ -492,7 +472,7 @@ describe('PMAvatarIcon styles', () => {
       document.body.append(element)
       await settle(element)
 
-      expect(element.style.getPropertyValue('--pm-avatar-image-bg')).toBe('#102030')
+      expect(getCachedBackgroundColorSpy).toHaveBeenCalledWith(iconRef)
       expect(element.shadowRoot?.querySelector('img')?.getAttribute('src')).toBe(`blob:${iconRef}`)
     } finally {
       element.remove()

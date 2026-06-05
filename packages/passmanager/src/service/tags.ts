@@ -10,6 +10,31 @@ export type CredentialTagOption = {
   count: number
 }
 
+export type CredentialTagMutationEntry = {
+  id: string
+  tags: readonly string[]
+}
+
+export type CredentialTagRenamePlan =
+  | {
+      ok: true
+      sourceKey: CredentialTagKey
+      nextKey: CredentialTagKey
+      nextLabel: CredentialTagLabel
+      catalogTags: CredentialTagLabel[]
+      affectedEntryIds: string[]
+    }
+  | {
+      ok: false
+      reason: 'invalid_source' | 'invalid_label' | 'target_exists'
+    }
+
+export type CredentialTagDeletePlan = {
+  key: CredentialTagKey
+  catalogTags: CredentialTagLabel[]
+  affectedEntryIds: string[]
+}
+
 function normalizeTagText(value: string): string {
   return value
     .normalize('NFKC')
@@ -56,10 +81,37 @@ export function normalizeCredentialTags(values: unknown): string[] {
   return tags
 }
 
+export function normalizeCredentialTagCatalog(values: unknown): string[] {
+  if (!Array.isArray(values)) return []
+
+  const seen = new Set<CredentialTagKey>()
+  const tags: string[] = []
+
+  for (const value of values) {
+    const label = normalizeCredentialTagLabel(value)
+    if (!label) continue
+
+    const key = credentialTagKey(label)
+    if (!key || seen.has(key)) continue
+
+    seen.add(key)
+    tags.push(label)
+  }
+
+  return tags
+}
+
 export function buildCredentialTagOptions(
   entries: readonly {tags: readonly string[]}[],
+  catalogTags: readonly string[] = [],
 ): CredentialTagOption[] {
   const options = new Map<CredentialTagKey, CredentialTagOption>()
+
+  for (const label of normalizeCredentialTagCatalog(catalogTags)) {
+    const key = credentialTagKey(label)
+    if (!key || options.has(key)) continue
+    options.set(key, {key, label, count: 0})
+  }
 
   for (const entry of entries) {
     for (const label of normalizeCredentialTags(entry.tags)) {
@@ -78,6 +130,101 @@ export function buildCredentialTagOptions(
     if (byCount !== 0) return byCount
     return left.label.localeCompare(right.label)
   })
+}
+
+export function hasCredentialTagKey(tags: readonly string[], tagKey: string): boolean {
+  const key = credentialTagKey(tagKey)
+  if (!key) return false
+  return normalizeCredentialTagCatalog(tags).some((tag) => credentialTagKey(tag) === key)
+}
+
+export function replaceCredentialTagLabel(
+  tags: readonly string[],
+  sourceKey: string,
+  nextLabel: string,
+): string[] {
+  const normalizedSourceKey = credentialTagKey(sourceKey)
+  const normalizedNextLabel = normalizeCredentialTagLabel(nextLabel)
+  if (!normalizedSourceKey || !normalizedNextLabel) {
+    return normalizeCredentialTags(tags)
+  }
+
+  return normalizeCredentialTags(
+    tags.map((tag) => (credentialTagKey(tag) === normalizedSourceKey ? normalizedNextLabel : tag)),
+  )
+}
+
+export function removeCredentialTagLabel(tags: readonly string[], tagKey: string): string[] {
+  const normalizedKey = credentialTagKey(tagKey)
+  if (!normalizedKey) return normalizeCredentialTags(tags)
+  return normalizeCredentialTags(tags.filter((tag) => credentialTagKey(tag) !== normalizedKey))
+}
+
+export function planCredentialTagRename(
+  catalogTags: readonly string[],
+  entries: readonly CredentialTagMutationEntry[],
+  sourceKey: string,
+  nextLabel: unknown,
+): CredentialTagRenamePlan {
+  const normalizedSourceKey = credentialTagKey(sourceKey)
+  if (!normalizedSourceKey) {
+    return {ok: false, reason: 'invalid_source'}
+  }
+
+  const normalizedNextLabel = normalizeCredentialTagLabel(nextLabel)
+  if (!normalizedNextLabel) {
+    return {ok: false, reason: 'invalid_label'}
+  }
+
+  const nextKey = credentialTagKey(normalizedNextLabel)
+  const normalizedCatalog = normalizeCredentialTagCatalog(catalogTags)
+  if (
+    nextKey !== normalizedSourceKey &&
+    (hasCredentialTagKey(normalizedCatalog, nextKey) ||
+      entries.some((entry) => entryHasCredentialTag(entry.tags, nextKey)))
+  ) {
+    return {ok: false, reason: 'target_exists'}
+  }
+
+  const affectedEntryIds = entries
+    .filter((entry) => entryHasCredentialTag(entry.tags, normalizedSourceKey))
+    .map((entry) => entry.id)
+
+  const catalogHasSource = hasCredentialTagKey(normalizedCatalog, normalizedSourceKey)
+  const catalogTagsNext = catalogHasSource
+    ? normalizedCatalog.map((tag) =>
+        credentialTagKey(tag) === normalizedSourceKey ? normalizedNextLabel : tag,
+      )
+    : [...normalizedCatalog, normalizedNextLabel]
+
+  return {
+    ok: true,
+    sourceKey: normalizedSourceKey,
+    nextKey,
+    nextLabel: normalizedNextLabel,
+    catalogTags: normalizeCredentialTagCatalog(catalogTagsNext),
+    affectedEntryIds,
+  }
+}
+
+export function planCredentialTagDelete(
+  catalogTags: readonly string[],
+  entries: readonly CredentialTagMutationEntry[],
+  tagKey: string,
+): CredentialTagDeletePlan {
+  const key = credentialTagKey(tagKey)
+  const affectedEntryIds = key
+    ? entries.filter((entry) => entryHasCredentialTag(entry.tags, key)).map((entry) => entry.id)
+    : []
+  const catalogTagsNext = key
+    ? normalizeCredentialTagCatalog(catalogTags).filter((tag) => credentialTagKey(tag) !== key)
+    : normalizeCredentialTagCatalog(catalogTags)
+
+  return {
+    key,
+    catalogTags: catalogTagsNext,
+    affectedEntryIds,
+  }
 }
 
 export function pruneCredentialTagKeys(

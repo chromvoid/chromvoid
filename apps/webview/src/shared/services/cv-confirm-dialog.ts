@@ -1,10 +1,10 @@
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {CVDialog} from '@chromvoid/uikit/components/cv-dialog'
 import {atom, wrap} from '@reatom/core'
 import {css, type TemplateResult} from 'lit'
 import {i18n} from 'root/i18n'
 import type {ConfirmDialogOptions} from './dialog-types.js'
 import {writeAndroidUnlockDebug} from './android-unlock-debug'
-import {AdaptiveModalSurface} from '../ui/adaptive-modal-surface.js'
 
 type CvConfirmDialogOptions = ConfirmDialogOptions & {
   mode?: 'confirm' | 'alert'
@@ -62,7 +62,7 @@ const variantIcons: Record<string, TemplateResult> = {
 
 export class CvConfirmDialog extends ReatomLitElement {
   static define() {
-    AdaptiveModalSurface.define()
+    CVDialog.define()
     if (!customElements.get('cv-confirm-dialog')) {
       customElements.define('cv-confirm-dialog', this)
     }
@@ -74,65 +74,56 @@ export class CvConfirmDialog extends ReatomLitElement {
         display: contents;
       }
 
-      adaptive-modal-surface {
+      cv-dialog {
         --cv-color-surface-elevated: var(--cv-color-surface, #ffffff);
         --cv-color-border: var(--cv-color-border, var(--cv-alpha-black-10));
         --cv-color-text: var(--cv-color-text, #1f2937);
         --cv-color-text-muted: var(--cv-color-text-muted, #64748b);
         --cv-color-primary: var(--cv-color-primary, #6366f1);
-        --cv-dialog-border-radius: var(--cv-radius-2, 12px);
-        --cv-dialog-max-height: calc(100dvh - 32px);
-        --cv-dialog-width: min(480px, calc(100vw - 32px));
-        --adaptive-modal-width: min(480px, calc(100vw - 32px));
-        --adaptive-modal-max-height: calc(100dvh - 32px);
-        --cv-dialog-title-font-size: var(--cv-font-size-lg, 1.125rem);
+        --cv-dialog-width: var(--cv-dialog-width-m);
       }
 
-      adaptive-modal-surface.size-s {
-        --cv-dialog-width: min(320px, calc(100vw - 32px));
-        --adaptive-modal-width: min(320px, calc(100vw - 32px));
+      cv-dialog.size-s {
+        --cv-dialog-width: var(--cv-dialog-width-s);
       }
 
-      adaptive-modal-surface.size-l {
-        --cv-dialog-width: min(640px, calc(100vw - 32px));
-        --adaptive-modal-width: min(640px, calc(100vw - 32px));
+      cv-dialog.size-l {
+        --cv-dialog-width: var(--cv-dialog-width-l);
       }
 
-      adaptive-modal-surface.size-xl {
-        --cv-dialog-width: min(800px, calc(100vw - 32px));
-        --adaptive-modal-width: min(800px, calc(100vw - 32px));
+      cv-dialog.size-xl {
+        --cv-dialog-width: var(--cv-dialog-width-xl);
       }
 
-      adaptive-modal-surface::part(trigger) {
+      cv-dialog::part(trigger) {
         display: none;
       }
 
-      adaptive-modal-surface::part(content) {
+      cv-dialog::part(content) {
         gap: 0;
         padding: 0;
         overflow: hidden;
       }
 
-      adaptive-modal-surface::part(body) {
+      cv-dialog::part(body) {
         padding: 0;
       }
 
-      adaptive-modal-surface::part(footer) {
+      cv-dialog::part(footer) {
         display: block;
         padding: 0;
       }
 
-      adaptive-modal-surface::part(header) {
+      cv-dialog::part(header) {
         padding: var(--app-spacing-4, 1rem) var(--app-spacing-5, 1.25rem) 0;
       }
 
-      adaptive-modal-surface::part(title) {
+      cv-dialog::part(title) {
         margin: 0;
-        font-size: var(--cv-font-size-lg, 1.125rem);
         color: var(--cv-color-text, #1f2937);
       }
 
-      adaptive-modal-surface::part(description) {
+      cv-dialog::part(description) {
         display: none;
       }
 
@@ -351,9 +342,8 @@ export class CvConfirmDialog extends ReatomLitElement {
     const isAlert = opts.mode === 'alert'
 
     return html`
-      <adaptive-modal-surface
+      <cv-dialog
         class=${`size-${size}`}
-        presentation="dialog"
         .open=${this.isOpen()}
         .noHeader=${opts.noHeader ?? false}
         .closable=${closable}
@@ -385,7 +375,7 @@ export class CvConfirmDialog extends ReatomLitElement {
             >${opts.confirmText || i18n('button:ok' as any)}</cv-button
           >
         </div>
-      </adaptive-modal-surface>
+      </cv-dialog>
     `
   }
 }

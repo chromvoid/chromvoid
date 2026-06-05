@@ -221,6 +221,9 @@ impl RpcRouter {
             "passmanager:group:setMeta" => self.handle_passmanager_group_set_meta(&request.data),
             "passmanager:group:list" => self.handle_passmanager_group_list(&request.data),
             "passmanager:group:delete" => self.handle_passmanager_group_delete(&request.data),
+            "passmanager:tags:setCatalog" => {
+                self.handle_passmanager_tags_set_catalog(&request.data)
+            }
             "passmanager:root:import" => self.handle_passmanager_root_import(&request.data),
             "passmanager:root:export" => self.handle_passmanager_root_export(&request.data),
             "passmanager:icon:put" => self.handle_passmanager_icon_put(&request.data),
@@ -452,6 +455,9 @@ impl RpcRouter {
             }
             "passmanager:group:setMeta" => {
                 RpcReply::Json(self.handle_passmanager_group_set_meta(&request.data))
+            }
+            "passmanager:tags:setCatalog" => {
+                RpcReply::Json(self.handle_passmanager_tags_set_catalog(&request.data))
             }
             "passmanager:root:export" => {
                 RpcReply::Json(self.handle_passmanager_root_export(&request.data))

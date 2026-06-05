@@ -231,6 +231,38 @@ describe('PMEntryListItem active row tab order', () => {
     expect(badges.map((badge) => badge.getAttribute('data-family'))).toEqual(['risk', 'risk', null])
     expect(element.shadowRoot?.querySelector('.entry-badge-overflow')?.textContent).toContain('+2')
   })
+
+  it('renders payment card rows with a type glyph and card badge', async () => {
+    const group = createGroup('entry-item-card-marker-group')
+    const login = createEntry(group, 'entry-item-login-marker')
+    const card = createPaymentCardEntry(group, 'entry-item-card-marker', {last4: '4242'})
+    const root = new ManagerRoot({} as any)
+    group.entries.set([login, card])
+    root.entries.set([group])
+    root.showElement.set(group)
+    window.passmanager = root as typeof window.passmanager
+
+    const loginElement = document.createElement('pm-entry-list-item') as PMEntryListItem
+    loginElement.entry = login
+    const cardElement = document.createElement('pm-entry-list-item') as PMEntryListItem
+    cardElement.entry = card
+    document.body.append(loginElement, cardElement)
+    await flush(loginElement)
+    await flush(cardElement)
+
+    const loginRow = loginElement.shadowRoot?.querySelector('.list-item') as HTMLElement | null
+    const cardRow = cardElement.shadowRoot?.querySelector('.list-item') as HTMLElement | null
+    const cardBadge = cardElement.shadowRoot?.querySelector('.entry-badge[data-badge-id="card"]')
+
+    expect(loginRow?.getAttribute('data-entry-type')).toBe('login')
+    expect(loginElement.shadowRoot?.querySelector('.entry-type-glyph')).toBeNull()
+    expect(loginElement.shadowRoot?.querySelector('.entry-badge[data-badge-id="card"]')).toBeNull()
+
+    expect(cardRow?.getAttribute('data-entry-type')).toBe('payment_card')
+    expect(cardElement.shadowRoot?.querySelector('.entry-type-glyph cv-icon[name="credit-card"]')).not.toBeNull()
+    expect(cardBadge?.textContent).toContain('Card')
+    expect(cardElement.shadowRoot?.textContent).toContain('•••• 4242')
+  })
 })
 
 describe('PMEntryListItemModel presentation', () => {
@@ -254,6 +286,34 @@ describe('PMEntryListItemModel presentation', () => {
 
     expect(model.getSubtitle(card)).toBe('•••• 4242')
     expect(model.getSubtitle(cardWithoutLast4)).toBe('')
+  })
+
+  it('exposes payment card type marker through list presentation', () => {
+    const model = new PMEntryListItemModel()
+    const group = createGroup('entry-item-card-marker-model-group')
+    const login = createEntry(group, 'entry-item-login-marker-model')
+    const card = createPaymentCardEntry(group, 'entry-item-card-marker-model', {
+      last4: '4242',
+      tags: ['Finance', 'Travel'],
+    })
+
+    const loginPresentation = model.getPresentation(login)
+    const cardPresentation = model.getPresentation(card)
+    const mobileCardPresentation = model.getMobilePresentation(card)
+
+    expect(loginPresentation.entryType).toBe('login')
+    expect(loginPresentation.typeMarker).toBeNull()
+    expect(cardPresentation.entryType).toBe('payment_card')
+    expect(cardPresentation.typeMarker).toMatchObject({
+      id: 'card',
+      icon: 'credit-card',
+      label: 'Card',
+    })
+    expect(cardPresentation.visibleBadges.map((badge) => badge.id)).toContain('card')
+    expect(mobileCardPresentation.typeMarker?.id).toBe('card')
+    expect(mobileCardPresentation.statusBadges.map((badge) => badge.id)).not.toContain('card')
+    expect(mobileCardPresentation.visibleTextBadges.map((badge) => badge.id)).toEqual(['tag:finance'])
+    expect(mobileCardPresentation.textOverflowCount).toBe(1)
   })
 
   it('produces metadata-backed badges with priority and overflow', () => {

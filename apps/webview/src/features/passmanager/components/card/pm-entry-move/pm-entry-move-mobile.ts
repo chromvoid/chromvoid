@@ -21,7 +21,7 @@ export class PMEntryMoveMobile extends PMEntryMoveBase {
     ...pmEntryMoveSharedStyles,
     css`
       :host {
-        --pm-entry-move-indent-step: 10px;
+        --pm-entry-move-indent-step: var(--pm-move-indent-step-mobile);
       }
 
       .layout {
@@ -68,7 +68,7 @@ export class PMEntryMoveMobile extends PMEntryMoveBase {
 
       .row.selected {
         border-color: transparent;
-        background: color-mix(in srgb, var(--cv-color-primary) 14%, var(--cv-color-surface));
+        background: var(--cv-color-primary-surface);
         box-shadow: inset 3px 0 0 var(--cv-color-primary);
       }
 

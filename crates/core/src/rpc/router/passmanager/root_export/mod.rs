@@ -5,6 +5,7 @@ mod error;
 mod group_export;
 mod secret_export;
 mod service;
+mod tag_export;
 mod types;
 
 use super::super::super::types::RpcResponse;

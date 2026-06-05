@@ -18,7 +18,7 @@ fn normalize_tag_text(value: &str) -> String {
         .join(" ")
 }
 
-pub(in crate::rpc::router::passmanager::entry) fn credential_tag_key(label: &str) -> String {
+pub(in crate::rpc::router::passmanager) fn credential_tag_key(label: &str) -> String {
     lowercase_like_js(&normalize_tag_text(label))
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -93,6 +93,36 @@ pub(in crate::rpc::router::passmanager::entry) fn normalize_credential_tags(
         if tags.len() >= CREDENTIAL_TAG_MAX_PER_ENTRY {
             break;
         }
+    }
+
+    tags
+}
+
+pub(in crate::rpc::router::passmanager) fn normalize_credential_tag_catalog(
+    value: &serde_json::Value,
+) -> Vec<String> {
+    let Some(values) = value.as_array() else {
+        return Vec::new();
+    };
+
+    let mut seen = std::collections::HashSet::<String>::new();
+    let mut tags = Vec::<String>::new();
+
+    for value in values {
+        let Some(raw_label) = value.as_str() else {
+            continue;
+        };
+        let label = normalize_tag_text(raw_label);
+        if label.is_empty() || label.chars().count() > CREDENTIAL_TAG_MAX_LENGTH {
+            continue;
+        }
+
+        let key = credential_tag_key(&label);
+        if key.is_empty() || !seen.insert(key) {
+            continue;
+        }
+
+        tags.push(label);
     }
 
     tags

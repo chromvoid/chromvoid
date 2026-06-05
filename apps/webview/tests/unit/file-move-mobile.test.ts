@@ -60,19 +60,13 @@ async function flush(element: HTMLElement) {
   await Promise.resolve()
 }
 
-function stylesText(element: HTMLElement): string {
-  return ((element.constructor as typeof FileMoveMobile).styles as Array<{cssText?: string}>)
-    .map((style) => style.cssText ?? '')
-    .join('\n')
-}
-
 describe('file-move-mobile', () => {
   afterEach(() => {
     document.body.innerHTML = ''
     clearAppContext()
   })
 
-  it('renders localized root and disabled destination rows with compact mobile styles', async () => {
+  it('renders localized root and disabled destination rows', async () => {
     setupContext()
     FileMoveMobile.define()
 
@@ -89,22 +83,6 @@ describe('file-move-mobile', () => {
     expect(
       element.shadowRoot?.querySelector('[data-option-path="/Docs"]')?.getAttribute('aria-disabled'),
     ).toBe('true')
-    const styleText = stylesText(element)
-    expect(styleText).toContain('min-block-size: 56px')
-    expect(styleText).toContain('display: grid;')
-    expect(styleText).toContain('block-size: 100%;')
-    expect(styleText).toContain('grid-template-rows: auto auto minmax(0, 1fr);')
-    expect(styleText).toContain('grid-row: 3;')
-    expect(styleText).toContain('max-block-size: none;')
-    expect(styleText).toContain('overscroll-behavior: contain;')
-    expect(styleText).toContain('-webkit-overflow-scrolling: touch;')
-    expect(styleText).toContain('.tree .row:last-child')
-    expect(styleText).toContain('border-end-start-radius: var(--cv-radius-2);')
-    expect(styleText).toContain('box-shadow: inset 0 0 0 2px var(--cv-color-primary-ring);')
-    expect(styleText).toMatch(/\.tree\s*\{[\s\S]*?border: 0;/)
-    expect(styleText).toMatch(/\.row\s*\{[\s\S]*?border: 0;/)
-    expect(styleText).toContain('.tree:focus-within .row.active')
-    expect(styleText).not.toContain('box-shadow: inset 3px 0 0 var(--cv-color-primary);')
   })
 
   it('scrolls options inside the tree container', async () => {

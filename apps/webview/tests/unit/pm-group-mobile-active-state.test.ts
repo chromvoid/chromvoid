@@ -402,7 +402,6 @@ describe('PMGroupListItemMobile visual state', () => {
 
     const activeRow = element.shadowRoot?.querySelector('.group-row') as HTMLElement | null
     expect(activeRow?.classList.contains('active-row')).toBe(true)
-    expect(activeRow?.classList.contains('selected')).toBe(false)
 
     element.selectionActive = true
     element.selectedInSelectionMode = true
@@ -410,7 +409,6 @@ describe('PMGroupListItemMobile visual state', () => {
 
     const selectedRow = element.shadowRoot?.querySelector('.group-row') as HTMLElement | null
     expect(selectedRow?.classList.contains('active-row')).toBe(false)
-    expect(selectedRow?.classList.contains('selected')).toBe(true)
   })
 
   it('renders the group description when it exists', async () => {

@@ -686,6 +686,7 @@ pub async fn resume_android_host_mode_if_enabled(
         .map(Some)
 }
 
+#[cfg(target_os = "android")]
 pub(crate) fn schedule_android_host_mode_resume(
     task_lifecycle: Arc<crate::task_lifecycle::TaskLifecycleRuntime>,
     runtime: Arc<AndroidHostRuntimeState>,

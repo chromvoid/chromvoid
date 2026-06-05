@@ -72,6 +72,7 @@ describe('MockTransport', () => {
               nextNodeId: 10,
               folders: ['Work'],
               foldersMeta: [],
+              tags: ['Zero Use'],
               entries: [{nodeId: 9, meta: {id: 'entry-1', title: 'Entry 1', folderPath: 'Work'}}],
               secrets: [],
               otpSecrets: [],
@@ -89,6 +90,7 @@ describe('MockTransport', () => {
       const exported = (await t.sendPassmanager('passmanager:root:export', {})) as any
       expect(exported.ok).toBe(true)
       expect(exported.result.root.folders).toEqual(['Work'])
+      expect(exported.result.root.tags).toEqual(['Zero Use'])
       expect(exported.result.root.entries).toEqual([
         expect.objectContaining({
           id: 'entry-1',
@@ -123,6 +125,29 @@ describe('MockTransport', () => {
 
       exported = (await t.sendPassmanager('passmanager:root:export', {})) as any
       expect(exported.result.root.foldersMeta).toEqual([{path: 'Work', description: 'Imported description'}])
+    })
+
+    it('round-trips zero-use tags through setCatalog and root export', async () => {
+      await t.sendPassmanager('passmanager:tags:setCatalog', {
+        tags: ['Zero Use', ' #Work ', 'work'],
+      })
+
+      const exported = (await t.sendPassmanager('passmanager:root:export', {})) as any
+
+      expect(exported.ok).toBe(true)
+      expect(exported.result.root.tags).toEqual(['Zero Use', 'Work'])
+    })
+
+    it('preserves zero-use tags through root import/export', async () => {
+      await t.sendPassmanager('passmanager:root:import', {
+        tags: ['Zero Use', 'Client A'],
+        entries: [{id: 'entry-1', title: 'Entry 1', tags: ['Client A']}],
+      })
+
+      const exported = (await t.sendPassmanager('passmanager:root:export', {})) as any
+
+      expect(exported.ok).toBe(true)
+      expect(exported.result.root.tags).toEqual(['Client A', 'Zero Use'])
     })
 
     it('persists passmanager mutations to dedicated mock endpoint', async () => {

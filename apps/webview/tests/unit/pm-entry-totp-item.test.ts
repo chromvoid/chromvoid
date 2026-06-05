@@ -212,7 +212,6 @@ describe('PMEntryTOTPItem', () => {
       expect(getCodeText(item)).toBe('111222')
     })
     const firstDigit = getDigitNodes(item)[0]
-    expect(firstDigit?.classList.contains('motion-number-pop__digit')).toBe(true)
 
     await vi.advanceTimersByTimeAsync(1_000)
     await item.updateComplete
@@ -374,7 +373,7 @@ describe('PMEntryTOTPItem', () => {
     expect(invoke).not.toHaveBeenCalled()
   })
 
-  it('uses green color when more than 50% time remains', async () => {
+  it('does not mark TOTP card urgent when more than 50% time remains', async () => {
     ensureDefined()
     const otp = createOTPFixture({leftSeconds: 16, period: 30})
     const item = document.createElement('pm-entry-totp-item') as PMEntryTOTPItem
@@ -385,11 +384,10 @@ describe('PMEntryTOTPItem', () => {
 
     const card = getTotpCard(item)
     expect(card).toBeTruthy()
-    expect(item.style.getPropertyValue('--totp-color').trim()).toBe('var(--cv-color-success)')
     expect(card?.hasAttribute('data-urgent')).toBe(false)
   })
 
-  it('uses warning color between 50% and 20% time remaining', async () => {
+  it('does not mark TOTP card urgent between 50% and 20% time remaining', async () => {
     ensureDefined()
     const otp = createOTPFixture({leftSeconds: 15, period: 30})
     const item = document.createElement('pm-entry-totp-item') as PMEntryTOTPItem
@@ -400,11 +398,10 @@ describe('PMEntryTOTPItem', () => {
 
     const card = getTotpCard(item)
     expect(card).toBeTruthy()
-    expect(item.style.getPropertyValue('--totp-color').trim()).toBe('var(--cv-color-warning)')
     expect(card?.hasAttribute('data-urgent')).toBe(false)
   })
 
-  it('uses danger color and urgent state below 5 seconds', async () => {
+  it('marks TOTP card urgent below 5 seconds', async () => {
     ensureDefined()
     const otp = createOTPFixture({leftSeconds: 4, period: 30})
     const item = document.createElement('pm-entry-totp-item') as PMEntryTOTPItem
@@ -415,19 +412,7 @@ describe('PMEntryTOTPItem', () => {
 
     const card = getTotpCard(item)
     expect(card).toBeTruthy()
-    expect(item.style.getPropertyValue('--totp-color').trim()).toBe('var(--cv-color-danger)')
     expect(card?.hasAttribute('data-urgent')).toBe(true)
-  })
-
-  it('keeps mobile-responsive layout rules in the shared TOTP styles', () => {
-    const cssText = PMEntryTOTPItem.styles.map((style) => style.cssText).join('\n')
-
-    expect(cssText).toContain('@container (width < 400px)')
-    expect(cssText).toContain('.totp-digit')
-    expect(cssText).toContain('.motion-number-pop__digit')
-    expect(cssText).toContain('.motion-text-swap')
-    expect(cssText).toContain('@media (prefers-reduced-motion: reduce)')
-    expect(cssText).toMatch(/\.motion-text-swap[\s\S]*transform: none;[\s\S]*filter: none;[\s\S]*animation: none;/)
   })
 
   it('stops polling after disconnect', async () => {

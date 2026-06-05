@@ -4,7 +4,12 @@ export const PASSWORD_INPUT_DIALOG_KEYBOARD_OFFSET_VAR = '--password-input-dialo
 export const PASSWORD_INPUT_DIALOG_PROVISIONAL_KEYBOARD_OFFSET = 'min(42dvh, 360px)'
 
 export type PasswordInputDialogKeyboardOffsetPhase = 'progress' | 'settled'
-export type PasswordInputDialogKeyboardOffsetSource = 'android-native' | 'tauri-visibility' | 'visual-viewport'
+export type PasswordInputDialogKeyboardViewportMode = 'overlay' | 'native-resize'
+export type PasswordInputDialogKeyboardOffsetSource =
+  | 'android-native'
+  | 'ios-native'
+  | 'tauri-visibility'
+  | 'visual-viewport'
 
 type PasswordInputDialogKeyboardStabilizationOptions = {
   initialKeyboardOffset?: string
@@ -13,6 +18,7 @@ type PasswordInputDialogKeyboardStabilizationOptions = {
 type PasswordInputDialogKeyboardSyncOptions = {
   phase?: PasswordInputDialogKeyboardOffsetPhase
   source?: PasswordInputDialogKeyboardOffsetSource
+  viewportMode?: PasswordInputDialogKeyboardViewportMode
 }
 
 let stabilizedKeyboardInset = 0
@@ -52,7 +58,12 @@ export function syncPasswordInputDialogKeyboardOffset(
   const root = getRoot()
   if (!root?.hasAttribute(PASSWORD_INPUT_DIALOG_KEYBOARD_STABILIZATION_ATTR)) return null
 
-  const nextInset = Number.isFinite(keyboardInset) && keyboardInset > 0 ? Math.round(keyboardInset) : 0
+  const nextInset =
+    options.viewportMode === 'native-resize'
+      ? 0
+      : Number.isFinite(keyboardInset) && keyboardInset > 0
+        ? Math.round(keyboardInset)
+        : 0
   if (options.source === 'android-native' && options.phase === 'progress') {
     stabilizedKeyboardInset = nextInset
   } else {

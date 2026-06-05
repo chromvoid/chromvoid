@@ -1,17 +1,20 @@
 import {html, ReatomLitElement, watch} from '@chromvoid/uikit/reatom-lit'
+import {CVBottomSheet} from '@chromvoid/uikit/components/cv-bottom-sheet'
+import {CVDialog} from '@chromvoid/uikit/components/cv-dialog'
 import type {CVSliderEventDetail} from '@chromvoid/uikit/components/cv-slider'
 import {nothing} from 'lit'
 
 import {mediaPlaybackModel} from 'root/features/media/models/media-playback.model'
 import {i18n} from 'root/i18n'
-import {AdaptiveModalSurface} from 'root/shared/ui/adaptive-modal-surface'
+import {tryGetAppContext} from 'root/shared/services/app-context'
 import {audioPlayerStyles} from './audio-player.styles'
 
 export class AudioPlayer extends ReatomLitElement {
   static elementName = 'audio-player'
 
   static define() {
-    AdaptiveModalSurface.define()
+    CVBottomSheet.define()
+    CVDialog.define()
     if (!customElements.get(this.elementName)) {
       customElements.define(this.elementName, this as unknown as CustomElementConstructor)
     }
@@ -22,6 +25,12 @@ export class AudioPlayer extends ReatomLitElement {
   private emitClose(event?: Event): void {
     event?.stopPropagation()
     this.dispatchEvent(new CustomEvent('close', {bubbles: true, composed: true}))
+  }
+
+  private handleSurfaceChange(event: CustomEvent<{open?: boolean}>): void {
+    if (event.target !== event.currentTarget) return
+    if (event.detail.open !== false) return
+    this.emitClose(event)
   }
 
   private handlePrevious(): void {
@@ -188,124 +197,132 @@ export class AudioPlayer extends ReatomLitElement {
       return nothing
     }
 
-    return html`
-      <adaptive-modal-surface
-        class="player-surface"
-        open
-        no-header
-        .ariaLabel=${i18n('media:audio-player' as any)}
-        @close=${this.emitClose}
-      >
-        <section class="player-sheet" data-playing=${String(playing)}>
-          <header class="sheet-header">
-            <div class="track-headline">
-              <div class="track-meta">
-                <div class="track-eyebrow">${i18n('media:now-playing' as any)}</div>
-                <div class="track-title" title=${current.name}>${mediaPlaybackModel.currentTrackTitle()}</div>
-                <div class="track-file" title=${current.name}>
-                  ${mediaPlaybackModel.currentTrackFileName()}
-                </div>
+    const content = html`
+      <section class="player-sheet" data-playing=${String(playing)}>
+        <header class="sheet-header">
+          <div class="track-headline">
+            <div class="track-meta">
+              <div class="track-eyebrow">${i18n('media:now-playing' as any)}</div>
+              <div class="track-title" title=${current.name}>${mediaPlaybackModel.currentTrackTitle()}</div>
+              <div class="track-file" title=${current.name}>
+                ${mediaPlaybackModel.currentTrackFileName()}
               </div>
             </div>
-            <cv-button
-              unstyled
-              class="icon-button quiet"
-              type="button"
-              @click=${this.emitClose}
-              aria-label=${i18n('button:close' as any)}
-            >
-              <cv-icon name="x" size="m"></cv-icon>
-            </cv-button>
-          </header>
+          </div>
+          <cv-button
+            unstyled
+            class="icon-button quiet"
+            type="button"
+            @click=${this.emitClose}
+            aria-label=${i18n('button:close' as any)}
+          >
+            <cv-icon name="x" size="m"></cv-icon>
+          </cv-button>
+        </header>
 
-          ${fallbackLimited
-            ? this.renderFallbackLimited()
-            : html`
-                ${nativeAudioPreparingStatusVisible ? this.renderNativePreparingStatus() : nothing}
+        ${fallbackLimited
+          ? this.renderFallbackLimited()
+          : html`
+              ${nativeAudioPreparingStatusVisible ? this.renderNativePreparingStatus() : nothing}
 
-                <div class="seek-control">
-                  <div class="seek-labels" aria-hidden="true">
-                    <span>${mediaPlaybackModel.currentPositionLabel}</span>
-                    <span>${mediaPlaybackModel.durationLabel}</span>
-                  </div>
-                  ${this.renderWaveformSeek(duration, canSeek)}
+              <div class="seek-control">
+                <div class="seek-labels" aria-hidden="true">
+                  <span>${mediaPlaybackModel.currentPositionLabel}</span>
+                  <span>${mediaPlaybackModel.durationLabel}</span>
                 </div>
+                ${this.renderWaveformSeek(duration, canSeek)}
+              </div>
 
-                <div class="controls">
-                  <cv-button
-                    unstyled
-                    class="icon-button secondary"
-                    type="button"
-                    ?disabled=${!mediaPlaybackModel.hasPrevious()}
-                    @click=${this.handlePrevious}
-                    aria-label=${i18n('media:previous-track' as any)}
-                  >
-                    <cv-icon name="chevron-left" size="m"></cv-icon>
-                  </cv-button>
-                  <cv-button
-                    unstyled
-                    class="icon-button primary"
-                    type="button"
-                    @click=${this.handlePlayPause}
-                    aria-label=${playing ? i18n('media:pause' as any) : i18n('media:play' as any)}
-                  >
-                    <cv-icon name=${playing ? 'pause' : 'play'} size="m"></cv-icon>
-                  </cv-button>
-                  <cv-button
-                    unstyled
-                    class="icon-button secondary"
-                    type="button"
-                    ?disabled=${!mediaPlaybackModel.hasNext()}
-                    @click=${this.handleNext}
-                    aria-label=${i18n('media:next-track' as any)}
-                  >
-                    <cv-icon name="chevron-right" size="m"></cv-icon>
-                  </cv-button>
-                  <cv-button
-                    unstyled
-                    class="icon-button stop"
-                    type="button"
-                    @click=${this.handleStop}
-                    aria-label=${i18n('media:stop' as any)}
-                  >
-                    <cv-icon name="square" size="m"></cv-icon>
-                  </cv-button>
-                </div>
-              `}
+              <div class="controls">
+                <cv-button
+                  unstyled
+                  class="icon-button secondary"
+                  type="button"
+                  ?disabled=${!mediaPlaybackModel.hasPrevious()}
+                  @click=${this.handlePrevious}
+                  aria-label=${i18n('media:previous-track' as any)}
+                >
+                  <cv-icon name="chevron-left" size="m"></cv-icon>
+                </cv-button>
+                <cv-button
+                  unstyled
+                  class="icon-button primary"
+                  type="button"
+                  @click=${this.handlePlayPause}
+                  aria-label=${playing ? i18n('media:pause' as any) : i18n('media:play' as any)}
+                >
+                  <cv-icon name=${playing ? 'pause' : 'play'} size="m"></cv-icon>
+                </cv-button>
+                <cv-button
+                  unstyled
+                  class="icon-button secondary"
+                  type="button"
+                  ?disabled=${!mediaPlaybackModel.hasNext()}
+                  @click=${this.handleNext}
+                  aria-label=${i18n('media:next-track' as any)}
+                >
+                  <cv-icon name="chevron-right" size="m"></cv-icon>
+                </cv-button>
+                <cv-button
+                  unstyled
+                  class="icon-button stop"
+                  type="button"
+                  @click=${this.handleStop}
+                  aria-label=${i18n('media:stop' as any)}
+                >
+                  <cv-icon name="square" size="m"></cv-icon>
+                </cv-button>
+              </div>
+            `}
 
-          <section class="queue" aria-label=${i18n('media:audio-queue' as any)}>
-            <div class="queue-header">
-              <span>${i18n('media:audio-queue' as any)}</span>
-              <span class="queue-count">${mediaPlaybackModel.queueCount()}</span>
-            </div>
-            <div class="queue-list">
-              ${queueRows.map(
-                (row) => html`
-                  <cv-button
-                    unstyled
-                    class="queue-row ${row.isCurrent ? 'active' : ''}"
-                    type="button"
-                    data-index=${String(row.index)}
-                    @click=${this.handleSelectTrack}
-                    aria-current=${row.isCurrent ? 'true' : 'false'}
-                  >
-                    <span slot="prefix" class="queue-prefix">
-                      <span class="queue-equalizer" aria-hidden="true">
-                        <span></span>
-                        <span></span>
-                        <span></span>
-                      </span>
-                      <span class="queue-index">${String(row.index + 1).padStart(2, '0')}</span>
+        <section class="queue" aria-label=${i18n('media:audio-queue' as any)}>
+          <div class="queue-header">
+            <span>${i18n('media:audio-queue' as any)}</span>
+            <span class="queue-count">${mediaPlaybackModel.queueCount()}</span>
+          </div>
+          <div class="queue-list">
+            ${queueRows.map(
+              (row) => html`
+                <cv-button
+                  unstyled
+                  class="queue-row ${row.isCurrent ? 'active' : ''}"
+                  type="button"
+                  data-index=${String(row.index)}
+                  @click=${this.handleSelectTrack}
+                  aria-current=${row.isCurrent ? 'true' : 'false'}
+                >
+                  <span slot="prefix" class="queue-prefix">
+                    <span class="queue-equalizer" aria-hidden="true">
+                      <span></span>
+                      <span></span>
+                      <span></span>
                     </span>
-                    <span class="queue-name" title=${row.fileName}>${row.title}</span>
-                    <span slot="suffix" class="queue-duration">${row.durationLabel}</span>
-                  </cv-button>
-                `,
-              )}
-            </div>
-          </section>
+                    <span class="queue-index">${String(row.index + 1).padStart(2, '0')}</span>
+                  </span>
+                  <span class="queue-name" title=${row.fileName}>${row.title}</span>
+                  <span slot="suffix" class="queue-duration">${row.durationLabel}</span>
+                </cv-button>
+              `,
+            )}
+          </div>
         </section>
-      </adaptive-modal-surface>
+      </section>
+    `
+
+    if (tryGetAppContext()?.store.layoutMode?.() === 'mobile') {
+      return html`
+        <cv-bottom-sheet class="player-surface" open no-header @cv-change=${this.handleSurfaceChange}>
+          <span slot="title">${i18n('media:audio-player' as any)}</span>
+          ${content}
+        </cv-bottom-sheet>
+      `
+    }
+
+    return html`
+      <cv-dialog class="player-surface" open no-header @cv-change=${this.handleSurfaceChange}>
+        <span slot="title">${i18n('media:audio-player' as any)}</span>
+        ${content}
+      </cv-dialog>
     `
   }
 }

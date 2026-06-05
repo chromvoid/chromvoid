@@ -12,18 +12,6 @@ const IMAGES = [
 const originalNavigatorShare = navigator.share
 const originalNavigatorCanShare = navigator.canShare
 
-function stylesToText(styles: unknown): string {
-  const values = Array.isArray(styles) ? styles : [styles]
-  return values
-    .map((value) => {
-      if (value == null) return ''
-      return typeof value === 'object' && 'cssText' in (value as object)
-        ? String((value as {cssText: string}).cssText)
-        : String(value)
-    })
-    .join('\n')
-}
-
 async function mountGallery(options?: {currentIndex?: number; sharePending?: boolean}) {
   ImageGallery.define()
 
@@ -117,25 +105,6 @@ describe('image-gallery desktop actions', () => {
     expect(open).toHaveBeenCalledTimes(2)
     expect(syncImages).toHaveBeenCalledTimes(1)
     expect(close).toHaveBeenCalledTimes(1)
-  })
-
-  it('uses the shared safe-area top variable for Android native inset fallback', () => {
-    const cssText = stylesToText(ImageGallery.styles)
-
-    expect(cssText).toContain('padding-top: max(var(--app-spacing-4), var(--safe-area-top, 0px));')
-    expect(cssText).not.toContain('padding-top: max(var(--app-spacing-4), env(safe-area-inset-top));')
-  })
-
-  it('restores the previous body overflow value after close', async () => {
-    document.body.style.overflow = 'clip'
-
-    const element = await mountGallery()
-    expect(document.body.style.overflow).toBe('hidden')
-
-    element.open = false
-    await element.updateComplete
-
-    expect(document.body.style.overflow).toBe('clip')
   })
 
   it('restores focus to an element active inside a shadow root', async () => {

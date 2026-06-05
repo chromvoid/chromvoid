@@ -1,7 +1,13 @@
 import {getRuntimeCapabilities} from '../../core/runtime/runtime-capabilities'
-import {isPasswordInputDialogDebugActive, writeMobileDialogDebug} from '../../shared/services/mobile-dialog-debug'
 import {syncPasswordInputDialogKeyboardOffset} from '../../shared/services/mobile-dialog-keyboard-stabilization'
-import {ANDROID_NATIVE_KEYBOARD_INSETS_ATTR, ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR} from './mobile-keyboard-insets'
+import {
+  ANDROID_NATIVE_KEYBOARD_INSETS_ATTR,
+  applyMobileKeyboardCssOffsets,
+  IOS_NATIVE_KEYBOARD_INSETS_ATTR,
+  MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR,
+  NATIVE_KEYBOARD_INSETS_ATTR,
+  NATIVE_SAFE_AREA_BOTTOM_ATTR,
+} from './mobile-keyboard-insets'
 
 const VISUAL_VIEWPORT_SHRUNK_ATTR = 'data-visual-viewport-shrunken'
 const NATIVE_KEYBOARD_EXPANDED_ATTR = 'data-mobile-keyboard-expanded'
@@ -141,11 +147,8 @@ export const setupMobileVisualViewportSync = () => {
 
   const root = document.documentElement
   let rafId = 0
-  let syncReason = 'initial'
 
   const sync = () => {
-    const reason = syncReason
-    syncReason = 'unknown'
     rafId = 0
 
     const rootClientHeight = root.clientHeight
@@ -170,12 +173,21 @@ export const setupMobileVisualViewportSync = () => {
     const nativeKeyboardInset = Number.parseFloat(
       getComputedStyle(root).getPropertyValue('--native-keyboard-bottom-inset'),
     )
-    const preferNativeKeyboardInset = root.hasAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR)
+    const usesAndroidNativeInset = root.hasAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR)
+    const usesIOSNativeInset = root.hasAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR)
+    const usesNativeResize = root.hasAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR)
+    const preferNativeKeyboardInset = root.hasAttribute(NATIVE_KEYBOARD_INSETS_ATTR)
     const effectiveKeyboardInset = resolveEffectiveKeyboardInset({
       visualViewportKeyboardInset: keyboardInset,
       nativeKeyboardInset,
       preferNativeKeyboardInset,
     })
+    const cssOffsetSource = usesIOSNativeInset
+      ? 'ios-native'
+      : usesAndroidNativeInset
+        ? 'android-native'
+        : 'visual-viewport'
+    const cssViewportMode = usesNativeResize ? 'native-resize' : 'overlay'
     const runtimeCaps = getRuntimeCapabilities()
     const safeAreaEnvInset = Number.parseFloat(
       getComputedStyle(root).getPropertyValue('--safe-area-bottom-env'),
@@ -183,7 +195,7 @@ export const setupMobileVisualViewportSync = () => {
     const nativeSafeAreaBottomInset = Number.parseFloat(
       getComputedStyle(root).getPropertyValue('--safe-area-bottom-native'),
     )
-    const hasNativeSafeAreaBottom = root.hasAttribute(ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR)
+    const hasNativeSafeAreaBottom = root.hasAttribute(NATIVE_SAFE_AREA_BOTTOM_ATTR)
     const resolvedSafeAreaInset = resolveSafeAreaBottomFallback({
       platform: runtimeCaps.platform,
       mobile: Boolean(runtimeCaps.mobile),
@@ -193,52 +205,30 @@ export const setupMobileVisualViewportSync = () => {
       hasNativeSafeAreaBottom,
     })
 
-    root.style.setProperty('--visual-viewport-bottom-inset', `${effectiveKeyboardInset}px`)
+    root.style.setProperty(
+      '--visual-viewport-bottom-inset',
+      `${usesNativeResize ? 0 : effectiveKeyboardInset}px`,
+    )
+    applyMobileKeyboardCssOffsets(root, effectiveKeyboardInset, cssOffsetSource, cssViewportMode)
     root.style.setProperty('--safe-area-bottom-fallback', `${resolvedSafeAreaInset}px`)
     root.toggleAttribute(VISUAL_VIEWPORT_SHRUNK_ATTR, effectiveKeyboardInset > 0)
-    const passwordDialogKeyboardOffset = preferNativeKeyboardInset
-      ? null
-      : syncPasswordInputDialogKeyboardOffset(effectiveKeyboardInset, {
-          phase: 'settled',
-          source: 'visual-viewport',
-        })
-
-    if (isPasswordInputDialogDebugActive()) {
-      writeMobileDialogDebug('mobile-visual-viewport', 'sync', {
-        reason,
-        rootClientHeight,
-        windowInnerHeight,
-        preferRootHeight,
-        layoutViewportHeight,
-        rawVisualViewportHeight: Math.round(viewport.height),
-        rawVisualViewportOffsetTop: Math.round(viewport.offsetTop),
-        bottomInset,
-        keyboardInset,
-        nativeKeyboardInset,
-        preferNativeKeyboardInset,
-        effectiveKeyboardInset,
-        safeAreaInset,
-        safeAreaEnvInset,
-        nativeSafeAreaBottomInset,
-        hasNativeSafeAreaBottom,
-        resolvedSafeAreaInset,
-        passwordDialogKeyboardOffset,
-        runtimePlatform: runtimeCaps.platform,
-        runtimeMobile: Boolean(runtimeCaps.mobile),
+    if (!preferNativeKeyboardInset) {
+      syncPasswordInputDialogKeyboardOffset(effectiveKeyboardInset, {
+        phase: 'settled',
+        source: 'visual-viewport',
       })
     }
   }
 
-  const scheduleSync = (reason: string) => {
-    syncReason = rafId ? `${syncReason}+${reason}` : reason
+  const scheduleSync = () => {
     if (rafId) return
     rafId = window.requestAnimationFrame(sync)
   }
 
-  viewport.addEventListener('resize', () => scheduleSync('visualViewport.resize'))
-  viewport.addEventListener('scroll', () => scheduleSync('visualViewport.scroll'))
-  window.addEventListener('resize', () => scheduleSync('window.resize'))
-  window.addEventListener('orientationchange', () => scheduleSync('window.orientationchange'))
+  viewport.addEventListener('resize', scheduleSync)
+  viewport.addEventListener('scroll', scheduleSync)
+  window.addEventListener('resize', scheduleSync)
+  window.addEventListener('orientationchange', scheduleSync)
 
-  scheduleSync('initial')
+  scheduleSync()
 }

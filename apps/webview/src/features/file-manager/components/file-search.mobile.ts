@@ -127,8 +127,6 @@ export class FileSearchMobile extends FileSearchBase {
     /* ===== SHEET ===== */
     cv-bottom-sheet {
       position: fixed;
-      --cv-bottom-sheet-max-height: min(82dvh, calc(100dvh - 24px));
-      --cv-bottom-sheet-border-radius: 16px 16px 0 0;
     }
 
     cv-bottom-sheet::part(trigger) {
@@ -140,9 +138,6 @@ export class FileSearchMobile extends FileSearchBase {
       padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
     }
 
-    cv-bottom-sheet::part(content) {
-      border-radius: 16px 16px 0 0;
-    }
   `
 
   private onOpenSheet() {

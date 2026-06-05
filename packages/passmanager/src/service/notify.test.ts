@@ -8,7 +8,6 @@ import {
   setNotifyAdapter,
   showNotifyToast,
   type NotifyPayload,
-  type NotifyToastPresentOptions,
 } from './notify'
 
 afterEach(() => {
@@ -25,12 +24,10 @@ describe('notify adapter', () => {
 
   it('passes resolved default payload to the registered adapter', () => {
     let payload: NotifyPayload | null = null
-    let options: NotifyToastPresentOptions | undefined
 
     setNotifyAdapter({
-      present(nextPayload, nextOptions) {
+      present(nextPayload) {
         payload = nextPayload
-        options = nextOptions
       },
     })
 
@@ -46,11 +43,6 @@ describe('notify adapter', () => {
       icon: undefined,
       progress: true,
       position: DEFAULT_NOTIFY_DESKTOP_POSITION,
-    })
-    expect(options).toEqual({
-      announce: undefined,
-      announceMessage: undefined,
-      announcePriority: undefined,
     })
   })
 
@@ -79,12 +71,10 @@ describe('notify adapter', () => {
   it('notify.loading returns a dismiss callback and uses loading-specific defaults', () => {
     const dismiss = vi.fn()
     let payload: NotifyPayload | null = null
-    let options: NotifyToastPresentOptions | undefined
 
     setNotifyAdapter({
-      present(nextPayload, nextOptions) {
+      present(nextPayload) {
         payload = nextPayload
-        options = nextOptions
         return {dismiss}
       },
     })
@@ -101,11 +91,6 @@ describe('notify adapter', () => {
       icon: undefined,
       progress: false,
       position: DEFAULT_NOTIFY_DESKTOP_POSITION,
-    })
-    expect(options).toEqual({
-      announce: false,
-      announceMessage: undefined,
-      announcePriority: undefined,
     })
 
     stopLoading()

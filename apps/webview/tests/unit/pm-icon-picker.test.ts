@@ -82,7 +82,6 @@ describe('PMIconPicker', () => {
 
     const trigger = picker.shadowRoot?.querySelector('.icon-trigger') as HTMLButtonElement | null
     expect(trigger).not.toBeNull()
-    expect(trigger?.classList.contains('icon-trigger--with-label')).toBe(false)
     expect(picker.shadowRoot?.querySelector('.icon-trigger-label')).toBeNull()
 
     trigger?.click()
@@ -91,11 +90,8 @@ describe('PMIconPicker', () => {
     await Promise.resolve()
     await picker.updateComplete
 
-    const surface = picker.shadowRoot?.querySelector('adaptive-modal-surface') as {open?: boolean} | null
-    expect(surface?.open).toBe(true)
-    expect(
-      (surface as HTMLElement & {shadowRoot?: ShadowRoot})?.shadowRoot?.querySelector('cv-dialog'),
-    ).not.toBeNull()
+    const dialog = picker.shadowRoot?.querySelector('cv-dialog') as {open?: boolean} | null
+    expect(dialog?.open).toBe(true)
 
     const selectButton = picker.shadowRoot?.querySelector('.dialog-library-item') as HTMLButtonElement | null
     expect(selectButton).not.toBeNull()
@@ -137,7 +133,6 @@ describe('PMIconPicker', () => {
 
     const trigger = picker.shadowRoot?.querySelector('.icon-trigger') as HTMLButtonElement | null
     expect(trigger).not.toBeNull()
-    expect(trigger?.classList.contains('icon-trigger--with-label')).toBe(true)
     expect(picker.shadowRoot?.querySelector('.icon-trigger-label')?.textContent).toBe('Choose image')
 
     trigger?.click()
@@ -146,11 +141,8 @@ describe('PMIconPicker', () => {
     await Promise.resolve()
     await picker.updateComplete
 
-    const surface = picker.shadowRoot?.querySelector('adaptive-modal-surface') as {open?: boolean} | null
-    expect(surface?.open).toBe(true)
-    expect(
-      (surface as HTMLElement & {shadowRoot?: ShadowRoot})?.shadowRoot?.querySelector('cv-bottom-sheet'),
-    ).not.toBeNull()
+    const sheet = picker.shadowRoot?.querySelector('cv-bottom-sheet') as {open?: boolean} | null
+    expect(sheet?.open).toBe(true)
 
     const selectButton = picker.shadowRoot?.querySelector('.dialog-library-item') as HTMLButtonElement | null
     expect(selectButton).not.toBeNull()
@@ -198,11 +190,8 @@ describe('PMIconPicker', () => {
     await Promise.resolve()
     await picker.updateComplete
 
-    const surface = picker.shadowRoot?.querySelector('adaptive-modal-surface') as {open?: boolean} | null
-    expect(surface?.open).toBe(true)
-    expect(
-      (surface as HTMLElement & {shadowRoot?: ShadowRoot})?.shadowRoot?.querySelector('cv-bottom-sheet'),
-    ).not.toBeNull()
+    const sheet = picker.shadowRoot?.querySelector('cv-bottom-sheet') as {open?: boolean} | null
+    expect(sheet?.open).toBe(true)
 
     const selectButton = picker.shadowRoot?.querySelector('.dialog-library-item') as HTMLButtonElement | null
     expect(selectButton).not.toBeNull()
@@ -261,8 +250,8 @@ describe('PMIconPicker', () => {
     expect(onChange).toHaveBeenCalledTimes(1)
     const event = onChange.mock.calls[0]?.[0] as CustomEvent<{iconRef: string | undefined}>
     expect(event.detail.iconRef).toBeUndefined()
-    const surface = picker.shadowRoot?.querySelector('adaptive-modal-surface') as {open?: boolean} | null
-    expect(surface?.open).toBe(false)
+    const sheet = picker.shadowRoot?.querySelector('cv-bottom-sheet') as {open?: boolean} | null
+    expect(sheet?.open).toBe(false)
   })
 
   it('does not mutate the icon source directly when an icon is selected', async () => {

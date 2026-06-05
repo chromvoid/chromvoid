@@ -73,9 +73,9 @@
       "default": "./dist/security-audit.js"
     },
     "./sort-storage": {
-      "types": "./dist/services/sort-storage.d.ts",
-      "import": "./dist/services/sort-storage.js",
-      "default": "./dist/services/sort-storage.js"
+      "types": "./dist/service/sort-storage.d.ts",
+      "import": "./dist/service/sort-storage.js",
+      "default": "./dist/service/sort-storage.js"
     },
     "./password-utils": {
       "types": "./dist/password-utils.d.ts",

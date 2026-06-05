@@ -1,9 +1,8 @@
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, nothing} from 'lit'
+import {css, nothing, type TemplateResult} from 'lit'
 
 import {i18n} from '@project/passmanager/i18n'
-import {AdaptiveModalSurface} from 'root/shared/ui/adaptive-modal-surface'
 import {PMIconPickerModel, type PMIconPickerUploadPhase} from './pm-icon-picker.model'
 
 export type PMIconPickerOnChange = (iconRef: string | undefined) => void
@@ -52,12 +51,12 @@ export const pmIconPickerBaseStyles = css`
   }
 
   .icon-preview {
-    width: var(--pm-icon-picker-preview-size, 28px);
-    height: var(--pm-icon-picker-preview-size, 28px);
-    --pm-avatar-radius: 8px;
+    width: var(--pm-icon-picker-preview-size, var(--pm-avatar-picker-preview-size));
+    height: var(--pm-icon-picker-preview-size, var(--pm-avatar-picker-preview-size));
+    --pm-avatar-radius: var(--pm-avatar-picker-radius);
     --pm-avatar-image-fit: contain;
-    --pm-avatar-image-padding: 4px;
-    --pm-avatar-icon-size: 24px;
+    --pm-avatar-image-padding: var(--pm-avatar-picker-preview-image-padding);
+    --pm-avatar-icon-size: var(--pm-avatar-picker-preview-icon-size);
     --pm-avatar-icon-color: var(--cv-color-text-strong);
   }
 
@@ -72,23 +71,20 @@ export const pmIconPickerBaseStyles = css`
     white-space: nowrap;
   }
 
-  adaptive-modal-surface {
+  :is(cv-dialog, cv-bottom-sheet) {
     display: none;
-    --adaptive-modal-overlay-color: var(--cv-color-overlay);
-    --adaptive-modal-sheet-max-height: min(78dvh, calc(100dvh - 24px));
-    --adaptive-modal-sheet-border-radius: var(--cv-radius-4) var(--cv-radius-4) 0 0;
-    --adaptive-modal-sheet-grabber-color: var(--cv-color-primary-border-strong);
+    --cv-dialog-overlay-color: var(--cv-color-overlay);
   }
 
-  adaptive-modal-surface[open] {
+  :is(cv-dialog, cv-bottom-sheet)[open] {
     display: inline-block;
   }
 
-  adaptive-modal-surface::part(trigger) {
+  :is(cv-dialog, cv-bottom-sheet)::part(trigger) {
     display: none;
   }
 
-  adaptive-modal-surface::part(content) {
+  :is(cv-dialog, cv-bottom-sheet)::part(content) {
     max-width: min(400px, calc(100vw - var(--cv-space-4)));
     overflow: hidden;
     border-color: var(--cv-color-border-strong);
@@ -98,42 +94,42 @@ export const pmIconPickerBaseStyles = css`
       inset 0 1px 0 var(--cv-alpha-white-8);
   }
 
-  adaptive-modal-surface::part(handle) {
+  cv-bottom-sheet::part(handle) {
     padding-block: var(--cv-space-3) var(--cv-space-1);
   }
 
-  adaptive-modal-surface::part(grabber) {
+  cv-bottom-sheet::part(grabber) {
     width: 56px;
     height: 5px;
     background: var(--cv-gradient-divider-subtle);
   }
 
-  adaptive-modal-surface::part(header) {
+  :is(cv-dialog, cv-bottom-sheet)::part(header) {
     align-items: center;
     padding: var(--cv-space-2) var(--cv-space-5) var(--cv-space-3);
     border-block-end: 1px solid var(--cv-color-border-faint);
     background: var(--cv-gradient-surface);
   }
 
-  adaptive-modal-surface::part(title) {
+  :is(cv-dialog, cv-bottom-sheet)::part(title) {
     font-size: var(--cv-font-size-lg);
     font-weight: var(--cv-font-weight-semibold);
     letter-spacing: 0;
   }
 
-  adaptive-modal-surface::part(header-close) {
+  :is(cv-dialog, cv-bottom-sheet)::part(header-close) {
     width: 36px;
     height: 36px;
     border-radius: var(--cv-radius-2);
     color: var(--cv-color-text-muted);
   }
 
-  adaptive-modal-surface::part(header-close):hover {
+  :is(cv-dialog, cv-bottom-sheet)::part(header-close):hover {
     color: var(--cv-color-text);
     background: var(--cv-color-surface-highlight);
   }
 
-  adaptive-modal-surface::part(body) {
+  :is(cv-dialog, cv-bottom-sheet)::part(body) {
     padding: var(--cv-space-4) var(--cv-space-5) var(--cv-space-5);
   }
 
@@ -311,12 +307,12 @@ export const pmIconPickerBaseStyles = css`
   }
 
   .dialog-library-item-preview {
-    width: 34px;
-    height: 34px;
-    --pm-avatar-radius: 8px;
+    width: var(--pm-avatar-picker-dialog-preview-size);
+    height: var(--pm-avatar-picker-dialog-preview-size);
+    --pm-avatar-radius: var(--pm-avatar-picker-radius);
     --pm-avatar-image-fit: contain;
-    --pm-avatar-image-padding: 3px;
-    --pm-avatar-icon-size: 20px;
+    --pm-avatar-image-padding: var(--pm-avatar-picker-dialog-image-padding);
+    --pm-avatar-icon-size: var(--pm-avatar-picker-dialog-icon-size);
   }
 
   .dialog-empty {
@@ -346,15 +342,15 @@ export const pmIconPickerBaseStyles = css`
   }
 
   @media (max-width: 420px) {
-    adaptive-modal-surface::part(content) {
+    :is(cv-dialog, cv-bottom-sheet)::part(content) {
       max-width: 100vw;
     }
 
-    adaptive-modal-surface::part(header) {
+    :is(cv-dialog, cv-bottom-sheet)::part(header) {
       padding-inline: var(--cv-space-4);
     }
 
-    adaptive-modal-surface::part(body) {
+    :is(cv-dialog, cv-bottom-sheet)::part(body) {
       padding-inline: var(--cv-space-4);
     }
 
@@ -415,7 +411,6 @@ export abstract class PMIconPickerBase extends ReatomLitElement {
 
   override connectedCallback() {
     super.connectedCallback()
-    AdaptiveModalSurface.define()
     this.iconPickerModel.connect()
   }
 
@@ -458,7 +453,8 @@ export abstract class PMIconPickerBase extends ReatomLitElement {
     this.openChooser()
   }
 
-  protected onDialogChange(e: CustomEvent<{open: boolean}>) {
+  protected onDialogChange(e: CustomEvent<{open?: boolean}>) {
+    if (e.target !== e.currentTarget) return
     if (typeof e.detail.open !== 'boolean') return
     this.iconPickerModel.setDialogOpen(e.detail.open)
   }
@@ -667,18 +663,14 @@ export abstract class PMIconPickerBase extends ReatomLitElement {
     `
   }
 
-  protected renderDialog() {
+  protected renderDialogContent(): TemplateResult {
     return html`
-      <adaptive-modal-surface
-        .open=${this.iconPickerModel.dialogOpen()}
-        @cv-change=${this.onDialogChange}
-        .closeOnOutsidePointer=${true}
-      >
-        <span slot="title">${i18n('icon:title')}</span>
-        ${this.renderDialogBody()}
-      </adaptive-modal-surface>
+      <span slot="title">${i18n('icon:title')}</span>
+      ${this.renderDialogBody()}
     `
   }
+
+  protected abstract renderDialog(): TemplateResult
 
   protected render() {
     return html`

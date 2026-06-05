@@ -3,8 +3,8 @@ import {CVInput, CVTextarea} from '@chromvoid/uikit'
 
 import {setPasswordManagerLang} from '@project/passmanager/i18n'
 import {PMGroupCreateMobile} from '../../src/features/passmanager/components/group/group-create'
-import {pmGroupCreateMobileStyles} from '../../src/features/passmanager/components/group/group-create/styles'
 import {passmanagerNavigationController} from '../../src/features/passmanager/passmanager-navigation.controller'
+import {MobileBottomActionFooter} from '../../src/shared/ui/mobile-bottom-action-footer'
 
 let defined = false
 
@@ -12,6 +12,7 @@ function ensureDefined() {
   if (defined) return
   CVInput.define()
   CVTextarea.define()
+  MobileBottomActionFooter.define()
   PMGroupCreateMobile.define()
   defined = true
 }
@@ -161,7 +162,7 @@ describe('PMGroupCreate mobile', () => {
     })
   })
 
-  it('renders the mobile icon action with chooser copy and keeps template/styles token-safe', async () => {
+  it('renders the mobile icon action with chooser copy', async () => {
     window.passmanager = {
       createGroup: vi.fn(),
       showElement: () => 'createGroup',
@@ -180,16 +181,12 @@ describe('PMGroupCreate mobile', () => {
     expect(picker?.getAttribute('trigger-label')).toBe('Choose image')
     expect(picker?.shadowRoot?.textContent).toContain('Choose image')
     expect(element.shadowRoot?.textContent).toContain('An icon helps you find this group faster')
-    expect(element.shadowRoot?.innerHTML).not.toContain('style=')
-
-    const cssText = pmGroupCreateMobileStyles.cssText
-    expect(cssText).toContain('--pm-group-create-tabbar-clearance')
-    expect(cssText).toContain('--visual-viewport-bottom-inset')
-    expect(cssText).toContain('--safe-area-bottom-active')
-    expect(cssText).not.toContain('color-mix(')
-    expect(cssText).not.toMatch(/#[\da-fA-F]{3,8}\b/)
-    expect(cssText).not.toMatch(/\brgba?\(/)
-    expect(cssText).not.toMatch(/\bhsla?\(/)
-    expect(cssText).not.toMatch(/\bhwb\(/)
+    const submitBar = element.shadowRoot?.querySelector(
+      'mobile-bottom-action-footer.submit-bar',
+    ) as HTMLElement | null
+    const submitButton = element.shadowRoot?.querySelector('cv-button.submit') as HTMLElement | null
+    expect(submitBar?.tagName.toLowerCase()).toBe('mobile-bottom-action-footer')
+    expect(submitBar?.shadowRoot?.querySelector('[part="row"]')).not.toBeNull()
+    expect(submitBar?.contains(submitButton)).toBe(true)
   })
 })

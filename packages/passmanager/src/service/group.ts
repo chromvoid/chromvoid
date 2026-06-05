@@ -124,7 +124,10 @@ export class Group implements TGroupActions {
     () => {
       const fv = filterValue()
       const activeFilters = quickFilters()
-      const selectedTags = getEffectiveSelectedCredentialTagFilters(this.root?.allEntries)
+      const selectedTags = getEffectiveSelectedCredentialTagFilters(
+        this.root?.allEntries,
+        this.root?.credentialTags() ?? [],
+      )
       const matches = createEntryFilterMatcher(fv, activeFilters, Date.now(), selectedTags)
       return this.entries().filter(matches)
     },

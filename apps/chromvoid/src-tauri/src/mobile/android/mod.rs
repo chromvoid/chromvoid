@@ -26,13 +26,17 @@ pub use autofill::{AndroidAutofillAdapter, AutofillContext};
 pub(crate) use biometric::AndroidBiometricRuntimeState;
 pub(crate) use native_upload_runtime::AndroidNativeUploadRuntimeState;
 use native_upload_runtime::NativeUploadCloseMode;
+#[cfg(mobile)]
+pub(crate) use password_save::finish_password_save_request;
+#[cfg(mobile)]
 pub use password_save::AndroidPasswordSaveOutcome;
 pub(crate) use password_save::{
-    finish_password_save_request, invalidate_all_password_save_requests,
-    AndroidPasswordSaveRuntimeState,
+    invalidate_all_password_save_requests, AndroidPasswordSaveRuntimeState,
 };
 pub(crate) use runtime::{shared_provider_runtime, AndroidProviderRuntimeState};
-pub(crate) use saf_picker::{AndroidSafPickerRuntimeState, AndroidSafTree};
+pub(crate) use saf_picker::AndroidSafPickerRuntimeState;
+#[cfg(target_os = "android")]
+pub(crate) use saf_picker::AndroidSafTree;
 #[cfg(not(target_os = "android"))]
 mod native_stub {
     use crate::mobile::BiometricAuthError;

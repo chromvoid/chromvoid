@@ -26,16 +26,13 @@ use super::preview::{
     handle_prepared_preview_request_with_parts, opaque_preview_staged_file_name,
     prepare_catalog_preview_file_in_root, prepare_catalog_preview_file_in_root_with_runtime,
     purge_catalog_preview_cache_in_root, purge_catalog_staging_cache_roots,
-    release_catalog_preview_file_in_root, staged_preview_file_preview_id,
-    PreparedPreviewRuntimeState, PREVIEW_STAGING_DIR,
+    release_catalog_preview_file_in_root, PreparedPreviewRuntimeState, PREVIEW_STAGING_DIR,
 };
 use super::staging::{
     prune_staged_external_files, stage_catalog_download_for_external_action_in_root,
     write_stream_to_file_atomically, write_stream_to_staged_file,
     EXTERNAL_ACTION_STAGING_MAX_AGE_SECS, OPEN_EXTERNAL_STAGING_DIR, SHARE_FILES_STAGING_DIR,
 };
-use super::*;
-
 const PREVIEW_SOURCE_HEIC: &[u8] = include_bytes!("../../../../tests/fixtures/preview-source.heic");
 
 struct StoredDerivative {

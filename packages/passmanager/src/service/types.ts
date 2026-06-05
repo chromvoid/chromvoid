@@ -248,6 +248,7 @@ export interface PassManagerRootV3 {
   updatedTs: number
   folders: string[]
   foldersMeta?: PassManagerRootV3FolderMeta[]
+  tags?: string[]
   entries: PassManagerRootV3Entry[]
 }
 
@@ -261,6 +262,7 @@ export interface PassManagerExportV1 {
   updatedTs: number
   folders: string[]
   foldersMeta?: PassManagerRootV3FolderMeta[]
+  tags?: string[]
   entries: PassManagerExportV1Entry[]
 }
 

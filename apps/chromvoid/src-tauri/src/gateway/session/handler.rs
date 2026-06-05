@@ -1,4 +1,3 @@
-use std::io::Read as _;
 use std::time::Duration;
 
 use chromvoid_core::rpc::stream::{RpcInputStream, RpcReply};

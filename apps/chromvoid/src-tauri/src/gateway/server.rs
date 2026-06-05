@@ -15,7 +15,7 @@ use super::session::handle_extension_session;
 pub const GATEWAY_BIND_V4: &str = "127.0.0.1:8003";
 pub const GATEWAY_BIND_V6: &str = "[::1]:8003";
 
-pub fn spawn_gateway_server(
+pub(crate) fn spawn_gateway_server(
     app: tauri::AppHandle,
     task_lifecycle: Arc<TaskLifecycleRuntime>,
 ) -> Result<(), String> {

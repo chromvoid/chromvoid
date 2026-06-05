@@ -45,10 +45,10 @@ export const pmGroupCommonStyles = css`
   .pm-group-scroll-edge {
     flex: 1;
     min-block-size: 0;
-    --cv-scroll-edge-block-size: 46px;
+    --cv-scroll-edge-block-size: var(--cv-scroll-edge-group-block-size);
     --cv-scroll-edge-inline-start: var(--pm-scrollbar-safe-area-start);
     --cv-scroll-edge-inline-end: var(--pm-scrollbar-safe-area-end);
-    --cv-scroll-edge-surface: var(--cv-color-surface);
+    --cv-scroll-edge-surface: var(--cv-scroll-edge-default-surface);
   }
 
   .group-virtual-list > * {
@@ -97,13 +97,13 @@ export const pmGroupCommonStyles = css`
   }
 
   .folder-custom-icon {
-    width: 24px;
-    height: 24px;
-    --pm-avatar-radius: var(--cv-radius-1);
+    width: var(--pm-avatar-list-folder-size);
+    height: var(--pm-avatar-list-folder-size);
+    --pm-avatar-radius: var(--pm-avatar-list-radius);
     --pm-avatar-image-fit: contain;
-    --pm-avatar-image-padding: 4px;
+    --pm-avatar-image-padding: var(--pm-avatar-list-folder-image-padding);
     --pm-avatar-contrast: var(--pm-avatar-contrast-base);
-    --pm-avatar-shadow-opacity: 30%;
+    --pm-avatar-shadow-opacity: var(--pm-avatar-list-shadow-opacity);
   }
 
   .group-name {

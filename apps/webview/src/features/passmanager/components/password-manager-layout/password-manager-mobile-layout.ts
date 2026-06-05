@@ -52,6 +52,7 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
 
       .content .card {
         padding: var(--app-surface-gutter-mobile);
+        padding-bottom: 0px;
       }
 
       /* Lets pm-entry-mobile own its internal content scroller and footer. */
@@ -62,6 +63,7 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
 
       .content pm-entry-create-mobile.card {
         padding: 0;
+        overflow: hidden;
       }
 
       .content pm-group-mobile.card {

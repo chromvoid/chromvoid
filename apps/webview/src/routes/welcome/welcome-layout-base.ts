@@ -2,7 +2,6 @@ import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {nothing, type PropertyValues} from 'lit'
 
 import {markStartupContentReadyWhenStable} from 'root/app/bootstrap/startup-readiness'
-import {getAppContext} from 'root/shared/services/app-context'
 import {WelcomeHeroSection} from './sections/hero'
 import {WelcomeSetupSection} from './sections/steps'
 import {WelcomePrintKitSection, WelcomeToolsSection} from './sections/tools'
@@ -48,13 +47,7 @@ export abstract class WelcomePageLayoutBase extends ReatomLitElement {
     })
   }
 
-  private getStatusVariant(type: 'success' | 'error' | 'warning' | 'info') {
-    return type === 'error' ? 'danger' : type
-  }
-
   protected render() {
-    const statusMessage = getAppContext().store.statusMessage()
-
     return html`
       <div class="container">
         <div class="main-card">
@@ -65,11 +58,6 @@ export abstract class WelcomePageLayoutBase extends ReatomLitElement {
           ${this.model.errorText()
             ? html`<cv-callout variant="danger" class="${this.model.shakeError() ? 'animate-shake' : ''}">
                 ${this.model.errorText()}
-              </cv-callout>`
-            : nothing}
-          ${statusMessage
-            ? html`<cv-callout variant=${this.getStatusVariant(statusMessage.type)}>
-                ${statusMessage.message}
               </cv-callout>`
             : nothing}
           <welcome-setup-section

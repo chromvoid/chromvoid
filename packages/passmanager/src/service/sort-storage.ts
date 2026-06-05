@@ -1,4 +1,4 @@
-import type {GroupBy, SortDirection, SortField, ViewMode} from '../service/types'
+import type {GroupBy, SortDirection, SortField, ViewMode} from './types'
 
 /*** Service to save and restore sorting settings
 */

@@ -28,5 +28,5 @@ pub(crate) use backend_join::{
     cleanup_fuse_staging_dir, VolumeBackendJoinRuntimeState, VOLUME_BACKGROUND_JOIN_TIMEOUT,
 };
 pub use fuse::{detect_fuse_driver, FuseSessionHandle};
-pub use models::{FuseDriverStatus, VolumeError, VolumeResult, VolumeState};
+pub use models::{FuseDriverStatus, VolumeError, VolumeState};
 pub use state_machine::VolumeManager;

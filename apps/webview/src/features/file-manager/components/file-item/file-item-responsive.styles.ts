@@ -94,12 +94,27 @@ export const fileItemResponsiveStyles = css`
       position: relative;
       overflow: hidden;
       border-radius: inherit;
+      isolation: isolate;
     }
 
     .swipe-container > .file-item {
+      --file-item-swipe-offset: 0px;
       position: relative;
       z-index: 1;
+      inline-size: 100%;
       touch-action: pan-y;
+      transform: translate3d(var(--file-item-swipe-offset), 0, 0);
+      will-change: transform;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+    }
+
+    .swipe-container > .file-item .thumbnail-shell,
+    .swipe-container > .file-item .info,
+    .swipe-container > .file-item .file-type {
+      transform: translateZ(0);
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
     }
 
     .swipe-actions-left,

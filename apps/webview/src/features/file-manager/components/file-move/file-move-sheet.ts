@@ -1,9 +1,9 @@
 import {CVButton} from '@chromvoid/uikit/components/cv-button'
+import {CVBottomSheet} from '@chromvoid/uikit/components/cv-bottom-sheet'
 import {css} from 'lit'
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
 import {i18n} from 'root/i18n'
-import {AdaptiveModalSurface} from 'root/shared/ui/adaptive-modal-surface'
 import {FileMoveMobile} from './file-move-mobile'
 
 export type FileMoveSheetConfirmDetail = {
@@ -26,53 +26,44 @@ export class FileMoveSheet extends ReatomLitElement {
       display: contents;
     }
 
-    adaptive-modal-surface {
-      --adaptive-modal-width: min(520px, calc(100vw - 24px));
-      --adaptive-modal-max-height: min(680px, calc(100dvh - 24px));
-      --adaptive-modal-sheet-max-height: 100dvh;
+    cv-bottom-sheet {
       --cv-bottom-sheet-safe-top: var(--safe-area-top, env(safe-area-inset-top, 0px));
       --cv-bottom-sheet-expanded-height: 100dvh;
       --cv-bottom-sheet-middle-height: min(72dvh, 560px);
-      --adaptive-modal-sheet-border-radius: var(--cv-radius-4) var(--cv-radius-4) 0 0;
-      --adaptive-modal-sheet-grabber-color: color-mix(
-        in srgb,
-        var(--cv-color-primary) 45%,
-        var(--cv-color-border-strong)
-      );
     }
 
-    adaptive-modal-surface::part(content) {
+    cv-bottom-sheet::part(content) {
       grid-template-rows: auto auto minmax(0, 1fr) auto;
-      block-size: min(var(--adaptive-modal-sheet-max-height), calc(100dvh - var(--cv-bottom-sheet-safe-top)));
+      block-size: min(var(--cv-bottom-sheet-max-height), calc(100dvh - var(--cv-bottom-sheet-safe-top)));
       overflow: hidden;
       background: var(--cv-color-surface);
     }
 
-    adaptive-modal-surface::part(header) {
+    cv-bottom-sheet::part(header) {
       padding: var(--cv-space-5) var(--cv-space-5) var(--cv-space-2);
     }
 
-    adaptive-modal-surface::part(title) {
+    cv-bottom-sheet::part(title) {
       font-size: 1.125rem;
       font-weight: var(--cv-font-weight-bold);
       line-height: 1.2;
     }
 
-    adaptive-modal-surface::part(header-close) {
+    cv-bottom-sheet::part(header-close) {
       inline-size: 36px;
       block-size: 36px;
       border-radius: var(--cv-radius-2);
       color: var(--cv-color-text-muted);
     }
 
-    adaptive-modal-surface::part(body) {
+    cv-bottom-sheet::part(body) {
       display: grid;
       min-block-size: 0;
       padding: 0;
       overflow: hidden;
     }
 
-    adaptive-modal-surface::part(footer) {
+    cv-bottom-sheet::part(footer) {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: var(--cv-space-3);
@@ -119,7 +110,7 @@ export class FileMoveSheet extends ReatomLitElement {
   }
 
   static define() {
-    AdaptiveModalSurface.define()
+    CVBottomSheet.define()
     CVButton.define()
     FileMoveMobile.define()
     if (!customElements.get(this.elementName)) {
@@ -134,6 +125,12 @@ export class FileMoveSheet extends ReatomLitElement {
         composed: true,
       }),
     )
+  }
+
+  private handleSheetChange(event: CustomEvent<{open?: boolean}>) {
+    if (event.target !== event.currentTarget) return
+    if (event.detail.open !== false) return
+    this.emitClose()
   }
 
   private emitCancel() {
@@ -176,10 +173,9 @@ export class FileMoveSheet extends ReatomLitElement {
 
   protected override render() {
     return html`
-      <adaptive-modal-surface
+      <cv-bottom-sheet
         .open=${this.open}
-        .ariaLabel=${i18n('file-manager:move:title')}
-        @close=${this.emitClose}
+        @cv-change=${this.handleSheetChange}
         @keydown=${this.handleKeyDown}
       >
         <span slot="title">${i18n('file-manager:move:title')}</span>
@@ -213,7 +209,7 @@ export class FileMoveSheet extends ReatomLitElement {
         >
           ${i18n('file-manager:move:action')}
         </cv-button>
-      </adaptive-modal-surface>
+      </cv-bottom-sheet>
     `
   }
 }

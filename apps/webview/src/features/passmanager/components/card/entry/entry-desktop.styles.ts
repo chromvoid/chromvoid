@@ -533,8 +533,7 @@ const entryDesktopMainStyles = css`
     gap: 10px;
   }
 
-  .otp-inline-create,
-  .ssh-generator-inline {
+  .otp-inline-create {
     display: grid;
     gap: 10px;
   }
@@ -724,12 +723,12 @@ const entryDesktopResponsiveStyles = css`
     }
 
     .payment-card-inline-action {
-      inline-size: 1.65rem;
-      block-size: 1.65rem;
+      inline-size: var(--pm-action-copy-size-compact);
+      block-size: var(--pm-action-copy-size-compact);
     }
 
     .payment-card-inline-copy {
-      --cv-copy-button-size: 1.65rem;
+      --cv-copy-button-size: var(--pm-action-copy-size-compact);
     }
 
     .payment-card-inline-action cv-icon {
@@ -824,12 +823,12 @@ const entryDesktopResponsiveStyles = css`
     }
 
     .payment-card-inline-action {
-      inline-size: 1.55rem;
-      block-size: 1.55rem;
+      inline-size: var(--pm-action-copy-size-dense);
+      block-size: var(--pm-action-copy-size-dense);
     }
 
     .payment-card-inline-copy {
-      --cv-copy-button-size: 1.55rem;
+      --cv-copy-button-size: var(--pm-action-copy-size-dense);
     }
 
     .payment-card-chip {

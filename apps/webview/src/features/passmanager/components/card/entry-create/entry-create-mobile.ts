@@ -21,20 +21,15 @@ const pmEntryCreateMobileStyles = css`
     display: block;
     block-size: 100%;
     container-type: inline-size;
-    overflow-y: auto;
-    overflow-x: hidden;
+    overflow: hidden;
     contain: layout style paint;
     overscroll-behavior-y: contain;
     scrollbar-width: none;
     color: var(--cv-color-text);
     background: var(--cv-color-bg);
-    --pm-mobile-footer-size: calc(4.75rem + var(--safe-area-bottom-active));
-    --pm-mobile-footer-clearance: calc(var(--visual-viewport-bottom-inset) + var(--cv-space-3));
     --entry-create-surface: var(--cv-color-surface-secondary-glass-strong);
     --entry-create-field: var(--cv-color-surface-tertiary-glass);
     --entry-create-border: var(--cv-color-border-faint);
-    scroll-padding-block-end: calc(var(--pm-mobile-footer-size) + var(--pm-mobile-footer-clearance));
-    -webkit-overflow-scrolling: touch;
   }
 
   @supports (-webkit-touch-callout: none) {
@@ -68,15 +63,34 @@ const pmEntryCreateMobileStyles = css`
     --cv-select-inline-size: 100%;
   }
 
+  cv-guidance-anchor {
+    display: block;
+    block-size: 100%;
+    min-block-size: 0;
+  }
+
   form {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
-    min-block-size: 100%;
-    padding: 1rem;
+    block-size: 100%;
+    min-block-size: 0;
+    inline-size: 100%;
     max-width: 860px;
     box-sizing: border-box;
-    padding-block-end: var(--visual-viewport-bottom-inset);
+
+  }
+
+  .create-scroll {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 1.5rem;
+    min-block-size: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 1rem 1rem 1.25rem;
+    box-sizing: border-box;
+    -webkit-overflow-scrolling: touch;
   }
 
   h3 {
@@ -86,13 +100,6 @@ const pmEntryCreateMobileStyles = css`
     color: var(--cv-color-text);
   }
 
-  .create-header {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: center;
-    gap: 0.875rem;
-    padding: 0.25rem 0 0.125rem;
-  }
 
   back-button {
     --back-button-size: 44px;
@@ -109,21 +116,6 @@ const pmEntryCreateMobileStyles = css`
     min-inline-size: 0;
     display: grid;
     gap: 0.25rem;
-  }
-
-  .create-header-title {
-    margin: 0;
-    font-size: 1.625rem;
-    line-height: 1.1;
-    font-weight: 700;
-    color: var(--cv-color-text);
-  }
-
-  .create-header-subtitle {
-    margin: 0;
-    color: var(--cv-color-text-muted);
-    font-size: 0.875rem;
-    line-height: 1.35;
   }
 
   .section {
@@ -465,6 +457,11 @@ const pmEntryCreateMobileStyles = css`
     font-size: 0.875rem;
   }
 
+  .mobile-tags-section .entry-tags-combobox::part(trigger) {
+    min-block-size: 2.125rem;
+    font-size: 0.875rem;
+  }
+
   .mobile-tags-section .entry-tags-combobox::part(tags) {
     gap: 0.25rem;
   }
@@ -480,29 +477,15 @@ const pmEntryCreateMobileStyles = css`
     font-size: 0.75rem;
   }
 
-  .mobile-tags-section .entry-tags-add {
+  .mobile-tags-section .entry-tags-picker {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 0.5rem;
   }
 
-  .mobile-tags-section .entry-tags-add cv-input::part(form-control-label) {
-    display: none;
-  }
-
-  .mobile-tags-section .entry-tags-add cv-input::part(base) {
-    min-block-size: 2.25rem;
-    padding-inline: 0.625rem;
-    border-radius: 0.75rem;
-  }
-
-  .mobile-tags-section .entry-tags-add cv-button {
+  .mobile-tags-section .entry-tags-manage {
     min-inline-size: 2.25rem;
     align-self: stretch;
-    white-space: nowrap;
-  }
-
-  .mobile-tags-section .entry-tags-add cv-button span {
-    display: none;
+    border-radius: 0.75rem;
   }
 
   @container (width < 380px) {
@@ -523,7 +506,7 @@ const pmEntryCreateMobileStyles = css`
       padding: 0.25rem;
     }
 
-    .mobile-tags-section .entry-tags-add {
+    .mobile-tags-section .entry-tags-picker {
       grid-template-columns: minmax(0, 1fr) auto;
     }
   }
@@ -627,10 +610,22 @@ const pmEntryCreateMobileStyles = css`
     padding: 0 1rem 1rem;
     border-block-start: 1px solid var(--cv-color-border-faint);
     padding-block-start: 0.875rem;
+    opacity: 1;
+    transition:
+      opacity var(--cv-duration-fast, 120ms) var(--cv-easing-standard),
+      display var(--cv-duration-fast, 120ms) allow-discrete;
+    transition-behavior: allow-discrete;
   }
 
   .optional-card-body[hidden] {
     display: none;
+    opacity: 0;
+  }
+
+  @starting-style {
+    .optional-card-body:not([hidden]) {
+      opacity: 0;
+    }
   }
 
   .otp-summary {
@@ -818,43 +813,32 @@ const pmEntryCreateMobileStyles = css`
   }
 
   .create-footer {
-    position: sticky;
-    inset-block-end: var(--visual-viewport-bottom-inset);
-    z-index: 10;
-    border-block-start: 1px solid var(--cv-color-border-faint);
-    background: var(--cv-color-bg);
-    box-shadow: 0 -16px 24px -16px var(--cv-alpha-black-35);
+    flex: 0 0 auto;
+    --cv-mobile-bottom-action-padding: var(--cv-space-2) 1rem;
   }
 
   .create-footer cv-button {
-    --cv-button-background: var(--cv-color-primary-dark);
-    --cv-button-background-hover: var(--cv-color-primary);
-    --cv-button-background-active: var(--cv-color-primary-darker);
-    --cv-button-border-color: var(--cv-color-primary-border-strong);
-    --cv-button-border-color-hover: var(--cv-color-primary-border-strong);
-    --cv-button-border-color-active: var(--cv-color-primary-border-strong);
-    --cv-button-text-color: var(--cv-color-on-primary);
-    --cv-button-text-color-hover: var(--cv-color-on-primary);
-    --cv-button-text-color-active: var(--cv-color-on-primary);
-    --cv-button-focus-ring-color: var(--cv-color-primary-ring);
     inline-size: 100%;
+    display: block;
+    overflow: hidden;
+    isolation: isolate;
+    contain: paint;
+    border: 1px solid var(--cv-button-border-color);
+    border-radius: 1rem;
+    background: var(--cv-button-background);
+    color: var(--cv-button-text-color);
+    box-shadow:
+      var(--cv-shadow-sm),
+      0 0 24px var(--cv-color-primary-ring);
+    transform: translateZ(0);
   }
 
   .create-footer cv-button::part(base) {
-    --cv-button-background: var(--cv-color-primary-dark);
-    --cv-button-background-hover: var(--cv-color-primary);
-    --cv-button-background-active: var(--cv-color-primary-darker);
-    --cv-button-border-color: var(--cv-color-primary-border-strong);
-    --cv-button-border-color-hover: var(--cv-color-primary-border-strong);
-    --cv-button-border-color-active: var(--cv-color-primary-border-strong);
-    --cv-button-text-color: var(--cv-color-on-primary);
-    --cv-button-text-color-hover: var(--cv-color-on-primary);
-    --cv-button-text-color-active: var(--cv-color-on-primary);
     min-block-size: 3.375rem;
-    border: 1px solid var(--cv-color-primary-border-strong);
-    border-radius: 1rem;
-    background: var(--cv-color-primary-dark);
-    color: var(--cv-color-on-primary);
+    border: 0;
+    border-radius: inherit;
+    background: var(--cv-button-background);
+    color: inherit;
     box-shadow:
       var(--cv-shadow-sm),
       0 0 24px var(--cv-color-primary-ring);
@@ -869,8 +853,12 @@ const pmEntryCreateMobileStyles = css`
     transform: translateY(1px) scale(0.995);
   }
 
-  .create-footer cv-button[disabled]::part(base) {
+  .create-footer cv-button[disabled] {
     filter: saturate(0.5);
+    box-shadow: none;
+  }
+
+  .create-footer cv-button[disabled]::part(base) {
     opacity: 1;
     box-shadow: none;
     animation: none;
@@ -905,7 +893,7 @@ const pmEntryCreateMobileStyles = css`
   }
 
   @container (width < 360px) {
-    form {
+    .create-scroll {
       padding-inline: 0.75rem;
       gap: 1.25rem;
     }
@@ -948,8 +936,7 @@ const pmEntryCreateMobileStyles = css`
     }
 
     .create-footer {
-      margin-inline: -0.75rem;
-      padding-inline: 0.75rem;
+      --cv-mobile-bottom-action-padding: var(--cv-space-2) 0.75rem;
     }
   }
 `
@@ -977,7 +964,28 @@ export class PMEntryCreateMobile extends PMEntryCreateBase {
     return 1
   }
 
+  protected override getTagsEditorComboboxType(): 'select-only' {
+    return 'select-only'
+  }
+
+  protected override getTagsEditorPlaceholder(): string {
+    return i18n('tags:select_placeholder' as never)
+  }
+
   protected override prepareInitialViewport(): void {
+    const scroll = this.shadowRoot?.querySelector<HTMLElement>('.create-scroll')
+    if (scroll) {
+      scroll.scrollTop = 0
+      scroll.scrollLeft = 0
+
+      try {
+        scroll.scrollTo({top: 0, left: 0})
+      } catch {
+        scroll.scrollTop = 0
+        scroll.scrollLeft = 0
+      }
+    }
+
     this.scrollTop = 0
     this.scrollLeft = 0
 
@@ -1152,23 +1160,7 @@ export class PMEntryCreateMobile extends PMEntryCreateBase {
     </div>`
   }
 
-  private renderHeader(): TemplateResult {
-    const isCard = this.model.entryType() === 'payment_card'
 
-    return html`
-      <div class="create-header">
-        ${this.hideBack ? nothing : html`<back-button></back-button>`}
-        <div class="create-heading">
-          <h1 class="create-header-title">
-            ${isCard ? i18n('entry:create-card-title') : i18n('entry:create-login-title')}
-          </h1>
-          <p class="create-header-subtitle">
-            ${isCard ? i18n('entry:create-card-subtitle') : i18n('entry:create-login-subtitle')}
-          </p>
-        </div>
-      </div>
-    `
-  }
 
   private renderTypeSection(): TemplateResult {
     const entryType = this.model.entryType()
@@ -1519,13 +1511,20 @@ export class PMEntryCreateMobile extends PMEntryCreateBase {
     const disabled = isPassmanagerReadOnlyOrMissing() || this.model.isSubmitting()
 
     return html`
-      <footer class="create-footer">
-        <cv-button .disabled=${disabled} .loading=${this.model.isSubmitting()} size="large" variant="primary" type="submit">
+      <mobile-bottom-action-footer class="create-footer" flow>
+        <cv-button
+          .disabled=${disabled}
+          .loading=${this.model.isSubmitting()}
+          size="large"
+          variant="primary"
+          preset="action-primary"
+          type="submit"
+        >
           <cv-icon slot="prefix" name="shield-check"></cv-icon>
           <span>${this.model.isSubmitting() ? i18n('entry:creating') : i18n('button:create_entry')}</span>
           <cv-icon slot="suffix" name="chevron-right"></cv-icon>
         </cv-button>
-      </footer>
+      </mobile-bottom-action-footer>
     `
   }
 
@@ -1533,15 +1532,14 @@ export class PMEntryCreateMobile extends PMEntryCreateBase {
     const entryType = this.model.entryType()
 
     return html`
-      ${this.renderHeader()} ${this.renderTypeSection()} ${this.renderTitleSection()}
+      ${this.renderTypeSection()} ${this.renderTitleSection()}
       ${entryType === 'payment_card'
-        ? html`${this.renderPaymentCardSection()} ${this.renderTagsSection()} ${this.renderSubmitSection()} ${this.renderFormFooter()}`
+        ? html`${this.renderPaymentCardSection()} ${this.renderTagsSection()} ${this.renderSubmitSection()}`
         : html`
             ${this.renderCredentialsSection()}
             ${this.renderTagsSection()}
             ${this.renderOptionalSection()}
             ${this.renderSubmitSection()}
-            ${this.renderFormFooter()}
             ${this.renderOtpSheet()}
             ${this.renderSshSheet()}
           `}
@@ -1555,7 +1553,10 @@ export class PMEntryCreateMobile extends PMEntryCreateBase {
 
     return html`
       <cv-guidance-anchor anchor-id="passwords.create-entry" surface="passwords" owner="passmanager">
-        <form @submit=${this.onSubmit}>${this.renderFormBody()}</form>
+        <form @submit=${this.onSubmit}>
+          <div class="create-scroll">${this.renderFormBody()}</div>
+          ${this.renderFormFooter()}
+        </form>
       </cv-guidance-anchor>
     `
   }

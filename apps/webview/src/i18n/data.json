@@ -5664,10 +5664,6 @@
     "en": "Master Password",
     "ru": "Мастер-пароль"
   },
-  "welcome:vault-unlocked": {
-    "en": "Vault unlocked",
-    "ru": "Хранилище открыто"
-  },
   "welcome:backup-destination": {
     "en": "Select Backup Destination",
     "ru": "Выберите место для резервной копии"

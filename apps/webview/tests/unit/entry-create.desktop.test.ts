@@ -1,8 +1,10 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
-import {CVButton, CVInput, CVTextarea} from '@chromvoid/uikit'
+import {CVButton, CVCombobox, CVInput, CVTextarea} from '@chromvoid/uikit'
 import {setPasswordManagerLang} from '@project/passmanager/i18n'
 import {PMEntryCreateDesktop} from '../../src/features/passmanager/components/card/entry-create/entry-create'
+import {pmCredentialTagsModel} from 'root/features/passmanager/models/pm-credential-tags.model'
+import {setPassmanagerRoot} from 'root/features/passmanager/models/pm-root.adapter'
 
 const settle = async (component: PMEntryCreateDesktop) => {
   await component.updateComplete
@@ -10,11 +12,33 @@ const settle = async (component: PMEntryCreateDesktop) => {
   await component.updateComplete
 }
 
+function installTagRoot({
+  catalog = [],
+  readOnly = false,
+}: {
+  catalog?: readonly string[]
+  readOnly?: boolean
+} = {}) {
+  let rootCatalog = [...catalog]
+  const root = {
+    allEntries: [],
+    credentialTags: () => rootCatalog,
+    isReadOnly: () => readOnly,
+    saveCredentialTagCatalog: vi.fn(async (tags: unknown) => {
+      rootCatalog = Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === 'string') : []
+      return true
+    }),
+  }
+  setPassmanagerRoot(root as never)
+  return root
+}
+
 describe('PMEntryCreate desktop layout', () => {
   let previousPassmanager: typeof window.passmanager
 
   beforeEach(() => {
     previousPassmanager = window.passmanager
+    installTagRoot()
     window.passmanager = {
       isReadOnly: vi.fn(() => false),
       showElement: () => null,
@@ -23,6 +47,7 @@ describe('PMEntryCreate desktop layout', () => {
     CVInput.define()
     CVTextarea.define()
     CVButton.define()
+    CVCombobox.define()
     PMEntryCreateDesktop.define()
 
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
@@ -34,6 +59,8 @@ describe('PMEntryCreate desktop layout', () => {
   afterEach(() => {
     document.body.innerHTML = ''
     window.passmanager = previousPassmanager
+    setPassmanagerRoot(undefined)
+    pmCredentialTagsModel.closeSheet()
     setPasswordManagerLang('en')
     vi.restoreAllMocks()
   })
@@ -67,10 +94,17 @@ describe('PMEntryCreate desktop layout', () => {
 
     const tagsSection = component.shadowRoot?.querySelector('.section-desktop-tags')
     expect(tagsSection).not.toBeNull()
-    const tagCombobox = tagsSection?.querySelector('cv-combobox.entry-tags-combobox')
+    const tagCombobox = tagsSection?.querySelector('cv-combobox.entry-tags-combobox') as
+      | (HTMLElement & {shadowRoot?: ShadowRoot; updateComplete?: Promise<unknown>})
+      | null
+    await tagCombobox?.updateComplete
+
     expect(tagCombobox).not.toBeNull()
     expect(tagCombobox?.getAttribute('max-tags-visible')).toBe('3')
-    expect(tagsSection?.querySelector('cv-input[name="entry-tag-input"]')).not.toBeNull()
+    expect(tagCombobox?.getAttribute('type')).not.toBe('select-only')
+    expect(tagCombobox?.shadowRoot?.querySelector('[part="input"]')).not.toBeNull()
+    expect(tagsSection?.querySelector('cv-input[name="entry-tag-input"]')).toBeNull()
+    expect(tagsSection?.querySelector('.entry-tags-manage')).not.toBeNull()
   })
 
   it('renders localized create-entry and payment-card labels', async () => {
@@ -208,41 +242,37 @@ describe('PMEntryCreate desktop layout', () => {
     }))
   })
 
-  it('updates draft tags from combobox selectedIds and add input', async () => {
+  it('updates draft tags from combobox selectedIds and opens tag management', async () => {
+    installTagRoot({catalog: ['Work', 'Client A']})
+
     const component = document.createElement('pm-entry-create-desktop') as PMEntryCreateDesktop
     document.body.append(component)
     await settle(component)
 
     const model = (component as any).model
-    model.setTags(['Work'])
     await settle(component)
 
     const combobox = component.shadowRoot?.querySelector('cv-combobox.entry-tags-combobox') as HTMLElement | null
     combobox?.dispatchEvent(
       new CustomEvent('cv-change', {
-        detail: {selectedIds: ['work'], value: 'work', inputValue: '', activeId: null, open: false},
+        detail: {selectedIds: ['work', 'client-a'], value: 'work client-a', inputValue: '', activeId: null, open: false},
         bubbles: true,
         composed: true,
       }),
     )
 
-    expect(model.tags()).toEqual(['Work'])
-
-    component.shadowRoot?.querySelector('cv-input[name="entry-tag-input"]')?.dispatchEvent(
-      new CustomEvent('cv-input', {detail: {value: 'Client   A'}, bubbles: true, composed: true}),
-    )
-    const form = component.shadowRoot?.querySelector('.entry-tags-add') as HTMLFormElement | null
-    form?.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))
-
     expect(model.tags()).toEqual(['Work', 'Client A'])
-    expect(model.tagInput()).toBe('')
+    expect(component.shadowRoot?.querySelector('.entry-tags-add')).toBeNull()
+
+    const manageButton = component.shadowRoot?.querySelector('.entry-tags-manage') as HTMLButtonElement | null
+    manageButton?.click()
+
+    expect(pmCredentialTagsModel.filterSheetOpen()).toBe(true)
+    expect(pmCredentialTagsModel.sheetMode()).toBe('manage')
   })
 
   it('does not mutate draft tags through the disabled tag editor', async () => {
-    window.passmanager = {
-      isReadOnly: vi.fn(() => true),
-      showElement: () => null,
-    } as unknown as typeof window.passmanager
+    installTagRoot({readOnly: true})
 
     const component = document.createElement('pm-entry-create-desktop') as PMEntryCreateDesktop
     document.body.append(component)
@@ -263,14 +293,9 @@ describe('PMEntryCreate desktop layout', () => {
         composed: true,
       }),
     )
-    component.shadowRoot?.querySelector('cv-input[name="entry-tag-input"]')?.dispatchEvent(
-      new CustomEvent('cv-input', {detail: {value: 'Client A'}, bubbles: true, composed: true}),
-    )
-    component.shadowRoot?.querySelector('.entry-tags-add')?.dispatchEvent(
-      new Event('submit', {bubbles: true, cancelable: true}),
-    )
 
     expect(model.tags()).toEqual(['Work'])
-    expect(model.tagInput()).toBe('')
+    expect(component.shadowRoot?.querySelector('.entry-tags-add')).toBeNull()
+    expect(component.shadowRoot?.querySelector('.entry-tags-manage')?.hasAttribute('disabled')).toBe(true)
   })
 })

@@ -333,10 +333,9 @@ async function getMobilePasswordDialogKeyboardSnapshot(
     }
 
     const inputDialog = deepFind(document, 'cv-input-dialog') as HTMLElement | null
-    const surface = inputDialog?.shadowRoot?.querySelector(
-      'adaptive-modal-surface.password-input-dialog',
+    const sheet = inputDialog?.shadowRoot?.querySelector(
+      'cv-bottom-sheet.password-input-dialog',
     ) as HTMLElement | null
-    const sheet = surface?.shadowRoot?.querySelector('cv-bottom-sheet') as HTMLElement | null
     const dialog = sheet?.shadowRoot?.querySelector('cv-dialog') as HTMLElement | null
     const content = dialog?.shadowRoot?.querySelector('[part="content"]') as HTMLElement | null
     const footer = inputDialog?.shadowRoot?.querySelector('.dialog-footer') as HTMLElement | null
@@ -1032,11 +1031,7 @@ test('mobile selection delete confirmation stays inside viewport', async () => {
       }
 
       const confirm = deepFind(document, 'cv-confirm-dialog') as HTMLElement | null
-      const adaptive = confirm?.shadowRoot?.querySelector('adaptive-modal-surface') as HTMLElement | null
-      const sheet = adaptive?.shadowRoot?.querySelector('cv-bottom-sheet') as HTMLElement | null
-      const dialog =
-        (sheet?.shadowRoot?.querySelector('cv-dialog') as HTMLElement | null) ??
-        (adaptive?.shadowRoot?.querySelector('cv-dialog') as HTMLElement | null)
+      const dialog = confirm?.shadowRoot?.querySelector('cv-dialog') as HTMLElement | null
       const content = dialog?.shadowRoot?.querySelector('[part="content"]') as HTMLElement | null
       if (!content) return null
 
@@ -1208,8 +1203,8 @@ test('mobile switches toolbar stacks by context and hides actions in create/impo
 
       const entry = deepFind(document, 'pm-entry-mobile') as HTMLElement | null
       const root = entry?.shadowRoot
-      return Boolean(root?.querySelector('.entry-action-footer'))
-        && Boolean(root?.querySelector('.entry-edit-actions'))
+      return Boolean(root?.querySelector('mobile-bottom-action-footer.entry-action-footer[columns="2"]'))
+        && Boolean(root?.querySelector('.entry-edit-save-action'))
         && Boolean(root?.querySelector('.entry-edit-note-input'))
     },
     undefined,
@@ -1259,6 +1254,85 @@ test('mobile switches toolbar stacks by context and hides actions in create/impo
   state = await getPMMobileFabState(page)
   expect(state.actionsHidden).toBe(false)
   expect(state.fabOrder).toEqual(['pm-create-group', 'pm-create-entry'])
+})
+
+test('mobile create entry footer uses ios native scroll-action offset without a second keyboard lift', async () => {
+  const page = globalThis.__E2E_PAGE__!
+  await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile`)
+
+  await page.evaluate(() => {
+    ;(window as any).passmanager.showElement.set('createEntry')
+  })
+  await page.waitForFunction(
+    () => {
+      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+        const found = root.querySelector(selector)
+        if (found) return found
+        for (const el of root.querySelectorAll('*')) {
+          if (el.shadowRoot) {
+            const inner = deepFind(el.shadowRoot, selector)
+            if (inner) return inner
+          }
+        }
+        return null
+      }
+
+      const createEntry = deepFind(document, 'pm-entry-create-mobile') as HTMLElement | null
+      return Boolean(createEntry?.shadowRoot?.querySelector('.create-footer cv-button'))
+    },
+    undefined,
+    {timeout: 10_000},
+  )
+
+  const footerState = await page.evaluate(async () => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const createEntry = deepFind(document, 'pm-entry-create-mobile') as HTMLElement | null
+    const footer = createEntry?.shadowRoot?.querySelector('.create-footer') as HTMLElement | null
+    const button = footer?.querySelector('cv-button') as HTMLElement | null
+    const buttonBase = button?.shadowRoot?.querySelector('[part="base"]') as HTMLElement | null
+    if (!footer || !buttonBase) {
+      return null
+    }
+
+    const root = document.documentElement
+    root.toggleAttribute('data-mobile-keyboard-expanded', true)
+    root.toggleAttribute('data-native-keyboard-insets', true)
+    root.toggleAttribute('data-ios-native-keyboard-insets', true)
+    root.toggleAttribute('data-mobile-keyboard-native-resize', true)
+    root.style.setProperty('--native-keyboard-bottom-inset', '286px')
+    root.style.setProperty('--visual-viewport-bottom-inset', '0px')
+    root.style.setProperty('--mobile-keyboard-bottom-inset', '286px')
+    root.style.setProperty('--mobile-keyboard-scroll-action-offset', '0px')
+    root.style.setProperty('--mobile-keyboard-scroll-clearance', '0px')
+    root.style.setProperty('--mobile-keyboard-overlay-offset', '0px')
+
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+
+    const buttonBaseStyle = getComputedStyle(buttonBase)
+    const footerStyle = getComputedStyle(footer)
+    return {
+      buttonBaseBackground: buttonBaseStyle.backgroundColor,
+      footerScrollActionOffset: footerStyle.getPropertyValue('--mobile-keyboard-scroll-action-offset'),
+      visualViewportInset: root.style.getPropertyValue('--visual-viewport-bottom-inset'),
+    }
+  })
+
+  expect(footerState).not.toBeNull()
+  expect(footerState!.footerScrollActionOffset.trim()).toBe('0px')
+  expect(footerState!.visualViewportInset.trim()).toBe('0px')
+  expect(footerState!.buttonBaseBackground).not.toBe('rgba(0, 0, 0, 0)')
 })
 
 test('mobile entry password double tap opens full edit mode and focuses password', async () => {
@@ -1486,8 +1560,8 @@ test('mobile entry edit keeps bottom clearance when the keyboard inset is active
 
       const entry = deepFind(document, 'pm-entry-mobile') as HTMLElement | null
       const root = entry?.shadowRoot
-      return Boolean(root?.querySelector('.entry-action-footer'))
-        && Boolean(root?.querySelector('.entry-edit-actions'))
+      return Boolean(root?.querySelector('mobile-bottom-action-footer.entry-action-footer[columns="2"]'))
+        && Boolean(root?.querySelector('.entry-edit-save-action'))
         && Boolean(root?.querySelector('.entry-edit-note-input'))
     },
     undefined,
@@ -1508,39 +1582,82 @@ test('mobile entry edit keeps bottom clearance when the keyboard inset is active
     }
 
     const rootElement = document.documentElement
+    const mobileShell = deepFind(document, 'file-app-shell-mobile-layout') as HTMLElement | null
     const entry = deepFind(document, 'pm-entry-mobile') as HTMLElement | null
     const entryRoot = entry?.shadowRoot
     const footer = entryRoot?.querySelector('.entry-action-footer') as HTMLElement | null
     const entryScroll = entryRoot?.querySelector('.entry-scroll') as HTMLElement | null
     const noteInput = entryRoot?.querySelector('.entry-edit-note-input') as HTMLElement | null
-    if (!entry || !footer || !entryScroll) {
+    const saveAction = entryRoot?.querySelector('.entry-edit-save-action') as HTMLElement | null
+    const cancelAction = entryRoot?.querySelector('.entry-edit-cancel-action') as HTMLElement | null
+    if (!mobileShell || !entry || !footer || !entryScroll || !saveAction || !cancelAction) {
       return null
     }
 
     const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    const bottomChromeClearance = 64
+    const previousInset = rootElement.style.getPropertyValue('--visual-viewport-bottom-inset')
+    const hadKeyboardExpanded = rootElement.hasAttribute('data-mobile-keyboard-expanded')
+    const previousKeyboardExpanded = rootElement.getAttribute('data-mobile-keyboard-expanded')
+    const previousShellBottomChrome = mobileShell.style.getPropertyValue('--mobile-tab-bar-content-clearance')
 
-    rootElement.style.setProperty('--visual-viewport-bottom-inset', '240px')
-    await nextFrame()
-    const beforeRect = footer.getBoundingClientRect()
+    try {
+      rootElement.style.setProperty('--visual-viewport-bottom-inset', '240px')
+      rootElement.setAttribute('data-mobile-keyboard-expanded', '')
+      mobileShell.style.setProperty('--mobile-tab-bar-content-clearance', `${bottomChromeClearance}px`)
+      await nextFrame()
+      const beforeRect = footer.getBoundingClientRect()
 
-    entryScroll.scrollTop = entryScroll.scrollHeight
-    await nextFrame()
-    const afterRect = footer.getBoundingClientRect()
-    const entryRect = entry.getBoundingClientRect()
-    const maxScroll = entryScroll.scrollHeight - entryScroll.clientHeight
-    return {
-      footerBottomClearance: entryRect.bottom - afterRect.bottom,
-      footerDeltaBottom: Math.abs(afterRect.bottom - beforeRect.bottom),
-      footerDeltaTop: Math.abs(afterRect.top - beforeRect.top),
-      hostOverflowY: getComputedStyle(entry).overflowY,
-      maxScroll,
-      noteInputExists: Boolean(noteInput),
-      scrollAtBottom: Math.abs(entryScroll.scrollTop - maxScroll) <= 1,
-      scrollOverflowY: getComputedStyle(entryScroll).overflowY,
+      entryScroll.scrollTop = entryScroll.scrollHeight
+      await nextFrame()
+      const afterRect = footer.getBoundingClientRect()
+      const entryRect = entry.getBoundingClientRect()
+      const saveRect = saveAction.getBoundingClientRect()
+      const cancelRect = cancelAction.getBoundingClientRect()
+      const bodyStyle = getComputedStyle(document.body)
+      const keyboardTop = entryRect.bottom - 240
+      const viewportKeyboardTop = window.innerHeight - 240
+      const maxScroll = entryScroll.scrollHeight - entryScroll.clientHeight
+      return {
+        bodyPaddingBottom: Number.parseFloat(bodyStyle.paddingBottom),
+        bottomChromeClearance,
+        cancelButtonKeyboardGap: keyboardTop - cancelRect.bottom,
+        cancelButtonViewportKeyboardGap: viewportKeyboardTop - cancelRect.bottom,
+        footerBottomClearance: entryRect.bottom - afterRect.bottom,
+        footerDeltaBottom: Math.abs(afterRect.bottom - beforeRect.bottom),
+        footerDeltaTop: Math.abs(afterRect.top - beforeRect.top),
+        hostOverflowY: getComputedStyle(entry).overflowY,
+        keyboardExpanded: rootElement.hasAttribute('data-mobile-keyboard-expanded'),
+        maxScroll,
+        noteInputExists: Boolean(noteInput),
+        saveButtonKeyboardGap: keyboardTop - saveRect.bottom,
+        saveButtonViewportKeyboardGap: viewportKeyboardTop - saveRect.bottom,
+        scrollAtBottom: Math.abs(entryScroll.scrollTop - maxScroll) <= 1,
+        scrollOverflowY: getComputedStyle(entryScroll).overflowY,
+      }
+    } finally {
+      if (previousInset) {
+        rootElement.style.setProperty('--visual-viewport-bottom-inset', previousInset)
+      } else {
+        rootElement.style.removeProperty('--visual-viewport-bottom-inset')
+      }
+
+      if (hadKeyboardExpanded) {
+        rootElement.setAttribute('data-mobile-keyboard-expanded', previousKeyboardExpanded ?? '')
+      } else {
+        rootElement.removeAttribute('data-mobile-keyboard-expanded')
+      }
+
+      if (previousShellBottomChrome) {
+        mobileShell.style.setProperty('--mobile-tab-bar-content-clearance', previousShellBottomChrome)
+      } else {
+        mobileShell.style.removeProperty('--mobile-tab-bar-content-clearance')
+      }
     }
   })
 
   expect(clearance).not.toBeNull()
+  expect(clearance!.keyboardExpanded).toBe(true)
   expect(clearance!.noteInputExists).toBe(true)
   expect(clearance!.hostOverflowY).toBe('hidden')
   expect(clearance!.scrollOverflowY).toBe('auto')
@@ -1548,7 +1665,141 @@ test('mobile entry edit keeps bottom clearance when the keyboard inset is active
   expect(clearance!.scrollAtBottom).toBe(true)
   expect(clearance!.footerDeltaTop).toBeLessThanOrEqual(1)
   expect(clearance!.footerDeltaBottom).toBeLessThanOrEqual(1)
-  expect(clearance!.footerBottomClearance).toBeGreaterThanOrEqual(230)
+  expect(clearance!.footerBottomClearance).toBeLessThanOrEqual(1)
+  expect(clearance!.bodyPaddingBottom).toBeGreaterThanOrEqual(230)
+  expect(clearance!.bodyPaddingBottom).toBeLessThan(240 + clearance!.bottomChromeClearance)
+  expect(clearance!.saveButtonViewportKeyboardGap).toBeGreaterThanOrEqual(10)
+  expect(clearance!.cancelButtonViewportKeyboardGap).toBeGreaterThanOrEqual(10)
+})
+
+test('mobile entry create keeps bottom action in flow above active keyboard inset', async () => {
+  const page = globalThis.__E2E_PAGE__!
+  await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile`)
+
+  await page.evaluate(() => {
+    ;(window as any).passmanager.showElement.set('createEntry')
+  })
+
+  await page.waitForFunction(
+    () => {
+      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+        const found = root.querySelector(selector)
+        if (found) return found
+        for (const el of root.querySelectorAll('*')) {
+          if (el.shadowRoot) {
+            const inner = deepFind(el.shadowRoot, selector)
+            if (inner) return inner
+          }
+        }
+        return null
+      }
+
+      const create = deepFind(document, 'pm-entry-create-mobile') as HTMLElement | null
+      const root = create?.shadowRoot
+      return Boolean(root?.querySelector('.create-scroll'))
+        && Boolean(root?.querySelector('.create-footer'))
+        && Boolean(root?.querySelector('.create-footer cv-button'))
+    },
+    undefined,
+    {timeout: 10_000},
+  )
+
+  const clearance = await page.evaluate(async () => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const rootElement = document.documentElement
+    const mobileShell = deepFind(document, 'file-app-shell-mobile-layout') as HTMLElement | null
+    const create = deepFind(document, 'pm-entry-create-mobile') as HTMLElement | null
+    const createRoot = create?.shadowRoot
+    const scroll = createRoot?.querySelector('.create-scroll') as HTMLElement | null
+    const footer = createRoot?.querySelector('.create-footer') as HTMLElement | null
+    const submit = footer?.querySelector('cv-button') as HTMLElement | null
+    if (!mobileShell || !create || !scroll || !footer || !submit) {
+      return null
+    }
+
+    const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    const bottomChromeClearance = 64
+    const previousInset = rootElement.style.getPropertyValue('--visual-viewport-bottom-inset')
+    const hadKeyboardExpanded = rootElement.hasAttribute('data-mobile-keyboard-expanded')
+    const previousKeyboardExpanded = rootElement.getAttribute('data-mobile-keyboard-expanded')
+    const previousShellBottomChrome = mobileShell.style.getPropertyValue('--mobile-tab-bar-content-clearance')
+
+    try {
+      await nextFrame()
+      const closedCreateRect = create.getBoundingClientRect()
+      const closedSubmitRect = submit.getBoundingClientRect()
+
+      rootElement.style.setProperty('--visual-viewport-bottom-inset', '240px')
+      rootElement.setAttribute('data-mobile-keyboard-expanded', '')
+      mobileShell.style.setProperty('--mobile-tab-bar-content-clearance', `${bottomChromeClearance}px`)
+      await nextFrame()
+
+      scroll.scrollTop = scroll.scrollHeight
+      await nextFrame()
+
+      const createRect = create.getBoundingClientRect()
+      const submitRect = submit.getBoundingClientRect()
+      const keyboardTop = createRect.bottom - 240
+      const viewportKeyboardTop = window.innerHeight - 240
+      const maxScroll = scroll.scrollHeight - scroll.clientHeight
+
+      return {
+        closedButtonBottomGap: closedCreateRect.bottom - closedSubmitRect.bottom,
+        footerOutsideScroll: !scroll.contains(footer),
+        footerPosition: getComputedStyle(footer).position,
+        footerUsesFlowAttribute: footer.hasAttribute('flow'),
+        hostOverflowY: getComputedStyle(create).overflowY,
+        keyboardExpanded: rootElement.hasAttribute('data-mobile-keyboard-expanded'),
+        maxScroll,
+        scrollAtBottom: Math.abs(scroll.scrollTop - maxScroll) <= 1,
+        scrollOverflowY: getComputedStyle(scroll).overflowY,
+        submitButtonKeyboardGap: keyboardTop - submitRect.bottom,
+        submitButtonViewportKeyboardGap: viewportKeyboardTop - submitRect.bottom,
+      }
+    } finally {
+      if (previousInset) {
+        rootElement.style.setProperty('--visual-viewport-bottom-inset', previousInset)
+      } else {
+        rootElement.style.removeProperty('--visual-viewport-bottom-inset')
+      }
+
+      if (hadKeyboardExpanded) {
+        rootElement.setAttribute('data-mobile-keyboard-expanded', previousKeyboardExpanded ?? '')
+      } else {
+        rootElement.removeAttribute('data-mobile-keyboard-expanded')
+      }
+
+      if (previousShellBottomChrome) {
+        mobileShell.style.setProperty('--mobile-tab-bar-content-clearance', previousShellBottomChrome)
+      } else {
+        mobileShell.style.removeProperty('--mobile-tab-bar-content-clearance')
+      }
+    }
+  })
+
+  expect(clearance).not.toBeNull()
+  expect(clearance!.keyboardExpanded).toBe(true)
+  expect(clearance!.footerOutsideScroll).toBe(true)
+  expect(clearance!.footerPosition).toBe('relative')
+  expect(clearance!.footerUsesFlowAttribute).toBe(true)
+  expect(clearance!.hostOverflowY).toBe('hidden')
+  expect(clearance!.scrollOverflowY).toBe('auto')
+  expect(clearance!.closedButtonBottomGap).toBeLessThanOrEqual(16)
+  expect(clearance!.maxScroll).toBeGreaterThan(0)
+  expect(clearance!.scrollAtBottom).toBe(true)
+  expect(clearance!.submitButtonKeyboardGap).toBeGreaterThanOrEqual(10)
+  expect(clearance!.submitButtonViewportKeyboardGap).toBeGreaterThanOrEqual(10)
 })
 
 test('mobile unlock password dialog uses sheet keyboard clearance without moving the app shell', async () => {
@@ -1582,10 +1833,9 @@ test('mobile unlock password dialog uses sheet keyboard clearance without moving
       }
 
       const inputDialog = deepFind(document, 'cv-input-dialog') as HTMLElement | null
-      const surface = inputDialog?.shadowRoot?.querySelector(
-        'adaptive-modal-surface.password-input-dialog',
+      const sheet = inputDialog?.shadowRoot?.querySelector(
+        'cv-bottom-sheet.password-input-dialog',
       ) as HTMLElement | null
-      const sheet = surface?.shadowRoot?.querySelector('cv-bottom-sheet') as HTMLElement | null
       const dialog = sheet?.shadowRoot?.querySelector('cv-dialog') as HTMLElement | null
       return Boolean(dialog?.shadowRoot?.querySelector('[part="content"]'))
     },

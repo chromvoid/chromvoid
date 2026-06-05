@@ -78,6 +78,228 @@ private func makeRestorePicker() -> UIDocumentPickerViewController {
   return UIDocumentPickerViewController(documentTypes: ["public.folder"], in: .open)
 }
 
+private final class IosKeyboardViewportCoordinator: NSObject {
+  private weak var webView: WKWebView?
+  private weak var rootViewController: UIViewController?
+  private weak var containerView: UIView?
+  private var installedConstraints: [NSLayoutConstraint] = []
+  private var replacedBottomConstraints: [NSLayoutConstraint] = []
+  private var notificationObservers: [NSObjectProtocol] = []
+
+  init(webView: WKWebView, rootViewController: UIViewController?) {
+    self.webView = webView
+    self.rootViewController = rootViewController
+    super.init()
+  }
+
+  deinit {
+    detach()
+  }
+
+  @discardableResult
+  func attach() -> Bool {
+    guard Thread.isMainThread else {
+      var attached = false
+      DispatchQueue.main.sync {
+        attached = self.attach()
+      }
+      return attached
+    }
+
+    guard let webView else {
+      return false
+    }
+
+    // Tauri owns the WKWebView and attaches it before plugin load completes.
+    // Use the immediate superview as the layout container so keyboard constraints
+    // adapt to Tauri's hierarchy instead of replacing the root controller layout.
+    guard let container = webView.superview ?? rootViewController?.view else {
+      NSLog("ios_native_bridge: keyboard viewport coordinator unavailable")
+      return false
+    }
+
+    guard #available(iOS 15.0, *) else {
+      NSLog("ios_native_bridge: keyboard viewport coordinator requires iOS 15+")
+      return false
+    }
+
+    detach()
+    containerView = container
+    installKeyboardConstraints(webView: webView, container: container)
+    installKeyboardObservers()
+    emitKeyboardPayload(visible: false, bottomInset: 0)
+    NSLog("ios_native_bridge: keyboard viewport coordinator attached")
+    return true
+  }
+
+  func detach() {
+    guard Thread.isMainThread else {
+      DispatchQueue.main.sync {
+        self.detach()
+      }
+      return
+    }
+
+    let center = NotificationCenter.default
+    for observer in notificationObservers {
+      center.removeObserver(observer)
+    }
+    notificationObservers.removeAll()
+
+    NSLayoutConstraint.deactivate(installedConstraints)
+    installedConstraints.removeAll()
+
+    NSLayoutConstraint.activate(replacedBottomConstraints)
+    replacedBottomConstraints.removeAll()
+  }
+
+  @available(iOS 15.0, *)
+  private func installKeyboardConstraints(webView: WKWebView, container: UIView) {
+    webView.translatesAutoresizingMaskIntoConstraints = false
+
+    let keyboardGuide = container.keyboardLayoutGuide
+    keyboardGuide.followsUndockedKeyboard = false
+    if #available(iOS 17.0, *) {
+      keyboardGuide.usesBottomSafeArea = false
+    }
+
+    let bottomConstraints = container.constraints.filter {
+      Self.constraint($0, references: webView, attribute: .bottom)
+    }
+    replacedBottomConstraints = bottomConstraints.filter { $0.isActive }
+    NSLayoutConstraint.deactivate(replacedBottomConstraints)
+
+    var constraints: [NSLayoutConstraint] = []
+    if !Self.hasConstraint(in: container, referencing: webView, attribute: .top) {
+      constraints.append(webView.topAnchor.constraint(equalTo: container.topAnchor))
+    }
+    if !Self.hasConstraint(in: container, referencing: webView, attribute: .leading) {
+      constraints.append(webView.leadingAnchor.constraint(equalTo: container.leadingAnchor))
+    }
+    if !Self.hasConstraint(in: container, referencing: webView, attribute: .trailing) {
+      constraints.append(webView.trailingAnchor.constraint(equalTo: container.trailingAnchor))
+    }
+
+    let bottom = webView.bottomAnchor.constraint(equalTo: keyboardGuide.topAnchor)
+    bottom.priority = UILayoutPriority(999)
+    constraints.append(bottom)
+
+    NSLayoutConstraint.activate(constraints)
+    installedConstraints = constraints
+  }
+
+  private static func hasConstraint(
+    in container: UIView,
+    referencing view: UIView,
+    attribute: NSLayoutConstraint.Attribute
+  ) -> Bool {
+    container.constraints.contains {
+      $0.isActive && constraint($0, references: view, attribute: attribute)
+    }
+  }
+
+  private static func constraint(
+    _ constraint: NSLayoutConstraint,
+    references view: UIView,
+    attribute: NSLayoutConstraint.Attribute
+  ) -> Bool {
+    let firstMatches = (constraint.firstItem as? UIView) === view && constraint.firstAttribute == attribute
+    let secondMatches = (constraint.secondItem as? UIView) === view && constraint.secondAttribute == attribute
+    return firstMatches || secondMatches
+  }
+
+  private func installKeyboardObservers() {
+    let center = NotificationCenter.default
+    let queue = OperationQueue.main
+    notificationObservers = [
+      center.addObserver(
+        forName: UIResponder.keyboardWillChangeFrameNotification,
+        object: nil,
+        queue: queue
+      ) { [weak self] notification in
+        self?.handleKeyboardWillChangeFrame(notification)
+      },
+      center.addObserver(
+        forName: UIResponder.keyboardWillHideNotification,
+        object: nil,
+        queue: queue
+      ) { [weak self] _ in
+        self?.emitKeyboardPayload(visible: false, bottomInset: 0)
+      },
+    ]
+  }
+
+  private func handleKeyboardWillChangeFrame(_ notification: Notification) {
+    let bottomInset = keyboardBottomInset(notification)
+    emitKeyboardPayload(visible: bottomInset > 0, bottomInset: bottomInset)
+  }
+
+  private func keyboardBottomInset(_ notification: Notification) -> CGFloat {
+    guard let container = containerView,
+          let keyboardFrameValue = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue
+    else {
+      return 0
+    }
+    let keyboardFrame = keyboardFrameValue.cgRectValue
+
+    let frameInContainer: CGRect
+    if let window = container.window {
+      let frameInWindow = window.convert(keyboardFrame, from: nil)
+      frameInContainer = container.convert(frameInWindow, from: window)
+    } else {
+      frameInContainer = container.convert(keyboardFrame, from: nil)
+    }
+
+    let intersection = container.bounds.intersection(frameInContainer)
+    if intersection.isNull || intersection.isEmpty {
+      return 0
+    }
+
+    if intersection.maxY < container.bounds.maxY - 1 {
+      return 0
+    }
+
+    return max(0, min(container.bounds.height, intersection.height)).rounded()
+  }
+
+  private func emitKeyboardPayload(visible: Bool, bottomInset: CGFloat) {
+    guard let webView else {
+      return
+    }
+
+    let safeAreaInsets = containerView?.safeAreaInsets ?? .zero
+    let payload: [String: Any] = [
+      "visible": visible,
+      "bottomInset": Int(bottomInset.rounded()),
+      "safeAreaTopInset": Int(max(0, safeAreaInsets.top).rounded()),
+      "safeAreaBottomInset": Int(max(0, safeAreaInsets.bottom).rounded()),
+      "phase": "settled",
+      "source": "ios-native",
+      "viewportMode": "native-resize",
+    ]
+
+    guard JSONSerialization.isValidJSONObject(payload),
+          let data = try? JSONSerialization.data(withJSONObject: payload),
+          let json = String(data: data, encoding: .utf8)
+    else {
+      return
+    }
+
+    let script = """
+    (() => {
+      const payload = \(json);
+      window.__chromvoidIosKeyboardInsets = payload;
+      window.dispatchEvent(new CustomEvent('chromvoid:ios-keyboard-insets-changed', { detail: payload }));
+    })();
+    """
+    webView.evaluateJavaScript(script) { _, error in
+      if let error {
+        NSLog("ios_native_bridge: keyboard payload dispatch failed: \(error.localizedDescription)")
+      }
+    }
+  }
+}
+
 @_silgen_name("chromvoid_ios_native_restore_source_result")
 func chromvoid_ios_native_restore_source_result(
   _ operationId: UnsafePointer<CChar>,
@@ -772,6 +994,7 @@ private final class ChromVoidNativeBridgeRuntime: NSObject, UIDocumentInteractio
   private var activeAudioRemoteSessionId: String?
   private var audioRemoteCommandTargets: [Any] = []
   private var activeVideoSessions: [String: NativeVideoSessionController] = [:]
+  private var keyboardViewportCoordinator: IosKeyboardViewportCoordinator?
 
   private override init() {
     super.init()
@@ -779,6 +1002,21 @@ private final class ChromVoidNativeBridgeRuntime: NSObject, UIDocumentInteractio
 
   func setRootViewController(_ controller: UIViewController?) {
     rootViewController = controller
+  }
+
+  func setWebView(_ webView: WKWebView) {
+    DispatchQueue.main.async {
+      self.keyboardViewportCoordinator?.detach()
+      let coordinator = IosKeyboardViewportCoordinator(
+        webView: webView,
+        rootViewController: self.rootViewController
+      )
+      if coordinator.attach() {
+        self.keyboardViewportCoordinator = coordinator
+      } else {
+        self.keyboardViewportCoordinator = nil
+      }
+    }
   }
 
   func openFile(path: String, mimeType: String?) -> Int32 {
@@ -1598,7 +1836,14 @@ private func syncOnMain<T>(_ body: () -> T) -> T {
 final class IosNativeBridgePlugin: Plugin {
   override func load(webview: WKWebView) {
     super.load(webview: webview)
+#if DEBUG
+    if #available(iOS 16.4, *) {
+      webview.isInspectable = true
+      NSLog("ios_native_bridge: WebView inspection enabled")
+    }
+#endif
     ChromVoidNativeBridgeRuntime.shared.setRootViewController(manager.viewController)
+    ChromVoidNativeBridgeRuntime.shared.setWebView(webview)
     NSLog("ios_native_bridge: native bridge loaded")
   }
 }
@@ -1713,6 +1958,14 @@ func chromvoidIosNativeVideoStop(_ tokenPtr: UnsafePointer<CChar>?) -> Int32 {
 func chromvoidIosNativeReleaseLifecycleSessions(_ reasonPtr: UnsafePointer<CChar>?) -> Int32 {
   let reason = reasonPtr.map { String(cString: $0) } ?? "lifecycle_release"
   return ChromVoidNativeBridgeRuntime.shared.releaseLifecycleSessions(reason: reason)
+}
+
+@_cdecl("chromvoid_ios_native_passkeys_lite_available")
+func chromvoidIosNativePasskeysLiteAvailable() -> Int32 {
+  if #available(iOS 17.0, *) {
+    return 1
+  }
+  return 0
 }
 
 @_cdecl("chromvoid_ios_native_save_image_to_photos")

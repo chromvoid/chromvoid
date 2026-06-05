@@ -80,8 +80,8 @@ function renderRemoteCallout({
   `
 
   return role
-    ? html`<cv-callout class="remote-callout" variant=${variant} role=${role}>${content}</cv-callout>`
-    : html`<cv-callout class="remote-callout" variant=${variant}>${content}</cv-callout>`
+    ? html`<cv-callout class="remote-callout" variant=${variant} density="compact" role=${role}>${content}</cv-callout>`
+    : html`<cv-callout class="remote-callout" variant=${variant} density="compact">${content}</cv-callout>`
 }
 
 export const renderConnectionCard = (ctx: RemotePageRenderContext): TemplateResult | typeof nothing => {

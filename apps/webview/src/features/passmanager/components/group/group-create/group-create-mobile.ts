@@ -17,7 +17,11 @@ export class PMGroupCreateMobile extends PMGroupCreateBase {
     PMIconPickerMobile.define()
   }
 
-  static styles = [pmEntryCardStyles, pmGroupCreateSharedStyles, pmGroupCreateMobileStyles]
+  static styles = [
+    pmEntryCardStyles,
+    pmGroupCreateSharedStyles,
+    pmGroupCreateMobileStyles,
+  ]
 
   protected override shouldAutofocusNameField(): boolean {
     return false
@@ -30,14 +34,6 @@ export class PMGroupCreateMobile extends PMGroupCreateBase {
 
     return html`
       <form @submit=${this.onSubmit}>
-        <header class="top-bar">
-          ${this.hideBack ? nothing : html`<back-button></back-button>`}
-          <div class="top-bar-copy">
-            <h1>${i18n('group:create:mobile-title')}</h1>
-            <p>${i18n('group:create:mobile-subtitle')}</p>
-          </div>
-        </header>
-
         <section class="form-card">
           <div class="field-group">
             ${this.renderNameField({
@@ -72,7 +68,7 @@ export class PMGroupCreateMobile extends PMGroupCreateBase {
           <p class="access-hint">${i18n('group:access:hint')}</p>
         </section>
 
-        <div class="submit-bar">
+        <mobile-bottom-action-footer class="submit-bar">
           <cv-button
             class="submit"
             type="submit"
@@ -81,7 +77,7 @@ export class PMGroupCreateMobile extends PMGroupCreateBase {
             ?disabled=${!this.model.canSubmit()}
             >${i18n('group:create:button')}</cv-button
           >
-        </div>
+        </mobile-bottom-action-footer>
       </form>
     `
   }

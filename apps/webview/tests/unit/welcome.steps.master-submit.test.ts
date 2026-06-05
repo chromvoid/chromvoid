@@ -165,7 +165,7 @@ describe('welcome create-master submit', () => {
       password: 'vault-password',
     })
     expect(stateUpdate).toHaveBeenCalledWith({StorageOpened: true})
-    expect(pushNotification).toHaveBeenCalledWith('success', 'Vault unlocked')
+    expect(pushNotification).not.toHaveBeenCalled()
     expect(model.setupInProgress()).toBe(false)
     expect(model.shared.busy()).toBe(false)
   })

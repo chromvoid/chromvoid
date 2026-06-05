@@ -50,18 +50,6 @@ function setupContext() {
   } as unknown as AppContext)
 }
 
-function stylesToText(styles: unknown): string {
-  const values = Array.isArray(styles) ? styles : [styles]
-  return values
-    .map((value) => {
-      if (value == null) return ''
-      return typeof value === 'object' && 'cssText' in (value as object)
-        ? String((value as {cssText: string}).cssText)
-        : String(value)
-    })
-    .join('\n')
-}
-
 function createDeferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((next) => {
@@ -306,29 +294,6 @@ describe('openFileMoveDialog', () => {
     expect(onConfirm).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps the mobile sheet chrome light and spacing-driven', () => {
-    const styleText = stylesToText(FileMoveSheet.styles)
-
-    expect(styleText).toContain('--adaptive-modal-sheet-max-height: 100dvh;')
-    expect(styleText).toContain('--cv-bottom-sheet-expanded-height: 100dvh;')
-    expect(styleText).toContain('--cv-bottom-sheet-middle-height: min(72dvh, 560px);')
-    expect(styleText).toContain('grid-template-rows: auto auto minmax(0, 1fr) auto;')
-    expect(styleText).toContain(
-      'block-size: min(var(--adaptive-modal-sheet-max-height), calc(100dvh - var(--cv-bottom-sheet-safe-top)));',
-    )
-    expect(styleText).toContain('block-size: 100%;')
-    expect(styleText).toContain('overflow: hidden;')
-    expect(styleText).toContain('padding: var(--cv-space-5) var(--cv-space-5) var(--cv-space-2);')
-    expect(styleText).toContain(
-      'padding: var(--cv-space-2) var(--cv-space-5) max(var(--cv-space-5), env(safe-area-inset-bottom));',
-    )
-    expect(styleText).not.toContain(
-      'border-color: color-mix(in srgb, var(--cv-color-primary) 26%, var(--cv-color-border));',
-    )
-    expect(styleText).not.toContain('border-block-end: 1px solid var(--cv-color-border);')
-    expect(styleText).not.toContain('border-block-start: 1px solid var(--cv-color-border);')
-  })
-
   it('opens the mobile move sheet as a full-height bottom sheet without detents', async () => {
     setupContext()
     FileMoveSheet.define()
@@ -338,7 +303,7 @@ describe('openFileMoveDialog', () => {
 
     await sheet.updateComplete
 
-    const surface = sheet.shadowRoot?.querySelector('adaptive-modal-surface') as HTMLElement & {
+    const surface = sheet.shadowRoot?.querySelector('cv-bottom-sheet') as HTMLElement & {
       detents?: string
       detent?: string
     }

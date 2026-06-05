@@ -5,7 +5,7 @@ export const audioPlayerStyles = css`
     display: block;
   }
 
-  adaptive-modal-surface::part(content) {
+  .player-surface::part(content) {
     overflow: hidden;
     border: 1px solid var(--cv-color-border-faint);
     background: var(--cv-gradient-surface-deep);
@@ -13,22 +13,22 @@ export const audioPlayerStyles = css`
     box-shadow: var(--cv-shadow-xl);
   }
 
-  adaptive-modal-surface::part(content):focus-visible {
+  .player-surface::part(content):focus-visible {
     outline: 1px solid var(--cv-color-border-muted);
     outline-offset: -1px;
   }
 
-  adaptive-modal-surface::part(overlay) {
+  .player-surface::part(overlay) {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
   }
 
-  adaptive-modal-surface::part(body) {
+  .player-surface::part(body) {
     overflow: hidden;
     padding: 0;
   }
 
-  adaptive-modal-surface::part(footer) {
+  .player-surface::part(footer) {
     display: none;
   }
 
@@ -721,7 +721,7 @@ export const audioPlayerStyles = css`
   }
 
   @media (hover: none) and (pointer: coarse) {
-    adaptive-modal-surface::part(overlay) {
+    .player-surface::part(overlay) {
       backdrop-filter: none;
       -webkit-backdrop-filter: none;
     }

@@ -30,9 +30,10 @@ export const pmSummaryRailStyles = css`
     margin: 0;
     padding: 2px;
     overflow-x: auto;
-    border: 1px solid var(--cv-color-border);
+    border: var(--pm-summary-rail-border, 1px solid var(--cv-color-border));
     border-radius: var(--cv-radius-2);
     background: var(--cv-color-surface-2);
+    box-shadow: var(--pm-summary-rail-box-shadow, none);
     scrollbar-width: none;
   }
 

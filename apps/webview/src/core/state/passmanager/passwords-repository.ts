@@ -11,7 +11,7 @@ import type {
   UrlMatch,
   UrlRule,
 } from '@project/passmanager/types'
-import {normalizeCredentialTags} from '@project/passmanager/tags'
+import {normalizeCredentialTagCatalog, normalizeCredentialTags} from '@project/passmanager/tags'
 import type {CatalogDeps} from './types'
 import type {PassmanagerBackend} from './backend'
 import type {PassmanagerTransport} from './passmanager-transport'
@@ -26,6 +26,7 @@ type RootExportShape = {
   updatedTs?: unknown
   folders?: unknown
   foldersMeta?: unknown
+  tags?: unknown
   entries?: unknown
 }
 
@@ -756,9 +757,11 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
     const entriesRaw = Array.isArray(rec.entries) ? rec.entries : []
     const foldersRaw = toFolderPathList(rec.folders)
     const foldersMetaRaw = Array.isArray(rec.foldersMeta) ? rec.foldersMeta : []
+    const rootTagsRaw = Array.isArray(rec.tags) ? rec.tags : []
 
     const folders = new Set<string>()
     const entries: PassManagerRootV3Entry[] = []
+    const assignedTags: string[] = []
     const foldersMetaByPath = new Map<string, PassManagerRootV3FolderMeta>()
 
     for (const folder of foldersRaw) {
@@ -790,6 +793,7 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
       const entry = toEntry(item)
       if (!entry) continue
       if (entry.folderPath) folders.add(entry.folderPath)
+      assignedTags.push(...normalizeCredentialTags(entry.tags))
       entries.push(entry)
     }
 
@@ -803,6 +807,7 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
       foldersMeta: Array.from(foldersMetaByPath.values()).sort((left, right) =>
         left.path.localeCompare(right.path),
       ),
+      tags: normalizeCredentialTagCatalog([...rootTagsRaw, ...assignedTags]),
       entries,
     }
   }
@@ -840,11 +845,15 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
 
       const folders = Array.isArray(parsed.folders) ? parsed.folders : []
       const foldersMeta = Array.isArray(parsed.foldersMeta) ? parsed.foldersMeta : []
+      const tags = Array.isArray((parsed as Partial<PassManagerRootV3>).tags)
+        ? (parsed as Partial<PassManagerRootV3>).tags
+        : []
       const entries = Array.isArray(parsed.entries) ? parsed.entries : []
       const normalizedRoot = this.normalizeRootPayload({
         ...parsed,
         folders,
         foldersMeta,
+        tags,
         entries,
       })
       const importMode = 'incremental' as const
@@ -969,6 +978,8 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
         const description = normalizeOptionalText(rec['description']) ?? null
         await this.transport.setGroupMeta(path, {iconRef, description})
       }
+
+      await this.transport.setTagCatalog(normalizedRoot.tags ?? [])
 
       const importTs = Date.now()
       this.transport.markRuntimeRootImport(importTs)

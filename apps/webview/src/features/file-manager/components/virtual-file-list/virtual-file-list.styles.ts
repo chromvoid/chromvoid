@@ -27,9 +27,9 @@ export const virtualFileListStyles = [
     .file-list-scroll-edge {
       flex: 1;
       min-block-size: 0;
-      --cv-scroll-edge-block-size: 52px;
-      --cv-scroll-edge-inline-end: 12px;
-      --cv-scroll-edge-surface: var(--cv-color-surface);
+      --cv-scroll-edge-block-size: var(--cv-scroll-edge-list-block-size);
+      --cv-scroll-edge-inline-end: var(--cv-scroll-edge-list-inline-end);
+      --cv-scroll-edge-surface: var(--cv-scroll-edge-default-surface);
     }
 
     .list-container {
@@ -60,6 +60,12 @@ export const virtualFileListStyles = [
         border-radius: 6px;
         border: 2px solid var(--cv-color-surface-2);
       }
+    }
+
+    .list-container > cv-empty-state {
+      padding: var(--cv-empty-state-page-gap, var(--cv-space-3))
+        var(--cv-empty-state-page-inline-padding, var(--app-surface-gutter-desktop, var(--cv-space-4)))
+        0;
     }
 
     /* ========== LAYOUT CONTAINERS ========== */
@@ -213,13 +219,6 @@ export const virtualFileListStyles = [
       }
     }
 
-    .file-item-skeleton-grid {
-      min-block-size: 180px;
-      flex-direction: column;
-      align-items: flex-start;
-      justify-content: flex-end;
-    }
-
     .file-item-skeleton-table {
       min-block-size: 0;
       block-size: auto;
@@ -342,42 +341,6 @@ export const virtualFileListStyles = [
       }
     }
 
-    /* ========== EMPTY STATE ========== */
-
-    .empty-state {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 80px 24px;
-      color: var(--cv-color-text-muted);
-      text-align: center;
-      --motion-reveal-start-transform: translateY(16px) scale(0.95);
-      --motion-reveal-end-transform: translateY(0) scale(1);
-      animation: var(--motion-reveal-animation, reveal 0.4s ease-out);
-
-      cv-icon {
-        font-size: 5em;
-        margin-block-end: 20px;
-        opacity: 0.4;
-        color: var(--cv-color-accent);
-        /* floatY animation removed for perf */
-      }
-
-      h3 {
-        margin: 0 0 12px 0;
-        color: var(--cv-color-text);
-        font-size: var(--cv-font-size-lg);
-        font-weight: var(--cv-font-weight-semibold);
-      }
-
-      p {
-        margin: 0;
-        font-size: var(--cv-font-size-sm);
-        max-inline-size: 280px;
-        line-height: 1.5;
-      }
-    }
     /* ========== STATUS BAR ========== */
 
     .status-bar {
@@ -519,23 +482,9 @@ export const virtualFileListStyles = [
         padding: var(--app-spacing-3);
       }
 
-      .empty-state {
-        padding: 40px 16px;
-
-        cv-icon {
-          font-size: 3.5em;
-          margin-block-end: 12px;
-        }
-
-        h3 {
-          font-size: var(--cv-font-size-md, 1rem);
-          margin-block-end: 8px;
-        }
-
-        p {
-          font-size: var(--cv-font-size-xs, 0.75rem);
-          max-inline-size: 240px;
-        }
+      .list-container > cv-empty-state {
+        padding-block-start: var(--cv-empty-state-page-gap, var(--cv-space-3));
+        padding-inline: var(--cv-empty-state-page-inline-padding, var(--app-surface-gutter-mobile, var(--cv-space-4)));
       }
 
       .status-bar {

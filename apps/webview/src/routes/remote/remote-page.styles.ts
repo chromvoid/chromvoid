@@ -174,10 +174,6 @@ export const remotePageStyles = [
     }
 
     cv-callout.remote-callout {
-      --cv-callout-padding-block: var(--app-spacing-3);
-      --cv-callout-padding-inline: var(--app-spacing-3);
-      --cv-callout-border-radius: var(--cv-radius-2);
-      --cv-callout-font-size: var(--cv-font-size-sm);
       text-align: center;
     }
 
@@ -273,17 +269,6 @@ export const remotePageStyles = [
       flex-wrap: wrap;
       gap: var(--app-spacing-2);
       padding-block-start: var(--app-spacing-2);
-    }
-
-    .peer-select-group {
-      display: grid;
-      gap: var(--app-spacing-2);
-    }
-
-    .peer-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--app-spacing-1);
     }
 
     .step {

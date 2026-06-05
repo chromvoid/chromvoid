@@ -5,6 +5,7 @@ import {CVInput} from '@chromvoid/uikit/components/cv-input'
 import {CVTextarea, type CVTextareaInputEvent} from '@chromvoid/uikit/components/cv-textarea'
 import {Entry, OTP} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
+import {pmCredentialTagsModel} from '../../../models/pm-credential-tags.model'
 import {isPassmanagerReadOnlyOrMissing} from '../../../models/pm-root.adapter'
 
 import {PMAvatarIcon} from '../../pm-avatar-icon'
@@ -41,10 +42,7 @@ import {
 import type {PMEntrySecretResource} from './entry-session.model'
 import {entryMobileStyles, paymentCardFaceMobileStyles} from './styles'
 import {PMEntryOTPCreate, PMEntryOTPCreateSheet} from '../entry-otp-create'
-import {
-  getSelectedTagIdsFromEvent,
-  getTagInputValueFromEvent,
-} from '../entry-tags/entry-tags-editor'
+import {getSelectedTagIdsFromEvent} from '../entry-tags/entry-tags-editor'
 import {pmEntryTagsStyles} from '../entry-tags/entry-tags.styles'
 import {PMEntrySshCreateSheet} from '../entry-ssh/entry-ssh-create-sheet'
 import {PMEntrySshKey} from '../entry-ssh/entry-ssh-key'
@@ -73,7 +71,12 @@ export class PMEntryMobile extends PMEntryBase {
     }
   }
 
-  static styles = [...PMEntryBase.styles, pmEntryTagsStyles, paymentCardFaceMobileStyles, entryMobileStyles]
+  static styles = [
+    ...PMEntryBase.styles,
+    pmEntryTagsStyles,
+    paymentCardFaceMobileStyles,
+    entryMobileStyles,
+  ]
 
   protected override updated(changedProperties: PropertyValues): void {
     super.updated(changedProperties)
@@ -94,7 +97,11 @@ export class PMEntryMobile extends PMEntryBase {
 
     const sectionSnippet = this.model.sectionSnippet()
     if (sectionSnippet !== this.renderedSectionSnippet) {
+      const previousSectionSnippet = this.renderedSectionSnippet
       this.renderedSectionSnippet = sectionSnippet
+      if (sectionSnippet === null && previousSectionSnippet !== null) {
+        this.afterRenderScheduler.cancel()
+      }
       scheduleSectionSnippetFocus(this.afterRenderScheduler, () => this.shadowRoot, sectionSnippet)
     }
 
@@ -379,13 +386,9 @@ export class PMEntryMobile extends PMEntryBase {
     this.model.setTagDraftFromKeys(getSelectedTagIdsFromEvent(event))
   }
 
-  private handleTagInput(event: Event) {
-    this.model.setTagInput(getTagInputValueFromEvent(event))
-  }
-
-  private handleTagAdd(event: Event) {
+  private handleManageTags(event: Event) {
     event.preventDefault()
-    this.model.addTagDraft()
+    pmCredentialTagsModel.openManageSheet()
   }
 
   private handleSaveTags() {
@@ -489,8 +492,7 @@ export class PMEntryMobile extends PMEntryBase {
       handleSavePaymentCard: () => this.handleSavePaymentCard(),
       handleToggleCardCvv: () => this.handleToggleCardCvv(),
       handleTagSelect: (event) => this.handleTagSelect(event),
-      handleTagInput: (event) => this.handleTagInput(event),
-      handleTagAdd: (event) => this.handleTagAdd(event),
+      handleManageTags: (event) => this.handleManageTags(event),
       handleSaveTags: () => this.handleSaveTags(),
       handleOtpSave: () => this.handleOtpSave(),
       handleOtpRemove: (event) => this.handleOtpRemove(event),

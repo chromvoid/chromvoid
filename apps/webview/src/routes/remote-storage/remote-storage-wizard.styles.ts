@@ -95,66 +95,6 @@ export const remoteStorageWizardStyles = [
       border-block-start: 1px solid var(--cv-color-border-muted);
     }
 
-    /* ========== RADIO OPTIONS ========== */
-    .radio-group {
-      display: grid;
-      gap: var(--app-spacing-2);
-    }
-
-    .radio-option {
-      display: grid;
-      grid-template-columns: auto 1fr;
-      align-items: flex-start;
-      gap: var(--app-spacing-3);
-      padding: var(--app-spacing-3) var(--app-spacing-4);
-      border: 1px solid var(--cv-color-border-muted);
-      border-radius: var(--cv-radius-2);
-      cursor: pointer;
-      background: var(--cv-color-surface);
-    }
-
-    .radio-option:hover:not(.disabled) {
-      border-color: var(--cv-color-border);
-      background: var(--cv-color-surface-2);
-    }
-
-    .radio-option.selected {
-      border-color: var(--cv-color-brand);
-      background: var(--cv-color-primary-surface);
-      box-shadow: 0 0 0 1px var(--cv-color-brand);
-    }
-
-    .radio-option.disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    .radio-option input[type='radio'] {
-      width: 18px;
-      height: 18px;
-      margin: 2px 0 0 0;
-      accent-color: var(--cv-color-brand);
-    }
-
-    .radio-content {
-      display: grid;
-      gap: 4px;
-    }
-
-    .radio-label {
-      font-weight: var(--cv-font-weight-medium);
-      font-size: var(--cv-font-size-sm);
-      display: flex;
-      align-items: center;
-      gap: var(--app-spacing-2);
-    }
-
-    .radio-hint {
-      color: var(--cv-color-text-muted);
-      font-size: var(--cv-font-size-xs);
-      line-height: 1.4;
-    }
-
     /* ========== PROGRESS ========== */
     .progress-container {
       display: grid;

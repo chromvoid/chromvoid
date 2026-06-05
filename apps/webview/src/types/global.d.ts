@@ -27,7 +27,6 @@ import type {
   CVToolbarSeparator,
   CVTooltip,
 } from '@chromvoid/uikit'
-import type {AdaptiveModalSurface} from '../shared/ui/adaptive-modal-surface'
 import type {BreadcrumbsNav} from '../features/file-manager/components/breadcrumbs-nav'
 import type {ContextMenu} from '../features/file-manager/components/context-menu'
 import type {CVPopover} from '@chromvoid/uikit/components/cv-popover'
@@ -100,8 +99,6 @@ declare global {
     'cv-select-group': CVSelectGroup
     'cv-select-option': CVSelectOption
     'cv-textarea': CVTextarea
-
-    'adaptive-modal-surface': AdaptiveModalSurface
 
     'breadcrumbs-nav': BreadcrumbsNav
     'context-menu': ContextMenu

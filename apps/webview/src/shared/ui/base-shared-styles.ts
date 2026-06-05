@@ -1560,10 +1560,4 @@ export const sharedStyles: CSSResult[] = [
     }
   `,
 
-  // ========== WEB AWESOME THEME OVERRIDES ==========
-  // Import Web Awesome theme to map WA tokens to ChromVoid design tokens
-  // This ensures WA components match ChromVoid's visual style
-  css`
-    @import url('./themes/web-awesome-theme.css');
-  `,
 ]

@@ -56,7 +56,7 @@ export const pmGroupListItemMobileStyles = css`
     --pm-avatar-radius: var(--pm-mobile-list-row-icon-radius);
     --pm-avatar-image-padding: var(--pm-mobile-list-row-icon-image-padding);
     --pm-avatar-letter-size: var(--pm-mobile-list-row-icon-letter-size);
-    --pm-avatar-icon-size: 20px;
+    --pm-avatar-icon-size: var(--pm-avatar-list-folder-icon-size);
   }
 
   .group-name {

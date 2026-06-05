@@ -192,7 +192,7 @@ export const paymentCardFaceStyles = css`
   }
 
   .payment-card-inline-copy {
-    --cv-copy-button-size: 1.8rem;
+    --cv-copy-button-size: var(--pm-action-copy-size-inline);
     --cv-copy-button-border-radius: var(--cv-radius-pill);
     --cv-copy-button-color: var(--cv-color-text-strongest);
     --cv-copy-button-plain-hover-background: var(--cv-color-surface-glass);
@@ -266,8 +266,8 @@ export const paymentCardFaceStyles = css`
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    inline-size: 1.55rem;
-    block-size: 1.55rem;
+    inline-size: var(--pm-action-copy-size-dense);
+    block-size: var(--pm-action-copy-size-dense);
     padding: 0;
     border: 1px solid var(--cv-color-border-glass);
     border-radius: var(--cv-radius-pill);
@@ -453,12 +453,12 @@ export const paymentCardFaceMobileStyles = css`
     }
 
     .payment-card-inline-action {
-      inline-size: 1.65rem;
-      block-size: 1.65rem;
+      inline-size: var(--pm-action-copy-size-compact);
+      block-size: var(--pm-action-copy-size-compact);
     }
 
     .payment-card-inline-copy {
-      --cv-copy-button-size: 1.65rem;
+      --cv-copy-button-size: var(--pm-action-copy-size-compact);
     }
 
     .payment-card-inline-action cv-icon {
@@ -553,12 +553,12 @@ export const paymentCardFaceMobileStyles = css`
     }
 
     .payment-card-inline-action {
-      inline-size: 1.55rem;
-      block-size: 1.55rem;
+      inline-size: var(--pm-action-copy-size-dense);
+      block-size: var(--pm-action-copy-size-dense);
     }
 
     .payment-card-inline-copy {
-      --cv-copy-button-size: 1.55rem;
+      --cv-copy-button-size: var(--pm-action-copy-size-dense);
     }
 
     .payment-card-chip {

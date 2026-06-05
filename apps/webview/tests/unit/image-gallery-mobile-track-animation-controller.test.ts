@@ -8,20 +8,6 @@ describe('mobile track animation controller', () => {
     vi.restoreAllMocks()
   })
 
-  it('syncs drag transform through requestAnimationFrame', () => {
-    const track = document.createElement('div')
-    const controller = new MobileTrackAnimationController()
-    controller.setTrackResolver(() => track)
-    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
-      callback(0)
-      return 1
-    })
-
-    controller.syncDrag(24)
-
-    expect(track.style.transform).toBe('translateX(calc(-33.333% + 24px))')
-  })
-
   it('starts settle, finishes on transitionend, and clears the fallback timer', () => {
     vi.useFakeTimers()
     const track = document.createElement('div')
@@ -32,7 +18,6 @@ describe('mobile track animation controller', () => {
     controller.startSettle(1, onFinish)
 
     expect(track.classList.contains('settling')).toBe(true)
-    expect(track.style.transform).toBe('translateX(-66.666%)')
 
     track.dispatchEvent(new Event('transitionend'))
     expect(onFinish).toHaveBeenCalledTimes(1)

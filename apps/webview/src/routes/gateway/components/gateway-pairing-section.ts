@@ -28,8 +28,8 @@ function renderPairingCallout({
   `
 
   return role
-    ? html`<cv-callout class="gateway-callout" variant=${variant} role=${role}>${content}</cv-callout>`
-    : html`<cv-callout class="gateway-callout" variant=${variant}>${content}</cv-callout>`
+    ? html`<cv-callout class="gateway-callout" variant=${variant} density="compact" role=${role}>${content}</cv-callout>`
+    : html`<cv-callout class="gateway-callout" variant=${variant} density="compact">${content}</cv-callout>`
 }
 
 function renderPairingBadge(phase: PairingPhase) {

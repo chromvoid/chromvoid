@@ -10,6 +10,15 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.resolve(scriptDir, '..')
 const webviewRoot = path.resolve(appRoot, '..', 'webview')
 const androidProjectRoot = path.join(appRoot, 'src-tauri', 'gen', 'android')
+const generatedAndroidTauriConfigPath = path.join(
+  androidProjectRoot,
+  'app',
+  'src',
+  'main',
+  'assets',
+  'tauri.conf.json',
+)
+const devTauriConfigPath = path.join(appRoot, 'src-tauri', 'tauri.dev.conf.json')
 const forwardedArgs = process.argv.slice(2)
 const devServerPort = 4400
 const adbReverseHostPort = readTcpPortEnv('CHROMVOID_ADB_REVERSE_HOST_PORT', devServerPort)
@@ -61,6 +70,56 @@ function readTcpPortEnv(name, fallback) {
 
 function isEnabled(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').toLowerCase())
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function mergeConfigOverlay(target, overlay) {
+  for (const [key, value] of Object.entries(overlay)) {
+    if (isPlainObject(value) && isPlainObject(target[key])) {
+      mergeConfigOverlay(target[key], value)
+      continue
+    }
+    target[key] = value
+  }
+  return target
+}
+
+function readJsonFile(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'))
+  } catch (error) {
+    throw new Error(`failed to read JSON from ${filePath}: ${error.message}`)
+  }
+}
+
+function applyGeneratedAndroidDevConfig() {
+  if (!fs.existsSync(generatedAndroidTauriConfigPath)) {
+    throw new Error(
+      `generated Android Tauri config not found at ${generatedAndroidTauriConfigPath}; run npm run android:init first`,
+    )
+  }
+  if (!fs.existsSync(devTauriConfigPath)) {
+    throw new Error(`dev Tauri config not found at ${devTauriConfigPath}`)
+  }
+
+  const generatedConfig = readJsonFile(generatedAndroidTauriConfigPath)
+  const devConfig = readJsonFile(devTauriConfigPath)
+  const nextConfig = mergeConfigOverlay(generatedConfig, devConfig)
+  nextConfig.build ??= {}
+  nextConfig.build.devUrl = `http://localhost:${devServerPort}/`
+
+  const current = fs.readFileSync(generatedAndroidTauriConfigPath, 'utf8')
+  const next = `${JSON.stringify(nextConfig, null, 2)}\n`
+  if (current === next) {
+    log('generated Android Tauri config already uses dev overlay')
+    return
+  }
+
+  fs.writeFileSync(generatedAndroidTauriConfigPath, next)
+  log('applied dev Tauri config overlay to generated Android assets')
 }
 
 function applyRemoteAdbTunnelEnv(env) {
@@ -703,6 +762,7 @@ if (devices.length === 0) {
 }
 
 if (devices.length > 0 && forwardedArgs.length === 0) {
+  applyGeneratedAndroidDevConfig()
   runGradleDebugInstall(childEnv, selectedArchs, devices, adb)
   const exitCode = await runWebviewDevSession(adb, devices, childEnv)
   process.exit(exitCode)

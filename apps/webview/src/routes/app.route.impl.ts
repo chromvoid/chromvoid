@@ -299,7 +299,8 @@ export class ChromVoidApp extends ReatomLitElement {
     const {store} = getAppContext()
     const surface = navigationModel.currentSurface()
     const contentScrollMode =
-      store.layoutMode() === 'mobile' && (surface === 'files' || surface === 'notes')
+      store.layoutMode() === 'mobile' &&
+      (surface === 'files' || surface === 'notes' || surface === 'passkeys')
         ? 'surface'
         : 'shell'
 

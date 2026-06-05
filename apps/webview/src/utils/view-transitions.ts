@@ -28,6 +28,11 @@ export type ViewTransitionResult = {
   state: ViewTransitionRunState
 }
 
+type ViewTransitionError = {
+  name?: unknown
+  message?: unknown
+}
+
 /** Check if View Transition API is available */
 export function supportsViewTransitions(): boolean {
   return typeof document !== 'undefined' && typeof document.startViewTransition === 'function'
@@ -37,6 +42,14 @@ export function supportsViewTransitions(): boolean {
 export function prefersReducedMotion(): boolean {
   if (typeof window === 'undefined') return true
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+function isSkippedViewTransition(error: unknown): boolean {
+  const value = error as ViewTransitionError | null
+  return (
+    value?.name === 'AbortError' ||
+    (typeof value?.message === 'string' && value.message.includes('Transition was skipped'))
+  )
 }
 
 /**
@@ -69,15 +82,34 @@ export async function viewTransition(
   const transition = document.startViewTransition(async () => {
     await updateCallback()
   })
+  const updateCallbackResult = transition.updateCallbackDone.then(
+    () => undefined,
+    (error: unknown) => error,
+  )
+  const readyResult = transition.ready.then(
+    () => undefined,
+    (error: unknown) => error,
+  )
+  const finishedResult = transition.finished.then(
+    () => undefined,
+    (error: unknown) => error,
+  )
 
-  try {
-    await transition.finished
-    return {state: 'applied'}
-  } catch {
-    // Transition was skipped or cancelled - this is normal behavior
-    // (e.g., when page is hidden, or another transition starts)
+  const readyError = await readyResult
+  const updateCallbackError = await updateCallbackResult
+  if (updateCallbackError) throw updateCallbackError
+
+  if (readyError) {
+    if (!isSkippedViewTransition(readyError)) throw readyError
+  }
+
+  const finishedError = await finishedResult
+  if (finishedError) {
+    if (!isSkippedViewTransition(finishedError)) throw finishedError
     return {state: 'cancelled'}
   }
+
+  return {state: readyError ? 'cancelled' : 'applied'}
 }
 
 /**

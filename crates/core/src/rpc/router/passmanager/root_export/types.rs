@@ -11,6 +11,7 @@ pub(super) struct RootExportDocument {
     folders: Vec<String>,
     #[serde(rename = "foldersMeta")]
     folders_meta: Vec<ExportedFolderMeta>,
+    tags: Vec<String>,
     entries: Vec<Value>,
 }
 
@@ -19,6 +20,7 @@ impl RootExportDocument {
         now_ms: u64,
         folders: Vec<String>,
         folders_meta: Vec<ExportedFolderMeta>,
+        tags: Vec<String>,
         entries: Vec<Value>,
     ) -> Self {
         Self {
@@ -27,6 +29,7 @@ impl RootExportDocument {
             updated_ts: now_ms,
             folders,
             folders_meta,
+            tags,
             entries,
         }
     }

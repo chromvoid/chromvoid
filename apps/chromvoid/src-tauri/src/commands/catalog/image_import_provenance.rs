@@ -2,7 +2,9 @@ use std::io::Read;
 use std::sync::{Arc, Mutex};
 
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
-use chromvoid_core::rpc::{RpcInputStream, RpcReply, RpcStreamMeta};
+use chromvoid_core::rpc::RpcReply;
+#[cfg(any(target_os = "android", test))]
+use chromvoid_core::rpc::{RpcInputStream, RpcStreamMeta};
 use serde::{Deserialize, Serialize};
 
 use crate::types::StreamOut;
@@ -11,7 +13,9 @@ type CatalogDerivativeError = (String, Option<String>);
 
 const IMAGE_IMPORT_PROVENANCE_TIER: &str = "image-import-provenance";
 const IMAGE_IMPORT_PROVENANCE_VERSION: u32 = 1;
+#[cfg(any(target_os = "android", test))]
 const IMAGE_IMPORT_PROVENANCE_MIME: &str = "application/vnd.chromvoid.image-import-provenance+json";
+#[cfg(any(target_os = "android", test))]
 const IMAGE_IMPORT_PROVENANCE_CHUNK_SIZE: u32 = 64 * 1024;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -29,6 +33,7 @@ pub(crate) struct CatalogImageImportProvenance {
     pub(crate) captured_at_ms: Option<u64>,
 }
 
+#[cfg(any(target_os = "android", test))]
 pub(crate) fn persist_image_import_provenance(
     adapter: &Arc<Mutex<Box<dyn crate::CoreAdapter>>>,
     node_id: u64,

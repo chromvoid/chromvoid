@@ -189,8 +189,25 @@ export const searchBaseStyles = css`
 
   .tag-filter-row {
     display: flex;
+    align-items: center;
+    gap: var(--cv-space-1);
     min-inline-size: 0;
     max-inline-size: 100%;
+  }
+
+  .tag-manage-button {
+    flex: 0 0 auto;
+    color: var(--cv-color-text-muted);
+
+    &::part(base) {
+      min-block-size: 26px;
+      padding: 2px 7px;
+      border-radius: var(--cv-radius-1);
+    }
+
+    &:hover {
+      color: var(--cv-color-primary);
+    }
   }
 
   /*Active filters keep an explicit DOM-selected state for styling and accessibility*/
@@ -303,6 +320,10 @@ export abstract class PMSearchBase extends ReatomLitElement {
     this.searchModel.setSelectedTagsFromComboboxEvent(e)
   }
 
+  protected handleOpenTagManage() {
+    pmCredentialTagsModel.openManageSheet()
+  }
+
   protected toggleQuick(filter: QuickFilter) {
     this.searchModel.toggleQuick(filter)
   }
@@ -336,15 +357,21 @@ export abstract class PMSearchBase extends ReatomLitElement {
     return !isFocused && !isSearched
   }
 
+  protected getSearchInputPreset(): string | undefined {
+    return undefined
+  }
+
   protected renderSearchInput(className: string, isInvalid: boolean, isSearched: number | boolean) {
     const isFocused = this.searchModel.isFocused()
     const value = this.searchModel.getInputValue()
+    const preset = this.getSearchInputPreset()
     return html`
       <div class="search-form">
         <form @submit=${this.submit} class=${className}>
           <cv-input
             type="text"
             size="small"
+            preset=${preset ?? nothing}
             placeholder=${this.getSearchPlaceholder()}
             .value=${value}
             @cv-input=${this.onInput}
@@ -441,26 +468,42 @@ export abstract class PMSearchBase extends ReatomLitElement {
 
   protected renderTagFilterControl() {
     const options = pmCredentialTagsModel.availableTags()
-    if (options.length === 0) return nothing
 
     return html`
-      <cv-combobox
-        class="tag-filter-combobox"
-        size="small"
-        multiple
-        clearable
-        max-tags-visible="2"
-        aria-label=${i18n('tags:title')}
-        placeholder=${i18n('tags:filter_placeholder')}
-        .value=${pmCredentialTagsModel.selectedComboboxValue()}
-        @cv-change=${this.handleTagFilterChange}
-      >
-        ${options.map(
-          (option) => html`
-            <cv-combobox-option value=${option.key}>${option.label} (${option.count})</cv-combobox-option>
-          `,
-        )}
-      </cv-combobox>
+      <span class="tag-filter-row">
+        ${options.length > 0
+          ? html`
+              <cv-combobox
+                class="tag-filter-combobox"
+                size="small"
+                multiple
+                clearable
+                max-tags-visible="2"
+                aria-label=${i18n('tags:title')}
+                placeholder=${i18n('tags:filter_placeholder')}
+                .value=${pmCredentialTagsModel.selectedComboboxValue()}
+                @cv-change=${this.handleTagFilterChange}
+              >
+                ${options.map(
+                  (option) => html`
+                    <cv-combobox-option value=${option.key}>${option.label} (${option.count})</cv-combobox-option>
+                  `,
+                )}
+              </cv-combobox>
+            `
+          : nothing}
+        <cv-button
+          unstyled
+          class="tag-manage-button"
+          type="button"
+          title=${i18n('tags:manage_open' as never)}
+          aria-label=${i18n('tags:manage_open' as never)}
+          @click=${this.handleOpenTagManage}
+        >
+          <cv-icon name="sliders" aria-hidden="true"></cv-icon>
+        </cv-button>
+        <pm-mobile-tag-filter-sheet></pm-mobile-tag-filter-sheet>
+      </span>
     `
   }
 }

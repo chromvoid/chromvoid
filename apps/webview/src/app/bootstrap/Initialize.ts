@@ -153,6 +153,7 @@ export const init = () => {
     void Promise.all([
       import('./runtime-capabilities-sync'),
       import('./mobile-visual-viewport'),
+      import('./mobile-keyboard-focus-scroll'),
       import('./pinch-zoom-prevention'),
       import('./mobile-lifecycle'),
       import('./android-password-save-handoff'),
@@ -164,6 +165,7 @@ export const init = () => {
         ([
           {setupRuntimeCapabilitiesSync},
           {setupMobileVisualViewportSync},
+          {setupMobileKeyboardFocusScroll},
           {setupPinchZoomPrevention},
           {setupMobileLifecycle},
           {setupAndroidPasswordSaveHandoff},
@@ -173,6 +175,7 @@ export const init = () => {
         ]) => {
           setupRuntimeCapabilitiesSync(ws, store, runtimeIsTauri)
           setupMobileVisualViewportSync()
+          setupMobileKeyboardFocusScroll(store)
           setupPinchZoomPrevention()
           setupMobileLifecycle(ws, store)
           setupAndroidPasswordSaveHandoff()

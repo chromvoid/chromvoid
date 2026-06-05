@@ -4,10 +4,10 @@ import {Entry, Group, ManagerRoot} from '@project/passmanager/core'
 import {syncUiModeWithQuery} from '@project/passmanager/flags'
 import {copyWithAutoWipe, DEFAULT_CLIPBOARD_WIPE_MS} from '@project/passmanager/password-utils'
 import type {ManagerSaver} from '@project/passmanager/types'
-import {announce} from '@chromvoid/ui'
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import {defaultLogger} from 'root/core/logger'
 import {i18n as appI18n} from 'root/i18n'
+import {toast} from 'root/shared/services/toast-manager'
 import {pmIconStore} from './models/pm-icon-store'
 import {
   finishAndroidPasswordSave,
@@ -188,13 +188,12 @@ export class PasswordManagerModel {
         throw new Error('Secret is unavailable')
       }
       await copyWithAutoWipe(pwd, DEFAULT_CLIPBOARD_WIPE_MS)
-      try {
-        announce(appI18n('password-manager:password-copied' as any), 'polite')
-      } catch {}
+      toast.success(appI18n('password-manager:password-copied' as any))
     } catch {
-      try {
-        announce(appI18n('password-manager:password-copy-failed' as any), 'assertive')
-      } catch {}
+      toast.show({
+        message: appI18n('password-manager:password-copy-failed' as any),
+        variant: 'error',
+      })
     }
   }
 }

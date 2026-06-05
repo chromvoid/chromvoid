@@ -36,7 +36,7 @@ class AndroidKeyboardInsetsBridgeTest {
                 bottomInset = 284,
                 safeAreaTopInset = 24,
                 safeAreaBottomInset = 18,
-                phase = AndroidKeyboardInsetsPhase.PROGRESS,
+                phase = AndroidKeyboardInsetsPhase.SETTLED,
             )
 
         assertTrue(dispatcher.dispatch(webView, payload))
@@ -100,7 +100,7 @@ class AndroidKeyboardInsetsBridgeTest {
                     bottomInset = 286,
                     safeAreaTopInset = 24,
                     safeAreaBottomInset = 18,
-                    phase = AndroidKeyboardInsetsPhase.PROGRESS,
+                    phase = AndroidKeyboardInsetsPhase.SETTLED,
                 ),
             ),
         )
@@ -109,7 +109,7 @@ class AndroidKeyboardInsetsBridgeTest {
         assertNotNull(script)
         assertTrue(script?.contains(ANDROID_KEYBOARD_INSETS_EVENT) == true)
         assertTrue(script?.contains("\"source\":\"android-native\"") == true)
-        assertTrue(script?.contains("\"phase\":\"progress\"") == true)
+        assertTrue(script?.contains("\"phase\":\"settled\"") == true)
         assertTrue(script?.contains("\"bottomInset\":286") == true)
         assertTrue(script?.contains("\"safeAreaTopInset\":24") == true)
         assertTrue(script?.contains("\"safeAreaBottomInset\":18") == true)

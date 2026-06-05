@@ -150,16 +150,20 @@ fn test_writer_lock_cleared_allows_write() {
 
 #[test]
 fn test_reset_sync_state_clears_all() {
-    let mut ss = SyncState::new();
-    ss.cursor = Some(SyncCursor {
-        version: 99,
-        timestamp_ms: 0,
-    });
-    ss.subscribed = true;
-    ss.writer_lock = Some(WriterLockInfo {
-        holder: "x".into(),
-        since_ms: 0,
-    });
+    let mut ss = SyncState {
+        cursor: Some(SyncCursor {
+            version: 99,
+            timestamp_ms: 0,
+        }),
+        writer_lock: Some(WriterLockInfo {
+            holder: "x".into(),
+            since_ms: 0,
+        }),
+        subscribed: true,
+    };
+    assert!(ss.cursor.is_some());
+    assert!(ss.subscribed);
+    assert!(ss.writer_lock.is_some());
 
     // Simulate reset: replace with fresh state.
     ss = SyncState::new();

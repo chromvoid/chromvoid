@@ -502,6 +502,28 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     expect(layout?.contentScrollMode).toBe('surface')
   })
 
+  it('uses surface-owned mobile shell scrolling on the Passkeys surface', async () => {
+    setupContext()
+    setRoute('dashboard')
+    navigationModel.navigateToSurface('passkeys')
+
+    const app = createApp()
+    document.body.append(app)
+    await app.updateComplete
+
+    const shell = app.shadowRoot?.querySelector('file-app-shell') as
+      | (HTMLElement & {contentScrollMode?: string; updateComplete?: Promise<unknown>})
+      | null
+    await shell?.updateComplete
+
+    const layout = shell?.shadowRoot?.querySelector('file-app-shell-mobile-layout') as
+      | (HTMLElement & {contentScrollMode?: string})
+      | null
+
+    expect(shell?.contentScrollMode).toBe('surface')
+    expect(layout?.contentScrollMode).toBe('surface')
+  })
+
   it('renders Markdown document page instead of the file manager for Markdown document routes', async () => {
     vi.spyOn(bootstrap, 'init').mockImplementation(() => {})
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
@@ -786,7 +808,7 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     expect(state.actions).toEqual([])
   })
 
-  it('hides the global mobile toolbar while creating a password entry', () => {
+  it('shows password create-entry toolbar chrome without extra actions', () => {
     setupContext()
     setRoute('dashboard')
     navigationModel.navigateToSurface('passwords')
@@ -804,11 +826,14 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
 
     const state = model.getMobileToolbarState('dashboard')
 
-    expect(state.show).toBe(false)
+    expect(state.show).toBe(true)
+    expect(state.title).toBe(passmanagerI18n('entry:create:title'))
+    expect(state.leading).toBe('back')
+    expect(state.showCommand).toBe(false)
     expect(state.actions).toEqual([])
   })
 
-  it('hides the global mobile toolbar while creating a password group', () => {
+  it('shows password create-group toolbar chrome without extra actions', () => {
     setupContext()
     setRoute('dashboard')
     navigationModel.navigateToSurface('passwords')
@@ -826,7 +851,10 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
 
     const state = model.getMobileToolbarState('dashboard')
 
-    expect(state.show).toBe(false)
+    expect(state.show).toBe(true)
+    expect(state.title).toBe(passmanagerI18n('group:create:title'))
+    expect(state.leading).toBe('back')
+    expect(state.showCommand).toBe(false)
     expect(state.actions).toEqual([])
   })
 

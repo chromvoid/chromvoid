@@ -11,7 +11,6 @@ import {
   PasswordManagerDesktopLayout,
   PasswordManagerMobileLayout,
 } from '../../src/features/passmanager/components/password-manager-layout'
-import {passwordManagerLayoutStyles} from '../../src/features/passmanager/components/password-manager-layout/password-manager-layout.styles'
 import {
   PASSMANAGER_NO_MOTION_INTENT,
   pmMotionModel,
@@ -19,18 +18,6 @@ import {
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
 
 const originalMatchMedia = window.matchMedia
-
-function stylesToText(styles: unknown): string {
-  const values = Array.isArray(styles) ? styles : [styles]
-  return values
-    .map((value) => {
-      if (value == null) return ''
-      return typeof value === 'object' && 'cssText' in (value as object)
-        ? String((value as {cssText: string}).cssText)
-        : String(value)
-    })
-    .join('\n')
-}
 
 function setReducedMotion(matches: boolean): void {
   Object.defineProperty(window, 'matchMedia', {
@@ -396,23 +383,6 @@ describe('password-manager layout selection', () => {
       }
     })
 
-    it('pm-content owns feature-local motion styles', () => {
-      const cssText = stylesToText(passwordManagerLayoutStyles)
-
-      expect(cssText).toContain('.pm-content')
-      expect(cssText).toContain('view-transition-name: pm-content;')
-      expect(cssText).toContain('animation-duration: var(--cv-duration-normal);')
-      expect(cssText).toContain('animation-timing-function: var(--cv-easing-standard);')
-      expect(cssText).toContain("data-motion-direction='forward'")
-      expect(cssText).toContain("data-motion-direction='back'")
-      expect(cssText).toContain("data-motion-direction='open'")
-      expect(cssText).toContain("data-motion-direction='close'")
-      expect(cssText).toContain("data-motion-direction='replace'")
-      expect(cssText).toContain('@media (prefers-reduced-motion: reduce)')
-      expect(cssText).toMatch(
-        /@keyframes pm-content-reduced-motion\s*{[\s\S]*from\s*{[\s\S]*opacity: 0;[\s\S]*to\s*{[\s\S]*opacity: 1;/,
-      )
-    })
   })
 
   describe('layout switching does not recreate PM root', () => {

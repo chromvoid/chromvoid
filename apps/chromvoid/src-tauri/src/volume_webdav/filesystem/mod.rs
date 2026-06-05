@@ -153,10 +153,6 @@ impl<R: tauri::Runtime> CatalogDavFs<R> {
             .map_err(|_| FsError::GeneralFailure)?
     }
 
-    fn resolve_path(&self, full_path: &str) -> FsResult<(u64, bool, Option<u64>, u64)> {
-        Self::resolve_path_with_adapter(self.adapter.clone(), full_path)
-    }
-
     fn resolve_path_with_adapter(
         adapter: Arc<Mutex<Box<dyn CoreAdapter>>>,
         full_path: &str,

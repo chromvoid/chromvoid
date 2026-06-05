@@ -27,6 +27,14 @@ struct RunLoopHandle(ffi::CFRunLoopRef);
 // callback to request exit from the listener thread's run loop.
 unsafe impl Send for RunLoopHandle {}
 
+impl RunLoopHandle {
+    fn stop(self) {
+        unsafe {
+            ffi::CFRunLoopStop(self.0);
+        }
+    }
+}
+
 /// Spawn background thread that listens for Darwin notifications from the Extension.
 pub fn spawn_credential_provider_listener(
     adapter: Arc<Mutex<Box<dyn CoreAdapter>>>,
@@ -119,9 +127,9 @@ pub fn spawn_credential_provider_listener(
     };
 
     Ok(ExternalThreadTask::with_readiness(
-        move || unsafe {
+        move || {
             if run_loop_active.swap(false, Ordering::AcqRel) {
-                ffi::CFRunLoopStop(run_loop.0);
+                run_loop.stop();
             }
         },
         join_handle,

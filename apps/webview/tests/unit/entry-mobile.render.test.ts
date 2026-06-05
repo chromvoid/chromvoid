@@ -14,20 +14,25 @@ vi.mock('../../src/features/passmanager/service/passmanager-ssh-keygen', () => (
 import {CVInput} from '@chromvoid/uikit/components/cv-input'
 import {CVTextarea} from '@chromvoid/uikit/components/cv-textarea'
 import {CVCopyButton} from '@chromvoid/uikit/components/cv-copy-button'
+import {CVCombobox} from '@chromvoid/uikit/components/cv-combobox'
+import {atom} from '@reatom/core'
 import {Entry, ManagerRoot} from '@project/passmanager'
 import {setPasswordManagerLang} from '@project/passmanager/i18n'
+import {setupMobileKeyboardFocusScroll} from '../../src/app/bootstrap/mobile-keyboard-focus-scroll'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {PMEntryMobile} from '../../src/features/passmanager/components/card/entry/entry-mobile'
 import {passmanagerSshKeygen} from '../../src/features/passmanager/service/passmanager-ssh-keygen'
-import {entryMobileStyles} from '../../src/features/passmanager/components/card/entry/styles'
 import {pmEntryEditorModel} from '../../src/features/passmanager/models/pm-entry-editor.model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
+import {MobileBottomActionFooter} from '../../src/shared/ui/mobile-bottom-action-footer'
 
 let defined = false
 
 function ensureDefined() {
   if (defined) return
   CVCopyButton.define()
+  CVCombobox.define()
+  MobileBottomActionFooter.define()
   PMEntryMobile.define()
   defined = true
 }
@@ -234,6 +239,9 @@ function installVisualViewportMock() {
   })
 
   return {
+    setHeight(height: number) {
+      Object.assign(viewport, {height})
+    },
     dispatchResize() {
       viewport.dispatchEvent(new Event('resize'))
     },
@@ -246,6 +254,27 @@ function installVisualViewportMock() {
       delete (window as Window & {visualViewport?: VisualViewport}).visualViewport
     },
   }
+}
+
+function createDOMRect(rect: Partial<DOMRect>): DOMRect {
+  const top = rect.top ?? 0
+  const left = rect.left ?? 0
+  const width = rect.width ?? 0
+  const height = rect.height ?? 0
+  const right = rect.right ?? left + width
+  const bottom = rect.bottom ?? top + height
+
+  return {
+    x: rect.x ?? left,
+    y: rect.y ?? top,
+    top,
+    right,
+    bottom,
+    left,
+    width: right - left,
+    height: bottom - top,
+    toJSON: () => ({}),
+  } as DOMRect
 }
 
 const getCvInput = (component: PMEntryMobile, name: string) =>
@@ -284,14 +313,17 @@ function expectFocusedTextarea(component: PMEntryMobile, name: string) {
   expect(textarea?.shadowRoot?.activeElement).toBe(nativeTextarea)
 }
 
-function getStyleRule(cssText: string, selector: string) {
-  const selectorIndex = cssText.indexOf(`${selector} {`)
-  if (selectorIndex === -1) return ''
+type EntryMobileTestModel = {
+  tagDraft(): string[]
+  sectionSnippet(): string | null
+  entryEditFocusRequest: {
+    (): unknown
+    set(value: unknown): void
+  }
+}
 
-  const ruleStart = cssText.indexOf('{', selectorIndex)
-  const ruleEnd = cssText.indexOf('}', ruleStart)
-
-  return cssText.slice(ruleStart + 1, ruleEnd)
+function getEntryMobileTestModel(component: PMEntryMobile): EntryMobileTestModel {
+  return (component as unknown as {model: EntryMobileTestModel}).model
 }
 
 describe('PMEntryMobile', () => {
@@ -715,7 +747,9 @@ describe('PMEntryMobile', () => {
 
     const shell = component.shadowRoot?.querySelector('.entry-shell') as HTMLElement | null
     const scroll = component.shadowRoot?.querySelector('.entry-scroll') as HTMLElement | null
-    const footer = component.shadowRoot?.querySelector('.entry-action-footer') as HTMLElement | null
+    const footer = component.shadowRoot?.querySelector(
+      'mobile-bottom-action-footer.entry-action-footer',
+    ) as HTMLElement | null
     const article = component.shadowRoot?.querySelector('article.wrapper') as HTMLElement | null
     const editAction = component.shadowRoot?.querySelector('.entry-edit-entry-action') as HTMLElement | null
     const childClasses = Array.from(article?.children ?? []).map((child) => child.className)
@@ -723,6 +757,8 @@ describe('PMEntryMobile', () => {
     expect(shell).not.toBeNull()
     expect(scroll).not.toBeNull()
     expect(footer).not.toBeNull()
+    expect(footer?.tagName.toLowerCase()).toBe('mobile-bottom-action-footer')
+    expect(footer?.shadowRoot?.querySelector('[part="row"]')).not.toBeNull()
     expect(scroll?.contains(article)).toBe(true)
     expect(childClasses.slice(0, 4)).toEqual([
       'entry-header',
@@ -742,58 +778,6 @@ describe('PMEntryMobile', () => {
     expect(
       childClasses.filter((value) => value === 'section-block secondary-block').length,
     ).toBeGreaterThanOrEqual(1)
-  })
-
-  it('uses compact mobile placeholder text for tags and note empty states', () => {
-    const cssText = entryMobileStyles.cssText
-    const tagsEmptyStateCssText = getStyleRule(cssText, '.section-block.secondary-block > .empty-state')
-    const emptyStateCssText = getStyleRule(cssText, '.note-card-demoted .empty-state')
-    const emptyStateSpanCssText = getStyleRule(cssText, '.note-card-demoted .empty-state span')
-
-    expect(tagsEmptyStateCssText).toContain('min-inline-size: 0;')
-    expect(tagsEmptyStateCssText).toContain('color: var(--cv-color-text-muted);')
-    expect(tagsEmptyStateCssText).toContain('font-size: var(--cv-font-size-xs);')
-    expect(tagsEmptyStateCssText).toContain('line-height: 1.45;')
-    expect(tagsEmptyStateCssText).toContain('white-space: normal;')
-    expect(emptyStateCssText).toContain('inline-size: 100%;')
-    expect(emptyStateCssText).toContain('min-inline-size: 0;')
-    expect(emptyStateCssText).toContain('box-sizing: border-box;')
-    expect(emptyStateCssText).toContain('color: var(--cv-color-text-muted);')
-    expect(emptyStateCssText).toContain('font-size: var(--cv-font-size-xs);')
-    expect(emptyStateCssText).toContain('white-space: normal;')
-    expect(emptyStateCssText).toContain('overflow: hidden;')
-    expect(emptyStateCssText).toContain('text-align: left;')
-    expect(emptyStateCssText).toContain('line-height: 1.45;')
-    expect(emptyStateSpanCssText).toContain('display: block;')
-    expect(emptyStateSpanCssText).toContain('min-inline-size: 0;')
-    expect(emptyStateSpanCssText).toContain('max-inline-size: 100%;')
-    expect(emptyStateSpanCssText).toContain('white-space: normal;')
-    expect(emptyStateSpanCssText).toContain('overflow-wrap: anywhere;')
-    expect(emptyStateSpanCssText).toContain('word-break: normal;')
-  })
-
-  it('lets mobile quick action labels wrap inside their grid cells', () => {
-    const cssText = entryMobileStyles.cssText
-    const quickActionCssText = getStyleRule(cssText, '.quick-action')
-    const quickActionBaseCssText = getStyleRule(cssText, '.quick-action::part(base)')
-    const quickActionLabelCssText = getStyleRule(cssText, '.quick-action::part(label)')
-    const quickActionSpanCssText = getStyleRule(cssText, '.quick-action span')
-
-    expect(quickActionCssText).toContain('inline-size: 100%;')
-    expect(quickActionCssText).toContain('min-inline-size: 0;')
-    expect(quickActionCssText).toContain('overflow: hidden;')
-    expect(quickActionBaseCssText).toContain('box-sizing: border-box;')
-    expect(quickActionBaseCssText).toContain('inline-size: 100%;')
-    expect(quickActionBaseCssText).toContain('min-inline-size: 0;')
-    expect(quickActionBaseCssText).toContain('white-space: normal;')
-    expect(quickActionLabelCssText).toContain('box-sizing: border-box;')
-    expect(quickActionLabelCssText).toContain('inline-size: 100%;')
-    expect(quickActionLabelCssText).toContain('min-inline-size: 0;')
-    expect(quickActionLabelCssText).toContain('white-space: normal;')
-    expect(quickActionSpanCssText).toContain('display: block;')
-    expect(quickActionSpanCssText).toContain('inline-size: 100%;')
-    expect(quickActionSpanCssText).toContain('overflow-wrap: anywhere;')
-    expect(quickActionSpanCssText).toContain('white-space: normal;')
   })
 
   it('renders quick actions after the hero and routes them through entry actions', async () => {
@@ -911,10 +895,11 @@ describe('PMEntryMobile', () => {
 
   it('renders mobile tag chips and saves changed tags from the tag section', async () => {
     const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {tags: ['Work']})
+    const root = new ManagerRoot({} as any)
+    root.credentialTags.set(['Work', 'Rotate'])
+    root.entries.set([entry])
     const updateTags = vi.spyOn(entry, 'updateTags').mockResolvedValue(undefined)
-    window.passmanager = {
-      isReadOnly: () => false,
-    } as unknown as typeof window.passmanager
+    window.passmanager = root as unknown as typeof window.passmanager
 
     const component = document.createElement('pm-entry-mobile') as PMEntryMobile
     component.entry = entry
@@ -922,20 +907,33 @@ describe('PMEntryMobile', () => {
     await settle(component)
 
     expect(component.shadowRoot?.textContent).toContain('Work')
+    expect(component.shadowRoot?.querySelector('[data-snippet-section="tags"]')).toBeNull()
+    await activateEntryEditMode(component, entry)
 
     const editButton = component.shadowRoot?.querySelector(
       '[data-snippet-section="tags"]',
     ) as HTMLButtonElement | null
+    expect(editButton).not.toBeNull()
     editButton?.click()
     await settle(component)
 
-    expect(component.shadowRoot?.querySelector('cv-combobox.entry-tags-combobox')).not.toBeNull()
+    const combobox = component.shadowRoot?.querySelector('cv-combobox.entry-tags-combobox') as
+      | (HTMLElement & {shadowRoot?: ShadowRoot; updateComplete?: Promise<unknown>})
+      | null
+    await combobox?.updateComplete
 
-    component.shadowRoot?.querySelector('cv-input[name="entry-tag-input"]')?.dispatchEvent(
-      new CustomEvent('cv-input', {detail: {value: 'Rotate'}, bubbles: true, composed: true}),
-    )
-    component.shadowRoot?.querySelector('.entry-tags-add')?.dispatchEvent(
-      new Event('submit', {bubbles: true, cancelable: true}),
+    expect(combobox).not.toBeNull()
+    expect(combobox?.getAttribute('type')).toBe('select-only')
+    expect(combobox?.shadowRoot?.querySelector('[part="input"]')).toBeNull()
+    expect(combobox?.shadowRoot?.querySelector('[part="trigger"]')).not.toBeNull()
+    expect(component.shadowRoot?.querySelector('.entry-tags-add')).toBeNull()
+
+    combobox?.dispatchEvent(
+      new CustomEvent('cv-change', {
+        detail: {selectedIds: ['work', 'rotate'], value: 'work rotate', inputValue: '', activeId: null, open: false},
+        bubbles: true,
+        composed: true,
+      }),
     )
 
     const saveButton = component.shadowRoot?.querySelector('.inline-edit-save') as HTMLButtonElement | null
@@ -943,6 +941,84 @@ describe('PMEntryMobile', () => {
     await settle(component)
 
     expect(updateTags).toHaveBeenCalledWith(['Work', 'Rotate'])
+  })
+
+  it('selects and saves a catalog tag from mobile full edit without focusing title', async () => {
+    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {tags: []})
+    const root = new ManagerRoot({} as any)
+    root.credentialTags.set(['Rotate'])
+    root.entries.set([entry])
+    const updateTags = vi.spyOn(entry, 'updateTags').mockResolvedValue(undefined)
+    window.passmanager = root as unknown as typeof window.passmanager
+
+    const component = document.createElement('pm-entry-mobile') as PMEntryMobile
+    component.entry = entry
+    document.body.append(component)
+    await settle(component)
+    const model = getEntryMobileTestModel(component)
+    expect(component.shadowRoot?.querySelector('[data-snippet-section="tags"]')).toBeNull()
+    await activateEntryEditMode(component, entry)
+    model.entryEditFocusRequest.set({field: 'title', token: 99})
+
+    const editButton = component.shadowRoot?.querySelector(
+      '[data-snippet-section="tags"]',
+    ) as HTMLButtonElement | null
+    expect(editButton).not.toBeNull()
+    editButton?.click()
+    await settleFocus(component)
+
+    expect(model.entryEditFocusRequest()).toBeNull()
+    const combobox = component.shadowRoot?.querySelector('cv-combobox.entry-tags-combobox') as
+      | (HTMLElement & {value: string; shadowRoot?: ShadowRoot; updateComplete: Promise<unknown>})
+      | null
+    await combobox?.updateComplete
+
+    expect(combobox).not.toBeNull()
+    expect(combobox?.getAttribute('type')).toBe('select-only')
+    expect(combobox?.shadowRoot?.querySelector('[part="input"]')).toBeNull()
+    expect(combobox?.shadowRoot?.querySelector('[part="trigger"]')).not.toBeNull()
+    expect(component.shadowRoot?.querySelector('.entry-tags-add')).toBeNull()
+
+    combobox?.dispatchEvent(
+      new CustomEvent('cv-change', {
+        detail: {selectedIds: ['rotate'], value: 'rotate', inputValue: '', activeId: null, open: true},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    await settle(component)
+
+    expect(model.tagDraft()).toEqual(['Rotate'])
+    expect(component.shadowRoot?.textContent).toContain('Rotate')
+
+    combobox?.dispatchEvent(
+      new CustomEvent('cv-change', {
+        detail: {selectedIds: [], value: null, inputValue: '', activeId: null, open: true},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    await settle(component)
+
+    expect(model.tagDraft()).toEqual([])
+
+    combobox?.dispatchEvent(
+      new CustomEvent('cv-change', {
+        detail: {selectedIds: ['rotate'], value: 'rotate', inputValue: '', activeId: null, open: true},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    await settle(component)
+
+    const saveButton = component.shadowRoot?.querySelector('.inline-edit-save') as HTMLButtonElement | null
+    saveButton?.click()
+    await settleFocus(component)
+
+    expect(updateTags).toHaveBeenCalledWith(['Rotate'])
+    expect(model.sectionSnippet()).toBeNull()
+    expect(model.entryEditFocusRequest()).toBeNull()
+    expect(getCvInput(component, 'inline-title')).toBeNull()
   })
 
   it.each([
@@ -1186,7 +1262,7 @@ describe('PMEntryMobile', () => {
     const iconPicker = component.shadowRoot?.querySelector(
       'pm-icon-picker-mobile[data-inline-picker="header-avatar"]',
     ) as (HTMLElement & {shadowRoot?: ShadowRoot}) | null
-    const pickerDialog = iconPicker?.shadowRoot?.querySelector('adaptive-modal-surface') as {open?: boolean} | null
+    const pickerDialog = iconPicker?.shadowRoot?.querySelector('cv-bottom-sheet') as {open?: boolean} | null
 
     expect(component.shadowRoot?.querySelector('pm-entry-edit-mobile')).toBeNull()
     expect(component.shadowRoot?.querySelector('cv-input[name="inline-title"]')).not.toBeNull()
@@ -1331,6 +1407,7 @@ describe('PMEntryMobile', () => {
     })
     const scrollSpy = installScrollIntoViewSpy()
     const viewport = installVisualViewportMock()
+    const cleanupKeyboardFocusScroll = setupMobileKeyboardFocusScroll({isMobile: atom(true)} as any)
 
     try {
       window.passmanager = {
@@ -1358,14 +1435,96 @@ describe('PMEntryMobile', () => {
       })
       expectFocusedTextarea(component, 'inline-note')
 
-      const scrollCountBeforeKeyboardResize = scrollSpy.scrollIntoView.mock.calls.length
+      const entryScroll = component.shadowRoot?.querySelector('.entry-scroll') as HTMLElement | null
+      const noteInput = getCvTextarea(component, 'inline-note')
+      expect(entryScroll).not.toBeNull()
+      expect(noteInput).not.toBeNull()
+
+      if (!entryScroll || !noteInput) return
+
+      entryScroll.scrollTop = 120
+      Object.defineProperty(entryScroll, 'scrollHeight', {configurable: true, value: 1200})
+      Object.defineProperty(entryScroll, 'clientHeight', {configurable: true, value: 500})
+      vi.spyOn(entryScroll, 'getBoundingClientRect').mockReturnValue(createDOMRect({top: 0, bottom: 844}))
+      vi.spyOn(noteInput, 'getBoundingClientRect').mockReturnValue(createDOMRect({top: 760, bottom: 820}))
+      const getComputedStyle = window.getComputedStyle.bind(window)
+      vi.spyOn(window, 'getComputedStyle').mockImplementation((element) => {
+        const style = getComputedStyle(element)
+        if (element === entryScroll) {
+          return new Proxy(style, {
+            get(target, prop) {
+              if (prop === 'overflowY') return 'auto'
+              return Reflect.get(target, prop)
+            },
+          }) as CSSStyleDeclaration
+        }
+
+        return style
+      })
+
+      viewport.setHeight(620)
       viewport.dispatchResize()
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
 
-      expect(scrollSpy.scrollIntoView.mock.calls.length).toBeGreaterThan(scrollCountBeforeKeyboardResize)
+      expect(entryScroll.scrollTop).toBeGreaterThan(120)
     } finally {
+      cleanupKeyboardFocusScroll()
       viewport.restore()
       scrollSpy.restore()
+    }
+  })
+
+  it('scrolls a user-focused mobile edit field into the visible keyboard viewport', async () => {
+    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const viewport = installVisualViewportMock()
+    const cleanupKeyboardFocusScroll = setupMobileKeyboardFocusScroll({isMobile: atom(true)} as any)
+
+    try {
+      window.passmanager = {
+        isReadOnly: () => false,
+      } as unknown as typeof window.passmanager
+
+      const component = document.createElement('pm-entry-mobile') as PMEntryMobile
+      component.entry = entry
+      document.body.append(component)
+      await settle(component)
+      await openEntryEdit(component)
+
+      const entryScroll = component.shadowRoot?.querySelector('.entry-scroll') as HTMLElement | null
+      const websiteInput = getCvInput(component, 'inline-website')
+      expect(entryScroll).not.toBeNull()
+      expect(websiteInput).not.toBeNull()
+
+      if (!entryScroll || !websiteInput) return
+
+      entryScroll.scrollTop = 120
+      Object.defineProperty(entryScroll, 'scrollHeight', {configurable: true, value: 1200})
+      Object.defineProperty(entryScroll, 'clientHeight', {configurable: true, value: 500})
+      vi.spyOn(entryScroll, 'getBoundingClientRect').mockReturnValue(createDOMRect({top: 0, bottom: 844}))
+      vi.spyOn(websiteInput, 'getBoundingClientRect').mockReturnValue(createDOMRect({top: 760, bottom: 820}))
+      const getComputedStyle = window.getComputedStyle.bind(window)
+      vi.spyOn(window, 'getComputedStyle').mockImplementation((element) => {
+        const style = getComputedStyle(element)
+        if (element === entryScroll) {
+          return new Proxy(style, {
+            get(target, prop) {
+              if (prop === 'overflowY') return 'auto'
+              return Reflect.get(target, prop)
+            },
+          }) as CSSStyleDeclaration
+        }
+
+        return style
+      })
+
+      viewport.setHeight(620)
+      websiteInput.dispatchEvent(new CustomEvent('cv-focus', {bubbles: true, composed: true, detail: {}}))
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+
+      expect(entryScroll.scrollTop).toBeGreaterThan(120)
+    } finally {
+      cleanupKeyboardFocusScroll()
+      viewport.restore()
     }
   })
 
@@ -1549,15 +1708,18 @@ describe('PMEntryMobile', () => {
     expect(component.shadowRoot?.querySelector('cv-input[name="inline-password"]')).not.toBeNull()
     const article = component.shadowRoot?.querySelector('article.wrapper') as HTMLElement | null
     const scroll = component.shadowRoot?.querySelector('.entry-scroll') as HTMLElement | null
-    const footer = component.shadowRoot?.querySelector('.entry-action-footer') as HTMLElement | null
-    const editActions = component.shadowRoot?.querySelector('.entry-edit-actions') as HTMLElement | null
-    const saveAction = editActions?.querySelector('.entry-edit-save-action') as HTMLElement | null
-    const cancelAction = editActions?.querySelector('.entry-edit-cancel-action') as HTMLElement | null
+    const footer = component.shadowRoot?.querySelector(
+      'mobile-bottom-action-footer.entry-action-footer',
+    ) as HTMLElement | null
+    const actionRow = footer?.shadowRoot?.querySelector('[part="row"]') as HTMLElement | null
+    const saveAction = footer?.querySelector('.entry-edit-save-action') as HTMLElement | null
+    const cancelAction = footer?.querySelector('.entry-edit-cancel-action') as HTMLElement | null
     expect(footer).not.toBeNull()
-    expect(editActions).not.toBeNull()
-    expect(footer?.contains(editActions)).toBe(true)
+    expect(footer?.tagName.toLowerCase()).toBe('mobile-bottom-action-footer')
+    expect(footer?.getAttribute('columns')).toBe('2')
+    expect(actionRow).not.toBeNull()
     expect(scroll?.contains(footer)).toBe(false)
-    expect(article?.contains(editActions)).toBe(false)
+    expect(article?.contains(footer)).toBe(false)
     expect(saveAction).not.toBeNull()
     expect(saveAction?.getAttribute('variant')).toBe('default')
     expect(saveAction?.hasAttribute('unstyled')).toBe(true)
@@ -2271,7 +2433,9 @@ describe('PMEntryMobile', () => {
     await settle(otpComponent)
 
     expect(otpComponent.shadowRoot?.querySelector('pm-entry-edit-mobile')).toBeNull()
-    expect(otpComponent.shadowRoot?.querySelector('.entry-edit-actions')).toBeNull()
+    expect(
+      otpComponent.shadowRoot?.querySelector('mobile-bottom-action-footer.entry-action-footer[columns="2"]'),
+    ).toBeNull()
     expect(otpComponent.shadowRoot?.querySelector('pm-entry-otp-create[data-snippet="otp"]')).toBeNull()
     expect(otpComponent.shadowRoot?.querySelector('pm-entry-otp-create-sheet[open]')).not.toBeNull()
 
@@ -2324,7 +2488,9 @@ describe('PMEntryMobile', () => {
     editButton?.click()
     await settle(component)
 
-    expect(component.shadowRoot?.querySelector('.entry-edit-actions')).toBeNull()
+    expect(
+      component.shadowRoot?.querySelector('mobile-bottom-action-footer.entry-action-footer[columns="2"]'),
+    ).toBeNull()
     expect(component.shadowRoot?.querySelector('.entry-edit-entry-action')).toBeNull()
 
     const otpSheet = component.shadowRoot?.querySelector('pm-entry-otp-create-sheet') as {

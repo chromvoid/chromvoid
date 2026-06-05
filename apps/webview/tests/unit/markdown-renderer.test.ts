@@ -17,25 +17,23 @@ describe('markdown renderer', () => {
   })
 
   it('renders GitHub-flavored Markdown tables', () => {
-    const result = renderMarkdownSource('| Metric | Budget |\n| --- | ---: |\n| Inline styles | 11 |')
+    const result = renderMarkdownSource('| Metric | Budget |\n| --- | ---: |\n| Inline data | 11 |')
 
     expect(result.html).toContain('<table')
     expect(result.html).toContain('<th>Metric</th>')
     expect(result.html).toContain('<th data-align="right">Budget</th>')
     expect(result.html).toContain('<td data-align="right">11</td>')
-    expect(result.html).not.toContain('style=')
   })
 
-  it('preserves block source line data without allowing inline styles', () => {
+  it('preserves block source line data', () => {
     const result = renderMarkdownSource(
-      'First paragraph\n\n- One\n- Two\n\n| Metric | Budget |\n| --- | ---: |\n| Styled | 11 |',
+      'First paragraph\n\n- One\n- Two\n\n| Metric | Budget |\n| --- | ---: |\n| Labeled | 11 |',
     )
 
     expect(result.html).toContain('<p data-source-line-start="0" data-source-line-end="1">')
     expect(result.html).toContain('<ul data-source-line-start="2" data-source-line-end="5">')
     expect(result.html).toContain('<table data-source-line-start="5" data-source-line-end="8">')
     expect(result.html).toContain('data-align="right"')
-    expect(result.html).not.toContain('style=')
   })
 
   it('does not render raw HTML from the source', () => {

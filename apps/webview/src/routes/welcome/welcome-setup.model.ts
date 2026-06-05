@@ -67,8 +67,6 @@ export class WelcomeSetupModel {
 
   private remoteSessionUnsubscribe: (() => void) | null = null
   private passwordStrengthRequestId = 0
-  private unlockDialogPrewarmTimer: number | null = null
-  private unlockDialogPrewarmRequested = false
 
   constructor(options: WelcomeSetupModelOptions = {}) {
     this.shared = options.shared ?? new WelcomeSharedModel()
@@ -146,18 +144,12 @@ export class WelcomeSetupModel {
     this.remoteSessionUnsubscribe = subscribeAfterInitial(getAppContext().store.remoteSessionState, () => {
       this.syncSetupStepFromRemoteSession(getAppContext().store.remoteSessionState())
     })
-    this.scheduleUnlockDialogPrewarm()
   }
 
   disconnect = () => {
     this.remote.disconnect()
     this.remoteSessionUnsubscribe?.()
     this.remoteSessionUnsubscribe = null
-    if (this.unlockDialogPrewarmTimer !== null) {
-      window.clearTimeout(this.unlockDialogPrewarmTimer)
-      this.unlockDialogPrewarmTimer = null
-      this.unlockDialogPrewarmRequested = false
-    }
   }
 
   handleCreateMasterSubmit = (event: Event) => {
@@ -241,7 +233,6 @@ export class WelcomeSetupModel {
       writeAndroidUnlockDebug('welcome', 'onUnlock:state updated', {
         storageOpened: true,
       })
-      getAppContext().store.pushNotification('success', i18n('welcome:vault-unlocked'))
     } catch (error) {
       console.error(error)
       writeAndroidUnlockDebug('welcome', 'onUnlock:error', {
@@ -256,25 +247,6 @@ export class WelcomeSetupModel {
       this.setupInProgress.set(false)
       this.shared.setBusy(false)
     }
-  }
-
-  private scheduleUnlockDialogPrewarm(): void {
-    if (this.unlockDialogPrewarmRequested || !isTauriRuntime() || this.isNeedInit()) {
-      return
-    }
-
-    this.unlockDialogPrewarmRequested = true
-    this.unlockDialogPrewarmTimer = window.setTimeout(() => {
-      this.unlockDialogPrewarmTimer = null
-      void dialogService.prewarmInputDialog({
-        title: i18n('onboard:hero:unlock'),
-        label: i18n('welcome:vault-password'),
-        type: 'password',
-        required: true,
-      }).catch((error) => {
-        console.warn('[welcome] unlock dialog prewarm failed:', error)
-      })
-    }, 150)
   }
 
   onSelectLocalMode = () => {

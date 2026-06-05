@@ -5,9 +5,14 @@ import {
   buildCredentialTagOptions,
   credentialTagKey,
   entryHasCredentialTag,
+  normalizeCredentialTagCatalog,
   normalizeCredentialTags,
   normalizeCredentialTagLabel,
+  planCredentialTagDelete,
+  planCredentialTagRename,
   pruneCredentialTagKeys,
+  removeCredentialTagLabel,
+  replaceCredentialTagLabel,
 } from '../tags'
 
 describe('credential tag normalization', () => {
@@ -48,6 +53,75 @@ describe('credential tag normalization', () => {
       {key: 'work', label: 'Work', count: 2},
       {key: 'client-a', label: 'Client A', count: 1},
     ])
+  })
+
+  it('builds options from catalog tags including zero-use tags', () => {
+    expect(
+      buildCredentialTagOptions(
+        [{tags: ['work']}, {tags: ['Finance']}],
+        ['Work', 'Zero Use', 'Finance'],
+      ),
+    ).toEqual([
+      {key: 'finance', label: 'Finance', count: 1},
+      {key: 'work', label: 'Work', count: 1},
+      {key: 'zero-use', label: 'Zero Use', count: 0},
+    ])
+  })
+
+  it('does not apply the per-entry tag limit to catalog normalization', () => {
+    const tags = Array.from({length: 14}, (_, index) => `Tag ${index + 1}`)
+
+    expect(normalizeCredentialTags(tags)).toHaveLength(12)
+    expect(normalizeCredentialTagCatalog(tags)).toHaveLength(14)
+  })
+
+  it('plans tag rename and blocks target key collisions', () => {
+    const plan = planCredentialTagRename(
+      ['Work', 'Finance'],
+      [
+        {id: 'entry-1', tags: ['Work']},
+        {id: 'entry-2', tags: ['Personal']},
+      ],
+      'work',
+      'Client A',
+    )
+
+    expect(plan).toEqual({
+      ok: true,
+      sourceKey: 'work',
+      nextKey: 'client-a',
+      nextLabel: 'Client A',
+      catalogTags: ['Client A', 'Finance'],
+      affectedEntryIds: ['entry-1'],
+    })
+    expect(
+      planCredentialTagRename(['Work', 'Finance'], [{id: 'entry-1', tags: ['Work']}], 'work', 'finance'),
+    ).toEqual({ok: false, reason: 'target_exists'})
+  })
+
+  it('renames and removes tag labels inside entry assignments', () => {
+    expect(replaceCredentialTagLabel(['Work', 'Rotate'], 'work', 'Client A')).toEqual([
+      'Client A',
+      'Rotate',
+    ])
+    expect(removeCredentialTagLabel(['Work', 'Rotate'], 'work')).toEqual(['Rotate'])
+  })
+
+  it('plans tag delete with affected entry ids', () => {
+    expect(
+      planCredentialTagDelete(
+        ['Work', 'Finance'],
+        [
+          {id: 'entry-1', tags: ['Work']},
+          {id: 'entry-2', tags: ['Finance']},
+        ],
+        'work',
+      ),
+    ).toEqual({
+      key: 'work',
+      catalogTags: ['Finance'],
+      affectedEntryIds: ['entry-1'],
+    })
   })
 
   it('prunes selected keys to currently available options', () => {

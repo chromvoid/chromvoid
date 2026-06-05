@@ -57,7 +57,7 @@ export default defineConfig({
       },
       {
         find: /^@project\/passmanager\/sort-storage$/,
-        replacement: resolve(__dirname, '../../packages/passmanager/src/services/sort-storage.ts'),
+        replacement: resolve(__dirname, '../../packages/passmanager/src/service/sort-storage.ts'),
       },
       {
         find: /^@project\/passmanager\/flags$/,

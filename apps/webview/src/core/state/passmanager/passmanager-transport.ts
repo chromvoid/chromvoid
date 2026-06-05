@@ -138,6 +138,10 @@ export class PassmanagerTransport {
     await this.domainCall('passmanager:group:setMeta', payload)
   }
 
+  async setTagCatalog(tags: readonly string[]): Promise<void> {
+    await this.domainCall('passmanager:tags:setCatalog', {tags})
+  }
+
   async putIcon(
     contentBase64: string,
     mimeType: string | null,
@@ -201,11 +205,13 @@ export class PassmanagerTransport {
       reason?: string
       allowDestructive?: boolean
     },
+    tags?: string[],
   ): Promise<void> {
     await this.domainCall('passmanager:root:import', {
       entries,
       folders,
       folders_meta: foldersMeta,
+      tags,
       mode: options?.mode,
       reason: options?.reason,
       allow_destructive: options?.allowDestructive,

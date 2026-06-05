@@ -87,21 +87,9 @@ export class PMSearchMobile extends PMSearchBase {
       }
 
       cv-input {
-        --cv-input-height: 42px;
-        --cv-input-padding-inline: 14px;
-        --cv-input-font-size: 16px;
-        --cv-input-border-radius: 14px;
-        --cv-input-background: var(--cv-color-surface-2);
-        --cv-input-border-color: var(--cv-color-border-glass);
-        --cv-input-placeholder-color: var(--cv-color-text-muted);
-        --cv-input-icon-size: 20px;
-        box-shadow:
+        --cv-input-search-mobile-shadow:
           inset 0 1px 2px var(--cv-alpha-black-10),
           0 1px 0 var(--cv-alpha-white-4);
-      }
-
-      cv-input:hover {
-        --cv-input-border-color: var(--cv-color-primary-border);
       }
 
       .kbd-slash {
@@ -167,12 +155,12 @@ export class PMSearchMobile extends PMSearchBase {
           0 1px 8px var(--cv-color-primary-subtle);
       }
 
-      .tag-chip.add {
+      .tag-chip.manage {
         border-color: var(--cv-color-primary-border);
         color: var(--cv-color-primary);
       }
 
-      .tag-chip.add cv-icon,
+      .tag-chip.manage cv-icon,
       .tag-chip__remove {
         inline-size: 14px;
         block-size: 14px;
@@ -198,9 +186,9 @@ export class PMSearchMobile extends PMSearchBase {
 
       @container (width < 360px) {
         cv-input {
-          --cv-input-height: 40px;
-          --cv-input-font-size: 15px;
-          --cv-input-padding-inline: 12px;
+          --cv-input-search-mobile-height: 40px;
+          --cv-input-search-mobile-font-size: 15px;
+          --cv-input-search-mobile-padding-inline: 12px;
         }
 
         .sort-group-trigger {
@@ -231,12 +219,12 @@ export class PMSearchMobile extends PMSearchBase {
     return false
   }
 
-  private handleClearTagFilters(): void {
-    pmCredentialTagsModel.clearSelectedTags()
+  protected override getSearchInputPreset(): string {
+    return 'search-mobile'
   }
 
-  private handleOpenTagFilters(): void {
-    pmCredentialTagsModel.openFilterSheet()
+  private handleClearTagFilters(): void {
+    pmCredentialTagsModel.clearSelectedTags()
   }
 
   private handleOpenSortGroup(): void {
@@ -308,13 +296,13 @@ export class PMSearchMobile extends PMSearchBase {
         </button>
         ${options.map((option) => this.renderTagFilterChip(option, selectedKeys.has(option.key)))}
         <button
-          class="tag-chip add"
+          class="tag-chip manage"
           type="button"
-          aria-label=${i18n('tags:filter_open' as never)}
-          @click=${this.handleOpenTagFilters}
+          aria-label=${i18n('tags:manage_open' as never)}
+          @click=${this.handleOpenTagManage}
         >
-          <cv-icon name="plus-lg" aria-hidden="true"></cv-icon>
-          <span>${i18n('tags:filter_add_chip' as never)}</span>
+          <cv-icon name="sliders" aria-hidden="true"></cv-icon>
+          <span>${i18n('tags:manage_short' as never)}</span>
         </button>
       </div>
     `

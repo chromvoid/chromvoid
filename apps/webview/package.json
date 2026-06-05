@@ -5,7 +5,7 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "npm run build -w @project/passmanager && vite build",
     "build:check-warnings": "node ./scripts/check-build-warnings.mjs",
     "dev": "vite",
     "vendor:fonts": "tsx ./scripts/vendor-fonts.ts",

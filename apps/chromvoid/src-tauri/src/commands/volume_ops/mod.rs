@@ -13,10 +13,9 @@ pub(crate) use mount::volume_mount_inner;
 pub(crate) use unmount::volume_unmount_inner_with_budget;
 
 // Helper functions
-pub(crate) use helpers::{
-    perform_volume_teardown, volume_join_timeout, volume_schedule_backend_join,
-    volume_status_from_vm,
-};
+#[cfg(test)]
+pub(crate) use helpers::volume_join_timeout;
+pub(crate) use helpers::{perform_volume_teardown, volume_status_from_vm};
 
 // macOS-specific helpers
 #[cfg(target_os = "macos")]
@@ -27,7 +26,6 @@ pub(crate) use macos::{
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod volume_backend_tests {
-    use crate::types::*;
     use crate::volume_manager::FuseDriverStatus;
 
     use super::helpers::{resolve_volume_backend_choice, volume_backends_from_fuse_status};

@@ -233,7 +233,7 @@ export const applySwipeMoveVisual = (shadowRoot: ShadowRoot | null, offset: numb
   swipeContainer.classList.toggle('swipe-left', offset < 0)
   fileItem.classList.add('swiping')
   fileItem.classList.remove('snap-back')
-  fileItem.style.transform = `translateX(${offset}px)`
+  fileItem.style.setProperty('--file-item-swipe-offset', `${offset}px`)
   const progress = Math.min(1, Math.abs(offset) / FileItemModel.SWIPE_ACTION_WIDTH)
   fileItem.style.opacity = String(1 - progress * 0.12)
 }
@@ -251,17 +251,17 @@ export const applySwipeFinishVisual = (
   fileItem.style.opacity = '1'
 
   if (finish.state === 'open-left') {
-    fileItem.style.transform = `translateX(-${FileItemModel.SWIPE_ACTION_WIDTH}px)`
+    fileItem.style.setProperty('--file-item-swipe-offset', `-${FileItemModel.SWIPE_ACTION_WIDTH}px`)
     swipeContainer?.classList.add('swipe-left')
     swipeContainer?.classList.remove('swipe-right')
     swipeContainer?.classList.add('swipe-active')
   } else if (finish.state === 'open-right') {
-    fileItem.style.transform = `translateX(${FileItemModel.SWIPE_ACTION_WIDTH}px)`
+    fileItem.style.setProperty('--file-item-swipe-offset', `${FileItemModel.SWIPE_ACTION_WIDTH}px`)
     swipeContainer?.classList.add('swipe-right')
     swipeContainer?.classList.remove('swipe-left')
     swipeContainer?.classList.add('swipe-active')
   } else {
-    fileItem.style.transform = 'translateX(0)'
+    fileItem.style.setProperty('--file-item-swipe-offset', '0px')
     swipeContainer?.classList.remove('swipe-active', 'swipe-left', 'swipe-right')
   }
 
@@ -282,7 +282,7 @@ export const applySwipeCloseVisual = (shadowRoot: ShadowRoot | null) => {
   fileItem.classList.remove('swiping')
   fileItem.classList.add('snap-back')
   fileItem.style.opacity = '1'
-  fileItem.style.transform = 'translateX(0)'
+  fileItem.style.setProperty('--file-item-swipe-offset', '0px')
   swipeContainer?.classList.remove('swipe-active', 'swipe-left', 'swipe-right')
 
   fileItem.addEventListener(

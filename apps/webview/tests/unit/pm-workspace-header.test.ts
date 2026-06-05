@@ -210,7 +210,7 @@ describe('PMWorkspaceHeader', () => {
     trigger?.click()
     await settle(element)
 
-    const dialog = (picker as HTMLElement & {shadowRoot?: ShadowRoot})?.shadowRoot?.querySelector('adaptive-modal-surface') as
+    const dialog = (picker as HTMLElement & {shadowRoot?: ShadowRoot})?.shadowRoot?.querySelector('cv-dialog') as
       | {open?: boolean}
       | null
     expect(dialog?.open).toBe(true)

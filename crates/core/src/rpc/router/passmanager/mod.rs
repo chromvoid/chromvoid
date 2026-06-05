@@ -11,6 +11,7 @@ mod path;
 mod root_export;
 mod root_import;
 mod secret;
+mod tags;
 
 use super::super::types::RpcResponse;
 use super::domain_uow::DomainUnitOfWork;
@@ -123,6 +124,15 @@ impl RpcRouter {
     ) -> RpcResponse {
         self.commit_passmanager_domain_uow("passmanager-group-set-meta", |s, storage, uow| {
             group::handle_set_meta(s, storage, uow, data)
+        })
+    }
+
+    pub(super) fn handle_passmanager_tags_set_catalog(
+        &mut self,
+        data: &serde_json::Value,
+    ) -> RpcResponse {
+        self.commit_passmanager_domain_uow("passmanager-tags-set-catalog", |s, storage, uow| {
+            tags::handle_set_catalog(s, storage, uow, data)
         })
     }
 

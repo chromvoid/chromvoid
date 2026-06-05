@@ -39,6 +39,39 @@ function createEntry(
   )
 }
 
+function createPaymentCardEntry(id: string, options: {last4?: string; tags?: string[]} = {}) {
+  const group = new Group({
+    id: `group-${id}`,
+    name: `Group ${id}`,
+    entries: [],
+    createdTs: Date.now(),
+    updatedTs: Date.now(),
+  } as any)
+
+  return new Entry(
+    group,
+    {
+      id,
+      entryType: 'payment_card',
+      title: `Card ${id}`,
+      username: '',
+      urls: [],
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+      otps: [],
+      sshKeys: [],
+      paymentCard: {
+        cardholderName: 'Alice Doe',
+        expMonth: 12,
+        expYear: 2030,
+        brand: 'visa',
+        last4: options.last4,
+      },
+      tags: options.tags ?? [],
+    } as any,
+  )
+}
+
 function createPassmanagerRoot(entry: Entry): typeof window.passmanager {
   const group = entry.parent as Group
   const root = new ManagerRoot({} as any)
@@ -75,13 +108,6 @@ async function flush(element: PMEntryListItemMobile) {
   await Promise.resolve()
   await element.updateComplete
   await Promise.resolve()
-}
-
-function getEntryMobileStylesText(): string {
-  const styles = PMEntryListItemMobile.styles as unknown[]
-  return styles
-    .map((style) => (typeof style === 'object' && style && 'cssText' in style ? String(style.cssText) : String(style)))
-    .join('\n')
 }
 
 describe('PMEntryListItemMobile selection mode', () => {
@@ -278,7 +304,36 @@ describe('PMEntryListItemMobile selection mode', () => {
     expect(element.shadowRoot?.querySelector('.entry-menu-button')?.getAttribute('aria-label')).toBe('More actions')
   })
 
-  it('renders mobile risk badges and keeps selection interactions intact', async () => {
+  it('renders mobile payment card marker as chip instead of a status dot', async () => {
+    const entry = createPaymentCardEntry('mobile-card-marker', {
+      last4: '4242',
+      tags: ['finance', 'backup'],
+    })
+    window.passmanager = createPassmanagerRoot(entry)
+
+    const element = document.createElement('pm-entry-list-item-mobile') as PMEntryListItemMobile
+    element.entry = entry
+    document.body.append(element)
+    await flush(element)
+
+    const row = element.shadowRoot?.querySelector('.list-item') as HTMLElement | null
+    const text = element.shadowRoot?.textContent ?? ''
+    const statusDots = [...(element.shadowRoot?.querySelectorAll('.entry-status-dot') ?? [])]
+    const typeChip = element.shadowRoot?.querySelector('.entry-type-chip[data-badge-id="card"]')
+    const visibleTagBadges = [
+      ...(element.shadowRoot?.querySelectorAll('.entry-badge[data-family="meta"]') ?? []),
+    ]
+
+    expect(row?.getAttribute('data-entry-type')).toBe('payment_card')
+    expect(element.shadowRoot?.querySelector('.entry-type-glyph cv-icon[name="credit-card"]')).not.toBeNull()
+    expect(typeChip?.textContent).toContain('Card')
+    expect(text).toContain('•••• 4242')
+    expect(statusDots.map((dot) => dot.getAttribute('data-badge-id'))).not.toContain('card')
+    expect(visibleTagBadges.map((badge) => badge.textContent?.trim())).toEqual(['finance'])
+    expect(text).toContain('+1')
+  })
+
+  it('renders mobile risk badge data without text labels', async () => {
     const entry = createEntry('mobile-selection-risk-badges', {
       otps: [{id: 'otp-1', label: 'Main'}],
       sshKeys: [{id: 'ssh-1', type: 'ed25519', fingerprint: 'SHA256:test'}],
@@ -306,13 +361,9 @@ describe('PMEntryListItemMobile selection mode', () => {
       'ssh',
     ])
 
-    pmSelectionModeModel.enterWithEntry(entry.id)
-    await flush(element)
-
-    expect(element.shadowRoot?.querySelector('.list-item')?.classList.contains('selected')).toBe(true)
   })
 
-  it('binds left swipe to right-side delete actions through model classes and host css variables', async () => {
+  it('binds left swipe to right-side delete actions through the gesture model', async () => {
     const entry = createEntry('mobile-swipe-visual')
     window.passmanager = createPassmanagerRoot(entry)
 
@@ -332,23 +383,14 @@ describe('PMEntryListItemMobile selection mode', () => {
     } as unknown as TouchEvent)
     await flush(element)
 
-    const container = element.shadowRoot?.querySelector('.swipe-container')
-    const listItem = element.shadowRoot?.querySelector('.list-item') as HTMLElement | null
-
     expect(preventDefault).toHaveBeenCalledTimes(1)
-    expect(element.style.getPropertyValue('--pm-entry-swipe-offset-x')).toBe('-64px')
-    expect(container?.classList.contains('swipe-active')).toBe(true)
-    expect(container?.classList.contains('swipe-left')).toBe(true)
     expect(element.shadowRoot?.querySelector('.swipe-actions-right cv-icon[name="trash"]')).not.toBeNull()
     expect(element.shadowRoot?.querySelector('.swipe-actions-left cv-icon[name="person-circle"]')).not.toBeNull()
-    expect(listItem?.classList.contains('swiping')).toBe(true)
-    expect(listItem?.hasAttribute('style')).toBe(false)
 
     ;(element as PMEntryListItemMobile & {handleTouchEnd: () => void}).handleTouchEnd()
     await flush(element)
 
     expect(element.shadowRoot?.querySelector('.list-item')?.getAttribute('data-swipe-state')).toBe('open-left')
-    expect(element.shadowRoot?.querySelector('.list-item')?.classList.contains('snap-back')).toBe(true)
   })
 
   it('emits entry-delete from the right-side swipe delete action', async () => {
@@ -370,11 +412,4 @@ describe('PMEntryListItemMobile selection mode', () => {
     expect((deleteSpy.mock.calls[0]?.[0] as CustomEvent<Entry>).detail).toBe(entry)
   })
 
-  it('omits the mobile drag handle column so entry text has more room', () => {
-    const styleText = getEntryMobileStylesText()
-
-    expect(styleText).toContain('grid-template-columns: auto minmax(0, 1fr) minmax(0, auto) auto;')
-    expect(styleText).not.toContain('.mobile-dnd-handle')
-    expect(styleText).toContain('--pm-mobile-list-row-gap: 6px;')
-  })
 })

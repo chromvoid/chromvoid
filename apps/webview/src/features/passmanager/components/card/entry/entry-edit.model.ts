@@ -9,12 +9,7 @@ import {
   estimatePasswordStrength,
   generatePasswordWithOptions,
 } from '@project/passmanager/password-utils'
-import {
-  credentialTagKey,
-  normalizeCredentialTagLabel,
-  normalizeCredentialTags,
-  type CredentialTagKey,
-} from '@project/passmanager/tags'
+import {normalizeCredentialTags} from '@project/passmanager/tags'
 import type {SshKeyType, UrlRule} from '@project/passmanager/types'
 import {transformUrls, URLValidator} from '@project/passmanager/urls'
 import {passmanagerSshKeygen} from 'root/features/passmanager/service/passmanager-ssh-keygen'
@@ -177,7 +172,6 @@ export class PMEntryEditModel extends PMEntryModel {
   readonly sshResult = this.sshDraft.result
   readonly sshError = this.sshDraft.error
   readonly tagDraft = atom<string[]>([], 'passmanager.entryMobile.tagDraft')
-  readonly tagInput = atom('', 'passmanager.entryMobile.tagInput')
   readonly tagError = atom('', 'passmanager.entryMobile.tagError')
   readonly tagSaving = atom(false, 'passmanager.entryMobile.tagSaving')
 
@@ -413,6 +407,7 @@ export class PMEntryEditModel extends PMEntryModel {
     if (closeEditorSurface) {
       pmEntryEditorModel.closeSurface()
     }
+    this.entryEditFocusRequest.set(null)
     this.sectionSnippet.set(null)
     this.noteError.set('')
     this.noteSaving.set(false)
@@ -422,7 +417,6 @@ export class PMEntryEditModel extends PMEntryModel {
     this.otpError.set('')
     this.tagError.set('')
     this.tagSaving.set(false)
-    this.tagInput.set('')
     if (closingTagSnippet) {
       this.tagDraft.set([])
     }
@@ -435,9 +429,9 @@ export class PMEntryEditModel extends PMEntryModel {
     this.cancelInlineEdit()
     this.clearEditIntent()
     pmEntryEditorModel.openSurface(entry.id, 'tags')
+    this.entryEditFocusRequest.set(null)
     this.sectionSnippet.set('tags')
     this.tagDraft.set(normalizeCredentialTags(entry.tags))
-    this.tagInput.set('')
     this.tagError.set('')
     this.tagSaving.set(false)
   }
@@ -451,33 +445,6 @@ export class PMEntryEditModel extends PMEntryModel {
     this.setTagDraft(pmCredentialTagsModel.resolveLabelsFromTagKeys(keys, this.tagDraft()))
   }
 
-  setTagInput(value: string): void {
-    this.tagInput.set(value)
-    this.tagError.set('')
-  }
-
-  addTagDraft(label: unknown = this.tagInput()): void {
-    const normalizedLabel = normalizeCredentialTagLabel(label)
-    if (!normalizedLabel) {
-      if (String(label ?? '').trim()) {
-        this.tagError.set(i18n('tags:too_long'))
-      }
-      return
-    }
-
-    this.tagDraft.set(normalizeCredentialTags([...this.tagDraft(), normalizedLabel]))
-    this.tagInput.set('')
-    this.tagError.set('')
-  }
-
-  removeTagDraft(key: CredentialTagKey): void {
-    const normalizedKey = credentialTagKey(key)
-    if (!normalizedKey) return
-
-    this.tagDraft.set(this.tagDraft().filter((tag) => credentialTagKey(tag) !== normalizedKey))
-    this.tagError.set('')
-  }
-
   async saveTagEdit(entry: Entry): Promise<boolean> {
     if (this.tagSaving()) return false
 
@@ -486,6 +453,7 @@ export class PMEntryEditModel extends PMEntryModel {
 
     try {
       await wrap(entry.updateTags(this.tagDraft()))
+      await wrap(pmCredentialTagsModel.ensureCatalogTags(this.tagDraft()))
       this.closeSectionSnippet()
       return true
     } catch (error) {
@@ -1265,7 +1233,6 @@ export class PMEntryEditModel extends PMEntryModel {
     this.entryEditNoteDirty = false
     this.noteError.set('')
     this.tagDraft.set(entry.tags)
-    this.tagInput.set('')
     this.tagError.set('')
     this.tagSaving.set(false)
   }

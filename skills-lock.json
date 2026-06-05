@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "skills": {
+    "audience-growth-tracker-sms": {
+      "source": "blacktwist/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/audience-growth-tracker-sms/SKILL.md",
+      "computedHash": "8a5f0e3803982ae713cbce6f0234cab538fceeb622d632c15ffcd0ecfecc2401"
+    },
+    "caption-writer-sms": {
+      "source": "blacktwist/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/caption-writer-sms/SKILL.md",
+      "computedHash": "07e871f6e157475df3849bcbff336fabee83a5093469cb165ddc7fb765f4a467"
+    },
+    "carousel-writer-sms": {
+      "source": "blacktwist/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/carousel-writer-sms/SKILL.md",
+      "computedHash": "58cbcf94dfeb6bbb899388fd2ccdb388b1742ce8783e1422a48ec97bb95a88fa"
+    },
+    "content-calendar-sms": {
+      "source": "blacktwist/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/content-calendar-sms/SKILL.md",
+      "computedHash": "072497335e3d19b2ea238d4f61764663f7ec5b1039a4e13387c25cf26fc1d040"
+    },
+    "content-pattern-analyzer-sms": {
+      "source": "blacktwist/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/content-pattern-analyzer-sms/SKILL.md",
+      "computedHash": "61144e3747c1e8b0cfbb18ac8063be1580a061f9ce904668b731be3230be16df"
+    },
+    "content-repurposer-sms": {
+      "source": "blacktwist/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/content-repurposer-sms/SKILL.md",
+      "computedHash": "1c03fd0244b7bbab1658f1f98d7ccfce2bc67fa2ad8155bac871e7cbad7cc1d5"
+    },
+    "content-strategy-sms": {
+      "source": "blacktwist/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/content-strategy-sms/SKILL.md",
+      "computedHash": "36f997fb0d595e7b5112e69019ce02c413df294b77f100f685615ff49ac1452b"
+    },
+    "hook-writer-sms": {
+      "source": "blacktwist/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/hook-writer-sms/SKILL.md",
+      "computedHash": "92d8693aeb96fc0c8108cd21d503da5eebeda8f28c4ca040fa39a404bc3048ec"
+    },
+    "optimization-advisor-sms": {
+      "source": "blacktwist/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/optimization-advisor-sms/SKILL.md",
+      "computedHash": "bd68f4719cbd561324b3c5e200ae41e394a79009c6ba270f54c2a5af7b38ca35"
+    },
+    "performance-analyzer-sms": {
+      "source": "blacktwist/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/performance-analyzer-sms/SKILL.md",
+      "computedHash": "4b2d2aa657222b46c46fcc767df58f9de55eee0eb2cffb62c52232b61e67ed80"
+    },
+    "platform-strategy-sms": {
+      "source": "blacktwist/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/platform-strategy-sms/SKILL.md",
+      "computedHash": "e93f5fb37e0348ed563ab194a3bfc5011d923b5376b80f983fffefe50d8585bf"
+    },
+    "post-writer-sms": {
+      "source": "blacktwist/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/post-writer-sms/SKILL.md",
+      "computedHash": "33e7e04f23d2e3e31bd8d10a42c508d6260db7218ab51fc3965bc03fff5d9582"
+    },
+    "social-media-context-sms": {
+      "source": "blacktwist/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/social-media-context-sms/SKILL.md",
+      "computedHash": "c44e39ac41123668151e99afd091eb9cd6a3139084d70b7dbebc0669bdacee45"
+    },
+    "thread-writer-sms": {
+      "source": "blacktwist/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/thread-writer-sms/SKILL.md",
+      "computedHash": "9ca7045fba6bee6b98e95b56c5a70aa0e97196bdf98580f1129b0d27366106fa"
+    }
+  }
+}

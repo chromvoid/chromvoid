@@ -278,34 +278,6 @@ export const pmEntryOtpCreateStyles = css`
     text-align: center;
   }
 
-  .qr-scan-button-row {
-    inline-size: 100%;
-    justify-content: center;
-    min-block-size: 2.625rem;
-    border-radius: 0.875rem;
-    background: var(--cv-color-surface-2);
-    border-color: var(--cv-color-primary-border-strong);
-    font-size: 0.9375rem;
-    font-weight: 600;
-    gap: 0.5rem;
-    text-transform: none;
-    letter-spacing: 0;
-    transition:
-      border-color 220ms var(--cv-easing-standard),
-      background 220ms var(--cv-easing-standard),
-      box-shadow 220ms var(--cv-easing-spring);
-  }
-
-  .qr-scan-button-row cv-icon {
-    inline-size: 1.125rem;
-    block-size: 1.125rem;
-  }
-
-  .qr-scan-button-row:hover {
-    border-color: var(--cv-color-primary);
-    box-shadow: 0 0 0 3px var(--cv-color-primary-ring);
-  }
-
   .otp-advanced {
     display: block;
     margin-block-start: 0.25rem;

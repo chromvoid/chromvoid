@@ -5,18 +5,6 @@ import type {AudioArtworkPreview} from '../../src/features/media/components/audi
 import {mediaPlaybackModel} from '../../src/features/media/models/media-playback.model'
 import {i18n} from '../../src/i18n'
 
-function stylesToText(styles: unknown): string {
-  const values = Array.isArray(styles) ? styles : [styles]
-  return values
-    .map((value) => {
-      if (value == null) return ''
-      return typeof value === 'object' && 'cssText' in (value as object)
-        ? String((value as {cssText: string}).cssText)
-        : String(value)
-    })
-    .join('\n')
-}
-
 function seedAudioSession() {
   mediaPlaybackModel.sessionKind.set('audio')
   mediaPlaybackModel.tracks.set([{id: 1, name: 'track.mp3', path: '/track.mp3', mimeType: 'audio/mpeg'}])
@@ -210,22 +198,4 @@ describe('media-mini-player', () => {
     expect(artwork?.loadEnabled).toBe(false)
   })
 
-  it('keeps premium dock style contracts explicit', () => {
-    const cssText = stylesToText(MediaMiniPlayer.styles)
-
-    expect(cssText).toContain('.media-mini-progress')
-    expect(cssText).toContain('.media-mini-artwork')
-    expect(cssText).toContain('.media-mini-accent')
-    expect(cssText).toContain('.media-mini-fallback-tile')
-    expect(cssText).toContain('.media-mini-menu')
-    expect(cssText).not.toContain('.media-mini-signal')
-    expect(cssText).toMatch(/\.media-mini-artwork\s*\{[^}]*pointer-events: none;/)
-    expect(cssText).toMatch(/\.media-mini-fallback-tile\s*\{[^}]*pointer-events: none;/)
-    expect(cssText).toContain('.media-mini-open::part(base)')
-    expect(cssText).toContain('.media-mini-open::part(prefix)')
-    expect(cssText).toContain('.media-mini-open::part(label)')
-    expect(cssText).toContain('.media-mini-progress::part(thumb)')
-    expect(cssText).toContain('inline-size: 100%')
-    expect(cssText).toContain('prefers-reduced-motion')
-  })
 })

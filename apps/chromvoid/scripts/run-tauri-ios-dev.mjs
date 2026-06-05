@@ -8,8 +8,32 @@ import {fileURLToPath} from 'node:url'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.resolve(scriptDir, '..')
-const forwardedArgs = process.argv.slice(2)
-let tauriArgs = ['ios', 'dev', ...forwardedArgs]
+const rawForwardedArgs = process.argv.slice(2)
+const forwardedArgs = []
+const devConfigArgs = ['--config', 'src-tauri/tauri.dev.conf.json']
+let usePhysicalDeviceDefault = false
+let requestedPhysicalDeviceRef = process.env.IOS_DEVICE?.trim() ?? ''
+
+for (let index = 0; index < rawForwardedArgs.length; index += 1) {
+  const arg = rawForwardedArgs[index]
+  if (arg === '--physical-device') {
+    usePhysicalDeviceDefault = true
+    const nextArg = rawForwardedArgs[index + 1]
+    if (nextArg && !nextArg.startsWith('-')) {
+      requestedPhysicalDeviceRef = nextArg
+      index += 1
+    }
+    continue
+  }
+  if (arg.startsWith('--physical-device=')) {
+    usePhysicalDeviceDefault = true
+    requestedPhysicalDeviceRef = arg.slice('--physical-device='.length)
+    continue
+  }
+  forwardedArgs.push(arg)
+}
+
+let tauriArgs = ['ios', 'dev', ...devConfigArgs, ...forwardedArgs]
 const localTauriBinary = path.join(
   appRoot,
   'node_modules',
@@ -30,6 +54,11 @@ const cargoRegistrySrcDir = path.join(os.homedir(), '.cargo', 'registry', 'src')
 
 function log(message) {
   console.log(`[tauri-ios-runner] ${message}`)
+}
+
+function fail(message) {
+  console.error(`[tauri-ios-runner] ${message}`)
+  process.exit(1)
 }
 
 function readLockedTauriVersion() {
@@ -110,9 +139,7 @@ function listAppleDevelopmentTeams() {
     return []
   }
 
-  const matches = Array.from(
-    result.stdout.matchAll(/Apple Development:[^(]+\(([A-Z0-9]{10})\)/g),
-  )
+  const matches = Array.from(result.stdout.matchAll(/Apple Development:[^(]+\(([A-Z0-9]{10})\)/g))
   return [...new Set(matches.map((match) => match[1]))]
 }
 
@@ -210,10 +237,10 @@ function resolveAppleDevelopmentTeam({requireTeam}) {
 
 function injectDevelopmentTeam(projectFile, team) {
   return projectFile.replace(/buildSettings = \{[\s\S]*?\n\t\t\t\};/g, (block) => {
-    const isIosAppBlock = block.includes('PRODUCT_BUNDLE_IDENTIFIER = com.chromvoid.app;')
-    const isIosExtensionBlock = block.includes(
-      'PRODUCT_BUNDLE_IDENTIFIER = "com.chromvoid.app.credential-provider";',
-    )
+    const isIosAppBlock = /PRODUCT_BUNDLE_IDENTIFIER = "?com\.chromvoid\.app(?:\.dev)?"?;/.test(block)
+    const isIosExtensionBlock =
+      /PRODUCT_BUNDLE_IDENTIFIER = "?com\.chromvoid\.app(?:\.dev)?\.credential-provider"?;/.test(block) ||
+      /PRODUCT_BUNDLE_IDENTIFIER = "?com\.chromvoid\.app(?:\.dev)?\.share-extension"?;/.test(block)
     const isIosSdkBlock =
       block.includes('SDKROOT = iphoneos;') || block.includes('SDKROOT = iphonesimulator;')
 
@@ -229,6 +256,44 @@ function injectDevelopmentTeam(projectFile, team) {
       /(\n\s*PRODUCT_BUNDLE_IDENTIFIER = [^;]+;)/,
       `$1\n\t\t\t\tDEVELOPMENT_TEAM = ${team};`,
     )
+  })
+}
+
+function applyIosDevBundleSettings(projectFile) {
+  return projectFile.replace(/buildSettings = \{[\s\S]*?\n\t\t\t\};/g, (block) => {
+    const isIosAppBlock = /PRODUCT_BUNDLE_IDENTIFIER = "?com\.chromvoid\.app(?:\.dev)?"?;/.test(block)
+    const isIosSdkBlock =
+      block.includes('SDKROOT = iphoneos;') || block.includes('SDKROOT = iphonesimulator;')
+
+    if (!isIosAppBlock || !isIosSdkBlock) {
+      return block
+    }
+
+    return block
+      .replace(
+        /PRODUCT_BUNDLE_IDENTIFIER = "?com\.chromvoid\.app(?:\.dev)?"?;/g,
+        'PRODUCT_BUNDLE_IDENTIFIER = com.chromvoid.app.dev;',
+      )
+      .replace(/PRODUCT_NAME = "?ChromVoid(?: Dev)?"?;/g, 'PRODUCT_NAME = "ChromVoid Dev";')
+  })
+}
+
+function applyIosReleaseBundleSettings(projectFile) {
+  return projectFile.replace(/buildSettings = \{[\s\S]*?\n\t\t\t\};/g, (block) => {
+    const isIosAppBlock = /PRODUCT_BUNDLE_IDENTIFIER = "?com\.chromvoid\.app(?:\.dev)?"?;/.test(block)
+    const isIosSdkBlock =
+      block.includes('SDKROOT = iphoneos;') || block.includes('SDKROOT = iphonesimulator;')
+
+    if (!isIosAppBlock || !isIosSdkBlock) {
+      return block
+    }
+
+    return block
+      .replace(
+        /PRODUCT_BUNDLE_IDENTIFIER = "?com\.chromvoid\.app(?:\.dev)?"?;/g,
+        'PRODUCT_BUNDLE_IDENTIFIER = com.chromvoid.app;',
+      )
+      .replace(/PRODUCT_NAME = "?ChromVoid(?: Dev)?"?;/g, 'PRODUCT_NAME = ChromVoid;')
   })
 }
 
@@ -258,19 +323,20 @@ function emptyEntitlementsPlist() {
 }
 
 function prepareTemporarySigning(teamInfo, {useLightweightDeviceSigning}) {
-  if (!teamInfo?.teamID || !fs.existsSync(xcodeProjectFile)) {
+  if (!fs.existsSync(xcodeProjectFile)) {
     return () => {}
   }
 
   const edits = []
 
-  const originalProject = fs.readFileSync(xcodeProjectFile, 'utf8')
-  let patchedProject = injectDevelopmentTeam(originalProject, teamInfo.teamID)
+  const rawProject = fs.readFileSync(xcodeProjectFile, 'utf8')
+  const originalProject = applyIosReleaseBundleSettings(rawProject)
+  let patchedProject = applyIosDevBundleSettings(originalProject)
+  if (teamInfo?.teamID) {
+    patchedProject = injectDevelopmentTeam(patchedProject, teamInfo.teamID)
+  }
   if (useLightweightDeviceSigning) {
-    const tempEntitlementsPath = path.join(
-      os.tmpdir(),
-      `chromvoid-ios-free-team-${process.pid}.entitlements`,
-    )
+    const tempEntitlementsPath = path.join(os.tmpdir(), `chromvoid-ios-free-team-${process.pid}.entitlements`)
     fs.writeFileSync(tempEntitlementsPath, emptyEntitlementsPlist())
     edits.push({
       path: tempEntitlementsPath,
@@ -293,12 +359,20 @@ function prepareTemporarySigning(teamInfo, {useLightweightDeviceSigning}) {
     fs.writeFileSync(edit.path, edit.patched)
   }
 
-  log(`temporarily injected DEVELOPMENT_TEAM=${teamInfo.teamID} into Xcode project`)
+  log('temporarily set iOS dev bundle identifier to com.chromvoid.app.dev')
+  if (teamInfo?.teamID) {
+    log(`temporarily injected DEVELOPMENT_TEAM=${teamInfo.teamID} into Xcode project`)
+  }
   if (useLightweightDeviceSigning) {
     log(`using lightweight device signing for free Xcode team ${teamInfo.teamID}`)
   }
 
+  let restored = false
   return () => {
+    if (restored) {
+      return
+    }
+    restored = true
     for (const edit of edits) {
       if (typeof edit.cleanup === 'function') {
         edit.cleanup()
@@ -309,6 +383,7 @@ function prepareTemporarySigning(teamInfo, {useLightweightDeviceSigning}) {
       }
       fs.writeFileSync(edit.path, edit.original)
     }
+    log('restored Xcode project signing settings')
   }
 }
 
@@ -342,8 +417,7 @@ function listPhysicalIOSDevices() {
         device?.connectionProperties?.pairingState === 'paired',
     )
     .map((device) => ({
-      name:
-        device?.deviceProperties?.name ?? device?.hardwareProperties?.marketingName ?? 'iPhone',
+      name: device?.deviceProperties?.name ?? device?.hardwareProperties?.marketingName ?? 'iPhone',
       udid: device?.hardwareProperties?.udid ?? device?.identifier,
     }))
     .filter((device) => Boolean(device.udid))
@@ -359,6 +433,35 @@ function findRequestedPhysicalDevice(args, devices) {
     devices.find((device) => targets.includes(device.udid)) ??
     devices.find((device) => targets.includes(device.name)) ??
     null
+  )
+}
+
+function resolveDefaultPhysicalDevice(devices, requestedRef) {
+  if (requestedRef) {
+    const requestedDevice =
+      devices.find((device) => device.udid === requestedRef) ??
+      devices.find((device) => device.name === requestedRef)
+    if (requestedDevice) {
+      return requestedDevice
+    }
+
+    const labels = devices.map((device) => `${device.name} (${device.udid})`).join(', ')
+    fail(`requested iOS device was not found: ${requestedRef}. Available paired devices: ${labels || 'none'}`)
+  }
+
+  if (devices.length === 1) {
+    return devices[0]
+  }
+
+  if (devices.length > 1) {
+    const labels = devices.map((device) => `${device.name} (${device.udid})`).join(', ')
+    fail(
+      `multiple paired physical iOS devices found: ${labels}. Set IOS_DEVICE or pass --physical-device <device>.`,
+    )
+  }
+
+  fail(
+    'no paired physical iOS device found. Connect and trust an iPhone, or pass a simulator/device to npm run ios.',
   )
 }
 
@@ -509,7 +612,7 @@ function extractDeviceRefFromOutput(output) {
   return matches[matches.length - 1][1]
 }
 
-function runTauri() {
+function runTauri(appleDevelopmentTeam) {
   return new Promise((resolve) => {
     let output = ''
     let settled = false
@@ -517,9 +620,19 @@ function runTauri() {
     let exitSignal = null
     const child = spawn(tauriBinary, tauriArgs, {
       cwd: appRoot,
-      env: process.env,
+      env: appleDevelopmentTeam?.teamID
+        ? {...process.env, APPLE_DEVELOPMENT_TEAM: appleDevelopmentTeam.teamID}
+        : process.env,
       stdio: ['inherit', 'pipe', 'pipe'],
     })
+    const forwardSignal = (signal) => {
+      exitSignal = signal
+      if (!child.killed) {
+        child.kill(signal)
+      }
+    }
+    process.once('SIGINT', forwardSignal)
+    process.once('SIGTERM', forwardSignal)
 
     const appendOutput = (chunk) => {
       output += chunk
@@ -555,6 +668,8 @@ function runTauri() {
     })
 
     child.on('close', () => {
+      process.removeListener('SIGINT', forwardSignal)
+      process.removeListener('SIGTERM', forwardSignal)
       if (settled) {
         return
       }
@@ -567,25 +682,42 @@ function runTauri() {
 async function main() {
   const wantsHelp = process.argv.includes('-h') || process.argv.includes('--help')
   const preflightDevices = wantsHelp ? [] : listPhysicalIOSDevices()
-  const requestedPhysicalDevice = wantsHelp
+  let requestedPhysicalDevice = wantsHelp
     ? null
     : findRequestedPhysicalDevice(forwardedArgs, preflightDevices)
+  if (!wantsHelp && usePhysicalDeviceDefault) {
+    const positionalArgs = forwardedArgs.filter((arg) => !arg.startsWith('-'))
+    if (!requestedPhysicalDevice && positionalArgs.length === 0) {
+      requestedPhysicalDevice = resolveDefaultPhysicalDevice(preflightDevices, requestedPhysicalDeviceRef)
+      tauriArgs = ['ios', 'dev', ...devConfigArgs, requestedPhysicalDevice.name, ...forwardedArgs]
+    }
+    if (requestedPhysicalDevice) {
+      log(`using physical iOS device ${requestedPhysicalDevice.name} (${requestedPhysicalDevice.udid})`)
+    }
+  }
   const requireSigningTeam = !wantsHelp && requestedPhysicalDevice !== null
-  if (!wantsHelp && forwardedArgs.filter((arg) => !arg.startsWith('-')).length === 0) {
+  if (
+    !wantsHelp &&
+    !usePhysicalDeviceDefault &&
+    forwardedArgs.filter((arg) => !arg.startsWith('-')).length === 0
+  ) {
     const defaultTarget = resolveDefaultIosTarget()
     if (defaultTarget) {
-      tauriArgs = ['ios', 'dev', defaultTarget, ...forwardedArgs]
+      tauriArgs = ['ios', 'dev', ...devConfigArgs, defaultTarget, ...forwardedArgs]
       log(`using default iOS simulator target ${defaultTarget}`)
     }
   }
-  const appleDevelopmentTeam = requireSigningTeam
-    ? resolveAppleDevelopmentTeam({requireTeam: true})
-    : null
+  const appleDevelopmentTeam = requireSigningTeam ? resolveAppleDevelopmentTeam({requireTeam: true}) : null
   const useLightweightDeviceSigning =
     requireSigningTeam && appleDevelopmentTeam?.isFreeProvisioningTeam === true
   const restoreSigning = prepareTemporarySigning(appleDevelopmentTeam, {
     useLightweightDeviceSigning,
   })
+  const restoreOnExit = () => restoreSigning()
+  process.once('exit', restoreOnExit)
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    process.once(signal, restoreOnExit)
+  }
   let exitCode = 1
   let exitSignal = null
   let lastOutput = ''
@@ -605,12 +737,12 @@ async function main() {
       }
     }
 
-    let runResult = await runTauri()
+    let runResult = await runTauri(appleDevelopmentTeam)
     lastOutput = runResult.output
 
     if (runResult.code !== 0 && isSwiftRsResolutionFailure(runResult.output) && warmSwiftRsCache()) {
       log('swift-rs cache warmed; retrying tauri iOS build once')
-      runResult = await runTauri()
+      runResult = await runTauri(appleDevelopmentTeam)
       lastOutput = runResult.output
     }
 
@@ -633,14 +765,10 @@ async function main() {
     }
 
     const retryDeviceRef =
-      extractDeviceRefFromOutput(runResult.output) ??
-      requestedPhysicalDevice?.udid ??
-      null
+      extractDeviceRefFromOutput(runResult.output) ?? requestedPhysicalDevice?.udid ?? null
 
     if (!retryDeviceRef) {
-      console.error(
-        '[tauri-ios-runner] launch failed because the device is locked; unlock and rerun',
-      )
+      console.error('[tauri-ios-runner] launch failed because the device is locked; unlock and rerun')
       exitCode = runResult.code ?? 1
       return {exitCode, exitSignal, output: lastOutput, appleDevelopmentTeam}
     }
@@ -653,7 +781,7 @@ async function main() {
       return {exitCode, exitSignal, output: lastOutput, appleDevelopmentTeam}
     }
 
-    const retryRun = await runTauri()
+    const retryRun = await runTauri(appleDevelopmentTeam)
     lastOutput = retryRun.output
     if (retryRun.signal) {
       if (hasActionableBuildFailure(retryRun.output)) {
@@ -666,6 +794,10 @@ async function main() {
     exitCode = retryRun.code ?? 1
     return {exitCode, exitSignal, output: lastOutput, appleDevelopmentTeam}
   } finally {
+    process.removeListener('exit', restoreOnExit)
+    for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+      process.removeListener(signal, restoreOnExit)
+    }
     restoreSigning()
   }
 }

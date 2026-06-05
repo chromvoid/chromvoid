@@ -276,20 +276,21 @@ export abstract class NotesQuickViewBase extends ReatomLitElement {
           : 'notes:quick_view:empty:description'
 
     const content = html`
-      <section class="empty-state" role="status">
-        <cv-icon name="file-text" size="lg" aria-hidden="true"></cv-icon>
-        <p class="empty-state__title">${i18n(titleKey as never)}</p>
-        <p class="empty-state__description">${i18n(descriptionKey as never)}</p>
+      <cv-empty-state
+        icon="file-text"
+        headline=${i18n(titleKey as never)}
+        description=${i18n(descriptionKey as never)}
+      >
         ${kind === 'empty' ? renderGuidanceInline('notes.create-note', 'notes') : nothing}
         ${kind === 'filtered'
           ? html`
-              <button class="clear-filters" type="button" @click=${this.handleClearFilters}>
+              <button slot="actions" class="clear-filters" type="button" @click=${this.handleClearFilters}>
                 <cv-icon name="x" aria-hidden="true"></cv-icon>
                 ${i18n('notes:quick_view:clear_filters' as never)}
               </button>
             `
           : nothing}
-      </section>
+      </cv-empty-state>
     `
 
     if (kind !== 'empty') {

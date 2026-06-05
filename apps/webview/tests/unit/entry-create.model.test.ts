@@ -162,9 +162,7 @@ describe('PMEntryCreateModel', () => {
     } as unknown as typeof window.passmanager
 
     const model = new PMEntryCreateModel()
-    model.addTag('  #Work  ')
-    model.addTag('work')
-    model.addTag('Client   A')
+    model.setTags(['  #Work  ', 'work', 'Client   A'])
     expect(model.tags()).toEqual(['Work', 'Client A'])
 
     model.setTitle('Entry')
@@ -184,7 +182,6 @@ describe('PMEntryCreateModel', () => {
 
     model.reset()
     expect(model.tags()).toEqual([])
-    expect(model.tagInput()).toBe('')
   })
 
   it('suggests title from website until the title is manually edited', () => {

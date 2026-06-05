@@ -1,5 +1,6 @@
 import {html, type TemplateResult} from 'lit'
-import {announce, InertManager, findFirstFocusableElement} from '@chromvoid/ui'
+import {CVBottomSheet} from '@chromvoid/uikit/components/cv-bottom-sheet'
+import {CVDialog} from '@chromvoid/uikit/components/cv-dialog'
 import {
   createDialogController,
   type CustomDialogOptions as ControllerCustomDialogOptions,
@@ -20,10 +21,19 @@ import type {
 } from './dialog-types.js'
 import {CvInputDialog} from './cv-input-dialog.js'
 import {CvConfirmDialog} from './cv-confirm-dialog.js'
+import {tryGetAppContext} from './app-context.js'
 import {transientBackModel} from './transient-back.model.js'
-import {AdaptiveModalSurface} from '../ui/adaptive-modal-surface.js'
 
 type DialogResult<T> = T | null
+type ManagedDialogSurfaceElement = HTMLElement & {
+  open: boolean
+  noHeader: boolean
+  closable: boolean
+  closeOnEscape: boolean
+  closeOnOutsidePointer: boolean
+  closeOnOutsideFocus: boolean
+  updateComplete?: Promise<boolean>
+}
 
 interface CustomDialogOptions {
   title?: string
@@ -70,13 +80,6 @@ function validateCatalogRenameName(value: string, isFolder: boolean): Validation
   return {valid: true}
 }
 
-async function waitForElementUpdate(element: Element | null | undefined): Promise<void> {
-  const updateComplete = (element as {updateComplete?: unknown} | null | undefined)?.updateComplete
-  if (updateComplete && typeof (updateComplete as Promise<unknown>).then === 'function') {
-    await updateComplete
-  }
-}
-
 export function validateRenameFileName(value: string): ValidationResult {
   return validateCatalogRenameName(value, false)
 }
@@ -91,19 +94,13 @@ export function validateRenameFolderName(value: string): ValidationResult {
 showCustomDialog - thin wrapper over generic dialog controller from uikit.
 */
 export class DialogService implements DialogServiceInterface {
-  private readonly inertManager = new InertManager()
   private readonly dialogController: DialogController
-  private inputDialogPrewarmed = false
-  private inputDialogPrewarmPromise: Promise<void> | null = null
 
   constructor() {
-    AdaptiveModalSurface.define()
+    CVBottomSheet.define()
+    CVDialog.define()
     this.dialogController = createDialogController({
-      announce,
-      setInertExcept: (element) => this.inertManager.setInertExcept(element),
-      restoreInert: () => this.inertManager.restoreAll(),
-      findFirstFocusable: findFirstFocusableElement,
-      createCustomDialogElement: () => document.createElement('adaptive-modal-surface') as AdaptiveModalSurface,
+      createCustomDialogElement: () => this.createCustomDialogElement(),
     })
     transientBackModel.register(() => this.closeTopDialog(), {priority: 100})
     CvInputDialog.define()
@@ -112,56 +109,18 @@ export class DialogService implements DialogServiceInterface {
 
   // ================================================================================================================================================================================================================================================================ Basic methods =======
 
-  prewarmInputDialog(options: Partial<InputDialogOptions> = {}): Promise<void> {
-    if (this.inputDialogPrewarmed) {
-      return Promise.resolve()
-    }
-    if (this.inputDialogPrewarmPromise) {
-      return this.inputDialogPrewarmPromise
-    }
-    if (typeof document === 'undefined') {
-      return Promise.resolve()
-    }
-
-    this.inputDialogPrewarmPromise = this.runInputDialogPrewarm(options)
-      .then(() => {
-        this.inputDialogPrewarmed = true
-      })
-      .finally(() => {
-        this.inputDialogPrewarmPromise = null
-      })
-
-    return this.inputDialogPrewarmPromise
+  private isMobileLayout(): boolean {
+    return tryGetAppContext()?.store.layoutMode?.() === 'mobile'
   }
 
-  private async runInputDialogPrewarm(options: Partial<InputDialogOptions>): Promise<void> {
-    const dialog = new CvInputDialog()
-    dialog.configure({
-      title: options.title ?? '',
-      label: options.label ?? '',
-      placeholder: options.placeholder ?? '',
-      value: options.value ?? '',
-      type: options.type ?? 'text',
-      required: options.required ?? false,
-      size: options.size,
-      closable: options.closable,
-      noHeader: options.noHeader,
-    })
-
-    document.body.append(dialog)
-
-    try {
-      await waitForElementUpdate(dialog)
-      const surface = dialog.shadowRoot?.querySelector('adaptive-modal-surface')
-      await waitForElementUpdate(surface)
-      const sheet = surface?.shadowRoot?.querySelector('cv-bottom-sheet')
-      const directDialog = surface?.shadowRoot?.querySelector('cv-dialog')
-      await waitForElementUpdate(sheet)
-      await waitForElementUpdate(directDialog)
-      await waitForElementUpdate(sheet?.shadowRoot?.querySelector('cv-dialog'))
-    } finally {
-      dialog.remove()
+  private createCustomDialogElement(): ManagedDialogSurfaceElement {
+    if (this.isMobileLayout()) {
+      CVBottomSheet.define()
+      return document.createElement('cv-bottom-sheet') as ManagedDialogSurfaceElement
     }
+
+    CVDialog.define()
+    return document.createElement('cv-dialog') as ManagedDialogSurfaceElement
   }
 
   async showInputDialog(options: InputDialogOptions): Promise<InputDialogResult> {

@@ -163,7 +163,7 @@ describe('PMOtpQuickView render', () => {
     setPassmanagerRoot(emptyRoot)
 
     const emptyElement = await renderDesktop()
-    expect(emptyElement.shadowRoot?.querySelector('.empty-state')?.textContent).toContain(
+    expect(emptyElement.shadowRoot?.querySelector('cv-empty-state')?.getAttribute('headline')).toBe(
       'No saved OTP codes',
     )
 
@@ -172,7 +172,7 @@ describe('PMOtpQuickView render', () => {
     pmOtpQuickViewModel.actions.setQuery('missing-service')
     const filteredElement = await renderDesktop()
 
-    expect(filteredElement.shadowRoot?.querySelector('.empty-state')?.textContent).toContain(
+    expect(filteredElement.shadowRoot?.querySelector('cv-empty-state')?.getAttribute('headline')).toBe(
       'No matching OTP codes',
     )
     expect(filteredElement.shadowRoot?.querySelector('.clear-filters')).not.toBeNull()

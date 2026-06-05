@@ -1,28 +1,24 @@
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {CVBottomSheet} from '@chromvoid/uikit/components/cv-bottom-sheet'
+import {CVDialog} from '@chromvoid/uikit/components/cv-dialog'
 import {atom} from '@reatom/core'
-import {css} from 'lit'
+import {css, type TemplateResult} from 'lit'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
 import {i18n} from 'root/i18n'
 import {tryGetAppContext} from 'root/shared/services/app-context'
 import type {InputDialogOptions} from './dialog-types.js'
 import {
-  disablePasswordInputDialogDebug,
-  enablePasswordInputDialogDebug,
-  isPasswordInputDialogDebugActive,
-  readElementDebugBox,
-  readVisualViewportDebugSnapshot,
-  writeMobileDialogDebug,
-} from './mobile-dialog-debug'
-import {
   disablePasswordInputDialogKeyboardStabilization,
   enablePasswordInputDialogKeyboardStabilization,
   PASSWORD_INPUT_DIALOG_PROVISIONAL_KEYBOARD_OFFSET,
 } from './mobile-dialog-keyboard-stabilization'
-import {AdaptiveModalSurface} from '../ui/adaptive-modal-surface.js'
+
+let inputDialogId = 0
 
 export class CvInputDialog extends ReatomLitElement {
   static define() {
-    AdaptiveModalSurface.define()
+    CVBottomSheet.define()
+    CVDialog.define()
     if (!customElements.get('cv-input-dialog')) {
       customElements.define('cv-input-dialog', this)
     }
@@ -34,67 +30,58 @@ export class CvInputDialog extends ReatomLitElement {
         display: contents;
       }
 
-      adaptive-modal-surface {
-        --cv-dialog-border-radius: var(--cv-radius-2, 12px);
-        --cv-dialog-max-height: calc(100dvh - 32px);
-        --cv-dialog-width: min(480px, calc(100vw - 32px));
-        --adaptive-modal-width: min(480px, calc(100vw - 32px));
-        --adaptive-modal-max-height: calc(100dvh - 32px);
-        --cv-dialog-title-font-size: var(--cv-font-size-lg, 1.125rem);
+      :is(cv-dialog, cv-bottom-sheet) {
+        --cv-dialog-width: var(--cv-dialog-width-m);
       }
 
-      adaptive-modal-surface.size-s {
-        --cv-dialog-width: min(320px, calc(100vw - 32px));
-        --adaptive-modal-width: min(320px, calc(100vw - 32px));
+      :is(cv-dialog, cv-bottom-sheet).size-s {
+        --cv-dialog-width: var(--cv-dialog-width-s);
       }
 
-      adaptive-modal-surface.size-l {
-        --cv-dialog-width: min(640px, calc(100vw - 32px));
-        --adaptive-modal-width: min(640px, calc(100vw - 32px));
+      :is(cv-dialog, cv-bottom-sheet).size-l {
+        --cv-dialog-width: var(--cv-dialog-width-l);
       }
 
-      adaptive-modal-surface.size-xl {
-        --cv-dialog-width: min(800px, calc(100vw - 32px));
-        --adaptive-modal-width: min(800px, calc(100vw - 32px));
+      :is(cv-dialog, cv-bottom-sheet).size-xl {
+        --cv-dialog-width: var(--cv-dialog-width-xl);
       }
 
-      adaptive-modal-surface::part(trigger) {
+      :is(cv-dialog, cv-bottom-sheet)::part(trigger) {
         display: none;
       }
 
-      adaptive-modal-surface::part(content) {
+      :is(cv-dialog, cv-bottom-sheet)::part(content) {
         gap: 0;
         padding: 0;
         overflow: hidden;
       }
 
-      adaptive-modal-surface.password-input-dialog {
+      cv-bottom-sheet.password-input-dialog {
         --cv-bottom-sheet-keyboard-inset: var(
           --password-input-dialog-keyboard-offset,
-          var(--visual-viewport-bottom-inset, 0px)
+          var(--mobile-keyboard-overlay-offset, 0px)
         );
       }
 
-      adaptive-modal-surface::part(body) {
+      :is(cv-dialog, cv-bottom-sheet)::part(body) {
         padding: 0;
       }
 
-      adaptive-modal-surface::part(footer) {
+      :is(cv-dialog, cv-bottom-sheet)::part(footer) {
         display: block;
         padding: 0;
       }
 
-      adaptive-modal-surface::part(header) {
+      :is(cv-dialog, cv-bottom-sheet)::part(header) {
         padding: var(--app-spacing-4, 1rem) var(--app-spacing-5, 1.25rem) 0;
       }
 
-      adaptive-modal-surface::part(title) {
+      :is(cv-dialog, cv-bottom-sheet)::part(title) {
         margin: 0;
-        font-size: var(--cv-font-size-lg, 1.125rem);
         color: var(--cv-color-text);
       }
 
-      adaptive-modal-surface::part(description) {
+      :is(cv-dialog, cv-bottom-sheet)::part(description) {
         display: none;
       }
 
@@ -198,14 +185,9 @@ export class CvInputDialog extends ReatomLitElement {
   private focusTimer: number | null = null
   private focusRaf: number | null = null
   private inputFocusAttemptedForOpen = false
-  private geometryObserver: ResizeObserver | null = null
 
-  private get shouldDebugPasswordDialog() {
+  private get isPasswordDialog() {
     return this.opts.type === 'password'
-  }
-
-  private get shouldWritePasswordDialogDebug() {
-    return this.shouldDebugPasswordDialog && isPasswordInputDialogDebugActive()
   }
 
   configure(options: InputDialogOptions) {
@@ -220,21 +202,15 @@ export class CvInputDialog extends ReatomLitElement {
       this._result = null
       this._resolve = resolve
       this.inputFocusAttemptedForOpen = false
-      if (this.shouldDebugPasswordDialog) {
+      if (this.isPasswordDialog) {
         enablePasswordInputDialogKeyboardStabilization({
           initialKeyboardOffset: this.shouldUsePasswordInputProvisionalKeyboardOffset()
             ? PASSWORD_INPUT_DIALOG_PROVISIONAL_KEYBOARD_OFFSET
             : undefined,
         })
-        enablePasswordInputDialogDebug()
-        this.writeDebug('show requested', {
-          title: this.opts.title ?? null,
-        })
       }
       this.updateComplete.then(() => {
-        this.writeDebug('set open true before')
         this.isOpen.set(true)
-        this.writeDebug('set open true after')
       })
     })
   }
@@ -242,11 +218,6 @@ export class CvInputDialog extends ReatomLitElement {
   close(result: string | null = null) {
     this.clearPendingInputFocus()
     this.inputFocusAttemptedForOpen = false
-    this.writeDebug('close called', {
-      hasIncomingResult: result !== null,
-      shown: this.shown,
-      isOpen: this.isOpen(),
-    })
     const nextResult = result === null && this._result !== null ? this._result : result
     this._result = nextResult
     this.closing = true
@@ -255,9 +226,8 @@ export class CvInputDialog extends ReatomLitElement {
       this.closing = false
       this._resolve?.(this._result)
       this._resolve = undefined
-      if (this.shouldDebugPasswordDialog) {
+      if (this.isPasswordDialog) {
         disablePasswordInputDialogKeyboardStabilization()
-        disablePasswordInputDialogDebug()
       }
       return
     }
@@ -267,46 +237,26 @@ export class CvInputDialog extends ReatomLitElement {
     }
 
     const active = this.getDeepActiveElement()
-    if (this.shouldDebugPasswordDialog) {
-      this.writeDebug('close requested', {
-        hasResult: nextResult !== null,
-        activeTag: active?.tagName ?? null,
-        activeInsideDialog: Boolean(active && this.renderRoot.contains(active)),
-      })
-    }
     if (active && this.renderRoot.contains(active) && typeof active.blur === 'function') {
       active.blur()
-      if (this.shouldDebugPasswordDialog) {
-        this.writeDebug('active element blurred', {
-          activeTag: active.tagName,
-        })
-      }
     }
 
     // Give Android WebView/IME one turn to detach from the focused password field
     // before the dialog subtree is removed. Closing synchronously can crash Chromium.
     this.closeTimer = window.setTimeout(() => {
       this.closeTimer = null
-      if (this.shouldDebugPasswordDialog) {
-        this.writeDebug('deferred close fired', {
-          hasResult: nextResult !== null,
-        })
-      }
       this.isOpen.set(false)
     }, 32)
   }
 
   disconnectedCallback(): void {
     this.clearPendingInputFocus()
-    this.stopGeometryObserver()
     if (this.closeTimer !== null) {
       window.clearTimeout(this.closeTimer)
       this.closeTimer = null
     }
-    if (this.shouldDebugPasswordDialog) {
-      this.writeDebug('disconnected')
+    if (this.isPasswordDialog) {
       disablePasswordInputDialogKeyboardStabilization()
-      disablePasswordInputDialogDebug()
     }
     super.disconnectedCallback()
   }
@@ -334,24 +284,10 @@ export class CvInputDialog extends ReatomLitElement {
   private scheduleInputFocus(input: HTMLElement, options: {requireShown?: boolean} = {}): void {
     const requireShown = options.requireShown ?? true
     this.clearPendingInputFocus()
-    if (this.shouldWritePasswordDialogDebug) {
-      this.writeDebug('focus scheduled', {
-        input: readElementDebugBox(input),
-        requireShown,
-      })
-    }
     this.focusRaf = window.requestAnimationFrame(() => {
       this.focusRaf = null
-      this.writeDebug('focus raf fired', {
-        inputConnected: input.isConnected,
-      })
       this.focusTimer = window.setTimeout(() => {
         this.focusTimer = null
-        this.writeDebug('focus timer fired', {
-          shown: this.shown,
-          isOpen: this.isOpen(),
-          inputConnected: input.isConnected,
-        })
         if ((requireShown && !this.shown) || !this.isOpen() || !input.isConnected) return
 
         this.inputFocusAttemptedForOpen = true
@@ -360,124 +296,8 @@ export class CvInputDialog extends ReatomLitElement {
         } catch {
           input.focus()
         }
-        if (this.shouldWritePasswordDialogDebug) {
-          this.writeDebug('focus applied', {
-            active: this.describeDeepActiveElement(),
-            input: readElementDebugBox(input),
-          })
-        }
-        if (this.shouldWritePasswordDialogDebug) {
-          window.setTimeout(() => {
-            this.writeDebug('post-focus geometry', {
-              active: this.describeDeepActiveElement(),
-            })
-          }, 120)
-        }
       }, 50)
     })
-  }
-
-  private describeDeepActiveElement(): Record<string, unknown> | null {
-    const active = this.getDeepActiveElement()
-    if (!active) return null
-
-    return {
-      tag: active.tagName.toLowerCase(),
-      className: active.className,
-      id: active.id || null,
-      name: active.getAttribute('name'),
-      type: active.getAttribute('type'),
-      insideDialog: this.renderRoot.contains(active),
-    }
-  }
-
-  private getModalSurface(): HTMLElement | null {
-    return this.renderRoot.querySelector('adaptive-modal-surface') as HTMLElement | null
-  }
-
-  private getSurfaceInternals(): Record<string, unknown> {
-    const surface = this.getModalSurface()
-    const sheet = surface?.shadowRoot?.querySelector('cv-bottom-sheet') as (HTMLElement & {open?: boolean}) | null
-    const surfaceDialog = surface?.shadowRoot?.querySelector('cv-dialog') as (HTMLElement & {open?: boolean}) | null
-    const innerDialog =
-      (sheet?.shadowRoot?.querySelector('cv-dialog') as (HTMLElement & {open?: boolean}) | null) ?? surfaceDialog
-    const overlay = innerDialog?.shadowRoot?.querySelector('[part="overlay"]')
-    const content = innerDialog?.shadowRoot?.querySelector('[part="content"]')
-    const body = innerDialog?.shadowRoot?.querySelector('[part="body"]')
-    const input = this.renderRoot.querySelector('cv-input')
-
-    return {
-      surfaceClass: surface?.className ?? null,
-      surfaceOpen: (surface as (HTMLElement & {open?: boolean}) | null)?.open ?? null,
-      sheetOpen: sheet?.open ?? null,
-      dialogOpen: innerDialog?.open ?? null,
-      sheetBox: readElementDebugBox(sheet),
-      dialogBox: readElementDebugBox(innerDialog),
-      overlayBox: readElementDebugBox(overlay),
-      contentBox: readElementDebugBox(content),
-      bodyBox: readElementDebugBox(body),
-      inputBox: readElementDebugBox(input),
-    }
-  }
-
-  private writeDebug(event: string, meta?: Record<string, unknown>): void {
-    if (!this.shouldWritePasswordDialogDebug) return
-
-    writeMobileDialogDebug('input-dialog', event, {
-      shown: this.shown,
-      open: this.isOpen(),
-      active: this.describeDeepActiveElement(),
-      geometry: this.getSurfaceInternals(),
-      ...meta,
-    })
-  }
-
-  private startGeometryObserver(): void {
-    this.stopGeometryObserver()
-    if (!this.shouldWritePasswordDialogDebug) return
-    if (typeof ResizeObserver === 'undefined') return
-
-    const surface = this.getModalSurface()
-    const sheet = surface?.shadowRoot?.querySelector('cv-bottom-sheet')
-    const dialog =
-      sheet?.shadowRoot?.querySelector('cv-dialog') ?? surface?.shadowRoot?.querySelector('cv-dialog')
-    const targets = [
-      surface,
-      sheet,
-      dialog,
-      dialog?.shadowRoot?.querySelector('[part="overlay"]'),
-      dialog?.shadowRoot?.querySelector('[part="content"]'),
-      dialog?.shadowRoot?.querySelector('[part="body"]'),
-      this.renderRoot.querySelector('cv-input'),
-    ].filter((element): element is Element => element instanceof Element)
-
-    if (!targets.length) return
-
-    this.geometryObserver = new ResizeObserver((entries) => {
-      this.writeDebug('resize observer', {
-        entries: entries.map((entry) => ({
-          target: (entry.target as HTMLElement).tagName.toLowerCase(),
-          className: (entry.target as HTMLElement).className,
-          contentRect: {
-            width: Math.round(entry.contentRect.width * 100) / 100,
-            height: Math.round(entry.contentRect.height * 100) / 100,
-          },
-        })),
-      })
-    })
-
-    for (const target of targets) {
-      this.geometryObserver.observe(target)
-    }
-
-    this.writeDebug('resize observer started', {
-      targetCount: targets.length,
-    })
-  }
-
-  private stopGeometryObserver(): void {
-    this.geometryObserver?.disconnect()
-    this.geometryObserver = null
   }
 
   private validate(value: string): string | null {
@@ -494,23 +314,20 @@ export class CvInputDialog extends ReatomLitElement {
     return null
   }
 
-  private handleConfirm = () => {
+  private handleConfirm() {
     const err = this.validate(this.inputValue())
     if (err) {
       this.error.set(err)
-      this.writeDebug('confirm blocked by validation')
       return
     }
-    this.writeDebug('confirm accepted')
     this.close(this.inputValue().trim())
   }
 
-  private handleCancel = () => {
-    this.writeDebug('cancel')
+  private handleCancel() {
     this.close(null)
   }
 
-  private handleInput = (e: Event) => {
+  private handleInput(e: Event) {
     const event = e as CustomEvent<{value?: string}>
     const target = e.target as {value?: string} | null
     const val = event.detail?.value ?? target?.value ?? ''
@@ -521,15 +338,23 @@ export class CvInputDialog extends ReatomLitElement {
     }
   }
 
-  private handleKeydown = (e: KeyboardEvent) => {
+  private handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       this.handleConfirm()
     }
   }
 
+  private isMobileLayout(): boolean {
+    return tryGetAppContext()?.store.layoutMode?.() === 'mobile'
+  }
+
   private shouldFocusPasswordInputDuringShow(): boolean {
-    return this.opts.type === 'password' && tryGetAppContext()?.store.layoutMode?.() === 'mobile'
+    return this.opts.type === 'password' && this.isMobileLayout()
+  }
+
+  private shouldProgrammaticallyFocusInputDuringShow(): boolean {
+    return !this.shouldFocusPasswordInputDuringShow() || !this.inputFocusAttemptedForOpen
   }
 
   private shouldUsePasswordInputProvisionalKeyboardOffset(): boolean {
@@ -542,51 +367,90 @@ export class CvInputDialog extends ReatomLitElement {
     if (this.closing || !this.isOpen()) return
 
     const input = this.renderRoot.querySelector('cv-input') as HTMLElement | null
-    if (input) this.scheduleInputFocus(input, {requireShown: false})
+    if (input && this.shouldProgrammaticallyFocusInputDuringShow()) {
+      this.scheduleInputFocus(input, {requireShown: false})
+    }
   }
 
-  private handleAfterShow = () => {
+  private handleAfterShow() {
     if (this.closing || !this.isOpen()) return
     this.shown = true
-    this.writeDebug('after-show')
-    this.startGeometryObserver()
     const input = this.renderRoot.querySelector('cv-input') as HTMLElement | null
-    if (input && (!this.shouldFocusPasswordInputDuringShow() || !this.inputFocusAttemptedForOpen)) {
+    if (
+      input &&
+      this.shouldProgrammaticallyFocusInputDuringShow() &&
+      (!this.shouldFocusPasswordInputDuringShow() || !this.inputFocusAttemptedForOpen)
+    ) {
       this.scheduleInputFocus(input)
     }
     this.dispatchEvent(new Event('cv-after-show', {bubbles: true}))
   }
 
-  private handleAfterHide = () => {
+  private handleAfterHide() {
     if (!this.shown && !this.closing) return
-    this.writeDebug('after-hide')
-    this.stopGeometryObserver()
     this.shown = false
     this.closing = false
     this.inputFocusAttemptedForOpen = false
     this._resolve?.(this._result)
     this._resolve = undefined
     this.dispatchEvent(new Event('cv-after-hide', {bubbles: true}))
-    if (this.shouldDebugPasswordDialog) {
+    if (this.isPasswordDialog) {
       disablePasswordInputDialogKeyboardStabilization()
-      disablePasswordInputDialogDebug()
     }
   }
 
   private handleDialogChange(e: CustomEvent<{open?: boolean}>) {
     if (e.target !== e.currentTarget) return
     if (typeof e.detail?.open !== 'boolean') return
-    if (this.shouldWritePasswordDialogDebug) {
-      this.writeDebug('surface cv-change', {
-        detailOpen: e.detail.open,
-        targetTag: e.target instanceof HTMLElement ? e.target.tagName.toLowerCase() : null,
-        currentTargetTag: e.currentTarget instanceof HTMLElement ? e.currentTarget.tagName.toLowerCase() : null,
-        viewportAtChange: readVisualViewportDebugSnapshot(),
-      })
-    }
     if (e.detail.open || !this.isOpen()) return
     if (this._result !== null) return
     this.close(null)
+  }
+
+  private renderSurfaceContent(
+    opts: InputDialogOptions,
+    value: string,
+    error: string | null,
+    maxLength: number | undefined,
+    isNearLimit: boolean,
+    isOverLimit: boolean,
+  ): TemplateResult {
+    return html`
+      <span slot="title">${opts.title || i18n('dialogs:input-title' as any)}</span>
+      <div class="dialog-body">
+        <cv-input
+          placeholder=${opts.placeholder || ''}
+          .value=${value}
+          type=${opts.type || 'text'}
+          .passwordToggle=${opts.type === 'password'}
+          ?required=${opts.required}
+          maxlength=${maxLength || 255}
+          @cv-input=${this.handleInput}
+          @keydown=${this.handleKeydown}
+        >
+          ${opts.label ? html`<span slot="label">${opts.label}</span>` : ''}
+        </cv-input>
+
+        ${opts.helpText && !error ? html`<div class="help-text">${opts.helpText}</div>` : ''}
+        ${error ? html`<div class="error-text">${error}</div>` : ''}
+        ${maxLength
+          ? html`
+              <div class="character-count ${isNearLimit ? 'warning' : ''} ${isOverLimit ? 'error' : ''}">
+                ${value.length} / ${maxLength}
+              </div>
+            `
+          : ''}
+      </div>
+
+      <div class="dialog-footer" slot="footer">
+        <cv-button variant="default" @click=${this.handleCancel}
+          >${opts.cancelText || i18n('button:cancel' as any)}</cv-button
+        >
+        <cv-button variant="primary" @click=${this.handleConfirm}
+          >${opts.confirmText || i18n('button:ok' as any)}</cv-button
+        >
+      </div>
+    `
   }
 
   protected render() {
@@ -599,9 +463,32 @@ export class CvInputDialog extends ReatomLitElement {
     const size = opts.size || 'm'
     const closable = opts.closable !== false
     const className = `size-${size}${opts.type === 'password' ? ' password-input-dialog' : ''}`
+    const content = this.renderSurfaceContent(opts, value, error, maxLength, isNearLimit, isOverLimit)
+
+    if (this.isMobileLayout()) {
+      return html`
+        <cv-bottom-sheet
+          class=${className}
+          .open=${this.isOpen()}
+          .noHeader=${opts.noHeader ?? false}
+          .closable=${closable}
+          .closeOnEscape=${closable}
+          .closeOnOutsidePointer=${closable}
+          .closeOnOutsideFocus=${false}
+          .showHandle=${false}
+          .dragToClose=${false}
+          @cv-change=${this.handleDialogChange}
+          @cv-show=${this.handleShow}
+          @cv-after-hide=${this.handleAfterHide}
+          @cv-after-show=${this.handleAfterShow}
+        >
+          ${content}
+        </cv-bottom-sheet>
+      `
+    }
 
     return html`
-      <adaptive-modal-surface
+      <cv-dialog
         class=${className}
         .open=${this.isOpen()}
         .noHeader=${opts.noHeader ?? false}
@@ -609,48 +496,13 @@ export class CvInputDialog extends ReatomLitElement {
         .closeOnEscape=${closable}
         .closeOnOutsidePointer=${closable}
         .closeOnOutsideFocus=${false}
-        .showHandle=${false}
-        .dragToClose=${false}
         @cv-change=${this.handleDialogChange}
         @cv-show=${this.handleShow}
         @cv-after-hide=${this.handleAfterHide}
         @cv-after-show=${this.handleAfterShow}
       >
-        <span slot="title">${opts.title || i18n('dialogs:input-title' as any)}</span>
-        <div class="dialog-body">
-          <cv-input
-            placeholder=${opts.placeholder || ''}
-            .value=${value}
-            type=${opts.type || 'text'}
-            .passwordToggle=${opts.type === 'password'}
-            ?required=${opts.required}
-            maxlength=${maxLength || 255}
-            @cv-input=${this.handleInput}
-            @keydown=${this.handleKeydown}
-          >
-            ${opts.label ? html`<span slot="label">${opts.label}</span>` : ''}
-          </cv-input>
-
-          ${opts.helpText && !error ? html`<div class="help-text">${opts.helpText}</div>` : ''}
-          ${error ? html`<div class="error-text">${error}</div>` : ''}
-          ${maxLength
-            ? html`
-                <div class="character-count ${isNearLimit ? 'warning' : ''} ${isOverLimit ? 'error' : ''}">
-                  ${value.length} / ${maxLength}
-                </div>
-              `
-            : ''}
-        </div>
-
-        <div class="dialog-footer" slot="footer">
-          <cv-button variant="default" @click=${this.handleCancel}
-            >${opts.cancelText || i18n('button:cancel' as any)}</cv-button
-          >
-          <cv-button variant="primary" @click=${this.handleConfirm}
-            >${opts.confirmText || i18n('button:ok' as any)}</cv-button
-          >
-        </div>
-      </adaptive-modal-surface>
+        ${content}
+      </cv-dialog>
     `
   }
 }

@@ -7,7 +7,7 @@ export const fileMoveSharedStyles = [
   sharedStyles,
   css`
     :host {
-      --file-move-indent-step: 12px;
+      --file-move-indent-step: var(--pm-move-indent-step);
     }
 
     .layout {

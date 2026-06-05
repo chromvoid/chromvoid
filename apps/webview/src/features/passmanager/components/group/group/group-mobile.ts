@@ -2,8 +2,9 @@ import {nothing, css} from 'lit'
 import {html} from '@chromvoid/uikit/reatom-lit'
 
 import {Entry, Group, type ManagerRoot} from '@project/passmanager/core'
-import {emptyStateCSS, folderItemCSS, listItemsCSS, pmSharedStyles} from '../../../styles/shared'
 import {hostContainStyles, motionPrimitiveStyles} from 'root/shared/ui/shared-styles'
+import {CvEmptyState} from 'root/shared/ui/empty-state'
+import {folderItemCSS, listItemsCSS, pmSharedStyles} from '../../../styles/shared'
 import {listGroupStyles} from '../../list/list-item-styles'
 import {PMWorkspaceHeader} from '../../card/pm-workspace-header'
 import {PMSummaryRail} from '../../summary-rail'
@@ -21,8 +22,8 @@ export const pmGroupMobileStyles = css`
     gap: 1px;
     position: relative;
     min-block-size: 0;
-    --pm-scrollbar-safe-area-start: 6px;
-    --pm-scrollbar-safe-area-end: 6px;
+    --pm-scrollbar-safe-area-start: 0px;
+    --pm-scrollbar-safe-area-end: 0px;
     display: grid;
     grid-template-rows: min-content auto min-content;
   }
@@ -67,6 +68,8 @@ export const pmGroupMobileStyles = css`
     box-sizing: border-box;
     background: var(--cv-color-bg);
     --pm-summary-rail-inline-size: 100%;
+    --pm-summary-rail-border: 0;
+    --pm-summary-rail-box-shadow: none;
   }
 
   .mobile-toolbar {
@@ -84,6 +87,7 @@ export class PMGroupMobile extends PMGroupBase {
   private groupTapTokenId: string | null = null
 
   static define() {
+    CvEmptyState.define()
     if (!customElements.get('pm-group-mobile')) {
       customElements.define('pm-group-mobile', this)
     }
@@ -100,7 +104,6 @@ export class PMGroupMobile extends PMGroupBase {
     listItemsCSS,
     listGroupStyles,
     folderItemCSS,
-    emptyStateCSS,
     pmGroupCommonStyles,
     pmGroupMobileStyles,
   ]

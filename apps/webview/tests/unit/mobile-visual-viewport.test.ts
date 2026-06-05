@@ -1,5 +1,6 @@
 import {describe, expect, it} from 'vitest'
 
+import {applyMobileKeyboardCssOffsets} from 'root/app/bootstrap/mobile-keyboard-insets'
 import {
   getVisualViewportBottomInset,
   getVisualViewportLayoutHeight,
@@ -199,6 +200,16 @@ describe('resolveEffectiveKeyboardInset', () => {
     ).toBe(140)
   })
 
+  it('uses native mobile insets as source of truth when native geometry is active', () => {
+    expect(
+      resolveEffectiveKeyboardInset({
+        visualViewportKeyboardInset: 520,
+        nativeKeyboardInset: 286,
+        preferNativeKeyboardInset: true,
+      }),
+    ).toBe(286)
+  })
+
   it('ignores invalid native keyboard inset values instead of inventing fallback height', () => {
     expect(
       resolveEffectiveKeyboardInset({
@@ -213,6 +224,36 @@ describe('resolveEffectiveKeyboardInset', () => {
         nativeKeyboardInset: -1,
       }),
     ).toBe(0)
+  })
+})
+
+describe('applyMobileKeyboardCssOffsets', () => {
+  it('keeps ios native-resized action and overlay offsets at the resized viewport edge', () => {
+    applyMobileKeyboardCssOffsets(document.documentElement, 286.4, 'ios-native', 'native-resize')
+
+    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-bottom-inset')).toBe('286px')
+    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-scroll-action-offset')).toBe('0px')
+    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-scroll-clearance')).toBe('0px')
+    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-overlay-offset')).toBe('0px')
+
+    document.documentElement.style.removeProperty('--mobile-keyboard-bottom-inset')
+    document.documentElement.style.removeProperty('--mobile-keyboard-scroll-action-offset')
+    document.documentElement.style.removeProperty('--mobile-keyboard-scroll-clearance')
+    document.documentElement.style.removeProperty('--mobile-keyboard-overlay-offset')
+  })
+
+  it('moves android-style scroll and overlay action surfaces by the native keyboard overlap', () => {
+    applyMobileKeyboardCssOffsets(document.documentElement, 140, 'android-native')
+
+    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-bottom-inset')).toBe('140px')
+    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-scroll-action-offset')).toBe('140px')
+    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-scroll-clearance')).toBe('140px')
+    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-overlay-offset')).toBe('140px')
+
+    document.documentElement.style.removeProperty('--mobile-keyboard-bottom-inset')
+    document.documentElement.style.removeProperty('--mobile-keyboard-scroll-action-offset')
+    document.documentElement.style.removeProperty('--mobile-keyboard-scroll-clearance')
+    document.documentElement.style.removeProperty('--mobile-keyboard-overlay-offset')
   })
 })
 

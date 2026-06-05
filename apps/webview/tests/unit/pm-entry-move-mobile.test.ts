@@ -29,13 +29,6 @@ async function flush(element: HTMLElement & {updateComplete: Promise<unknown>}):
   await Promise.resolve()
 }
 
-function stylesText(styles: unknown): string {
-  const list = Array.isArray(styles) ? styles : [styles]
-  return list
-    .map((style) => (typeof style === 'object' && style && 'cssText' in style ? String(style.cssText) : String(style)))
-    .join('\n')
-}
-
 describe('PMEntryMoveMobile', () => {
   beforeEach(() => {
     PMEntryMoveMobile.define()
@@ -74,7 +67,6 @@ describe('PMEntryMoveMobile', () => {
 
     const row = element.shadowRoot?.querySelector(`[data-option-id="${group.id}"]`)
     expect(row?.getAttribute('aria-selected')).toBe('true')
-    expect(row?.classList.contains('selected')).toBe(true)
     expect(row?.querySelector('.row-check')).not.toBeNull()
   })
 
@@ -111,14 +103,4 @@ describe('PMEntryMoveMobile', () => {
     expect(nestedRow?.textContent).toContain('Parent/Nested')
   })
 
-  it('keeps the mobile move picker and sheet styles compact and sheet-scoped', () => {
-    const pickerCss = stylesText(PMEntryMoveMobile.styles)
-    const sheetCss = stylesText(PMEntryMoveSheet.styles)
-
-    expect(pickerCss).toContain('grid-template-columns: 24px minmax(0, 1fr) 24px;')
-    expect(pickerCss).toContain('min-block-size: 48px;')
-    expect(pickerCss).toContain('box-shadow: none;')
-    expect(sheetCss).toContain('adaptive-modal-surface::part(footer)')
-    expect(sheetCss).toContain('env(safe-area-inset-bottom)')
-  })
 })

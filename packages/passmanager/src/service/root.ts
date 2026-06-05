@@ -20,7 +20,7 @@ import {
   getEffectiveSelectedCredentialTagFilters,
   quickFilters,
 } from './select'
-import {normalizeCredentialTags} from './tags'
+import {normalizeCredentialTagCatalog, normalizeCredentialTags} from './tags'
 import type {
   Algorithm,
   Encoding,
@@ -218,6 +218,7 @@ export class ManagerRoot implements TGroupActions {
   >(this)
   updatedTs = atom(Date.now())
   createdTs = atom(Date.now())
+  credentialTags = atom<string[]>([], 'passmanager.root.credentialTags')
   salt = v4().replaceAll('-', '').slice(0, 16)
 
   private createTarget: Group | undefined = undefined
@@ -287,7 +288,7 @@ export class ManagerRoot implements TGroupActions {
     () => {
       const fv = filterValue()
       const qf = quickFilters()
-      const selectedTags = getEffectiveSelectedCredentialTagFilters(this.allEntries)
+      const selectedTags = getEffectiveSelectedCredentialTagFilters(this.allEntries, this.credentialTags())
       const matches = createEntryFilterMatcher(fv, qf, Date.now(), selectedTags)
 
       return this.sorted().filter((item) => {
@@ -495,6 +496,16 @@ export class ManagerRoot implements TGroupActions {
     this.save()
   }
 
+  setCredentialTagCatalog(tags: unknown): void {
+    this.credentialTags.set(normalizeCredentialTagCatalog(tags))
+    this.updatedTs.set(Date.now())
+  }
+
+  async saveCredentialTagCatalog(tags: unknown): Promise<boolean> {
+    this.setCredentialTagCatalog(tags)
+    return Boolean(await this.save())
+  }
+
   async save() {
     if (this._savePromise) {
       // Another save is already running. Mark pending so it re-saves
@@ -532,10 +543,12 @@ export class ManagerRoot implements TGroupActions {
       const now = Date.now()
 
       const entries: PassManagerRootV3Entry[] = []
+      const assignedTagLabels: string[] = []
       const explicitFolderPaths = new Set<string>()
       const folderMetaByPath = new Map<string, {path: string; iconRef?: string; description?: string}>()
 
       const pushEntry = (entry: Entry, folderPath: string | null) => {
+        assignedTagLabels.push(...entry.tags)
         if (entry.entryType === 'payment_card') {
           const paymentCard = entry.paymentCard
           if (!paymentCard) {
@@ -631,6 +644,7 @@ export class ManagerRoot implements TGroupActions {
         updatedTs: now,
         folders,
         foldersMeta: Array.from(folderMetaByPath.values()),
+        tags: normalizeCredentialTagCatalog([...this.credentialTags(), ...assignedTagLabels]),
         entries,
       }
 
@@ -693,6 +707,10 @@ export class ManagerRoot implements TGroupActions {
 
       const createdTs = normalizeTimestampMs(parsed.createdTs || Date.now())
       const updatedTs = normalizeTimestampMs(parsed.updatedTs || Date.now())
+      const parsedCatalogTags = normalizeCredentialTagCatalog(
+        (parsed as PassManagerRootV3 & {tags?: unknown}).tags,
+      )
+      const entryCatalogTags: string[] = []
       this.createdTs.set(createdTs)
       this.updatedTs.set(updatedTs)
 
@@ -809,6 +827,9 @@ export class ManagerRoot implements TGroupActions {
             ? rawCreatedTs
             : prev?.createdTs ?? entryUpdatedTs,
         )
+        const entryTags = normalizeCredentialTags(rawItem['tags'])
+        entryCatalogTags.push(...entryTags)
+
         const entryData: IEntry =
           entryType === 'payment_card'
             ? {
@@ -822,7 +843,7 @@ export class ManagerRoot implements TGroupActions {
                 iconRef: typeof item.iconRef === 'string' ? item.iconRef : undefined,
                 otps: [],
                 sshKeys: [],
-                tags: normalizeCredentialTags(rawItem['tags']),
+                tags: entryTags,
                 paymentCard:
                   normalizePaymentCardMeta(
                     (item as Record<string, unknown>)['paymentCard'] ??
@@ -841,7 +862,7 @@ export class ManagerRoot implements TGroupActions {
                 urls: Array.isArray(rawItem['urls']) ? (rawItem['urls'] as IEntry['urls']) : [],
                 username: String(rawItem['username'] ?? ''),
                 iconRef: typeof item.iconRef === 'string' ? item.iconRef : undefined,
-                tags: normalizeCredentialTags(rawItem['tags']),
+                tags: entryTags,
                 otps: (Array.isArray((item as PassManagerRootV2Entry).otps)
                   ? (item as PassManagerRootV2Entry).otps
                   : []
@@ -917,6 +938,7 @@ export class ManagerRoot implements TGroupActions {
         }
       }
       this._allowEmptyOverwrite = false
+      this.credentialTags.set(normalizeCredentialTagCatalog([...parsedCatalogTags, ...entryCatalogTags]))
       this.entries.set(newEntries)
     } catch (e) {
       dataReceived = true
@@ -933,6 +955,7 @@ export class ManagerRoot implements TGroupActions {
 
   clean() {
     this.entries.set([])
+    this.credentialTags.set([])
     this.createTarget = undefined
     this.showElement.set(this)
   }

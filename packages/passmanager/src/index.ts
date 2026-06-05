@@ -24,7 +24,6 @@ export type {
   NotifyHandle,
   NotifyPayload,
   NotifyToastOptions,
-  NotifyToastPresentOptions,
   NotifyVariant,
   ShowNotifyToastOptions,
   ToastPosition,
@@ -74,7 +73,7 @@ export type {Entry as EntryType} from './service/root'
 export {EntryFile} from './service/entry-file'
 export {syncUiModeWithQuery} from './service/flags'
 export {bindPMTheme} from './service/theme'
-export {sortStorage} from './services/sort-storage'
+export {sortStorage} from './service/sort-storage'
 export * from './service/sorting'
 export * from './service/select'
 export * from './service/tags'

@@ -435,10 +435,6 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
   }
 
   if (surface === 'passwords') {
-    if (snapshot.passwords?.kind === 'create-entry' || snapshot.passwords?.kind === 'create-group') {
-      return noActions
-    }
-
     const passmanagerReady = pmModel.alive()
     if (!passmanagerReady) {
       return {

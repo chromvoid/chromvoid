@@ -57,8 +57,9 @@ pub fn clear_credential_identities_on_lock() {
 
 /// Replace all identities in ASCredentialIdentityStore with the given candidates.
 fn replace_credential_identities(candidates: &[Value]) {
+    use objc2::runtime::ProtocolObject;
     use objc2_authentication_services::{
-        ASCredentialIdentityStore, ASCredentialServiceIdentifier,
+        ASCredentialIdentity, ASCredentialIdentityStore, ASCredentialServiceIdentifier,
         ASCredentialServiceIdentifierType, ASPasswordCredentialIdentity,
     };
     use objc2_foundation::NSString;
@@ -70,18 +71,19 @@ fn replace_credential_identities(candidates: &[Value]) {
     unsafe {
         let store = ASCredentialIdentityStore::sharedStore();
 
-        let identities: Vec<objc2::rc::Retained<ASPasswordCredentialIdentity>> = candidates
-            .iter()
-            .filter_map(|c| {
-                let candidate = parse_credential_identity_candidate(c)?;
+        let identities: Vec<objc2::rc::Retained<ProtocolObject<dyn ASCredentialIdentity>>> =
+            candidates
+                .iter()
+                .filter_map(|c| {
+                    let candidate = parse_credential_identity_candidate(c)?;
 
-                let service_id = ASCredentialServiceIdentifier::initWithIdentifier_type(
-                    ASCredentialServiceIdentifier::alloc(),
-                    &NSString::from_str(candidate.domain),
-                    ASCredentialServiceIdentifierType::Domain,
-                );
+                    let service_id = ASCredentialServiceIdentifier::initWithIdentifier_type(
+                        ASCredentialServiceIdentifier::alloc(),
+                        &NSString::from_str(candidate.domain),
+                        ASCredentialServiceIdentifierType::Domain,
+                    );
 
-                let identity =
+                    let identity =
                     ASPasswordCredentialIdentity::initWithServiceIdentifier_user_recordIdentifier(
                         ASPasswordCredentialIdentity::alloc(),
                         &service_id,
@@ -89,9 +91,9 @@ fn replace_credential_identities(candidates: &[Value]) {
                         Some(&NSString::from_str(candidate.credential_id)),
                     );
 
-                Some(identity)
-            })
-            .collect();
+                    Some(ProtocolObject::from_retained(identity))
+                })
+                .collect();
 
         let ns_array = objc2_foundation::NSArray::from_retained_slice(&identities);
 
@@ -110,7 +112,7 @@ fn replace_credential_identities(candidates: &[Value]) {
             },
         );
 
-        store.replaceCredentialIdentitiesWithIdentities_completion(&ns_array, Some(&completion));
+        store.replaceCredentialIdentityEntries_completion(&ns_array, Some(&completion));
     }
 }
 

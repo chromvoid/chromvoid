@@ -84,7 +84,6 @@ export type SelectDialogResult = string | string[] | null
 
 // Interface for dialogue service
 export interface DialogServiceInterface {
-  prewarmInputDialog(options?: Partial<InputDialogOptions>): Promise<void>
   showInputDialog(options: InputDialogOptions): Promise<InputDialogResult>
   showConfirmDialog(options: ConfirmDialogOptions): Promise<ConfirmDialogResult>
   showAlertDialog(options: AlertDialogOptions): Promise<void>

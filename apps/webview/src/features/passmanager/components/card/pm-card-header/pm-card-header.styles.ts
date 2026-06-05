@@ -78,10 +78,10 @@ export const pmCardHeaderDesktopStyles = [
       ::slotted(pm-avatar-icon) {
         --pm-avatar-radius: inherit;
         --pm-avatar-image-fit: contain;
-        --pm-avatar-image-padding: clamp(4px, 12%, 8px);
+        --pm-avatar-image-padding: var(--pm-avatar-header-image-padding);
         --pm-avatar-contrast: var(--pm-avatar-contrast-base);
-        --pm-avatar-shadow-opacity: 36%;
-        --pm-avatar-letter-size: var(--cv-font-size-lg);
+        --pm-avatar-shadow-opacity: var(--pm-avatar-header-shadow-opacity);
+        --pm-avatar-letter-size: var(--pm-avatar-header-letter-size);
       }
     }
 
@@ -117,7 +117,7 @@ export const pmCardHeaderDesktopStyles = [
       }
 
       .avatar ::slotted(pm-avatar-icon) {
-        --pm-avatar-letter-size: var(--cv-font-size-base);
+        --pm-avatar-letter-size: var(--pm-avatar-header-letter-size-compact);
       }
 
       .actions {
@@ -136,7 +136,7 @@ export const pmCardHeaderDesktopStyles = [
       }
 
       .avatar ::slotted(pm-avatar-icon) {
-        --pm-avatar-letter-size: 1.5rem;
+        --pm-avatar-letter-size: var(--pm-avatar-header-letter-size-md);
       }
     }
 
@@ -151,7 +151,7 @@ export const pmCardHeaderDesktopStyles = [
       }
 
       .avatar ::slotted(pm-avatar-icon) {
-        --pm-avatar-letter-size: 1.75rem;
+        --pm-avatar-letter-size: var(--pm-avatar-header-letter-size-lg);
       }
     }
   `,

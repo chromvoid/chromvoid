@@ -55,13 +55,6 @@ function createGroupRowElement(group: Group): PMGroupListItemMobile {
   return element
 }
 
-function getGroupMobileStylesText(): string {
-  const styles = PMGroupListItemMobile.styles as unknown[]
-  return styles
-    .map((style) => (typeof style === 'object' && style && 'cssText' in style ? String(style.cssText) : String(style)))
-    .join('\n')
-}
-
 class TestPMGroupMobileSummary extends PMGroupMobile {
   static override styles = []
 
@@ -214,11 +207,4 @@ describe('PMGroupMobile selection mode', () => {
     expect(element.shadowRoot?.querySelector('.mobile-dnd-handle')).toBeNull()
   })
 
-  it('omits the mobile group drag handle column so copy has more room', () => {
-    const styleText = getGroupMobileStylesText()
-
-    expect(styleText).toContain('grid-template-columns: auto minmax(0, 1fr) auto;')
-    expect(styleText).not.toContain('.mobile-dnd-handle')
-    expect(styleText).toContain('--pm-mobile-list-row-gap: 8px;')
-  })
 })

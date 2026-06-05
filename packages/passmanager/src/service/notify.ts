@@ -6,7 +6,6 @@ export type ToastPosition =
   | 'bottom-left'
   | 'bottom-center'
   | 'bottom-right'
-type AnnouncePriority = 'polite' | 'assertive'
 
 export interface NotifyToastOptions {
   message: string
@@ -20,13 +19,7 @@ export interface NotifyToastOptions {
   position?: ToastPosition
 }
 
-export interface NotifyToastPresentOptions {
-  announce?: boolean
-  announceMessage?: string
-  announcePriority?: AnnouncePriority
-}
-
-export interface ShowNotifyToastOptions extends NotifyToastOptions, NotifyToastPresentOptions {}
+export interface ShowNotifyToastOptions extends NotifyToastOptions {}
 
 export interface NotifyPayload extends NotifyToastOptions {
   duration: number
@@ -41,7 +34,7 @@ export interface NotifyHandle {
 }
 
 export interface NotifyAdapter {
-  present(payload: NotifyPayload, options?: NotifyToastPresentOptions): NotifyHandle | void
+  present(payload: NotifyPayload): NotifyHandle | void
 }
 
 const DEFAULT_TOAST_DURATION = 5000
@@ -96,13 +89,8 @@ export function getNotifyAdapter(): NotifyAdapter | null {
 }
 
 export function showNotifyToast(options: ShowNotifyToastOptions): NotifyHandle {
-  const {announce, announceMessage, announcePriority, ...toastOptions} = options
-  const payload = resolvePayload(toastOptions)
-  const handle = notifyAdapter?.present(payload, {
-    announce,
-    announceMessage,
-    announcePriority,
-  })
+  const payload = resolvePayload(options)
+  const handle = notifyAdapter?.present(payload)
 
   return {
     dismiss() {
@@ -132,7 +120,6 @@ export const notify = {
       persistent: true,
       progress: false,
       closable: false,
-      announce: false,
     })
 
     return () => {

@@ -254,34 +254,37 @@ export function renderEditEntryAction(context: PMEntryMobileRenderContext) {
 
   if (data.isEditingEntry) {
     return html`
-      <footer class="entry-action-footer">
-        <div class="entry-edit-actions">
-          ${model.inlineError() ? html`<div class="entry-edit-error" role="alert">${model.inlineError()}</div>` : null}
-          <div class="entry-edit-action-row">
-            <cv-button
-              unstyled
-              class="entry-edit-cancel-action"
-              type="button"
-              variant="default"
-              size="large"
-              @click=${ui.handleCancelEntryEdit}
-            >
-              ${i18n('button:cancel')}
-            </cv-button>
-            <cv-button
-              unstyled
-              class="entry-edit-save-action"
-              type="button"
-              variant="default"
-              size="large"
-              ?disabled=${model.inlineSaving()}
-              @click=${ui.handleSaveEntryEdit}
-            >
-              ${i18n('button:save')}
-            </cv-button>
-          </div>
-        </div>
-      </footer>
+      <mobile-bottom-action-footer
+        class="entry-action-footer"
+        columns="2"
+        ?has-message=${Boolean(model.inlineError())}
+      >
+        ${model.inlineError()
+          ? html`<div class="entry-edit-error" slot="message" role="alert">${model.inlineError()}</div>`
+          : null}
+        <cv-button
+          unstyled
+          class="entry-edit-cancel-action"
+          type="button"
+          variant="default"
+          size="large"
+          @click=${ui.handleCancelEntryEdit}
+        >
+          ${i18n('button:cancel')}
+        </cv-button>
+        <cv-button
+          unstyled
+          class="entry-edit-save-action"
+          type="button"
+          variant="default"
+          size="large"
+          preset="action-primary-subtle"
+          ?disabled=${model.inlineSaving()}
+          @click=${ui.handleSaveEntryEdit}
+        >
+          ${i18n('button:save')}
+        </cv-button>
+      </mobile-bottom-action-footer>
     `
   }
 
@@ -290,18 +293,19 @@ export function renderEditEntryAction(context: PMEntryMobileRenderContext) {
   }
 
   return html`
-    <footer class="entry-action-footer">
+    <mobile-bottom-action-footer class="entry-action-footer">
       <cv-button
         unstyled
         class="entry-edit-entry-action"
         type="button"
         variant="default"
         size="large"
+        preset="action-primary-subtle"
         @click=${ui.handleStartEdit}
       >
         <cv-icon slot="prefix" name="pencil-square" aria-hidden="true"></cv-icon>
         <span>${i18n('entry:edit_entry')}</span>
       </cv-button>
-    </footer>
+    </mobile-bottom-action-footer>
   `
 }

@@ -166,10 +166,7 @@ export class StatusBar extends ReatomLitElement {
       /*=========================*/
 
       cv-callout.status-error-callout {
-        --cv-callout-padding-block: var(--app-spacing-1);
-        --cv-callout-padding-inline: var(--app-spacing-3);
-        --cv-callout-border-radius: var(--cv-radius-2);
-        --cv-callout-font-size: var(--cv-font-size-xs);
+        --cv-callout-dense-padding-block: var(--app-spacing-1);
         --cv-callout-gap: var(--app-spacing-2);
         font-weight: var(--cv-font-weight-medium);
         max-inline-size: 300px;
@@ -414,6 +411,7 @@ export class StatusBar extends ReatomLitElement {
       <cv-callout
         class="status-error-callout"
         variant="danger"
+        density="dense"
         closable
         role="alert"
         @cv-close=${this.onDismissError}

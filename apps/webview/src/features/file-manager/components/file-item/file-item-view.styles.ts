@@ -119,10 +119,10 @@ export const fileItemViewStyles = css`
   }
 
   :host([view-mode='grid']) .thumbnail-shell {
-    --file-media-spectrum-width: 40px;
-    --file-media-spectrum-height: 40px;
-    --file-media-spectrum-bar-width: 5px;
-    --file-media-spectrum-gap: 5px;
+    --file-media-spectrum-width: var(--file-media-spectrum-grid-width);
+    --file-media-spectrum-height: var(--file-media-spectrum-grid-height);
+    --file-media-spectrum-bar-width: var(--file-media-spectrum-grid-bar-width);
+    --file-media-spectrum-gap: var(--file-media-spectrum-grid-gap);
     font-size: 48px;
     inline-size: 72px;
     block-size: 72px;

@@ -9,19 +9,20 @@ import {
   type CredentialTagOption,
 } from '@project/passmanager/tags'
 
+export type PMEntryTagsComboboxType = 'editable' | 'select-only'
+
 export type PMEntryTagsEditorState = {
   tags: readonly string[]
   options: readonly CredentialTagOption[]
-  inputValue: string
+  comboboxType?: PMEntryTagsComboboxType
   disabled: boolean
-  error?: string
   maxTagsVisible?: number
+  placeholder?: string
 }
 
 export type PMEntryTagsEditorHandlers = {
   onSelectExistingTagIds(event: Event): void
-  onInputLabel(event: Event): void
-  onAddTag(event: Event): void
+  onManageTags(event: Event): void
 }
 
 export function getSelectedTagIdsFromEvent(event: Event): CredentialTagKey[] {
@@ -30,18 +31,7 @@ export function getSelectedTagIdsFromEvent(event: Event): CredentialTagKey[] {
   return selectedIds.filter((id): id is string => typeof id === 'string').map(credentialTagKey).filter(Boolean)
 }
 
-export function getTagInputValueFromEvent(event: Event): string {
-  const detailValue = (event as CustomEvent<{value?: string}>).detail?.value
-  if (typeof detailValue === 'string') return detailValue
-
-  const target = event.target as (HTMLInputElement & {value?: string}) | null
-  return target?.value ?? ''
-}
-
-function mergeTagOptions(
-  tags: readonly string[],
-  options: readonly CredentialTagOption[],
-): CredentialTagOption[] {
+function mergeTagOptions(tags: readonly string[], options: readonly CredentialTagOption[]): CredentialTagOption[] {
   const normalizedTags = normalizeCredentialTags(tags)
   const merged = new Map<string, CredentialTagOption>()
 
@@ -65,58 +55,47 @@ export function renderEntryTagsEditor(
   const tags = normalizeCredentialTags(state.tags)
   const options = mergeTagOptions(tags, state.options)
   const value = tags.map(credentialTagKey).join(' ')
+  const comboboxType = state.comboboxType ?? 'editable'
   const onSelectExistingTagIds = state.disabled ? undefined : handlers.onSelectExistingTagIds
-  const onInputLabel = state.disabled ? undefined : handlers.onInputLabel
-  const onAddTag = state.disabled ? undefined : handlers.onAddTag
+  const onManageTags = state.disabled ? undefined : handlers.onManageTags
 
   return html`
     <div class="entry-tags-editor">
-      <cv-combobox
-        class="entry-tags-combobox"
-        multiple
-        clearable
-        max-tags-visible=${state.maxTagsVisible ?? 3}
-        aria-label=${i18n('tags:title')}
-        placeholder=${i18n('tags:existing_placeholder')}
-        .value=${value}
-        ?disabled=${state.disabled}
-        aria-disabled=${state.disabled ? 'true' : nothing}
-        @cv-change=${onSelectExistingTagIds}
-      >
-        ${options.map(
-          (option) => html`
-            <cv-combobox-option value=${option.key} ?disabled=${state.disabled}>
-              ${option.count > 0 ? `${option.label} (${option.count})` : option.label}
-            </cv-combobox-option>
-          `,
-        )}
-      </cv-combobox>
-      <form class="entry-tags-add" @submit=${onAddTag}>
-        <cv-input
-          type="text"
-          size="small"
-          name="entry-tag-input"
-          autocomplete="off"
-          placeholder=${i18n('tags:new_placeholder')}
-          .value=${state.inputValue}
+      <div class="entry-tags-picker">
+        <cv-combobox
+          class="entry-tags-combobox"
+          multiple
+          clearable
+          type=${comboboxType === 'select-only' ? 'select-only' : nothing}
+          max-tags-visible=${state.maxTagsVisible ?? 3}
+          aria-label=${i18n('tags:title')}
+          placeholder=${state.placeholder ?? i18n('tags:existing_placeholder')}
+          .value=${value}
           ?disabled=${state.disabled}
-          ?invalid=${Boolean(state.error)}
-          @cv-input=${onInputLabel}
+          aria-disabled=${state.disabled ? 'true' : nothing}
+          @cv-change=${onSelectExistingTagIds}
         >
-          <span slot="label">${i18n('tags:title')}</span>
-          ${state.error ? html`<span slot="help-text" class="field-error">${state.error}</span>` : nothing}
-        </cv-input>
+          ${options.map(
+            (option) => html`
+              <cv-combobox-option value=${option.key} ?disabled=${state.disabled}>
+                ${option.count > 0 ? `${option.label} (${option.count})` : option.label}
+              </cv-combobox-option>
+            `,
+          )}
+        </cv-combobox>
         <cv-button
-          type="submit"
+          class="entry-tags-manage"
+          type="button"
           size="small"
           variant="default"
-          aria-label=${i18n('tags:add')}
-          ?disabled=${state.disabled || !state.inputValue.trim()}
+          title=${i18n('tags:manage_open' as never)}
+          aria-label=${i18n('tags:manage_open' as never)}
+          ?disabled=${state.disabled}
+          @click=${onManageTags}
         >
-          <cv-icon slot="prefix" name="plus" aria-hidden="true"></cv-icon>
-          <span>${i18n('tags:add')}</span>
+          <cv-icon name="sliders" aria-hidden="true"></cv-icon>
         </cv-button>
-      </form>
+      </div>
     </div>
   `
 }

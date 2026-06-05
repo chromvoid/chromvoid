@@ -66,6 +66,7 @@ export type PersistedPassmanagerState = {
   nextNodeId: number
   folders: string[]
   foldersMeta: Array<{path: string; iconRef?: string | null; description?: string | null}>
+  tags?: string[]
   entries: Array<{nodeId: number; meta: Record<string, unknown>}>
   secrets: [string, string][]
   otpSecrets: [string, {secret: string; digits: number; period: number}][]

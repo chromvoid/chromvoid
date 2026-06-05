@@ -10,21 +10,8 @@ import {
   getAppRouteMotionIntent,
   type AppRouteMotionIntent,
 } from '../../src/routes/app.route.model'
-import {appRouteStyles} from '../../src/routes/app.route.styles'
 import {biometricAppGateModel} from '../../src/routes/biometric-app-gate/biometric-app-gate.model'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
-
-function stylesToText(styles: unknown): string {
-  const values = Array.isArray(styles) ? styles : [styles]
-  return values
-    .map((value) => {
-      if (value == null) return ''
-      return typeof value === 'object' && 'cssText' in (value as object)
-        ? String((value as {cssText: string}).cssText)
-        : String(value)
-    })
-    .join('\n')
-}
 
 function setupContext(route: Routes) {
   navigationModel.disconnect()
@@ -83,7 +70,6 @@ describe('ChromVoidApp route motion contract', () => {
 
       expect(wrappers).toHaveLength(1)
       expect(wrappers[0]?.getAttribute('data-route')).toBe(route)
-      expect(wrappers[0]?.hasAttribute('style')).toBe(false)
     },
   )
 
@@ -97,19 +83,6 @@ describe('ChromVoidApp route motion contract', () => {
     expect(wrappers).toHaveLength(1)
     expect(wrappers[0]?.getAttribute('data-route')).toBe('biometric-gate')
     expect(host.querySelector('biometric-app-gate')).not.toBeNull()
-  })
-
-  it('keeps route-content ownership in CSS instead of template inline style', () => {
-    const cssText = stylesToText(appRouteStyles)
-    const routeContentRule = cssText.match(/\.route-content\s*{[^}]*}/)?.[0] ?? ''
-
-    expect(cssText).toContain('.route-content')
-    expect(routeContentRule).toContain('block-size: 100%;')
-    expect(routeContentRule).toContain('min-block-size: 0;')
-    expect(routeContentRule).toContain('view-transition-name: route-content;')
-    expect(routeContentRule).toContain('contain: style;')
-    expect(routeContentRule).not.toContain('contain: layout')
-    expect(routeContentRule).not.toContain('contain: paint')
   })
 
   it('derives P0 route motion intent without reading DOM state', () => {

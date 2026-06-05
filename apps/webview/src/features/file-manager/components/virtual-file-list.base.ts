@@ -571,23 +571,27 @@ export class VirtualFileListBase extends ReatomLitElement {
         >
           ${decoratedRows.totalItemsCount === 0
             ? html`
-                <div class="empty-state">
-                  <cv-icon name="folder-x"></cv-icon>
-                  <h3>
-                    ${hasActiveFilters
-                      ? i18n('file-manager:no-files-found')
-                      : i18n('file-manager:folder-empty')}
-                  </h3>
+                <cv-empty-state
+                  icon="folder-x"
+                  headline=${hasActiveFilters
+                    ? i18n('file-manager:no-files-found')
+                    : i18n('file-manager:folder-empty')}
+                  description=${hasActiveFilters ? i18n('file-manager:change-search-or-filters') : ''}
+                >
                   ${hasActiveFilters ? nothing : renderGuidanceInline('files.create-or-upload', 'files')}
                   ${hasActiveFilters
                     ? html`
-                        <p>${i18n('file-manager:change-search-or-filters')}</p>
-                        <cv-button variant="ghost" size="medium" @click=${this.onClearFiltersClick}
-                          >${i18n('file-manager:clear-filters')}</cv-button
+                        <cv-button
+                          slot="actions"
+                          variant="ghost"
+                          size="medium"
+                          @click=${this.onClearFiltersClick}
                         >
+                          ${i18n('file-manager:clear-filters')}
+                        </cv-button>
                       `
                     : nothing}
-                </div>
+                </cv-empty-state>
               `
             : html`
                 ${this.filters.viewMode === 'list'

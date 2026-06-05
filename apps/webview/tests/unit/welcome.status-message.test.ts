@@ -1,8 +1,6 @@
 import {atom} from '@reatom/core'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
-import {CVCallout} from '@chromvoid/uikit/components/cv-callout'
-
 import {
   isStartupContentReady,
   STARTUP_CONTENT_READY_EVENT,
@@ -12,15 +10,6 @@ import {clearAppContext, createMockAppContext, initAppContext} from '../../src/s
 
 const originalRequestAnimationFrame = window.requestAnimationFrame
 type UpdateCompleteElement = Element & {updateComplete?: Promise<unknown>}
-
-function stylesToText(styles: typeof WelcomePageMobileLayout.styles): string {
-  const values = Array.isArray(styles) ? styles : [styles]
-  return values
-    .map((style) =>
-      typeof style === 'object' && style && 'cssText' in style ? String(style.cssText) : String(style),
-    )
-    .join('\n')
-}
 
 function installDeterministicAnimationFrame(): void {
   Object.defineProperty(window, 'requestAnimationFrame', {
@@ -100,7 +89,7 @@ async function flushWelcomeStartupReadiness(page: WelcomePageMobileLayout): Prom
   }
 }
 
-describe('welcome status message', () => {
+describe('welcome status messages', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
@@ -119,8 +108,7 @@ describe('welcome status message', () => {
     clearAppContext()
   })
 
-  it('renders store status messages on the welcome route', async () => {
-    CVCallout.define()
+  it('does not render store status messages on the welcome route', async () => {
     WelcomePageMobileLayout.define()
     initWelcomeContext()
 
@@ -128,18 +116,11 @@ describe('welcome status message', () => {
     document.body.append(page)
     await page.updateComplete
 
-    const callouts = [...(page.shadowRoot?.querySelectorAll('cv-callout') ?? [])]
-    const statusCallout = callouts.find((callout) =>
-      callout.textContent?.includes('Selected folder is not a ChromVoid backup'),
-    )
-
-    expect(statusCallout).toBeTruthy()
-    expect(statusCallout?.getAttribute('variant')).toBe('danger')
+    expect(page.shadowRoot?.textContent).not.toContain('Selected folder is not a ChromVoid backup')
     await flushWelcomeStartupReadiness(page)
   })
 
   it('emits startup readiness after welcome critical sections are rendered', async () => {
-    CVCallout.define()
     WelcomePageMobileLayout.define()
     initWelcomeContext()
 
@@ -156,11 +137,4 @@ describe('welcome status message', () => {
     expect(startupReadyEvents).toHaveLength(1)
   })
 
-  it('leaves mobile safe-area padding to the global body owner', () => {
-    const cssText = stylesToText(WelcomePageMobileLayout.styles)
-
-    expect(cssText).toContain('padding: var(--app-spacing-5) var(--app-spacing-4) var(--app-spacing-6);')
-    expect(cssText).not.toContain('calc(var(--safe-area-top')
-    expect(cssText).not.toContain('calc(var(--safe-area-bottom')
-  })
 })

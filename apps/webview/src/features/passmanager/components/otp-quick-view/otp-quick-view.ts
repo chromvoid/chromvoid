@@ -1,6 +1,7 @@
 import {css} from 'lit'
 import {html} from '@chromvoid/uikit/reatom-lit'
 
+import {CvEmptyState} from 'root/shared/ui/empty-state'
 import {PMEntryOTPItem} from '../card/pm-entry-otp-item'
 import {PMSummaryRail} from '../summary-rail'
 import {PMOtpQuickViewBase} from './otp-quick-view-base'
@@ -30,6 +31,7 @@ export class PMOtpQuickView extends PMOtpQuickViewBase {
   ]
 
   static define() {
+    CvEmptyState.define()
     PMEntryOTPItem.define()
     PMSummaryRail.define()
     if (!customElements.get('pm-otp-quick-view')) {

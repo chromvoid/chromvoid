@@ -49,17 +49,6 @@ export const pmGroupCreateDesktopStyles = css`
     min-inline-size: 144px;
   }
 
-  .icon-section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--cv-space-2);
-    padding: var(--cv-space-3);
-    margin-top: var(--cv-space-3);
-    background: var(--cv-color-surface-2);
-    border: 1px solid var(--cv-color-border);
-    border-radius: var(--cv-radius-2);
-  }
-
   .section-label {
     display: flex;
     align-items: center;
@@ -79,15 +68,6 @@ export const pmGroupCreateDesktopStyles = css`
     opacity: 0.7;
   }
 
-  .icon-section.highlight {
-    animation: section-highlight 0.8s ease;
-  }
-
-  @keyframes section-highlight {
-    0%, 100% { background: var(--cv-color-surface-2); }
-    30% { background: var(--cv-color-primary-subtle); }
-  }
-
   @container (width < 640px) {
     form {
       padding: var(--cv-space-2);
@@ -104,13 +84,7 @@ export const pmGroupCreateMobileStyles = css`
     contain: layout style paint;
     color: var(--cv-color-text);
     background: var(--cv-color-bg);
-    --pm-group-create-tabbar-clearance: var(--mobile-tab-bar-keyboard-aware-block-size, var(--mobile-tab-bar-block-size, 64px));
-    --pm-group-create-submit-clearance: calc(
-      var(--safe-area-bottom-active) + var(--visual-viewport-bottom-inset) +
-        var(--pm-group-create-tabbar-clearance) + var(--cv-space-3)
-    );
-    scroll-padding-block-end: calc(var(--pm-group-create-submit-clearance) + var(--cv-space-8));
-    -webkit-overflow-scrolling: touch;
+   -webkit-overflow-scrolling: touch;
   }
 
   @supports (-webkit-touch-callout: none) {
@@ -129,15 +103,6 @@ export const pmGroupCreateMobileStyles = css`
     box-sizing: border-box;
     min-block-size: 100%;
     padding: var(--app-surface-gutter-mobile, var(--cv-space-3));
-    padding-block-end: calc(var(--pm-group-create-submit-clearance) + var(--cv-space-6));
-  }
-
-  .top-bar {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: center;
-    gap: var(--cv-space-3);
-    min-block-size: 3.5rem;
   }
 
   back-button {
@@ -149,27 +114,6 @@ export const pmGroupCreateMobileStyles = css`
     --back-button-color: var(--cv-color-text);
     --back-button-hover-bg: var(--cv-color-primary-surface);
     --back-button-hover-border-color: var(--cv-color-primary-border-strong);
-  }
-
-  .top-bar-copy {
-    display: grid;
-    gap: var(--cv-space-1);
-    min-inline-size: 0;
-  }
-
-  .top-bar h1 {
-    font-family: var(--cv-font-family-display);
-    font-size: 1.35rem;
-    font-weight: var(--cv-font-weight-bold);
-    line-height: 1.1;
-    letter-spacing: 0;
-    color: var(--cv-color-text);
-  }
-
-  .top-bar p {
-    color: var(--cv-color-text-muted);
-    font-size: var(--cv-font-size-sm);
-    line-height: 1.35;
   }
 
   .form-card {
@@ -264,17 +208,6 @@ export const pmGroupCreateMobileStyles = css`
     --pm-icon-picker-trigger-shadow: none;
   }
 
-  .submit-bar {
-    position: sticky;
-    inset-block-end: calc(
-      var(--safe-area-bottom-active) + var(--visual-viewport-bottom-inset) +
-        var(--pm-group-create-tabbar-clearance)
-    );
-    z-index: 1;
-    display: grid;
-    padding-block-start: var(--cv-space-2);
-    background: var(--cv-color-bg);
-  }
 
   .submit {
     inline-size: 100%;

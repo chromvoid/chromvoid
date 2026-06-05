@@ -268,7 +268,10 @@ export class PMGroupModel {
       return rows.flatMap((row) => (row.kind === 'entry' ? [row.item] : []))
     }
 
-    const selectedTags = getEffectiveSelectedCredentialTagFilters(rootEntries)
+    const selectedTags = getEffectiveSelectedCredentialTagFilters(
+      rootEntries,
+      this.isManagerRoot(group) ? group.credentialTags() : [],
+    )
     const matchesEntry = createEntryFilterMatcher(filterValue(), quickFilters(), Date.now(), selectedTags)
     return rootEntries.filter((entry) => matchesEntry(entry))
   }
@@ -293,7 +296,7 @@ export class PMGroupModel {
     const prefix = currentGroup.name + '/'
     const query = filterValue()
     const filters = quickFilters()
-    const selectedTags = getEffectiveSelectedCredentialTagFilters(root.allEntries)
+    const selectedTags = getEffectiveSelectedCredentialTagFilters(root.allEntries, root.credentialTags())
     const matchesGroup = createGroupFilterMatcher(query)
 
     const childGroups = root.entriesList().filter((item): item is Group => {

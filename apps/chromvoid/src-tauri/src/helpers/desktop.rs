@@ -22,22 +22,6 @@ pub(crate) fn toggle_main_window(app: &tauri::AppHandle) {
     }
 }
 
-pub(crate) fn sanitize_filename(name: &str) -> String {
-    let mut out = String::with_capacity(name.len());
-    for ch in name.chars() {
-        if ch == '/' || ch == '\\' {
-            out.push('_');
-        } else {
-            out.push(ch);
-        }
-    }
-    if out.trim().is_empty() {
-        "file".to_string()
-    } else {
-        out
-    }
-}
-
 pub(crate) fn open_path_with_system(path: &std::path::Path) -> Result<(), String> {
     spawn_system_open(path.as_os_str(), "file")
 }

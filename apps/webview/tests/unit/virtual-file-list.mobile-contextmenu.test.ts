@@ -1,6 +1,7 @@
 import {describe, expect, it, vi} from 'vitest'
 
 import {createItemHandlers} from '../../src/features/file-manager/components/virtual-file-list/handlers/items'
+import {createPointerHandlers} from '../../src/features/file-manager/components/virtual-file-list/handlers/pointer'
 import type {
   VirtualFileListHandlerContext,
   VirtualFileListPointerState,
@@ -37,6 +38,19 @@ function createSelectionState(): VirtualFileListSelectionState {
     lastSelectionAnchorIndex: null,
     lastKeyboardAnchorIndex: null,
   }
+}
+
+function touchEvent(type: string, touch: {identifier: number; clientX: number; clientY: number}): TouchEvent {
+  const event = new Event(type, {bubbles: true, cancelable: true}) as TouchEvent
+  Object.defineProperty(event, 'touches', {
+    configurable: true,
+    value: [touch],
+  })
+  Object.defineProperty(event, 'changedTouches', {
+    configurable: true,
+    value: [touch],
+  })
+  return event
 }
 
 function createHandlerHarness(options?: {
@@ -117,7 +131,65 @@ function createHandlerHarness(options?: {
   }
 }
 
+function createPointerHandlerHarness() {
+  let selectedItems: number[] = []
+  let selectionMode = false
+
+  const pointerState = createPointerState()
+  const selectionState = createSelectionState()
+  const emitSelectionModeRequested = vi.fn((enabled: boolean) => {
+    selectionMode = enabled
+  })
+  const emitSelectionChange = vi.fn((next: number[]) => {
+    selectedItems = [...next]
+  })
+  const focusItemById = vi.fn()
+
+  const handlers = createPointerHandlers({
+    pointerState,
+    selectionState,
+    getItems: () => [ITEM],
+    getSelectedItems: () => selectedItems,
+    isSelectionMode: () => selectionMode,
+    emitSelectionModeRequested,
+    emitSelectionChange,
+    focusItemById,
+  })
+
+  return {
+    handlers,
+    emitSelectionModeRequested,
+    emitSelectionChange,
+    focusItemById,
+  }
+}
+
 describe('VirtualFileList mobile contextmenu fallback', () => {
+  it('does not enter selection mode when a touch long press turns into a swipe', () => {
+    vi.useFakeTimers()
+    try {
+      const harness = createPointerHandlerHarness()
+
+      harness.handlers.onTouchStart(ITEM, touchEvent('touchstart', {
+        identifier: 1,
+        clientX: 120,
+        clientY: 24,
+      }))
+      harness.handlers.onTouchMove(touchEvent('touchmove', {
+        identifier: 1,
+        clientX: 64,
+        clientY: 26,
+      }))
+      vi.advanceTimersByTime(600)
+
+      expect(harness.emitSelectionModeRequested).not.toHaveBeenCalled()
+      expect(harness.emitSelectionChange).not.toHaveBeenCalled()
+      expect(harness.focusItemById).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('enters selection mode instead of opening the file context menu in mobile layout', () => {
     const harness = createHandlerHarness({mobile: true})
     const rawEvent = new MouseEvent('contextmenu', {bubbles: true, cancelable: true})

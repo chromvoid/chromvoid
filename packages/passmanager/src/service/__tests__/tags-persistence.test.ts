@@ -108,6 +108,44 @@ describe('credential tags persistence', () => {
     expect(reloadedRoot.getEntry('login-1')?.tags).toEqual(['Work', 'Rotate'])
   })
 
+  it('saves and reloads zero-use catalog tags through the v3 root payload', async () => {
+    const saver = createMockSaver()
+    const root = new ManagerRoot(saver)
+    root.setCredentialTagCatalog(['Work', 'Zero Use'])
+    root.entries.set([new Entry(root, makeLoginEntry({tags: ['Work']}))])
+
+    await root.apiSave()
+    const payload = await readSavedRoot(saver)
+    expect(payload.tags).toEqual(['Work', 'Zero Use'])
+
+    const reloadedSaver = createMockSaver({
+      read: vi.fn(async () => JSON.stringify(payload)) as unknown as ManagerSaver['read'],
+    })
+    const reloadedRoot = new ManagerRoot(reloadedSaver)
+    await reloadedRoot.load()
+
+    expect(reloadedRoot.credentialTags()).toEqual(['Work', 'Zero Use'])
+  })
+
+  it('derives catalog tags from entry assignments when root catalog is missing', async () => {
+    const payload = {
+      version: 3,
+      createdTs: 1,
+      updatedTs: 1,
+      folders: [],
+      entries: [makeLoginEntry({tags: ['Work']})],
+    } as unknown as PassManagerRootV3
+    const root = new ManagerRoot(
+      createMockSaver({
+        read: vi.fn(async () => JSON.stringify(payload)) as unknown as ManagerSaver['read'],
+      }),
+    )
+
+    await root.load()
+
+    expect(root.credentialTags()).toEqual(['Work'])
+  })
+
   it('saves and reloads payment-card tags through the v3 root payload', async () => {
     const saver = createMockSaver()
     const root = new ManagerRoot(saver)

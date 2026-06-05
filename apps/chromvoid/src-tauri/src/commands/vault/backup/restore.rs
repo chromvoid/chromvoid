@@ -63,6 +63,7 @@ pub(crate) async fn restore_local_select_source(
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
+        let _ = state;
         Ok(restore_rpc_error(
             "restore source selection is only available on mobile backup providers",
             Some("UNSUPPORTED".to_string()),

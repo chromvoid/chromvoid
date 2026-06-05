@@ -35,9 +35,20 @@ pub(super) fn parse_root_import_payload(
     Ok(RootImportPayload {
         folders,
         entries,
+        imported_tags: parse_tags(data)?,
         imported_group_meta: parse_group_meta(data)?,
         should_clear_existing: requires_destructive && allow_destructive,
     })
+}
+
+fn parse_tags(data: &Value) -> Result<Vec<String>, RootImportError> {
+    let Some(tags_value) = data.get("tags") else {
+        return Ok(Vec::new());
+    };
+    if !tags_value.is_array() {
+        return Err(RootImportError::empty_payload("tags must be string[]"));
+    }
+    Ok(super::super::tags::normalize_tag_catalog_from_value(tags_value))
 }
 
 fn parse_group_meta(

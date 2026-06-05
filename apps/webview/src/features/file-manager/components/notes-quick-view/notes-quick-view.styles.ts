@@ -324,35 +324,6 @@ export const notesQuickViewStyles = [
       border: 0;
     }
 
-    .empty-state {
-      display: grid;
-      justify-items: center;
-      gap: var(--cv-space-2);
-      padding: var(--cv-space-6);
-      border: 1px solid var(--cv-color-border);
-      border-radius: var(--cv-radius-2);
-      background: var(--cv-color-surface-2);
-      text-align: center;
-    }
-
-    .empty-state__title,
-    .empty-state__description {
-      margin: 0;
-    }
-
-    .empty-state__title {
-      color: var(--cv-color-text);
-      font-size: var(--cv-font-size-sm);
-      font-weight: 680;
-    }
-
-    .empty-state__description {
-      max-inline-size: 42ch;
-      color: var(--cv-color-text-muted);
-      font-size: var(--cv-font-size-xs);
-      line-height: 1.4;
-    }
-
     @container (width < 720px) {
       .controls {
         justify-content: stretch;

@@ -169,8 +169,8 @@ describe('PMEntryCreateMobile optional cards', () => {
 
     const otpSheet = getOtpSheet(component)
     await otpSheet?.updateComplete
-    const surface = otpSheet?.shadowRoot?.querySelector('adaptive-modal-surface') as HTMLElement | null
-    surface?.dispatchEvent(new CustomEvent('close', {bubbles: true, composed: true}))
+    const surface = otpSheet?.shadowRoot?.querySelector('cv-bottom-sheet') as HTMLElement | null
+    surface?.dispatchEvent(new CustomEvent('cv-change', {detail: {open: false}, bubbles: true, composed: true}))
     await settle(component)
 
     expect(model.otpSheetOpen()).toBe(true)
@@ -263,7 +263,12 @@ describe('PMEntryCreateMobile optional cards', () => {
     model.setUseOtp(true)
     model.otp.setSecret('JBSW ???')
 
-    const result = await model.submit()
+    const resultPromise = model.submit()
+    await vi.waitFor(() => {
+      expect(document.querySelector('cv-confirm-dialog')).not.toBeNull()
+    })
+    ;(document.querySelector('cv-confirm-dialog') as {close(value?: boolean | null): void} | null)?.close(true)
+    const result = await resultPromise
 
     expect(result).toMatchObject({ok: false, reason: 'invalid_otp'})
     expect(createEntry).not.toHaveBeenCalled()

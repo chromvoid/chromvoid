@@ -432,6 +432,7 @@ export async function dispatchTauriCatalogCommand(input: DispatchCatalogCommandI
     case 'passmanager:icon:list':
     case 'passmanager:icon:setMeta':
     case 'passmanager:icon:gc':
+    case 'passmanager:tags:setCatalog':
     case 'passmanager:root:import':
     case 'passmanager:root:export': {
       const result = await rpcDispatch(command, data)

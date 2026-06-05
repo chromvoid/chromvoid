@@ -151,11 +151,13 @@ export type CatalogCommandMap = {
   >
   'passmanager:group:list': Route<Record<string, never>, {groups: object[]}>
   'passmanager:group:delete': Route<{path: string}, void>
+  'passmanager:tags:setCatalog': Route<{tags: string[]}, void>
   'passmanager:root:import': Route<
     {
       entries: object[]
       folders: object[]
       foldersMeta?: object[]
+      tags?: string[]
       mode?: 'merge' | 'replace' | 'restore'
       reason?: string
       allowDestructive?: boolean

@@ -300,6 +300,7 @@ async fn mobile_foreground_unlocked_phase(
 }
 
 #[tauri::command]
+#[cfg(mobile)]
 pub(crate) fn android_password_save_finish(
     state: tauri::State<'_, AppState>,
     token: String,
@@ -465,6 +466,9 @@ pub(crate) async fn mobile_biometric_auth(
         let runtime = state.android_biometric_runtime.clone();
         crate::mobile::android::authenticate_with_biometric(&runtime, &prompt).await
     };
+
+    #[cfg(not(target_os = "android"))]
+    let _ = state;
 
     #[cfg(not(target_os = "android"))]
     let auth_result = mobile::authenticate_with_biometric(&prompt).await;
@@ -751,9 +755,9 @@ pub(crate) async fn credential_provider_passkey_delete(
 }
 
 #[tauri::command]
+#[cfg(mobile)]
 pub(crate) fn setup_native_gestures(app: tauri::AppHandle) {
-    mobile::ios::edge_swipe::setup(app.clone());
-    mobile::ios::keyboard::setup(app);
+    mobile::ios::edge_swipe::setup(app);
 }
 
 #[cfg(any(test, debug_assertions))]

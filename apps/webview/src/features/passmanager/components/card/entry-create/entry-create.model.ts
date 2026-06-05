@@ -3,12 +3,7 @@ import type {Entry as PMCoreEntry} from '@project/passmanager/core'
 
 import {HOTP, TOTP} from 'otpauth'
 
-import {
-  credentialTagKey,
-  normalizeCredentialTagLabel,
-  normalizeCredentialTags,
-  type CredentialTagKey,
-} from '@project/passmanager/tags'
+import {normalizeCredentialTags} from '@project/passmanager/tags'
 import {i18n} from '@project/passmanager/i18n'
 import {formatPasswordStrengthLabel} from '@project/passmanager/i18n/format'
 import {estimatePasswordStrength, generatePassword} from '@project/passmanager/password-utils'
@@ -131,8 +126,6 @@ export class PMEntryCreateModel {
   readonly avatarId = this.iconRef
   readonly targetGroupPath = atom<string | undefined>(getInitialTargetGroupPath())
   readonly tags = atom<string[]>([], 'passmanager.entryCreate.tags')
-  readonly tagInput = atom('', 'passmanager.entryCreate.tagInput')
-  readonly tagsError = atom('', 'passmanager.entryCreate.tagsError')
   readonly titleError = atom('')
   readonly usernameError = atom('')
   readonly websiteError = atom('')
@@ -372,8 +365,6 @@ export class PMEntryCreateModel {
 
     this.iconRef.set(undefined)
     this.tags.set([])
-    this.tagInput.set('')
-    this.tagsError.set('')
     this.clearFormErrors()
     this.titleWasAutofilled.set(false)
 
@@ -543,38 +534,10 @@ export class PMEntryCreateModel {
 
   setTags(value: unknown): void {
     this.tags.set(normalizeCredentialTags(value))
-    this.tagsError.set('')
   }
 
   setTagsFromKeys(keys: readonly string[]): void {
     this.setTags(pmCredentialTagsModel.resolveLabelsFromTagKeys(keys, this.tags()))
-  }
-
-  setTagInput(value: string): void {
-    this.tagInput.set(value)
-    this.tagsError.set('')
-  }
-
-  addTag(label: unknown = this.tagInput()): void {
-    const normalizedLabel = normalizeCredentialTagLabel(label)
-    if (!normalizedLabel) {
-      if (String(label ?? '').trim()) {
-        this.tagsError.set(i18n('tags:too_long'))
-      }
-      return
-    }
-
-    this.tags.set(normalizeCredentialTags([...this.tags(), normalizedLabel]))
-    this.tagInput.set('')
-    this.tagsError.set('')
-  }
-
-  removeTag(key: CredentialTagKey): void {
-    const normalizedKey = credentialTagKey(key)
-    if (!normalizedKey) return
-
-    this.tags.set(this.tags().filter((tag) => credentialTagKey(tag) !== normalizedKey))
-    this.tagsError.set('')
   }
 
   setUseSsh(value: boolean): void {

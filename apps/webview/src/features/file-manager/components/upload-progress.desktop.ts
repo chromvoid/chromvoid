@@ -135,9 +135,6 @@ export class UploadProgressDesktop extends UploadProgressBase {
       }
 
       .overall-progress-bar {
-        --cv-progress-height: 6px;
-        --cv-progress-track-color: var(--cv-color-border);
-        --cv-progress-indicator-background: var(--gradient-primary);
         margin-block: 2px 4px;
       }
 
@@ -218,6 +215,7 @@ export class UploadProgressDesktop extends UploadProgressBase {
                 </div>
                 <cv-progress
                   class="overall-progress-bar"
+                  tone="upload"
                   value=${displayedProgress}
                   ?indeterminate=${primaryStats.uploading > 0 && primaryStats.totalBytes <= 0}
                   aria-label=${i18n('file-manager:transfers-progress')}

@@ -1013,8 +1013,10 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
 
     return html`
       <cv-guidance-anchor anchor-id="passwords.create-entry" surface="passwords" owner="passmanager">
-        <div
-          class="empty"
+        <cv-empty-state
+          variant="dropzone"
+          icon="folder"
+          headline=${i18n('group:no_entries')}
           data-drop-target-id=${targetId ?? nothing}
           data-mobile-dnd-target-id=${targetId ?? nothing}
           @dragover=${this.onDragOverEmpty}
@@ -1022,9 +1024,8 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
           @drop=${this.onDropEmpty}
           @dragleave=${this.onEmptyDragLeave}
         >
-          ${i18n('group:no_entries')}
           ${renderGuidanceInline('passwords.create-entry', 'passwords')}
-        </div>
+        </cv-empty-state>
       </cv-guidance-anchor>
     `
   }

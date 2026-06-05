@@ -134,8 +134,23 @@ export class PMEntryListItemBase extends ReatomLitElement {
     this.model.setSecondaryActionsVisible(false)
   }
 
-  protected renderIcon(entry: Entry) {
-    return html`<pm-avatar-icon class="entry-favicon" .item=${entry}></pm-avatar-icon>`
+  protected renderIcon(entry: Entry, presentation: PMEntryListPresentation) {
+    return html`
+      <span class="entry-icon-shell">
+        <pm-avatar-icon class="entry-favicon" .item=${entry}></pm-avatar-icon>
+        ${presentation.typeMarker
+          ? html`
+              <span
+                class="entry-type-glyph"
+                data-badge-id=${presentation.typeMarker.id}
+                aria-hidden="true"
+              >
+                <cv-icon name=${presentation.typeMarker.icon}></cv-icon>
+              </span>
+            `
+          : nothing}
+      </span>
+    `
   }
 
   protected renderStatusIndicators(entry: Entry) {
@@ -152,17 +167,36 @@ export class PMEntryListItemBase extends ReatomLitElement {
     return this.renderBadgeList(presentation.visibleBadges, presentation.overflowCount)
   }
 
-  protected renderBadgeList(visibleBadges: readonly PMEntryListBadge[], overflowCount: number) {
-    if (visibleBadges.length === 0 && overflowCount === 0) {
+  protected renderBadgeList(
+    visibleBadges: readonly PMEntryListBadge[],
+    overflowCount: number,
+    typeMarker: PMEntryListBadge | null = null,
+  ) {
+    if (visibleBadges.length === 0 && overflowCount === 0 && !typeMarker) {
       return nothing
     }
 
     return html`
       <div class="entry-badges" aria-label=${i18n('entry:badges')}>
+        ${typeMarker
+          ? html`
+              <span
+                class="entry-badge entry-type-chip"
+                data-badge-id=${typeMarker.id}
+                data-family=${typeMarker.family}
+                data-severity=${typeMarker.severity}
+                title=${typeMarker.label}
+              >
+                <cv-icon name=${typeMarker.icon} aria-hidden="true"></cv-icon>
+                <span class="entry-badge-label">${typeMarker.label}</span>
+              </span>
+            `
+          : nothing}
         ${visibleBadges.map(
           (badge) => html`
             <span
               class="entry-badge"
+              data-badge-id=${badge.id}
               data-family=${badge.family}
               data-severity=${badge.severity}
               title=${badge.label}
@@ -259,6 +293,7 @@ export class PMEntryListItemBase extends ReatomLitElement {
       <div
         class="list-item mobile-list-row-surface${selectedClass}${activeClass}"
         data-secondary-actions=${showSecondaryActions ? 'true' : 'false'}
+        data-entry-type=${presentation.entryType}
         @click=${this.onClick}
         @keydown=${this.onKeyDown}
         @pointerenter=${this.onPointerEnter}
@@ -271,7 +306,7 @@ export class PMEntryListItemBase extends ReatomLitElement {
         role="button"
         tabindex=${String(this.getRowTabIndex())}
       >
-        ${this.renderIcon(entry)}
+        ${this.renderIcon(entry, presentation)}
 
         <div class="item-content">
           <div class="item-title">${presentation.title}</div>

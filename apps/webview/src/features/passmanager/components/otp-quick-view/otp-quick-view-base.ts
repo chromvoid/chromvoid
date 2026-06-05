@@ -44,13 +44,19 @@ export abstract class PMOtpQuickViewBase extends ReatomLitElement {
     `
   }
 
+  protected getSearchInputPreset(): string | undefined {
+    return undefined
+  }
+
   protected renderControls() {
+    const preset = this.getSearchInputPreset()
     return html`
       <div class="controls">
         <cv-input
           class="search"
           type="search"
           size="small"
+          preset=${preset ?? nothing}
           .value=${this.model.state.query()}
           placeholder=${i18n('otp:quick_view:search')}
           aria-label=${i18n('otp:quick_view:search')}
@@ -169,19 +175,20 @@ export abstract class PMOtpQuickViewBase extends ReatomLitElement {
           : 'otp:quick_view:empty:description'
 
     return html`
-      <section class="empty-state" role="status">
-        <cv-icon name="shield-check" size="lg" aria-hidden="true"></cv-icon>
-        <p class="empty-state__title">${i18n(titleKey as never)}</p>
-        <p class="empty-state__description">${i18n(descriptionKey as never)}</p>
+      <cv-empty-state
+        icon="shield-check"
+        headline=${i18n(titleKey as never)}
+        description=${i18n(descriptionKey as never)}
+      >
         ${kind === 'filtered'
           ? html`
-              <button class="clear-filters" type="button" @click=${this.handleClearFilters}>
+              <button slot="actions" class="clear-filters" type="button" @click=${this.handleClearFilters}>
                 <cv-icon name="x" aria-hidden="true"></cv-icon>
                 ${i18n('otp:quick_view:clear_filters')}
               </button>
             `
           : nothing}
-      </section>
+      </cv-empty-state>
     `
   }
 }

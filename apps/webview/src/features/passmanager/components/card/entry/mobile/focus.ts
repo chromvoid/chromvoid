@@ -19,67 +19,10 @@ type AvatarPickerHost = {
   readonly shadowRoot: ShadowRoot | null
 }
 
-function scrollElement(getShadowRoot: ShadowRootGetter, selector: string, options?: ScrollIntoViewOptions): HTMLElement | null {
-  const element = getShadowRoot()?.querySelector<HTMLElement>(selector) ?? null
-  if (!element) {
-    return null
-  }
-
+function scrollFocusedElement(element: HTMLElement, options?: ScrollIntoViewOptions): void {
   try {
     element.scrollIntoView?.(options ?? {block: 'nearest', inline: 'nearest'})
   } catch {}
-
-  return element
-}
-
-function schedulePostFocusScroll(
-  getShadowRoot: ShadowRootGetter,
-  selector: string,
-  options?: ScrollIntoViewOptions,
-): void {
-  if (typeof window === 'undefined') return
-
-  const scrollOnNextFrame = () => {
-    window.requestAnimationFrame(() => {
-      scrollElement(getShadowRoot, selector, options)
-    })
-  }
-
-  scrollOnNextFrame()
-
-  const viewport = window.visualViewport
-  if (!viewport) return
-
-  let disposed = false
-  let cleanupRafId = 0
-  let frameCount = 0
-
-  const cleanup = () => {
-    if (disposed) return
-
-    disposed = true
-    viewport.removeEventListener('resize', scrollOnNextFrame)
-    viewport.removeEventListener('scroll', scrollOnNextFrame)
-    window.removeEventListener('resize', scrollOnNextFrame)
-    if (cleanupRafId) {
-      window.cancelAnimationFrame(cleanupRafId)
-    }
-  }
-
-  const scheduleCleanup = () => {
-    frameCount += 1
-    if (frameCount >= 30) {
-      cleanup()
-      return
-    }
-
-    cleanupRafId = window.requestAnimationFrame(scheduleCleanup)
-  }
-
-  viewport.addEventListener('resize', scrollOnNextFrame)
-  viewport.addEventListener('scroll', scrollOnNextFrame)
-  window.addEventListener('resize', scrollOnNextFrame)
-  cleanupRafId = window.requestAnimationFrame(scheduleCleanup)
 }
 
 function focusElement(getShadowRoot: ShadowRootGetter, selector: string, options?: ScrollIntoViewOptions): void {
@@ -94,8 +37,7 @@ function focusElement(getShadowRoot: ShadowRootGetter, selector: string, options
     field.focus()
   }
 
-  scrollElement(getShadowRoot, selector, options)
-  schedulePostFocusScroll(getShadowRoot, selector, options)
+  scrollFocusedElement(field, options)
 }
 
 export function scheduleInlineEditorFocus(
@@ -141,7 +83,7 @@ export function scheduleSectionSnippetFocus(
     }
 
     if (sectionSnippet === 'tags') {
-      focusElement(getShadowRoot, 'cv-input[name="entry-tag-input"]', EDIT_FIELD_SCROLL_OPTIONS)
+      focusElement(getShadowRoot, 'cv-combobox.entry-tags-combobox', EDIT_FIELD_SCROLL_OPTIONS)
       return
     }
 

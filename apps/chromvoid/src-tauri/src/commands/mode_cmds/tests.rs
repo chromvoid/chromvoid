@@ -136,16 +136,20 @@ mod sync_integration_tests {
 
     #[test]
     fn sync_integration_local_switch_clears_state() {
-        let mut ss = SyncState::new();
-        ss.cursor = Some(SyncCursor {
-            version: 50,
-            timestamp_ms: 1000,
-        });
-        ss.subscribed = true;
-        ss.writer_lock = Some(WriterLockInfo {
-            holder: "dev-1".to_string(),
-            since_ms: 500,
-        });
+        let mut ss = SyncState {
+            cursor: Some(SyncCursor {
+                version: 50,
+                timestamp_ms: 1000,
+            }),
+            writer_lock: Some(WriterLockInfo {
+                holder: "dev-1".to_string(),
+                since_ms: 500,
+            }),
+            subscribed: true,
+        };
+        assert!(ss.cursor.is_some());
+        assert!(ss.subscribed);
+        assert!(ss.writer_lock.is_some());
 
         // Simulate Local switch: reset to fresh state
         ss = SyncState::new();

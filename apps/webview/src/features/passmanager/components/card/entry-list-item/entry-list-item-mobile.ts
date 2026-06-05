@@ -276,6 +276,7 @@ export class PMEntryListItemMobile extends PMEntryListItemBase {
         <div
           class="list-item mobile-list-row-surface${selectedClass}${activeClass}${swipeMotionClass}"
           data-entry-id=${entry.id}
+          data-entry-type=${presentation.entryType}
           data-swipe-state=${swipeState}
           @click=${this.onClick}
           @keydown=${this.onKeyDown}
@@ -294,7 +295,7 @@ export class PMEntryListItemMobile extends PMEntryListItemBase {
           role="button"
           tabindex=${String(this.getRowTabIndex())}
         >
-          ${this.renderIcon(entry)}
+          ${this.renderIcon(entry, presentation)}
 
           <div class="item-content">
             <div class="item-title">${presentation.title}</div>
@@ -302,7 +303,11 @@ export class PMEntryListItemMobile extends PMEntryListItemBase {
           </div>
 
           ${this.renderStatusDots(presentation.statusBadges)}
-          ${this.renderBadgeList(presentation.visibleTextBadges, presentation.textOverflowCount)}
+          ${this.renderBadgeList(
+            presentation.visibleTextBadges,
+            presentation.textOverflowCount,
+            presentation.typeMarker,
+          )}
 
           ${selectionModeActive
             ? nothing

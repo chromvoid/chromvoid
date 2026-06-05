@@ -38,10 +38,14 @@ export type PMEntryListBadge = {
   priority: number
 }
 
+export type PMEntryListEntryType = 'login' | 'payment_card'
+
 export type PMEntryListPresentation = {
+  entryType: PMEntryListEntryType
   title: string
   subtitle: string
   badges: PMEntryListBadge[]
+  typeMarker: PMEntryListBadge | null
   visibleBadges: PMEntryListBadge[]
   overflowCount: number
   rowActionLabel: string
@@ -157,13 +161,17 @@ export class PMEntryListItemModel {
   }
 
   getPresentation(entry: Entry): PMEntryListPresentation {
+    const entryType = this.getEntryType(entry)
     const badges = this.getEntryBadges(entry)
+    const typeMarker = this.getTypeMarker(entryType, badges)
     const {visibleBadges, overflowCount} = this.getVisibleBadges(badges)
 
     return {
+      entryType,
       title: entry.title || i18n('no_title'),
       subtitle: this.getSubtitle(entry),
       badges,
+      typeMarker,
       visibleBadges,
       overflowCount,
       rowActionLabel: i18n('button:more_actions'),
@@ -174,14 +182,27 @@ export class PMEntryListItemModel {
   getMobilePresentation(entry: Entry): PMEntryListMobilePresentation {
     const presentation = this.getPresentation(entry)
     const textBadges = presentation.badges.filter((badge) => badge.family === 'meta')
-    const visibleTextBadges = textBadges.slice(0, 2)
+    const visibleTextBadgeLimit = presentation.entryType === 'payment_card' ? 1 : 2
+    const visibleTextBadges = textBadges.slice(0, visibleTextBadgeLimit)
 
     return {
       ...presentation,
-      statusBadges: presentation.badges.filter((badge) => badge.family !== 'meta'),
+      statusBadges: presentation.badges.filter((badge) => {
+        if (badge.family === 'meta') return false
+        return presentation.typeMarker ? badge.id !== presentation.typeMarker.id : true
+      }),
       visibleTextBadges,
       textOverflowCount: Math.max(0, textBadges.length - visibleTextBadges.length),
     }
+  }
+
+  private getEntryType(entry: Entry): PMEntryListEntryType {
+    return entry.entryType === 'payment_card' ? 'payment_card' : 'login'
+  }
+
+  private getTypeMarker(entryType: PMEntryListEntryType, badges: PMEntryListBadge[]): PMEntryListBadge | null {
+    if (entryType !== 'payment_card') return null
+    return badges.find((badge) => badge.id === 'card') ?? null
   }
 
   getEntryBadges(entry: Entry): PMEntryListBadge[] {

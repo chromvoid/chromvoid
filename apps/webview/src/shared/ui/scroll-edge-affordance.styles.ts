@@ -2,10 +2,11 @@ import {css} from 'lit'
 
 export const scrollEdgeAffordanceStyles = css`
   .scroll-edge-frame {
-    --cv-scroll-edge-block-size: 44px;
-    --cv-scroll-edge-inline-start: 0px;
-    --cv-scroll-edge-inline-end: 0px;
-    --cv-scroll-edge-surface: var(--cv-color-surface);
+    --cv-scroll-edge-block-size: var(--cv-scroll-edge-default-block-size);
+    --cv-scroll-edge-inline-start: var(--cv-scroll-edge-default-inline-start);
+    --cv-scroll-edge-inline-end: var(--cv-scroll-edge-default-inline-end);
+    --cv-scroll-edge-surface: var(--cv-scroll-edge-default-surface);
+    --cv-scroll-edge-surface-fade: var(--cv-scroll-edge-default-surface-fade);
 
     position: relative;
     min-block-size: 0;
@@ -32,7 +33,7 @@ export const scrollEdgeAffordanceStyles = css`
     background: linear-gradient(
       to bottom,
       var(--cv-scroll-edge-surface),
-      color-mix(in srgb, var(--cv-scroll-edge-surface) 76%, transparent) 42%,
+      var(--cv-scroll-edge-surface-fade) 42%,
       transparent
     );
   }
@@ -42,7 +43,7 @@ export const scrollEdgeAffordanceStyles = css`
     background: linear-gradient(
       to bottom,
       transparent,
-      color-mix(in srgb, var(--cv-scroll-edge-surface) 76%, transparent) 58%,
+      var(--cv-scroll-edge-surface-fade) 58%,
       var(--cv-scroll-edge-surface)
     );
   }

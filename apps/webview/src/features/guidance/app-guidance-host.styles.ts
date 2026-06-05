@@ -19,11 +19,6 @@ export const appGuidanceHostStyles = css`
     --cv-popover-border-radius: 14px;
   }
 
-  cv-bottom-sheet {
-    --cv-bottom-sheet-z-index: var(--app-guidance-z-index, 1024);
-    --cv-bottom-sheet-overlay-color: var(--app-guidance-overlay-color);
-  }
-
   cv-popover cv-guidance-panel {
     inline-size: min(340px, calc(100vw - 40px));
     --cv-guidance-panel-padding-inline: 22px;

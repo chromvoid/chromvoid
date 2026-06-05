@@ -521,8 +521,7 @@ export async function showFirstMobileLoginEntryEdit(page: Page): Promise<void> {
 
       const entry = deepFind(document, 'pm-entry-mobile') as HTMLElement | null
       const root = entry?.shadowRoot
-      return Boolean(root?.querySelector('.entry-action-footer'))
-        && Boolean(root?.querySelector('.entry-edit-actions'))
+      return Boolean(root?.querySelector('mobile-bottom-action-footer.entry-action-footer[columns="2"]'))
         && Boolean(root?.querySelector('.entry-edit-save-action'))
     },
     undefined,

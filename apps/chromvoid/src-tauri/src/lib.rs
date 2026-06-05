@@ -177,14 +177,12 @@ use commands::usb_cmds::{
     usb_connect, usb_connection_state, usb_disconnect, usb_list_paired, usb_pair_device,
     usb_scan_devices,
 };
-#[cfg(mobile)]
-use commands::vault::setup_native_gestures;
 use commands::vault::{
     android_audio_session_command, android_audio_warmup, android_autofill_provider_status,
     android_media_session_stop, android_media_session_update,
     android_open_autofill_provider_settings, android_passkey_delete, android_passkeys_list,
-    android_password_save_finish, android_quick_lock_tile_status, android_request_quick_lock_tile,
-    android_video_start, android_video_stop, backup_local_cancel, backup_local_create,
+    android_quick_lock_tile_status, android_request_quick_lock_tile, android_video_start,
+    android_video_stop, backup_local_cancel, backup_local_create,
     credential_provider_passkey_delete, credential_provider_passkeys_list,
     credential_provider_status, erase_device, get_current_mode, get_session_settings,
     init_local_storage, master_rekey, master_setup, mobile_biometric_auth,
@@ -194,6 +192,8 @@ use commands::vault::{
     set_session_settings, storage_set_root, touch_activity, unlock_debug_log, vault_rekey,
     vault_rekey_cancel,
 };
+#[cfg(mobile)]
+use commands::vault::{android_password_save_finish, setup_native_gestures};
 #[cfg(desktop)]
 use commands::volume_ops::{volume_get_backends, volume_get_status, volume_mount, volume_unmount};
 use media_stream::{prepare_media_stream, release_media_stream};
@@ -217,8 +217,7 @@ use app_state::AppState;
 fn disable_webkit_text_services() {
     use objc2_foundation::{NSString, NSUserDefaults};
 
-    // SAFETY: objc2 ObjC API; standardUserDefaults returns a +0 singleton owned by the runtime.
-    let defaults = unsafe { NSUserDefaults::standardUserDefaults() };
+    let defaults = NSUserDefaults::standardUserDefaults();
     for key in [
         "WebContinuousSpellCheckingEnabled",
         "WebAutomaticSpellingCorrectionEnabled",
@@ -227,8 +226,7 @@ fn disable_webkit_text_services() {
         "WebAutomaticDashSubstitutionEnabled",
     ] {
         let ns_key = NSString::from_str(key);
-        // SAFETY: defaults is the live NSUserDefaults singleton above; ns_key is a fresh NSString that outlives the call.
-        unsafe { defaults.setBool_forKey(false, &ns_key) };
+        defaults.setBool_forKey(false, &ns_key);
     }
 }
 

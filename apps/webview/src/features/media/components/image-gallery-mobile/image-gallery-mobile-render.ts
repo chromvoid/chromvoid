@@ -106,6 +106,7 @@ export function renderMobileGalleryHeader(
         <cv-menu-button
           class="header-menu-button"
           variant="ghost"
+          preset="icon-overflow"
           aria-label=${moreLabel}
           @cv-input=${actions.onHeaderMenuInput}
         >

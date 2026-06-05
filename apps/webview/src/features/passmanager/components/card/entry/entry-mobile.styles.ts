@@ -8,9 +8,12 @@ export const entryMobileStyles = css`
     overflow: hidden;
     contain: none;
     --entry-avatar-bg: var(--cv-color-primary-dark);
-    --pm-entry-mobile-bottom-nav-clearance: 64px;
-    --pm-entry-mobile-sticky-action-height: 46px;
-    --pm-entry-mobile-keyboard-clearance: var(--visual-viewport-bottom-inset, 0px);
+    --cv-mobile-bottom-action-footer-block-size: calc(3.375rem + var(--cv-space-2) + var(--cv-space-2));
+    --cv-mobile-bottom-action-scroll-padding-end: calc(
+      var(--cv-mobile-bottom-action-footer-block-size) +
+      var(--mobile-keyboard-scroll-clearance, 0px) +
+      var(--cv-space-4)
+    );
   }
 
   :host(.card) {
@@ -29,12 +32,10 @@ export const entryMobileStyles = css`
   }
 
   .entry-shell {
-    display: flex;
-    flex-direction: column;
+    display: grid;
     block-size: 100%;
     min-block-size: 0;
-    box-sizing: border-box;
-    padding-block-end: var(--pm-entry-mobile-keyboard-clearance);
+    grid-template-rows: auto min-content 0 0;
   }
 
   .entry-scroll {
@@ -43,7 +44,7 @@ export const entryMobileStyles = css`
     overflow-y: auto;
     overflow-x: hidden;
     overscroll-behavior-y: contain;
-    scroll-padding-block-end: var(--cv-space-4);
+    scroll-padding-block-end: var(--cv-mobile-bottom-action-scroll-padding-end);
     -webkit-overflow-scrolling: touch;
   }
 
@@ -186,12 +187,6 @@ export const entryMobileStyles = css`
     display: flex;
     align-items: start;
     gap: 8px;
-    min-inline-size: 0;
-  }
-
-  .entry-title-inline-editor {
-    display: grid;
-    gap: 10px;
     min-inline-size: 0;
   }
 
@@ -576,28 +571,8 @@ export const entryMobileStyles = css`
     font-weight: var(--cv-font-weight-semibold);
   }
 
-  .entry-action-footer {
-    flex: 0 0 auto;
-    z-index: 12;
-    padding: var(--cv-space-2) var(--cv-space-3);
-    border-block-start: 1px solid var(--cv-color-border-faint);
-    background: var(--cv-color-bg);
-    box-shadow: 0 -16px 24px -16px var(--cv-alpha-black-35);
-  }
-
   .entry-edit-entry-action {
     inline-size: 100%;
-  }
-
-  .entry-edit-actions {
-    display: grid;
-    gap: var(--cv-space-2);
-  }
-
-  .entry-edit-action-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: var(--cv-space-2);
   }
 
   .entry-edit-entry-action,
@@ -633,18 +608,9 @@ export const entryMobileStyles = css`
 
   .entry-edit-entry-action,
   .entry-edit-save-action {
-    --cv-button-border-color: var(--cv-color-primary-border-strong);
-    --cv-button-border-color-hover: var(--cv-color-primary-border-strong);
-    --cv-button-border-color-active: var(--cv-color-primary-border-strong);
-    --cv-button-background: var(--cv-color-primary-surface-strong);
-    --cv-button-background-hover: var(--cv-color-primary-muted);
-    --cv-button-background-active: var(--cv-color-primary-surface);
-    --cv-button-text-color: var(--cv-color-text-strong);
-    --cv-button-text-color-hover: var(--cv-color-text-strongest);
-    --cv-button-text-color-active: var(--cv-color-text-strongest);
-    --pm-entry-action-border-color: var(--cv-color-primary-border-strong);
-    --pm-entry-action-background: var(--cv-color-primary-surface-strong);
-    --pm-entry-action-text-color: var(--cv-color-text-strong);
+    --pm-entry-action-border-color: var(--cv-button-border-color);
+    --pm-entry-action-background: var(--cv-button-background);
+    --pm-entry-action-text-color: var(--cv-button-text-color);
     --pm-entry-action-shadow:
       var(--cv-shadow-sm),
       0 0 24px var(--cv-color-primary-ring);
@@ -838,9 +804,17 @@ export const entryMobileStyles = css`
       padding: 0;
     }
 
+    &.credential-field-primary {
+      --entry-mobile-password-action-size: 40px;
+    }
+
     .password-input {
       grid-column: 1;
+      display: block;
       min-inline-size: 0;
+      block-size: var(--entry-mobile-password-action-size);
+      line-height: 0;
+      --cv-input-height: var(--entry-mobile-password-action-size);
       --cv-input-background: transparent;
       --cv-input-border-color: transparent;
       --cv-input-padding-inline: 0;
@@ -848,9 +822,16 @@ export const entryMobileStyles = css`
 
     .password-input::part(base) {
       padding: 0;
+      block-size: var(--entry-mobile-password-action-size);
+      min-block-size: var(--entry-mobile-password-action-size);
       min-height: auto;
       border: none;
       background: transparent;
+    }
+
+    .password-input::part(form-control-label),
+    .password-input::part(form-control-help-text) {
+      display: none;
     }
 
     .password-input::part(input) {
@@ -860,6 +841,15 @@ export const entryMobileStyles = css`
       font-family: var(--cv-font-family-code);
       letter-spacing: 0.15em;
       line-height: 1.4;
+    }
+
+    .password-input::part(password-toggle) {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      inline-size: var(--entry-mobile-password-action-size);
+      block-size: var(--entry-mobile-password-action-size);
+      align-self: center;
     }
 
     .field-actions {
@@ -878,8 +868,11 @@ export const entryMobileStyles = css`
     }
 
     cv-copy-button {
-      --cv-button-min-height: 40px;
-      --cv-button-min-width: 40px;
+      --cv-copy-button-size: var(--entry-mobile-password-action-size, 40px);
+      display: block;
+      inline-size: var(--cv-copy-button-size);
+      block-size: var(--cv-copy-button-size);
+      line-height: 0;
     }
   }
 
@@ -1084,6 +1077,12 @@ export const entryMobileStyles = css`
     text-decoration: none;
   }
 
+  .website-open {
+    font-size: 0.875rem;
+    font-weight: var(--cv-font-weight-medium);
+    line-height: 1.2;
+  }
+
   .inline-action {
     min-inline-size: 36px;
     padding: 0;
@@ -1173,6 +1172,9 @@ export const entryMobileStyles = css`
   .website-name {
     display: block;
     color: var(--cv-color-text);
+    font-size: 0.95rem;
+    font-weight: var(--cv-font-weight-medium);
+    line-height: 1.3;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1219,10 +1221,6 @@ export const entryMobileStyles = css`
     display: flex;
     align-items: center;
     gap: var(--cv-space-2);
-  }
-
-  .ssh-generate-inline {
-    justify-content: center;
   }
 
   .note-card-demoted .card-title {

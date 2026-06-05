@@ -301,10 +301,7 @@ export const remoteStorageLayoutStyles = [
     }
 
     cv-callout.remote-storage-callout {
-      --cv-callout-padding-block: var(--app-spacing-3);
-      --cv-callout-padding-inline: var(--app-spacing-4);
-      --cv-callout-border-radius: var(--cv-radius-2);
-      --cv-callout-font-size: var(--cv-font-size-sm);
+      --cv-callout-compact-padding-inline: var(--app-spacing-4);
     }
 
     cv-callout.remote-storage-callout::part(message) {

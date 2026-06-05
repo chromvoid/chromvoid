@@ -27,6 +27,20 @@ export const pmEntryTagsStyles = css`
     font-size: var(--cv-font-size-sm);
   }
 
+  .entry-tags-combobox::part(trigger) {
+    min-block-size: 34px;
+    min-inline-size: 0;
+    font-size: var(--cv-font-size-sm);
+  }
+
+  .entry-tags-combobox::part(label) {
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--cv-color-text-muted);
+  }
+
   .entry-tags-combobox::part(tag) {
     border: 1px solid var(--cv-color-border);
     background: var(--cv-color-surface-3);
@@ -43,15 +57,22 @@ export const pmEntryTagsStyles = css`
     max-block-size: min(260px, 48vh);
   }
 
-  .entry-tags-add {
+  .entry-tags-picker {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: var(--cv-space-2);
-    align-items: end;
+    align-items: stretch;
+    min-inline-size: 0;
   }
 
-  .entry-tags-add cv-button {
-    white-space: nowrap;
+  .entry-tags-manage {
+    inline-size: 40px;
+    min-block-size: 34px;
+  }
+
+  .entry-tags-manage::part(base) {
+    min-block-size: 34px;
+    padding-inline: 0;
   }
 
   .entry-tags-readonly {
@@ -72,8 +93,8 @@ export const pmEntryTagsStyles = css`
   }
 
   @container (width < 360px) {
-    .entry-tags-add {
-      grid-template-columns: minmax(0, 1fr);
+    .entry-tags-picker {
+      grid-template-columns: minmax(0, 1fr) auto;
     }
   }
 `

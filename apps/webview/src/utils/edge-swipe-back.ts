@@ -9,7 +9,7 @@
  *   threshold. touchstart on the element (passive), touchmove/end on document
  *   only during active gesture.
  *
- * The indicator element is created once and reused (display toggle).
+ * The indicator element is created once and reused (hidden class toggle).
  * Visual updates are batched via requestAnimationFrame.
  */
 
@@ -35,6 +35,28 @@ type NativeSwipeEvent = {
   deltaX: number
   y: number
   velocityX: number
+}
+
+const EDGE_SWIPE_INDICATOR_CLASS = 'edge-swipe-back-indicator'
+const EDGE_SWIPE_INDICATOR_HIDDEN_CLASS = 'edge-swipe-back-indicator--hidden'
+const EDGE_SWIPE_INDICATOR_STYLE_ID = 'edge-swipe-back-indicator-style'
+
+function ensureIndicatorStyles() {
+  if (document.getElementById(EDGE_SWIPE_INDICATOR_STYLE_ID)) return
+
+  const style = document.createElement('style')
+  style.id = EDGE_SWIPE_INDICATOR_STYLE_ID
+  style.textContent = `
+    .${EDGE_SWIPE_INDICATOR_CLASS} {
+      display: flex;
+      transition-behavior: allow-discrete;
+    }
+
+    .${EDGE_SWIPE_INDICATOR_CLASS}.${EDGE_SWIPE_INDICATOR_HIDDEN_CLASS} {
+      display: none;
+    }
+  `
+  document.head.appendChild(style)
 }
 
 export class EdgeSwipeBack {
@@ -232,7 +254,9 @@ export class EdgeSwipeBack {
   private ensureIndicator(): HTMLElement {
     if (this.indicator) return this.indicator
 
+    ensureIndicatorStyles()
     const el = document.createElement('div')
+    el.className = `${EDGE_SWIPE_INDICATOR_CLASS} ${EDGE_SWIPE_INDICATOR_HIDDEN_CLASS}`
     el.style.cssText = `
       position: fixed;
       top: 0;
@@ -244,7 +268,6 @@ export class EdgeSwipeBack {
       backdrop-filter: blur(8px);
       -webkit-backdrop-filter: blur(8px);
       border: 1px solid var(--cv-alpha-white-20);
-      display: none;
       align-items: center;
       justify-content: center;
       z-index: 9999;
@@ -278,7 +301,7 @@ export class EdgeSwipeBack {
     }
     const el = this.ensureIndicator()
     el.style.transition = 'none'
-    el.style.display = 'flex'
+    el.classList.remove(EDGE_SWIPE_INDICATOR_HIDDEN_CLASS)
     el.style.willChange = 'transform, opacity'
     el.style.opacity = '0'
     el.style.top = `${this.lastY - 20}px`
@@ -304,14 +327,15 @@ export class EdgeSwipeBack {
 
   private animateOut() {
     const el = this.indicator
-    if (!el || el.style.display === 'none') return
+    if (!el || el.classList.contains(EDGE_SWIPE_INDICATOR_HIDDEN_CLASS)) return
 
-    el.style.transition = 'transform 200ms ease-out, opacity 150ms ease-out'
+    el.style.transition = 'transform 200ms ease-out, opacity 150ms ease-out, display 200ms allow-discrete'
     el.style.transform = 'translateX(-20px) scale(0.3)'
     el.style.opacity = '0'
+    el.classList.add(EDGE_SWIPE_INDICATOR_HIDDEN_CLASS)
 
     const hide = () => {
-      el.style.display = 'none'
+      if (!el.classList.contains(EDGE_SWIPE_INDICATOR_HIDDEN_CLASS)) return
       el.style.willChange = 'auto'
       el.removeEventListener('transitionend', hide)
       this.animateTimeoutId = 0

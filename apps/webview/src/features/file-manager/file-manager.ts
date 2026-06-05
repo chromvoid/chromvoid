@@ -20,6 +20,7 @@ import {
   pageTransitionStyles,
   sharedStyles,
 } from 'root/shared/ui/shared-styles'
+import {CvEmptyState} from 'root/shared/ui/empty-state'
 
 import {ContextMenu, type ContextMenuItem} from './components/context-menu'
 import {DashboardDropzone} from './components/dashboard-dropzone'
@@ -46,6 +47,7 @@ export const formatFormatSpace = (value: number) => {
 
 export class FileManager extends ReatomLitElement {
   static define() {
+    CvEmptyState.define()
     ContextMenu.define()
     FileItem.define()
     FileItemMobile.define()

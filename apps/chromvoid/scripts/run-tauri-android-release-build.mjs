@@ -9,6 +9,14 @@ import {fileURLToPath} from 'node:url'
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.resolve(scriptDir, '..')
 const forwardedArgs = process.argv.slice(2)
+const androidPackageFormats = new Set(['--apk', '--aab'])
+const requestedPackageFlags = [
+  ...new Set(forwardedArgs.filter((arg) => androidPackageFormats.has(arg))),
+]
+const packageBuildFlags = requestedPackageFlags.length > 0 ? requestedPackageFlags : ['--apk']
+const forwardedTauriArgs = forwardedArgs.filter((arg) => !androidPackageFormats.has(arg))
+const buildApk = packageBuildFlags.includes('--apk')
+const buildAab = packageBuildFlags.includes('--aab')
 const licensePublicKeyEnv = 'CHROMVOID_LICENSE_PUBLIC_KEY_ED25519_2026_01'
 const licensePublicKeyFile = path.join(appRoot, 'src-tauri', 'gen', 'android', '.license-public-key')
 const localTauriBinary = path.join(
@@ -118,53 +126,82 @@ function resolveLicensePublicKey() {
   return value
 }
 
-function collectReleaseApks(dir) {
+function isReleaseAndroidOutput(filePath) {
+  const lowerSegments = filePath.split(path.sep).map((segment) => segment.toLowerCase())
+  const fileName = path.basename(filePath).toLowerCase()
+  return (
+    lowerSegments.includes('release') ||
+    lowerSegments.some((segment) => segment.endsWith('release')) ||
+    fileName.includes('-release')
+  )
+}
+
+function collectReleasePackages(dir, extension) {
   if (!fs.existsSync(dir)) {
     return []
   }
 
   const entries = fs.readdirSync(dir, {withFileTypes: true})
-  const apks = []
+  const packages = []
   for (const entry of entries) {
     const filePath = path.join(dir, entry.name)
     if (entry.isDirectory()) {
-      apks.push(...collectReleaseApks(filePath))
+      packages.push(...collectReleasePackages(filePath, extension))
       continue
     }
-    if (entry.isFile() && filePath.endsWith('.apk') && filePath.includes(`${path.sep}release${path.sep}`)) {
-      apks.push(filePath)
+    if (entry.isFile() && filePath.endsWith(extension) && isReleaseAndroidOutput(filePath)) {
+      packages.push(filePath)
     }
   }
-  return apks
+  return packages
 }
 
-function unzip(apkPath, args) {
+function collectReleaseApks(dir) {
+  return collectReleasePackages(dir, '.apk')
+}
+
+function collectReleaseAabs(dir) {
+  return collectReleasePackages(dir, '.aab')
+}
+
+function collectAabNativeLibEntries(aabPath) {
+  return unzip(aabPath, ['-Z1', aabPath])
+    .toString('utf8')
+    .split(/\r?\n/)
+    .filter((entry) => /^base\/lib\/[^/]+\/[^/]+\.so$/.test(entry))
+    .sort()
+}
+
+function unzip(packagePath, args) {
   const result = spawnSync('unzip', args, {
     cwd: appRoot,
     maxBuffer: 128 * 1024 * 1024,
   })
   if (result.status !== 0) {
-    const detail = result.stderr?.toString().trim() || result.stdout?.toString().trim() || `unzip failed for ${apkPath}`
+    const detail =
+      result.stderr?.toString().trim() ||
+      result.stdout?.toString().trim() ||
+      `unzip failed for ${packagePath}`
     fail(detail)
   }
   return result.stdout
 }
 
-function assertApkEmbedsLicensePublicKey(apkPath, licensePublicKey) {
-  const entries = unzip(apkPath, ['-Z1', apkPath])
+function assertAndroidPackageEmbedsLicensePublicKey(packagePath, licensePublicKey) {
+  const entries = unzip(packagePath, ['-Z1', packagePath])
     .toString('utf8')
     .split(/\r?\n/)
     .filter((entry) => entry.endsWith('libchromvoid_lib.so'))
 
   if (entries.length === 0) {
-    fail(`No libchromvoid_lib.so found in ${apkPath}`)
+    fail(`No libchromvoid_lib.so found in ${packagePath}`)
   }
 
   const keyBytes = Buffer.from(licensePublicKey)
   for (const entry of entries) {
-    const libBytes = unzip(apkPath, ['-p', apkPath, entry])
+    const libBytes = unzip(packagePath, ['-p', packagePath, entry])
     if (!libBytes.includes(keyBytes)) {
-      fail(`${apkPath} contains ${entry} built without ${licensePublicKeyEnv}`)
+      fail(`${packagePath} contains ${entry} built without ${licensePublicKeyEnv}`)
     }
   }
 }
@@ -177,15 +214,144 @@ function verifyReleaseApks(licensePublicKey) {
   }
 
   for (const apk of apks) {
-    assertApkEmbedsLicensePublicKey(apk, licensePublicKey)
+    assertAndroidPackageEmbedsLicensePublicKey(apk, licensePublicKey)
   }
   console.log(`[tauri-android-release] Verified ${apks.length} release APK(s) embed ${licensePublicKeyEnv}`)
+}
+
+function verifyReleaseAabs(licensePublicKey) {
+  const outputsDir = path.join(appRoot, 'src-tauri', 'gen', 'android', 'app', 'build', 'outputs', 'bundle')
+  const aabs = collectReleaseAabs(outputsDir)
+  if (aabs.length === 0) {
+    fail(`No release AAB found under ${outputsDir}`)
+  }
+
+  for (const aab of aabs) {
+    assertAndroidPackageEmbedsLicensePublicKey(aab, licensePublicKey)
+  }
+  console.log(`[tauri-android-release] Verified ${aabs.length} release AAB(s) embed ${licensePublicKeyEnv}`)
+  for (const aab of aabs) {
+    console.log(`[tauri-android-release] AAB ready: ${path.relative(appRoot, aab)}`)
+  }
+  return aabs
 }
 
 function removeStaleReleaseApks() {
   const outputsDir = path.join(appRoot, 'src-tauri', 'gen', 'android', 'app', 'build', 'outputs', 'apk')
   for (const apk of collectReleaseApks(outputsDir)) {
     fs.rmSync(apk, {force: true})
+  }
+}
+
+function removeStaleReleaseAabs() {
+  const outputsDir = path.join(appRoot, 'src-tauri', 'gen', 'android', 'app', 'build', 'outputs', 'bundle')
+  for (const aab of collectReleaseAabs(outputsDir)) {
+    fs.rmSync(aab, {force: true})
+  }
+}
+
+function releaseNativeDebugSymbolsZipPath() {
+  return path.join(
+    appRoot,
+    'src-tauri',
+    'gen',
+    'android',
+    'app',
+    'build',
+    'outputs',
+    'native-debug-symbols',
+    'universalRelease',
+    'native-debug-symbols.zip',
+  )
+}
+
+function removeStaleReleaseNativeDebugSymbols() {
+  fs.rmSync(releaseNativeDebugSymbolsZipPath(), {force: true})
+}
+
+function copyNativeDebugSymbolInputs(aabs, workDir) {
+  const mergedNativeLibsDir = path.join(
+    appRoot,
+    'src-tauri',
+    'gen',
+    'android',
+    'app',
+    'build',
+    'intermediates',
+    'merged_native_libs',
+    'universalRelease',
+    'mergeUniversalReleaseNativeLibs',
+    'out',
+    'lib',
+  )
+
+  const copiedEntries = new Set()
+  for (const aab of aabs) {
+    for (const entry of collectAabNativeLibEntries(aab)) {
+      const [, abi, fileName] = entry.match(/^base\/lib\/([^/]+)\/([^/]+\.so)$/) ?? []
+      if (!abi || !fileName) {
+        continue
+      }
+
+      const zipEntry = `lib/${abi}/${fileName}`
+      if (copiedEntries.has(zipEntry)) {
+        continue
+      }
+
+      const source = path.join(mergedNativeLibsDir, abi, fileName)
+      if (!fs.existsSync(source)) {
+        fail(`Native debug symbol source not found for ${entry}: ${source}`)
+      }
+
+      const destination = path.join(workDir, zipEntry)
+      fs.mkdirSync(path.dirname(destination), {recursive: true})
+      fs.copyFileSync(source, destination)
+      copiedEntries.add(zipEntry)
+    }
+  }
+
+  if (copiedEntries.size === 0) {
+    fail('No native libraries found in release AAB; cannot create native debug symbols zip')
+  }
+
+  return [...copiedEntries].sort()
+}
+
+function createReleaseNativeDebugSymbolsZip(aabs) {
+  const zipPath = releaseNativeDebugSymbolsZipPath()
+  const outputDir = path.dirname(zipPath)
+  const workDir = path.join(outputDir, 'native-debug-symbols-work')
+  fs.rmSync(workDir, {recursive: true, force: true})
+  fs.mkdirSync(outputDir, {recursive: true})
+
+  try {
+    const entries = copyNativeDebugSymbolInputs(aabs, workDir)
+    fs.rmSync(zipPath, {force: true})
+    const result = spawnSync('zip', ['-qr', zipPath, 'lib'], {
+      cwd: workDir,
+      encoding: 'utf8',
+    })
+    if (result.error) {
+      throw result.error
+    }
+    if (result.status !== 0) {
+      const detail = result.stderr?.trim() || result.stdout?.trim() || 'zip failed'
+      fail(`Failed to create native debug symbols zip: ${detail}`)
+    }
+
+    const zipEntries = unzip(zipPath, ['-Z1', zipPath])
+      .toString('utf8')
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .sort()
+    for (const entry of entries) {
+      if (!zipEntries.includes(entry)) {
+        fail(`Native debug symbols zip is missing ${entry}`)
+      }
+    }
+    console.log(`[tauri-android-release] Native debug symbols ready: ${path.relative(appRoot, zipPath)}`)
+  } finally {
+    fs.rmSync(workDir, {recursive: true, force: true})
   }
 }
 
@@ -260,15 +426,21 @@ childEnv.PATH = [
 const args = [
   'android',
   'build',
-  '--apk',
+  ...packageBuildFlags,
   '--target',
   'aarch64',
   '--features',
   'android',
   '--ci',
-  ...forwardedArgs,
+  ...forwardedTauriArgs,
 ]
-removeStaleReleaseApks()
+if (buildApk) {
+  removeStaleReleaseApks()
+}
+if (buildAab) {
+  removeStaleReleaseAabs()
+  removeStaleReleaseNativeDebugSymbols()
+}
 const child = spawn(tauriBinary, args, {
   cwd: appRoot,
   env: childEnv,
@@ -289,6 +461,12 @@ child.on('exit', (code, signal) => {
     process.exit(code ?? 1)
   }
 
-  verifyReleaseApks(licensePublicKey)
+  if (buildApk) {
+    verifyReleaseApks(licensePublicKey)
+  }
+  if (buildAab) {
+    const aabs = verifyReleaseAabs(licensePublicKey)
+    createReleaseNativeDebugSymbolsZip(aabs)
+  }
   process.exit(0)
 })

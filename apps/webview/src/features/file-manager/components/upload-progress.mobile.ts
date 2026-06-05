@@ -147,29 +147,11 @@ export class UploadProgressMobile extends UploadProgressBase {
         grid-column: 1 / -1;
         inline-size: 100%;
         --cv-progress-height: 3px;
-        --cv-progress-track-color: var(--cv-color-border);
-        --cv-progress-indicator-background: var(--gradient-primary);
-      }
-
-      .minimized-bar[data-tone='success'] .minimized-progress-bar {
-        --cv-progress-indicator-background: var(--cv-color-success);
-      }
-
-      .minimized-bar[data-tone='danger'] .minimized-progress-bar {
-        --cv-progress-indicator-background: var(--cv-color-danger);
       }
 
       .header-spinner {
         font-size: 16px;
         flex-shrink: 0;
-      }
-
-      cv-bottom-sheet {
-        --cv-bottom-sheet-z-index: 1001;
-        --cv-bottom-sheet-overlay-color: var(--cv-alpha-black-35);
-        --cv-bottom-sheet-max-height: min(74dvh, calc(100dvh - 24px));
-        --cv-bottom-sheet-border-radius: 18px 18px 0 0;
-        --cv-bottom-sheet-grabber-color: var(--cv-color-primary-border-strong);
       }
 
       cv-bottom-sheet:not([open]) {
@@ -359,16 +341,6 @@ export class UploadProgressMobile extends UploadProgressBase {
 
       .footer-progress-bar {
         --cv-progress-height: 6px;
-        --cv-progress-track-color: var(--cv-color-border);
-        --cv-progress-indicator-background: var(--gradient-primary);
-      }
-
-      .sheet-footer[data-tone='success'] .footer-progress-bar {
-        --cv-progress-indicator-background: var(--cv-color-success);
-      }
-
-      .sheet-footer[data-tone='danger'] .footer-progress-bar {
-        --cv-progress-indicator-background: var(--cv-color-danger);
       }
     `,
   ]
@@ -441,6 +413,10 @@ export class UploadProgressMobile extends UploadProgressBase {
     return `${formatFileSize(loadedBytes)} / ${formatFileSize(totalBytes)}`
   }
 
+  private getProgressTone(tone: UploadHudSummary['tone']) {
+    return tone === 'active' ? 'upload' : tone
+  }
+
   render() {
     const m = this.model
     if (!m) return nothing
@@ -454,6 +430,7 @@ export class UploadProgressMobile extends UploadProgressBase {
     const progressLabel = String(Math.round(displayedProgress))
     const summaryLabel = this.getSummaryLabel(summary)
     const bytesLabel = this.getBytesLabel(displayedLoadedBytes, summary.totalBytes)
+    const progressTone = this.getProgressTone(summary.tone)
     const ariaLabel = i18n('file-manager:transfer-details-aria', {
       label: summaryLabel,
       progress: progressLabel,
@@ -487,6 +464,7 @@ export class UploadProgressMobile extends UploadProgressBase {
               <cv-icon class="bar-chevron" name="chevron-up"></cv-icon>
               <cv-progress
                 class="minimized-progress-bar"
+                tone=${progressTone}
                 value=${displayedProgress}
                 ?indeterminate=${summary.indeterminate}
                 aria-label=${i18n('file-manager:transfers-progress')}
@@ -545,6 +523,7 @@ export class UploadProgressMobile extends UploadProgressBase {
           </div>
           <cv-progress
             class="footer-progress-bar"
+            tone=${progressTone}
             value=${displayedProgress}
             ?indeterminate=${summary.indeterminate}
             aria-label=${i18n('file-manager:transfers-progress')}

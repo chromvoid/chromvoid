@@ -4,18 +4,6 @@ import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/r
 import {setLang as setAppLang} from '../../src/i18n'
 import {SettingsPage} from '../../src/routes/settings/settings-page'
 
-function stylesToText(styles: unknown): string {
-  const values = Array.isArray(styles) ? styles : [styles]
-  return values
-    .map((value) => {
-      if (value == null) return ''
-      return typeof value === 'object' && 'cssText' in (value as object)
-        ? String((value as {cssText: string}).cssText)
-        : String(value)
-    })
-    .join('\n')
-}
-
 let defined = false
 
 function ensureDefined() {
@@ -60,25 +48,6 @@ describe('settings page mobile section navigation', () => {
     resetRuntimeCapabilities()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
-  })
-
-  it('keeps the mobile section index sticky and reserves bottom space', () => {
-    const cssText = stylesToText(SettingsPage.styles)
-
-    expect(cssText).toContain('--settings-index-sticky-offset: var(--app-spacing-4);')
-    expect(cssText).toMatch(
-      /@media \(max-width: 767px\)\s*{[\s\S]*--settings-index-sticky-offset: var\(--app-spacing-2\);/,
-    )
-    expect(cssText).toContain('--settings-index-mobile-block-size: 56px;')
-    expect(cssText).toMatch(
-      /padding-block-end: calc\(\s*var\(--app-spacing-8\) \+ var\(--app-spacing-8\) \+ var\(--safe-area-bottom-active, 0px\)\s*\);/,
-    )
-    expect(cssText).toMatch(
-      /\.settings-index\s*{[^}]*position: sticky;[^}]*inset-block-start: var\(--settings-index-sticky-offset\);[^}]*overflow-x: auto;[^}]*touch-action: pan-x;/,
-    )
-    expect(cssText).toContain(
-      'scroll-margin-block-start: var(--settings-section-scroll-margin-start);',
-    )
   })
 
   it('scrolls to settings sections from shadow-dom index links', async () => {

@@ -1,10 +1,6 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
-import {
-  getViewTransitionNameOwners,
-  viewTransition,
-  withViewTransitionName,
-} from '../../src/utils/view-transitions'
+import {viewTransition, withViewTransitionName} from '../../src/utils/view-transitions'
 
 const hadStartViewTransition = 'startViewTransition' in document
 const originalStartViewTransition = (document as Document & {startViewTransition?: unknown})
@@ -29,7 +25,11 @@ function setReducedMotion(matches: boolean): void {
 }
 
 function setStartViewTransition(
-  startViewTransition: (callback: () => void | Promise<void>) => {finished: Promise<void>},
+  startViewTransition: (callback: () => void | Promise<void>) => {
+    ready: Promise<void>
+    updateCallbackDone: Promise<void>
+    finished: Promise<void>
+  },
 ): void {
   Object.defineProperty(document, 'startViewTransition', {
     configurable: true,
@@ -100,7 +100,7 @@ describe('view transition utilities', () => {
     expect(callback).toHaveBeenCalledTimes(1)
   })
 
-  it('waits for a successful transition and clears a temporary name', async () => {
+  it('waits for a successful transition', async () => {
     setReducedMotion(false)
     let finishTransition!: () => void
     const element = document.createElement('div')
@@ -108,6 +108,8 @@ describe('view transition utilities', () => {
     setStartViewTransition((callback) => {
       void callback()
       return {
+        ready: Promise.resolve(),
+        updateCallbackDone: Promise.resolve(),
         finished: new Promise<void>((resolve) => {
           finishTransition = resolve
         }),
@@ -118,29 +120,65 @@ describe('view transition utilities', () => {
     const result = withViewTransitionName(element, 'gallery-image', callback)
 
     expect(callback).toHaveBeenCalledTimes(1)
-    expect(element.style.viewTransitionName).toBe('gallery-image')
 
     finishTransition()
     await expect(result).resolves.toEqual({state: 'applied'})
-    expect(element.style.viewTransitionName).toBe('')
   })
 
-  it('reports cancelled transitions and clears a temporary name', async () => {
+  it('reports cancelled transitions', async () => {
     setReducedMotion(false)
     const element = document.createElement('div')
     document.body.append(element)
     setStartViewTransition((callback) => {
       void callback()
-      return {finished: Promise.reject(new Error('cancelled'))}
+      return {
+        ready: Promise.resolve(),
+        updateCallbackDone: Promise.resolve(),
+        finished: Promise.reject(new DOMException('Transition was skipped', 'AbortError')),
+      }
     })
 
     const result = await withViewTransitionName(element, 'gallery-image', vi.fn())
 
     expect(result).toEqual({state: 'cancelled'})
-    expect(element.style.viewTransitionName).toBe('')
   })
 
-  it('clears temporary names when motion is skipped', async () => {
+  it('reports skipped transitions when ready rejects', async () => {
+    setReducedMotion(false)
+    setStartViewTransition((callback) => {
+      const updateCallbackDone = Promise.resolve(callback()).then(() => undefined)
+      return {
+        ready: Promise.reject(new DOMException('Transition was skipped', 'AbortError')),
+        updateCallbackDone,
+        finished: Promise.resolve(),
+      }
+    })
+
+    const callback = vi.fn()
+    const result = await viewTransition(callback)
+
+    expect(result).toEqual({state: 'cancelled'})
+    expect(callback).toHaveBeenCalledTimes(1)
+  })
+
+  it('propagates transition update callback errors', async () => {
+    setReducedMotion(false)
+    const error = new Error('route update failed')
+    setStartViewTransition((callback) => {
+      const updateCallbackDone = Promise.resolve().then(callback).then(() => undefined)
+      return {
+        ready: Promise.resolve(),
+        updateCallbackDone,
+        finished: Promise.resolve(),
+      }
+    })
+
+    await expect(viewTransition(() => {
+      throw error
+    })).rejects.toBe(error)
+  })
+
+  it('reports skipped reduced-motion transitions', async () => {
     setReducedMotion(true)
     const element = document.createElement('div')
     document.body.append(element)
@@ -150,10 +188,9 @@ describe('view transition utilities', () => {
 
     expect(result).toEqual({state: 'skipped-reduced-motion'})
     expect(callback).toHaveBeenCalledTimes(1)
-    expect(element.style.viewTransitionName).toBe('')
   })
 
-  it('clears temporary names when View Transition API is unsupported', async () => {
+  it('reports skipped unsupported transitions', async () => {
     setReducedMotion(false)
     clearStartViewTransition()
     const element = document.createElement('div')
@@ -164,25 +201,5 @@ describe('view transition utilities', () => {
 
     expect(result).toEqual({state: 'skipped-unsupported'})
     expect(callback).toHaveBeenCalledTimes(1)
-    expect(element.style.viewTransitionName).toBe('')
-  })
-
-  it('does not create a duplicate owner and still runs the callback', async () => {
-    setReducedMotion(false)
-    clearStartViewTransition()
-    const existing = document.createElement('div')
-    const candidate = document.createElement('div')
-    existing.style.viewTransitionName = 'gallery-image'
-    document.body.append(existing, candidate)
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const callback = vi.fn()
-
-    const result = await withViewTransitionName(candidate, 'gallery-image', callback)
-
-    expect(result).toEqual({state: 'skipped-unsupported'})
-    expect(callback).toHaveBeenCalledTimes(1)
-    expect(warn).toHaveBeenCalledTimes(1)
-    expect(candidate.style.viewTransitionName).toBe('')
-    expect(getViewTransitionNameOwners('gallery-image')).toEqual([existing])
   })
 })

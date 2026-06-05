@@ -7,10 +7,8 @@ import {createToastController} from '@chromvoid/uikit/toast/create-toast-control
 import {
   setNotifyAdapter,
   type NotifyPayload,
-  type NotifyToastPresentOptions,
   type ToastPosition,
 } from '@project/passmanager/notify'
-import {announce} from '@chromvoid/ui'
 
 type ToastVariant = NotifyPayload['variant']
 type ToastAction = {
@@ -28,9 +26,6 @@ interface ToastOptions {
   icon?: string
   progress?: boolean
   position?: ToastPosition
-  announce?: boolean
-  announceMessage?: string
-  announcePriority?: NotifyToastPresentOptions['announcePriority']
   actions?: readonly ToastAction[]
 }
 
@@ -66,10 +61,6 @@ function resolveDefaultToastPosition(): ToastPosition {
   }
 
   return DEFAULT_TOAST_POSITION
-}
-
-function resolveAnnouncePriority(variant: ToastVariant): 'polite' | 'assertive' {
-  return variant === 'error' ? 'assertive' : 'polite'
 }
 
 export class ToastContainer extends ReatomLitElement {
@@ -145,7 +136,6 @@ export class ToastContainer extends ReatomLitElement {
     })
 
     this.toasts.set(id, {id, position})
-    this.announceToast(options)
     return id
   }
 
@@ -204,7 +194,6 @@ export class ToastContainer extends ReatomLitElement {
       persistent: true,
       progress: false,
       closable: false,
-      announce: false,
       ...options,
     })
   }
@@ -217,17 +206,6 @@ export class ToastContainer extends ReatomLitElement {
   private generateId(): string {
     this.toastCounter += 1
     return `toast-${this.toastCounter}`
-  }
-
-  private announceToast(options: ToastOptions): void {
-    if (options.announce === false) return
-
-    const message = options.announceMessage ?? options.message ?? options.title
-    if (!message) return
-
-    try {
-      announce(message, options.announcePriority ?? resolveAnnouncePriority(options.variant ?? 'info'))
-    } catch {}
   }
 
   protected render() {
@@ -262,7 +240,7 @@ function ensureToastContainer(): ToastContainer | null {
 
 export function initToastManager(): void {
   setNotifyAdapter({
-    present(payload: NotifyPayload, options?: NotifyToastPresentOptions) {
+    present(payload: NotifyPayload) {
       const container = ensureToastContainer()
       if (!container) {
         return {dismiss() {}}
@@ -271,9 +249,6 @@ export function initToastManager(): void {
       const id = container.show({
         ...payload,
         duration: payload.duration,
-        announce: options?.announce,
-        announceMessage: options?.announceMessage,
-        announcePriority: options?.announcePriority,
       })
 
       return {

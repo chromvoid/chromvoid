@@ -19,6 +19,11 @@ impl RootExportError {
         Self::new(message, code)
     }
 
+    pub(super) fn from_tag_load(error: super::super::error::PassmanagerCommandError) -> Self {
+        let (message, code) = error.into_parts();
+        Self::new(message, code)
+    }
+
     pub(super) fn into_rpc_response(self) -> RpcResponse {
         RpcResponse::error(self.message, self.code)
     }

@@ -50,6 +50,24 @@ export const createPointerHandlers = (
     pointerState.touchLongPressItemId = null
   }
 
+  const cancelTouchLongPressOnMove = (point: {clientX: number; clientY: number}) => {
+    if (!pointerState.touchLongPressTimer) return
+
+    const dx = point.clientX - pointerState.touchLongPressStartX
+    const dy = point.clientY - pointerState.touchLongPressStartY
+    if (Math.hypot(dx, dy) > SWIPE_TRACK_GUARD) {
+      cancelTouchLongPress()
+    }
+  }
+
+  const getTrackedTouch = (event: TouchEvent): Touch | null => {
+    const touches = Array.from(event.touches)
+    if (pointerState.touchLongPressPointerId == null) {
+      return touches[0] ?? null
+    }
+    return touches.find((touch) => touch.identifier === pointerState.touchLongPressPointerId) ?? null
+  }
+
   const startTouchLongPress = (event: PointerEvent) => {
     if (event.pointerType !== 'touch') return
 
@@ -155,11 +173,7 @@ export const createPointerHandlers = (
         return
       if (!pointerState.touchLongPressTimer) return
 
-      const dx = e.clientX - pointerState.touchLongPressStartX
-      const dy = e.clientY - pointerState.touchLongPressStartY
-      if (Math.hypot(dx, dy) > SWIPE_TRACK_GUARD) {
-        cancelTouchLongPress()
-      }
+      cancelTouchLongPressOnMove(e)
     },
     onPointerUp: (e: PointerEvent) => {
       if (e.pointerType === 'touch') {
@@ -172,8 +186,11 @@ export const createPointerHandlers = (
       }
     },
     onTouchStart: (item, event) => startTouchLongPressFromTouch(event, item),
-    onTouchMove: (_event?: TouchEvent) => {
-      // Touch swipe and drag are handled inside the file item host element.
+    onTouchMove: (event?: TouchEvent) => {
+      const touch = event ? getTrackedTouch(event) : null
+      if (touch) {
+        cancelTouchLongPressOnMove(touch)
+      }
     },
     onTouchEnd: (_event?: TouchEvent) => {
       cancelTouchLongPress()

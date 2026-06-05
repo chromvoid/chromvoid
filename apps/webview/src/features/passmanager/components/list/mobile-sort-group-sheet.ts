@@ -83,14 +83,6 @@ export class PMMobileSortGroupSheet extends ReatomLitElement {
       display: contents;
     }
 
-    cv-bottom-sheet {
-      --cv-bottom-sheet-z-index: calc(var(--cv-z-overlay, 300) + 32);
-      --cv-bottom-sheet-overlay-color: var(--cv-alpha-black-50);
-      --cv-bottom-sheet-max-height: min(76dvh, calc(100dvh - 24px));
-      --cv-bottom-sheet-border-radius: 18px 18px 0 0;
-      --cv-bottom-sheet-grabber-color: var(--cv-color-primary-border-strong);
-    }
-
     cv-bottom-sheet::part(content) {
       border-color: var(--cv-color-border-strong);
       background: var(--cv-color-surface-elevated);

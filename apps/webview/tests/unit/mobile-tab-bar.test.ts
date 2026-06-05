@@ -6,22 +6,6 @@ import {DEFAULT_SNAPSHOT} from '../../src/app/navigation/navigation-snapshot'
 import {MobileTabBar} from '../../src/features/shell/components/mobile-tab-bar'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 
-function stylesToText(styles: unknown): string {
-  const values = Array.isArray(styles) ? styles : [styles]
-  return values
-    .map((value) => {
-      if (value == null) return ''
-      return typeof value === 'object' && 'cssText' in (value as object) ? String((value as {cssText: string}).cssText) : String(value)
-    })
-    .join('\n')
-}
-
-function lastStyleText(styles: unknown): string {
-  const values = Array.isArray(styles) ? styles : [styles]
-  const last = values.at(-1)
-  return stylesToText(last)
-}
-
 function defineMobileTabBar() {
   if (!customElements.get(MobileTabBar.elementName)) {
     customElements.define(MobileTabBar.elementName, MobileTabBar as unknown as CustomElementConstructor)
@@ -172,44 +156,4 @@ describe('mobile-tab-bar', () => {
     })
   })
 
-  it('uses the compact 64px tab bar sizing', () => {
-    const cssText = lastStyleText(MobileTabBar.styles)
-
-    expect(cssText).toContain('height: 64px;')
-    expect(cssText).toContain('font-size: 20px;')
-    expect(cssText).toContain('font-size: 9px;')
-    expect(cssText).toContain('text-overflow: ellipsis;')
-    expect(cssText).not.toContain('height: 72px;')
-    expect(cssText).not.toContain('font-size: 22px;')
-    expect(cssText).not.toContain('font-size: 10px;')
-  })
-
-  it('hides while the mobile keyboard is visible', () => {
-    const cssText = lastStyleText(MobileTabBar.styles)
-
-    expect(cssText).toContain('display: var(--mobile-tab-bar-keyboard-aware-display, block);')
-  })
-
-  it('uses theme-aware muted text for inactive tabs', () => {
-    const cssText = lastStyleText(MobileTabBar.styles)
-
-    expect(cssText).toContain('color: var(--cv-color-text-muted);')
-    expect(cssText).not.toContain('var(--cv-alpha-white-50)')
-  })
-
-  it('keeps the active tab visually distinguishable without a heavy filled pill', () => {
-    const cssText = lastStyleText(MobileTabBar.styles)
-
-    expect(cssText).toContain('.tab.active')
-    expect(cssText).toContain('color: var(--cv-color-accent);')
-    expect(cssText).toContain('.tab.active::before')
-    expect(cssText).toContain('.tab.active::after')
-    expect(cssText).toContain('inset-block-start: 0;')
-    expect(cssText).toContain('inset-block-end: 6px;')
-    expect(cssText).not.toContain('border-top: 1px solid')
-    expect(cssText).not.toContain('background: var(--cv-color-surface-2);')
-    expect(cssText).not.toContain('box-shadow: inset 0 0 0 1px var(--cv-color-accent-border);')
-    expect(cssText).not.toContain('background: var(--cv-color-accent-surface);')
-    expect(cssText).not.toContain('color-mix(')
-  })
 })

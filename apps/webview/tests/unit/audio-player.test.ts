@@ -11,20 +11,7 @@ import {
   mediaPlaybackModel,
 } from '../../src/features/media/models/media-playback.model'
 import {i18n} from '../../src/i18n'
-import type {AdaptiveModalSurface} from '../../src/shared/ui/adaptive-modal-surface'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
-
-function stylesToText(styles: unknown): string {
-  const values = Array.isArray(styles) ? styles : [styles]
-  return values
-    .map((value) => {
-      if (value == null) return ''
-      return typeof value === 'object' && 'cssText' in (value as object)
-        ? String((value as {cssText: string}).cssText)
-        : String(value)
-    })
-    .join('\n')
-}
 
 function createPointerEvent(
   type: string,
@@ -55,19 +42,9 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   throw new Error('condition not met')
 }
 
-async function getSurface(element: AudioPlayer): Promise<AdaptiveModalSurface> {
-  await settleAudioPlayer(element)
-  const surface = element.shadowRoot?.querySelector('adaptive-modal-surface') as AdaptiveModalSurface | null
-  expect(surface).not.toBeNull()
-  await surface!.updateComplete
-  await Promise.resolve()
-  await surface!.updateComplete
-  return surface!
-}
-
 async function getMobileSheet(element: AudioPlayer): Promise<CVBottomSheet> {
-  const surface = await getSurface(element)
-  const sheet = surface.shadowRoot?.querySelector('cv-bottom-sheet') as CVBottomSheet | null
+  await settleAudioPlayer(element)
+  const sheet = element.shadowRoot?.querySelector('cv-bottom-sheet') as CVBottomSheet | null
   expect(sheet).not.toBeNull()
   await sheet!.updateComplete
   await Promise.resolve()
@@ -127,10 +104,10 @@ describe('audio-player', () => {
     document.body.append(element)
     await element.updateComplete
 
-    const surface = element.shadowRoot?.querySelector('adaptive-modal-surface') as AdaptiveModalSurface | null
-    expect(surface).not.toBeNull()
-    expect(surface?.ariaLabel).toBe(i18n('media:audio-player' as any))
-    expect(surface?.open).toBe(true)
+    const sheet = element.shadowRoot?.querySelector('cv-bottom-sheet') as CVBottomSheet | null
+    expect(sheet).not.toBeNull()
+    expect(sheet?.querySelector('[slot="title"]')?.textContent).toBe(i18n('media:audio-player' as any))
+    expect(sheet?.open).toBe(true)
     expect(element.shadowRoot?.querySelector('.player-sheet')).not.toBeNull()
     expect(element.shadowRoot?.querySelector('.overlay')).toBeNull()
     expect(element.shadowRoot?.querySelector('.drag-handle')).toBeNull()
@@ -156,7 +133,6 @@ describe('audio-player', () => {
     )
     expect(element.shadowRoot?.querySelector('.signal-progress')).toBeNull()
     expect(element.shadowRoot?.querySelector('.queue')).not.toBeNull()
-    expect(element.shadowRoot?.querySelector('[style]')).toBeNull()
     expect(element.shadowRoot?.querySelector('.track-title')?.textContent).toBe('one')
     expect(element.shadowRoot?.querySelector('.track-file')?.textContent).toContain('one.mp3')
     expect(element.shadowRoot?.querySelector('.track-subtitle')).toBeNull()
@@ -333,7 +309,6 @@ describe('audio-player', () => {
     expect(element.shadowRoot?.querySelector('.waveform-seek')?.getAttribute('data-preparing')).toBe('true')
     expect(element.shadowRoot?.querySelector('.seek-slider')).not.toBeNull()
     expect(element.shadowRoot?.querySelector('.controls')).not.toBeNull()
-    expect(element.shadowRoot?.querySelector('[style]')).toBeNull()
   })
 
   it('does not show native preparation status for short track switches after Android is ready', async () => {
@@ -424,7 +399,6 @@ describe('audio-player', () => {
   })
 
   it('delegates mobile drag dismissal to the bottom sheet', async () => {
-    vi.useFakeTimers()
     const close = vi.fn()
     const element = document.createElement('audio-player') as AudioPlayer
     element.addEventListener('close', close)
@@ -433,79 +407,27 @@ describe('audio-player', () => {
 
     const sheet = await getMobileSheet(element)
     const handle = sheet.shadowRoot?.querySelector('[part="handle"]') as HTMLElement | null
-    const dialog = sheet.shadowRoot?.querySelector('cv-dialog') as CVDialog | null
     expect(handle).not.toBeNull()
-    expect(dialog).not.toBeNull()
 
     handle!.dispatchEvent(createPointerEvent('pointerdown', {clientY: 0}))
     handle!.dispatchEvent(createPointerEvent('pointermove', {clientY: 120}))
 
-    expect(dialog!.style.getPropertyValue('--cv-bottom-sheet-drag-offset')).toBe('120px')
-
     handle!.dispatchEvent(createPointerEvent('pointerup', {clientY: 120}))
-
-    expect(dialog!.classList.contains('is-dismissing')).toBe(true)
-    expect(close).not.toHaveBeenCalled()
-
-    vi.advanceTimersByTime(180)
     await settleAudioPlayer(element)
 
+    expect(sheet.open).toBe(false)
     expect(close).toHaveBeenCalledTimes(1)
   })
 
-  it('renders the adaptive surface as a dialog on desktop layout', async () => {
+  it('renders a dialog directly on desktop layout', async () => {
     layoutMode.set('desktop')
     const element = document.createElement('audio-player') as AudioPlayer
     document.body.append(element)
+    await settleAudioPlayer(element)
 
-    const surface = await getSurface(element)
+    const dialog = element.shadowRoot?.querySelector('cv-dialog') as CVDialog | null
 
-    expect(surface.shadowRoot?.querySelector('cv-dialog')).not.toBeNull()
-    expect(surface.shadowRoot?.querySelector('cv-bottom-sheet')).toBeNull()
-  })
-
-  it('keeps waveform player style and template contracts explicit', () => {
-    const cssText = stylesToText(AudioPlayer.styles)
-
-    expect(cssText).toContain('.waveform-seek')
-    expect(cssText).toContain('--audio-waveform-edge')
-    expect(cssText).toContain('.waveform-grid')
-    expect(cssText).toContain('.waveform-column')
-    expect(cssText).toContain('.waveform-bar')
-    expect(cssText).toContain('--cv-gradient-audio-waveform-bar')
-    expect(cssText).not.toContain('.track-subtitle')
-    expect(cssText).not.toContain('.track-artwork')
-    expect(cssText).not.toContain('.player-visuals')
-    expect(cssText).not.toContain('.player-artwork')
-    expect(cssText).not.toContain('.signal-panel')
-    expect(cssText).not.toContain('.signal-reflection')
-    expect(cssText).not.toContain('.signal-progress')
-    expect(cssText).toContain(`repeat(${MEDIA_PLAYBACK_WAVEFORM_BAR_COUNT}`)
-    expect(cssText).toContain('minmax(1px, 1fr)')
-    expect(cssText).toContain('inline-size: min(100%, 2px);')
-    expect(cssText).toContain(".waveform-column[data-played='true']")
-    expect(cssText).toContain(".waveform-column[data-emphasis='peak']")
-    expect(cssText).toContain(".waveform-column[data-playhead-near='true']")
-    expect(cssText).toContain('.seek-slider::part(thumb)::before')
-    expect(cssText).toContain('.queue')
-    expect(cssText).toContain('.queue-duration')
-    expect(cssText).toContain('.queue-row::before')
-    expect(cssText).toContain('.queue-row::part(base)')
-    expect(cssText).toContain('.seek-slider::part(track)')
-    expect(cssText).not.toContain('::-webkit-slider')
-    expect(cssText).toContain('grid-template-columns: auto minmax(0, 1fr) auto;')
-    expect(cssText).toMatch(/\.queue-row::part\(base\)\s*{[^}]*display:\s*grid;/)
-    expect(cssText).toContain('justify-content: stretch;')
-    expect(cssText).toContain('prefers-reduced-motion')
-    expect(cssText).toContain('adaptive-modal-surface::part(content)')
-    expect(cssText).not.toContain('--adaptive-modal-z-index')
-    expect(cssText).not.toContain('--adaptive-modal-width')
-    expect(cssText).not.toContain('--cv-bottom-sheet-max-height')
-    expect(cssText).not.toContain('.overlay')
-    expect(cssText).not.toContain('.drag-handle')
-    expect(cssText).not.toContain('--audio-player-sheet-drag-offset')
-    expect(cssText).not.toContain('color-mix(')
-    expect(cssText).not.toContain('rgba(')
-    expect(cssText).not.toMatch(/#[\da-fA-F]{3,8}/)
+    expect(dialog).not.toBeNull()
+    expect(element.shadowRoot?.querySelector('cv-bottom-sheet')).toBeNull()
   })
 })

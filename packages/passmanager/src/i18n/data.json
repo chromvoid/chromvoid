@@ -257,6 +257,10 @@
     "en": "Find existing tag",
     "ru": "Найти тег"
   },
+  "tags:select_placeholder": {
+    "en": "Choose tags",
+    "ru": "Выбрать теги"
+  },
   "tags:add": {
     "en": "Add tag",
     "ru": "Добавить тег"
@@ -276,6 +280,78 @@
   "tags:too_long": {
     "en": "Tag is too long",
     "ru": "Тег слишком длинный"
+  },
+  "tags:manage_title": {
+    "en": "Manage tags",
+    "ru": "Управление тегами"
+  },
+  "tags:manage_open": {
+    "en": "Manage tags",
+    "ru": "Управлять тегами"
+  },
+  "tags:manage_short": {
+    "en": "Manage",
+    "ru": "Управлять"
+  },
+  "tags:filter_short": {
+    "en": "Filter",
+    "ru": "Фильтр"
+  },
+  "tags:create": {
+    "en": "Create",
+    "ru": "Создать"
+  },
+  "tags:create_title": {
+    "en": "Create tag",
+    "ru": "Создать тег"
+  },
+  "tags:rename_title": {
+    "en": "Rename tag",
+    "ru": "Переименовать тег"
+  },
+  "tags:delete_title": {
+    "en": "Delete tag",
+    "ru": "Удалить тег"
+  },
+  "tags:name_label": {
+    "en": "Tag name",
+    "ru": "Название тега"
+  },
+  "tags:usage_count": {
+    "en": "${count} entries",
+    "ru": "Записей: ${count}"
+  },
+  "tags:empty_manage": {
+    "en": "No tags yet",
+    "ru": "Тегов пока нет"
+  },
+  "tags:error_required": {
+    "en": "Enter a tag name",
+    "ru": "Введите название тега"
+  },
+  "tags:error_exists": {
+    "en": "A tag with this name already exists",
+    "ru": "Тег с таким названием уже есть"
+  },
+  "tags:error_readonly": {
+    "en": "Tags cannot be changed in read-only mode",
+    "ru": "В режиме только для чтения теги изменить нельзя"
+  },
+  "tags:rename_aria": {
+    "en": "Rename ${tag}",
+    "ru": "Переименовать ${tag}"
+  },
+  "tags:delete_aria": {
+    "en": "Delete ${tag}",
+    "ru": "Удалить ${tag}"
+  },
+  "tags:delete_confirm": {
+    "en": "Delete ${tag}? It will be removed from the tag catalog and from ${count} entries.",
+    "ru": "Удалить ${tag}? Тег будет убран из каталога и из записей: ${count}."
+  },
+  "tags:delete_keeps_entries": {
+    "en": "Entries will not be deleted.",
+    "ru": "Сами записи не будут удалены."
   },
   "entry:files": {
     "en": "Files",

@@ -37,8 +37,7 @@ export interface PMEntryMobileUIAdapter {
   handleSavePaymentCard(): void
   handleToggleCardCvv(): void
   handleTagSelect(event: Event): void
-  handleTagInput(event: Event): void
-  handleTagAdd(event: Event): void
+  handleManageTags(event: Event): void
   handleSaveTags(): void
   handleOtpSave(): void
   handleOtpRemove(event: CustomEvent<{otpId: string}>): void

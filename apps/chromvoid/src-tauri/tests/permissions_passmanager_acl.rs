@@ -51,6 +51,26 @@ fn mobile_permission_set_allows_passmanager_stream_commands() {
 }
 
 #[test]
+fn mobile_permission_set_allows_mode_commands() {
+    let mobile = set_block("mobile");
+    assert!(
+        !mobile.is_empty(),
+        "mobile permission set not found in permissions/app.toml"
+    );
+
+    for permission in [
+        "allow-mode-get",
+        "allow-mode-switch",
+        "allow-mode-status",
+    ] {
+        assert!(
+            mobile.contains(permission),
+            "mobile set must include {permission}"
+        );
+    }
+}
+
+#[test]
 fn mobile_permission_set_allows_license_activation_commands() {
     let mobile = set_block("mobile");
     assert!(

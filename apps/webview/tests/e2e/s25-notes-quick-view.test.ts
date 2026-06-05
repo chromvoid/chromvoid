@@ -784,6 +784,10 @@ async function markdownEditorKeyboardClearanceSnapshot(
 
     const rootElement = document.documentElement
     rootElement.style.setProperty('--visual-viewport-bottom-inset', `${inset}px`)
+    rootElement.style.setProperty('--mobile-keyboard-bottom-inset', `${inset}px`)
+    rootElement.style.setProperty('--mobile-keyboard-scroll-action-offset', `${inset}px`)
+    rootElement.style.setProperty('--mobile-keyboard-scroll-clearance', `${inset}px`)
+    rootElement.style.setProperty('--mobile-keyboard-overlay-offset', `${inset}px`)
     rootElement.setAttribute('data-mobile-keyboard-expanded', '')
 
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
@@ -797,8 +801,7 @@ async function markdownEditorKeyboardClearanceSnapshot(
     const editorStyles = getComputedStyle(editor)
     const contentStyles = getComputedStyle(content)
     const maxScroll = editor.scrollHeight - editor.clientHeight
-
-    return {
+    const snapshot = {
       contentBottom: contentRect.bottom,
       contentPaddingBlockEnd: contentStyles.paddingBlockEnd,
       editorBottom: editorRect.bottom,
@@ -811,6 +814,15 @@ async function markdownEditorKeyboardClearanceSnapshot(
       scrollAtBottom: Math.abs(editor.scrollTop - maxScroll) <= 1,
       scrollOverflowY: editorStyles.overflowY,
     }
+
+    rootElement.style.removeProperty('--visual-viewport-bottom-inset')
+    rootElement.style.removeProperty('--mobile-keyboard-bottom-inset')
+    rootElement.style.removeProperty('--mobile-keyboard-scroll-action-offset')
+    rootElement.style.removeProperty('--mobile-keyboard-scroll-clearance')
+    rootElement.style.removeProperty('--mobile-keyboard-overlay-offset')
+    rootElement.removeAttribute('data-mobile-keyboard-expanded')
+
+    return snapshot
 
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)

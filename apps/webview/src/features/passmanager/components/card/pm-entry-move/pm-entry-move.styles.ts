@@ -10,7 +10,7 @@ export const pmEntryMoveSharedStyles = [
   sharedStyles,
   css`
     :host {
-      --pm-entry-move-indent-step: 12px;
+      --pm-entry-move-indent-step: var(--pm-move-indent-step);
     }
 
     .layout {

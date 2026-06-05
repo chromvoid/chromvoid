@@ -11,7 +11,6 @@ export const appRouteStyles = [
       background: var(--cv-color-bg);
       color: var(--cv-color-text);
       overflow-y: auto;
-      height: calc(100dvh - var(--app-padding));
     }
 
     password-manager {

@@ -22,7 +22,7 @@ export function renderRemoteStorageCallout({
   text,
 }: RemoteStorageCalloutOptions): TemplateResult {
   return html`
-    <cv-callout class="remote-storage-callout" variant=${variant}>
+    <cv-callout class="remote-storage-callout" variant=${variant} density="compact">
       ${title
         ? html`
             <span class="remote-storage-callout-title">

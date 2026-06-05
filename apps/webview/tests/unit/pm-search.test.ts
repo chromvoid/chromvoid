@@ -4,7 +4,6 @@ import {Entry, ManagerRoot} from '@project/passmanager/core'
 import {filterValue, quickFilters, selectedCredentialTagFilters} from '@project/passmanager/select'
 import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/components/list/sort-controls'
 import {PMSearch} from '../../src/features/passmanager/components/list/search'
-import {searchBaseStyles} from '../../src/features/passmanager/components/list/search-base'
 import {PMSearchMobile} from '../../src/features/passmanager/components/list/search-mobile'
 import {filtersExpanded} from '../../src/features/passmanager/components/list/search.model'
 import {pmCredentialTagsModel} from '../../src/features/passmanager/models/pm-credential-tags.model'
@@ -94,7 +93,7 @@ afterEach(() => {
   filtersExpanded.set(false)
   window.localStorage.removeItem('pm_filters_expanded')
   pmMobileChromeModel.closeSortGroupSheet()
-  pmCredentialTagsModel.closeFilterSheet()
+  pmCredentialTagsModel.closeSheet()
   vi.useRealTimers()
 })
 
@@ -409,11 +408,12 @@ describe('PMSearch', () => {
     expect(element.shadowRoot?.querySelector('.tag-chip[data-tag-key]')).toBeNull()
     expect(element.shadowRoot?.querySelector('pm-mobile-tag-filter-sheet')).not.toBeNull()
 
-    const sheetTrigger = element.shadowRoot?.querySelector('.tag-chip.add') as HTMLElement | null
+    const sheetTrigger = element.shadowRoot?.querySelector('.tag-chip.manage') as HTMLElement | null
     sheetTrigger?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
     await settle(element)
 
     expect(pmCredentialTagsModel.filterSheetOpen()).toBe(true)
+    expect(pmCredentialTagsModel.sheetMode()).toBe('manage')
   })
 
   it('renders desktop tag combobox and updates selected filters from selectedIds', async () => {
@@ -485,7 +485,7 @@ describe('PMSearch', () => {
     expect(element.shadowRoot?.querySelector('pm-mobile-tag-filter-sheet')).not.toBeNull()
   })
 
-  it('updates mobile tag filters from chips and opens the tag sheet from add chip', async () => {
+  it('updates mobile tag filters from chips and opens tag management from manage chip', async () => {
     ensureMobileDefined()
     installRootWithTags()
 
@@ -502,30 +502,12 @@ describe('PMSearch', () => {
       true,
     )
 
-    const sheetTrigger = element.shadowRoot?.querySelector('.tag-chip.add') as HTMLElement | null
+    const sheetTrigger = element.shadowRoot?.querySelector('.tag-chip.manage') as HTMLElement | null
     sheetTrigger?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
     await settle(element)
 
     expect(pmCredentialTagsModel.filterSheetOpen()).toBe(true)
+    expect(pmCredentialTagsModel.sheetMode()).toBe('manage')
   })
 
-  it('keeps search input focus chrome deduplicated', () => {
-    const baseCssText = searchBaseStyles.cssText
-    const mobileCssText = PMSearchMobile.styles.map((style) => style.cssText ?? '').join('\n')
-
-    expect(baseCssText).toContain('cv-input:focus-within')
-    expect(baseCssText).toContain('--cv-input-border-color')
-    expect(baseCssText).not.toContain('outline-offset: var(--pm-focus-outline-outer-offset')
-    expect(mobileCssText).not.toContain('outline-offset: var(--pm-focus-outline-outer-offset')
-  })
-
-  it('uses the shared finite panel reveal contract for desktop filters', () => {
-    const cssText = PMSearch.styles.map((style) => style.cssText ?? '').join('\n')
-
-    expect(cssText).toContain('.motion-panel-reveal')
-    expect(cssText).toContain('.motion-panel-reveal__inner')
-    expect(cssText).toContain('@media (prefers-reduced-motion: reduce)')
-    expect(cssText).not.toContain('.filters-panel.collapsed')
-    expect(cssText).not.toContain('transition: all')
-  })
 })

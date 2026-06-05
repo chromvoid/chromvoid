@@ -1,9 +1,9 @@
 import {CVButton} from '@chromvoid/uikit/components/cv-button'
+import {CVBottomSheet} from '@chromvoid/uikit/components/cv-bottom-sheet'
 import {css} from 'lit'
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
 import {i18n} from '@project/passmanager/i18n'
-import {AdaptiveModalSurface} from 'root/shared/ui/adaptive-modal-surface'
 import {PMEntryMoveMobile} from './pm-entry-move-mobile'
 
 export type PMEntryMoveSheetConfirmDetail = {
@@ -26,49 +26,37 @@ export class PMEntryMoveSheet extends ReatomLitElement {
       display: contents;
     }
 
-    adaptive-modal-surface {
-      --adaptive-modal-width: min(520px, calc(100vw - 24px));
-      --adaptive-modal-max-height: min(680px, calc(100dvh - 24px));
-      --adaptive-modal-sheet-max-height: min(86dvh, calc(100dvh - 10px));
-      --adaptive-modal-sheet-border-radius: var(--cv-radius-4) var(--cv-radius-4) 0 0;
-      --adaptive-modal-sheet-grabber-color: color-mix(
-        in srgb,
-        var(--cv-color-primary) 45%,
-        var(--cv-color-border-strong)
-      );
-    }
-
-    adaptive-modal-surface::part(content) {
+    cv-bottom-sheet::part(content) {
       overflow: hidden;
-      border-color: color-mix(in srgb, var(--cv-color-primary) 26%, var(--cv-color-border));
+      border-color: var(--cv-color-primary-border);
       background: var(--cv-color-surface);
     }
 
-    adaptive-modal-surface::part(header) {
+    cv-bottom-sheet::part(header) {
       padding: var(--cv-space-4) var(--cv-space-4) var(--cv-space-3);
       border-block-end: 1px solid var(--cv-color-border);
     }
 
-    adaptive-modal-surface::part(title) {
+    cv-bottom-sheet::part(title) {
       font-size: 1.125rem;
       font-weight: var(--cv-font-weight-bold);
       line-height: 1.2;
     }
 
-    adaptive-modal-surface::part(header-close) {
+    cv-bottom-sheet::part(header-close) {
       inline-size: 36px;
       block-size: 36px;
       border-radius: var(--cv-radius-2);
       color: var(--cv-color-text-muted);
     }
 
-    adaptive-modal-surface::part(body) {
+    cv-bottom-sheet::part(body) {
       min-block-size: 0;
       padding: 0;
       overflow: hidden;
     }
 
-    adaptive-modal-surface::part(footer) {
+    cv-bottom-sheet::part(footer) {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: var(--cv-space-2);
@@ -111,7 +99,7 @@ export class PMEntryMoveSheet extends ReatomLitElement {
   }
 
   static define() {
-    AdaptiveModalSurface.define()
+    CVBottomSheet.define()
     CVButton.define()
     PMEntryMoveMobile.define()
     if (!customElements.get(this.elementName)) {
@@ -126,6 +114,12 @@ export class PMEntryMoveSheet extends ReatomLitElement {
         composed: true,
       }),
     )
+  }
+
+  private handleSheetChange(event: CustomEvent<{open?: boolean}>) {
+    if (event.target !== event.currentTarget) return
+    if (event.detail.open !== false) return
+    this.emitClose()
   }
 
   private emitCancel() {
@@ -168,10 +162,9 @@ export class PMEntryMoveSheet extends ReatomLitElement {
 
   protected override render() {
     return html`
-      <adaptive-modal-surface
+      <cv-bottom-sheet
         .open=${this.open}
-        .ariaLabel=${i18n('dialog:move:title')}
-        @close=${this.emitClose}
+        @cv-change=${this.handleSheetChange}
         @keydown=${this.handleKeyDown}
       >
         <span slot="title">${i18n('dialog:move:title')}</span>
@@ -205,7 +198,7 @@ export class PMEntryMoveSheet extends ReatomLitElement {
         >
           ${i18n('button:move')}
         </cv-button>
-      </adaptive-modal-surface>
+      </cv-bottom-sheet>
     `
   }
 }

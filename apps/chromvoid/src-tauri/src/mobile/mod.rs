@@ -1,6 +1,6 @@
 pub mod android;
 
-#[cfg_attr(target_os = "android", allow(dead_code))]
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
 pub mod ios;
 
 use std::fmt;
@@ -237,6 +237,7 @@ pub fn save_image_to_gallery(
     }
 }
 
+#[cfg(mobile)]
 pub fn open_file_with_system(
     path: &std::path::Path,
     mime_type: Option<&str>,
@@ -258,6 +259,7 @@ pub fn open_file_with_system(
     }
 }
 
+#[cfg(mobile)]
 pub fn open_url_with_system(url: &str) -> Result<(), String> {
     #[cfg(target_os = "android")]
     {
@@ -271,6 +273,7 @@ pub fn open_url_with_system(url: &str) -> Result<(), String> {
     }
 }
 
+#[cfg(mobile)]
 pub fn share_files_with_system(items: &[(&std::path::Path, Option<&str>)]) -> Result<(), String> {
     #[cfg(target_os = "android")]
     {

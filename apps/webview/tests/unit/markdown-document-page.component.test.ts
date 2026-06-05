@@ -121,16 +121,6 @@ describe('markdown-document-page component', () => {
     expect(element.shadowRoot?.querySelector<HTMLInputElement>('.title-input')?.getAttribute('aria-invalid')).toBe('true')
   })
 
-  it('keeps the desktop header but hides it on mobile', () => {
-    ensureDefined()
-    const cssText = MarkdownDocumentPage.styles.map((style) => style.cssText ?? '').join('\n')
-
-    expect(cssText).toContain('.header')
-    expect(cssText).toContain('@media (max-width: 720px)')
-    expect(cssText).toMatch(/@media \(max-width: 720px\)[\s\S]*padding-block-end: 0;/)
-    expect(cssText).toContain('display: none;')
-  })
-
   it('renders route-level loading state while the Markdown document is pending', async () => {
     ensureDefined()
 

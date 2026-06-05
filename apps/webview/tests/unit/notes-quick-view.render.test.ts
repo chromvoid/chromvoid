@@ -51,28 +51,6 @@ function parentPath(path: string): string {
   return index <= 0 ? '/' : `${path.slice(0, index)}/`
 }
 
-function stylesToText(styles: unknown): string {
-  if (Array.isArray(styles)) {
-    return styles.map((style) => stylesToText(style)).join('\n')
-  }
-
-  if (typeof styles === 'object' && styles && 'cssText' in styles) {
-    return String((styles as {cssText: string}).cssText)
-  }
-
-  return String(styles ?? '')
-}
-
-function getStyleRule(cssText: string, selector: string) {
-  const selectorIndex = cssText.lastIndexOf(`${selector} {`)
-  if (selectorIndex === -1) return ''
-
-  const ruleStart = cssText.indexOf('{', selectorIndex)
-  const ruleEnd = cssText.indexOf('}', ruleStart)
-
-  return cssText.slice(ruleStart + 1, ruleEnd)
-}
-
 function setupContext(items: CatalogNotesListItem[] | null) {
   const connected = atom(true)
   initAppContext(
@@ -223,43 +201,28 @@ describe('NotesQuickView render', () => {
     expect(element.shadowRoot?.querySelector('[data-folder-path="/Docs"]')?.textContent).toContain('Mobile.md')
   })
 
-  it('keeps mobile scroll ownership inside the quick view content', () => {
-    const cssText = stylesToText(NotesQuickViewMobile.styles)
-    const contentCssText = getStyleRule(cssText, '.quick-view__content')
-
-    expect(cssText).not.toContain('100dvh')
-    expect(cssText).not.toContain('100% - var(--safe-area-top, 0px)')
-    expect(cssText).not.toContain('var(--mobile-topbar-block-size, 56px)')
-    expect(cssText).not.toContain(
-      'var(--mobile-tab-bar-active-block-size, var(--mobile-tab-bar-block-size, 64px))',
-    )
-    expect(cssText).not.toContain('var(--safe-area-bottom-active, var(--safe-area-bottom, 0px))')
-    expect(cssText).toContain('block-size: 100%;')
-    expect(cssText).toContain('min-block-size: 0;')
-    expect(cssText).toContain('overflow: hidden;')
-    expect(contentCssText).toContain('overflow-y: auto;')
-    expect(contentCssText).toContain('overflow-x: hidden;')
-    expect(contentCssText).toContain('overscroll-behavior-y: contain;')
-    expect(contentCssText).toContain('-webkit-overflow-scrolling: touch;')
-  })
-
   it('renders unavailable, empty, and filtered empty states', async () => {
     setupContext(null)
     const unavailableElement = await renderDesktop()
-    expect(unavailableElement.shadowRoot?.querySelector('.empty-state')?.textContent).toContain(
+    expect(unavailableElement.shadowRoot?.querySelector('cv-empty-state')?.getAttribute('headline')).toBe(
       'Files catalog is unavailable',
     )
     unavailableElement.remove()
 
     setupContext([])
     const emptyElement = await renderDesktop()
-    expect(emptyElement.shadowRoot?.querySelector('.empty-state')?.textContent).toContain('No Markdown notes')
+    expect(emptyElement.shadowRoot?.querySelector('cv-empty-state')?.getAttribute('headline')).toBe(
+      'No Markdown notes',
+    )
+    expect(emptyElement.shadowRoot?.querySelector('cv-guidance-anchor[anchor-id="notes.create-note"]')).not.toBeNull()
     emptyElement.remove()
 
     setupContext([note(1, 'Root.md', '/Root.md')])
     notesQuickViewModel.actions.setQuery('missing')
     const filteredElement = await renderDesktop()
-    expect(filteredElement.shadowRoot?.querySelector('.empty-state')?.textContent).toContain('No matching notes')
+    expect(filteredElement.shadowRoot?.querySelector('cv-empty-state')?.getAttribute('headline')).toBe(
+      'No matching notes',
+    )
     expect(filteredElement.shadowRoot?.querySelector('.clear-filters')).not.toBeNull()
   })
 

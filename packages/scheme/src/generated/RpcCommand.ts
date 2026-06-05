@@ -196,9 +196,10 @@ export type RpcCommand =
     }
   | {command: 'passmanager:group:list'; data: Record<string, never>}
   | {command: 'passmanager:group:delete'; data: {path: string}}
+  | {command: 'passmanager:tags:setCatalog'; data: {tags: string[]}}
   | {
       command: 'passmanager:root:import'
-      data: {entries: JsonValue; folders: JsonValue; folders_meta: JsonValue | null}
+      data: {entries: JsonValue; folders: JsonValue; folders_meta: JsonValue | null; tags?: string[]}
     }
   | {command: 'passmanager:root:export'; data: Record<string, never>}
   | {

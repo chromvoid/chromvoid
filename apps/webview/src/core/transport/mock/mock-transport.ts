@@ -1,5 +1,8 @@
 import {atom} from '@reatom/core'
-import {normalizeCredentialTags} from '@project/passmanager/tags'
+import {
+  normalizeCredentialTagCatalog,
+  normalizeCredentialTags,
+} from '@project/passmanager/tags'
 
 import type {TransportEventHandler, TransportLike} from '../transport'
 import type {
@@ -110,6 +113,7 @@ export class MockTransport implements TransportLike {
   private passmanagerNextNodeId = 1
   private passmanagerFolders = new Set<string>()
   private passmanagerFolderMeta = new Map<string, MockPassmanagerFolderMeta>()
+  private passmanagerTags: string[] = []
   private passmanagerEntries = new Map<string, {nodeId: number; meta: Record<string, unknown>}>()
   private passmanagerSecrets = new Map<string, string>()
   private passmanagerOtpSecrets = new Map<string, {secret: string; digits: number; period: number}>()
@@ -162,6 +166,7 @@ export class MockTransport implements TransportLike {
           ...('description' in meta ? {description: meta.description ?? null} : {}),
         }))
         .sort((left, right) => left.path.localeCompare(right.path)),
+      tags: this.effectivePassmanagerTags(),
       entries: Array.from(this.passmanagerEntries.entries())
         .map(([, value]) => ({
           nodeId: value.nodeId,
@@ -238,6 +243,8 @@ export class MockTransport implements TransportLike {
       }
     }
 
+    this.passmanagerTags = normalizeCredentialTagCatalog(json.tags ?? [])
+
     this.passmanagerEntries.clear()
     for (const item of json.entries ?? []) {
       if (!item || typeof item !== 'object') continue
@@ -284,6 +291,13 @@ export class MockTransport implements TransportLike {
       if (typeof key !== 'string' || !value || typeof value !== 'object') continue
       this.passmanagerIcons.set(key, structuredClone(value))
     }
+  }
+
+  private effectivePassmanagerTags(extraTags: readonly string[] = []): string[] {
+    const assignedTags = Array.from(this.passmanagerEntries.values()).flatMap(({meta}) =>
+      normalizeCredentialTags(meta['tags']),
+    )
+    return normalizeCredentialTagCatalog([...this.passmanagerTags, ...assignedTags, ...extraTags])
   }
 
   private scheduleSave(): void {
@@ -1403,6 +1417,7 @@ export class MockTransport implements TransportLike {
             if (destructiveMode && allowDestructive) {
               this.passmanagerFolders.clear()
               this.passmanagerFolderMeta.clear()
+              this.passmanagerTags = []
               this.passmanagerEntries.clear()
               this.passmanagerSecrets.clear()
               this.passmanagerOtpSecrets.clear()
@@ -1438,6 +1453,13 @@ export class MockTransport implements TransportLike {
               })
             }
 
+            const importedTags = Array.isArray(data['tags'])
+              ? normalizeCredentialTagCatalog(data['tags'])
+              : []
+            this.passmanagerTags = destructiveMode
+              ? this.effectivePassmanagerTags(importedTags)
+              : normalizeCredentialTagCatalog([...this.passmanagerTags, ...this.effectivePassmanagerTags(importedTags)])
+
             const foldersMeta = Array.isArray(data['folders_meta'] ?? data['foldersMeta'])
               ? ((data['folders_meta'] ?? data['foldersMeta']) as Array<Record<string, unknown>>)
               : []
@@ -1457,6 +1479,13 @@ export class MockTransport implements TransportLike {
               }
             }
 
+            this.bumpPassmanagerRevision()
+            return ok(undefined)
+          }
+
+          case 'passmanager:tags:setCatalog': {
+            if (!Array.isArray(data['tags'])) return err('tags must be string[]')
+            this.passmanagerTags = normalizeCredentialTagCatalog(data['tags'])
             this.bumpPassmanagerRevision()
             return ok(undefined)
           }
@@ -1501,7 +1530,15 @@ export class MockTransport implements TransportLike {
                 ...('description' in meta ? {description: meta.description ?? null} : {}),
               }))
               .sort((left, right) => left.path.localeCompare(right.path))
-            return ok({root: {version: 1, entries, folders, foldersMeta}})
+            return ok({
+              root: {
+                version: 1,
+                entries,
+                folders,
+                foldersMeta,
+                tags: this.effectivePassmanagerTags(),
+              },
+            })
           }
 
           case 'passmanager:otp:generate': {

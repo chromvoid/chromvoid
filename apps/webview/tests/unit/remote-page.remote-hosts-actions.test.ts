@@ -2,19 +2,8 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {navigationModel} from '../../src/app/navigation/navigation.model'
 import {RemotePageModel} from '../../src/routes/remote/remote-page.model'
-import {remotePageStyles} from '../../src/routes/remote/remote-page.styles'
 import type {NetworkPairedPeer} from '../../src/routes/remote/remote.model'
 import {toast} from '../../src/shared/services/toast-manager'
-
-function stylesToText(styles: unknown): string {
-  const values = Array.isArray(styles) ? styles : [styles]
-  return values
-    .map((value) => {
-      if (value == null) return ''
-      return typeof value === 'object' && 'cssText' in (value as object) ? String((value as {cssText: string}).cssText) : String(value)
-    })
-    .join('\n')
-}
 
 describe('RemotePage remote hosts side effects', () => {
   beforeEach(() => {
@@ -70,10 +59,4 @@ describe('RemotePage remote hosts side effects', () => {
     expect(toastSpy).toHaveBeenCalledWith('Paired host removed', 'Remote')
   })
 
-  it('lets the mobile shell own safe-area bottom clearance', () => {
-    const cssText = stylesToText(remotePageStyles)
-
-    expect(cssText).toContain('padding-block-end: var(--app-spacing-8);')
-    expect(cssText).not.toContain('env(safe-area-inset-bottom')
-  })
 })

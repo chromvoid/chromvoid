@@ -21,7 +21,7 @@ export class FileMoveMobile extends FileMoveBase {
     ...fileMoveSharedStyles,
     css`
       :host {
-        --file-move-indent-step: 10px;
+        --file-move-indent-step: var(--pm-move-indent-step-mobile);
         display: grid;
         min-block-size: 0;
         block-size: 100%;
@@ -58,7 +58,7 @@ export class FileMoveMobile extends FileMoveBase {
         overflow: hidden;
         border: 0;
         border-radius: var(--cv-radius-2);
-        background: color-mix(in srgb, var(--cv-color-surface-2) 82%, transparent);
+        background: var(--cv-color-surface-2);
       }
 
       .tree .row:first-child {
@@ -89,7 +89,7 @@ export class FileMoveMobile extends FileMoveBase {
 
       .row.selected {
         border-color: transparent;
-        background: color-mix(in srgb, var(--cv-color-primary) 14%, var(--cv-color-surface));
+        background: var(--cv-color-primary-surface);
         font-weight: var(--cv-font-weight-medium);
       }
 

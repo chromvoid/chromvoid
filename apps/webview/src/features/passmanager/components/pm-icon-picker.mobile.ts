@@ -1,6 +1,7 @@
+import {CVBottomSheet} from '@chromvoid/uikit/components/cv-bottom-sheet'
+import {html} from '@chromvoid/uikit/reatom-lit'
 import {css} from 'lit'
 
-import {AdaptiveModalSurface} from 'root/shared/ui/adaptive-modal-surface'
 import {PMIconPickerBase, pmIconPickerBaseStyles} from './pm-icon-picker.base'
 
 const pmIconPickerMobileStyles = css`
@@ -17,7 +18,7 @@ const pmIconPickerMobileStyles = css`
     --pm-avatar-icon-size: 20px;
   }
 
-  adaptive-modal-surface::part(content) {
+  cv-bottom-sheet::part(content) {
     max-width: 100vw;
   }
 
@@ -38,7 +39,7 @@ export class PMIconPickerMobile extends PMIconPickerBase {
   }
 
   static define() {
-    AdaptiveModalSurface.define()
+    CVBottomSheet.define()
     if (!customElements.get(this.elementName)) {
       customElements.define(this.elementName, this)
     }
@@ -55,5 +56,17 @@ export class PMIconPickerMobile extends PMIconPickerBase {
 
   protected override shouldRenderTrigger(): boolean {
     return !this.dialogOnly
+  }
+
+  protected override renderDialog() {
+    return html`
+      <cv-bottom-sheet
+        .open=${this.iconPickerModel.dialogOpen()}
+        .closeOnOutsidePointer=${true}
+        @cv-change=${this.onDialogChange}
+      >
+        ${this.renderDialogContent()}
+      </cv-bottom-sheet>
+    `
   }
 }

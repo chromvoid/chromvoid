@@ -380,34 +380,15 @@ const pmEntryCreateDesktopStyles = css`
   }
 
   .create-footer cv-button {
-    --cv-button-background: var(--cv-color-primary-dark);
-    --cv-button-background-hover: var(--cv-color-primary);
-    --cv-button-background-active: var(--cv-color-primary-darker);
-    --cv-button-border-color: var(--cv-color-primary-border-strong);
-    --cv-button-border-color-hover: var(--cv-color-primary-border-strong);
-    --cv-button-border-color-active: var(--cv-color-primary-border-strong);
-    --cv-button-text-color: var(--cv-color-on-primary);
-    --cv-button-text-color-hover: var(--cv-color-on-primary);
-    --cv-button-text-color-active: var(--cv-color-on-primary);
-    --cv-button-focus-ring-color: var(--cv-color-primary-ring);
     inline-size: 100%;
   }
 
   .create-footer cv-button::part(base) {
-    --cv-button-background: var(--cv-color-primary-dark);
-    --cv-button-background-hover: var(--cv-color-primary);
-    --cv-button-background-active: var(--cv-color-primary-darker);
-    --cv-button-border-color: var(--cv-color-primary-border-strong);
-    --cv-button-border-color-hover: var(--cv-color-primary-border-strong);
-    --cv-button-border-color-active: var(--cv-color-primary-border-strong);
-    --cv-button-text-color: var(--cv-color-on-primary);
-    --cv-button-text-color-hover: var(--cv-color-on-primary);
-    --cv-button-text-color-active: var(--cv-color-on-primary);
     min-block-size: 3.25rem;
-    border: 1px solid var(--cv-color-primary-border-strong);
+    border: 1px solid var(--cv-button-border-color);
     border-radius: var(--cv-radius-3);
-    background: var(--cv-color-primary-dark);
-    color: var(--cv-color-on-primary);
+    background: var(--cv-button-background);
+    color: var(--cv-button-text-color);
     box-shadow:
       var(--cv-shadow-sm),
       0 0 24px var(--cv-color-primary-ring);
@@ -832,7 +813,14 @@ export class PMEntryCreateDesktop extends PMEntryCreateBase {
 
     return html`
       <footer class="create-footer">
-        <cv-button .disabled=${disabled} .loading=${this.model.isSubmitting()} size="large" variant="primary" type="submit">
+        <cv-button
+          .disabled=${disabled}
+          .loading=${this.model.isSubmitting()}
+          size="large"
+          variant="primary"
+          preset="action-primary"
+          type="submit"
+        >
           <cv-icon slot="prefix" name="shield-check"></cv-icon>
           <span>${this.model.isSubmitting() ? i18n('entry:creating') : i18n('button:create_entry')}</span>
           <cv-icon slot="suffix" name="chevron-right"></cv-icon>

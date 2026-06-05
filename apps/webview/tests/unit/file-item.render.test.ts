@@ -130,6 +130,35 @@ describe('file-item render split', () => {
     expect(element.shadowRoot?.querySelector('.swipe-container')).not.toBeNull()
   })
 
+  it('handles mobile horizontal touchmove through the template listener', async () => {
+    ensureDefined()
+    setTouchCapability(true)
+
+    const element = document.createElement('file-item-mobile') as FileItemMobile
+    element.item = ITEM
+    element.viewMode = 'list'
+    document.body.appendChild(element)
+    await settle(element)
+
+    const fileItem = element.shadowRoot?.querySelector('.file-item')
+    const touchStartEvent = new Event('touchstart', {bubbles: true, cancelable: true}) as TouchEvent
+    Object.defineProperty(touchStartEvent, 'touches', {
+      configurable: true,
+      value: [{clientX: 96, clientY: 16}],
+    })
+    fileItem?.dispatchEvent(touchStartEvent)
+
+    const touchMoveEvent = new Event('touchmove', {bubbles: true, cancelable: true}) as TouchEvent
+    Object.defineProperty(touchMoveEvent, 'touches', {
+      configurable: true,
+      value: [{clientX: 32, clientY: 18}],
+    })
+    fileItem?.dispatchEvent(touchMoveEvent)
+
+    expect(touchMoveEvent.defaultPrevented).toBe(true)
+    expect(element.shadowRoot?.querySelector('.swipe-container.swipe-left')).not.toBeNull()
+  })
+
   it('does not open the context menu on mobile long press', async () => {
     ensureDefined()
     setTouchCapability(true)

@@ -7,10 +7,7 @@ mod pair;
 mod tests;
 
 pub(super) use capability::check_capability;
-pub(super) use helpers::{
-    is_allowed_path, pin_to_psk, reject_ws_request, GatewayWsRoute, NOISE_PATTERN_EXTENSION,
-    NOISE_PATTERN_IK, NOISE_PATTERN_PAIR,
-};
+pub(super) use helpers::{is_allowed_path, reject_ws_request, GatewayWsRoute};
 
 use tauri::Manager;
 use tokio_tungstenite::tungstenite::http::StatusCode;

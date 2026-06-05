@@ -4,6 +4,7 @@ import {CVDrawer, type CVDrawerEventDetail} from '@chromvoid/uikit/components/cv
 import {css, nothing} from 'lit'
 
 import {tryGetAppContext} from 'root/shared/services/app-context'
+import {MobileBottomActionFooter} from 'root/shared/ui/mobile-bottom-action-footer'
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 import {EdgeSwipeBack} from 'root/utils/edge-swipe-back'
 import {SwipeGesture} from 'root/utils/swipe-gestures'
@@ -31,6 +32,7 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
     }
     NavigationRail.define()
     MobileTabBar.define()
+    MobileBottomActionFooter.define()
     MediaMiniPlayer.define()
     CommandBar.define()
     CVDrawer.define()
@@ -194,8 +196,11 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
         -webkit-backdrop-filter: blur(4px);
         opacity: 0;
         pointer-events: none;
-        transition: opacity var(--cv-duration-normal, 220ms)
-          var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1));
+        transition:
+          opacity var(--cv-duration-normal, 220ms)
+            var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
+          display var(--cv-duration-normal, 220ms) allow-discrete;
+        transition-behavior: allow-discrete;
         z-index: var(--cv-z-overlay, 300);
       }
 
@@ -224,7 +229,9 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
           transform var(--cv-duration-slow, 320ms)
             var(--cv-easing-decelerate, cubic-bezier(0, 0, 0.2, 1)),
           opacity var(--cv-duration-fast, 120ms)
-            var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1));
+            var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
+          display var(--cv-duration-slow, 320ms) allow-discrete;
+        transition-behavior: allow-discrete;
         z-index: calc(var(--cv-z-overlay, 300) + 1);
         overflow: auto;
         view-transition-name: details-panel;

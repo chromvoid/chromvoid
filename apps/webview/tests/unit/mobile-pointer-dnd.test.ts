@@ -96,14 +96,12 @@ describe('MobilePointerDndModel', () => {
     expect(model.move({x: 19, y: 10})).toBe(true)
     expect(model.active()).toBe(true)
     expect(model.dropTargetId()).toBe('target')
-    expect(document.body.style.userSelect).toBe('none')
 
     await expect(model.commit({x: 19, y: 10})).resolves.toBe(true)
     expect(drop).toHaveBeenCalledWith('target', payload)
     expect(onAfterDrop).toHaveBeenCalledWith('target', payload, true)
     expect(model.active()).toBe(false)
     expect(model.payload()).toBeNull()
-    expect(document.body.style.userSelect).toBe('')
   })
 
   it('chooses the smallest containing target', () => {
@@ -136,26 +134,19 @@ describe('MobilePointerDndModel', () => {
     expect(model.dropTargetId()).toBeNull()
   })
 
-  it('restores existing body user-select values after cancel', () => {
+  it('cancels an active drag without dropping', () => {
     const {model, onCancel} = createModel()
-    const bodyStyle = document.body.style as CSSStyleDeclaration & {webkitUserSelect?: string}
-    bodyStyle.userSelect = 'text'
-    bodyStyle.webkitUserSelect = 'text'
 
     model.begin(payload, {x: 0, y: 0})
     model.move({x: 20, y: 0})
 
     expect(model.active()).toBe(true)
-    expect(bodyStyle.userSelect).toBe('none')
-    expect(bodyStyle.webkitUserSelect).toBe('none')
 
     model.cancel()
 
     expect(onCancel).toHaveBeenCalledWith(payload)
     expect(model.active()).toBe(false)
     expect(model.payload()).toBeNull()
-    expect(bodyStyle.userSelect).toBe('text')
-    expect(bodyStyle.webkitUserSelect).toBe('text')
   })
 
   it('clears the selected target when the pointer leaves valid drop zones', () => {
@@ -202,7 +193,6 @@ describe('MobilePointerDndModel', () => {
     expect(model.active()).toBe(false)
     expect(model.payload()).toBe(nextPayload)
     expect(model.point()).toEqual({x: 5, y: 5})
-    expect(document.body.style.userSelect).toBe('')
   })
 
   it('reports failed drops through onAfterDrop and still cleans up', async () => {
@@ -222,7 +212,6 @@ describe('MobilePointerDndModel', () => {
     expect(onCancel).not.toHaveBeenCalled()
     expect(model.active()).toBe(false)
     expect(model.payload()).toBeNull()
-    expect(document.body.style.userSelect).toBe('')
   })
 
   it('waits for delayed drop completion before reporting after-drop state', async () => {

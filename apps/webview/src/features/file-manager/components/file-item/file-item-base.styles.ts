@@ -64,12 +64,6 @@ export const fileItemBaseStyles = [
       z-index: 1;
     }
 
-    :host(.touch-drag-over) {
-      background: var(--cv-color-success-surface) !important;
-      box-shadow: inset 0 0 0 2px var(--cv-color-success-border-strong) !important;
-      transform: scale(1.02);
-    }
-
     :host([pending-external-open]) {
       background: var(--cv-color-primary-surface);
       box-shadow: inset 0 0 0 1px var(--cv-color-primary-border);
@@ -138,10 +132,10 @@ export const fileItemBaseStyles = [
     }
 
     .thumbnail-shell {
-      --file-media-spectrum-width: 24px;
-      --file-media-spectrum-height: 24px;
-      --file-media-spectrum-bar-width: 4px;
-      --file-media-spectrum-gap: 4px;
+      --file-media-spectrum-width: var(--file-media-spectrum-default-width);
+      --file-media-spectrum-height: var(--file-media-spectrum-default-height);
+      --file-media-spectrum-bar-width: var(--file-media-spectrum-default-bar-width);
+      --file-media-spectrum-gap: var(--file-media-spectrum-default-gap);
       inline-size: 44px;
       block-size: 44px;
       display: flex;

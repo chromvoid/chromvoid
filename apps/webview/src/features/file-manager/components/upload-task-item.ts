@@ -131,25 +131,7 @@ export class UploadTaskItem extends ReatomLitElement {
 
       .task-progress-bar {
         --cv-progress-height: 6px;
-        --cv-progress-track-color: var(--cv-color-border);
-        --cv-progress-indicator-background: var(--gradient-primary);
         margin-block-end: 8px;
-      }
-
-      .task-progress-bar.queued {
-        --cv-progress-indicator-background: var(--cv-color-border-strong);
-      }
-
-      .task-progress-bar.done {
-        --cv-progress-indicator-background: var(--cv-color-success);
-      }
-
-      .task-progress-bar.error {
-        --cv-progress-indicator-background: var(--cv-color-danger);
-      }
-
-      .task-progress-bar.paused {
-        --cv-progress-indicator-background: var(--cv-color-warning);
       }
 
       .task-details {
@@ -259,6 +241,14 @@ export class UploadTaskItem extends ReatomLitElement {
     return texts[status]
   }
 
+  private getProgressTone(status: UploadTaskStatus) {
+    if (status === 'done') return 'success'
+    if (status === 'error') return 'danger'
+    if (status === 'paused') return 'warning'
+    if (status === 'queued') return 'queued'
+    return 'upload'
+  }
+
   private onRetryClick = () => {
     if (!this.task) return
     getAppContext().store.updateUploadTask(this.task.id, {status: 'uploading'})
@@ -321,6 +311,7 @@ export class UploadTaskItem extends ReatomLitElement {
 
         <cv-progress
           class="task-progress-bar ${status}"
+          tone=${this.getProgressTone(status)}
           value=${displayedProgress}
           ?indeterminate=${isIndeterminate}
           aria-label=${statusText}

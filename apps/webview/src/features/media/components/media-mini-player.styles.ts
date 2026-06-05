@@ -4,15 +4,15 @@ export const mediaMiniPlayerStyles = css`
   :host {
     display: block;
     min-inline-size: 0;
-    --media-mini-surface: #101722;
-    --media-mini-surface-start: #141c27;
-    --media-mini-surface-end: #0b111a;
-    --media-mini-border: rgba(255, 255, 255, 0.06);
-    --media-mini-text: #f4f7fa;
-    --media-mini-text-secondary: #9aa6b5;
-    --media-mini-text-muted: #667080;
-    --media-mini-accent: #27d9e8;
-    --media-mini-accent-muted: rgba(39, 217, 232, 0.12);
+    --media-mini-surface: var(--cv-color-media-mini-surface);
+    --media-mini-surface-start: var(--cv-color-media-mini-surface-start);
+    --media-mini-surface-end: var(--cv-color-media-mini-surface-end);
+    --media-mini-border: var(--cv-color-media-mini-border);
+    --media-mini-text: var(--cv-color-media-mini-text);
+    --media-mini-text-secondary: var(--cv-color-media-mini-text-secondary);
+    --media-mini-text-muted: var(--cv-color-media-mini-text-muted);
+    --media-mini-accent: var(--cv-color-media-mini-accent);
+    --media-mini-accent-muted: var(--cv-color-media-mini-accent-muted);
   }
 
   :host([variant='statusbar']) {
@@ -36,13 +36,9 @@ export const mediaMiniPlayerStyles = css`
     align-items: center;
     column-gap: 8px;
     border: 1px solid var(--media-mini-border);
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 34%),
-      linear-gradient(180deg, var(--media-mini-surface-start) 0%, var(--media-mini-surface-end) 100%);
+    background: var(--cv-gradient-media-mini-surface);
     color: var(--media-mini-text-secondary);
-    box-shadow:
-      0 16px 40px rgba(0, 0, 0, 0.42),
-      0 0 24px rgba(39, 217, 232, 0.06);
+    box-shadow: var(--cv-shadow-media-mini);
     cursor: pointer;
     overflow: visible;
     -webkit-tap-highlight-color: transparent;
@@ -77,10 +73,10 @@ export const mediaMiniPlayerStyles = css`
     inline-size: 1.5px;
     block-size: 44px;
     border-radius: 0 1px 1px 0;
-    background: linear-gradient(180deg, var(--media-mini-accent), rgba(39, 217, 232, 0.35));
+    background: var(--cv-gradient-media-mini-accent-line);
     clip-path: polygon(0 0, 100% 3px, 100% calc(100% - 3px), 0 100%);
     opacity: 0.78;
-    box-shadow: 0 0 8px rgba(39, 217, 232, 0.08);
+    box-shadow: 0 0 8px var(--cv-color-media-mini-accent-glow);
     transform: translateY(-50%);
     transition: opacity 180ms var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1));
   }
@@ -90,7 +86,7 @@ export const mediaMiniPlayerStyles = css`
   }
 
   .media-mini[data-error='true'] .media-mini-accent {
-    background: linear-gradient(180deg, rgba(154, 166, 181, 0.58), rgba(102, 112, 128, 0.24));
+    background: var(--cv-gradient-media-mini-error-line);
     box-shadow: none;
     opacity: 0.72;
   }
@@ -161,9 +157,9 @@ export const mediaMiniPlayerStyles = css`
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid rgba(39, 217, 232, 0.16);
+    border: 1px solid var(--cv-color-media-mini-accent-border);
     border-radius: 10px;
-    background: linear-gradient(180deg, rgba(39, 217, 232, 0.1), #13212b);
+    background: var(--cv-gradient-media-mini-fallback-tile);
     color: var(--media-mini-accent);
     pointer-events: none;
   }
@@ -239,7 +235,7 @@ export const mediaMiniPlayerStyles = css`
     block-size: 3px;
     border: 0;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--cv-color-media-mini-track);
     overflow: visible;
   }
 
@@ -256,7 +252,7 @@ export const mediaMiniPlayerStyles = css`
     border: 0;
     border-radius: 999px;
     background: var(--media-mini-accent);
-    box-shadow: 0 0 0 3px rgba(39, 217, 232, 0.12);
+    box-shadow: 0 0 0 3px var(--cv-color-media-mini-accent-glow-strong);
   }
 
   .media-mini-progress[disabled] {
@@ -289,16 +285,15 @@ export const mediaMiniPlayerStyles = css`
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid rgba(39, 217, 232, 0.38);
+    border: 1px solid var(--cv-color-media-mini-accent-border-strong);
     border-radius: 999px;
-    background: rgba(39, 217, 232, 0.09);
+    background: var(--cv-color-media-mini-accent-soft);
     color: var(--media-mini-accent);
     cursor: pointer;
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.06),
-      inset 0 -8px 22px rgba(39, 217, 232, 0.04);
+      var(--cv-shadow-media-mini-control);
     transition:
       transform 140ms var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
       border-color 140ms var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
@@ -312,8 +307,8 @@ export const mediaMiniPlayerStyles = css`
   }
 
   .media-mini-menu {
-    --cv-menu-button-menu-offset: 8px;
-    --cv-menu-button-menu-min-inline-size: 188px;
+    --cv-menu-button-icon-overflow-menu-offset: 8px;
+    --cv-menu-button-icon-overflow-menu-min-inline-size: 188px;
     --cv-menu-button-menu-z-index: var(--cv-z-overlay, 300);
     color: var(--media-mini-text-secondary);
   }
@@ -324,9 +319,9 @@ export const mediaMiniPlayerStyles = css`
     block-size: 46px;
     min-block-size: 46px;
     padding: 0;
-    border: 1px solid rgba(255, 255, 255, 0.07);
+    border: 1px solid var(--cv-alpha-white-8);
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.035);
+    background: var(--cv-color-media-mini-control-surface);
     color: var(--media-mini-text-secondary);
     transition:
       transform 140ms var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
@@ -350,8 +345,8 @@ export const mediaMiniPlayerStyles = css`
   .media-mini-menu::part(menu) {
     border: 1px solid var(--media-mini-border);
     border-radius: 14px;
-    background: #101722;
-    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.42);
+    background: var(--media-mini-surface);
+    box-shadow: var(--cv-shadow-media-mini-menu);
   }
 
   .media-mini-menu cv-menu-item {
@@ -363,17 +358,17 @@ export const mediaMiniPlayerStyles = css`
 
   @media (hover: hover) and (pointer: fine) {
     .media-mini-open:hover .media-mini-title {
-      color: color-mix(in srgb, var(--media-mini-text) 88%, var(--media-mini-accent));
+      color: var(--cv-color-media-mini-text);
     }
 
     .media-mini-button:hover {
-      border-color: rgba(39, 217, 232, 0.58);
-      background: rgba(39, 217, 232, 0.13);
+      border-color: var(--cv-color-media-mini-accent-border-hover);
+      background: var(--cv-color-media-mini-accent-surface-hover);
     }
 
     .media-mini-menu:hover::part(trigger) {
-      border-color: rgba(255, 255, 255, 0.11);
-      background: rgba(255, 255, 255, 0.055);
+      border-color: var(--cv-color-media-mini-border-hover);
+      background: var(--cv-color-media-mini-control-surface-hover);
       color: var(--media-mini-text);
     }
   }

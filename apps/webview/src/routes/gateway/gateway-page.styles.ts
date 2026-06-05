@@ -281,10 +281,6 @@ export const gatewayPageStyles = [
     }
 
     cv-callout.gateway-callout {
-      --cv-callout-padding-block: var(--app-spacing-3);
-      --cv-callout-padding-inline: var(--app-spacing-3);
-      --cv-callout-border-radius: var(--cv-radius-2);
-      --cv-callout-font-size: var(--cv-font-size-sm);
       text-align: center;
     }
 

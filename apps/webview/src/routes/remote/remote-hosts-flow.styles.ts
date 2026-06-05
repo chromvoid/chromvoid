@@ -182,10 +182,8 @@ export const remoteHostsFlowStyles = css`
   }
 
   cv-callout.remote-hosts-callout {
-    --cv-callout-padding-block: var(--app-spacing-3);
-    --cv-callout-padding-inline: var(--app-spacing-4);
-    --cv-callout-border-radius: 8px;
-    --cv-callout-font-size: 0.875rem;
+    --cv-callout-compact-padding-inline: var(--app-spacing-4);
+    --cv-callout-compact-border-radius: var(--cv-radius-md);
     margin-top: var(--app-spacing-3);
   }
 

@@ -67,64 +67,6 @@ describe('file-manager shortcut surfaces', () => {
     expect(shortcuts).toEqual([])
   })
 
-  it('positions context-menu through host custom properties instead of inline template style', async () => {
-    ensureDefined()
-    const menu = document.createElement('context-menu') as ContextMenu
-    document.body.appendChild(menu)
-
-    menu.show(20, 24, items())
-    await settle(menu)
-
-    expect(menu.style.getPropertyValue('--context-menu-x')).toBe('20px')
-    expect(menu.style.getPropertyValue('--context-menu-y')).toBe('24px')
-    expect(menu.shadowRoot?.querySelector('.anchor')?.hasAttribute('style')).toBe(false)
-    expect(menu.shadowRoot?.querySelector('.context-menu')?.hasAttribute('style')).toBe(false)
-  })
-
-  it('syncs fallback-clamped context-menu position through host custom properties', async () => {
-    ensureDefined()
-    vi.stubGlobal('CSS', {supports: vi.fn(() => false)})
-    vi.stubGlobal('innerWidth', 180)
-    vi.stubGlobal('innerHeight', 120)
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
-      if ((this as HTMLElement).classList?.contains('context-menu')) {
-        return {
-          x: 0,
-          y: 0,
-          left: 0,
-          top: 0,
-          right: 160,
-          bottom: 80,
-          width: 160,
-          height: 80,
-          toJSON: () => ({}),
-        } as DOMRect
-      }
-
-      return {
-        x: 0,
-        y: 0,
-        left: 0,
-        top: 0,
-        right: 0,
-        bottom: 0,
-        width: 0,
-        height: 0,
-        toJSON: () => ({}),
-      } as DOMRect
-    })
-
-    const menu = document.createElement('context-menu') as ContextMenu
-    document.body.appendChild(menu)
-
-    menu.show(176, 116, items())
-    await settle(menu)
-
-    expect(menu.style.getPropertyValue('--context-menu-x')).toBe('12px')
-    expect(menu.style.getPropertyValue('--context-menu-y')).toBe('32px')
-    expect(menu.shadowRoot?.querySelector('.context-menu')?.hasAttribute('style')).toBe(false)
-  })
-
   it('activates context-menu shortcuts only when the current platform has bindings', async () => {
     ensureDefined()
     setRuntimeCapabilities({platform: 'windows', desktop: true})

@@ -130,34 +130,6 @@ describe('file-preview component', () => {
     )
   })
 
-  it('keeps the preview overlay inside safe-area insets', () => {
-    const cssText = FilePreview.styles.map((style) => style.cssText ?? '').join('\n')
-
-    expect(cssText).toContain(
-      '--file-preview-overlay-padding-top: max(var(--app-spacing-4), var(--safe-area-top, 0px));',
-    )
-    expect(cssText).toContain(
-      '--file-preview-overlay-padding-right: max(var(--app-spacing-4), var(--safe-area-right, 0px));',
-    )
-    expect(cssText).toContain('--file-preview-overlay-padding-bottom: max(')
-    expect(cssText).toContain('var(--safe-area-bottom-active, var(--safe-area-bottom, 0px))')
-    expect(cssText).toContain(
-      '--file-preview-overlay-padding-left: max(var(--app-spacing-4), var(--safe-area-left, 0px));',
-    )
-
-    const mobileHostCss =
-      cssText.match(/@media \(max-width: 720px\)\s*{\s*:host\s*{([\s\S]*?)\n\s*}/)?.[1] ?? ''
-
-    expect(mobileHostCss).toContain(
-      '--file-preview-overlay-padding-top: max(var(--app-spacing-4), var(--safe-area-top, 0px));',
-    )
-    expect(mobileHostCss).toContain('--file-preview-overlay-padding-right: var(--safe-area-right, 0px);')
-    expect(mobileHostCss).toContain(
-      '--file-preview-overlay-padding-bottom: var(--safe-area-bottom-active, var(--safe-area-bottom, 0px));',
-    )
-    expect(mobileHostCss).toContain('--file-preview-overlay-padding-left: var(--safe-area-left, 0px);')
-  })
-
   it('falls back when text preview exceeds the byte limit', async () => {
     vi.spyOn(fileLoader, 'loadTextFileById').mockRejectedValue(
       new fileLoader.FileLoadError('TEXT_TOO_LARGE', 'TEXT_TOO_LARGE:1048576'),

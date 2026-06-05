@@ -17,7 +17,7 @@
       "@project/passmanager/types": ["../../packages/passmanager/src/types.ts"],
       "@project/passmanager/select": ["../../packages/passmanager/src/service/select.ts"],
       "@project/passmanager/sorting": ["../../packages/passmanager/src/service/sorting.ts"],
-      "@project/passmanager/sort-storage": ["../../packages/passmanager/src/services/sort-storage.ts"],
+      "@project/passmanager/sort-storage": ["../../packages/passmanager/src/service/sort-storage.ts"],
       "@project/passmanager/security-audit": ["../../packages/passmanager/src/security-audit.ts"],
       "@project/passmanager/theme": ["../../packages/passmanager/src/service/theme.ts"],
       "@project/passmanager/timer": ["../../packages/passmanager/src/timer.ts"],

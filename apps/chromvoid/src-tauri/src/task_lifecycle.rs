@@ -19,6 +19,7 @@ pub(crate) enum ManagedTaskName {
     AutoLock,
     GatewayServer,
     ShutdownSignalListener,
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     AndroidHostModeResume,
     MacosStaleMountCleanup,
 }
@@ -38,10 +39,12 @@ pub(crate) enum EventTaskName {
     SshAgentCatalogRefresh,
     VaultAutoMountAfterUnlock,
     VaultSshAgentAutoStartAfterUnlock,
+    #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
     IosPendingWakeOrHostResume,
     IosForegroundReconnect,
     IosPushRegistrationSync,
     IosPushWakeHandling,
+    #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
     IosBackgroundRefresh,
     AndroidQuickLock,
     VaultSystemSleepLock,
@@ -91,6 +94,7 @@ impl ExternalTaskReadiness {
 
 #[cfg(any(target_os = "ios", target_os = "macos", test))]
 impl ExternalThreadTask {
+    #[cfg(test)]
     pub(crate) fn new(
         stop: impl FnOnce() + Send + 'static,
         join_handle: std::thread::JoinHandle<()>,

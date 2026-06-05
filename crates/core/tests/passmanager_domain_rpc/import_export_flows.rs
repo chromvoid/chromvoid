@@ -38,6 +38,55 @@ fn test_passmanager_root_import_preserves_tags() {
     let exported_entry =
         get_root_entry_by_id(&exported, "import-tag-entry").expect("exported imported entry");
     assert_eq!(entry_tags(exported_entry), vec!["Imported", "Client A"]);
+    let root_tags = exported
+        .result()
+        .and_then(|r| r.get("root"))
+        .and_then(|root| root.get("tags"))
+        .and_then(|tags| tags.as_array())
+        .expect("root tags");
+    assert_eq!(
+        root_tags
+            .iter()
+            .map(|tag| tag.as_str().expect("tag string"))
+            .collect::<Vec<_>>(),
+        vec!["Client A", "Imported"]
+    );
+}
+
+#[test]
+fn test_passmanager_root_import_export_preserves_zero_use_tags() {
+    let (mut router, _tmp) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "pw"));
+
+    let imported = router.handle(&RpcRequest::new(
+        "passmanager:root:import",
+        serde_json::json!({
+            "folders": [],
+            "tags": ["Zero Use", " #Work ", "work"],
+            "entries": []
+        }),
+    ));
+    assert_rpc_ok(&imported);
+
+    let exported = router.handle(&RpcRequest::new(
+        "passmanager:root:export",
+        serde_json::json!({}),
+    ));
+    assert_rpc_ok(&exported);
+
+    let root_tags = exported
+        .result()
+        .and_then(|r| r.get("root"))
+        .and_then(|root| root.get("tags"))
+        .and_then(|tags| tags.as_array())
+        .expect("root tags");
+    assert_eq!(
+        root_tags
+            .iter()
+            .map(|tag| tag.as_str().expect("tag string"))
+            .collect::<Vec<_>>(),
+        vec!["Work", "Zero Use"]
+    );
 }
 
 #[test]

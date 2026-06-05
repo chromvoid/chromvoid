@@ -206,7 +206,10 @@ pub(crate) fn mobile_host_status(state: tauri::State<'_, AppState>) -> serde_jso
     }
 
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
-    serde_json::json!({"phase": "Idle"})
+    {
+        let _ = state;
+        serde_json::json!({"phase": "Idle"})
+    }
 }
 
 #[tauri::command]

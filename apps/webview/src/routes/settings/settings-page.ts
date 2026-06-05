@@ -354,13 +354,6 @@ export class SettingsPage extends ReatomLitElement {
         overflow-wrap: anywhere;
       }
 
-      cv-callout.settings-callout {
-        --cv-callout-font-size: var(--cv-font-size-xs);
-        --cv-callout-padding-block: var(--app-spacing-2);
-        --cv-callout-padding-inline: var(--app-spacing-3);
-        --cv-callout-border-radius: var(--cv-radius-2);
-      }
-
       cv-callout.settings-callout::part(base) {
         line-height: 1.45;
       }
@@ -1145,7 +1138,7 @@ export class SettingsPage extends ReatomLitElement {
           </div>
 
           ${feedbackMessage
-            ? html`<cv-callout class="settings-callout" variant="danger" role="alert"
+            ? html`<cv-callout class="settings-callout" variant="danger" density="dense" role="alert"
                 >${feedbackMessage}</cv-callout
               >`
             : nothing}
@@ -1355,6 +1348,7 @@ export class SettingsPage extends ReatomLitElement {
           <cv-callout
             class="settings-callout"
             variant="danger"
+            density="dense"
             role="alert"
             ?hidden=${watch(this.model.licenseActivationErrorHidden)}
           >
@@ -1426,7 +1420,7 @@ export class SettingsPage extends ReatomLitElement {
                 : nothing}
               ${this.model.isMobileRuntime() && this.model.supportsCredentialProviderAutofill()
                 ? html`
-                    <cv-callout class="settings-callout" variant="warning">
+                    <cv-callout class="settings-callout" variant="warning" density="dense">
                       ${i18n('settings:autofill-incompatible')}
                     </cv-callout>
                   `
@@ -1717,7 +1711,7 @@ export class SettingsPage extends ReatomLitElement {
           </div>
           ${credentialProviderAccess.status !== 'enabled'
             ? html`
-                <cv-callout class="settings-callout" variant="warning">
+                <cv-callout class="settings-callout" variant="warning" density="dense">
                   ${credentialProviderAccess.status === 'unsupported'
                     ? i18n('settings:credential-provider-unsupported')
                     : i18n('settings:credential-provider-license-required')}

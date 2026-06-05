@@ -289,14 +289,10 @@ export class MobileTopToolbar extends ReatomLitElement {
       /* ── Overflow dropdown ── */
 
       .overflow-menu {
-        --cv-menu-button-gap: 0;
         --cv-menu-button-min-height: 44px;
-        --cv-menu-button-padding-inline: 0;
-        --cv-menu-button-padding-block: 0;
-        --cv-menu-button-menu-offset: 4px;
-        --cv-menu-button-menu-min-inline-size: 180px;
-        --cv-menu-button-menu-max-inline-size: min(280px, calc(100vw - 16px));
+        --cv-menu-button-menu-align: center;
         --cv-menu-button-menu-z-index: 10;
+        --cv-menu-item-gap: 14px;
       }
 
       .overflow-menu::part(trigger) {
@@ -374,7 +370,8 @@ export class MobileTopToolbar extends ReatomLitElement {
       }
 
       .overflow-menu-item::part(base) {
-        gap: 10px;
+        align-items: center;
+        gap: var(--cv-menu-item-gap, 14px);
         padding: 10px 12px;
         border-radius: var(--cv-radius-1, 6px);
         white-space: nowrap;
@@ -533,6 +530,7 @@ export class MobileTopToolbar extends ReatomLitElement {
           <cv-menu-button
             class="overflow-menu ${overflowActive ? 'active' : ''}"
             variant="ghost"
+            preset="icon-overflow"
             aria-label=${i18n('button:more_actions' as any)}
             @cv-input=${this.onOverflowMenuInput}
           >

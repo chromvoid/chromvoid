@@ -35,6 +35,61 @@
   --gradient-success: var(--cv-gradient-success);
   --gradient-brand: var(--cv-gradient-brand);
   --gradient-subtle: var(--cv-gradient-subtle);
+
+  /* App/domain geometry tokens. */
+  --pm-avatar-list-size: 32px;
+  --pm-avatar-list-compact-size: 28px;
+  --pm-avatar-list-radius: var(--cv-radius-1);
+  --pm-avatar-list-image-padding: 3px;
+  --pm-avatar-list-image-shadow: 0 1px 2px var(--cv-alpha-black-10);
+  --pm-avatar-list-shadow-opacity: 30%;
+  --pm-avatar-list-letter-size: 11px;
+  --pm-avatar-list-active-contrast-bump: 8%;
+  --pm-avatar-list-active-shadow-opacity: 34%;
+  --pm-avatar-list-folder-size: 24px;
+  --pm-avatar-list-folder-image-padding: 4px;
+  --pm-avatar-list-folder-icon-size: 20px;
+  --pm-avatar-header-image-padding: clamp(4px, 12%, 8px);
+  --pm-avatar-header-shadow-opacity: 36%;
+  --pm-avatar-header-letter-size: var(--cv-font-size-lg);
+  --pm-avatar-header-letter-size-compact: var(--cv-font-size-base);
+  --pm-avatar-header-letter-size-md: 1.5rem;
+  --pm-avatar-header-letter-size-lg: 1.75rem;
+  --pm-avatar-picker-radius: 8px;
+  --pm-avatar-picker-preview-size: 28px;
+  --pm-avatar-picker-preview-image-padding: 4px;
+  --pm-avatar-picker-preview-icon-size: 24px;
+  --pm-avatar-picker-dialog-preview-size: 34px;
+  --pm-avatar-picker-dialog-image-padding: 3px;
+  --pm-avatar-picker-dialog-icon-size: 20px;
+  --pm-action-copy-size-inline: 1.8rem;
+  --pm-action-copy-size-compact: 1.65rem;
+  --pm-action-copy-size-dense: 1.55rem;
+  --pm-move-indent-step: 12px;
+  --pm-move-indent-step-mobile: 10px;
+  --cv-scroll-edge-default-block-size: 44px;
+  --cv-scroll-edge-default-inline-start: 0px;
+  --cv-scroll-edge-default-inline-end: 0px;
+  --cv-scroll-edge-default-surface: var(--cv-color-surface);
+  --cv-scroll-edge-default-surface-fade: var(--cv-color-surface);
+  --cv-scroll-edge-list-block-size: 52px;
+  --cv-scroll-edge-list-inline-end: 12px;
+  --cv-scroll-edge-group-block-size: 46px;
+  --file-media-spectrum-list-width: 22px;
+  --file-media-spectrum-list-height: 22px;
+  --file-media-spectrum-list-bar-width: 4px;
+  --file-media-spectrum-list-gap: 3px;
+  --file-media-spectrum-default-width: 24px;
+  --file-media-spectrum-default-height: 24px;
+  --file-media-spectrum-default-bar-width: 4px;
+  --file-media-spectrum-default-gap: 4px;
+  --file-media-spectrum-grid-width: 40px;
+  --file-media-spectrum-grid-height: 40px;
+  --file-media-spectrum-grid-bar-width: 5px;
+  --file-media-spectrum-grid-gap: 5px;
+  --pm-entry-status-dot-glow: var(--cv-color-primary-ring);
+  --pm-entry-status-dot-warning-glow: var(--cv-color-warning-ring);
+  --pm-entry-status-dot-danger-glow: var(--cv-color-danger-ring);
 }
 
 cv-button.gradient-primary::part(base),

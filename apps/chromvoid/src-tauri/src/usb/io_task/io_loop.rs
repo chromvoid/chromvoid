@@ -7,7 +7,6 @@ use crate::usb::transport;
 use chromvoid_core::rpc::types::RpcResponse;
 use chromvoid_core::rpc::{RpcOutputStream, RpcReply, RpcStreamMeta};
 use std::collections::{HashMap, VecDeque};
-use std::io::Read as _;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;

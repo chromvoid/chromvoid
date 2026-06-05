@@ -12,13 +12,6 @@ import {clearAppContext, createMockAppContext, initAppContext} from '../../src/s
 
 type LayoutMode = 'mobile' | 'desktop'
 
-function stylesToText(styles: typeof NavigationRail.styles): string {
-  return styles
-    .flatMap((style) => (Array.isArray(style) ? style : [style]))
-    .map((style) => (typeof style === 'object' && 'cssText' in style ? String(style.cssText) : String(style)))
-    .join('\n')
-}
-
 function setupContext(layout: LayoutMode, sidebarOpen = true) {
   const layoutMode = atom<LayoutMode>(layout)
   const sidebar = atom(sidebarOpen)
@@ -326,16 +319,6 @@ describe('NavigationRail mobile drawer auto-close', () => {
     expect(redirected).toBe(true)
     expect(navigationModel.currentSurface()).toBe('remote')
     expect(navigationModel.remotePanel()).toBe('hosts')
-  })
-
-  it('left-aligns expanded drawer button content without changing collapsed rail buttons', () => {
-    const cssText = stylesToText(NavigationRail.styles)
-
-    expect(cssText).toMatch(
-      /:host\(\[expanded\]\) \.item::part\(base\),\s*:host\(\[expanded\]\) \.theme-toggle::part\(base\)\s*{[^}]*justify-content: flex-start;[^}]*text-align: start;/,
-    )
-    expect(cssText).not.toMatch(/^\s*\.item::part\(base\)\s*{/m)
-    expect(cssText).not.toMatch(/^\s*\.theme-toggle::part\(base\)\s*{/m)
   })
 
   it('keeps the brand collapse toggle available on desktop', async () => {

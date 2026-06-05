@@ -1,9 +1,9 @@
 import {CVButton} from '@chromvoid/uikit/components/cv-button'
+import {CVBottomSheet} from '@chromvoid/uikit/components/cv-bottom-sheet'
 import {css, nothing} from 'lit'
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
 import {i18n} from '@project/passmanager/i18n'
-import {AdaptiveModalSurface} from 'root/shared/ui/adaptive-modal-surface'
 import {PMEntryOTPCreate} from './entry-otp-create'
 import {PMEntryOtpCreateModel} from './entry-otp-create.model'
 
@@ -24,32 +24,26 @@ export class PMEntryOTPCreateSheet extends ReatomLitElement {
       display: contents;
     }
 
-    adaptive-modal-surface {
-      --adaptive-modal-width: min(520px, calc(100vw - 24px));
-      --adaptive-modal-max-height: min(720px, calc(100dvh - 24px));
-      --adaptive-modal-sheet-max-height: min(90dvh, calc(100dvh - 12px));
-    }
-
-    adaptive-modal-surface::part(body) {
+    cv-bottom-sheet::part(body) {
       padding: 0 var(--cv-space-5) var(--cv-space-5);
     }
 
-    adaptive-modal-surface::part(header) {
+    cv-bottom-sheet::part(header) {
       padding: var(--cv-space-5) var(--cv-space-5) var(--cv-space-4);
     }
 
-    adaptive-modal-surface::part(title) {
+    cv-bottom-sheet::part(title) {
       font-size: 1.375rem;
       font-weight: var(--cv-font-weight-bold);
       line-height: 1.15;
     }
 
-    adaptive-modal-surface::part(description) {
+    cv-bottom-sheet::part(description) {
       font-size: 1rem;
       line-height: 1.35;
     }
 
-    adaptive-modal-surface::part(footer) {
+    cv-bottom-sheet::part(footer) {
       padding: 0 var(--cv-space-5) max(var(--cv-space-5), env(safe-area-inset-bottom));
       border-block-start: 0;
       background: var(--cv-color-surface);
@@ -91,7 +85,7 @@ export class PMEntryOTPCreateSheet extends ReatomLitElement {
   }
 
   static define() {
-    AdaptiveModalSurface.define()
+    CVBottomSheet.define()
     CVButton.define()
     PMEntryOTPCreate.define()
     if (!customElements.get(this.elementName)) {
@@ -113,6 +107,12 @@ export class PMEntryOTPCreateSheet extends ReatomLitElement {
     )
   }
 
+  private handleSheetChange(event: CustomEvent<{open?: boolean}>) {
+    if (event.target !== event.currentTarget) return
+    if (event.detail.open !== false) return
+    this.onClose(event)
+  }
+
   private onPrimary() {
     this.dispatchEvent(
       new CustomEvent('pm-entry-otp-create-sheet-primary', {
@@ -126,16 +126,15 @@ export class PMEntryOTPCreateSheet extends ReatomLitElement {
     const qrScannerActive = this.model.qrScannerScanning()
 
     return html`
-      <adaptive-modal-surface
+      <cv-bottom-sheet
         .open=${this.open}
-        .ariaLabel=${this.title}
         .closable=${!qrScannerActive}
         .closeOnEscape=${!qrScannerActive}
         .closeOnOutsidePointer=${!qrScannerActive}
         .closeOnOutsideFocus=${!qrScannerActive}
         .dragToClose=${!qrScannerActive}
         initial-focus-id="otp-secret-input"
-        @close=${this.onClose}
+        @cv-change=${this.handleSheetChange}
       >
         <span slot="title">${this.title}</span>
         ${this.description ? html`<span slot="description">${this.description}</span>` : nothing}
@@ -154,7 +153,7 @@ export class PMEntryOTPCreateSheet extends ReatomLitElement {
         >
           ${this.primaryLabel}
         </cv-button>
-      </adaptive-modal-surface>
+      </cv-bottom-sheet>
     `
   }
 }

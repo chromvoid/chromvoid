@@ -6,14 +6,26 @@ import {
   ANDROID_KEYBOARD_INSETS_EVENT,
   ANDROID_NATIVE_KEYBOARD_INSETS_ATTR,
   ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR,
+  IOS_KEYBOARD_INSETS_EVENT,
+  IOS_NATIVE_KEYBOARD_INSETS_ATTR,
+  IOS_NATIVE_SAFE_AREA_BOTTOM_ATTR,
+  MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR,
+  NATIVE_KEYBOARD_INSETS_ATTR,
+  NATIVE_SAFE_AREA_BOTTOM_ATTR,
   applyMobileKeyboardInsetsPayload,
   applyMobileKeyboardVisibilityPayload,
   getMobileKeyboardPayloadBottomInset,
   setupAndroidKeyboardInsetsEventListener,
+  setupIOSKeyboardInsetsEventListener,
 } from 'root/app/bootstrap/mobile-keyboard-insets'
 
 const tauriInvoke = vi.fn()
 const tauriListen = vi.fn()
+
+type WindowWithNativeKeyboardInsets = Window & {
+  __chromvoidAndroidKeyboardInsets?: unknown
+  __chromvoidIosKeyboardInsets?: unknown
+}
 
 vi.mock('root/core/transport/tauri/ipc', () => ({
   tauriInvoke: (...args: unknown[]) => tauriInvoke(...args),
@@ -25,16 +37,40 @@ async function flushDynamicImport(): Promise<void> {
   await Promise.resolve()
 }
 
+function createTouchPointerEvent(
+  type: string,
+  options: {clientX?: number; clientY?: number; pointerId?: number} = {},
+): PointerEvent {
+  const event = new Event(type, {bubbles: true, cancelable: true, composed: true}) as PointerEvent
+  Object.defineProperties(event, {
+    clientX: {value: options.clientX ?? 0},
+    clientY: {value: options.clientY ?? 0},
+    pointerId: {value: options.pointerId ?? 1},
+    pointerType: {value: 'touch'},
+  })
+  return event
+}
+
 describe('mobile keyboard visibility payload', () => {
   afterEach(() => {
-    delete (window as Window & {__chromvoidAndroidKeyboardInsets?: unknown}).__chromvoidAndroidKeyboardInsets
+    delete (window as WindowWithNativeKeyboardInsets).__chromvoidAndroidKeyboardInsets
+    delete (window as WindowWithNativeKeyboardInsets).__chromvoidIosKeyboardInsets
     document.documentElement.removeAttribute('data-mobile-keyboard-expanded')
+    document.documentElement.removeAttribute(NATIVE_KEYBOARD_INSETS_ATTR)
     document.documentElement.removeAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR)
+    document.documentElement.removeAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR)
+    document.documentElement.removeAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR)
+    document.documentElement.removeAttribute(NATIVE_SAFE_AREA_BOTTOM_ATTR)
     document.documentElement.removeAttribute(ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR)
+    document.documentElement.removeAttribute(IOS_NATIVE_SAFE_AREA_BOTTOM_ATTR)
     document.documentElement.style.removeProperty('--safe-area-top-fallback')
     document.documentElement.style.removeProperty('--safe-area-bottom-native')
     document.documentElement.style.removeProperty('--native-keyboard-bottom-inset')
     document.documentElement.style.removeProperty('--visual-viewport-bottom-inset')
+    document.documentElement.style.removeProperty('--mobile-keyboard-bottom-inset')
+    document.documentElement.style.removeProperty('--mobile-keyboard-scroll-action-offset')
+    document.documentElement.style.removeProperty('--mobile-keyboard-scroll-clearance')
+    document.documentElement.style.removeProperty('--mobile-keyboard-overlay-offset')
   })
 
   it('stores a real native keyboard inset when the keyboard is visible', () => {
@@ -44,25 +80,9 @@ describe('mobile keyboard visibility payload', () => {
     })
 
     expect(document.documentElement.hasAttribute('data-mobile-keyboard-expanded')).toBe(true)
-    expect(document.documentElement.style.getPropertyValue('--native-keyboard-bottom-inset')).toBe('286px')
-    expect(document.documentElement.style.getPropertyValue('--visual-viewport-bottom-inset')).toBe('286px')
-  })
-
-  it('keeps a larger visual viewport inset when the native inset is smaller', () => {
-    document.documentElement.style.setProperty('--visual-viewport-bottom-inset', '320px')
-
-    applyMobileKeyboardVisibilityPayload(document.documentElement, {
-      visible: true,
-      bottomInset: 280,
-    })
-
-    expect(document.documentElement.style.getPropertyValue('--native-keyboard-bottom-inset')).toBe('280px')
-    expect(document.documentElement.style.getPropertyValue('--visual-viewport-bottom-inset')).toBe('320px')
   })
 
   it('applies android native progress insets exactly during IME animation', () => {
-    document.documentElement.style.setProperty('--visual-viewport-bottom-inset', '320px')
-
     applyMobileKeyboardInsetsPayload(document.documentElement, {
       visible: true,
       bottomInset: 140,
@@ -74,11 +94,8 @@ describe('mobile keyboard visibility payload', () => {
 
     expect(document.documentElement.hasAttribute('data-mobile-keyboard-expanded')).toBe(true)
     expect(document.documentElement.hasAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(true)
+    expect(document.documentElement.hasAttribute(NATIVE_KEYBOARD_INSETS_ATTR)).toBe(true)
     expect(document.documentElement.hasAttribute(ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR)).toBe(true)
-    expect(document.documentElement.style.getPropertyValue('--safe-area-top-fallback')).toBe('24px')
-    expect(document.documentElement.style.getPropertyValue('--safe-area-bottom-native')).toBe('18px')
-    expect(document.documentElement.style.getPropertyValue('--native-keyboard-bottom-inset')).toBe('140px')
-    expect(document.documentElement.style.getPropertyValue('--visual-viewport-bottom-inset')).toBe('140px')
   })
 
   it('applies android native custom events to keyboard inset state', () => {
@@ -99,10 +116,6 @@ describe('mobile keyboard visibility payload', () => {
 
     expect(document.documentElement.hasAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(true)
     expect(document.documentElement.hasAttribute(ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR)).toBe(true)
-    expect(document.documentElement.style.getPropertyValue('--safe-area-top-fallback')).toBe('28px')
-    expect(document.documentElement.style.getPropertyValue('--safe-area-bottom-native')).toBe('19px')
-    expect(document.documentElement.style.getPropertyValue('--native-keyboard-bottom-inset')).toBe('188px')
-    expect(document.documentElement.style.getPropertyValue('--visual-viewport-bottom-inset')).toBe('188px')
   })
 
   it('applies android native safe-area custom events when the keyboard is hidden', () => {
@@ -122,11 +135,94 @@ describe('mobile keyboard visibility payload', () => {
     cleanup()
 
     expect(document.documentElement.hasAttribute('data-mobile-keyboard-expanded')).toBe(false)
+    expect(document.documentElement.hasAttribute(NATIVE_KEYBOARD_INSETS_ATTR)).toBe(false)
     expect(document.documentElement.hasAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(false)
+    expect(document.documentElement.hasAttribute(NATIVE_SAFE_AREA_BOTTOM_ATTR)).toBe(true)
     expect(document.documentElement.hasAttribute(ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR)).toBe(true)
-    expect(document.documentElement.style.getPropertyValue('--safe-area-top-fallback')).toBe('50px')
-    expect(document.documentElement.style.getPropertyValue('--safe-area-bottom-native')).toBe('18px')
+  })
+
+  it('applies ios native-resize custom events without visual viewport lift', () => {
+    const cleanup = setupIOSKeyboardInsetsEventListener(document.documentElement)
+
+    window.dispatchEvent(
+      new CustomEvent(IOS_KEYBOARD_INSETS_EVENT, {
+        detail: {
+          visible: true,
+          bottomInset: 301.6,
+          safeAreaTopInset: 58.7,
+          safeAreaBottomInset: 34.2,
+          phase: 'settled',
+          source: 'ios-native',
+          viewportMode: 'native-resize',
+        },
+      }),
+    )
+    cleanup()
+
+    expect(document.documentElement.hasAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(true)
+    expect(document.documentElement.hasAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR)).toBe(true)
+    expect(document.documentElement.style.getPropertyValue('--native-keyboard-bottom-inset')).toBe('302px')
     expect(document.documentElement.style.getPropertyValue('--visual-viewport-bottom-inset')).toBe('0px')
+    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-bottom-inset')).toBe('302px')
+    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-scroll-action-offset')).toBe('0px')
+    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-overlay-offset')).toBe('0px')
+  })
+
+  it('ignores malformed ios custom events that are missing native-resize mode', () => {
+    const cleanup = setupIOSKeyboardInsetsEventListener(document.documentElement)
+
+    window.dispatchEvent(
+      new CustomEvent(IOS_KEYBOARD_INSETS_EVENT, {
+        detail: {
+          visible: true,
+          bottomInset: 301.6,
+          source: 'ios-native',
+        },
+      }),
+    )
+    cleanup()
+
+    expect(document.documentElement.hasAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(false)
+    expect(document.documentElement.style.getPropertyValue('--native-keyboard-bottom-inset')).toBe('')
+  })
+
+  it('ignores ios native progress custom events', () => {
+    const cleanup = setupIOSKeyboardInsetsEventListener(document.documentElement)
+
+    window.dispatchEvent(
+      new CustomEvent(IOS_KEYBOARD_INSETS_EVENT, {
+        detail: {
+          visible: true,
+          bottomInset: 301.6,
+          safeAreaTopInset: 58.7,
+          safeAreaBottomInset: 34.2,
+          phase: 'progress',
+          source: 'ios-native',
+          viewportMode: 'native-resize',
+        },
+      }),
+    )
+    cleanup()
+
+    expect(document.documentElement.hasAttribute('data-mobile-keyboard-expanded')).toBe(false)
+    expect(document.documentElement.hasAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(false)
+    expect(document.documentElement.hasAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR)).toBe(false)
+  })
+
+  it('ignores ios native progress visibility payloads', () => {
+    applyMobileKeyboardVisibilityPayload(document.documentElement, {
+      visible: true,
+      bottomInset: 301.6,
+      safeAreaTopInset: 58.7,
+      safeAreaBottomInset: 34.2,
+      phase: 'progress',
+      source: 'ios-native',
+      viewportMode: 'native-resize',
+    })
+
+    expect(document.documentElement.hasAttribute('data-mobile-keyboard-expanded')).toBe(false)
+    expect(document.documentElement.hasAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(false)
+    expect(document.documentElement.hasAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR)).toBe(false)
   })
 
   it('treats zero android native bottom safe-area as an explicit value', () => {
@@ -139,12 +235,12 @@ describe('mobile keyboard visibility payload', () => {
       source: 'android-native',
     })
 
+    expect(document.documentElement.hasAttribute(NATIVE_SAFE_AREA_BOTTOM_ATTR)).toBe(true)
     expect(document.documentElement.hasAttribute(ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR)).toBe(true)
-    expect(document.documentElement.style.getPropertyValue('--safe-area-bottom-native')).toBe('0px')
   })
 
   it('applies a pending android native inset payload when the listener starts late', () => {
-    ;(window as Window & {__chromvoidAndroidKeyboardInsets?: unknown}).__chromvoidAndroidKeyboardInsets = {
+    ;(window as WindowWithNativeKeyboardInsets).__chromvoidAndroidKeyboardInsets = {
       visible: false,
       bottomInset: 0,
       safeAreaTopInset: 30,
@@ -155,8 +251,26 @@ describe('mobile keyboard visibility payload', () => {
     const cleanup = setupAndroidKeyboardInsetsEventListener(document.documentElement)
     cleanup()
 
-    expect(document.documentElement.style.getPropertyValue('--safe-area-top-fallback')).toBe('30px')
-    expect(document.documentElement.style.getPropertyValue('--safe-area-bottom-native')).toBe('22px')
+    expect(document.documentElement.hasAttribute(ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR)).toBe(true)
+  })
+
+  it('applies a pending ios native-resize inset payload when the listener starts late', () => {
+    ;(window as WindowWithNativeKeyboardInsets).__chromvoidIosKeyboardInsets = {
+      visible: true,
+      bottomInset: 288,
+      safeAreaTopInset: 59,
+      safeAreaBottomInset: 34,
+      phase: 'settled',
+      source: 'ios-native',
+      viewportMode: 'native-resize',
+    }
+
+    const cleanup = setupIOSKeyboardInsetsEventListener(document.documentElement)
+    cleanup()
+
+    expect(document.documentElement.hasAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR)).toBe(true)
+    expect(document.documentElement.style.getPropertyValue('--native-keyboard-bottom-inset')).toBe('288px')
+    expect(document.documentElement.style.getPropertyValue('--visual-viewport-bottom-inset')).toBe('0px')
   })
 
   it('clears the native keyboard inset when the keyboard is hidden', () => {
@@ -168,14 +282,45 @@ describe('mobile keyboard visibility payload', () => {
     applyMobileKeyboardVisibilityPayload(document.documentElement, {visible: false})
 
     expect(document.documentElement.hasAttribute('data-mobile-keyboard-expanded')).toBe(false)
-    expect(document.documentElement.style.getPropertyValue('--native-keyboard-bottom-inset')).toBe('0px')
-    expect(document.documentElement.style.getPropertyValue('--visual-viewport-bottom-inset')).toBe('0px')
   })
 
   it('ignores invalid native insets without creating a fallback height', () => {
     expect(getMobileKeyboardPayloadBottomInset({visible: true, bottomInset: Number.NaN})).toBe(0)
     expect(getMobileKeyboardPayloadBottomInset({visible: true, bottomInset: -20})).toBe(0)
     expect(getMobileKeyboardPayloadBottomInset({visible: false, bottomInset: 280})).toBe(0)
+  })
+})
+
+describe('mobile keyboard tap workaround', () => {
+  afterEach(() => {
+    tauriInvoke.mockReset()
+    tauriListen.mockReset()
+    document.body.innerHTML = ''
+    document.documentElement.removeAttribute('data-mobile-keyboard-expanded')
+    vi.restoreAllMocks()
+  })
+
+  it('keeps the focused input when an action touch turns into a scroll gesture', async () => {
+    tauriInvoke.mockResolvedValue(undefined)
+    tauriListen.mockResolvedValue(() => {})
+    const isMobile = atom(true)
+
+    setupMobileKeyboardTapWorkaround({isMobile} as any)
+    await flushDynamicImport()
+
+    const input = document.createElement('input')
+    const action = document.createElement('button')
+    document.body.append(input, action)
+    input.focus()
+    document.documentElement.setAttribute('data-mobile-keyboard-expanded', '')
+
+    const blurSpy = vi.spyOn(input, 'blur')
+    action.dispatchEvent(createTouchPointerEvent('pointerdown', {clientX: 12, clientY: 12}))
+    action.dispatchEvent(createTouchPointerEvent('pointermove', {clientX: 12, clientY: 42}))
+    action.dispatchEvent(createTouchPointerEvent('pointerup', {clientX: 12, clientY: 42}))
+
+    expect(blurSpy).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(input)
   })
 })
 

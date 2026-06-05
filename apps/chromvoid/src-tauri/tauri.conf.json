@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ChromVoid",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "identifier": "com.chromvoid.app",
   "build": {
     "beforeDevCommand": "cd ../webview && npm run dev",
@@ -35,7 +35,7 @@
         "enable": true,
         "scope": ["$APPCACHE/chromvoid-preview/**"]
       },
-      "csp": "default-src 'self'; img-src 'self' data: blob: asset: http://asset.localhost; media-src 'self' blob: asset: chromvoid-media: http://asset.localhost; style-src 'self'; script-src 'self'; connect-src 'self' data: ipc: http://ipc.localhost ws://127.0.0.1:8003; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none';"
+      "csp": "default-src 'self'; img-src 'self' data: blob: asset: http://asset.localhost; media-src 'self' blob: asset: chromvoid-media: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' data: ipc: http://ipc.localhost ws://127.0.0.1:8003; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none';"
     }
   }
 }

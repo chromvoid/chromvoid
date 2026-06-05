@@ -3,6 +3,7 @@ import {css, nothing} from 'lit'
 
 import {i18n} from 'root/i18n'
 import {renderGuidanceInline} from 'root/features/guidance/render-guidance-inline'
+import {CvEmptyState} from 'root/shared/ui/empty-state'
 import {
   hostLayoutPaintContainStyles,
   pageFadeInStyles,
@@ -20,6 +21,7 @@ import {
 export class PasskeysPage extends ReatomLitElement {
   static elementName = 'passkeys-page'
   static define() {
+    CvEmptyState.define()
     if (!customElements.get(this.elementName)) {
       customElements.define(this.elementName, this)
     }
@@ -50,10 +52,22 @@ export class PasskeysPage extends ReatomLitElement {
         max-inline-size: 720px;
       }
 
+      :host {
+        display: block;
+        block-size: 100%;
+        min-block-size: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+      }
+
       @media (max-width: 767px) {
         .page {
           box-sizing: border-box;
-          padding-block: var(--app-spacing-4);
+          padding-block-start: var(--app-spacing-4);
+          padding-block-end: calc(
+            var(--app-spacing-8) + var(--mobile-tab-bar-content-clearance, 64px)
+          );
           padding-inline-start: max(var(--app-spacing-4), env(safe-area-inset-left));
           padding-inline-end: max(var(--app-spacing-4), env(safe-area-inset-right));
         }
@@ -259,13 +273,6 @@ export class PasskeysPage extends ReatomLitElement {
         color: var(--text-tertiary, var(--cv-alpha-white-50));
         font-size: var(--cv-font-size-xs);
         overflow-wrap: anywhere;
-      }
-
-      cv-callout.passkeys-callout {
-        --cv-callout-padding-block: var(--app-spacing-2);
-        --cv-callout-padding-inline: var(--app-spacing-3);
-        --cv-callout-border-radius: var(--cv-radius-md, 8px);
-        --cv-callout-font-size: var(--cv-font-size-xs);
       }
 
       .passkey-actions {
@@ -506,7 +513,7 @@ export class PasskeysPage extends ReatomLitElement {
           ${this.model.isAvailable()
             ? html`
                 ${androidPasskeysError
-                  ? html`<cv-callout class="passkeys-callout" variant="warning" role="alert">
+                  ? html`<cv-callout class="passkeys-callout" variant="warning" density="dense" role="alert">
                       ${androidPasskeysError}
                     </cv-callout>`
                   : nothing}
@@ -515,8 +522,13 @@ export class PasskeysPage extends ReatomLitElement {
                   ? html`<p class="description">${i18n('passkeys:loading')}</p>`
                   : !hasAndroidPasskeys
                     ? html`
-                        <p class="description">${i18n('passkeys:empty')}</p>
-                        ${renderGuidanceInline('passkeys.manage', 'passkeys')}
+                        <cv-empty-state
+                          icon="octicons:passkey-fill"
+                          icon-fill
+                          headline=${i18n('passkeys:empty')}
+                        >
+                          ${renderGuidanceInline('passkeys.manage', 'passkeys')}
+                        </cv-empty-state>
                       `
                     : html`
                         <div class="passkey-sections">

@@ -3,7 +3,6 @@ package com.chromvoid.app.main
 import android.util.Log
 import android.webkit.WebView
 import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import kotlin.math.roundToInt
 import org.json.JSONObject
@@ -11,7 +10,6 @@ import org.json.JSONObject
 internal const val ANDROID_KEYBOARD_INSETS_EVENT = "chromvoid:android-keyboard-insets-changed"
 
 internal object AndroidKeyboardInsetsPhase {
-    const val PROGRESS = "progress"
     const val SETTLED = "settled"
 }
 
@@ -120,34 +118,9 @@ internal class AndroidKeyboardInsetsBridge(
 ) {
     fun attach(webView: WebView) {
         ViewCompat.setOnApplyWindowInsetsListener(webView) { _, insets ->
-            dispatcher.dispatch(webView, payloadFromInsets(webView, insets, AndroidKeyboardInsetsPhase.SETTLED))
+            dispatcher.dispatch(webView, payloadFromInsets(webView, insets))
             insets
         }
-        ViewCompat.setWindowInsetsAnimationCallback(
-            webView,
-            object : WindowInsetsAnimationCompat.Callback(
-                WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE,
-            ) {
-                override fun onProgress(
-                    insets: WindowInsetsCompat,
-                    runningAnimations: List<WindowInsetsAnimationCompat>,
-                ): WindowInsetsCompat {
-                    if (runningAnimations.any(::isImeAnimation)) {
-                        dispatcher.dispatch(
-                            webView,
-                            payloadFromInsets(webView, insets, AndroidKeyboardInsetsPhase.PROGRESS),
-                        )
-                    }
-                    return insets
-                }
-
-                override fun onEnd(animation: WindowInsetsAnimationCompat) {
-                    if (isImeAnimation(animation)) {
-                        ViewCompat.requestApplyInsets(webView)
-                    }
-                }
-            },
-        )
         webView.post {
             ViewCompat.requestApplyInsets(webView)
         }
@@ -172,7 +145,6 @@ internal class AndroidKeyboardInsetsBridge(
         private fun payloadFromInsets(
             webView: WebView,
             insets: WindowInsetsCompat,
-            phase: String,
         ): AndroidKeyboardInsetsPayload {
             val density = webView.resources.displayMetrics.density
             val bottomInset = androidInsetPxToCssPx(
@@ -192,11 +164,8 @@ internal class AndroidKeyboardInsetsBridge(
                 bottomInset = bottomInset,
                 safeAreaTopInset = safeAreaTopInset,
                 safeAreaBottomInset = safeAreaBottomInset,
-                phase = phase,
+                phase = AndroidKeyboardInsetsPhase.SETTLED,
             )
         }
-
-        private fun isImeAnimation(animation: WindowInsetsAnimationCompat): Boolean =
-            animation.typeMask and WindowInsetsCompat.Type.ime() != 0
     }
 }

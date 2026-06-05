@@ -9,6 +9,7 @@ vi.mock('../../src/shared/services/external-browser', () => ({
 import {Entry, Group, ManagerRoot} from '@project/passmanager'
 import {setPasswordManagerLang} from '@project/passmanager/i18n'
 import {CVCopyButton} from '@chromvoid/uikit/components/cv-copy-button'
+import {CVCombobox} from '@chromvoid/uikit/components/cv-combobox'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {passmanagerNavigationController} from '../../src/features/passmanager/passmanager-navigation.controller'
 import {PMEntry} from '../../src/features/passmanager/components/card/entry/entry'
@@ -21,6 +22,7 @@ let defined = false
 function ensureDefined() {
   if (defined) return
   CVCopyButton.define()
+  CVCombobox.define()
   PMEntry.define()
   defined = true
 }
@@ -581,12 +583,11 @@ describe('PMEntry', () => {
   })
 
   it('renders read-only tag chips without tag edit actions', async () => {
-    const entry = createEntry({tags: ['Work', 'Rotate']})
-
-    window.passmanager = {
-      isReadOnly: () => true,
-      isEditMode: {set: vi.fn()},
-    } as unknown as typeof window.passmanager
+    const root = new ManagerRoot({} as any)
+    root.isReadOnly.set(true)
+    const entry = createEntry({parent: root, tags: ['Work', 'Rotate']})
+    root.entries.set([entry])
+    window.passmanager = root as unknown as typeof window.passmanager
 
     const component = document.createElement('pm-entry') as PMEntry
     component.entry = entry
@@ -604,33 +605,44 @@ describe('PMEntry', () => {
   })
 
   it('saves changed desktop tags through the entry model', async () => {
-    const entry = createEntry({tags: ['Work']})
+    const root = new ManagerRoot({} as any)
+    root.credentialTags.set(['Work', 'Client A'])
+    const entry = createEntry({parent: root, tags: ['Work']})
+    root.entries.set([entry])
     const updateTags = vi.spyOn(entry, 'updateTags').mockResolvedValue(undefined)
-
-    window.passmanager = {
-      isReadOnly: () => false,
-      isEditMode: {set: vi.fn()},
-    } as unknown as typeof window.passmanager
+    window.passmanager = root as unknown as typeof window.passmanager
 
     const component = document.createElement('pm-entry') as PMEntry
     component.entry = entry
     document.body.append(component)
     await settle(component)
     const model = (component as any).model
+    expect(component.shadowRoot?.querySelector('[data-snippet-section="tags"]')).toBeNull()
+    pmEntryEditorModel.openSurface(entry.id, 'entry')
+    await settle(component)
 
     const editButton = component.shadowRoot?.querySelector(
       '[data-snippet-section="tags"]',
     ) as HTMLButtonElement | null
+    expect(editButton).not.toBeNull()
     editButton?.click()
     await settle(component)
 
-    expect(component.shadowRoot?.querySelector('cv-combobox.entry-tags-combobox')).not.toBeNull()
+    const combobox = component.shadowRoot?.querySelector('cv-combobox.entry-tags-combobox') as
+      | (HTMLElement & {shadowRoot?: ShadowRoot; updateComplete?: Promise<unknown>})
+      | null
+    await combobox?.updateComplete
 
-    component.shadowRoot?.querySelector('cv-input[name="entry-tag-input"]')?.dispatchEvent(
-      new CustomEvent('cv-input', {detail: {value: 'Client A'}, bubbles: true, composed: true}),
-    )
-    component.shadowRoot?.querySelector('.entry-tags-add')?.dispatchEvent(
-      new Event('submit', {bubbles: true, cancelable: true}),
+    expect(combobox).not.toBeNull()
+    expect(combobox?.getAttribute('type')).not.toBe('select-only')
+    expect(combobox?.shadowRoot?.querySelector('[part="input"]')).not.toBeNull()
+
+    combobox?.dispatchEvent(
+      new CustomEvent('cv-change', {
+        detail: {selectedIds: ['work', 'client-a'], value: 'work client-a', inputValue: '', activeId: null, open: false},
+        bubbles: true,
+        composed: true,
+      }),
     )
 
     const tagSection = Array.from(component.shadowRoot?.querySelectorAll('.inline-section-card') ?? []).find(
@@ -646,29 +658,33 @@ describe('PMEntry', () => {
   })
 
   it('clears desktop tag draft after cancelling tag edit', async () => {
-    const entry = createEntry({tags: ['Work']})
-
-    window.passmanager = {
-      isReadOnly: () => false,
-      isEditMode: {set: vi.fn()},
-    } as unknown as typeof window.passmanager
+    const root = new ManagerRoot({} as any)
+    root.credentialTags.set(['Work', 'Client A'])
+    const entry = createEntry({parent: root, tags: ['Work']})
+    root.entries.set([entry])
+    window.passmanager = root as unknown as typeof window.passmanager
 
     const component = document.createElement('pm-entry') as PMEntry
     component.entry = entry
     document.body.append(component)
     await settle(component)
     const model = (component as any).model
+    expect(component.shadowRoot?.querySelector('[data-snippet-section="tags"]')).toBeNull()
+    pmEntryEditorModel.openSurface(entry.id, 'entry')
+    await settle(component)
 
     component.shadowRoot
       ?.querySelector('[data-snippet-section="tags"]')
       ?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
     await settle(component)
 
-    component.shadowRoot?.querySelector('cv-input[name="entry-tag-input"]')?.dispatchEvent(
-      new CustomEvent('cv-input', {detail: {value: 'Client A'}, bubbles: true, composed: true}),
-    )
-    component.shadowRoot?.querySelector('.entry-tags-add')?.dispatchEvent(
-      new Event('submit', {bubbles: true, cancelable: true}),
+    const combobox = component.shadowRoot?.querySelector('cv-combobox.entry-tags-combobox') as HTMLElement | null
+    combobox?.dispatchEvent(
+      new CustomEvent('cv-change', {
+        detail: {selectedIds: ['work', 'client-a'], value: 'work client-a', inputValue: '', activeId: null, open: false},
+        bubbles: true,
+        composed: true,
+      }),
     )
 
     expect(model.tagDraft()).toEqual(['Work', 'Client A'])

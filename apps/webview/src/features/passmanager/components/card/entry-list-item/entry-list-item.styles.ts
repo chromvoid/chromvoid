@@ -39,18 +39,58 @@ export const pmEntryListItemBaseStyles = [
       padding: 4px;
     }
 
+    .entry-icon-shell {
+      position: relative;
+      display: inline-flex;
+      inline-size: 32px;
+      block-size: 32px;
+      flex: 0 0 auto;
+      min-inline-size: 0;
+      min-block-size: 0;
+    }
+
     .entry-favicon {
-      width: 32px;
-      height: 32px;
+      width: var(--pm-avatar-list-size);
+      height: var(--pm-avatar-list-size);
       display: inline-flex;
       flex-shrink: 0;
-      --pm-avatar-radius: var(--cv-radius-1);
+      --pm-avatar-radius: var(--pm-avatar-list-radius);
       --pm-avatar-image-fit: contain;
-      --pm-avatar-image-padding: 3px;
-      --pm-avatar-image-shadow: 0 1px 2px var(--cv-alpha-black-10);
+      --pm-avatar-image-padding: var(--pm-avatar-list-image-padding);
+      --pm-avatar-image-shadow: var(--pm-avatar-list-image-shadow);
       --pm-avatar-contrast: var(--pm-avatar-contrast-base);
-      --pm-avatar-shadow-opacity: 30%;
-      --pm-avatar-letter-size: 11px;
+      --pm-avatar-shadow-opacity: var(--pm-avatar-list-shadow-opacity);
+      --pm-avatar-letter-size: var(--pm-avatar-list-letter-size);
+    }
+
+    .entry-icon-shell .entry-favicon {
+      width: 100%;
+      height: 100%;
+    }
+
+    .entry-type-glyph {
+      position: absolute;
+      inset-inline-end: -4px;
+      inset-block-end: -4px;
+      inline-size: 16px;
+      block-size: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--cv-color-primary-border-strong);
+      border-radius: var(--cv-radius-pill);
+      background: var(--cv-color-primary-surface-strong);
+      color: var(--cv-color-primary);
+      box-shadow:
+        0 0 0 1px var(--cv-color-surface),
+        0 2px 6px var(--cv-alpha-black-20);
+      pointer-events: none;
+    }
+
+    .entry-type-glyph cv-icon {
+      inline-size: 10px;
+      block-size: 10px;
+      display: block;
     }
 
     .item-content {
@@ -122,6 +162,13 @@ export const pmEntryListItemBaseStyles = [
       color: var(--cv-color-primary);
     }
 
+    .entry-badge.entry-type-chip {
+      flex: 0 0 auto;
+      border-color: var(--cv-color-primary-border-strong);
+      background: var(--cv-color-primary-surface-strong);
+      color: var(--cv-color-primary);
+    }
+
     .entry-badge[data-family='meta'] {
       border-color: var(--cv-color-border);
       background: var(--cv-color-surface-2);
@@ -155,28 +202,6 @@ export const pmEntryListItemBaseStyles = [
     .entry-badge-overflow {
       border-style: dashed;
       color: var(--cv-color-text-muted);
-    }
-
-    .otp-indicator {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--cv-gradient-success);
-      box-shadow:
-        0 0 0 1px var(--cv-color-surface-2),
-        0 0 6px var(--cv-color-success-border-strong);
-      --motion-pulse-mid-opacity: 0.7;
-      --motion-pulse-mid-scale: 1.1;
-    }
-
-    .ssh-indicator {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--cv-gradient-progress-warning);
-      box-shadow:
-        0 0 0 1px var(--cv-color-surface-2),
-        0 0 6px var(--cv-color-warning-border-strong);
     }
 
     .item-actions {
@@ -229,9 +254,10 @@ export const pmEntryListItemBaseStyles = [
       }
 
       .item-icon,
+      .entry-icon-shell,
       .entry-favicon {
-        width: 28px;
-        height: 28px;
+        width: var(--pm-avatar-list-compact-size);
+        height: var(--pm-avatar-list-compact-size);
       }
 
       .item-actions {
@@ -333,9 +359,9 @@ export const pmEntryListItemDesktopStyles = css`
 
   .list-item.active-row .entry-favicon,
   .list-item.selected .entry-favicon {
-    --pm-avatar-contrast: calc(var(--pm-avatar-contrast-base) + 8%);
+    --pm-avatar-contrast: calc(var(--pm-avatar-contrast-base) + var(--pm-avatar-list-active-contrast-bump));
     --pm-avatar-border-source: var(--cv-color-border-accent);
-    --pm-avatar-shadow-opacity: 34%;
+    --pm-avatar-shadow-opacity: var(--pm-avatar-list-active-shadow-opacity);
   }
 
   .item-actions {
@@ -437,15 +463,32 @@ export const pmEntryListItemMobileStyles = css`
     --pm-avatar-letter-size: var(--pm-mobile-list-row-icon-letter-size);
   }
 
+  .entry-icon-shell {
+    inline-size: var(--pm-mobile-list-row-icon-size);
+    block-size: var(--pm-mobile-list-row-icon-size);
+  }
+
+  .entry-type-glyph {
+    inset-inline-end: -3px;
+    inset-block-end: -3px;
+    inline-size: 15px;
+    block-size: 15px;
+  }
+
+  .entry-type-glyph cv-icon {
+    inline-size: 9px;
+    block-size: 9px;
+  }
+
   .list-item.selected .item-title,
   .list-item.selected .item-subtitle {
     color: var(--cv-color-primary);
   }
 
   .list-item.selected .entry-favicon {
-    --pm-avatar-contrast: calc(var(--pm-avatar-contrast-base) + 8%);
+    --pm-avatar-contrast: calc(var(--pm-avatar-contrast-base) + var(--pm-avatar-list-active-contrast-bump));
     --pm-avatar-border-source: var(--cv-color-border-accent);
-    --pm-avatar-shadow-opacity: 34%;
+    --pm-avatar-shadow-opacity: var(--pm-avatar-list-active-shadow-opacity);
   }
 
   .item-title {
@@ -469,10 +512,28 @@ export const pmEntryListItemMobileStyles = css`
     max-inline-size: min(38cqw, 220px);
   }
 
+  .list-item[data-entry-type='payment_card'] .entry-badges {
+    max-inline-size: min(44cqw, 240px);
+  }
+
   .entry-badge {
     min-block-size: 20px;
     padding-inline: 5px;
     font-size: 12px;
+  }
+
+  .entry-badge[data-family='meta'] {
+    flex: 1 1 auto;
+  }
+
+  .entry-badge.entry-type-chip,
+  .entry-badge.entry-badge-overflow {
+    flex: 0 0 auto;
+  }
+
+  .entry-badge.entry-type-chip cv-icon {
+    inline-size: 12px;
+    block-size: 12px;
   }
 
   .entry-status-dots {
@@ -489,28 +550,30 @@ export const pmEntryListItemMobileStyles = css`
 
   .entry-status-dot {
     --entry-status-dot-color: var(--cv-color-primary);
+    --entry-status-dot-glow: var(--pm-entry-status-dot-glow);
     inline-size: 6px;
     block-size: 6px;
     border-radius: 50%;
     background: var(--entry-status-dot-color);
     box-shadow:
       0 0 0 1px var(--cv-color-surface-2),
-      0 0 6px color-mix(in oklab, var(--entry-status-dot-color) 50%, transparent);
+      0 0 6px var(--entry-status-dot-glow);
   }
 
   .entry-status-dot[data-severity='warning'],
   .entry-status-dot[data-badge-id='reused_password'],
   .entry-status-dot[data-badge-id='ssh'] {
     --entry-status-dot-color: var(--cv-color-warning);
+    --entry-status-dot-glow: var(--pm-entry-status-dot-warning-glow);
   }
 
   .entry-status-dot[data-severity='critical'],
   .entry-status-dot[data-badge-id='weak_password'] {
     --entry-status-dot-color: var(--cv-color-danger);
+    --entry-status-dot-glow: var(--pm-entry-status-dot-danger-glow);
   }
 
-  .entry-status-dot[data-badge-id='two_factor'],
-  .entry-status-dot[data-badge-id='card'] {
+  .entry-status-dot[data-badge-id='two_factor'] {
     --entry-status-dot-color: var(--cv-color-primary);
   }
 

@@ -6,6 +6,7 @@ import {i18n} from '@project/passmanager/i18n'
 import type {CVIcon} from '@chromvoid/uikit/components/cv-icon'
 
 import type {SortControls} from './sort-controls'
+import {PMMobileTagFilterSheet} from './mobile-tag-filter-sheet'
 import {PMSearchBase, searchBaseStyles} from './search-base'
 
 export class PMSearch extends PMSearchBase {
@@ -13,6 +14,7 @@ export class PMSearch extends PMSearchBase {
     if (!customElements.get('pm-search')) {
       customElements.define('pm-search', this)
     }
+    PMMobileTagFilterSheet.define()
   }
   static styles = [
     searchBaseStyles,

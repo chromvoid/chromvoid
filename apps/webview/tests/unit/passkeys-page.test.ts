@@ -321,6 +321,28 @@ describe('Provider passkeys page', () => {
     expect(text).toContain('Hide duplicates')
   })
 
+  it('renders no-passkeys state through the shared empty state component', async () => {
+    ensureDefined()
+    enableAndroidTauriRuntime()
+    vi.spyOn(passkeysPageModel, 'load').mockResolvedValue()
+    passkeysPageModel.androidPasskeys.set([])
+
+    const page = document.createElement('passkeys-page') as PasskeysPage
+    page.hideBackLink = true
+    document.body.appendChild(page)
+    await waitForPasskeysPage(page)
+
+    const emptyState = page.shadowRoot?.querySelector('cv-empty-state')
+    const text = page.shadowRoot?.textContent ?? ''
+
+    expect(emptyState?.getAttribute('icon')).toBe('octicons:passkey-fill')
+    expect(emptyState?.hasAttribute('icon-fill')).toBe(true)
+    expect(emptyState?.getAttribute('headline')).toBe('No vault-backed passkeys are stored.')
+    expect(page.shadowRoot?.querySelector('cv-guidance-anchor[anchor-id="passkeys.manage"]')).not.toBeNull()
+    expect(text).toContain('What is a passkey?')
+    expect(text).toContain('Deleting a vault passkey')
+  })
+
   it('does not invoke native passkey commands without Tauri runtime', async () => {
     ensureDefined()
     setRuntimeCapabilities({
@@ -338,6 +360,7 @@ describe('Provider passkeys page', () => {
     const text = page.shadowRoot?.textContent ?? ''
     expect(text).toContain('Passkeys')
     expect(text).toContain('available in the Android app')
+    expect(page.shadowRoot?.querySelector('cv-empty-state')).toBeNull()
     expect(tauriInvoke).not.toHaveBeenCalled()
   })
 })

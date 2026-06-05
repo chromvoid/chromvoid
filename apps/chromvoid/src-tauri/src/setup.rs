@@ -324,6 +324,9 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     #[cfg(target_os = "ios")]
     crate::mobile::ios::app_lifecycle::setup(app.handle().clone(), storage_root.clone());
 
+    #[cfg(target_os = "ios")]
+    crate::mobile::ios::keyboard::setup(app.handle().clone());
+
     #[cfg(target_os = "android")]
     {
         let storage_root = storage_root.clone();

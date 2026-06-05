@@ -1,13 +1,12 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
-const announceMock = vi.hoisted(() => vi.fn())
+const toastMock = vi.hoisted(() => ({
+  success: vi.fn(),
+  show: vi.fn(),
+}))
 
-vi.mock('@chromvoid/ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@chromvoid/ui')>()
-  return {
-    ...actual,
-    announce: announceMock,
-  }
+vi.mock('root/shared/services/toast-manager', () => {
+  return {toast: toastMock}
 })
 
 import {Entry, Group, ManagerRoot} from '@project/passmanager'
@@ -72,7 +71,8 @@ describe('PasswordManagerModel navigation', () => {
   afterEach(() => {
     vi.clearAllTimers()
     vi.useRealTimers()
-    announceMock.mockReset()
+    toastMock.success.mockReset()
+    toastMock.show.mockReset()
     delete (globalThis as {__TAURI_INTERNALS__?: unknown}).__TAURI_INTERNALS__
     window.passmanager = originalPassmanager
     clearPassmanagerRoot()
@@ -188,7 +188,7 @@ describe('PasswordManagerModel navigation', () => {
     expect(passmanagerNavigationController.readRoute()).toEqual({kind: 'root'})
   })
 
-  it('announces shortcut password copy success after clipboard write succeeds', async () => {
+  it('shows shortcut password copy success after clipboard write succeeds', async () => {
     vi.useFakeTimers()
     originalPassmanager = window.passmanager
     const group = createGroup('copy-success-group', 'Copy Success Group')
@@ -201,10 +201,10 @@ describe('PasswordManagerModel navigation', () => {
     await pmModel.copyCurrentPassword()
 
     expect(invoke).toHaveBeenCalledWith('plugin:clipboard-manager|write_text', {text: 'secret'})
-    expect(announceMock).toHaveBeenCalledWith('Password copied', 'polite')
+    expect(toastMock.success).toHaveBeenCalledWith('Password copied')
   })
 
-  it('announces shortcut password copy failure when clipboard write rejects', async () => {
+  it('shows shortcut password copy failure when clipboard write rejects', async () => {
     originalPassmanager = window.passmanager
     const group = createGroup('copy-failure-group', 'Copy Failure Group')
     const entry = createEntry(group, 'copy-failure-entry', 'Copy Failure Entry')
@@ -216,8 +216,11 @@ describe('PasswordManagerModel navigation', () => {
     await pmModel.copyCurrentPassword()
 
     expect(invoke).toHaveBeenCalledWith('plugin:clipboard-manager|write_text', {text: 'secret'})
-    expect(announceMock).toHaveBeenCalledWith('Failed to copy password', 'assertive')
-    expect(announceMock).not.toHaveBeenCalledWith('Password copied', 'polite')
+    expect(toastMock.show).toHaveBeenCalledWith({
+      message: 'Failed to copy password',
+      variant: 'error',
+    })
+    expect(toastMock.success).not.toHaveBeenCalled()
   })
 
   it('does not write an empty string when shortcut password secret is missing', async () => {
@@ -232,7 +235,10 @@ describe('PasswordManagerModel navigation', () => {
     await pmModel.copyCurrentPassword()
 
     expect(invoke).not.toHaveBeenCalled()
-    expect(announceMock).toHaveBeenCalledWith('Failed to copy password', 'assertive')
+    expect(toastMock.show).toHaveBeenCalledWith({
+      message: 'Failed to copy password',
+      variant: 'error',
+    })
   })
 
   it('closes the active inline editor before leaving the current entry', () => {

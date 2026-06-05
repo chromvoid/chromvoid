@@ -119,16 +119,16 @@ export function renderTagsSection(context: PMEntryMobileRenderContext) {
           {
             tags: model.tagDraft(),
             options: pmCredentialTagsModel.availableTags(),
-            inputValue: model.tagInput(),
+            comboboxType: 'select-only',
             disabled: !data.canEditTags,
-            error: model.tagError(),
+            placeholder: i18n('tags:select_placeholder' as never),
           },
           {
             onSelectExistingTagIds: ui.handleTagSelect,
-            onInputLabel: ui.handleTagInput,
-            onAddTag: ui.handleTagAdd,
+            onManageTags: ui.handleManageTags,
           },
         )}
+        ${model.tagError() ? html`<div class="error-text">${model.tagError()}</div>` : nothing}
         ${renderSectionSnippetButtons({
           onCancel: () => model.cancelTagEdit(),
           onSave: ui.handleSaveTags,
@@ -148,7 +148,7 @@ export function renderTagsSection(context: PMEntryMobileRenderContext) {
             ? html`<cv-badge class="section-count" size="small" variant="neutral">${data.tags.length}</cv-badge>`
             : nothing}
         </div>
-        ${data.canEditTags
+        ${data.canEditTags && data.isEditingEntry
           ? html`
               <cv-button
                 class=${data.hasTags ? 'section-action edit-icon-action' : 'section-action'}

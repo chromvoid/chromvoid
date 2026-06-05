@@ -51,10 +51,10 @@ export const fileItemMobileStyles = css`
   }
 
   :host([view-mode='list']) .thumbnail-shell {
-    --file-media-spectrum-width: 22px;
-    --file-media-spectrum-height: 22px;
-    --file-media-spectrum-bar-width: 4px;
-    --file-media-spectrum-gap: 3px;
+    --file-media-spectrum-width: var(--file-media-spectrum-list-width);
+    --file-media-spectrum-height: var(--file-media-spectrum-list-height);
+    --file-media-spectrum-bar-width: var(--file-media-spectrum-list-bar-width);
+    --file-media-spectrum-gap: var(--file-media-spectrum-list-gap);
     inline-size: 38px;
     block-size: 38px;
     min-inline-size: 38px;

@@ -48,14 +48,27 @@ export const commandBarStyles = [
       box-shadow: var(--cv-shadow-xl, 0 16px 48px var(--cv-alpha-black-65));
       opacity: 0;
       pointer-events: none;
-      transition: opacity var(--cv-duration-normal, 220ms)
-        var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1));
+      transition:
+        opacity var(--cv-duration-normal, 220ms)
+          var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
+        display var(--cv-duration-normal, 220ms) allow-discrete;
+      transition-behavior: allow-discrete;
       z-index: calc(var(--cv-z-modal, 400) + 1);
+    }
+
+    .dialog[hidden] {
+      display: none;
     }
 
     :host([open]) .dialog {
       opacity: 1;
       pointer-events: auto;
+    }
+
+    @starting-style {
+      :host([open]) .dialog {
+        opacity: 0;
+      }
     }
 
     .search {

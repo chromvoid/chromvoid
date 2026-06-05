@@ -32,7 +32,6 @@ import type {PMEntrySshGenerateEvent} from '../entry-ssh/entry-ssh-generator'
 import {pmCredentialTagsModel} from '../../../models/pm-credential-tags.model'
 import {
   getSelectedTagIdsFromEvent,
-  getTagInputValueFromEvent,
   renderEntryTagsEditor,
   renderEntryTagsReadOnly,
 } from '../entry-tags/entry-tags-editor'
@@ -200,13 +199,9 @@ export class PMEntry extends PMEntryBase {
     this.model.setTagDraftFromKeys(getSelectedTagIdsFromEvent(event))
   }
 
-  private handleTagInput(event: Event) {
-    this.model.setTagInput(getTagInputValueFromEvent(event))
-  }
-
-  private handleTagAdd(event: Event) {
+  private handleManageTags(event: Event) {
     event.preventDefault()
-    this.model.addTagDraft()
+    pmCredentialTagsModel.openManageSheet()
   }
 
   private handleSaveTags() {
@@ -712,16 +707,14 @@ export class PMEntry extends PMEntryBase {
             {
               tags: this.model.tagDraft(),
               options: pmCredentialTagsModel.availableTags(),
-              inputValue: this.model.tagInput(),
               disabled: !data.canEditTags,
-              error: this.model.tagError(),
             },
             {
               onSelectExistingTagIds: this.handleTagSelect,
-              onInputLabel: this.handleTagInput,
-              onAddTag: this.handleTagAdd,
+              onManageTags: this.handleManageTags,
             },
           )}
+          ${this.model.tagError() ? html`<div class="error-text">${this.model.tagError()}</div>` : nothing}
           ${renderSectionSnippetButtons({
             onCancel: () => this.model.cancelTagEdit(),
             onSave: () => this.handleSaveTags(),
@@ -739,7 +732,7 @@ export class PMEntry extends PMEntryBase {
             <span>${i18n('tags:title')}</span>
             ${data.tags.length > 0 ? html`<cv-badge class="section-count" size="small" variant="neutral">${data.tags.length}</cv-badge>` : nothing}
           </div>
-          ${data.canEditTags
+          ${data.canEditTags && data.isEditingEntry
             ? html`
                 <cv-button
                   class=${data.hasTags ? 'icon-btn' : 'section-action-button'}

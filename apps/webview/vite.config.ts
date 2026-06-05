@@ -40,7 +40,7 @@ type MockTransportLogEntry = {
 const mockTransportLog: MockTransportLogEntry[] = []
 
 const devHtmlCsp =
-  "default-src 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost; media-src 'self' blob: asset: chromvoid-media: http://asset.localhost; font-src 'self' data:; connect-src 'self' data: ipc: http://ipc.localhost http://chromvoid.local ws://localhost:4400 ws://127.0.0.1:4400; worker-src 'self' blob:;"
+  "default-src 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost; media-src 'self' blob: asset: chromvoid-media: http://asset.localhost; font-src 'self' data:; connect-src 'self' data: ipc: http://ipc.localhost http://chromvoid.local ws://localhost:4400 ws://127.0.0.1:4400 ws://localhost:4410 ws://127.0.0.1:4410 ws://*:4410; worker-src 'self' blob:;"
 const prodHtmlCsp =
   "default-src 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost; media-src 'self' blob: asset: chromvoid-media: http://asset.localhost; font-src 'self' data:; connect-src 'self' data: ipc: http://ipc.localhost http://chromvoid.local; worker-src 'self' blob:;"
 
@@ -409,7 +409,7 @@ export default defineConfig(({command}) => {
         },
         {
           find: /^@project\/passmanager\/sort-storage$/,
-          replacement: join(workspaceRoot, 'packages/passmanager/src/services/sort-storage.ts'),
+          replacement: join(workspaceRoot, 'packages/passmanager/src/service/sort-storage.ts'),
         },
         {
           find: /^@project\/passmanager\/flags$/,

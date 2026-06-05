@@ -1,6 +1,7 @@
 import {css, nothing} from 'lit'
 import {html} from '@chromvoid/uikit/reatom-lit'
 
+import {CvEmptyState} from 'root/shared/ui/empty-state'
 import {PMSummaryRail} from '../../../passmanager/components/summary-rail'
 import {NotesQuickViewBase} from './notes-quick-view-base'
 import {notesQuickViewStyles} from './notes-quick-view.styles'
@@ -15,6 +16,7 @@ export class NotesQuickViewMobile extends NotesQuickViewBase {
         min-block-size: 0;
         overflow: hidden;
         padding: var(--app-surface-gutter-mobile);
+        padding-bottom: 0px;
       }
 
       .quick-view {
@@ -73,6 +75,7 @@ export class NotesQuickViewMobile extends NotesQuickViewBase {
   ]
 
   static define() {
+    CvEmptyState.define()
     PMSummaryRail.define()
     if (!customElements.get('notes-quick-view-mobile')) {
       customElements.define('notes-quick-view-mobile', this)

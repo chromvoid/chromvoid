@@ -21,7 +21,9 @@ pub(in crate::rpc::router::passmanager) use resolver::resolve_entry_node_id;
 pub(in crate::rpc::router::passmanager) use sanitize::{
     normalized_payment_card_meta, sanitize_entry_meta_for_wire,
 };
-pub(in crate::rpc::router::passmanager) use tags::normalize_entry_tags;
+pub(in crate::rpc::router::passmanager) use tags::{
+    credential_tag_key, normalize_credential_tag_catalog, normalize_entry_tags,
+};
 
 pub(in crate::rpc::router::passmanager) fn handle_save(
     s: &VaultSession,

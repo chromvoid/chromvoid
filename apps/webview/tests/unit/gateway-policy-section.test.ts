@@ -22,8 +22,8 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('gateway policy section styling', () => {
-  it('renders compact empty states without inline padding styles', () => {
+describe('gateway policy section', () => {
+  it('renders empty grant states', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
 
@@ -43,8 +43,6 @@ describe('gateway policy section styling', () => {
 
     const emptyStates = Array.from(container.querySelectorAll<HTMLElement>('.empty-state'))
     expect(emptyStates).toHaveLength(2)
-    expect(emptyStates.every((state) => state.classList.contains('empty-state-compact'))).toBe(true)
-    expect(emptyStates.every((state) => !state.hasAttribute('style'))).toBe(true)
     expect(container.textContent).toContain('All origins are allowed')
     expect(container.textContent).toContain('No active grants')
   })

@@ -415,7 +415,7 @@ export function renderRemoteWaitPanel(options: RemoteHostsFlowPanelOptions): Tem
       ${ctx.model.statusText() ? html`<cv-callout variant="info">${ctx.model.statusText()}</cv-callout>` : nothing}
       ${ctx.model.errorText() ? html`<cv-callout variant="danger">${ctx.model.errorText()}</cv-callout>` : nothing}
 
-      <cv-callout class="remote-hosts-callout" variant="warning">
+      <cv-callout class="remote-hosts-callout" variant="warning" density="compact">
         ${i18n('welcome:waiting-for-peer-hint')}
       </cv-callout>
 

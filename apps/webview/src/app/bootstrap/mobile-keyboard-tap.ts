@@ -1,7 +1,7 @@
 import type {Store} from '../state/store'
 import {
   applyMobileKeyboardVisibilityPayload,
-  setupAndroidKeyboardInsetsEventListener,
+  setupNativeKeyboardInsetsEventListeners,
   type MobileKeyboardVisibilityPayload,
 } from './mobile-keyboard-insets'
 import {subscribeToSignalChanges} from '../../shared/services/subscribed-signal'
@@ -11,6 +11,8 @@ export {
   applyMobileKeyboardVisibilityPayload,
   getMobileKeyboardPayloadBottomInset,
   setupAndroidKeyboardInsetsEventListener,
+  setupIOSKeyboardInsetsEventListener,
+  setupNativeKeyboardInsetsEventListeners,
   type MobileKeyboardInsetsPayload,
   type MobileKeyboardVisibilityPayload,
 } from './mobile-keyboard-insets'
@@ -24,7 +26,7 @@ export {
  * synthetic `.click()` when the trusted click never arrives.
  */
 export const setupMobileKeyboardTapWorkaround = (store: Store) => {
-  setupAndroidKeyboardInsetsEventListener(document.documentElement)
+  setupNativeKeyboardInsetsEventListeners(document.documentElement)
 
   import('root/core/transport/tauri/ipc')
     .then(({tauriInvoke, tauriListen}) => {
@@ -48,10 +50,15 @@ export const setupMobileKeyboardTapWorkaround = (store: Store) => {
       ].join(', ')
 
       type KeyboardTapCandidate = {
+        active: HTMLElement
         target: HTMLElement
         pointerId: number
+        startX: number
+        startY: number
         fallbackTimerId: number | null
       }
+
+      const TAP_MOVEMENT_TOLERANCE_PX = 10
 
       let candidate: KeyboardTapCandidate | null = null
       let suppressedClick: {target: HTMLElement; until: number} | null = null
@@ -108,6 +115,12 @@ export const setupMobileKeyboardTapWorkaround = (store: Store) => {
       const eventTargets = (event: Event, element: HTMLElement): boolean =>
         event.composedPath().includes(element)
 
+      const isTapMovement = (event: PointerEvent, currentCandidate: KeyboardTapCandidate): boolean => {
+        const deltaX = event.clientX - currentCandidate.startX
+        const deltaY = event.clientY - currentCandidate.startY
+        return Math.hypot(deltaX, deltaY) <= TAP_MOVEMENT_TOLERANCE_PX
+      }
+
       // --- pointer listeners ---
       document.addEventListener(
         'pointerdown',
@@ -126,8 +139,23 @@ export const setupMobileKeyboardTapWorkaround = (store: Store) => {
           if (actionTarget.matches(':disabled, [aria-disabled="true"], [disabled]')) return
 
           clearCandidate()
-          active.blur()
-          candidate = {target: actionTarget, pointerId: event.pointerId, fallbackTimerId: null}
+          candidate = {
+            active,
+            target: actionTarget,
+            pointerId: event.pointerId,
+            startX: event.clientX,
+            startY: event.clientY,
+            fallbackTimerId: null,
+          }
+        },
+        {capture: true},
+      )
+
+      document.addEventListener(
+        'pointermove',
+        (event: PointerEvent) => {
+          if (!candidate || event.pointerId !== candidate.pointerId) return
+          if (!isTapMovement(event, candidate)) clearCandidate()
         },
         {capture: true},
       )
@@ -136,12 +164,13 @@ export const setupMobileKeyboardTapWorkaround = (store: Store) => {
         'pointerup',
         (event: PointerEvent) => {
           if (!candidate || event.pointerId !== candidate.pointerId) return
-          if (!eventTargets(event, candidate.target)) {
+          if (!eventTargets(event, candidate.target) || !isTapMovement(event, candidate)) {
             clearCandidate()
             return
           }
 
           const target = candidate.target
+          candidate.active.blur()
           candidate.fallbackTimerId = window.setTimeout(() => {
             if (!candidate || candidate.target !== target) return
             candidate = null

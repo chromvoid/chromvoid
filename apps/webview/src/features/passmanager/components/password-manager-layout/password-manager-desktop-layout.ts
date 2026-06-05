@@ -90,10 +90,10 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
       .sidebar-tree-scroll-frame {
         block-size: 100%;
         min-block-size: 0;
-        --cv-scroll-edge-block-size: 44px;
+        --cv-scroll-edge-block-size: var(--cv-scroll-edge-default-block-size);
         --cv-scroll-edge-inline-start: var(--pm-credentials-content-inset-start);
         --cv-scroll-edge-inline-end: var(--pm-credentials-content-inset-end);
-        --cv-scroll-edge-surface: var(--cv-color-surface);
+        --cv-scroll-edge-surface: var(--cv-scroll-edge-default-surface);
       }
 
       .sidebar-tree-scroll-frame > group-tree-view.scrollable {

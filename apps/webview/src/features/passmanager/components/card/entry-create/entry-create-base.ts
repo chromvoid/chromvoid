@@ -17,7 +17,7 @@ import type {
 } from '../entry-ssh/entry-ssh-generator'
 import {
   getSelectedTagIdsFromEvent,
-  getTagInputValueFromEvent,
+  type PMEntryTagsComboboxType,
   renderEntryTagsEditor,
 } from '../entry-tags/entry-tags-editor'
 import {
@@ -114,13 +114,9 @@ export abstract class PMEntryCreateBase extends ReatomLitElement {
     this.model.setTagsFromKeys(getSelectedTagIdsFromEvent(event))
   }
 
-  protected onTagInput(event: Event): void {
-    this.model.setTagInput(getTagInputValueFromEvent(event))
-  }
-
-  protected onTagAdd(event: Event): void {
+  protected onManageTags(event: Event): void {
     event.preventDefault()
-    this.model.addTag()
+    pmCredentialTagsModel.openManageSheet()
   }
 
   protected onSshKeyTypeChange(event: PMEntrySshKeyTypeChangeEvent): void {
@@ -206,20 +202,27 @@ export abstract class PMEntryCreateBase extends ReatomLitElement {
     return 3
   }
 
+  protected getTagsEditorComboboxType(): PMEntryTagsComboboxType {
+    return 'editable'
+  }
+
+  protected getTagsEditorPlaceholder(): string {
+    return i18n('tags:existing_placeholder')
+  }
+
   protected renderTagsEditor(): TemplateResult {
     return renderEntryTagsEditor(
       {
         tags: this.model.tags(),
         options: pmCredentialTagsModel.availableTags(),
-        inputValue: this.model.tagInput(),
+        comboboxType: this.getTagsEditorComboboxType(),
         disabled: isPassmanagerReadOnlyOrMissing(),
-        error: this.model.tagsError(),
         maxTagsVisible: this.getTagsEditorMaxTagsVisible(),
+        placeholder: this.getTagsEditorPlaceholder(),
       },
       {
         onSelectExistingTagIds: this.onTagsSelect,
-        onInputLabel: this.onTagInput,
-        onAddTag: this.onTagAdd,
+        onManageTags: this.onManageTags,
       },
     )
   }

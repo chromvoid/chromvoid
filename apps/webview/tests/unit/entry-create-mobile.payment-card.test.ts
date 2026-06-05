@@ -2,6 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {CVButton, CVInput, CVTextarea} from '@chromvoid/uikit'
 import {PMEntryCreateMobile} from '../../src/features/passmanager/components/card/entry-create/entry-create-mobile'
+import {MobileBottomActionFooter} from '../../src/shared/ui/mobile-bottom-action-footer'
 
 const settle = async (component: PMEntryCreateMobile) => {
   await component.updateComplete
@@ -29,6 +30,16 @@ const inputCv = async (component: PMEntryCreateMobile, name: string, value: stri
   await settle(component)
 }
 
+const stylesToText = (styles: unknown): string => {
+  if (Array.isArray(styles)) {
+    return styles.map(stylesToText).join('\n')
+  }
+  if (styles && typeof styles === 'object' && 'cssText' in styles) {
+    return String((styles as {cssText: string}).cssText)
+  }
+  return String(styles ?? '')
+}
+
 describe('PMEntryCreateMobile payment-card layout', () => {
   let previousPassmanager: typeof window.passmanager
 
@@ -42,6 +53,7 @@ describe('PMEntryCreateMobile payment-card layout', () => {
     CVInput.define()
     CVTextarea.define()
     CVButton.define()
+    MobileBottomActionFooter.define()
     PMEntryCreateMobile.define()
 
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
@@ -54,6 +66,27 @@ describe('PMEntryCreateMobile payment-card layout', () => {
     document.body.innerHTML = ''
     window.passmanager = previousPassmanager
     vi.restoreAllMocks()
+  })
+
+  it('uses the shared mobile bottom action footer clearance contract', async () => {
+    const component = document.createElement('pm-entry-create-mobile') as PMEntryCreateMobile
+    document.body.append(component)
+    await settle(component)
+
+    const footer = component.shadowRoot?.querySelector(
+      'mobile-bottom-action-footer.create-footer',
+    ) as HTMLElement | null
+    const scroll = component.shadowRoot?.querySelector('.create-scroll') as HTMLElement | null
+    const submit = footer?.querySelector('cv-button') as CVButton | null
+
+    expect(footer).not.toBeNull()
+    expect(scroll).not.toBeNull()
+    expect(footer?.tagName.toLowerCase()).toBe('mobile-bottom-action-footer')
+    expect(footer?.hasAttribute('flow')).toBe(true)
+    expect(footer?.shadowRoot?.querySelector('[part="row"]')).not.toBeNull()
+    expect(scroll?.contains(footer)).toBe(false)
+    expect(submit).not.toBeNull()
+    expect(footer?.contains(submit)).toBe(true)
   })
 
   it('renders mobile payment-card fields inside the card face and submits the draft', async () => {

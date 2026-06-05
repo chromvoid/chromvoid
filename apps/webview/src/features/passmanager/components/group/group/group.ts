@@ -1,8 +1,8 @@
 import {hostContainStyles, motionPrimitiveStyles} from 'root/shared/ui/shared-styles'
+import {CvEmptyState} from 'root/shared/ui/empty-state'
 import {css} from 'lit'
 
 import {
-  emptyStateCSS,
   folderItemCSS,
   listItemsCSS,
   metadataSectionCSS,
@@ -264,28 +264,6 @@ export const pmGroupDesktopStyles = css`
     transform: scaleY(1);
   }
 
-  .empty {
-    inline-size: 100%;
-    min-block-size: 220px;
-    gap: 12px;
-    padding: 28px 24px;
-    border-width: 1px;
-    border-style: dashed;
-    border-color: var(--cv-color-border-strong);
-    border-radius: 24px;
-    background: var(--cv-gradient-surface);
-    color: var(--cv-color-text-secondary);
-  }
-
-  .empty::before {
-    opacity: 0.28;
-  }
-
-  .empty.drop-active {
-    border-color: var(--cv-color-primary);
-    background: var(--cv-color-primary-subtle);
-  }
-
   @container (width < 560px) {
     .wrapper {
       --pm-desktop-list-inline-padding: var(--app-surface-gutter-compact);
@@ -328,6 +306,7 @@ export const pmGroupDesktopStyles = css`
 
 export class PMGroup extends PMGroupBase {
   static define() {
+    CvEmptyState.define()
     if (!customElements.get('pm-group')) {
       customElements.define('pm-group', this)
     }
@@ -344,7 +323,6 @@ export class PMGroup extends PMGroupBase {
     listGroupStyles,
     folderItemCSS,
     metadataSectionCSS,
-    emptyStateCSS,
     pmGroupCommonStyles,
     pmGroupDesktopStyles,
   ]

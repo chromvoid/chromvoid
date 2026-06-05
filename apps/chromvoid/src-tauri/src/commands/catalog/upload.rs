@@ -549,7 +549,7 @@ pub(crate) async fn catalog_cancel_shared_files(
     shared_session_id: String,
 ) -> TauriRpcResult<Value> {
     let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
-    match catalog_blocking_io_runtime
+    Ok(match catalog_blocking_io_runtime
         .spawn_blocking(move || {
             staging::app_group_container_path().and_then(|root| {
                 staging::purge_session(&root, IosStagingArea::SharedFiles, &shared_session_id)
@@ -563,7 +563,7 @@ pub(crate) async fn catalog_cancel_shared_files(
             Some("ANDROID_SHARE_SESSION_NOT_FOUND".to_string()),
         ),
         Err(error) => catalog_blocking_upload_err(error, "Cancel shared files"),
-    }
+    })
 }
 
 #[cfg(target_os = "ios")]
@@ -581,14 +581,14 @@ pub(crate) async fn catalog_list_shared_files(
     state: tauri::State<'_, AppState>,
 ) -> TauriRpcResult<Value> {
     let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
-    match catalog_blocking_io_runtime
+    Ok(match catalog_blocking_io_runtime
         .spawn_blocking(ios_list_shared_files)
         .await
     {
         Ok(Ok(value)) => rpc_ok(value),
         Ok(Err((error, code))) => rpc_err(error, code),
         Err(error) => catalog_blocking_upload_err(error, "List shared files"),
-    }
+    })
 }
 
 #[cfg(all(mobile, not(any(target_os = "android", target_os = "ios"))))]

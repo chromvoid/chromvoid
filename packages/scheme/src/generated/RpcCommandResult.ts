@@ -139,6 +139,7 @@ export type RpcCommandResult =
   | {command: 'passmanager:group:setMeta'; result: Record<string, never>}
   | {command: 'passmanager:group:list'; result: {groups: JsonValue}}
   | {command: 'passmanager:group:delete'; result: Record<string, never>}
+  | {command: 'passmanager:tags:setCatalog'; result: Record<string, never>}
   | {command: 'passmanager:root:import'; result: Record<string, never>}
   | {command: 'passmanager:root:export'; result: {root: JsonValue}}
   | {
