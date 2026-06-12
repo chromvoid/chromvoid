@@ -6,6 +6,7 @@ import androidx.credentials.provider.BeginCreateCredentialRequest
 import androidx.credentials.provider.BeginCreateCredentialResponse
 import androidx.credentials.provider.BeginCreatePublicKeyCredentialRequest
 import com.chromvoid.app.PendingPasskeyRequest
+import com.chromvoid.app.passkey.PasskeyOriginResolver
 import com.chromvoid.app.passkey.PasskeyRequestParser
 import com.chromvoid.app.passkey.PasskeyRequestRegistry
 import com.chromvoid.app.passkey.PasskeyResponseAssembler
@@ -21,7 +22,11 @@ internal class PasskeyCreateEntryHandler(
         builder: BeginCreateCredentialResponse.Builder,
     ): CreateCredentialException? {
         val passkeyRequest = request as? BeginCreatePublicKeyCredentialRequest ?: return null
-        val parsedRequest = PasskeyRequestParser.parseCreateRequestJson(passkeyRequest.requestJson)
+        val parsedRequest =
+            PasskeyRequestParser.parseCreateRequestJson(
+                passkeyRequest.requestJson,
+                PasskeyOriginResolver.defaultRpIdForCreate(passkeyRequest.callingAppInfo),
+            )
             ?: return CreateCredentialNoCreateOptionException("ChromVoid could not parse the passkey create request.")
 
         PasskeyTrace.diagnostic(

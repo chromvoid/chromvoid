@@ -1,7 +1,7 @@
 //! ChromVoid Protocol — shared transport-level primitives.
 //!
-//! This crate contains the protocol types used by both the Desktop (Tauri) app
-//! and the Orange Pi daemon:
+//! This crate contains the protocol types used by the Desktop (Tauri) app and
+//! remote daemons:
 //!
 //! - **Frame**: Binary frame encoding/decoding (SPEC-002)
 //! - **AntiReplay**: Monotonic message ID enforcement with streaming support

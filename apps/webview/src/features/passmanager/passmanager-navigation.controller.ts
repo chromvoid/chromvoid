@@ -1,7 +1,10 @@
 import {Entry, Group, ManagerRoot} from '@project/passmanager/core'
+import {i18n} from '@project/passmanager/i18n'
+import {wrap} from '@reatom/core'
 
 import type {PassmanagerRoute} from 'root/app/navigation/navigation.types'
 import {defaultLogger} from 'root/core/logger'
+import {dialogService} from 'root/shared/services/dialog-service'
 import {pmActiveRowModel} from './models/pm-active-row.model'
 import {pmEntryEditorModel} from './models/pm-entry-editor.model'
 import {pmMotionModel, type PassmanagerMotionDirection} from './models/pm-motion.model'
@@ -45,6 +48,8 @@ class PassmanagerNavigationController {
   private suppressedNotify = 0
   private createEntryTargetGroupPath: string | undefined
   private createGroupTargetGroupPath: string | undefined
+  private pendingDirtyNavigation: (() => void) | null = null
+  private dirtyNavigationPromptOpen = false
 
   attach(root: ManagerRoot | undefined): void {
     this.detach()
@@ -96,6 +101,7 @@ class PassmanagerNavigationController {
     pmMotionModel.reset()
     this.createEntryTargetGroupPath = undefined
     this.createGroupTargetGroupPath = undefined
+    this.pendingDirtyNavigation = null
   }
 
   readRoute(): PassmanagerRoute {
@@ -144,9 +150,26 @@ class PassmanagerNavigationController {
       return false
     }
 
+    const dirtyEntryId = pmEntryEditorModel.dirtyEntryId()
+    const targetEntryId = route.kind === 'entry' ? route.entryId : undefined
+    if (this.requestDirtyNavigationConfirmation({targetEntryId, resume: () => this.applyRoute(route)})) {
+      return false
+    }
+
+    const preserveEntryEditor = dirtyEntryId !== undefined && dirtyEntryId === targetEntryId
+    return this.applyRouteNow(root, route, {preserveEntryEditor})
+  }
+
+  private applyRouteNow(
+    root: ManagerRoot,
+    route: PassmanagerRoute,
+    options: {preserveEntryEditor?: boolean} = {},
+  ): boolean {
     return this.withSuppressedNotify(() => {
       const current = root.showElement()
-      pmEntryEditorModel.reset()
+      if (!options.preserveEntryEditor) {
+        pmEntryEditorModel.reset()
+      }
       this.logger.debug('[PassManager][NavController] applyRoute begin', {
         route,
         current: describeShowElement(current),
@@ -255,10 +278,32 @@ class PassmanagerNavigationController {
       return
     }
 
+    const current = root.showElement()
+    if (
+      (current instanceof Group && item instanceof Group && current.id === item.id) ||
+      (current instanceof Entry && item instanceof Entry && current.id === item.id)
+    ) {
+      this.withSuppressedNotify(() => {
+        this.setMotionIntent('none', this.targetForItem(current))
+      })
+      return
+    }
+
+    if (
+      this.requestDirtyNavigationConfirmation({
+        targetEntryId: item instanceof Entry ? item.id : undefined,
+        resume: () => this.openItem(item),
+      })
+    ) {
+      return
+    }
+
+    this.openItemNow(root, item)
+  }
+
+  private openItemNow(root: ManagerRoot, item: Entry | Group): void {
     this.withSuppressedNotify(() => {
       const current = root.showElement()
-      pmEntryEditorModel.reset()
-
       if (
         (current instanceof Group && item instanceof Group && current.id === item.id) ||
         (current instanceof Entry && item instanceof Entry && current.id === item.id)
@@ -266,6 +311,8 @@ class PassmanagerNavigationController {
         this.setMotionIntent('none', this.targetForItem(current))
         return
       }
+
+      pmEntryEditorModel.reset()
 
       if (current instanceof ManagerRoot || current instanceof Group) {
         pmActiveRowModel.setActive(current.id, item.id)
@@ -292,7 +339,24 @@ class PassmanagerNavigationController {
     }
 
     const current = root.showElement() as PMRootShowElement
+    if (
+      current instanceof Entry &&
+      pmEntryEditorModel.isActiveForEntry(current.id) &&
+      this.requestDirtyNavigationConfirmation({
+        force: true,
+        resume: () => {
+          this.goBackFromCurrent()
+        },
+      })
+    ) {
+      return true
+    }
 
+    return this.goBackFromCurrentNow(root)
+  }
+
+  private goBackFromCurrentNow(root: ManagerRoot): boolean {
+    const current = root.showElement() as PMRootShowElement
     return this.withSuppressedNotify(() => {
       if (current instanceof Entry && pmEntryEditorModel.closeSurface(current.id)) {
         return true
@@ -352,6 +416,14 @@ class PassmanagerNavigationController {
       return
     }
 
+    if (this.requestDirtyNavigationConfirmation({force: true, resume: () => this.openCreateEntry(targetGroupPath)})) {
+      return
+    }
+
+    this.openCreateEntryNow(root, targetGroupPath)
+  }
+
+  private openCreateEntryNow(root: ManagerRoot, targetGroupPath?: string): void {
     this.withSuppressedNotify(() => {
       pmEntryEditorModel.reset()
       const current = root.showElement()
@@ -379,6 +451,14 @@ class PassmanagerNavigationController {
       return
     }
 
+    if (this.requestDirtyNavigationConfirmation({force: true, resume: () => this.openCreateGroup(targetGroupPath)})) {
+      return
+    }
+
+    this.openCreateGroupNow(root, targetGroupPath)
+  }
+
+  private openCreateGroupNow(root: ManagerRoot, targetGroupPath?: string): void {
     this.withSuppressedNotify(() => {
       pmEntryEditorModel.reset()
       const current = root.showElement()
@@ -406,6 +486,14 @@ class PassmanagerNavigationController {
       return
     }
 
+    if (this.requestDirtyNavigationConfirmation({force: true, resume: () => this.openImport()})) {
+      return
+    }
+
+    this.openImportNow(root)
+  }
+
+  private openImportNow(root: ManagerRoot): void {
     this.withSuppressedNotify(() => {
       pmEntryEditorModel.reset()
       this.createEntryTargetGroupPath = undefined
@@ -460,6 +548,51 @@ class PassmanagerNavigationController {
     for (const listener of this.listeners) {
       listener()
     }
+  }
+
+  private requestDirtyNavigationConfirmation(options: {
+    targetEntryId?: string
+    force?: boolean
+    resume: () => void
+  }): boolean {
+    const dirtyEntryId = pmEntryEditorModel.dirtyEntryId()
+    if (!dirtyEntryId) {
+      return false
+    }
+
+    if (!options.force && options.targetEntryId === dirtyEntryId) {
+      return false
+    }
+
+    this.pendingDirtyNavigation = options.resume
+    if (!this.dirtyNavigationPromptOpen) {
+      void this.confirmDirtyNavigation(dirtyEntryId)
+    }
+    return true
+  }
+
+  private async confirmDirtyNavigation(entryId: string): Promise<void> {
+    this.dirtyNavigationPromptOpen = true
+    const confirmed = await wrap(
+      dialogService.showConfirmDialog({
+        title: i18n('entry:dirty:discard-title'),
+        message: i18n('entry:dirty:discard-message'),
+        confirmText: i18n('button:discard'),
+        cancelText: i18n('button:cancel'),
+        confirmVariant: 'danger',
+        variant: 'warning',
+      }),
+    ).catch(() => false)
+
+    const resume = this.pendingDirtyNavigation
+    this.pendingDirtyNavigation = null
+    this.dirtyNavigationPromptOpen = false
+    if (!confirmed || !resume) {
+      return
+    }
+
+    pmEntryEditorModel.clearDirty(entryId)
+    resume()
   }
 
   private withSuppressedNotify<T>(fn: () => T): T {

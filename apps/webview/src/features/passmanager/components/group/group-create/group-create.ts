@@ -49,7 +49,14 @@ export class PMGroupCreateDesktop extends PMGroupCreateBase {
             @pm-workspace-header-title-input=${this.onWorkspaceHeaderTitleInput}
             @pm-icon-change=${this.onIconChange}
           >
-            <cv-button slot="actions" class="submit" type="submit" variant="primary" size="large"
+            <cv-button
+              slot="actions"
+              class="submit"
+              type="submit"
+              variant="primary"
+              size="large"
+              .loading=${this.model.isSubmitting()}
+              ?disabled=${!this.model.canSubmit()}
               >${i18n('group:create:button')}</cv-button
             >
           </pm-workspace-header>

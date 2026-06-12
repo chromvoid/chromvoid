@@ -141,6 +141,8 @@ fn test_erase_execute_erases_storage() {
 #[test]
 fn test_erase_execute_clears_backup_local_session_state() {
     let (mut router, _temp_dir) = create_router_with_master();
+    // Local backup now requires an unlocked vault.
+    unlock_vault(&mut router, "vault_password");
 
     let start = router.handle(&RpcRequest::new(
         "backup:local:start",

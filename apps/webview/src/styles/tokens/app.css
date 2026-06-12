@@ -16,6 +16,7 @@
   --safe-area-left: env(safe-area-inset-left, 0px);
   --app-padding: calc(var(--safe-area-top) + var(--safe-area-bottom));
   --native-keyboard-bottom-inset: 0px;
+  --visual-viewport-block-size: 100dvh;
   --visual-viewport-bottom-inset: 0px;
 
   /* Base app tokens (can be overridden by wrappers / :host-context). */
@@ -31,6 +32,29 @@
   --app-surface-gutter-desktop: var(--app-spacing-2);
   --app-surface-gutter-mobile: var(--app-spacing-3);
   --app-surface-gutter-compact: var(--app-spacing-2);
+  --app-toolbar-min-block-size: 64px;
+  --app-toolbar-padding-block: var(--app-spacing-4);
+  --app-toolbar-padding-inline: var(--app-spacing-4);
+  --app-toolbar-padding-inline-wide: var(--app-spacing-6);
+  --app-toolbar-row-gap: var(--app-spacing-3);
+  --app-toolbar-column-gap: var(--app-spacing-4);
+  --app-toolbar-two-row-row-gap: var(--app-spacing-4);
+  --app-toolbar-two-row-column-gap: var(--app-spacing-6);
+  --app-toolbar-border-color: var(--cv-color-border-glass);
+  --app-toolbar-control-height: 40px;
+  --app-toolbar-control-radius: var(--cv-radius-2);
+  --app-toolbar-control-padding-inline: var(--cv-space-3);
+  --app-toolbar-control-font-size: var(--cv-font-size-sm);
+  --app-toolbar-control-font-weight: var(--cv-font-weight-medium);
+  --app-toolbar-control-gap: var(--cv-space-2);
+  --app-mobile-topbar-block-size: 56px;
+  --app-mobile-tabbar-block-size: 64px;
+  --app-mobile-surface-gutter-inline: var(--app-surface-gutter-mobile);
+  --app-mobile-surface-gutter-block-start: var(--app-surface-gutter-mobile);
+  --app-mobile-surface-gutter-block-end: 0px;
+  --app-mobile-surface-gap: var(--cv-space-2, var(--app-spacing-2));
+  --app-mobile-surface-scroll-padding-block-start: var(--cv-space-2, var(--app-spacing-2));
+  --app-mobile-surface-scroll-padding-block-end: var(--cv-space-3, var(--app-spacing-3));
 
   /* Easing primitives (referenced from component styles via var()). */
   --cv-easing-standard: cubic-bezier(0.2, 0, 0, 1);

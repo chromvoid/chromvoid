@@ -33,7 +33,7 @@ export class PMEntryHOTPItemModel {
       return current
     }
 
-    return (await wrap(otp.loadCode())) ?? ''
+    return (await wrap(otp.loadCode(this.counterState()))) ?? ''
   }, 'passmanager.entryHotp.loadCodeForCopy').extend(withAsync({status: true}))
 
   readonly state = {

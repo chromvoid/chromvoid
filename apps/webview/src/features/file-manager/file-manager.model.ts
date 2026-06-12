@@ -2,6 +2,7 @@ import {atom} from '@reatom/core'
 
 import type {AppContext} from 'root/shared/services/app-context'
 import {getAppContext} from 'root/shared/services/app-context'
+import type {HostPathTokenGrant} from 'root/core/transport/transport'
 import {writeAndroidUnlockDebug} from 'root/shared/services/android-unlock-debug'
 import {
   DEFAULT_SESSION_SETTINGS,
@@ -304,11 +305,13 @@ export class FileManagerModel {
       selectedPath: this.currentPath(),
       disabledPaths: this.fileMove.getDisabledTargetPaths(items),
       useMobilePicker: this.isMobileLayout(),
-      onConfirm: (nextTargetPath) =>
-        this.fileMove.moveItemsByIds(
-          items.map((item) => item.id),
+      onConfirm: (nextTargetPath) => {
+        const selectedIds = this.fileList.getSelectedFileItems().map((item) => item.id)
+        return this.fileMove.moveItemsByIds(
+          selectedIds.length > 0 ? selectedIds : items.map((item) => item.id),
           nextTargetPath,
-        ),
+        )
+      },
     })
 
     return targetPath !== null
@@ -388,8 +391,8 @@ export class FileManagerModel {
     return this.upload.handleFileUpload(files)
   }
 
-  handlePathUpload(paths: string[]): Promise<void> {
-    return this.upload.handlePathUpload(paths)
+  handlePathUpload(files: HostPathTokenGrant[]): Promise<void> {
+    return this.upload.handlePathUpload(files)
   }
 
   handleNativeUpload(): Promise<void> {
@@ -437,7 +440,7 @@ export class FileManagerModel {
     }
 
     if (command.kind === 'upload-paths') {
-      void this.handlePathUpload(command.paths)
+      void this.handlePathUpload(command.files)
       return
     }
 

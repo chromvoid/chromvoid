@@ -17,10 +17,42 @@ const isDevHost =
   typeof location !== 'undefined' &&
   (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname.startsWith('192.168.'))
 
-const PM_MOBILE_DEBUG_ENABLED =
-  typeof window !== 'undefined' && (window.env === 'dev' || isDevHost)
-
 const PM_MOBILE_DEBUG_LIMIT = 400
+const PM_MOBILE_DEBUG_STORAGE_KEY = 'pmMobileDebug'
+const PM_MOBILE_DEBUG_NATIVE_DETAILS_LIMIT = 1_500
+
+function isStorageDebugEnabled(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(PM_MOBILE_DEBUG_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function isDebugEnabled(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    (window.env === 'dev' || isDevHost || isStorageDebugEnabled())
+  )
+}
+
+function writeNativeDebug(entry: PMMobileDebugEntry): void {
+  try {
+    const elapsedMs =
+      typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? Math.round(performance.now())
+        : 0
+    const details = entry.details
+      ? JSON.stringify(entry.details).slice(0, PM_MOBILE_DEBUG_NATIVE_DETAILS_LIMIT)
+      : ''
+
+    window.ChromVoidSplash?.startupLog?.(
+      `pmMobile.${entry.scope}.${entry.event}`,
+      elapsedMs,
+      details,
+    )
+  } catch {}
+}
 
 function getBuffer(): PMMobileDebugEntry[] {
   globalThis.__pmMobileDebugEvents ??= []
@@ -33,7 +65,7 @@ function nextSeq(): number {
 }
 
 export function pmMobileDebug(scope: string, event: string, details?: PMMobileDebugDetails): void {
-  if (!PM_MOBILE_DEBUG_ENABLED) return
+  if (!isDebugEnabled()) return
 
   const entry: PMMobileDebugEntry = {
     seq: nextSeq(),
@@ -49,6 +81,8 @@ export function pmMobileDebug(scope: string, event: string, details?: PMMobileDe
     buffer.splice(0, buffer.length - PM_MOBILE_DEBUG_LIMIT)
   }
 
+  writeNativeDebug(entry)
+
   if (details) {
     console.debug(`[PM][MobileSelection][${entry.seq}] ${scope}.${event}`, details)
     return
@@ -58,5 +92,5 @@ export function pmMobileDebug(scope: string, event: string, details?: PMMobileDe
 }
 
 export function pmMobileDebugEnabled(): boolean {
-  return PM_MOBILE_DEBUG_ENABLED
+  return isDebugEnabled()
 }

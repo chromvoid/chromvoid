@@ -22,6 +22,24 @@ fn removed_child_parent_refresh_path(
     path
 }
 
+fn catalog_dir_is_empty(fs: &PrivyFilesystem, path: &str) -> Result<bool, i32> {
+    let path_val = if path == "/" {
+        serde_json::Value::Null
+    } else {
+        serde_json::Value::String(path.to_string())
+    };
+    let value = {
+        let mut adapter = fs.adapter.lock().map_err(|_| libc::EIO)?;
+        rpc_json(
+            adapter.as_mut(),
+            "catalog:list",
+            json!({"path": path_val, "include_hidden": null}),
+        )?
+    };
+    let res: CatalogListResponse = serde_json::from_value(value).map_err(|_| libc::EIO)?;
+    Ok(res.items.is_empty())
+}
+
 pub(in crate::volume_fuse::imp) fn handle_rmdir(
     fs: &PrivyFilesystem,
     _req: &Request,
@@ -62,6 +80,36 @@ pub(in crate::volume_fuse::imp) fn handle_rmdir(
         return;
     }
     let child_ino = fuse_ino_from_catalog_node_id(entry.catalog_node_id);
+    let child_path = build_catalog_path(&fs.inode_table, child_ino).unwrap_or_else(|| {
+        if parent == FUSE_ROOT_ID {
+            format!("/{name_str}")
+        } else if let Some(parent_path) = build_catalog_path(&fs.inode_table, parent) {
+            format!("{}/{}", parent_path.trim_end_matches('/'), name_str)
+        } else {
+            String::new()
+        }
+    });
+    if child_path.is_empty() {
+        reply.error(fuse_errno(libc::ENOENT));
+        return;
+    }
+    match catalog_dir_is_empty(fs, &child_path) {
+        Ok(true) => {}
+        Ok(false) => {
+            info!(
+                target: "chromvoid_lib::volume_fuse::imp",
+                node_id = entry.catalog_node_id,
+                path = child_path,
+                "FUSE rmdir: directory is not empty"
+            );
+            reply.error(fuse_errno(libc::ENOTEMPTY));
+            return;
+        }
+        Err(e) => {
+            reply.error(fuse_errno(e));
+            return;
+        }
+    }
 
     let _guard = match fs.write_lock.lock() {
         Ok(g) => g,

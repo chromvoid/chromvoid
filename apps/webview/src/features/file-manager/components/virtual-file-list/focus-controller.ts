@@ -27,8 +27,8 @@ export interface VirtualFileListFocusControllerDeps {
   focusRenderedItemById: (id: number) => boolean
   focusContainer: () => void
   focusListContainer: () => void
-  setSelectionAnchor: (index: number | null) => void
-  setKeyboardAnchor: (index: number) => void
+  setSelectionAnchor: (id: number | null) => void
+  setKeyboardAnchor: (id: number | null) => void
   dispatchSelectionChange: (selectedItems: number[]) => void
   dispatchViewportStateRestored: (revision: number) => void
   getAppliedViewportRestoreRevision: () => number | null
@@ -117,8 +117,8 @@ export class VirtualFileListFocusController {
     const focusId = targetIndex >= 0 ? targetId : (filtered[fallbackIndex]?.id ?? null)
 
     this.deps.setSelectionAnchor(null)
-    this.deps.setKeyboardAnchor(targetIndex >= 0 ? targetIndex : fallbackIndex)
     this.deps.setActiveItemId(focusId)
+    this.deps.setKeyboardAnchor(focusId)
     this.deps.setAppliedViewportRestoreRevision(restore.revision)
     this.deps.dispatchViewportStateRestored(restore.revision)
 

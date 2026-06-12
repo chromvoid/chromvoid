@@ -219,3 +219,28 @@ fn test_tree_node_counts() {
     let b1_items = get_items(&list_dir(&mut router, "/a/b1"));
     assert_eq!(b1_items.len(), 3);
 }
+
+#[test]
+fn test_move_into_own_descendant_is_rejected_and_subtree_preserved() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_vault(&mut router, "test");
+
+    let a_id = get_node_id(&create_dir(&mut router, "a"));
+    create_dir_at(&mut router, "/a", "b");
+    create_dir_at(&mut router, "/a/b", "c");
+
+    // Moving /a into its own descendant /a/b/c must fail...
+    // (Error::InvalidPath maps to NODE_NOT_FOUND at the RPC boundary.)
+    let response = move_node(&mut router, a_id, "/a/b/c");
+    assert_rpc_error(&response, "NODE_NOT_FOUND");
+
+    // ...and moving /a into itself must fail too.
+    let response = move_node(&mut router, a_id, "/a");
+    assert_rpc_error(&response, "NODE_NOT_FOUND");
+
+    // The subtree must still be fully intact and reachable.
+    let root_items = get_items(&list_dir(&mut router, "/"));
+    assert_eq!(get_item_names(&root_items), vec!["a".to_string()]);
+    let b_items = get_items(&list_dir(&mut router, "/a/b"));
+    assert_eq!(get_item_names(&b_items), vec!["c".to_string()]);
+}

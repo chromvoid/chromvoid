@@ -1,5 +1,3 @@
-import {open} from '@tauri-apps/plugin-dialog'
-
 import {isTauriRuntime} from 'root/core/runtime/runtime'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
 import {getAppContext, tryGetAppContext} from 'root/shared/services/app-context'
@@ -81,6 +79,7 @@ export class CommandBarModel {
   readonly isOpenState = atom(false)
 
   private readonly navCommands: Command[]
+  private readonly commandCategoryOrder: CommandCategory[] = ['actions', 'navigation', 'filters', 'search']
   private connected = false
   private connectionCount = 0
   private lastCloseBoundaryKey: string | null = null
@@ -276,11 +275,10 @@ export class CommandBarModel {
     ) {
       const filePickerSession = beginMobileFilePickerSession()
       try {
-        const selected = await wrap(open({multiple: true, directory: false}))
+        const selected = await wrap(getAppContext().ws.pickUploadFiles?.() ?? Promise.resolve([]))
         filePickerSession.end()
-        const paths = Array.isArray(selected) ? selected : selected ? [selected] : []
-        if (paths.length > 0) {
-          this.runtime.dispatchCommand({kind: 'upload-paths', paths})
+        if (selected.length > 0) {
+          this.runtime.dispatchCommand({kind: 'upload-paths', files: selected})
         }
       } catch {
         filePickerSession.end()
@@ -696,7 +694,7 @@ export class CommandBarModel {
   }
 
   getSortedCommandGroups(): Record<CommandCategory, Command[]> {
-    const list = this.getFilteredCommands()
+    const list = this.commandList
     const groups: Record<CommandCategory, Command[]> = {
       navigation: [],
       actions: [],
@@ -712,14 +710,14 @@ export class CommandBarModel {
   }
 
   moveSelection(delta: number) {
-    const list = this.getFilteredCommands()
+    const list = this.commandList
     if (list.length === 0) return
     const next = Math.max(0, Math.min(list.length - 1, this.selectedIndex() + delta))
     this.selectedIndex.set(next)
   }
 
   executeSelected() {
-    const list = this.getFilteredCommands()
+    const list = this.commandList
     const cmd = list[this.selectedIndex()]
     if (!cmd || cmd.disabled) return
     cmd.action()
@@ -739,7 +737,7 @@ export class CommandBarModel {
   }
 
   get categoryOrder(): CommandCategory[] {
-    return ['actions', 'navigation', 'filters', 'search']
+    return this.commandCategoryOrder
   }
 
   get categoryLabels(): Record<CommandCategory, string> {
@@ -756,11 +754,11 @@ export class CommandBarModel {
   }
 
   get commandListLength() {
-    return this.getFilteredCommands().length
+    return this.commandList.length
   }
 
   get commandList() {
-    return this.getFilteredCommands()
+    return this.sortCommandsForDisplay(this.getFilteredCommands())
   }
 
   get selectedCommandIndex() {
@@ -769,6 +767,21 @@ export class CommandBarModel {
 
   get defaultSearchFilters(): SearchFilters {
     return this.getDefaultSearchFilters()
+  }
+
+  private sortCommandsForDisplay(commands: Command[]): Command[] {
+    const groups: Record<CommandCategory, Command[]> = {
+      navigation: [],
+      actions: [],
+      filters: [],
+      search: [],
+    }
+
+    for (const command of commands) {
+      groups[command.category].push(command)
+    }
+
+    return this.commandCategoryOrder.flatMap((category) => groups[category])
   }
 }
 

@@ -36,7 +36,7 @@ fn noise_xx_roundtrip_in_memory() {
     let mut transport_i = initiator.into_transport_mode().unwrap();
     let mut transport_r = responder.into_transport_mode().unwrap();
 
-    let plaintext = b"Hello Orange Pi!";
+    let plaintext = b"Hello remote peer!";
     let len = transport_i.write_message(plaintext, &mut buf).unwrap();
     let ciphertext = buf[..len].to_vec();
 

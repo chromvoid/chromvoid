@@ -8,6 +8,9 @@ import {
   routePageStyles,
   sharedStyles,
 } from 'root/shared/ui/shared-styles'
+import {routeCardStyles} from 'root/shared/ui/route-card.styles'
+import {routeCalloutStyles} from 'root/shared/ui/route-callout.styles'
+import {routeEmptyStateStyles} from 'root/shared/ui/route-empty-state.styles'
 
 export const gatewayPageStyles = [
   sharedStyles,
@@ -16,79 +19,26 @@ export const gatewayPageStyles = [
   hostLayoutPaintContainStyles,
   routeHostStyles,
   routePageStyles,
+  routeCardStyles,
+  routeCalloutStyles,
+  routeEmptyStateStyles,
   css`
+    :host {
+      --route-card-border-color: var(--cv-color-border);
+      --route-card-radius: var(--cv-radius-3);
+      --route-card-header-padding: var(--app-spacing-3) var(--app-spacing-4);
+      --route-card-title-gap: 2px;
+      --route-badge-border-color: var(--cv-color-border);
+      --route-card-body-gap: var(--app-spacing-3);
+      --route-callout-base-justify-content: center;
+      --route-callout-text-align: center;
+    }
+
     .page {
       max-inline-size: 920px;
     }
 
     .grid {
-      display: grid;
-      gap: var(--app-spacing-3);
-    }
-
-    .card {
-      background: var(--cv-color-surface);
-      border: 1px solid var(--cv-color-border);
-      border-radius: var(--cv-radius-3);
-      overflow: hidden;
-    }
-
-    .card-header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: var(--app-spacing-3);
-      padding: var(--app-spacing-3) var(--app-spacing-4);
-      background: var(--cv-color-surface-2);
-      border-bottom: 1px solid var(--cv-color-border-muted);
-    }
-
-    .card-title {
-      display: grid;
-      gap: 2px;
-
-      .name {
-        font-weight: var(--cv-font-weight-semibold);
-        font-size: var(--cv-font-size-sm);
-      }
-
-      .hint {
-        color: var(--cv-color-text-muted);
-        font-size: var(--cv-font-size-xs);
-      }
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      font-size: var(--cv-font-size-xs);
-      font-weight: var(--cv-font-weight-semibold);
-      border: 1px solid var(--cv-color-border);
-      background: var(--cv-color-info-surface);
-      color: var(--cv-color-text);
-      white-space: nowrap;
-    }
-
-    .badge.success {
-      background: var(--cv-color-success-surface);
-      border-color: var(--cv-color-success-border);
-    }
-
-    .badge.warning {
-      background: var(--cv-color-warning-surface);
-      border-color: var(--cv-color-warning-border);
-    }
-
-    .badge.danger {
-      background: var(--cv-color-danger-surface);
-      border-color: var(--cv-color-danger-border);
-    }
-
-    .card-body {
-      padding: var(--app-spacing-4);
       display: grid;
       gap: var(--app-spacing-3);
     }
@@ -164,51 +114,12 @@ export const gatewayPageStyles = [
       transform: translateX(20px);
     }
 
-    .ext-list {
-      display: grid;
-      gap: var(--app-spacing-2);
-    }
-
-    .ext-item {
-      display: flex;
-      gap: var(--app-spacing-3);
-      align-items: flex-start;
-      padding: var(--app-spacing-3);
-      border: 1px solid var(--cv-color-border-muted);
-      border-radius: var(--cv-radius-2);
-      background: var(--cv-color-surface);
-    }
-
-    .ext-info {
-      flex: 1;
-      display: grid;
-      gap: 4px;
-      min-inline-size: 0;
-    }
-
     .ext-id {
       font-family: var(--cv-font-family-code);
       font-size: var(--cv-font-size-sm);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-    }
-
-    .ext-meta {
-      color: var(--cv-color-text-muted);
-      font-size: var(--cv-font-size-xs);
-      line-height: 1.35;
-    }
-
-    .empty-state {
-      color: var(--cv-color-text-muted);
-      font-size: var(--cv-font-size-sm);
-      text-align: center;
-      padding: var(--app-spacing-4) 0;
-    }
-
-    .empty-state.empty-state-compact {
-      padding: 0;
     }
 
     .pin-display {
@@ -280,34 +191,9 @@ export const gatewayPageStyles = [
       padding-block-start: var(--app-spacing-2);
     }
 
-    cv-callout.gateway-callout {
-      text-align: center;
-    }
-
-    cv-callout.gateway-callout::part(base) {
-      justify-content: center;
-    }
-
-    cv-callout.gateway-callout::part(message) {
-      display: grid;
-      gap: var(--app-spacing-2);
-      min-inline-size: 0;
-    }
-
-    .gateway-callout-title {
-      font-weight: var(--cv-font-weight-semibold);
-      color: var(--cv-color-text);
-    }
-
-    .gateway-callout-text {
-      color: var(--cv-color-text-muted);
-      line-height: 1.5;
-    }
-
     .ext-actions {
-      display: flex;
-      gap: var(--app-spacing-1);
-      flex-shrink: 0;
+      --route-item-actions-gap: var(--app-spacing-1);
+      --route-item-actions-wrap: nowrap;
     }
 
     .grant-list {

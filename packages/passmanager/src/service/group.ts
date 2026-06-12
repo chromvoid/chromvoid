@@ -1,4 +1,4 @@
-import {atom, computed, peek, type Atom} from '@reatom/core'
+import {atom, computed, peek, wrap, type Atom} from '@reatom/core'
 
 import {v4} from 'uuid'
 
@@ -224,12 +224,12 @@ export class Group implements TGroupActions {
     ) as Group[]
 
     if (!silent) {
-      const confirmed = await confirmPassManagerAction({
+      const confirmed = await wrap(confirmPassManagerAction({
         title: i18n('remove:dialog:title'),
         message: i18n('remove:dialog:text'),
         variant: 'danger',
         confirmVariant: 'danger',
-      })
+      }))
       if (!confirmed) return
     }
 
@@ -237,7 +237,7 @@ export class Group implements TGroupActions {
     const allEntries = [...this.entries(), ...subgroups.flatMap((g) => g.entries())]
 
     // Clean OTP secrets (stored separately, not deleted with directories)
-    await Promise.all(allEntries.flatMap((entry) => peek(entry.otps).map((otp) => otp.clean())))
+    await wrap(Promise.all(allEntries.flatMap((entry) => peek(entry.otps).map((otp) => otp.clean()))))
 
     // Remove this group + all subgroups from root.entries
     const toRemove = new Set<Group>([this, ...subgroups])
@@ -245,7 +245,7 @@ export class Group implements TGroupActions {
     Group.root.updatedTs.set(Date.now())
 
     // save() → saveRoot() → removeObsoleteEntries() deletes orphaned directories
-    await Group.root.save()
+    await wrap(Group.root.save())
     Group.root.showElement.set(Group.root)
 
     try {

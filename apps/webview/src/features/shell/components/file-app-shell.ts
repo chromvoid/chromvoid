@@ -5,6 +5,7 @@ import {css} from 'lit'
 import {getAppContext} from 'root/shared/services/app-context'
 
 import {CommandBar} from 'root/features/file-manager/components/command-bar'
+import {DesktopShellToolbar} from './desktop-shell-toolbar'
 import {FileAppShellDesktopLayout} from './file-app-shell-desktop-layout'
 import {
   FileAppShellMobileLayout,
@@ -24,6 +25,7 @@ export class FileAppShell extends ReatomLitElement {
     MobileTabBar.define()
     MobileTopToolbar.define()
     CommandBar.define()
+    DesktopShellToolbar.define()
     FileAppShellMobileLayout.define()
     FileAppShellDesktopLayout.define()
   }
@@ -98,6 +100,7 @@ export class FileAppShell extends ReatomLitElement {
         .detailsHidden=${this.detailsHidden}
         .dualPane=${this.dualPane}
       >
+        <slot name="desktop-topbar" slot="desktop-topbar"></slot>
         <slot></slot>
         <slot name="details" slot="details"></slot>
         <slot name="statusbar" slot="statusbar"></slot>

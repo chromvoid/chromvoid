@@ -4,12 +4,13 @@ use super::crypto::sign_assertion;
 use super::encoding::encode_b64url;
 use super::query::query_candidates;
 use super::request::{
-    origin_for_request, public_key_request, required_str, rp_id_from_get_request,
-    selected_credential_id,
+    public_key_request, request_has_client_data_hash, required_str, rp_id_from_get_request,
 };
 use super::types::{
-    now_epoch_ms, PasskeyAssertion, PasskeyCredentialSource, PasskeyError, STORAGE_KIND_VAULT,
+    now_epoch_ms, PasskeyAssertion, PasskeyCredentialSource, PasskeyError,
+    PasskeyInvocationContext, STORAGE_KIND_VAULT,
 };
+use super::validation::validate_rp_id_for_origin;
 use super::webauthn::{
     assertion_authenticator_data, client_data_hash, client_data_json, response_client_data_json,
 };
@@ -17,12 +18,22 @@ use super::webauthn::{
 pub fn create_assertion(
     data: &Value,
     sources: &[PasskeyCredentialSource],
+    context: &PasskeyInvocationContext,
 ) -> Result<PasskeyAssertion, PasskeyError> {
     let request = public_key_request(data);
     let rp_id = rp_id_from_get_request(request)?;
-    let candidates = query_candidates(data, sources)?;
-    let selected_id = selected_credential_id(data)
-        .or_else(|| selected_credential_id(request))
+    validate_rp_id_for_origin(&rp_id, &context.origin)?;
+    if request_has_client_data_hash(request) {
+        return Err(PasskeyError::new(
+            "INVALID_CONTEXT",
+            "clientDataHash must come from trusted provider context",
+        ));
+    }
+
+    let candidates = query_candidates(data, sources, context)?;
+    let selected_id = context
+        .selected_credential_id
+        .as_deref()
         .or_else(|| {
             candidates
                 .first()
@@ -36,16 +47,17 @@ pub fn create_assertion(
         .ok_or_else(|| PasskeyError::new("NO_MATCH", "No matching passkey"))?;
 
     let challenge = required_str(request, "challenge")?;
-    let origin = origin_for_request(request, &rp_id);
+    let origin = &context.origin;
     let client_data_json = client_data_json("webauthn.get", challenge, &origin);
-    let client_data_hash = client_data_hash(request, client_data_json.as_bytes())?;
-    let response_client_data_json = response_client_data_json(request, &client_data_json);
-    let auth_data = assertion_authenticator_data(&rp_id);
+    let client_data_hash = client_data_hash(context, client_data_json.as_bytes())?;
+    let response_client_data_json = response_client_data_json(context, &client_data_json);
+    let next_sign_count = source.sign_count.saturating_add(1);
+    let auth_data = assertion_authenticator_data(&rp_id, next_sign_count);
     let mut signed = auth_data.clone();
     signed.extend_from_slice(&client_data_hash);
     let signature = sign_assertion(&source.private_key_pkcs8_b64url, &signed)?;
     source.last_used_epoch_ms = now_epoch_ms();
-    source.sign_count = 0;
+    source.sign_count = next_sign_count;
 
     let response = serde_json::json!({
         "id": source.credential_id_b64url,

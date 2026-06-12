@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import crypto from 'node:crypto'
+import {accessSync, constants} from 'node:fs'
 import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import {spawn} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
@@ -12,11 +14,11 @@ const repoRoot = path.resolve(appRoot, '..', '..')
 const webviewRoot = path.join(repoRoot, 'apps', 'webview')
 const distRoot = path.join(webviewRoot, 'dist')
 const stampPath = path.join(distRoot, '.chromvoid-build-cache.json')
-const forceBuild = process.env.CHROMVOID_FORCE_WEBVIEW_BUILD === '1'
+const argv = new Set(process.argv.slice(2))
+const forceBuild = argv.has('--force') || process.env.CHROMVOID_FORCE_WEBVIEW_BUILD === '1'
 
 const inputRoots = [
   path.join(repoRoot, 'package.json'),
-  path.join(repoRoot, 'package-lock.json'),
   path.join(repoRoot, 'bun.lock'),
   path.join(repoRoot, 'bun.lockb'),
   path.join(webviewRoot, 'index.html'),
@@ -35,9 +37,46 @@ const ignoredDirectoryNames = new Set([
   'dist',
   'node_modules',
 ])
+const bunExecutable = process.platform === 'win32' ? 'bun.exe' : 'bun'
 
 function log(message) {
   console.log(`[webview-build-cache] ${message}`)
+}
+
+function isExecutable(filePath) {
+  try {
+    accessSync(filePath, constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function resolveBun() {
+  const candidates = [
+    process.env.BUN,
+    process.env.BUN_INSTALL && path.join(process.env.BUN_INSTALL, 'bin', bunExecutable),
+    path.join(os.homedir(), '.bun', 'bin', bunExecutable),
+  ].filter(Boolean)
+
+  for (const candidate of candidates) {
+    if (isExecutable(candidate)) {
+      return candidate
+    }
+  }
+
+  return bunExecutable
+}
+
+function webviewBuildEnv(bun) {
+  if (!path.isAbsolute(bun)) {
+    return process.env
+  }
+
+  return {
+    ...process.env,
+    PATH: [path.dirname(bun), process.env.PATH].filter(Boolean).join(path.delimiter),
+  }
 }
 
 async function pathExists(filePath) {
@@ -107,9 +146,10 @@ async function readStamp() {
 
 function runWebviewBuild() {
   return new Promise((resolve, reject) => {
-    const child = spawn('npm', ['run', 'build'], {
+    const bun = resolveBun()
+    const child = spawn(bun, ['run', 'build'], {
       cwd: webviewRoot,
-      env: process.env,
+      env: webviewBuildEnv(bun),
       stdio: 'inherit',
     })
     child.on('error', reject)

@@ -1,6 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {UploadTaskItem} from '../../src/features/file-manager/components/upload-task-item'
+import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 import {UploadTask} from '../../src/types/upload-task'
 
 async function settle(element: UploadTaskItem) {
@@ -19,6 +20,8 @@ describe('upload-task-item', () => {
   afterEach(() => {
     document.body.innerHTML = ''
     window.matchMedia = originalMatchMedia
+    clearAppContext()
+    vi.restoreAllMocks()
   })
 
   it('renders transfer finalizing state with speed and remaining time', async () => {
@@ -119,5 +122,61 @@ describe('upload-task-item', () => {
     const text = element.shadowRoot?.textContent ?? ''
     expect(text).toContain('500 B / 1000 B')
     expect(text).toContain('50%')
+  })
+
+  it('hides retry for non-retryable failed transfer tasks', async () => {
+    const task = new UploadTask({
+      id: 'task-native-failed',
+      name: 'native.bin',
+      total: 100,
+      kind: 'transfer',
+      initialStatus: 'error',
+    })
+
+    const element = document.createElement('upload-task-item') as UploadTaskItem
+    element.task = task
+    document.body.appendChild(element)
+    await settle(element)
+
+    const text = element.shadowRoot?.textContent ?? ''
+    expect(text).not.toContain('Retry')
+    expect(text).toContain('Cancel')
+  })
+
+  it('delegates retryable failed transfer tasks to the store retry entrypoint', async () => {
+    const retryUploadTask = vi.fn(async () => true)
+    const updateUploadTask = vi.fn()
+    initAppContext(
+      createMockAppContext({
+        store: {
+          retryUploadTask,
+          updateUploadTask,
+          cancelUploadTask: vi.fn(),
+        } as any,
+      }),
+    )
+    const task = new UploadTask({
+      id: 'task-browser-failed',
+      name: 'browser.txt',
+      total: 100,
+      kind: 'transfer',
+      initialStatus: 'error',
+      retryable: true,
+    })
+
+    const element = document.createElement('upload-task-item') as UploadTaskItem
+    element.task = task
+    document.body.appendChild(element)
+    await settle(element)
+
+    const retryButton = Array.from(element.shadowRoot?.querySelectorAll('cv-button') ?? []).find((button) =>
+      button.textContent?.includes('Retry'),
+    )
+    expect(retryButton).not.toBeUndefined()
+
+    retryButton?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
+
+    expect(retryUploadTask).toHaveBeenCalledWith('task-browser-failed')
+    expect(updateUploadTask).not.toHaveBeenCalled()
   })
 })

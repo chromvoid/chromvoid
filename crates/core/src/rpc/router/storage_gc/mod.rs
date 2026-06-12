@@ -41,6 +41,8 @@ impl RpcRouter {
         let Some(session) = self.session.as_ref() else {
             return Err(StorageGcError::vault_required());
         };
+        self.derivative_index_state
+            .flush(&self.storage, session.vault_key())?;
 
         let scan = StorageGcScanService::scan(&self.storage, session, options, now_ms())
             .map_err(StorageGcError::scan_failed)?;
@@ -71,6 +73,8 @@ impl RpcRouter {
         let Some(session) = self.session.as_ref() else {
             return Err(StorageGcError::vault_required());
         };
+        self.derivative_index_state
+            .flush(&self.storage, session.vault_key())?;
         let scan = self
             .storage_gc_scan_registry
             .get_refresh_cloned(&gc_id, now_ms())?;

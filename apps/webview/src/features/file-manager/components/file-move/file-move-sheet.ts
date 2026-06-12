@@ -4,6 +4,11 @@ import {css} from 'lit'
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
 import {i18n} from 'root/i18n'
+import {
+  elementContainsDeepActiveElement,
+  eventPathContainsElement,
+  eventPathContainsTextEditor,
+} from 'root/shared/keyboard/keyboard-event-guards'
 import {FileMoveMobile} from './file-move-mobile'
 
 export type FileMoveSheetConfirmDetail = {
@@ -161,11 +166,11 @@ export class FileMoveSheet extends ReatomLitElement {
   }
 
   private handleKeyDown(event: KeyboardEvent) {
+    const cancelButton = this.renderRoot.querySelector('[data-move-cancel]')
     if (event.key !== 'Enter' || event.shiftKey) return
-    const target = event.target as HTMLElement | null
-    const tagName = target?.tagName.toLowerCase()
-    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return
-    if (tagName === 'cv-input' || tagName === 'cv-textarea') return
+    if (eventPathContainsTextEditor(event)) return
+    if (eventPathContainsElement(event, cancelButton)) return
+    if (elementContainsDeepActiveElement(cancelButton, this.renderRoot as ShadowRoot)) return
 
     event.preventDefault()
     this.emitConfirm()
@@ -193,6 +198,7 @@ export class FileMoveSheet extends ReatomLitElement {
           type="button"
           variant="default"
           size="large"
+          data-move-cancel
           @click=${this.emitCancel}
         >
           ${i18n('button:cancel')}

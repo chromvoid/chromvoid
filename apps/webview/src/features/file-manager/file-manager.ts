@@ -3,6 +3,7 @@ import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {css, nothing} from 'lit'
 
 import {navigationModel} from 'root/app/navigation/navigation.model'
+import type {HostPathTokenGrant} from 'root/core/transport/transport'
 import type {
   FileListVisibleRange,
   FileListViewportSnapshot,
@@ -161,19 +162,19 @@ export class FileManager extends ReatomLitElement {
     writeAndroidUnlockDebug('file-manager', 'disconnectedCallback:done')
   }
 
-  private handleNavigate = (e: CustomEvent) => {
+  private handleNavigate(e: CustomEvent) {
     this.ensureModel().handleNavigate(e.detail.path)
   }
 
-  private handleFiltersChange = (e: CustomEvent) => {
+  private handleFiltersChange(e: CustomEvent) {
     this.ensureModel().handleFiltersChange(e.detail)
   }
 
-  private handleSelectionChange = (e: CustomEvent) => {
+  private handleSelectionChange(e: CustomEvent) {
     this.ensureModel().handleSelectionChange(e.detail.selectedItems)
   }
 
-  private handleSelectionModeRequested = (e: CustomEvent) => {
+  private handleSelectionModeRequested(e: CustomEvent) {
     const enabled = Boolean(e.detail?.enabled)
     this.ensureModel().setSelectionMode(enabled)
   }
@@ -201,29 +202,29 @@ export class FileManager extends ReatomLitElement {
     return this.ensureModel().handleMobileBack()
   }
 
-  private handleCreateDir = () => {
+  private handleCreateDir() {
     void this.ensureModel().handleCreateDir()
   }
 
-  private onUploadRequested = (e: CustomEvent) => {
+  private onUploadRequested(e: CustomEvent) {
     const files: FileList | undefined = e.detail?.files
     if (files && files.length > 0) {
       void this.ensureModel().handleFileUpload(files)
     }
   }
 
-  private onUploadPathsRequested = (e: CustomEvent) => {
-    const paths: string[] | undefined = e.detail?.paths
-    if (Array.isArray(paths) && paths.length > 0) {
-      void this.ensureModel().handlePathUpload(paths)
+  private onUploadPathsRequested(e: CustomEvent) {
+    const files: HostPathTokenGrant[] | undefined = e.detail?.files
+    if (Array.isArray(files) && files.length > 0) {
+      void this.ensureModel().handlePathUpload(files)
     }
   }
 
-  private onNativeUploadRequested = () => {
+  private onNativeUploadRequested() {
     void this.ensureModel().handleNativeUpload()
   }
 
-  private onActionBarFileChange = (e: Event) => {
+  private onActionBarFileChange(e: Event) {
     this.endFilePickerSession()
     const files = (e.target as HTMLInputElement).files
     if (files && files.length > 0) {
@@ -253,15 +254,15 @@ export class FileManager extends ReatomLitElement {
     this.filePickerSession = null
   }
 
-  private handleDeleteSelected = () => {
+  private handleDeleteSelected() {
     void this.ensureModel().handleDeleteSelected()
   }
 
-  private handleClearSelection = () => {
+  private handleClearSelection() {
     getAppContext().store.setSelectedItems([])
   }
 
-  private handleItemAction = (e: CustomEvent) => {
+  private handleItemAction(e: CustomEvent) {
     const model = this.ensureModel()
     const detail = e.detail as {
       action?: string
@@ -377,24 +378,28 @@ export class FileManager extends ReatomLitElement {
     const filteredCount = model.filteredCount()
 
     return html`
-      <dashboard-header
-        slot="header"
-        .currentPath=${model.currentPath()}
-        .filters=${model.searchFilters()}
-        .filterActions=${model.searchFilterActions}
-        .totalFiles=${model.totalCount()}
-        .filteredFiles=${filteredCount}
-        .selectedCount=${model.selectedCount()}
-        @navigate=${this.handleNavigate}
-        @filters-change=${this.handleFiltersChange}
-        @create-dir=${this.handleCreateDir}
-        @upload-requested=${this.onUploadRequested}
-        @upload-paths-requested=${this.onUploadPathsRequested}
-        @native-upload-requested=${this.onNativeUploadRequested}
-        @delete-selected=${this.handleDeleteSelected}
-        @clear-selection=${this.handleClearSelection}
-        @selection-mode-requested=${this.handleSelectionModeRequested}
-      ></dashboard-header>
+      ${isMobileLayout
+        ? html`
+            <dashboard-header
+              slot="header"
+              .currentPath=${model.currentPath()}
+              .filters=${model.searchFilters()}
+              .filterActions=${model.searchFilterActions}
+              .totalFiles=${model.totalCount()}
+              .filteredFiles=${filteredCount}
+              .selectedCount=${model.selectedCount()}
+              @navigate=${this.handleNavigate}
+              @filters-change=${this.handleFiltersChange}
+              @create-dir=${this.handleCreateDir}
+              @upload-requested=${this.onUploadRequested}
+              @upload-paths-requested=${this.onUploadPathsRequested}
+              @native-upload-requested=${this.onNativeUploadRequested}
+              @delete-selected=${this.handleDeleteSelected}
+              @clear-selection=${this.handleClearSelection}
+              @selection-mode-requested=${this.handleSelectionModeRequested}
+            ></dashboard-header>
+          `
+        : nothing}
 
       <dashboard-dropzone
         slot="dropzone"

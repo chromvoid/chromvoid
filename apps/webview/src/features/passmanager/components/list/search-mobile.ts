@@ -5,7 +5,6 @@ import {i18n} from '@project/passmanager/i18n'
 import type {CredentialTagOption} from '@project/passmanager/tags'
 import {pmCredentialTagsModel} from '../../models/pm-credential-tags.model'
 import {pmMobileChromeModel} from '../../models/pm-mobile-chrome.model'
-import {PMMobileTagFilterSheet} from './mobile-tag-filter-sheet'
 import {PMSearchBase, searchBaseStyles} from './search-base'
 
 export class PMSearchMobile extends PMSearchBase {
@@ -13,7 +12,6 @@ export class PMSearchMobile extends PMSearchBase {
     if (!customElements.get('pm-search-mobile')) {
       customElements.define('pm-search-mobile', this)
     }
-    PMMobileTagFilterSheet.define()
   }
 
   static styles = [
@@ -30,6 +28,7 @@ export class PMSearchMobile extends PMSearchBase {
         align-items: center;
         gap: var(--cv-space-2);
         min-inline-size: 0;
+        block-size: 40px;
       }
 
       .search-form {
@@ -38,13 +37,18 @@ export class PMSearchMobile extends PMSearchBase {
         inline-size: 100%;
       }
 
+      .search-form form {
+        display: grid;
+        align-items: center;
+      }
+
       .sort-group-trigger {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        flex: 0 0 42px;
-        inline-size: 42px;
-        block-size: 42px;
+        flex: 0 0 40px;
+        inline-size: 40px;
+        block-size: 40px;
         border: 1px solid var(--cv-color-border-glass);
         border-radius: 14px;
         background: var(--cv-color-surface-2);
@@ -87,9 +91,17 @@ export class PMSearchMobile extends PMSearchBase {
       }
 
       cv-input {
+        display: block;
+        --cv-input-search-mobile-height: 40px;
         --cv-input-search-mobile-shadow:
           inset 0 1px 2px var(--cv-alpha-black-10),
           0 1px 0 var(--cv-alpha-white-4);
+      }
+
+      cv-input::part(form-control-label),
+      cv-input::part(form-control-help-text) {
+        display: none;
+        margin: 0;
       }
 
       .kbd-slash {
@@ -317,7 +329,6 @@ export class PMSearchMobile extends PMSearchBase {
         ${this.renderSearchInput(className, isInvalid, isSearched)}
       </div>
       ${this.renderMobileTagFilters()}
-      <pm-mobile-tag-filter-sheet></pm-mobile-tag-filter-sheet>
     `
   }
 }

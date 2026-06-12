@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 pub const STAGING_ROOT_DIR: &str = "NativeStaging";
 pub const STAGING_MANIFEST_FILE: &str = "manifest.json";
+pub const STAGING_ACTIVE_MARKER_FILE: &str = ".active";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IosStagingArea {
@@ -244,6 +245,7 @@ pub fn purge_stale_sessions(
 
             let stale = match read_manifest(container_root, *area, &session_id) {
                 Ok(manifest) => manifest.created_at_unix_ms.saturating_add(max_age_ms) <= now_ms,
+                Err(_) if active_marker_is_fresh(&entry.path(), max_age, now_ms) => false,
                 Err(_) => true,
             };
             if stale {
@@ -254,6 +256,20 @@ pub fn purge_stale_sessions(
     }
 
     Ok(removed)
+}
+
+fn active_marker_is_fresh(session_path: &Path, max_age: Duration, now_ms: u128) -> bool {
+    let Ok(metadata) = fs::metadata(session_path.join(STAGING_ACTIVE_MARKER_FILE)) else {
+        return false;
+    };
+    let Ok(modified) = metadata.modified() else {
+        return false;
+    };
+    let modified_ms = modified
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    modified_ms.saturating_add(max_age.as_millis()) > now_ms
 }
 
 fn ensure_safe_segment(value: &str, name: &'static str) -> Result<(), IosStagingError> {
@@ -376,6 +392,41 @@ mod tests {
         assert!(
             session_dir(temp.path(), IosStagingArea::SharedFiles, "share-fresh")
                 .expect("fresh dir")
+                .exists()
+        );
+    }
+
+    #[test]
+    fn ios_staging_keeps_fresh_active_session_without_manifest() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let dir = prepare_session_dir(temp.path(), IosStagingArea::SharedFiles, "share-active")
+            .expect("session dir");
+        fs::write(dir.join(STAGING_ACTIVE_MARKER_FILE), b"").expect("active marker");
+
+        let removed =
+            purge_stale_sessions(temp.path(), Duration::from_secs(60)).expect("purged stale");
+
+        assert_eq!(removed, 0);
+        assert!(
+            session_dir(temp.path(), IosStagingArea::SharedFiles, "share-active")
+                .expect("active dir")
+                .exists()
+        );
+    }
+
+    #[test]
+    fn ios_staging_purges_expired_active_session_without_manifest() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let dir = prepare_session_dir(temp.path(), IosStagingArea::SharedFiles, "share-stale")
+            .expect("session dir");
+        fs::write(dir.join(STAGING_ACTIVE_MARKER_FILE), b"").expect("active marker");
+
+        let removed = purge_stale_sessions(temp.path(), Duration::ZERO).expect("purged stale");
+
+        assert_eq!(removed, 1);
+        assert!(
+            !session_dir(temp.path(), IosStagingArea::SharedFiles, "share-stale")
+                .expect("stale dir")
                 .exists()
         );
     }

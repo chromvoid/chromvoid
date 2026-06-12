@@ -237,3 +237,28 @@ fn upload_stream_chunk_data_defers_finish_until_final_chunk() {
     assert_eq!(final_chunk_data["total_size"], serde_json::json!(128));
     assert_eq!(final_chunk_data["finish"], serde_json::json!(true));
 }
+
+#[test]
+fn append_full_upload_stream_chunk_appends_within_limit() {
+    let mut body = vec![1, 2, 3];
+
+    append_full_upload_stream_chunk(&mut body, &[4, 5]).expect("append within limit");
+
+    assert_eq!(body, vec![1, 2, 3, 4, 5]);
+}
+
+#[test]
+fn append_full_upload_stream_chunk_rejects_oversized_without_extending() {
+    let mut body = vec![7_u8; crate::rpc_transport_protocol::MAX_FULL_UPLOAD_STREAM_BYTES - 1];
+    let original_len = body.len();
+
+    let response = append_full_upload_stream_chunk(&mut body, &[1, 2])
+        .expect_err("oversized full upload stream should fail");
+
+    assert_eq!(response.code(), Some("PAYLOAD_TOO_LARGE"));
+    assert_eq!(
+        response.error_message(),
+        Some("full upload stream exceeds maximum size")
+    );
+    assert_eq!(body.len(), original_len);
+}

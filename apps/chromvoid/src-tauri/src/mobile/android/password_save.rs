@@ -6,15 +6,36 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
+use zeroize::Zeroize;
 
 const PASSWORD_SAVE_REQUEST_TTL: Duration = Duration::from_secs(300);
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AndroidPasswordSavePayload {
     pub title: String,
     pub username: String,
     pub password: String,
     pub urls: String,
+}
+
+impl std::fmt::Debug for AndroidPasswordSavePayload {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AndroidPasswordSavePayload")
+            .field("title", &self.title)
+            .field("username", &self.username)
+            .field("password", &"<redacted>")
+            .field("urls", &self.urls)
+            .finish()
+    }
+}
+
+impl Drop for AndroidPasswordSavePayload {
+    fn drop(&mut self) {
+        self.title.zeroize();
+        self.username.zeroize();
+        self.password.zeroize();
+        self.urls.zeroize();
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,15 +95,16 @@ impl Default for AndroidPasswordSaveRuntimeState {
     }
 }
 
-fn prune_expired(requests: &mut HashMap<String, PendingPasswordSaveRequest>) {
+fn prune_expired(requests: &mut HashMap<String, PendingPasswordSaveRequest>) -> usize {
     let now = Instant::now();
-    for request in requests.values_mut() {
-        if !request.state.is_terminal()
-            && now.duration_since(request.created_at) >= PASSWORD_SAVE_REQUEST_TTL
-        {
-            request.state = PasswordSaveRequestState::Expired;
-        }
-    }
+    let before = requests.len();
+    requests.retain(|_, request| {
+        let age = now
+            .checked_duration_since(request.created_at)
+            .unwrap_or_default();
+        !request.state.is_terminal() && age < PASSWORD_SAVE_REQUEST_TTL
+    });
+    before.saturating_sub(requests.len())
 }
 
 pub fn register_password_save_request(
@@ -98,7 +120,7 @@ pub fn register_password_save_request(
         .requests
         .lock()
         .map_err(|_| "Password save request store is unavailable".to_string())?;
-    prune_expired(&mut requests);
+    let _ = prune_expired(&mut requests);
     requests.insert(
         token.clone(),
         PendingPasswordSaveRequest {
@@ -118,7 +140,7 @@ pub fn get_password_save_request(
         .requests
         .lock()
         .map_err(|_| "Password save request store is unavailable".to_string())?;
-    prune_expired(&mut requests);
+    let _ = prune_expired(&mut requests);
     Ok(requests
         .get(token)
         .map(|request| (request.payload.clone(), request.state)))
@@ -132,7 +154,7 @@ pub fn mark_password_save_request_launched(
         .requests
         .lock()
         .map_err(|_| "Password save request store is unavailable".to_string())?;
-    prune_expired(&mut requests);
+    let _ = prune_expired(&mut requests);
 
     let Some(request) = requests.get_mut(token) else {
         return Ok(false);
@@ -154,8 +176,8 @@ pub fn finish_password_save_request(
         .requests
         .lock()
         .map_err(|_| "Password save request store is unavailable".to_string())?;
-    prune_expired(&mut requests);
-    let Some(request) = requests.get_mut(token) else {
+    let _ = prune_expired(&mut requests);
+    let Some(mut request) = requests.remove(token) else {
         return Ok(false);
     };
     if request.state.is_terminal() {
@@ -187,22 +209,50 @@ pub fn invalidate_all_password_save_requests(
             return 0;
         }
     };
-    prune_expired(&mut requests);
-    let mut invalidated = 0usize;
-    for request in requests.values_mut() {
-        if !request.state.is_terminal() {
-            request.state = PasswordSaveRequestState::Dismissed;
-            invalidated = invalidated.saturating_add(1);
-        }
-    }
-    if !requests.is_empty() {
+    let expired = prune_expired(&mut requests);
+    let invalidated = requests
+        .values()
+        .filter(|request| !request.state.is_terminal())
+        .count();
+    requests.clear();
+    if invalidated > 0 || expired > 0 {
         tracing::info!(
-            "android password save requests invalidated: count={} reason={}",
+            "android password save requests invalidated: count={} expired={} reason={}",
             invalidated,
+            expired,
             reason
         );
     }
     invalidated
+}
+
+#[cfg(test)]
+pub(crate) fn pending_password_save_request_count(
+    runtime: &AndroidPasswordSaveRuntimeState,
+) -> Result<usize, String> {
+    let mut requests = runtime
+        .requests
+        .lock()
+        .map_err(|_| "Password save request store is unavailable".to_string())?;
+    let _ = prune_expired(&mut requests);
+    Ok(requests.len())
+}
+
+#[cfg(test)]
+pub(crate) fn force_password_save_request_age(
+    runtime: &AndroidPasswordSaveRuntimeState,
+    token: &str,
+    age: Duration,
+) -> Result<bool, String> {
+    let mut requests = runtime
+        .requests
+        .lock()
+        .map_err(|_| "Password save request store is unavailable".to_string())?;
+    let Some(request) = requests.get_mut(token) else {
+        return Ok(false);
+    };
+    request.created_at = Instant::now().checked_sub(age).unwrap_or_else(Instant::now);
+    Ok(true)
 }
 
 pub fn runtime_password_save_start(payload: Value) -> Value {

@@ -61,7 +61,7 @@ export const pmEntryTOTPItemSharedStyles = [
     }
 
     .totp-card:focus-visible {
-      outline: 2px solid var(--totp-color, var(--cv-color-success));
+      outline: 2px solid var(--totp-focus-color, var(--totp-accent-color, var(--totp-color, var(--cv-color-success))));
       outline-offset: 2px;
     }
 
@@ -122,7 +122,7 @@ export const pmEntryTOTPItemSharedStyles = [
       margin-block-start: var(--cv-space-1);
       font-size: var(--cv-font-size-sm);
       font-weight: var(--cv-font-weight-semibold);
-      color: var(--totp-feedback-color, var(--totp-color, var(--cv-color-success)));
+      color: var(--totp-feedback-color, var(--totp-accent-color, var(--totp-color, var(--cv-color-success))));
     }
 
     .totp-arc-timer {
@@ -141,13 +141,13 @@ export const pmEntryTOTPItemSharedStyles = [
 
       .arc-track {
         fill: none;
-        stroke: var(--cv-color-border-muted);
+        stroke: var(--totp-arc-track-color, var(--cv-color-border-muted));
         stroke-width: var(--totp-arc-stroke-width, 3.25);
       }
 
       .arc-indicator {
         fill: none;
-        stroke: var(--totp-color, var(--cv-color-success));
+        stroke: var(--totp-accent-color, var(--totp-color, var(--cv-color-success)));
         stroke-width: var(--totp-arc-stroke-width, 3.25);
         stroke-linecap: round;
         stroke-dasharray: ${ARC_CIRCUMFERENCE};
@@ -166,7 +166,7 @@ export const pmEntryTOTPItemSharedStyles = [
         justify-content: center;
         font-weight: var(--cv-font-weight-bold);
         font-variant-numeric: tabular-nums;
-        color: var(--totp-color, var(--cv-color-success));
+        color: var(--totp-accent-color, var(--totp-color, var(--cv-color-success)));
       }
 
       .arc-seconds {

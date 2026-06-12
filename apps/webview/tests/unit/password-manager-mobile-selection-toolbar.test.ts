@@ -116,8 +116,6 @@ describe('PasswordManagerMobileLayout selection toolbar', () => {
     })
     expect(pmMobileChromeModel.getToolbarActions()).toMatchObject([
       {id: 'pm-selection-done', icon: 'check-lg'},
-      {id: 'pm-selection-edit', icon: 'pencil-square', disabled: false},
-      {id: 'pm-selection-move', icon: 'folder-symlink', disabled: false},
       {id: 'pm-selection-delete', icon: 'trash', disabled: false},
     ])
 
@@ -131,8 +129,6 @@ describe('PasswordManagerMobileLayout selection toolbar', () => {
     })
     expect(pmMobileChromeModel.getToolbarActions()).toMatchObject([
       {id: 'pm-selection-done', icon: 'check-lg'},
-      {id: 'pm-selection-edit', icon: 'pencil-square', disabled: true},
-      {id: 'pm-selection-move', icon: 'folder-symlink', disabled: false},
       {id: 'pm-selection-delete', icon: 'trash', disabled: false},
     ])
   })

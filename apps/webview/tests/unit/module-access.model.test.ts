@@ -9,6 +9,8 @@ import {
   setRuntimeCapabilities,
 } from '../../src/core/runtime/runtime-capabilities'
 
+const originalWindowEnv = window.env
+
 const LOCKED_PRO_STATES: ModuleAccessState[] = [
   {feature_key: 'remote', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
   {feature_key: 'browser-extension', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
@@ -20,6 +22,7 @@ const LOCKED_PRO_STATES: ModuleAccessState[] = [
 ]
 
 afterEach(() => {
+  window.env = originalWindowEnv
   moduleAccessModel.reset()
   resetRuntimeCapabilities()
 })
@@ -31,7 +34,6 @@ describe('moduleAccessModel runtime support overlay', () => {
       platform: 'android',
       mobile: true,
       supports_network_remote: true,
-      supports_usb_remote: false,
       supports_volume: false,
       supports_gateway: false,
     })
@@ -77,5 +79,44 @@ describe('moduleAccessModel runtime support overlay', () => {
     })
 
     expect(moduleAccessModel.featureAccess('browser-extension').status).toBe('unsupported')
+  })
+
+  it('keeps production non-Tauri entitlement uncertainty fail-closed', async () => {
+    window.env = 'prod'
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      supports_network_remote: true,
+      supports_volume: true,
+      supports_gateway: true,
+      supports_autofill: true,
+    })
+
+    await moduleAccessModel.refresh()
+
+    expect(moduleAccessModel.featureAccess('remote').status).toBe('entitlement_unavailable')
+    expect(moduleAccessModel.featureAccess('mounted-vault').status).toBe('entitlement_unavailable')
+    expect(moduleAccessModel.featureAccess('browser-extension').status).toBe('entitlement_unavailable')
+    expect(moduleAccessModel.canOpenSurface('remote')).toBe(false)
+    expect(moduleAccessModel.canOpenSurface('remote-storage')).toBe(false)
+  })
+
+  it('keeps the non-Tauri bypass explicit to dev runtime', async () => {
+    window.env = 'dev'
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      supports_network_remote: true,
+      supports_volume: true,
+      supports_gateway: true,
+      supports_autofill: true,
+    })
+
+    await moduleAccessModel.refresh()
+
+    expect(moduleAccessModel.featureAccess('remote').status).toBe('enabled')
+    expect(moduleAccessModel.featureAccess('mounted-vault').status).toBe('enabled')
+    expect(moduleAccessModel.featureAccess('browser-extension').status).toBe('enabled')
+    expect(moduleAccessModel.canOpenSurface('remote')).toBe(true)
   })
 })

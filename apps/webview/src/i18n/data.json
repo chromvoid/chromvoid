@@ -2040,6 +2040,18 @@
     "en": "Offline",
     "ru": "Офлайн"
   },
+  "statusbar:remote-connection": {
+    "en": "Remote connection",
+    "ru": "Удалённое подключение"
+  },
+  "statusbar:remote-connection:ready": {
+    "en": "Remote connected",
+    "ru": "Удалённо подключено"
+  },
+  "statusbar:remote-connection:waiting-host": {
+    "en": "Host locked",
+    "ru": "Хост заблокирован"
+  },
   "statusbar:catalog:idle": {
     "en": "Synced",
     "ru": "Синхронизировано"
@@ -2219,6 +2231,14 @@
   "notes:quick_view:unavailable:description": {
     "en": "Notes will appear after the Files catalog is available.",
     "ru": "Заметки появятся после загрузки каталога файлов."
+  },
+  "notes:quick_view:error:title": {
+    "en": "Could not load notes",
+    "ru": "Не удалось загрузить заметки"
+  },
+  "notes:quick_view:error:description": {
+    "en": "Retry loading Markdown notes from the Files catalog.",
+    "ru": "Повторите загрузку Markdown-заметок из каталога файлов."
   },
   "notes:quick_view:empty:title": {
     "en": "No Markdown notes",
@@ -3008,6 +3028,10 @@
     "en": "Redo",
     "ru": "Повторить"
   },
+  "markdown:paste": {
+    "en": "Paste",
+    "ru": "Вставить"
+  },
   "markdown:save": {
     "en": "Save",
     "ru": "Сохранить"
@@ -3532,6 +3556,10 @@
     "en": "Services are unavailable",
     "ru": "Сервисы недоступны"
   },
+  "uploads:retry-unavailable": {
+    "en": "This upload cannot be retried. Start the upload again.",
+    "ru": "Эту загрузку нельзя повторить. Запустите загрузку заново."
+  },
   "ssh-agent:title": {
     "en": "SSH Signing Request",
     "ru": "Запрос подписи SSH"
@@ -3648,6 +3676,10 @@
     "en": "Moved ${count} items to \"${target}\"",
     "ru": "Перемещено элементов: ${count}, папка: «${target}»"
   },
+  "file-manager:move:partial-failed": {
+    "en": "Moved ${moved}/${total} items. Failed to move the rest: ${message}",
+    "ru": "Перемещено ${moved}/${total}. Остальные элементы переместить не удалось: ${message}"
+  },
   "file-manager:move:undo": {
     "en": "Undo",
     "ru": "Отменить"
@@ -3743,6 +3775,10 @@
   "file-manager:selected-deleted": {
     "en": "Selected items deleted",
     "ru": "Выбранные элементы удалены"
+  },
+  "file-manager:selected-delete-partial": {
+    "en": "${deleted} deleted, ${failed} failed",
+    "ru": "Удалено: ${deleted}, ошибок: ${failed}"
   },
   "file-manager:root-directory": {
     "en": "root directory",
@@ -4455,38 +4491,6 @@
   "remote:connected-desktops": {
     "en": "Connected desktops",
     "ru": "Подключённые компьютеры"
-  },
-  "remote:connection-title": {
-    "en": "Connection Status",
-    "ru": "Состояние соединения"
-  },
-  "remote:connection-hint": {
-    "en": "Current USB connection state",
-    "ru": "Текущее состояние USB-соединения"
-  },
-  "remote:usb-devices-title": {
-    "en": "USB Devices",
-    "ru": "USB-устройства"
-  },
-  "remote:usb-devices-hint": {
-    "en": "Discovered devices on USB ports",
-    "ru": "Найденные устройства на USB-портах"
-  },
-  "remote:no-devices": {
-    "en": "No devices discovered. Click \"Scan\" to search for USB devices.",
-    "ru": "Устройства не найдены. Нажмите «Сканировать», чтобы выполнить поиск USB-устройств."
-  },
-  "remote:paired-devices-title": {
-    "en": "Paired Devices",
-    "ru": "Сопряжённые устройства"
-  },
-  "remote:paired-devices-hint": {
-    "en": "Previously connected and trusted devices",
-    "ru": "Ранее подключённые и доверенные устройства"
-  },
-  "remote:no-paired-devices": {
-    "en": "No paired devices",
-    "ru": "Нет сопряжённых устройств"
   },
   "remote:no-serial": {
     "en": "No serial",
@@ -6455,14 +6459,6 @@
   "guidance:passkeys.empty-state:body": {
     "en": "When the credential provider is enabled, ChromVoid can help manage passkeys backed by the vault.",
     "ru": "Когда провайдер учётных данных включён, ChromVoid помогает управлять passkey, связанными с хранилищем."
-  },
-  "guidance:remote.setup-usb:title": {
-    "en": "Pair over USB",
-    "ru": "Подключите по USB"
-  },
-  "guidance:remote.setup-usb:body": {
-    "en": "Use USB pairing when this device can talk directly to the remote host.",
-    "ru": "Используйте USB-сопряжение, если это устройство может напрямую подключиться к удалённому хосту."
   },
   "guidance:remote.setup-network:title": {
     "en": "Pair over the network",

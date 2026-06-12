@@ -113,6 +113,7 @@ describe('NavigationRail mobile drawer auto-close', () => {
       platform: 'android',
       mobile: true,
       supports_autofill: true,
+      supports_credential_provider_passkeys_lite: true,
     })
 
     const rail = await createRenderedRail()
@@ -231,7 +232,6 @@ describe('NavigationRail mobile drawer auto-close', () => {
       platform: 'android',
       mobile: true,
       supports_network_remote: true,
-      supports_usb_remote: false,
       supports_volume: true,
       supports_gateway: true,
     })
@@ -279,7 +279,6 @@ describe('NavigationRail mobile drawer auto-close', () => {
       platform: 'android',
       mobile: true,
       supports_network_remote: true,
-      supports_usb_remote: false,
       supports_volume: false,
       supports_gateway: false,
     })
@@ -357,7 +356,6 @@ describe('NavigationRail mobile drawer auto-close', () => {
     setRuntimeCapabilities({
       desktop: true,
       supports_network_remote: true,
-      supports_usb_remote: false,
     })
 
     navigationModel.navigateToRemotePanel('pair-ios', 'replace')

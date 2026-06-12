@@ -54,6 +54,8 @@ export type NotesQuickViewSummary = {
   visible: number
 }
 
+export type NotesQuickViewErrorKey = 'notes:quick_view:error:load_failed'
+
 type NotesQuickViewProjection = {
   rows: NotesQuickViewRow[]
   tree: NotesQuickViewTreeItem[]
@@ -165,6 +167,7 @@ export class NotesQuickViewModel {
   private readonly catalogRevision = atom(0, 'notes.quickView.catalogRevision')
   private readonly noteRows = atom<NotesQuickViewRow[]>([], 'notes.quickView.noteRows')
   private readonly isLoadingNotes = atom(false, 'notes.quickView.isLoadingNotes')
+  readonly loadErrorKey = atom<NotesQuickViewErrorKey | null>(null, 'notes.quickView.loadErrorKey')
   private readonly collapsedDirectoryPaths = atom<ReadonlySet<string>>(
     new Set<string>(),
     'notes.quickView.collapsedDirectoryPaths',
@@ -224,6 +227,7 @@ export class NotesQuickViewModel {
   private loadActive = false
   private loadRequested = false
   private loadScheduled = false
+  private hasLoadedNotesThisConnection = false
 
   constructor(deps: NotesQuickViewModelDeps = {}) {
     this.getContext = deps.getContext ?? tryGetAppContext
@@ -235,6 +239,7 @@ export class NotesQuickViewModel {
       return
     }
 
+    this.hasLoadedNotesThisConnection = false
     const catalog = this.getCatalogSubscription()
     if (typeof catalog?.subscribe === 'function') {
       this.unsubscribeCatalog = subscribeCallbackAfterInitial(catalog.subscribe.bind(catalog), () => {
@@ -265,7 +270,9 @@ export class NotesQuickViewModel {
     this.loadRunId += 1
     this.loadRequested = false
     this.loadScheduled = false
+    this.hasLoadedNotesThisConnection = false
     this.isLoadingNotes.set(false)
+    this.loadErrorKey.set(null)
   }
 
   readonly setQuery = action((value: string) => {
@@ -297,6 +304,12 @@ export class NotesQuickViewModel {
   readonly clearFilters = action(() => {
     this.query.set('')
   }, 'notes.quickView.clearFilters')
+
+  readonly retryLoad = action(() => {
+    this.loadErrorKey.set(null)
+    this.invalidateNotesLoad()
+    this.scheduleNotesLoad()
+  }, 'notes.quickView.retryLoad')
 
   readonly openNote = action((row: NotesQuickViewRow) => {
     if (this.viewMode() === 'hierarchy') {
@@ -332,6 +345,7 @@ export class NotesQuickViewModel {
     summary: this.summary,
     hasCatalog: this.hasCatalog,
     isLoading: this.isLoading,
+    loadErrorKey: this.loadErrorKey,
     hasActiveFilters: this.hasActiveFilters,
   }
 
@@ -341,6 +355,7 @@ export class NotesQuickViewModel {
     toggleDirectory: this.toggleDirectory,
     expandAllDirectories: this.expandAllDirectories,
     clearFilters: this.clearFilters,
+    retryLoad: this.retryLoad,
     openNote: this.openNote,
     openNoteById: this.openNoteById,
   }
@@ -412,6 +427,7 @@ export class NotesQuickViewModel {
     if (!loader?.listNotes) {
       this.noteRows.set([])
       this.isLoadingNotes.set(false)
+      this.loadErrorKey.set(null)
       return
     }
     if (!this.isTransportConnected()) {
@@ -428,8 +444,15 @@ export class NotesQuickViewModel {
       }
 
       this.noteRows.set(response.items.map(rowFromNotesItem).filter((row): row is NotesQuickViewRow => Boolean(row)))
+      this.hasLoadedNotesThisConnection = true
+      this.loadErrorKey.set(null)
     } catch {
-      // Notes keeps the last successful projection if the refresh fails.
+      if (this.isLoadCurrent(runId)) {
+        if (!this.hasLoadedNotesThisConnection) {
+          this.noteRows.set([])
+        }
+        this.loadErrorKey.set('notes:quick_view:error:load_failed')
+      }
     } finally {
       this.loadActive = false
       if (runId === this.loadRunId) {

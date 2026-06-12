@@ -9,9 +9,9 @@ use chromvoid_core::crypto::{
     shard_chunk_name, StoragePepper,
 };
 use chromvoid_core::rpc::commands::set_bypass_system_shard_guards;
-use chromvoid_core::rpc::types::RpcRequest;
 use chromvoid_core::rpc::RpcRouter;
 use chromvoid_core::storage::Storage;
+use std::collections::BTreeSet;
 use test_helpers::*;
 
 fn write_encrypted_chunk(storage: &Storage, vault_key: &[u8; 32], name: &str, plaintext: &[u8]) {
@@ -26,12 +26,6 @@ fn read_root_index(storage: &Storage, vault_key: &[u8; 32]) -> RootIndex {
         .expect("read root index chunk");
     let plain = decrypt(&enc, vault_key, root_name.as_bytes()).expect("decrypt root index chunk");
     serde_json::from_slice::<RootIndex>(&plain).expect("root index json")
-}
-
-fn extract_shard_root(response: &chromvoid_core::rpc::types::RpcResponse) -> CatalogNode {
-    let result = response.result().expect("response should have result");
-    let root = result.get("root").expect("result should have root").clone();
-    serde_json::from_value::<CatalogNode>(root).expect("root must be a CatalogNode")
 }
 
 fn write_inconsistent_passmanager_fixture(
@@ -96,7 +90,7 @@ fn write_inconsistent_passmanager_fixture(
 }
 
 #[test]
-fn test_unlock_uses_sharded_passmanager_view_even_when_deltas_exceed_limit() {
+fn test_unlock_errors_when_passmanager_deltas_exceed_limit_without_writing() {
     let (_router, temp_dir, keystore) = create_test_router_with_keystore();
 
     // We write our own chunks. Ensure no router keeps the storage open.
@@ -111,25 +105,33 @@ fn test_unlock_uses_sharded_passmanager_view_even_when_deltas_exceed_limit() {
     let vault_key = derive_vault_key_v2(password, &vault_salt, &pepper).expect("derive v2 key");
 
     write_inconsistent_passmanager_fixture(&storage, &*vault_key, delta_count);
+    let before = storage
+        .list_chunks()
+        .expect("list chunks before unlock")
+        .into_iter()
+        .collect::<BTreeSet<_>>();
 
-    let mut router = RpcRouter::new(storage).with_keystore(keystore);
+    let mut router = RpcRouter::new(storage.clone()).with_keystore(keystore);
     let unlock = unlock_vault(&mut router, password);
-    assert_rpc_ok(&unlock);
-
-    // Correct behavior: even with a long delta chain, unlock must NOT silently fall back
-    // to the legacy recovery snapshot for .passmanager, otherwise frontend shard sync diverges.
-    set_bypass_system_shard_guards(true);
-    let items = get_items(&list_dir(&mut router, "/.passmanager/Ungrouped"));
-    set_bypass_system_shard_guards(false);
-    let names = get_item_names(&items);
+    assert_rpc_error(&unlock, "INTERNAL_ERROR");
     assert!(
-        names.contains(&"staleEntry".to_string()),
-        "expected sharded view (contains staleEntry), got: {names:?}"
+        unlock
+            .error_message()
+            .unwrap_or_default()
+            .contains("shard delta log exceeds MAX_DELTAS"),
+        "unexpected unlock error: {unlock:?}"
     );
+
+    let after = storage
+        .list_chunks()
+        .expect("list chunks after unlock")
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(after, before, "unlock read path must not write or compact");
 }
 
 #[test]
-fn test_delete_node_from_passmanager_shard_persists_after_overflow_unlock() {
+fn test_overflow_unlock_does_not_fall_back_to_legacy_catalog_or_enable_mutation() {
     let (_router, temp_dir, keystore) = create_test_router_with_keystore();
     drop(_router);
 
@@ -142,31 +144,26 @@ fn test_delete_node_from_passmanager_shard_persists_after_overflow_unlock() {
     let vault_key = derive_vault_key_v2(password, &vault_salt, &pepper).expect("derive v2 key");
 
     write_inconsistent_passmanager_fixture(&storage, &*vault_key, delta_count);
+    let before = storage
+        .list_chunks()
+        .expect("list chunks before unlock")
+        .into_iter()
+        .collect::<BTreeSet<_>>();
 
-    let mut router = RpcRouter::new(storage).with_keystore(keystore);
-    assert_rpc_ok(&unlock_vault(&mut router, password));
-
-    // This node exists in the shard view, but NOT in the legacy recovery snapshot.
-    // Correct behavior: after unlock, deletes must affect the same view the UI sync uses.
-    set_bypass_system_shard_guards(true);
-    assert_rpc_ok(&delete_node(&mut router, 4));
-    set_bypass_system_shard_guards(false);
-    router.save().expect("save");
-
-    set_bypass_system_shard_guards(true);
-    let shard = router.handle(&RpcRequest::new(
-        "catalog:shard:load",
-        serde_json::json!({"shard_id": ".passmanager"}),
-    ));
-    set_bypass_system_shard_guards(false);
-    assert_rpc_ok(&shard);
-
-    let root = extract_shard_root(&shard);
-    let ungrouped = root.find_child("Ungrouped").expect("Ungrouped dir");
+    let mut router = RpcRouter::new(storage.clone()).with_keystore(keystore);
+    let unlock = unlock_vault(&mut router, password);
+    assert_rpc_error(&unlock, "INTERNAL_ERROR");
     assert!(
-        ungrouped.find_child("staleEntry").is_none(),
-        "expected staleEntry to be removed from shard after delete"
+        router.session().is_none(),
+        "failed overflow unlock must not leave a mutable session"
     );
+
+    let after = storage
+        .list_chunks()
+        .expect("list chunks after unlock")
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(after, before, "failed unlock must leave storage unchanged");
 }
 
 #[test]

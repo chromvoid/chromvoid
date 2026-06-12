@@ -174,7 +174,7 @@ class SettingsPageModel {
   async activateLicense(): Promise<void> {
     const activationCode = this.activationCodeDraft().trim()
     if (!activationCode) return
-    const ok = await moduleAccessModel.activateWithActivationCode(activationCode)
+    const ok = await wrap(moduleAccessModel.activateWithActivationCode(activationCode))
     if (ok) {
       this.activationCodeDraft.set('')
       getAppContext().store.pushNotification('success', i18n('settings:license-activated'))

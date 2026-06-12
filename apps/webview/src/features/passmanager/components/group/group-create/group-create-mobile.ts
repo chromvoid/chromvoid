@@ -34,6 +34,11 @@ export class PMGroupCreateMobile extends PMGroupCreateBase {
 
     return html`
       <form @submit=${this.onSubmit}>
+        <header class="mobile-create-header">
+          <h1>${i18n('group:create:mobile-title')}</h1>
+          <p>${i18n('group:create:mobile-subtitle')}</p>
+        </header>
+
         <section class="form-card">
           <div class="field-group">
             ${this.renderNameField({
@@ -74,6 +79,7 @@ export class PMGroupCreateMobile extends PMGroupCreateBase {
             type="submit"
             variant="primary"
             size="large"
+            .loading=${this.model.isSubmitting()}
             ?disabled=${!this.model.canSubmit()}
             >${i18n('group:create:button')}</cv-button
           >

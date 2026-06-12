@@ -49,8 +49,17 @@ mod native {
             );
         }
 
-        rx.recv_timeout(AUTH_TIMEOUT)
-            .map_err(|_| BiometricAuthError::cancelled("Biometric authentication timed out"))?
+        match rx.recv_timeout(AUTH_TIMEOUT) {
+            Ok(result) => result,
+            Err(_) => {
+                // SAFETY: context is still live in this stack frame; invalidate cancels the
+                // outstanding LocalAuthentication evaluation before we return timeout.
+                unsafe { context.invalidate() };
+                Err(BiometricAuthError::cancelled(
+                    "Biometric authentication timed out",
+                ))
+            }
+        }
     }
 
     fn can_evaluate_biometrics(context: &LAContext) -> Result<(), BiometricAuthError> {

@@ -1,6 +1,8 @@
+import {CVContextMenu, type CVContextMenuEventDetail} from '@chromvoid/uikit/components/cv-context-menu'
+import {CVIcon} from '@chromvoid/uikit/components/cv-icon'
+import {CVMenuItem} from '@chromvoid/uikit/components/cv-menu-item'
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
-
-import {css, type PropertyValues} from 'lit'
+import {css, nothing} from 'lit'
 
 import {i18n} from 'root/i18n'
 import {keyboardShortcutsModel} from 'root/shared/keyboard'
@@ -11,6 +13,10 @@ export type {ContextMenuItem} from './context-menu.model'
 
 export class ContextMenu extends ReatomLitElement {
   static define() {
+    CVContextMenu.define()
+    CVIcon.define()
+    CVMenuItem.define()
+
     if (!customElements.get('context-menu')) {
       customElements.define('context-menu', this)
     }
@@ -18,31 +24,7 @@ export class ContextMenu extends ReatomLitElement {
 
   private readonly model = new ContextMenuModel()
   private previousFocus: HTMLElement | null = null
-  private readonly handleDocumentPointerDownBound = this.handleDocumentPointerDown.bind(this)
-  private readonly handleDocumentScrollBound = this.handleDocumentScroll.bind(this)
   private readonly handleKeyDownBound = this.handleKeyDown.bind(this)
-
-  private static supportsPopover(): boolean {
-    try {
-      return typeof (HTMLElement.prototype as any).showPopover === 'function'
-    } catch {
-      return false
-    }
-  }
-
-  private static supportsAnchorPositioning(): boolean {
-    try {
-      return (
-        typeof CSS !== 'undefined' &&
-        typeof (CSS as any).supports === 'function' &&
-        CSS.supports('anchor-name: --a') &&
-        CSS.supports('position-anchor: --a') &&
-        CSS.supports('position-area: bottom right')
-      )
-    } catch {
-      return false
-    }
-  }
 
   static styles = [
     sharedStyles,
@@ -53,105 +35,23 @@ export class ContextMenu extends ReatomLitElement {
         block-size: 0;
       }
 
-      .anchor {
-        position: fixed;
-        left: var(--context-menu-x, 0px);
-        top: var(--context-menu-y, 0px);
-        inline-size: 1px;
-        block-size: 1px;
-        pointer-events: none;
+      cv-context-menu {
+        --cv-context-menu-z-index: 10000;
+        --cv-context-menu-min-inline-size: 200px;
+        --cv-context-menu-padding: 8px 0;
+        --cv-context-menu-border-radius: var(--cv-radius-2);
+        --cv-context-menu-gap: 0;
       }
 
-      .context-menu {
-        position: fixed;
-        left: var(--context-menu-x, 0px);
-        top: var(--context-menu-y, 0px);
-        z-index: 10000;
-        margin: 0;
-        inset: auto;
-        background: var(--cv-color-surface);
-        border-radius: var(--cv-radius-2);
-        box-shadow: var(--cv-shadow-2);
-        border: 1px solid var(--cv-color-border);
-        padding-block: 8px;
-        padding-inline: 0;
-        min-inline-size: 200px;
-        max-block-size: calc(100dvh - 16px);
-        overflow-y: auto;
-        opacity: 0;
-        transform: scale(0.9) translateY(-10px);
-        transition:
-          transform var(--cv-duration-fast) var(--cv-easing-standard),
-          opacity var(--cv-duration-fast) var(--cv-easing-standard);
-        will-change: transform, opacity;
-        transform-origin: top left;
-
-        &.visible,
-        &:popover-open {
-          opacity: 1;
-          transform: scale(1) translateY(0);
-        }
-      }
-
-      @supports (anchor-name: --a) and (position-anchor: --a) and (position-area: bottom right) {
-        .anchor {
-          anchor-name: --context-menu-anchor;
-        }
-
-        .context-menu {
-          left: auto;
-          top: auto;
-          position-anchor: --context-menu-anchor;
-          position-area: bottom right;
-        }
-      }
-
-      @supports (position-try-fallbacks: flip-block) {
-        .context-menu {
-          /* Prefer "bottom right" from the anchor point and flip when constrained. */
-          position-try-fallbacks:
-            flip-block,
-            flip-inline,
-            flip-block flip-inline;
-        }
-      }
-
-      .menu-item {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding-block: 10px;
-        padding-inline: 16px;
-        cursor: pointer;
+      cv-menu-item::part(base) {
+        min-block-size: 38px;
         color: var(--cv-color-text);
         font-size: 0.9em;
-        transition:
-          background-color var(--cv-duration-fast) var(--cv-easing-standard),
-          color var(--cv-duration-fast) var(--cv-easing-standard);
-        position: relative;
+        font-weight: 500;
+      }
 
-        &:hover:not(.disabled),
-        &.active:not(.disabled) {
-          background: var(--cv-color-surface-2);
-          color: var(--cv-color-primary);
-        }
-
-        &.disabled {
-          color: var(--cv-color-text-subtle);
-          cursor: not-allowed;
-        }
-
-        &.danger {
-          &:hover:not(.disabled),
-          &.active:not(.disabled) {
-            background: var(--cv-color-danger-surface);
-            color: var(--cv-color-danger);
-          }
-
-          .menu-icon {
-            color: var(--cv-color-danger);
-          }
-        }
+      cv-menu-item[data-danger]::part(base) {
+        color: var(--cv-color-danger);
       }
 
       .menu-icon {
@@ -160,12 +60,7 @@ export class ContextMenu extends ReatomLitElement {
         display: flex;
         align-items: center;
         justify-content: center;
-        color: var(--cv-color-text-muted);
-      }
-
-      .menu-label {
-        flex: 1;
-        font-weight: 500;
+        color: currentColor;
       }
 
       .menu-shortcut {
@@ -179,113 +74,49 @@ export class ContextMenu extends ReatomLitElement {
         background: var(--cv-color-border);
         margin-block: 8px;
       }
-
-      .ripple {
-        position: absolute;
-        border-radius: 50%;
-        background: var(--cv-color-primary-border);
-        transform: scale(0);
-        animation: ripple 0.6s linear;
-        pointer-events: none;
-      }
-
-      @keyframes ripple {
-        to {
-          transform: scale(4);
-          opacity: 0;
-        }
-      }
     `,
   ]
 
   connectedCallback() {
     super.connectedCallback()
-    // Programmatically focusable for keyboard navigation; not a tab stop.
+    // Programmatically focusable for keyboard shortcut capture; not a tab stop.
     this.setAttribute('tabindex', '-1')
-    document.addEventListener('pointerdown', this.handleDocumentPointerDownBound, true)
     document.addEventListener('keydown', this.handleKeyDownBound, true)
-    document.addEventListener('scroll', this.handleDocumentScrollBound, true)
   }
 
   disconnectedCallback() {
-    super.disconnectedCallback()
-    document.removeEventListener('pointerdown', this.handleDocumentPointerDownBound, true)
     document.removeEventListener('keydown', this.handleKeyDownBound, true)
-    document.removeEventListener('scroll', this.handleDocumentScrollBound, true)
+    super.disconnectedCallback()
   }
 
-  protected override updated(changed: PropertyValues<this>): void {
-    super.updated(changed)
-    this.syncPositionStyles()
-  }
-
-  private handleDocumentPointerDown(e: Event) {
-    if (!this.model.visible()) return
-
-    const path =
-      typeof (e as any).composedPath === 'function' ? ((e as any).composedPath() as EventTarget[]) : []
-    if (path.includes(this)) return
-
-    const target = e.target as Node | null
-    if (target && this.contains(target)) return
-
-    this.hide({restoreFocus: false})
-  }
-
-  private handleDocumentScroll() {
-    if (this.model.visible()) {
-      this.hide({restoreFocus: false})
-    }
-  }
-
-  private getDeepActiveElement(): HTMLElement | null {
-    let active: Element | null = typeof document !== 'undefined' ? document.activeElement : null
-    while (active instanceof HTMLElement && active.shadowRoot?.activeElement) {
-      active = active.shadowRoot.activeElement
-    }
-    return active instanceof HTMLElement ? active : null
+  private getInnerMenu(): CVContextMenu | null {
+    return this.renderRoot.querySelector<CVContextMenu>('cv-context-menu')
   }
 
   private handleKeyDown(e: KeyboardEvent) {
     if (!this.model.visible()) return
 
-    // Capture all keypresses while the menu is open to avoid triggering handlers
-    // in other components (e.g. list navigation).
-    e.stopImmediatePropagation()
-
-    if (this.activateShortcut(e)) return
+    if (this.activateShortcut(e)) {
+      e.stopImmediatePropagation()
+      return
+    }
 
     switch (e.key) {
       case 'Escape':
         e.preventDefault()
+        e.stopImmediatePropagation()
         this.hide()
         break
       case 'Backspace':
         e.preventDefault()
+        e.stopImmediatePropagation()
         this.activateItemById('delete')
         break
       case 'Tab':
+        e.stopImmediatePropagation()
         this.hide({restoreFocus: false})
         break
-      case 'ArrowDown':
-        e.preventDefault()
-        this.model.moveSelection(1)
-        this.focusActiveItem()
-        break
-      case 'ArrowUp':
-        e.preventDefault()
-        this.model.moveSelection(-1)
-        this.focusActiveItem()
-        break
-      case 'Enter':
-        e.preventDefault()
-        this.activateCurrentItem()
-        break
       default:
-        // Prevent e.g. Space/PageDown from scrolling the underlying list.
-        if (!e.metaKey && !e.ctrlKey && !e.altKey) {
-          e.preventDefault()
-        }
         break
     }
   }
@@ -303,45 +134,17 @@ export class ContextMenu extends ReatomLitElement {
     return false
   }
 
-  private focusActiveItem() {
-    const idx = this.model.activeIndex()
-    if (idx < 0) return
-    // Focus the currently active (selectable) menu item for screen readers.
-    void this.updateComplete.then(() => {
-      const el = this.renderRoot.querySelector<HTMLElement>(`.menu-item[data-selectable-index="${idx}"]`)
-      el?.focus?.()
-    })
-  }
-
-  private activateCurrentItem() {
-    const currentItem = this.model.getCurrentItem()
-    if (currentItem) {
-      this.handleItemClick(currentItem)
-    }
-  }
-
   private activateItemById(id: string) {
     const item = this.model.getActivatableItemById(id)
     if (!item) return
 
-    const selectableIndex = this.model.getSelectableIndexById(id)
-    if (selectableIndex >= 0) {
-      this.model.setActiveSelectableIndex(selectableIndex)
-    }
-
-    this.handleItemClick(item)
+    this.activateItem(item)
   }
 
-  private handleItemClick(item: ContextMenuItem, e?: Event) {
-    if (item.disabled) return
+  private activateItem(item: ContextMenuItem) {
+    if (item.disabled || item.separator) return
 
-    // Add ripple effect
-    if (e) {
-      this.createRipple(e as MouseEvent)
-    }
-
-    // Keep action synchronous to preserve user activation
-    // (required by prompt/dialog APIs in some webviews).
+    // Keep action synchronous to preserve user activation.
     try {
       item.action()
     } finally {
@@ -349,103 +152,60 @@ export class ContextMenu extends ReatomLitElement {
     }
   }
 
-  private handleMenuClick(event: Event) {
-    event.stopPropagation()
+  private handleContextMenuInput(event: CustomEvent<CVContextMenuEventDetail>): void {
+    if (!this.model.visible() || event.detail.open || event.detail.value) return
+
+    this.hide({restoreFocus: false})
   }
 
-  private handleMenuItemClick(event: Event) {
-    const target = event.currentTarget as HTMLElement | null
-    const itemId = target?.dataset['itemId']
-    if (!itemId) return
-    const item = this.model.items().find((candidate) => candidate.id === itemId)
+  private handleContextMenuChange(event: CustomEvent<CVContextMenuEventDetail>): void {
+    const {value} = event.detail
+    if (!value) return
+
+    const item = this.model.getActivatableItemById(value)
     if (!item) return
-    this.handleItemClick(item, event)
+
+    this.activateItem(item)
   }
 
-  private handleMenuItemMouseEnter(event: Event) {
-    const target = event.currentTarget as HTMLElement | null
-    const selectableIndex = Number(target?.dataset['selectableIndex'] ?? '-1')
-    if (!Number.isFinite(selectableIndex)) return
-
-    const itemId = target?.dataset['itemId']
-    const item = itemId ? this.model.items().find((candidate) => candidate.id === itemId) : undefined
-    if (item?.disabled) return
-
-    this.model.setActiveSelectableIndex(selectableIndex)
-    this.focusActiveItem()
-  }
-
-  private createRipple(e: MouseEvent) {
-    const target = e.currentTarget as HTMLElement
-    const rect = target.getBoundingClientRect()
-    const size = Math.max(rect.width, rect.height)
-    const x = e.clientX - rect.left - size / 2
-    const y = e.clientY - rect.top - size / 2
-
-    const ripple = document.createElement('div')
-    ripple.className = 'ripple'
-    ripple.style.width = ripple.style.height = size + 'px'
-    ripple.style.left = x + 'px'
-    ripple.style.top = y + 'px'
-
-    target.appendChild(ripple)
-    setTimeout(() => ripple.remove(), 600)
+  private getDeepActiveElement(): HTMLElement | null {
+    let active: Element | null = typeof document !== 'undefined' ? document.activeElement : null
+    while (active instanceof HTMLElement && active.shadowRoot?.activeElement) {
+      active = active.shadowRoot.activeElement
+    }
+    return active instanceof HTMLElement ? active : null
   }
 
   show(x: number, y: number, items: ContextMenuItem[]) {
     this.previousFocus = this.getDeepActiveElement()
     this.model.show(x, y, items)
-    this.syncPositionStyles()
 
-    // Focus first menu item for keyboard navigation (APG menu pattern).
     void this.updateComplete.then(() => {
-      const menu = this.renderRoot.querySelector<HTMLElement>('.context-menu')
+      if (!this.model.visible()) return
+
+      const menu = this.getInnerMenu()
       if (!menu) return
 
-      // Popover API (top-layer) when supported, otherwise fallback to our "visible" class.
-      if (ContextMenu.supportsPopover()) {
-        try {
-          ;(menu as any).showPopover()
-        } catch {
-          // If already open or not supported, ignore.
-        }
-      }
-
-      // Fallback positioning logic for engines without Anchor Positioning.
-      if (!ContextMenu.supportsAnchorPositioning()) {
-        // After render we know real size. Clamp within viewport.
-        const rect = menu.getBoundingClientRect()
-        const margin = 8
-        const position = this.model.position()
-        let nx = position.x
-        let ny = position.y
-        if (nx + rect.width > window.innerWidth - margin) {
-          nx = Math.max(margin, window.innerWidth - rect.width - margin)
-        }
-        if (ny + rect.height > window.innerHeight - margin) {
-          ny = Math.max(margin, window.innerHeight - rect.height - margin)
-        }
-        if (nx !== position.x || ny !== position.y) {
-          this.model.setPosition(nx, ny)
-          this.syncPositionStyles()
-        }
-      }
-
-      this.focusActiveItem()
+      const position = this.model.position()
+      menu.value = ''
+      menu.openAt(position.x, position.y)
     })
   }
 
   hide(opts?: {restoreFocus?: boolean}) {
+    const wasVisible = this.model.visible()
     this.model.hide()
-    this.dispatchEvent(new CustomEvent('hide', {bubbles: true}))
 
-    const menu = this.renderRoot.querySelector<HTMLElement>('.context-menu')
-    if (menu && ContextMenu.supportsPopover()) {
-      try {
-        ;(menu as any).hidePopover()
-      } catch {
-        // ignore
+    const menu = this.getInnerMenu()
+    if (menu) {
+      menu.value = ''
+      if (menu.open) {
+        menu.close()
       }
+    }
+
+    if (wasVisible) {
+      this.dispatchEvent(new CustomEvent('hide', {bubbles: true}))
     }
 
     const restoreFocus = opts?.restoreFocus !== false
@@ -461,63 +221,36 @@ export class ContextMenu extends ReatomLitElement {
     this.previousFocus = null
   }
 
-  private syncPositionStyles() {
-    const {x, y} = this.model.position()
-    this.style.setProperty('--context-menu-x', `${x}px`)
-    this.style.setProperty('--context-menu-y', `${y}px`)
-  }
-
   render() {
-    const visible = this.model.visible()
     const items = this.model.items()
-    const activeIndex = this.model.activeIndex()
 
     return html`
-      <div class="anchor" aria-hidden="true"></div>
-      <div
-        class="context-menu ${visible ? 'visible' : ''}"
-        popover="manual"
-        role="menu"
+      <cv-context-menu
+        close-on-scroll
         aria-label=${i18n('context-menu:title' as any)}
-        aria-hidden=${visible ? 'false' : 'true'}
-        @click=${this.handleMenuClick}
+        @cv-input=${this.handleContextMenuInput}
+        @cv-change=${this.handleContextMenuChange}
       >
-        ${items.map((item, index) => {
+        ${items.map((item) => {
           if (item.separator) {
-            return html`<div class="menu-separator" role="separator"></div>`
+            return html`<div class="menu-separator" role="separator" aria-hidden="true"></div>`
           }
 
-          const selectableIndex = this.model.getSelectableIndexAtItemIndex(index)
-          const isActive = selectableIndex >= 0 && selectableIndex === activeIndex
           const shortcutLabel = item.shortcutId ? keyboardShortcutsModel.label(item.shortcutId) : undefined
 
-          const classes = [
-            'menu-item',
-            item.disabled && 'disabled',
-            item.id.includes('delete') && 'danger',
-            isActive && 'active',
-          ]
-            .filter(Boolean)
-            .join(' ')
-
           return html`
-            <div
-              class=${classes}
-              role="menuitem"
-              tabindex="-1"
-              data-item-id=${item.id}
-              data-selectable-index=${String(selectableIndex)}
-              aria-disabled=${item.disabled ? 'true' : 'false'}
-              @click=${this.handleMenuItemClick}
-              @mouseenter=${this.handleMenuItemMouseEnter}
+            <cv-menu-item
+              value=${item.id}
+              ?disabled=${item.disabled}
+              ?data-danger=${item.id.includes('delete')}
             >
-              <cv-icon class="menu-icon" name=${item.icon}></cv-icon>
-              <span class="menu-label">${item.label}</span>
-              ${shortcutLabel ? html`<span class="menu-shortcut">${shortcutLabel}</span>` : ''}
-            </div>
+              <cv-icon slot="prefix" class="menu-icon" name=${item.icon}></cv-icon>
+              ${item.label}
+              ${shortcutLabel ? html`<span slot="suffix" class="menu-shortcut">${shortcutLabel}</span>` : nothing}
+            </cv-menu-item>
           `
         })}
-      </div>
+      </cv-context-menu>
     `
   }
 }

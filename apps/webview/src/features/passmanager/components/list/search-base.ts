@@ -1,14 +1,15 @@
 import {ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, nothing} from 'lit'
+import {css, nothing, type PropertyValues} from 'lit'
 import {html} from '@chromvoid/uikit/reatom-lit'
 
 import {i18n} from '@project/passmanager/i18n'
-import {type QuickFilter, quickFilters} from '@project/passmanager/select'
+import {runtimeCapabilitiesAtom} from 'root/core/runtime/runtime-capabilities'
 import {pmCredentialTagsModel} from '../../models/pm-credential-tags.model'
+import type {PasswordManagerLayoutModel} from '../password-manager-layout/password-manager-layout.model'
 import {PMSearchInputModel} from './search.model'
 
-/** Shared CSS for search host, input field, kbd hint, quick filter buttons */
+/** Shared CSS for search host, input field, and kbd hint */
 export const searchBaseStyles = css`
   :host {
     display: grid;
@@ -54,7 +55,21 @@ export const searchBaseStyles = css`
 
   /*Styling the input field*/
   cv-input {
-    border-radius: var(--cv-radius-2);
+    --cv-input-height: var(--pm-toolbar-control-height, var(--app-toolbar-control-height, 40px));
+    --cv-input-padding-inline: var(
+      --pm-toolbar-control-padding-inline,
+      var(--app-toolbar-control-padding-inline, var(--cv-space-3))
+    );
+    --cv-input-border-radius: var(
+      --pm-toolbar-control-radius,
+      var(--app-toolbar-control-radius, var(--cv-radius-2))
+    );
+    --cv-input-background: var(--cv-color-surface-2);
+    --cv-input-font-size: var(
+      --pm-toolbar-control-font-size,
+      var(--app-toolbar-control-font-size, var(--cv-font-size-sm))
+    );
+    border-radius: var(--cv-input-border-radius);
     min-inline-size: 0;
     inline-size: 100%;
     max-inline-size: 100%;
@@ -99,134 +114,6 @@ export const searchBaseStyles = css`
     line-height: 1.4;
   }
 
-  /* ===== QUICK FILTERS ===== */
-  .quick-filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    align-items: center;
-    min-inline-size: 0;
-    max-inline-size: 100%;
-    padding: 0;
-  }
-
-  .quick-filters cv-button {
-    font-size: 0.65rem;
-    white-space: nowrap;
-    flex-shrink: 0;
-
-    &::part(base) {
-      padding: 2px 6px;
-      min-height: 22px;
-    }
-
-    cv-icon {
-      width: 12px;
-      height: 12px;
-    }
-  }
-
-  .quick-filters .quick-filter-button.active cv-icon {
-    color: var(--cv-color-primary);
-  }
-
-  .quick-filters cv-button:active {
-    transform: translateY(0) scale(0.98);
-  }
-
-  .tag-filter-combobox {
-    --cv-combobox-min-width: 170px;
-    --cv-combobox-min-height: 24px;
-    --cv-combobox-padding-inline: 8px;
-    --cv-combobox-font-size: 0.75rem;
-    flex: 0 1 220px;
-    inline-size: min(100%, 240px);
-    min-inline-size: 160px;
-    max-inline-size: 260px;
-  }
-
-  .tag-filter-combobox::part(input-wrapper) {
-    min-block-size: 26px;
-    padding-inline: 8px;
-    border-color: var(--cv-color-border);
-    border-radius: var(--cv-radius-1);
-    background: var(--cv-color-surface-2);
-  }
-
-  .tag-filter-combobox:focus-within::part(input-wrapper),
-  .tag-filter-combobox[open]::part(input-wrapper) {
-    border-color: var(--cv-color-primary-border-strong);
-    box-shadow: 0 0 0 1px var(--cv-color-primary-ring);
-  }
-
-  .tag-filter-combobox::part(input) {
-    min-inline-size: 52px;
-    min-block-size: 24px;
-    font-size: 0.75rem;
-  }
-
-  .tag-filter-combobox::part(tag) {
-    border: 1px solid var(--cv-color-primary-border);
-    background: var(--cv-color-primary-surface);
-    color: var(--cv-color-primary);
-    font-size: 0.7rem;
-  }
-
-  .tag-filter-combobox::part(tag-label) {
-    min-inline-size: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .tag-filter-combobox::part(tag-overflow) {
-    color: var(--cv-color-text-muted);
-    font-size: 0.7rem;
-  }
-
-  .tag-filter-combobox::part(listbox) {
-    max-block-size: min(260px, 52vh);
-  }
-
-  .tag-filter-row {
-    display: flex;
-    align-items: center;
-    gap: var(--cv-space-1);
-    min-inline-size: 0;
-    max-inline-size: 100%;
-  }
-
-  .tag-manage-button {
-    flex: 0 0 auto;
-    color: var(--cv-color-text-muted);
-
-    &::part(base) {
-      min-block-size: 26px;
-      padding: 2px 7px;
-      border-radius: var(--cv-radius-1);
-    }
-
-    &:hover {
-      color: var(--cv-color-primary);
-    }
-  }
-
-  /*Active filters keep an explicit DOM-selected state for styling and accessibility*/
-  .quick-filters .quick-filter-button.active::part(base) {
-    background: var(--cv-color-primary-surface-strong);
-    border-color: var(--cv-color-primary-border-strong);
-    box-shadow: 0 0 0 1px var(--cv-color-primary-ring);
-  }
-
-  .quick-filters .quick-filter-button.active::part(label) {
-    color: var(--cv-color-primary);
-    font-weight: 600;
-  }
-
-
-  .quick-filters .quick-filter-button.active:hover::part(base) {
-    background: var(--cv-color-primary-surface);
-  }
-
   /* ===== RESPONSIVE ===== */
   @container (width < 480px) {
     :host {
@@ -236,59 +123,46 @@ export const searchBaseStyles = css`
     .search-header {
       gap: 6px;
     }
-
-    .quick-filters {
-      justify-content: flex-start;
-      gap: 3px;
-      overflow-x: auto;
-      flex-wrap: nowrap;
-      scrollbar-width: none;
-      -webkit-overflow-scrolling: touch;
-
-      &::-webkit-scrollbar {
-        display: none;
-      }
-    }
-
-    .quick-filters:has(.tag-filter-combobox) {
-      overflow-x: visible;
-      flex-wrap: wrap;
-    }
-
-    .quick-filters cv-button {
-      flex-shrink: 0;
-    }
-
-    .tag-filter-combobox {
-      flex: 0 0 190px;
-      min-inline-size: 190px;
-    }
-
-    .quick-filters:has(.tag-filter-combobox) .tag-filter-combobox {
-      flex: 1 1 100%;
-      inline-size: 100%;
-      min-inline-size: 0;
-      max-inline-size: 100%;
-    }
-  }
-
-  @container (width < 320px) {
-    .quick-filters cv-button {
-      padding-inline: 4px;
-
-      span {
-        display: none;
-      }
-    }
   }
 `
 
 export abstract class PMSearchBase extends ReatomLitElement {
+  static properties = {
+    desktopToolbarModel: {attribute: false},
+  }
+
   protected readonly searchModel = new PMSearchInputModel()
+  declare desktopToolbarModel: PasswordManagerLayoutModel | undefined
+
+  private registeredDesktopToolbarModel: PasswordManagerLayoutModel | null = null
+  private unregisterDesktopToolbarSearch?: () => void
 
   override disconnectedCallback() {
-    super.disconnectedCallback()
+    this.unregisterDesktopToolbarSearch?.()
+    this.unregisterDesktopToolbarSearch = undefined
+    this.registeredDesktopToolbarModel = null
     this.searchModel.dispose()
+    super.disconnectedCallback()
+  }
+
+  override updated(changedProperties: PropertyValues<this>): void {
+    super.updated(changedProperties)
+    this.syncDesktopToolbarRegistration()
+  }
+
+  private syncDesktopToolbarRegistration(): void {
+    const model = this.desktopToolbarModel ?? null
+    if (this.registeredDesktopToolbarModel === model) {
+      return
+    }
+
+    this.unregisterDesktopToolbarSearch?.()
+    this.unregisterDesktopToolbarSearch = undefined
+    this.registeredDesktopToolbarModel = model
+
+    if (model && typeof model.registerDesktopToolbarSearchElement === 'function') {
+      this.unregisterDesktopToolbarSearch = model.registerDesktopToolbarSearchElement(this)
+    }
   }
 
   focusInput() {
@@ -300,32 +174,8 @@ export abstract class PMSearchBase extends ReatomLitElement {
     this.searchModel.clear()
   }
 
-  protected handleToggleRecent() {
-    this.toggleQuick('recent')
-  }
-
-  protected handleToggleOTP() {
-    this.toggleQuick('otp')
-  }
-
-  protected handleToggleSsh() {
-    this.toggleQuick('ssh')
-  }
-
-  protected handleToggleCard() {
-    this.toggleQuick('card')
-  }
-
-  protected handleTagFilterChange(e: Event) {
-    this.searchModel.setSelectedTagsFromComboboxEvent(e)
-  }
-
   protected handleOpenTagManage() {
     pmCredentialTagsModel.openManageSheet()
-  }
-
-  protected toggleQuick(filter: QuickFilter) {
-    this.searchModel.toggleQuick(filter)
   }
 
   protected submitSearch(e: Event) {
@@ -354,6 +204,11 @@ export abstract class PMSearchBase extends ReatomLitElement {
   }
 
   protected shouldRenderShortcutHint(isFocused: boolean, isSearched: number | boolean) {
+    const capabilities = runtimeCapabilitiesAtom()
+    if (capabilities.mobile || capabilities.platform === 'android' || capabilities.platform === 'ios') {
+      return false
+    }
+
     return !isFocused && !isSearched
   }
 
@@ -395,115 +250,5 @@ export abstract class PMSearchBase extends ReatomLitElement {
 
   protected handleBlur() {
     this.searchModel.blur()
-  }
-
-  protected renderQuickFilters() {
-    const filters = quickFilters()
-    const recentSelected = filters.includes('recent')
-    const otpSelected = filters.includes('otp')
-    const sshSelected = filters.includes('ssh')
-    const cardSelected = filters.includes('card')
-    return html`
-      <div class="quick-filters">
-        <cv-button
-          class=${recentSelected ? 'quick-filter-button active' : 'quick-filter-button'}
-          data-quick-filter="recent"
-          size="small"
-          pill
-          variant=${recentSelected ? 'brand' : 'neutral'}
-          appearance=${recentSelected ? 'filled' : 'outlined'}
-          aria-pressed=${String(recentSelected)}
-          @click=${this.handleToggleRecent}
-        >
-          <cv-icon name="clock-history" slot="prefix"></cv-icon>
-          ${i18n('quick:recent')}
-        </cv-button>
-
-        <cv-button
-          class=${otpSelected ? 'quick-filter-button active' : 'quick-filter-button'}
-          data-quick-filter="otp"
-          size="small"
-          pill
-          variant=${otpSelected ? 'brand' : 'neutral'}
-          appearance=${otpSelected ? 'filled' : 'outlined'}
-          aria-pressed=${String(otpSelected)}
-          @click=${this.handleToggleOTP}
-        >
-          <cv-icon name="shield-check" slot="prefix"></cv-icon>
-          ${i18n('otp')}
-        </cv-button>
-
-        <cv-button
-          class=${sshSelected ? 'quick-filter-button active' : 'quick-filter-button'}
-          data-quick-filter="ssh"
-          size="small"
-          pill
-          variant=${sshSelected ? 'brand' : 'neutral'}
-          appearance=${sshSelected ? 'filled' : 'outlined'}
-          aria-pressed=${String(sshSelected)}
-          @click=${this.handleToggleSsh}
-        >
-          <cv-icon name="key" slot="prefix"></cv-icon>
-          ${i18n('quick:ssh')}
-        </cv-button>
-
-        <cv-button
-          class=${cardSelected ? 'quick-filter-button active' : 'quick-filter-button'}
-          data-quick-filter="card"
-          size="small"
-          pill
-          variant=${cardSelected ? 'brand' : 'neutral'}
-          appearance=${cardSelected ? 'filled' : 'outlined'}
-          aria-pressed=${String(cardSelected)}
-          @click=${this.handleToggleCard}
-        >
-          <cv-icon name="credit-card" slot="prefix"></cv-icon>
-          ${i18n('quick:card')}
-        </cv-button>
-
-        ${this.renderTagFilterControl()}
-      </div>
-    `
-  }
-
-  protected renderTagFilterControl() {
-    const options = pmCredentialTagsModel.availableTags()
-
-    return html`
-      <span class="tag-filter-row">
-        ${options.length > 0
-          ? html`
-              <cv-combobox
-                class="tag-filter-combobox"
-                size="small"
-                multiple
-                clearable
-                max-tags-visible="2"
-                aria-label=${i18n('tags:title')}
-                placeholder=${i18n('tags:filter_placeholder')}
-                .value=${pmCredentialTagsModel.selectedComboboxValue()}
-                @cv-change=${this.handleTagFilterChange}
-              >
-                ${options.map(
-                  (option) => html`
-                    <cv-combobox-option value=${option.key}>${option.label} (${option.count})</cv-combobox-option>
-                  `,
-                )}
-              </cv-combobox>
-            `
-          : nothing}
-        <cv-button
-          unstyled
-          class="tag-manage-button"
-          type="button"
-          title=${i18n('tags:manage_open' as never)}
-          aria-label=${i18n('tags:manage_open' as never)}
-          @click=${this.handleOpenTagManage}
-        >
-          <cv-icon name="sliders" aria-hidden="true"></cv-icon>
-        </cv-button>
-        <pm-mobile-tag-filter-sheet></pm-mobile-tag-filter-sheet>
-      </span>
-    `
   }
 }

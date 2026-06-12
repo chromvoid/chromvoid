@@ -56,9 +56,10 @@ impl IosNativeBridgeRuntimeState {
             .upload_pickers
             .lock()
             .map_err(|_| "Upload picker registry is unavailable".to_string())?;
-        if pickers.insert(upload_id.to_string(), sender).is_some() {
+        if pickers.contains_key(upload_id) {
             return Err("Upload picker operation already exists".to_string());
         }
+        pickers.insert(upload_id.to_string(), sender);
         Ok(())
     }
 
@@ -78,9 +79,10 @@ impl IosNativeBridgeRuntimeState {
             .restore_pickers
             .lock()
             .map_err(|_| "Restore picker registry is unavailable".to_string())?;
-        if pickers.insert(operation_id.to_string(), sender).is_some() {
+        if pickers.contains_key(operation_id) {
             return Err("Restore picker operation already exists".to_string());
         }
+        pickers.insert(operation_id.to_string(), sender);
         Ok(())
     }
 
@@ -878,8 +880,8 @@ mod tests {
     #[test]
     fn duplicate_native_bridge_picker_ids_are_rejected() {
         let runtime = IosNativeBridgeRuntimeState::new();
-        let (first_tx, _first_rx) = oneshot::channel();
-        let (second_tx, _second_rx) = oneshot::channel();
+        let (first_tx, first_rx) = oneshot::channel();
+        let (second_tx, second_rx) = oneshot::channel();
 
         runtime
             .register_restore_picker("restore-1", first_tx)
@@ -889,6 +891,22 @@ mod tests {
             .expect_err("duplicate should fail");
 
         assert_eq!(error, "Restore picker operation already exists");
+        assert!(second_rx.blocking_recv().is_err());
+
+        let sender = runtime
+            .remove_restore_picker("restore-1")
+            .expect("first picker sender should remain registered");
+        sender
+            .send(Ok(IosPickedRestoreSource {
+                backup_path: "/tmp/backup.cvbak".to_string(),
+                display_name: "backup.cvbak".to_string(),
+            }))
+            .expect("send first picker result");
+        let selected = first_rx
+            .blocking_recv()
+            .expect("first picker result")
+            .expect("selected");
+        assert_eq!(selected.display_name, "backup.cvbak");
     }
 
     #[test]

@@ -1,5 +1,4 @@
 import {action, atom, computed, wrap} from '@reatom/core'
-import {save} from '@tauri-apps/plugin-dialog'
 
 import type {AppContext} from 'root/shared/services/app-context'
 import {toast} from 'root/shared/services/toast-manager'
@@ -235,9 +234,14 @@ export class FileDownloadFlow {
         return
       }
 
-      if (caps.supports_native_path_io && ws.kind === 'tauri' && typeof ws.downloadFilePath === 'function') {
-        const targetPath = await wrap(save({defaultPath: item.name}))
-        if (!targetPath) {
+      if (
+        caps.supports_native_path_io &&
+        ws.kind === 'tauri' &&
+        typeof ws.pickDownloadTarget === 'function' &&
+        typeof ws.downloadFilePath === 'function'
+      ) {
+        const target = await wrap(ws.pickDownloadTarget({defaultPath: item.name}))
+        if (!target) {
           this.notify('info', i18n('file-manager:save-cancelled', {name: item.name}))
           return
         }
@@ -248,7 +252,7 @@ export class FileDownloadFlow {
         const startTime = Date.now()
         let lastUiUpdate = 0
         const result = await wrap(
-          ws.downloadFilePath(item.id, targetPath, {
+          ws.downloadFilePath(item.id, target.token, {
             totalBytes,
             onProgress: (writtenBytes: number, total: number, percent: number) => {
               const now = Date.now()
@@ -274,24 +278,17 @@ export class FileDownloadFlow {
           }),
         )
 
-        try {
-          if (typeof ws.statPath === 'function') {
-            const st = await wrap(ws.statPath(targetPath))
-            if (st.size !== result.bytes_written) {
-              this.notify(
-                'warning',
-                i18n('file-manager:save-size-mismatch', {
-                  name: item.name,
-                  actual: st.size,
-                  expected: result.bytes_written,
-                  path: targetPath,
-                }),
-              )
-              return
-            }
-          }
-        } catch (e) {
-          console.warn('[dashboard] statPath after download failed', e)
+        if (totalBytes > 0 && result.bytes_written !== totalBytes) {
+          this.notify(
+            'warning',
+            i18n('file-manager:save-size-mismatch', {
+              name: item.name,
+              actual: result.bytes_written,
+              expected: totalBytes,
+              path: target.name,
+            }),
+          )
+          return
         }
 
         if (taskId) {
@@ -301,7 +298,7 @@ export class FileDownloadFlow {
 
         this.notify(
           'success',
-          i18n('file-manager:saved', {name: item.name, path: targetPath}),
+          i18n('file-manager:saved', {name: item.name, path: target.name}),
         )
         return
       }

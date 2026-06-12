@@ -2,7 +2,7 @@ use super::*;
 use tempfile::NamedTempFile;
 
 use crate::gateway::state::{now_ms, GatewayState};
-use crate::gateway::types::SiteGrant;
+use crate::gateway::types::{ActionGrant, SiteGrant};
 
 #[test]
 fn allowed_paths() {
@@ -97,6 +97,81 @@ fn sensitive_command_checks_site_grant_by_origin() {
     let denied = denied.expect_err("wrong origin must be denied");
 
     assert_eq!(denied, "no site grant for origin 'https://evil.example'");
+}
+
+#[test]
+fn action_grant_is_not_consumed_before_site_grant_passes() {
+    let cfg = NamedTempFile::new().expect("tempfile");
+    let mut st = GatewayState::load_or_default(cfg.path().to_path_buf());
+
+    let ext_id = "ext-test";
+    let mut policy = st.get_or_create_policy(ext_id);
+    policy.require_action_grant = true;
+    policy.require_site_grant = true;
+    st.set_policy(policy);
+
+    let origin = "https://example.com".to_string();
+    let now = now_ms();
+    st.grant_store_mut(ext_id).action_grants.insert(
+        "ag-1".to_string(),
+        ActionGrant {
+            grant_id: "ag-1".to_string(),
+            extension_id: ext_id.to_string(),
+            command: "passmanager:secret:read".to_string(),
+            node_id: None,
+            created_at_ms: now,
+            expires_at_ms: now + 60_000,
+            consumed: false,
+        },
+    );
+
+    let (denied, _) = capability::check_capability(
+        &mut st,
+        ext_id,
+        "passmanager:secret:read",
+        Some("ag-1"),
+        Some(origin.as_str()),
+        None,
+    );
+    assert_eq!(
+        denied.expect_err("missing site grant should deny"),
+        "no site grant for origin 'https://example.com'"
+    );
+    assert!(
+        !st.grant_store_mut(ext_id)
+            .action_grants
+            .get("ag-1")
+            .expect("action grant")
+            .consumed
+    );
+
+    st.grant_store_mut(ext_id).site_grants.insert(
+        origin.clone(),
+        SiteGrant {
+            grant_id: "sg-1".to_string(),
+            extension_id: ext_id.to_string(),
+            origin: origin.clone(),
+            created_at_ms: now,
+            expires_at_ms: now + 60_000,
+        },
+    );
+
+    let (ok, _) = capability::check_capability(
+        &mut st,
+        ext_id,
+        "passmanager:secret:read",
+        Some("ag-1"),
+        Some(origin.as_str()),
+        None,
+    );
+    assert!(ok.is_ok());
+    assert!(
+        st.grant_store_mut(ext_id)
+            .action_grants
+            .get("ag-1")
+            .expect("action grant")
+            .consumed
+    );
 }
 
 #[test]
@@ -355,6 +430,12 @@ fn hex_decode_roundtrip() {
     let encoded = hex_encode(&original);
     let decoded = helpers::hex_decode(&encoded).unwrap();
     assert_eq!(decoded, original);
+}
+
+#[test]
+fn hex_decode_rejects_multibyte_input_without_panic() {
+    assert!(helpers::hex_decode("éé").is_err());
+    assert!(helpers::hex_decode("0é").is_err());
 }
 
 #[test]

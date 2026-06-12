@@ -66,12 +66,13 @@ impl ShardedCatalogManager {
         shard_id: &str,
         mut shard: Shard,
         deltas: &[DeltaEntry],
-    ) {
+    ) -> Result<()> {
         if !deltas.is_empty() {
-            apply_deltas(&mut shard.root, deltas);
+            apply_deltas(&mut shard.root, deltas)?;
             shard.version = deltas.last().map(|d| d.seq).unwrap_or(shard.version);
         }
         self.loaded_shards.insert(shard_id.to_string(), shard);
+        Ok(())
     }
 
     pub fn eager_shard_ids(&self) -> Vec<String> {

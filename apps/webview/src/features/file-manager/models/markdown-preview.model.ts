@@ -5,6 +5,10 @@ import {
   loadSessionSettings,
   type SessionSettings,
 } from 'root/core/session/session-settings'
+import {
+  systemClipboardTextReader,
+  type ClipboardTextReader,
+} from 'root/shared/services/clipboard'
 import type {FilePreviewFallbackReasonKey} from '../components/file-preview.model'
 import {
   FileLoadError,
@@ -100,6 +104,7 @@ export type MarkdownPreviewModelDeps = {
     MarkdownImageAssetService,
     'releaseResolution' | 'resolveImageRef' | 'uploadImageFiles'
   >
+  clipboardTextReader?: ClipboardTextReader
   loadSessionSettings?: typeof loadSessionSettings
   renderDebounceMs?: number
   autosaveDebounceMs?: number
@@ -265,11 +270,13 @@ export class MarkdownPreviewModel {
       !this.imageAttaching()
     )
   })
+  readonly canPasteText = computed(() => this.state().kind === 'ready')
 
   private readonly loadText: typeof loadTextFileById
   private readonly saveText: typeof saveTextFileById
   private readonly renderSource: typeof renderMarkdownSource
   private readonly formatSource: typeof formatMarkdownSource
+  private readonly clipboardTextReader: ClipboardTextReader
   private readonly imageAssetService: Pick<
     MarkdownImageAssetService,
     'releaseResolution' | 'resolveImageRef' | 'uploadImageFiles'
@@ -298,6 +305,7 @@ export class MarkdownPreviewModel {
     this.saveText = deps.saveTextFileById ?? saveTextFileById
     this.renderSource = deps.renderMarkdownSource ?? renderMarkdownSource
     this.formatSource = deps.formatMarkdownSource ?? formatMarkdownSource
+    this.clipboardTextReader = deps.clipboardTextReader ?? systemClipboardTextReader
     this.imageAssetService = deps.imageAssetService ?? markdownImageAssetService
     this.loadSettings = deps.loadSessionSettings ?? loadSessionSettings
     this.renderDebounceMs = deps.renderDebounceMs ?? DEFAULT_RENDER_DEBOUNCE_MS
@@ -330,6 +338,20 @@ export class MarkdownPreviewModel {
           lastModified: data.lastModified ?? state.lastModified,
           sourceRevision,
           baselineSourceRevision: sourceRevision,
+        })
+        return
+      }
+
+      if (state.dirty) {
+        this.currentData.set(data)
+        this.state.set({
+          ...state,
+          fileName: data.fileName,
+          size: data.size ?? state.size,
+          mimeType: data.mimeType ?? state.mimeType,
+          lastModified: data.lastModified ?? state.lastModified,
+          stale: state.stale || sourceRevision !== state.sourceRevision,
+          errorKey: sourceRevision !== state.sourceRevision ? 'markdown:error:stale-source' : state.errorKey,
         })
         return
       }
@@ -550,7 +572,7 @@ export class MarkdownPreviewModel {
   }
 
   async savePendingCloseIntent(): Promise<void> {
-    const saved = await this.save()
+    const saved = await wrap(this.save())
     if (saved) {
       const resume = this.pendingCloseResume
       this.pendingCloseIntent.set(null)
@@ -597,7 +619,7 @@ export class MarkdownPreviewModel {
     }
 
     const nextSelection = this.normalizeImageInsertionSelection(
-      selection ?? this.getLastKnownImageInsertionSelection(snapshot),
+      selection ?? this.getLastKnownEditorSelection(snapshot),
       snapshot.source.length,
     )
     this.lastImageInsertionSelection.set(nextSelection)
@@ -624,6 +646,66 @@ export class MarkdownPreviewModel {
     )
   }
 
+  async pasteTextFromClipboard(selection?: MarkdownImageInsertionSelection): Promise<boolean> {
+    const snapshot = this.state()
+    if (snapshot.kind !== 'ready') {
+      return false
+    }
+
+    const initialSelection = this.normalizeImageInsertionSelection(
+      selection ?? this.getLastKnownEditorSelection(snapshot),
+      snapshot.source.length,
+    )
+
+    let text = ''
+    try {
+      text = await wrap(this.clipboardTextReader.readText())
+    } catch {
+      return false
+    }
+
+    if (!text) {
+      return false
+    }
+
+    const current = this.state()
+    if (current.kind !== 'ready' || current.fileId !== snapshot.fileId) {
+      return false
+    }
+
+    const normalizedSelection = this.normalizeImageInsertionSelection(
+      initialSelection,
+      current.source.length,
+    )
+    const inserted = this.insertTextAtSelection(current.source, text, normalizedSelection)
+    this.lastImageInsertionSelection.set({
+      selectionStart: inserted.selectionStart,
+      selectionEnd: inserted.selectionStart,
+    })
+
+    if (inserted.source === current.source) {
+      if (current.mode !== 'edit') {
+        this.state.set({...current, mode: 'edit'})
+      }
+      this.requestEditorFocus({...current, mode: 'edit'}, inserted.selectionStart)
+      return true
+    }
+
+    this.recordHistoryForSourceChange(current.source, 'user')
+    const nextState: MarkdownPreviewReadyState = {
+      ...current,
+      mode: 'edit',
+      source: inserted.source,
+      dirty: inserted.source !== current.baseline,
+      errorKey: current.stale ? current.errorKey : null,
+    }
+    this.state.set(nextState)
+    this.requestEditorFocus(nextState, inserted.selectionStart)
+    this.scheduleRender()
+    this.scheduleAutosaveForCurrentSource()
+    return true
+  }
+
   getImageInsertionSelection(): MarkdownImageInsertionSelection {
     const state = this.state()
     if (state.kind !== 'ready') {
@@ -631,7 +713,7 @@ export class MarkdownPreviewModel {
     }
 
     return this.normalizeImageInsertionSelection(
-      this.pendingImageInsertionSelection() ?? this.getLastKnownImageInsertionSelection(state),
+      this.pendingImageInsertionSelection() ?? this.getLastKnownEditorSelection(state),
       state.source.length,
     )
   }
@@ -893,6 +975,7 @@ export class MarkdownPreviewModel {
       const readOnlyReasonKey = sourceRevision === null ? SAVE_UNAVAILABLE_REASON_KEY : null
       const nextState: MarkdownPreviewReadyState = {
         ...state,
+        fileId: result.nodeId,
         size: result.size,
         mimeType: result.mimeType,
         lastModified: result.modtime,
@@ -1088,18 +1171,33 @@ export class MarkdownPreviewModel {
     controller: AbortController,
   ): Promise<void> {
     try {
-      const resolutions = await wrap(
-        Promise.all(
+      const settled = await wrap(
+        Promise.allSettled(
           rendered.imageRefs.map((ref) =>
             this.imageAssetService.resolveImageRef(ref, {signal: controller.signal}),
           ),
         ),
       )
+      const resolutions: MarkdownImageAssetResolution[] = []
+      let firstError: unknown = null
+      for (const result of settled) {
+        if (result.status === 'fulfilled') {
+          resolutions.push(result.value)
+          continue
+        }
+        firstError ??= result.reason
+      }
       if (controller.signal.aborted || token !== this.imageResolutionToken) {
         for (const resolution of resolutions) {
           this.imageAssetService.releaseResolution(resolution)
         }
         return
+      }
+      if (firstError) {
+        for (const resolution of resolutions) {
+          this.imageAssetService.releaseResolution(resolution)
+        }
+        throw firstError
       }
 
       const current = this.state()
@@ -1261,11 +1359,27 @@ export class MarkdownPreviewModel {
     }
   }
 
+  private insertTextAtSelection(
+    source: string,
+    text: string,
+    selection: MarkdownImageInsertionSelection,
+  ): InsertMarkdownResult {
+    const start = this.clampSourceOffset(source, selection.selectionStart)
+    const end = this.clampSourceOffset(source, selection.selectionEnd)
+    const selectionStart = Math.min(start, end)
+    const selectionEnd = Math.max(start, end)
+
+    return {
+      source: `${source.slice(0, selectionStart)}${text}${source.slice(selectionEnd)}`,
+      selectionStart: selectionStart + text.length,
+    }
+  }
+
   private clampSourceOffset(source: string, value: number): number {
     return Number.isFinite(value) ? Math.min(source.length, Math.max(0, Math.floor(value))) : source.length
   }
 
-  private getLastKnownImageInsertionSelection(
+  private getLastKnownEditorSelection(
     state: MarkdownPreviewReadyState,
   ): MarkdownImageInsertionSelection {
     return (

@@ -1,4 +1,4 @@
-import {atom} from '@reatom/core'
+import {atom, wrap} from '@reatom/core'
 
 import {ImportOrchestrator} from '../mapper.js'
 import {resolveConflictsAutoRename} from '../conflicts.js'
@@ -104,8 +104,8 @@ export class ImportDialogModel {
     this.parseError.set(null)
 
     try {
-      const {parseKeePass} = await loadKeePassParser()
-      const result = await parseKeePass(file, password)
+      const {parseKeePass} = await wrap(loadKeePassParser())
+      const result = await wrap(parseKeePass(file, password))
       this.parseResult.set(result)
       this.step.set('preview')
     } catch (e) {
@@ -141,7 +141,7 @@ export class ImportDialogModel {
           let iconRef = icon.iconRef
           if (!iconRef && icon.contentBase64 && catalogOps.putIcon) {
             try {
-              const uploaded = await catalogOps.putIcon(icon.contentBase64, icon.mimeType ?? 'image/png')
+              const uploaded = await wrap(catalogOps.putIcon(icon.contentBase64, icon.mimeType ?? 'image/png'))
               iconRef = uploaded.iconRef
             } catch {
               result.warnings.push(`Failed to import icon for folder "${folder.path}"`)
@@ -152,7 +152,7 @@ export class ImportDialogModel {
           if (!iconRef) continue
 
           try {
-            await catalogOps.setGroupIcon(folder.path, iconRef)
+            await wrap(catalogOps.setGroupIcon(folder.path, iconRef))
           } catch {
             result.warnings.push(`Failed to set icon metadata for folder "${folder.path}"`)
           }
@@ -166,15 +166,15 @@ export class ImportDialogModel {
       currentOrchestrator = new ImportOrchestrator()
       this.orchestrator = currentOrchestrator
 
-      const importResult = await currentOrchestrator.execute(
+      const importResult = await wrap(currentOrchestrator.execute(
         catalogOps,
         result.entries,
-        (progress) => {
+        wrap((progress) => {
           if (runId !== this.activeImportRunId) return
           this.progressState.set({...progress})
-        },
+        }),
         existingEntriesMap ?? undefined,
-      )
+      ))
 
       if (runId !== this.activeImportRunId) return null
 
@@ -200,12 +200,17 @@ export class ImportDialogModel {
     this.parseError.set(null)
 
     try {
-      const result =
-        format === 'csv'
-          ? await (await import('../parsers/csv.js')).parseCSV(file)
-          : format === 'bitwarden-json'
-            ? await (await import('../parsers/bitwarden.js')).parseBitwardenJson(file)
-            : await (await import('../parsers/1password.js')).parse1Password1PUX(file)
+      let result: ImportResult
+      if (format === 'csv') {
+        const parser = await wrap(import('../parsers/csv.js'))
+        result = await wrap(parser.parseCSV(file))
+      } else if (format === 'bitwarden-json') {
+        const parser = await wrap(import('../parsers/bitwarden.js'))
+        result = await wrap(parser.parseBitwardenJson(file))
+      } else {
+        const parser = await wrap(import('../parsers/1password.js'))
+        result = await wrap(parser.parse1Password1PUX(file))
+      }
 
       resolveConflictsAutoRename(result.entries, new Set<string>())
       this.parseResult.set(result)

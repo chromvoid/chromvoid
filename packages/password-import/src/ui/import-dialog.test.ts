@@ -157,7 +157,7 @@ describe('ImportDialogModel', () => {
 
   it('parses and imports a Bitwarden JSON export through the dialog model', async () => {
     const createDir = vi.fn(async () => ({nodeId: 1}))
-    const upload = vi.fn(async () => ({nodeId: 1}))
+    const upload = vi.fn<CatalogOperations['upload']>(async () => ({nodeId: 1}))
     const setOTPSecret = vi.fn(async () => undefined)
     const deleteNode = vi.fn(async () => undefined)
     const catalogOps: CatalogOperations = {

@@ -1,6 +1,6 @@
 # @project/i18n
 
-Minimal i18n package on Reatom v1000.
+Minimal i18n package on Reatom v1001.
 
 ## Goals
 

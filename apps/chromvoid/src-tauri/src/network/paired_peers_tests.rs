@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashMap;
 
 fn sample_peer(id: &str) -> PairedPeer {
     PairedPeer {
@@ -32,6 +33,10 @@ fn store_add_save_reload() {
         store.upsert(sample_peer("peer-1"));
         store.save().expect("save");
     }
+
+    let raw = std::fs::read_to_string(&path).expect("read encrypted store");
+    assert!(raw.contains("ciphertext_b64"));
+    assert!(!raw.contains("deadbeef"));
 
     {
         let store = PairedPeerStore::load(&path);
@@ -77,4 +82,21 @@ fn store_find_by_id() {
     store.upsert(sample_peer("peer-find"));
     assert!(store.find_by_id("peer-find").is_some());
     assert!(store.find_by_id("nonexistent").is_none());
+}
+
+#[test]
+fn legacy_plaintext_store_migrates_to_encrypted() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("paired_network_peers.json");
+    let mut legacy = HashMap::new();
+    legacy.insert("peer-legacy".to_string(), sample_peer("peer-legacy"));
+    crate::helpers::storage::write_json_pretty_atomic(&path, &legacy).expect("write legacy");
+
+    let store = PairedPeerStore::load(&path);
+    let peer = store.get("peer-legacy").expect("legacy peer loaded");
+    assert_eq!(peer.client_privkey_hex, "deadbeef");
+
+    let raw = std::fs::read_to_string(&path).expect("read migrated store");
+    assert!(raw.contains("ciphertext_b64"));
+    assert!(!raw.contains("deadbeef"));
 }

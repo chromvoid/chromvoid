@@ -9,8 +9,7 @@ declare global {
 }
 
 export async function setup() {
-  // Connect Playwright to the Tauri devUrl.
-  // Assumes `npm run tauri:dev` (or the webview dev server) is already running.
+  // Connect Playwright to a running Tauri static host or standalone webview dev server.
   browser = await chromium.launch({headless: false})
   page = await browser.newPage()
 

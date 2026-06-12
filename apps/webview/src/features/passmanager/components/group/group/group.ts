@@ -1,6 +1,11 @@
 import {hostContainStyles, motionPrimitiveStyles} from 'root/shared/ui/shared-styles'
 import {CvEmptyState} from 'root/shared/ui/empty-state'
 import {css} from 'lit'
+import {html} from '@chromvoid/uikit/reatom-lit'
+import {CVToolbar} from '@chromvoid/uikit/components/cv-toolbar'
+import {CVToolbarItem} from '@chromvoid/uikit/components/cv-toolbar-item'
+import type {Group, ManagerRoot} from '@project/passmanager/core'
+import {i18n} from '@project/passmanager/i18n'
 
 import {
   folderItemCSS,
@@ -11,8 +16,8 @@ import {
 import {listGroupStyles} from '../../list/list-item-styles'
 import {pmEntryCardStyles} from '../../card/entry-create/styles'
 import {PMWorkspaceHeader} from '../../card/pm-workspace-header'
-import {PMSummaryRail} from '../../summary-rail'
 import {PMGroupBase} from './group-base'
+import type {PMGroupRow} from './group.model'
 import {pmGroupCommonStyles} from './styles'
 
 export const pmGroupDesktopStyles = css`
@@ -34,24 +39,20 @@ export const pmGroupDesktopStyles = css`
         var(--pm-desktop-list-row-padding-end)
     );
     display: grid;
-    gap: 18px;
-    grid-template-rows: min-content auto;
+    gap: var(--app-spacing-5);
+    grid-template-rows: min-content minmax(0, 1fr);
     animation: var(--motion-fade-up-animation, fadeInUp 0.35s var(--cv-easing-standard) both);
+    block-size: 100%;
     min-height: 0;
     padding: 0;
   }
 
-  pm-workspace-header,
-  .group-metrics-strip {
+  pm-workspace-header {
     margin-inline: var(--pm-desktop-page-content-inset-start) var(--pm-desktop-page-content-inset-end);
   }
 
   pm-workspace-header {
     --pm-workspace-header-padding-inline: 0px;
-  }
-
-  .group-metrics-strip {
-    --pm-summary-rail-inline-size: 100%;
   }
 
   .group-virtual-list {
@@ -62,6 +63,38 @@ export const pmGroupDesktopStyles = css`
     padding: var(--app-surface-gutter-desktop) var(--pm-desktop-list-inline-padding);
     border-radius: 20px;
 
+  }
+
+  .pm-group-scroll-edge {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    min-block-size: 0;
+  }
+
+  .workbench-list-header {
+    display: grid;
+    grid-template-columns:
+      minmax(240px, 1fr)
+      minmax(150px, 240px)
+      minmax(132px, 168px)
+      minmax(72px, 92px);
+    gap: 16px;
+    align-items: center;
+    margin-inline: var(--pm-desktop-list-inline-padding);
+    padding-inline: var(--pm-desktop-list-row-padding-start) var(--pm-desktop-list-row-padding-end);
+    padding-block: 0 6px;
+    color: var(--cv-color-text-subtle);
+    font-family: var(--cv-font-family-code);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .workbench-list-header__status,
+  .workbench-list-header__modified,
+  .workbench-list-header__actions {
+    justify-self: start;
   }
 
   .workspace-back {
@@ -134,6 +167,8 @@ export const pmGroupDesktopStyles = css`
     flex: 1;
     display: flex;
     min-height: 0;
+    min-block-size: 0;
+    overflow: hidden;
     padding: var(--pm-desktop-content-shell-padding-block) var(--pm-desktop-content-shell-padding-inline);
   }
 
@@ -161,9 +196,13 @@ export const pmGroupDesktopStyles = css`
 
   .group-row {
     display: grid;
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns:
+      minmax(240px, 1fr)
+      minmax(150px, 240px)
+      minmax(132px, 168px)
+      minmax(72px, 92px);
     align-items: center;
-    gap: var(--cv-space-3);
+    gap: 16px;
     position: relative;
     isolation: isolate;
     padding-block: 0;
@@ -176,6 +215,36 @@ export const pmGroupDesktopStyles = css`
     transition:
       color var(--cv-duration-fast) var(--cv-easing-standard),
       transform var(--cv-duration-fast) var(--cv-easing-standard);
+  }
+
+  .group-main-cell {
+    display: inline-grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: var(--cv-space-3);
+    min-inline-size: 0;
+  }
+
+  .group-trail {
+    justify-content: flex-start;
+  }
+
+  .group-modified-cell {
+    min-inline-size: 0;
+    color: var(--cv-color-text-secondary);
+    font-family: var(--cv-font-family-code);
+    font-size: 12px;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .group-actions-cell {
+    display: inline-flex;
+    justify-content: flex-start;
+    align-items: center;
+    min-inline-size: 0;
   }
 
   .group-row::before,
@@ -283,6 +352,16 @@ export const pmGroupDesktopStyles = css`
       border-radius: 20px;
       padding: var(--app-surface-gutter-compact);
     }
+
+    .workbench-list-header,
+    .group-row {
+      grid-template-columns: minmax(0, 1fr) minmax(92px, auto) auto;
+    }
+
+    .workbench-list-header__modified,
+    .group-modified-cell {
+      display: none;
+    }
   }
 
   @media (hover: none) and (pointer: coarse) {
@@ -305,13 +384,19 @@ export const pmGroupDesktopStyles = css`
 `
 
 export class PMGroup extends PMGroupBase {
+  constructor() {
+    super()
+    this.showToolbarActions = true
+  }
+
   static define() {
     CvEmptyState.define()
     if (!customElements.get('pm-group')) {
       customElements.define('pm-group', this)
     }
+    CVToolbar.define()
+    CVToolbarItem.define()
     PMWorkspaceHeader.define()
-    PMSummaryRail.define()
   }
 
   static styles = [
@@ -326,4 +411,37 @@ export class PMGroup extends PMGroupBase {
     pmGroupCommonStyles,
     pmGroupDesktopStyles,
   ]
+
+  protected override getWorkspaceHeaderDensity() {
+    return 'compact' as const
+  }
+
+  protected override getEntryListItemViewMode() {
+    return 'workbench' as const
+  }
+
+  protected override renderListHeader(_group: Group | ManagerRoot, _items: PMGroupRow[]) {
+    return html`
+      <div class="workbench-list-header" role="presentation">
+        <span class="workbench-list-header__name">${i18n('credentials:list:column:name' as never)}</span>
+        <span class="workbench-list-header__status">${i18n('credentials:list:column:status' as never)}</span>
+        <span class="workbench-list-header__modified">${i18n('credentials:list:column:modified' as never)}</span>
+        <span class="workbench-list-header__actions">${i18n('credentials:list:column:actions' as never)}</span>
+      </div>
+    `
+  }
+
+  protected override renderGroupContent(group: Group, isRoot: boolean) {
+    const items = this.model.getUniqueRows(this.model.getVisibleRows(group))
+    const summary = this.model.getGroupPresentation(group, items, isRoot)
+
+    return html`
+      <div class="wrapper">
+        ${this.renderHeader(group, summary, isRoot)}
+        <section class="content-shell">
+          ${this.renderGroupsList(group, items)}
+        </section>
+      </div>
+    `
+  }
 }

@@ -105,6 +105,24 @@ export const pmGroupCreateMobileStyles = css`
     padding: var(--app-surface-gutter-mobile, var(--cv-space-3));
   }
 
+  .mobile-create-header {
+    display: grid;
+    gap: var(--cv-space-1);
+  }
+
+  .mobile-create-header h1 {
+    font-size: var(--cv-font-size-xl);
+    font-weight: var(--cv-font-weight-semibold);
+    line-height: 1.15;
+    color: var(--cv-color-text);
+  }
+
+  .mobile-create-header p {
+    font-size: var(--cv-font-size-sm);
+    line-height: 1.35;
+    color: var(--cv-color-text-muted);
+  }
+
   back-button {
     --back-button-size: 44px;
     --back-button-icon-size: 22px;

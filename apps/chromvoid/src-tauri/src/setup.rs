@@ -35,6 +35,7 @@ use crate::commands::volume_ops::{
     macos_diskutil_unmount_force, macos_mountpoint_is_unhealthy, macos_path_looks_mounted,
 };
 
+#[cfg(debug_assertions)]
 fn mirrored_logs_dir() -> Option<std::path::PathBuf> {
     let home = std::env::var_os("HOME")?;
     Some(
@@ -42,6 +43,11 @@ fn mirrored_logs_dir() -> Option<std::path::PathBuf> {
             .join("kaifaty")
             .join("chromvoid_logs"),
     )
+}
+
+#[cfg(not(debug_assertions))]
+fn mirrored_logs_dir() -> Option<std::path::PathBuf> {
+    None
 }
 
 #[cfg(desktop)]
@@ -215,15 +221,12 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     let app_handle = app.handle().clone();
     let storage_root_clone = storage_root.clone();
     let last_activity = Arc::new(Mutex::new(std::time::Instant::now()));
-    #[cfg(desktop)]
-    let lock_on_sleep = session_settings.lock_on_sleep;
 
     // ── Sleep watcher (desktop) ───────────────────────────────────────
     #[cfg(desktop)]
-    let sleep_watcher = if lock_on_sleep {
+    let sleep_watcher = {
         let handler = VaultSleepHandler {
             app_handle: app_handle.clone(),
-            lock_on_sleep,
             last_activity: last_activity.clone(),
         };
         match PlatformSleepWatcher::new(Box::new(handler)) {
@@ -233,8 +236,6 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                 None
             }
         }
-    } else {
-        None
     };
 
     let core_rpc_dispatcher = crate::core_rpc_dispatcher::CoreRpcDispatcher::try_new()
@@ -261,6 +262,10 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         catalog_blocking_io_runtime: Arc::new(
             crate::catalog_blocking_io::CatalogBlockingIoRuntimeState::new(),
         ),
+        #[cfg(desktop)]
+        host_path_capabilities: Arc::new(
+            crate::host_path_capability::HostPathCapabilityRegistry::new(),
+        ),
         task_lifecycle: Arc::new(crate::task_lifecycle::TaskLifecycleRuntime::new()),
         image_preview_runtime: Arc::new(crate::image_preview::ImagePreviewRuntimeState::new()),
         prepared_preview_runtime: Arc::new(
@@ -272,6 +277,10 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         network_pairing_runtime: Arc::new(crate::network::pairing::NetworkPairingRuntimeState::new()),
         #[cfg(desktop)]
         remote_io_runtime: Arc::new(crate::remote_io_runtime::RemoteIoRuntimeState::new()),
+        #[cfg(desktop)]
+        mode_transition_coordinator: Arc::new(
+            crate::mode_transition_coordinator::ModeTransitionCoordinator::new(),
+        ),
         mobile_acceptor_runtime: Arc::new(
             crate::network::mobile_acceptor::MobileAcceptorRuntimeState::new(),
         ),

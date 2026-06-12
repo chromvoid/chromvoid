@@ -9,6 +9,7 @@ use crate::commands::volume_ops::{
 };
 #[cfg(desktop)]
 use crate::task_lifecycle::EventTaskName;
+use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 
 pub(super) fn handle_lock_transition(
     app: &tauri::AppHandle,
@@ -167,12 +168,14 @@ pub(crate) fn lock_vault_with_reason(
             .lock()
             .map_err(|_| "Adapter mutex poisoned".to_string())?;
         let was_unlocked = adapter.is_unlocked();
-        let req = chromvoid_core::rpc::types::RpcRequest::new(
-            "vault:lock".to_string(),
-            serde_json::Value::Null,
-        );
-        let _ = adapter.handle(&req);
-        let _ = adapter.save();
+        let req = RpcRequest::new("vault:lock".to_string(), serde_json::Value::Null);
+        let resp = adapter.handle(&req);
+        if let Some(error) = lock_response_error(&resp) {
+            return Err(error);
+        }
+        adapter
+            .save()
+            .map_err(|error| format!("Failed to save vault lock state: {error}"))?;
         flush_core_events(app, adapter.as_mut());
         match state.storage_root.lock() {
             Ok(root) => emit_basic_state(app, &root, adapter.as_ref()),
@@ -183,4 +186,14 @@ pub(crate) fn lock_vault_with_reason(
 
     handle_lock_transition_with_reason(app, state, was_unlocked, now_unlocked, reason);
     Ok(())
+}
+
+fn lock_response_error(resp: &RpcResponse) -> Option<String> {
+    match resp {
+        RpcResponse::Error { error, code, .. } => Some(match code {
+            Some(code) => format!("{error} ({code})"),
+            None => error.clone(),
+        }),
+        RpcResponse::Success { .. } => None,
+    }
 }

@@ -471,7 +471,7 @@ describe('guidance completion signals', () => {
   })
 
   it('opens blocked-action guidance from the blocked access help action, not from display alone', () => {
-    setRuntimeCapabilities({platform: 'macos', desktop: true, supports_usb_remote: true})
+    setRuntimeCapabilities({platform: 'macos', desktop: true, supports_network_remote: true})
     moduleAccessModel.rawStates.set([
       {
         feature_key: 'remote',

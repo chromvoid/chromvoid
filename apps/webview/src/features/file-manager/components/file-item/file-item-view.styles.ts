@@ -3,8 +3,13 @@ import {css} from 'lit'
 export const fileItemViewStyles = css`
   /* ========== LIST VIEW ========== */
   :host([view-mode='list']) {
-    height: 80px;
+    height: var(--file-list-item-height, 80px);
     position: relative;
+  }
+
+  :host([view-mode='list']) .file-item {
+    gap: var(--app-spacing-4);
+    padding: var(--app-spacing-4);
   }
 
   :host([view-mode='list'])::before {

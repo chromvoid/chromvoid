@@ -2,6 +2,7 @@ import {Group} from '@project/passmanager'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {PMGroup} from '../../src/features/passmanager/components/group/group'
+import {PMGroupModel} from '../../src/features/passmanager/components/group/group/group.model'
 import {atom} from '@reatom/core'
 
 type RootLike = {
@@ -79,12 +80,15 @@ function createPassmanagerMock(current: Group | RootLike, readOnly = false): {
   }
 }
 
-async function renderGroup(passmanager: PassmanagerMock) {
+async function renderGroup(passmanager: PassmanagerMock, options: {showToolbarActions?: boolean} = {}) {
   ensureDefined()
   originalPassmanager = (window as any).passmanager
   ;(window as any).passmanager = passmanager
 
   const element = document.createElement('pm-group') as PMGroup
+  if (options.showToolbarActions !== undefined) {
+    element.showToolbarActions = options.showToolbarActions
+  }
   document.body.appendChild(element)
   await element.updateComplete
   return element
@@ -101,6 +105,15 @@ function getToolbar(element: PMGroup) {
 
 function getTitleEditAction(element: PMGroup) {
   return element.shadowRoot?.querySelector('.group-title-edit-action') as HTMLElement | null
+}
+
+function getToolbarItem(element: PMGroup, action: string) {
+  return element.shadowRoot?.querySelector(`cv-toolbar-item[data-action="${action}"]`) as HTMLElement | null
+}
+
+function clickToolbarItem(item: HTMLElement | null): void {
+  const target = item?.shadowRoot?.querySelector('.item') ?? item
+  target?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
 }
 
 describe('PMGroup toolbar actions', () => {
@@ -141,10 +154,10 @@ describe('PMGroup toolbar actions', () => {
     expect(legacyHeading).toBeNull()
   })
 
-  it('renders no inline toolbar for non-root groups and keeps title edit in the header', async () => {
+  it('can opt out of the component-level toolbar and keep title edit in the header', async () => {
     const group = createMockGroup('group-click')
     const {passmanager} = createPassmanagerMock(group)
-    const element = await renderGroup(passmanager)
+    const element = await renderGroup(passmanager, {showToolbarActions: false})
 
     expect(getToolbar(element)).toBeNull()
     expect(element.shadowRoot?.querySelectorAll('cv-toolbar-item')).toHaveLength(0)
@@ -161,33 +174,71 @@ describe('PMGroup toolbar actions', () => {
     expect(header?.editableTitle).toBe(true)
   })
 
-  it('hides the title edit affordance in readonly mode', async () => {
+  it('renders component-level toolbar actions for non-root groups by default', async () => {
+    const group = createMockGroup('group-actions')
+    const {passmanager} = createPassmanagerMock(group)
+    const element = await renderGroup(passmanager)
+    const moveSpy = vi.spyOn(PMGroupModel.prototype, 'moveGroup').mockResolvedValue(undefined)
+    const deleteSpy = vi.spyOn(PMGroupModel.prototype, 'deleteGroup').mockImplementation(() => {})
+
+    expect(getTitleEditAction(element)).toBeNull()
+    expect(getToolbar(element)).not.toBeNull()
+    expect(getToolbarItem(element, 'edit-group')).not.toBeNull()
+    expect(getToolbarItem(element, 'move-group')).not.toBeNull()
+    expect(getToolbarItem(element, 'remove-group')).not.toBeNull()
+
+    clickToolbarItem(getToolbarItem(element, 'move-group'))
+    clickToolbarItem(getToolbarItem(element, 'remove-group'))
+    clickToolbarItem(getToolbarItem(element, 'edit-group'))
+    await flush(element)
+
+    const header = element.shadowRoot?.querySelector('pm-workspace-header') as HTMLElement & {
+      editableTitle?: boolean
+    }
+    expect(header?.editableTitle).toBe(true)
+    expect(moveSpy).toHaveBeenCalledWith(group)
+    expect(deleteSpy).toHaveBeenCalledWith(group)
+  })
+
+  it('keeps component-level toolbar actions disabled in readonly mode', async () => {
     const group = createMockGroup('group-readonly')
     const {passmanager} = createPassmanagerMock(group, true)
     const element = await renderGroup(passmanager)
 
-    expect(getToolbar(element)).toBeNull()
+    expect(getToolbar(element)).not.toBeNull()
+    expect(getToolbarItem(element, 'edit-group')?.hasAttribute('disabled')).toBe(true)
+    expect(getToolbarItem(element, 'move-group')?.hasAttribute('disabled')).toBe(true)
+    expect(getToolbarItem(element, 'remove-group')?.hasAttribute('disabled')).toBe(true)
     expect(getTitleEditAction(element)).toBeNull()
     expect(passmanager.setShowElement).not.toHaveBeenCalled()
     expect(group.remove).not.toHaveBeenCalled()
   })
 
-  it('updates the title edit affordance when readonly state changes', async () => {
+  it('updates component-level toolbar disabled state when readonly changes', async () => {
     const group = createMockGroup('group-recreate')
     const {passmanager, readOnlyState} = createPassmanagerMock(group, false)
     const element = await renderGroup(passmanager)
 
-    expect(getToolbar(element)).toBeNull()
-    expect(getTitleEditAction(element)).not.toBeNull()
+    expect(getToolbar(element)).not.toBeNull()
+    expect(getToolbarItem(element, 'edit-group')?.hasAttribute('disabled')).toBe(false)
+    expect(getToolbarItem(element, 'move-group')?.hasAttribute('disabled')).toBe(false)
+    expect(getToolbarItem(element, 'remove-group')?.hasAttribute('disabled')).toBe(false)
+    expect(getTitleEditAction(element)).toBeNull()
 
     readOnlyState.set(true)
     await flush(element)
-    expect(getToolbar(element)).toBeNull()
+    expect(getToolbar(element)).not.toBeNull()
+    expect(getToolbarItem(element, 'edit-group')?.hasAttribute('disabled')).toBe(true)
+    expect(getToolbarItem(element, 'move-group')?.hasAttribute('disabled')).toBe(true)
+    expect(getToolbarItem(element, 'remove-group')?.hasAttribute('disabled')).toBe(true)
     expect(getTitleEditAction(element)).toBeNull()
 
     readOnlyState.set(false)
     await flush(element)
-    expect(getToolbar(element)).toBeNull()
-    expect(getTitleEditAction(element)).not.toBeNull()
+    expect(getToolbar(element)).not.toBeNull()
+    expect(getToolbarItem(element, 'edit-group')?.hasAttribute('disabled')).toBe(false)
+    expect(getToolbarItem(element, 'move-group')?.hasAttribute('disabled')).toBe(false)
+    expect(getToolbarItem(element, 'remove-group')?.hasAttribute('disabled')).toBe(false)
+    expect(getTitleEditAction(element)).toBeNull()
   })
 })

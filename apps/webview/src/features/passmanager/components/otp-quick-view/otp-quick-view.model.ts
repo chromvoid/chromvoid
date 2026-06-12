@@ -1,6 +1,7 @@
 import {action, atom, computed} from '@reatom/core'
 
 import {Entry, type OTP} from '@project/passmanager/core'
+import {i18n} from '@project/passmanager/i18n'
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import {pmModel} from '../../password-manager.model'
 
@@ -10,11 +11,13 @@ export type PMOtpQuickViewRow = {
   id: string
   entryId: string
   entryTitle: string
+  displayPath: string
   username: string
   groupPath?: string
   groupLabel: string
   otpId: string
   otpLabel: string
+  otpDisplayLabel: string
   otpType: 'TOTP' | 'HOTP'
   digits: number
   period?: number
@@ -41,6 +44,19 @@ function getOtpLabel(otp: OTP): string {
   return String(otp.label || otp.data.label || '').trim()
 }
 
+function getEntryDisplayPath(entry: Entry): string {
+  return [...(entry.groupPath?.split('/') ?? []), entry.title].map((part) => part.trim()).filter(Boolean).join('/')
+}
+
+function getOtpDisplayLabel(otpLabel: string, entryTitle: string): string {
+  const label = otpLabel.trim()
+  if (!label || label === entryTitle.trim() || label === i18n('otp:default:name').trim() || label === 'OTP') {
+    return ''
+  }
+
+  return label
+}
+
 function getOtpDigits(otp: OTP): number {
   const digits = Number(otp.data.digits ?? 6)
   return Number.isFinite(digits) ? digits : 6
@@ -56,6 +72,7 @@ function rowMatchesQuery(row: PMOtpQuickViewRow, query: string): boolean {
   }
 
   return [
+    row.displayPath,
     row.entryTitle,
     row.username,
     row.groupPath ?? '',
@@ -94,17 +111,21 @@ export class PMOtpQuickViewModel {
 
       const groupPath = entry.groupPath
       const urlsText = getUrlsText(entry)
+      const displayPath = getEntryDisplayPath(entry)
       for (const otp of entry.otps()) {
         const otpType = getOtpType(otp)
+        const otpLabel = getOtpLabel(otp)
         rows.push({
           id: `${entry.id}:${otp.id}`,
           entryId: entry.id,
           entryTitle: entry.title,
+          displayPath,
           username: entry.username,
           groupPath,
           groupLabel: groupPath ?? '',
           otpId: otp.id,
-          otpLabel: getOtpLabel(otp),
+          otpLabel,
+          otpDisplayLabel: getOtpDisplayLabel(otpLabel, entry.title),
           otpType,
           digits: getOtpDigits(otp),
           period: otpType === 'TOTP' ? otp.data.period : undefined,

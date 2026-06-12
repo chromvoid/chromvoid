@@ -3,15 +3,17 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 import {Entry, ManagerRoot} from '@project/passmanager/core'
 import {filterValue, quickFilters, selectedCredentialTagFilters} from '@project/passmanager/select'
 import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/components/list/sort-controls'
+import {PMQuickFilters} from '../../src/features/passmanager/components/list/quick-filters'
 import {PMSearch} from '../../src/features/passmanager/components/list/search'
 import {PMSearchMobile} from '../../src/features/passmanager/components/list/search-mobile'
-import {filtersExpanded} from '../../src/features/passmanager/components/list/search.model'
 import {pmCredentialTagsModel} from '../../src/features/passmanager/models/pm-credential-tags.model'
 import {pmMobileChromeModel} from '../../src/features/passmanager/models/pm-mobile-chrome.model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
+import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 
 let defined = false
 let mobileDefined = false
+let quickFiltersDefined = false
 
 function ensureDefined() {
   if (defined) {
@@ -29,6 +31,15 @@ function ensureMobileDefined() {
 
   PMSearchMobile.define()
   mobileDefined = true
+}
+
+function ensureQuickFiltersDefined() {
+  if (quickFiltersDefined) {
+    return
+  }
+
+  PMQuickFilters.define()
+  quickFiltersDefined = true
 }
 
 function installPassmanagerRoot() {
@@ -82,6 +93,7 @@ async function settle(element: HTMLElement & {updateComplete: Promise<unknown>})
 afterEach(() => {
   document.querySelectorAll('pm-search').forEach((el) => el.remove())
   document.querySelectorAll('pm-search-mobile').forEach((el) => el.remove())
+  document.querySelectorAll('pm-quick-filters').forEach((el) => el.remove())
   delete (window as any).passmanager
   setPassmanagerRoot(undefined)
   filterValue.set('')
@@ -90,8 +102,7 @@ afterEach(() => {
   sortField.set('name')
   sortDirection.set('asc')
   groupBy.set('none')
-  filtersExpanded.set(false)
-  window.localStorage.removeItem('pm_filters_expanded')
+  resetRuntimeCapabilities()
   pmMobileChromeModel.closeSortGroupSheet()
   pmCredentialTagsModel.closeSheet()
   vi.useRealTimers()
@@ -121,11 +132,23 @@ describe('PMSearch', () => {
     expect(element.shadowRoot?.querySelector('.kbd-slash')).not.toBeNull()
   })
 
-  it('marks quick filters as pressed and active when selected', async () => {
+  it('hides the slash hint on Android runtime even in desktop search layout', async () => {
     ensureDefined()
     installPassmanagerRoot()
+    setRuntimeCapabilities({platform: 'android', mobile: true, desktop: false})
 
     const element = document.createElement('pm-search') as PMSearch
+    document.body.appendChild(element)
+    await settle(element)
+
+    expect(element.shadowRoot?.querySelector('.kbd-slash')).toBeNull()
+  })
+
+  it('marks toolbar quick filters as pressed and active when selected', async () => {
+    ensureQuickFiltersDefined()
+    installPassmanagerRoot()
+
+    const element = document.createElement('pm-quick-filters') as PMQuickFilters
     document.body.appendChild(element)
     await settle(element)
 
@@ -207,7 +230,7 @@ describe('PMSearch', () => {
     document.body.appendChild(element)
     await settle(element)
 
-    const input = element.shadowRoot?.querySelector('cv-input') as HTMLElement & {value?: string} | null
+    const input = element.shadowRoot?.querySelector('cv-input') as (HTMLElement & {value?: string}) | null
     input?.dispatchEvent(new FocusEvent('focus'))
     await settle(element)
     expect(input?.value).toBe('committed')
@@ -309,7 +332,7 @@ describe('PMSearch', () => {
     expect(filterValue()).toBe('')
   })
 
-  it('reveals the desktop filters panel from model-owned expanded state', async () => {
+  it('keeps desktop toolbar controls outside the search component', async () => {
     ensureDefined()
     installPassmanagerRoot()
 
@@ -317,25 +340,12 @@ describe('PMSearch', () => {
     document.body.appendChild(element)
     await settle(element)
 
-    const panel = element.shadowRoot?.querySelector('.filters-panel') as HTMLElement | null
-    const toggle = element.shadowRoot?.querySelector('.toggle-filters') as HTMLElement | null
-    expect(panel).not.toBeNull()
-    expect(panel?.classList.contains('motion-panel-reveal')).toBe(true)
-    expect(panel?.classList.contains('collapsed')).toBe(false)
-    expect(panel?.getAttribute('data-expanded')).toBe('false')
-    expect(panel?.getAttribute('aria-hidden')).toBe('true')
-    expect(panel?.hasAttribute('inert')).toBe(true)
-    expect(toggle?.getAttribute('aria-expanded')).toBe('false')
-
-    toggle?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
-    await settle(element)
-
-    const expandedPanel = element.shadowRoot?.querySelector('.filters-panel') as HTMLElement | null
-    expect(filtersExpanded()).toBe(true)
-    expect(expandedPanel?.getAttribute('data-expanded')).toBe('true')
-    expect(expandedPanel?.getAttribute('aria-hidden')).toBe('false')
-    expect(expandedPanel?.hasAttribute('inert')).toBe(false)
-    expect(toggle?.getAttribute('aria-expanded')).toBe('true')
+    expect(element.shadowRoot?.querySelector('.toggle-filters')).toBeNull()
+    expect(element.shadowRoot?.querySelector('.filters-panel')).toBeNull()
+    expect(element.shadowRoot?.querySelector('pm-sort-controls')).toBeNull()
+    expect(element.shadowRoot?.querySelector('.quick-filters')).toBeNull()
+    expect(element.shadowRoot?.querySelector('pm-quick-filters')).toBeNull()
+    expect(element.shadowRoot?.querySelector('cv-combobox.tag-filter-combobox')).toBeNull()
   })
 
   it('renders a compact mobile search without desktop quick filters', async () => {
@@ -346,7 +356,7 @@ describe('PMSearch', () => {
     document.body.appendChild(element)
     await settle(element)
 
-    const input = element.shadowRoot?.querySelector('cv-input') as HTMLElement & {value?: string} | null
+    const input = element.shadowRoot?.querySelector('cv-input') as (HTMLElement & {value?: string}) | null
     const sortGroupButton = element.shadowRoot?.querySelector('.sort-group-trigger') as HTMLElement | null
     expect(input?.getAttribute('placeholder')).toBe('Search entries and logins')
     expect(sortGroupButton?.getAttribute('aria-label')).toBe('Sort and group')
@@ -380,13 +390,13 @@ describe('PMSearch', () => {
     expect(sortGroupButton?.classList.contains('active')).toBe(true)
   })
 
-  it('renders no tag combobox when no tags exist', async () => {
-    ensureDefined()
+  it('renders no desktop tag combobox in quick filters when no tags exist', async () => {
+    ensureQuickFiltersDefined()
     const root = new ManagerRoot({} as any)
     root.entries.set([])
     setPassmanagerRoot(root)
 
-    const element = document.createElement('pm-search') as PMSearch
+    const element = document.createElement('pm-quick-filters') as PMQuickFilters
     document.body.appendChild(element)
     await settle(element)
 
@@ -406,7 +416,7 @@ describe('PMSearch', () => {
     expect(element.shadowRoot?.querySelector('.tag-filter-row')).not.toBeNull()
     expect(element.shadowRoot?.querySelector('.tag-chip[aria-pressed="true"]')?.textContent).toContain('All')
     expect(element.shadowRoot?.querySelector('.tag-chip[data-tag-key]')).toBeNull()
-    expect(element.shadowRoot?.querySelector('pm-mobile-tag-filter-sheet')).not.toBeNull()
+    expect(element.shadowRoot?.querySelector('pm-mobile-tag-filter-sheet')).toBeNull()
 
     const sheetTrigger = element.shadowRoot?.querySelector('.tag-chip.manage') as HTMLElement | null
     sheetTrigger?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
@@ -417,14 +427,16 @@ describe('PMSearch', () => {
   })
 
   it('renders desktop tag combobox and updates selected filters from selectedIds', async () => {
-    ensureDefined()
+    ensureQuickFiltersDefined()
     installRootWithTags()
 
-    const element = document.createElement('pm-search') as PMSearch
+    const element = document.createElement('pm-quick-filters') as PMQuickFilters
     document.body.appendChild(element)
     await settle(element)
 
-    const combobox = element.shadowRoot?.querySelector('cv-combobox.tag-filter-combobox') as HTMLElement | null
+    const combobox = element.shadowRoot?.querySelector(
+      'cv-combobox.tag-filter-combobox',
+    ) as HTMLElement | null
     expect(combobox).not.toBeNull()
     expect(combobox?.getAttribute('type')).not.toBe('select-only')
     expect(combobox?.getAttribute('placeholder')).toBe('Search tags')
@@ -445,15 +457,17 @@ describe('PMSearch', () => {
   })
 
   it('clears selected tag filters from combobox selectedIds', async () => {
-    ensureDefined()
+    ensureQuickFiltersDefined()
     installRootWithTags()
     selectedCredentialTagFilters.set(['work'])
 
-    const element = document.createElement('pm-search') as PMSearch
+    const element = document.createElement('pm-quick-filters') as PMQuickFilters
     document.body.appendChild(element)
     await settle(element)
 
-    const combobox = element.shadowRoot?.querySelector('cv-combobox.tag-filter-combobox') as HTMLElement | null
+    const combobox = element.shadowRoot?.querySelector(
+      'cv-combobox.tag-filter-combobox',
+    ) as HTMLElement | null
     combobox?.dispatchEvent(
       new CustomEvent('cv-change', {
         detail: {selectedIds: [], value: null, inputValue: '', activeId: null, open: false},
@@ -466,7 +480,7 @@ describe('PMSearch', () => {
     expect(selectedCredentialTagFilters()).toEqual([])
   })
 
-  it('renders mobile tag chips and bottom sheet trigger when tags exist without desktop quick filters', async () => {
+  it('renders mobile tag chips and management trigger when tags exist without desktop quick filters', async () => {
     ensureMobileDefined()
     installRootWithTags()
 
@@ -482,7 +496,7 @@ describe('PMSearch', () => {
       ?.textContent?.replace(/\s+/g, ' ')
       .trim()
     expect(workChipText).toContain('Work · 1')
-    expect(element.shadowRoot?.querySelector('pm-mobile-tag-filter-sheet')).not.toBeNull()
+    expect(element.shadowRoot?.querySelector('pm-mobile-tag-filter-sheet')).toBeNull()
   })
 
   it('updates mobile tag filters from chips and opens tag management from manage chip', async () => {
@@ -498,9 +512,9 @@ describe('PMSearch', () => {
     await settle(element)
 
     expect(selectedCredentialTagFilters()).toEqual(['work'])
-    expect(element.shadowRoot?.querySelector('.tag-chip[data-tag-key="work"]')?.classList.contains('active')).toBe(
-      true,
-    )
+    expect(
+      element.shadowRoot?.querySelector('.tag-chip[data-tag-key="work"]')?.classList.contains('active'),
+    ).toBe(true)
 
     const sheetTrigger = element.shadowRoot?.querySelector('.tag-chip.manage') as HTMLElement | null
     sheetTrigger?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
@@ -509,5 +523,4 @@ describe('PMSearch', () => {
     expect(pmCredentialTagsModel.filterSheetOpen()).toBe(true)
     expect(pmCredentialTagsModel.sheetMode()).toBe('manage')
   })
-
 })

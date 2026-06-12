@@ -27,7 +27,7 @@ pub(super) async fn handle_connection(
 ) {
     let mut buf = vec![0u8; READ_BUFFER_SIZE];
     let mut pending = Vec::<u8>::new();
-    let mut connection_approved = false;
+    let mut approved_fingerprints = HashSet::<String>::new();
     let peer_pid = peer_pid(&stream);
     let peer_process = peer_pid.and_then(resolve_peer_process);
 
@@ -58,7 +58,7 @@ pub(super) async fn handle_connection(
                 &payload,
                 &shared,
                 connection_id,
-                &mut connection_approved,
+                &mut approved_fingerprints,
                 peer_pid,
                 peer_process.clone(),
             )
@@ -88,7 +88,7 @@ async fn handle_message(
     payload: &[u8],
     shared: &Arc<Mutex<AgentShared>>,
     connection_id: u64,
-    connection_approved: &mut bool,
+    approved_fingerprints: &mut HashSet<String>,
     peer_pid: Option<u32>,
     peer_process: Option<String>,
 ) -> Vec<u8> {
@@ -160,7 +160,7 @@ async fn handle_message(
                 return build_failure();
             };
 
-            if !*connection_approved {
+            if !approved_fingerprints.contains(&identity.fingerprint) {
                 let approved = request_connection_approval(
                     shared,
                     connection_id,
@@ -175,7 +175,7 @@ async fn handle_message(
                     return build_failure();
                 }
 
-                *connection_approved = true;
+                approved_fingerprints.insert(identity.fingerprint.clone());
             }
 
             let sign_started_at = Instant::now();

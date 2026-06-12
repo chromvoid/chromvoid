@@ -1,6 +1,6 @@
 use std::io::{self, Read};
 use std::sync::Arc;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::storage::Storage;
 use crate::vault::{DecryptedChunkCache, DecryptedChunkCacheKey};
@@ -14,7 +14,8 @@ pub struct CatalogBlobRangeReader {
     file_size: u64,
     cursor: u64,
     end: u64,
-    buf: zeroize::Zeroizing<Vec<u8>>,
+    buf: Option<Arc<Zeroizing<Vec<u8>>>>,
+    buf_len: usize,
     buf_chunk_index: Option<u64>,
     pos: usize,
     cache: Option<Arc<DecryptedChunkCache>>,
@@ -45,7 +46,8 @@ impl CatalogBlobRangeReader {
             file_size,
             cursor: offset,
             end: offset.saturating_add(length),
-            buf: zeroize::Zeroizing::new(Vec::new()),
+            buf: None,
+            buf_len: 0,
             buf_chunk_index: None,
             pos: 0,
             cache: Some(cache),
@@ -63,7 +65,7 @@ impl CatalogBlobRangeReader {
         }
 
         let chunk_index = self.cursor / self.chunk_size;
-        if self.buf_chunk_index == Some(chunk_index) && self.pos < self.buf.len() {
+        if self.buf_chunk_index == Some(chunk_index) && self.pos < self.buf_len {
             return Ok(());
         }
 
@@ -86,17 +88,15 @@ impl CatalogBlobRangeReader {
             chunk_size: self.chunk_size_key,
         };
         if let Some(cache) = self.cache.as_ref() {
-            if let Some(mut plaintext) = cache.get(&cache_key) {
+            if let Some(plaintext) = cache.get(&cache_key) {
                 if plaintext.len() < expected_len {
-                    plaintext.zeroize();
                     return Err(io::Error::new(
                         io::ErrorKind::UnexpectedEof,
                         "short cached chunk",
                     ));
                 }
-                plaintext.truncate(expected_len);
-                self.buf.zeroize();
-                self.buf = plaintext;
+                self.buf = Some(plaintext);
+                self.buf_len = expected_len;
                 self.buf_chunk_index = Some(chunk_index);
                 self.pos = self.cursor.saturating_sub(chunk_start) as usize;
                 return Ok(());
@@ -130,13 +130,14 @@ impl CatalogBlobRangeReader {
             ));
         }
         plaintext.truncate(expected_len);
+        let plaintext = Arc::new(Zeroizing::new(plaintext));
 
         if let Some(cache) = self.cache.as_ref() {
-            cache.insert(self.cache_generation, cache_key, &plaintext);
+            cache.insert_shared(self.cache_generation, cache_key, Arc::clone(&plaintext));
         }
 
-        self.buf.zeroize();
-        self.buf = zeroize::Zeroizing::new(plaintext);
+        self.buf = Some(plaintext);
+        self.buf_len = expected_len;
         self.buf_chunk_index = Some(chunk_index);
         self.pos = self.cursor.saturating_sub(chunk_start) as usize;
         Ok(())
@@ -153,13 +154,17 @@ impl Read for CatalogBlobRangeReader {
         while written < out.len() && self.cursor < self.end {
             self.load_chunk_for_cursor()?;
 
-            if self.pos >= self.buf.len() {
-                self.buf.zeroize();
+            if self.pos >= self.buf_len {
+                self.buf = None;
+                self.buf_len = 0;
                 self.buf_chunk_index = None;
                 continue;
             }
 
-            let available = self.buf.len().saturating_sub(self.pos);
+            let Some(buf) = self.buf.as_ref() else {
+                continue;
+            };
+            let available = self.buf_len.saturating_sub(self.pos);
             let requested = (self.end - self.cursor) as usize;
             let to_copy = std::cmp::min(out.len() - written, std::cmp::min(available, requested));
             if to_copy == 0 {
@@ -167,7 +172,7 @@ impl Read for CatalogBlobRangeReader {
             }
 
             out[written..written + to_copy]
-                .copy_from_slice(&self.buf[self.pos..self.pos + to_copy]);
+                .copy_from_slice(&buf.as_slice()[self.pos..self.pos + to_copy]);
             self.pos = self.pos.saturating_add(to_copy);
             self.cursor = self.cursor.saturating_add(to_copy as u64);
             written = written.saturating_add(to_copy);

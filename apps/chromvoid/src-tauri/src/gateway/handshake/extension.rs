@@ -17,7 +17,7 @@ use super::HandshakeResult;
 
 /// Extension reconnect handshake: IK for known peers, XX for unknown.
 ///
-/// Uses message size heuristic (like OrangePi responder) to detect IK vs XX:
+/// Uses message size heuristic to detect IK vs XX:
 /// - IK msg1 >= 96 bytes (contains encrypted initiator static key)
 /// - XX msg1 ~32 bytes (just ephemeral key)
 ///

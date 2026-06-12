@@ -2,6 +2,7 @@ package com.chromvoid.app.nativebridge
 
 import android.content.Context
 import android.content.Intent
+import android.database.Cursor
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -16,6 +17,58 @@ import java.io.OutputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
+
+internal interface SafBackupDocumentOperations {
+    fun query(
+        context: Context,
+        uri: Uri,
+        projection: Array<String>,
+    ): Cursor?
+
+    fun deleteDocument(
+        context: Context,
+        uri: Uri,
+    ): Boolean
+
+    fun createDocument(
+        context: Context,
+        parentUri: Uri,
+        mimeType: String,
+        name: String,
+    ): Uri?
+
+    fun openOutputStream(
+        context: Context,
+        uri: Uri,
+        mode: String,
+    ): OutputStream?
+}
+
+private object AndroidSafBackupDocumentOperations : SafBackupDocumentOperations {
+    override fun query(
+        context: Context,
+        uri: Uri,
+        projection: Array<String>,
+    ): Cursor? = context.contentResolver.query(uri, projection, null, null, null)
+
+    override fun deleteDocument(
+        context: Context,
+        uri: Uri,
+    ): Boolean = DocumentsContract.deleteDocument(context.contentResolver, uri)
+
+    override fun createDocument(
+        context: Context,
+        parentUri: Uri,
+        mimeType: String,
+        name: String,
+    ): Uri? = DocumentsContract.createDocument(context.contentResolver, parentUri, mimeType, name)
+
+    override fun openOutputStream(
+        context: Context,
+        uri: Uri,
+        mode: String,
+    ): OutputStream? = context.contentResolver.openOutputStream(uri, mode)
+}
 
 internal object SafBackupNativeShell {
     private const val TAG = "ChromVoid/SafBackup"
@@ -60,6 +113,7 @@ internal object SafBackupNativeShell {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val writeSessions = ConcurrentHashMap<String, WriteSession>()
     private val readSessions = ConcurrentHashMap<String, ReadSession>()
+    private val documentOperations = AtomicReference<SafBackupDocumentOperations>(AndroidSafBackupDocumentOperations)
 
     @JvmStatic
     fun bindTreePickerLauncher(
@@ -109,8 +163,8 @@ internal object SafBackupNativeShell {
     @JvmStatic
     fun createDirectory(context: Context, parentUri: String, name: String): String? =
         runCatching {
-            DocumentsContract.createDocument(
-                context.contentResolver,
+            documentOperations.get().createDocument(
+                context,
                 documentUriFor(Uri.parse(parentUri)),
                 MIME_DIR,
                 name,
@@ -123,13 +177,16 @@ internal object SafBackupNativeShell {
     @JvmStatic
     fun writeFile(context: Context, parentUri: String, name: String, bytes: ByteArray): String? =
         runCatching {
+            val operations = documentOperations.get()
             val parent = documentRefFor(Uri.parse(parentUri))
             findChild(context, parent, name, null)?.let { existing ->
-                runCatching { DocumentsContract.deleteDocument(context.contentResolver, existing.uri) }
+                if (!deleteExistingChildForOverwrite(context, existing, name)) {
+                    return null
+                }
             }
-            val fileUri = DocumentsContract.createDocument(context.contentResolver, parent.documentUri, MIME_FILE, name)
+            val fileUri = operations.createDocument(context, parent.documentUri, MIME_FILE, name)
                 ?: return null
-            context.contentResolver.openOutputStream(fileUri, "wt")?.use { stream ->
+            operations.openOutputStream(context, fileUri, "wt")?.use { stream ->
                 stream.write(bytes)
                 stream.flush()
             } ?: return null
@@ -142,13 +199,16 @@ internal object SafBackupNativeShell {
     @JvmStatic
     fun openWriteSession(context: Context, parentUri: String, name: String): String? =
         runCatching {
+            val operations = documentOperations.get()
             val parent = documentRefFor(Uri.parse(parentUri))
             findChild(context, parent, name, null)?.let { existing ->
-                runCatching { DocumentsContract.deleteDocument(context.contentResolver, existing.uri) }
+                if (!deleteExistingChildForOverwrite(context, existing, name)) {
+                    return null
+                }
             }
-            val fileUri = DocumentsContract.createDocument(context.contentResolver, parent.documentUri, MIME_FILE, name)
+            val fileUri = operations.createDocument(context, parent.documentUri, MIME_FILE, name)
                 ?: return null
-            val stream = context.contentResolver.openOutputStream(fileUri, "wt") ?: return null
+            val stream = operations.openOutputStream(context, fileUri, "wt") ?: return null
             val sessionId = UUID.randomUUID().toString()
             writeSessions[sessionId] = WriteSession(fileUri, stream)
             sessionId
@@ -177,7 +237,7 @@ internal object SafBackupNativeShell {
             runCatching { session.stream.flush() }
             runCatching { session.stream.close() }
             if (abort) {
-                runCatching { DocumentsContract.deleteDocument(context.contentResolver, session.uri) }
+                runCatching { documentOperations.get().deleteDocument(context, session.uri) }
             }
             true
         }.getOrElse { error ->
@@ -188,7 +248,7 @@ internal object SafBackupNativeShell {
     @JvmStatic
     fun deleteDocument(context: Context, uri: String): Boolean =
         runCatching {
-            DocumentsContract.deleteDocument(context.contentResolver, documentUriFor(Uri.parse(uri)))
+            documentOperations.get().deleteDocument(context, documentUriFor(Uri.parse(uri)))
         }.getOrDefault(false)
 
     @JvmStatic
@@ -337,15 +397,30 @@ internal object SafBackupNativeShell {
     }
 
     private fun queryDisplayName(context: Context, uri: Uri): String? =
-        context.contentResolver.query(
+        documentOperations.get().query(
+            context,
             uri,
             arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
-            null,
-            null,
-            null,
         )?.use { cursor ->
             if (cursor.moveToFirst()) cursor.getString(0) else null
         }
+
+    private fun deleteExistingChildForOverwrite(
+        context: Context,
+        existing: ChildDocument,
+        name: String,
+    ): Boolean {
+        val deleted =
+            runCatching { documentOperations.get().deleteDocument(context, existing.uri) }
+                .getOrElse { error ->
+                    Log.w(TAG, "overwrite_delete_failed name=${traceDisplayName(name)} error=${traceFailure(error)}")
+                    return false
+                }
+        if (!deleted) {
+            Log.w(TAG, "overwrite_delete_failed name=${traceDisplayName(name)} result=false")
+        }
+        return deleted
+    }
 
     private fun findChild(context: Context, parent: SafDocumentRef, name: String, mimeType: String?): ChildDocument? =
         listChildren(context, parent).firstOrNull { child ->
@@ -358,16 +433,14 @@ internal object SafBackupNativeShell {
                 DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parent.documentId)
             } ?: DocumentsContract.buildChildDocumentsUri(parent.authority, parent.documentId)
         val children = mutableListOf<ChildDocument>()
-        context.contentResolver.query(
+        documentOperations.get().query(
+            context,
             childrenUri,
             arrayOf(
                 DocumentsContract.Document.COLUMN_DOCUMENT_ID,
                 DocumentsContract.Document.COLUMN_DISPLAY_NAME,
                 DocumentsContract.Document.COLUMN_MIME_TYPE,
             ),
-            null,
-            null,
-            null,
         )?.use { cursor ->
             val idIndex = 0
             val nameIndex = 1
@@ -415,6 +488,11 @@ internal object SafBackupNativeShell {
         readSessions.values.forEach { session -> runCatching { session.stream.close() } }
         writeSessions.clear()
         readSessions.clear()
+        documentOperations.set(AndroidSafBackupDocumentOperations)
+    }
+
+    internal fun setDocumentOperationsForTests(operations: SafBackupDocumentOperations) {
+        documentOperations.set(operations)
     }
 
     internal fun putWriteSessionForTests(

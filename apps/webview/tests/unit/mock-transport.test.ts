@@ -471,6 +471,19 @@ describe('MockTransport', () => {
       await t.removeOTPSecret({otpId: OTP_ID})
     })
 
+    it('renames OTP secret labels', async () => {
+      await createEntryWithOTP(t)
+      await t.setOTPSecret({otpId: OTP_ID, secret: 'JBSWY3DPEHPK3PXP'})
+
+      const response = (await t.sendPassmanager('passmanager:otp:renameSecret', {
+        otp_id: OTP_ID,
+        previous_label: 'Primary',
+        next_label: 'Backup',
+      })) as {ok: boolean}
+
+      expect(response.ok).toBe(true)
+    })
+
     it('setOTPSecret stores secret and generateOTP still returns a code without crypto dependencies', async () => {
       await createEntryWithOTP(t)
 

@@ -65,6 +65,29 @@ describe('PMWorkspaceHeader', () => {
     expect(shadow?.querySelector('.workspace-meta')?.textContent).toContain('2026-03-28 10:00')
   })
 
+  it('defaults to regular density and accepts compact density explicitly', async () => {
+    const regular = createHeader()
+    const compact = createHeader()
+    compact.density = 'compact'
+
+    document.body.append(regular, compact)
+    await settle(regular)
+    await settle(compact)
+
+    expect(regular.shadowRoot?.querySelector('.workspace-header')?.getAttribute('data-density')).toBe('regular')
+    expect(compact.shadowRoot?.querySelector('.workspace-header')?.getAttribute('data-density')).toBe('compact')
+  })
+
+  it('falls back to regular density for unsupported density values', async () => {
+    const element = createHeader()
+    element.setAttribute('density', 'wide')
+
+    document.body.append(element)
+    await settle(element)
+
+    expect(element.shadowRoot?.querySelector('.workspace-header')?.getAttribute('data-density')).toBe('regular')
+  })
+
   it('hides optional subtitle and meta regions when they are absent', async () => {
     const element = createHeader()
     element.supportText = ''
@@ -157,6 +180,34 @@ describe('PMWorkspaceHeader', () => {
     const item = element.shadowRoot?.querySelector('cv-breadcrumb-item') as HTMLElement | null
     const link = item?.shadowRoot?.querySelector('[part="link"]') as HTMLAnchorElement | null
     const clickEvent = new MouseEvent('click', {bubbles: true, cancelable: true, composed: true})
+
+    link?.dispatchEvent(clickEvent)
+
+    expect(clickEvent.defaultPrevented).toBe(true)
+    expect(navigateCount).toBe(0)
+  })
+
+  it('treats the last context item as current when no item marks current explicitly', async () => {
+    const element = createHeader()
+    element.contextItems = [
+      {label: 'Root', value: ''},
+      {label: 'Work', value: 'Work'},
+    ]
+
+    document.body.append(element)
+    await settle(element)
+
+    let navigateCount = 0
+    element.addEventListener('pm-workspace-header-navigate', () => {
+      navigateCount += 1
+    })
+
+    const item = element.shadowRoot?.querySelectorAll('cv-breadcrumb-item')[1] as HTMLElement | undefined
+    const link = item?.shadowRoot?.querySelector('[part="link"]') as HTMLAnchorElement | null
+    const clickEvent = new MouseEvent('click', {bubbles: true, cancelable: true, composed: true})
+
+    expect(item?.hasAttribute('current')).toBe(true)
+    expect(item?.dataset['navCurrent']).toBe('true')
 
     link?.dispatchEvent(clickEvent)
 

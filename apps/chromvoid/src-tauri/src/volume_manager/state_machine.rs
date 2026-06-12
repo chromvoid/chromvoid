@@ -213,7 +213,7 @@ impl VolumeManager {
     /// * `Unlocked` / `Locked` → `Ok(())` (nothing to unmount)
     /// * `Mounted` → `Unmounting` then `Ok(())`
     /// * `Unmounting` → `Ok(())` (already in progress)
-    /// * `Mounting` → cancel in-progress mount → `Unlocked`
+    /// * `Mounting` → cancel in-progress mount → `Unmounting`
     /// * `Error` / `NeedsCleanup` / `DriverMissing` → `Unlocked`
     pub fn unmount(&mut self) -> VolumeResult<()> {
         match self.state {
@@ -235,8 +235,8 @@ impl VolumeManager {
                 Ok(())
             }
             VolumeState::Mounting => {
-                info!("VolumeManager: unmount() cancelling in-progress mount → Unlocked");
-                self.state = VolumeState::Unlocked;
+                info!("VolumeManager: unmount() cancelling in-progress mount → Unmounting");
+                self.state = VolumeState::Unmounting;
                 self.clear_last_error();
                 Ok(())
             }

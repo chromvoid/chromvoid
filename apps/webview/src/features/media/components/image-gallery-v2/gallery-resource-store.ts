@@ -47,6 +47,7 @@ type AbortIntentOptions = {
 }
 type DisplayAssetLoadOptions = {
   refresh?: boolean
+  replaceInFlight?: boolean
 }
 type AbortIntentResult = {
   abortedCount: number
@@ -268,34 +269,42 @@ export class GalleryResourceStore {
     })
 
     const requestKey = getRequestKey(intent, assetKey)
-    const sameAssetInFlight = this.findInFlightByAssetKey(assetKey)
-    if (sameAssetInFlight) {
-      this.log('load.inflight-same-asset', {
-        requestKey,
-        assetKey,
-        imageId: image.id,
-        intent,
-        variant,
-        existingRequestKey: sameAssetInFlight.requestKey,
-        existingIntent: sameAssetInFlight.intent,
-        willJoin: sameAssetInFlight.requestKey === requestKey,
-        dtMs: getImageGalleryDebugDurationMs(sameAssetInFlight.startedAt),
-        debug: this.getDebugSnapshot(),
-      })
-    }
-
     const existing = this.inFlightLoads.get(requestKey)
     if (existing && !existing.cancelled) {
-      this.log('load.join-inflight', {
-        requestKey,
-        assetKey,
-        imageId: image.id,
-        intent,
-        variant,
-        dtMs: getImageGalleryDebugDurationMs(existing.startedAt),
-        debug: this.getDebugSnapshot(),
-      })
-      return await awaitWithAbort(existing.promise, signal)
+      if (options.replaceInFlight) {
+        this.abortInFlight(existing, 'replace-inflight')
+      } else {
+        this.log('load.join-inflight', {
+          requestKey,
+          assetKey,
+          imageId: image.id,
+          intent,
+          variant,
+          dtMs: getImageGalleryDebugDurationMs(existing.startedAt),
+          debug: this.getDebugSnapshot(),
+        })
+        return await awaitWithAbort(existing.promise, signal)
+      }
+    }
+
+    const sameAssetInFlight = this.findInFlightByAssetKey(assetKey)
+    if (sameAssetInFlight && !sameAssetInFlight.cancelled) {
+      if (options.replaceInFlight) {
+        this.abortInFlight(sameAssetInFlight, 'replace-inflight')
+      } else {
+        this.log('load.join-inflight-same-asset', {
+          requestKey,
+          assetKey,
+          imageId: image.id,
+          intent,
+          variant,
+          existingRequestKey: sameAssetInFlight.requestKey,
+          existingIntent: sameAssetInFlight.intent,
+          dtMs: getImageGalleryDebugDurationMs(sameAssetInFlight.startedAt),
+          debug: this.getDebugSnapshot(),
+        })
+        return await awaitWithAbort(sameAssetInFlight.promise, signal)
+      }
     }
 
     const controller = new AbortController()
@@ -392,19 +401,8 @@ export class GalleryResourceStore {
         continue
       }
 
-      record.cancelled = true
-      record.abortReason = abortReason
       abortedRequestKeys.push(record.requestKey)
-      this.log('load.abort-request', {
-        requestKey: record.requestKey,
-        assetKey: record.assetKey,
-        imageId: record.imageId,
-        intent: record.intent,
-        abortReason: record.abortReason,
-        dtMs: getImageGalleryDebugDurationMs(record.startedAt),
-      })
-      record.controller.abort()
-      this.releaseInFlight(record)
+      this.abortInFlight(record, abortReason)
     }
 
     if (abortedRequestKeys.length > 0 || retainedRequestKeys.length > 0) {
@@ -423,6 +421,25 @@ export class GalleryResourceStore {
       abortedCount: abortedRequestKeys.length,
       retainedCount: retainedRequestKeys.length,
     }
+  }
+
+  private abortInFlight(record: InFlightLoad, reason: string): void {
+    if (record.cancelled) {
+      return
+    }
+
+    record.cancelled = true
+    record.abortReason = reason
+    this.log('load.abort-request', {
+      requestKey: record.requestKey,
+      assetKey: record.assetKey,
+      imageId: record.imageId,
+      intent: record.intent,
+      abortReason: record.abortReason,
+      dtMs: getImageGalleryDebugDurationMs(record.startedAt),
+    })
+    record.controller.abort()
+    this.releaseInFlight(record)
   }
 
   releaseRenderedAsset(

@@ -1,6 +1,17 @@
 use super::*;
 
 impl RpcRouter {
+    pub(super) fn with_wallet_read_session_cleaned<T, F>(&mut self, f: F) -> RpcResponse
+    where
+        T: Serialize,
+        F: FnOnce(&mut VaultSession, &Storage) -> WalletResult<T>,
+    {
+        if let Some(response) = self.wallet_read_preflight() {
+            return response;
+        }
+        self.with_wallet_session_cleaned_after_preflight(f)
+    }
+
     pub(super) fn with_wallet_session_cleaned<T, F>(
         &mut self,
         requires_broadcast: bool,
@@ -44,6 +55,20 @@ impl RpcRouter {
         }
     }
 
+    pub(super) fn wallet_disabled_reason(&self) -> &'static str {
+        "UNSUPPORTED: wallet crypto is disabled until real wallet crypto is implemented"
+    }
+
+    pub(super) fn wallet_read_preflight(&self) -> Option<RpcResponse> {
+        if self.session.is_none() {
+            return Some(RpcResponse::error(
+                "Vault not unlocked",
+                Some(ErrorCode::VaultRequired),
+            ));
+        }
+        None
+    }
+
     pub(super) fn wallet_preflight(&self, requires_broadcast: bool) -> Option<RpcResponse> {
         if self.session.is_none() {
             return Some(RpcResponse::error(
@@ -51,18 +76,10 @@ impl RpcRouter {
                 Some(ErrorCode::VaultRequired),
             ));
         }
-        if !self.wallet_runtime_config.wallet_phase1_enabled {
-            return Some(RpcResponse::error(
-                "Wallet phase 1 disabled",
-                Some(ErrorCode::ProviderDisabled),
-            ));
-        }
-        if requires_broadcast && !self.wallet_runtime_config.wallet_core_broadcast_enabled {
-            return Some(RpcResponse::error(
-                "Wallet Core broadcast disabled",
-                Some(ErrorCode::ProviderDisabled),
-            ));
-        }
-        self.require_pro_feature(crate::license::PRO_FEATURE_CRYPTO_WALLET)
+        let _ = requires_broadcast;
+        Some(RpcResponse::error(
+            self.wallet_disabled_reason(),
+            Some("UNSUPPORTED"),
+        ))
     }
 }

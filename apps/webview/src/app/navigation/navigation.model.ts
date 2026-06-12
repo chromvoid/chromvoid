@@ -60,6 +60,21 @@ function isAndroidMobileRuntime(): boolean {
   return isTauriRuntime() && typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
 }
 
+function replacePathFileName(path: string, fileName: string): string {
+  const normalizedPath = path.trim()
+  if (!normalizedPath || normalizedPath === '/') {
+    return fileName
+  }
+
+  const separatorIndex = normalizedPath.lastIndexOf('/')
+  if (separatorIndex < 0) {
+    return fileName
+  }
+
+  const parentPath = normalizedPath.slice(0, separatorIndex)
+  return `${parentPath || ''}/${fileName}`
+}
+
 class NavigationModel {
   readonly snapshot = atom<NavigationSnapshot>(DEFAULT_SNAPSHOT)
   readonly currentSurface = computed<SurfaceId>(() => this.snapshot().surface)
@@ -287,6 +302,39 @@ class NavigationModel {
       historyMode,
       'open-document',
     )
+  }
+
+  updateCurrentMarkdownDocumentFileName(fileId: number, fileName: string): boolean {
+    const current = this.snapshot()
+    const document = current.files?.document
+    if (current.surface !== 'files' || document?.kind !== 'markdown' || document.fileId !== fileId) {
+      return false
+    }
+
+    const source = document.source
+    if (!source || source.fileName === fileName) {
+      return false
+    }
+
+    this.applySnapshot(
+      {
+        ...current,
+        files: {
+          path: current.files?.path || DEFAULT_FILES_PATH,
+          document: {
+            ...document,
+            source: {
+              ...source,
+              path: replacePathFileName(source.path, fileName),
+              fileName,
+            },
+          },
+        },
+      },
+      'replace',
+      'open-document',
+    )
+    return true
   }
 
   closeFilesDocument(historyMode: Exclude<HistoryMode, 'none'> = 'push'): void {

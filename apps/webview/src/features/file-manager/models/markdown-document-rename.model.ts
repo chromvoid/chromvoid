@@ -133,23 +133,24 @@ export class MarkdownDocumentRenameModel {
     this.validationError.set(null)
     try {
       if (this.preview.dirty()) {
-        const saved = await this.preview.save()
+        const saved = await wrap(this.preview.save())
         if (!saved) {
           return false
         }
       }
 
-      const renamedName = await this.getFileManager().renameFileById({
+      const renamedName = await wrap(this.getFileManager().renameFileById({
         fileId: target.fileId,
         fileName: target.fileName,
         newName: nextName,
         currentPath: this.getCurrentPath(),
-      })
+      }))
       if (!renamedName) {
         return false
       }
 
       this.preview.applyFileRename(target.fileId, renamedName)
+      navigationModel.updateCurrentMarkdownDocumentFileName(target.fileId, renamedName)
       return true
     } finally {
       this.renaming.set(false)

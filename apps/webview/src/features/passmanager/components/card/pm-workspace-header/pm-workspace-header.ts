@@ -14,6 +14,8 @@ export type PMWorkspaceContextItem = {
   current?: boolean
 }
 
+export type PMWorkspaceHeaderDensity = 'regular' | 'compact'
+
 function hasAssignedContent(slot: HTMLSlotElement | null): boolean {
   if (!slot) return false
 
@@ -41,6 +43,7 @@ export class PMWorkspaceHeader extends ReatomLitElement {
     titlePlaceholder: {type: String, attribute: 'title-placeholder'},
     updatedFormatted: {type: String, attribute: 'updated-formatted'},
     createdFormatted: {type: String, attribute: 'created-formatted'},
+    density: {type: String},
   }
 
   declare item: unknown
@@ -58,6 +61,7 @@ export class PMWorkspaceHeader extends ReatomLitElement {
   declare titlePlaceholder: string
   declare updatedFormatted: string
   declare createdFormatted: string
+  declare density: PMWorkspaceHeaderDensity
 
   private hasLeadSlot = false
   private hasContextEndSlot = false
@@ -83,6 +87,7 @@ export class PMWorkspaceHeader extends ReatomLitElement {
     this.titlePlaceholder = ''
     this.updatedFormatted = ''
     this.createdFormatted = ''
+    this.density = 'regular'
   }
 
   static define() {
@@ -130,10 +135,10 @@ export class PMWorkspaceHeader extends ReatomLitElement {
     }
 
     .workspace-context-band {
-      display: flex;
+      display: grid;
       align-items: center;
-      justify-content: space-between;
-      gap: 12px;
+      grid-template-columns: minmax(0, 1fr) max-content;
+      gap: var(--app-spacing-2);
       min-inline-size: 0;
       color: var(--cv-color-text-secondary);
       font-size: 11px;
@@ -148,11 +153,14 @@ export class PMWorkspaceHeader extends ReatomLitElement {
 
     .workspace-context-kicker {
       color: var(--cv-color-primary);
+      flex: 1 1 auto;
       min-inline-size: 0;
+      max-inline-size: 100%;
     }
 
     .workspace-context-kicker cv-breadcrumb {
       display: block;
+      inline-size: 100%;
       min-inline-size: 0;
       overflow: hidden;
       font-size: inherit;
@@ -166,6 +174,7 @@ export class PMWorkspaceHeader extends ReatomLitElement {
 
     .workspace-context-kicker cv-breadcrumb::part(list) {
       flex-wrap: nowrap;
+      inline-size: 100%;
       min-inline-size: 0;
       overflow: hidden;
       white-space: nowrap;
@@ -173,14 +182,20 @@ export class PMWorkspaceHeader extends ReatomLitElement {
     }
 
     .workspace-context-kicker cv-breadcrumb-item {
+      flex: 0 1 auto;
       min-inline-size: 0;
+      max-inline-size: 100%;
       gap: 4px;
+    }
+
+    .workspace-context-kicker cv-breadcrumb-item[current] {
+      flex: 1 1 auto;
     }
 
     .workspace-context-kicker cv-breadcrumb-item::part(link) {
       color: inherit;
       display: inline-block;
-      max-inline-size: 18ch;
+      max-inline-size: 100%;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -192,6 +207,7 @@ export class PMWorkspaceHeader extends ReatomLitElement {
 
     .workspace-context-end {
       display: flex;
+      flex: 0 0 auto;
       justify-content: flex-end;
       min-inline-size: 0;
     }
@@ -201,8 +217,6 @@ export class PMWorkspaceHeader extends ReatomLitElement {
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 24px;
       align-items: start;
-      padding-block-end: 12px;
-      border-block-end: 1px solid var(--cv-color-border-muted);
     }
 
     .workspace-head.no-actions {
@@ -382,6 +396,72 @@ export class PMWorkspaceHeader extends ReatomLitElement {
       color: var(--cv-color-text-strong);
     }
 
+    .workspace-header[data-density='compact'] {
+      gap: 8px;
+    }
+
+    .workspace-header[data-density='compact'] .workspace-context-band {
+      font-size: 10px;
+      letter-spacing: 0.12em;
+    }
+
+    .workspace-header[data-density='compact'] .workspace-head {
+      gap: 16px;
+    }
+
+    .workspace-header[data-density='compact'] .workspace-title-block {
+      gap: 12px;
+      padding: 10px 0;
+    }
+
+    .workspace-header[data-density='compact'] .title-avatar-icon,
+    .workspace-header[data-density='compact'] .title-avatar-picker {
+      inline-size: 42px;
+      block-size: 42px;
+      flex-basis: 42px;
+      --pm-avatar-icon-size: 18px;
+    }
+
+    .workspace-header[data-density='compact'] .title-content {
+      gap: 3px;
+    }
+
+    .workspace-header[data-density='compact'] .title-text,
+    .workspace-header[data-density='compact'] .title-input,
+    .workspace-header[data-density='compact'] .title-input::part(input) {
+      font-size: 1.5rem;
+      letter-spacing: 0;
+      line-height: 1.02;
+    }
+
+    .workspace-header[data-density='compact'] .title-summary {
+      max-inline-size: 62ch;
+      font-size: 13px;
+      line-height: 1.3;
+    }
+
+    .workspace-header[data-density='compact'] .workspace-head-actions {
+      padding-block-start: 10px;
+    }
+
+    .workspace-header[data-density='compact'] .workspace-side {
+      gap: 8px;
+    }
+
+    .workspace-header[data-density='compact'] .workspace-summary {
+      min-inline-size: min(100%, 360px);
+      inline-size: 100%;
+      justify-items: stretch;
+      text-align: left;
+    }
+
+    .workspace-header[data-density='compact'] .workspace-meta {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+      gap: 10px 14px;
+    }
+
     @container (width < 560px) {
       .workspace-context-band {
         gap: 8px;
@@ -449,6 +529,17 @@ export class PMWorkspaceHeader extends ReatomLitElement {
       : []
   }
 
+  private getContextCurrentIndex(items: PMWorkspaceContextItem[]): number {
+    const explicitCurrentIndex = items.findIndex((item) => item.current === true)
+    if (explicitCurrentIndex >= 0) return explicitCurrentIndex
+
+    return items.length - 1
+  }
+
+  private getContextItemValue(item: PMWorkspaceContextItem, index: number): string {
+    return item.value || `root-${index + 1}`
+  }
+
   private getBreadcrumbItemFromEvent(event: Event): CVBreadcrumbItem | null {
     return (
       event
@@ -502,6 +593,10 @@ export class PMWorkspaceHeader extends ReatomLitElement {
     return this.updatedFormatted.trim() !== '' || this.createdFormatted.trim() !== ''
   }
 
+  private getDensity(): PMWorkspaceHeaderDensity {
+    return this.density === 'compact' ? 'compact' : 'regular'
+  }
+
   private renderBuiltInMeta() {
     const items = [
       this.updatedFormatted.trim()
@@ -532,29 +627,42 @@ export class PMWorkspaceHeader extends ReatomLitElement {
   protected override render() {
     const hasSupportText = this.supportText.trim() !== ''
     const contextItems = this.getContextItems()
+    const contextCurrentIndex = this.getContextCurrentIndex(contextItems)
+    const breadcrumbValue =
+      contextCurrentIndex >= 0
+        ? this.getContextItemValue(contextItems[contextCurrentIndex]!, contextCurrentIndex)
+        : ''
     const hasContextBand = this.hasContextBand || contextItems.length > 0 || this.hasContextEndSlot
     const hasBuiltInMeta = this.hasBuiltInMeta()
     const hasMeta = this.hasMetaSlot || hasBuiltInMeta
 
     return html`
-      <section class="workspace-header ${this.hasSupportSlot ? 'has-inline-support' : ''}">
+      <section
+        class="workspace-header ${this.hasSupportSlot ? 'has-inline-support' : ''}"
+        data-density=${this.getDensity()}
+      >
         ${hasContextBand
           ? html`
               <div class="workspace-context-band ${this.hasContextEndSlot ? '' : 'no-context-end'}">
                 <div class="workspace-context-kicker">
-                  <cv-breadcrumb aria-label="Context" @click=${this.onBreadcrumbClick}>
+                  <cv-breadcrumb aria-label="Context" .value=${breadcrumbValue} @click=${this.onBreadcrumbClick}>
                     ${contextItems.map(
-                      (item, index) => html`
-                        <cv-breadcrumb-item
-                          value=${item.value || `root-${index + 1}`}
-                          href="#"
-                          ?current=${item.current ?? false}
-                          data-nav-current=${item.current ? 'true' : 'false'}
-                          data-nav-value=${item.value}
-                        >
-                          ${item.label}
-                        </cv-breadcrumb-item>
-                      `,
+                      (item, index) => {
+                        const value = this.getContextItemValue(item, index)
+                        const current = index === contextCurrentIndex
+
+                        return html`
+                          <cv-breadcrumb-item
+                            value=${value}
+                            href="#"
+                            ?current=${current}
+                            data-nav-current=${current ? 'true' : 'false'}
+                            data-nav-value=${item.value}
+                          >
+                            ${item.label}
+                          </cv-breadcrumb-item>
+                        `
+                      },
                     )}
                   </cv-breadcrumb>
                 </div>
@@ -616,11 +724,9 @@ export class PMWorkspaceHeader extends ReatomLitElement {
           </div>
         </div>
         <div class="workspace-side" ?hidden=${!hasMeta}>
-          ${this.hasMetaSlot
-            ? html`<slot name="meta" @slotchange=${this.handleSlotChange}></slot>`
-            : hasBuiltInMeta
-              ? this.renderBuiltInMeta()
-              : nothing}
+          <slot name="meta" @slotchange=${this.handleSlotChange}>
+            ${hasBuiltInMeta ? this.renderBuiltInMeta() : nothing}
+          </slot>
         </div>
       </section>
     `

@@ -139,7 +139,6 @@ pub(crate) struct RuntimeCapabilities {
     pub(crate) supports_native_share: bool,
     pub(crate) supports_volume: bool,
     pub(crate) supports_gateway: bool,
-    pub(crate) supports_usb_remote: bool,
     pub(crate) supports_network_remote: bool,
     pub(crate) supports_biometric: bool,
     pub(crate) supports_autofill: bool,
@@ -212,8 +211,8 @@ pub(crate) struct DownloadPathArgs {
     #[serde(alias = "nodeId")]
     pub(crate) node_id: u64,
 
-    #[serde(alias = "targetPath")]
-    pub(crate) target_path: String,
+    #[serde(alias = "targetPathToken")]
+    pub(crate) target_path_token: String,
 
     #[serde(alias = "downloadId")]
     pub(crate) download_id: String,
@@ -390,7 +389,6 @@ pub(crate) fn runtime_capabilities_for_current_target() -> RuntimeCapabilities {
             || ios_native_feature_enabled_for_target("CHROMVOID_DISABLE_IOS_NATIVE_SHARE", true),
         supports_volume: cfg!(desktop),
         supports_gateway: cfg!(desktop),
-        supports_usb_remote: cfg!(desktop),
         supports_network_remote: cfg!(desktop) || cfg!(mobile),
         // Availability for the mobile biometric app gate only.
         supports_biometric: mobile::biometric_bridge_available(),

@@ -1,4 +1,4 @@
-import {atom, computed, wrap} from '@reatom/core'
+import {atom, computed} from '@reatom/core'
 import type {ImagePhotoMetadata} from 'root/core/transport/transport'
 import {writeAndroidUnlockDebug} from 'root/shared/services/android-unlock-debug'
 import {
@@ -183,7 +183,7 @@ export class ImageGalleryMobileInfoSheetModel {
     requestSeq: number,
   ): Promise<void> {
     try {
-      const result = await wrap(this.metadataLoader(image))
+      const result = await this.metadataLoader(image)
       if (this.isStalePhotoMetadataResult(requestSeq, imageKey, result.imageKey)) {
         this.debug('metadata:stale', {
           ...this.getImageDebugMeta(image, imageKey),

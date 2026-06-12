@@ -263,6 +263,58 @@ describe('PMEntryListItem active row tab order', () => {
     expect(cardBadge?.textContent).toContain('Card')
     expect(cardElement.shadowRoot?.textContent).toContain('•••• 4242')
   })
+
+  it('renders workbench mode cells with kind and modified presentation data', async () => {
+    const group = createGroup('entry-item-workbench-group')
+    const entry = createEntry(group, 'entry-item-workbench', {username: 'alice@example.test'})
+    const root = new ManagerRoot({} as any)
+    group.entries.set([entry])
+    root.entries.set([group])
+    root.showElement.set(group)
+    window.passmanager = root as typeof window.passmanager
+
+    const element = document.createElement('pm-entry-list-item') as PMEntryListItem
+    element.entry = entry
+    element.viewMode = 'workbench'
+    document.body.appendChild(element)
+    await flush(element)
+
+    const row = element.shadowRoot?.querySelector('.list-item') as HTMLElement | null
+    const statusCell = element.shadowRoot?.querySelector('.workbench-status-cell')
+    const modifiedCell = element.shadowRoot?.querySelector('.workbench-modified-cell')
+    const actionsCell = element.shadowRoot?.querySelector('.workbench-actions-cell')
+
+    expect(row?.getAttribute('data-view-mode')).toBe('workbench')
+    expect(element.shadowRoot?.querySelector('.workbench-name-cell')?.textContent).toContain(
+      'Entry entry-item-workbench',
+    )
+    expect(element.shadowRoot?.querySelector('.workbench-name-cell')?.textContent).toContain('alice@example.test')
+    expect(statusCell?.textContent).toContain('Login')
+    expect(modifiedCell?.textContent).toContain(entry.updatedFormatted)
+    expect(actionsCell?.querySelector('.primary-action')).not.toBeNull()
+  })
+
+  it('renders a plus suffix on the tag badge when an entry has more tags', async () => {
+    const group = createGroup('entry-item-tag-suffix-group')
+    const entry = createEntry(group, 'entry-item-tag-suffix', {
+      tags: ['Operations', 'QA'],
+    })
+    const root = new ManagerRoot({} as any)
+    group.entries.set([entry])
+    root.entries.set([group])
+    root.showElement.set(group)
+    window.passmanager = root as typeof window.passmanager
+
+    const element = document.createElement('pm-entry-list-item') as PMEntryListItem
+    element.entry = entry
+    document.body.appendChild(element)
+    await flush(element)
+
+    const tagBadge = element.shadowRoot?.querySelector('.entry-badge[data-badge-id="tag:qa"]')
+
+    expect(tagBadge?.querySelector('.entry-badge-label')?.textContent).toBe('QA')
+    expect(tagBadge?.querySelector('.entry-badge-suffix')?.textContent).toBe('+')
+  })
 })
 
 describe('PMEntryListItemModel presentation', () => {
@@ -294,7 +346,7 @@ describe('PMEntryListItemModel presentation', () => {
     const login = createEntry(group, 'entry-item-login-marker-model')
     const card = createPaymentCardEntry(group, 'entry-item-card-marker-model', {
       last4: '4242',
-      tags: ['Finance', 'Travel'],
+      tags: ['Finance'],
     })
 
     const loginPresentation = model.getPresentation(login)
@@ -302,8 +354,12 @@ describe('PMEntryListItemModel presentation', () => {
     const mobileCardPresentation = model.getMobilePresentation(card)
 
     expect(loginPresentation.entryType).toBe('login')
+    expect(loginPresentation.kindLabel).toBe('Login')
+    expect(loginPresentation.modifiedFormatted).toBe(login.updatedFormatted)
+    expect(loginPresentation.modifiedTimestamp).toBe(login.updatedTs)
     expect(loginPresentation.typeMarker).toBeNull()
     expect(cardPresentation.entryType).toBe('payment_card')
+    expect(cardPresentation.kindLabel).toBe('Payment card')
     expect(cardPresentation.typeMarker).toMatchObject({
       id: 'card',
       icon: 'credit-card',
@@ -313,7 +369,7 @@ describe('PMEntryListItemModel presentation', () => {
     expect(mobileCardPresentation.typeMarker?.id).toBe('card')
     expect(mobileCardPresentation.statusBadges.map((badge) => badge.id)).not.toContain('card')
     expect(mobileCardPresentation.visibleTextBadges.map((badge) => badge.id)).toEqual(['tag:finance'])
-    expect(mobileCardPresentation.textOverflowCount).toBe(1)
+    expect(mobileCardPresentation.textOverflowCount).toBe(0)
   })
 
   it('produces metadata-backed badges with priority and overflow', () => {
@@ -336,7 +392,6 @@ describe('PMEntryListItemModel presentation', () => {
       'two_factor',
       'ssh',
       'tag:work',
-      'tag:rotate',
     ])
     expect(model.getEntryBadges(card).map((badge) => badge.id)).toEqual(['card', 'tag:finance'])
     expect(model.getEntryBadges(noBadgeLogin)).toEqual([])
@@ -353,8 +408,22 @@ describe('PMEntryListItemModel presentation', () => {
     })
 
     expect(model.getVisibleBadges(model.getEntryBadges(login))).toMatchObject({
-      overflowCount: 2,
+      overflowCount: 1,
     })
+  })
+
+  it('uses the shortest tag as the single entry snippet tag badge', () => {
+    const model = new PMEntryListItemModel()
+    const group = createGroup('entry-item-shortest-tag-model-group')
+    const login = createEntry(group, 'entry-item-shortest-tag', {
+      tags: ['Operations', 'QA', 'Engineering'],
+    })
+
+    const tagBadges = model.getEntryBadges(login).filter((badge) => badge.family === 'meta')
+
+    expect(tagBadges.map((badge) => badge.id)).toEqual(['tag:qa'])
+    expect(tagBadges.map((badge) => badge.label)).toEqual(['QA'])
+    expect(tagBadges.map((badge) => badge.hasMore)).toEqual([true])
   })
 
   it('adds weak and reused password risk badges from safe audit state', () => {

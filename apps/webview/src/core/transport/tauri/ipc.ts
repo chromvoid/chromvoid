@@ -1,6 +1,28 @@
 import {invoke} from '@tauri-apps/api/core'
 import {listen} from '@tauri-apps/api/event'
 
+const DEFAULT_INVOKE_TIMEOUT_MS = 60_000
+const LONG_RUNNING_INVOKE_TIMEOUT_MS = 30 * 60_000
+
+const COMMAND_TIMEOUT_OVERRIDES_MS: Record<string, number> = {
+  backup_local_create: LONG_RUNNING_INVOKE_TIMEOUT_MS,
+  restore_local_from_folder: LONG_RUNNING_INVOKE_TIMEOUT_MS,
+  erase_device: LONG_RUNNING_INVOKE_TIMEOUT_MS,
+  master_rekey: LONG_RUNNING_INVOKE_TIMEOUT_MS,
+  vault_rekey: LONG_RUNNING_INVOKE_TIMEOUT_MS,
+  catalog_file_replace: LONG_RUNNING_INVOKE_TIMEOUT_MS,
+  catalog_upload_path: LONG_RUNNING_INVOKE_TIMEOUT_MS,
+  catalog_upload_file_path: LONG_RUNNING_INVOKE_TIMEOUT_MS,
+  catalog_download_path: LONG_RUNNING_INVOKE_TIMEOUT_MS,
+  catalog_upload_native_files: LONG_RUNNING_INVOKE_TIMEOUT_MS,
+  catalog_upload_shared_files: LONG_RUNNING_INVOKE_TIMEOUT_MS,
+}
+
+export type TauriInvokeOptions = {
+  timeoutMs?: number
+  disableTimeout?: boolean
+}
+
 function serializeForTauri(value: unknown): unknown {
   if (typeof value === 'bigint') {
     throw new Error(
@@ -22,7 +44,19 @@ function serializeForTauri(value: unknown): unknown {
   return value
 }
 
-export async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+export function getTauriInvokeTimeoutMs(cmd: string, options?: TauriInvokeOptions): number | null {
+  if (options?.disableTimeout) return null
+
+  const timeoutMs = options?.timeoutMs ?? COMMAND_TIMEOUT_OVERRIDES_MS[cmd] ?? DEFAULT_INVOKE_TIMEOUT_MS
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return null
+  return timeoutMs
+}
+
+export async function tauriInvoke<T>(
+  cmd: string,
+  args?: Record<string, unknown>,
+  options?: TauriInvokeOptions,
+): Promise<T> {
   if (!hasTauriInternals()) {
     warnMissingRuntime({action: 'invoke', cmd})
     throw new Error('Tauri runtime not available (missing window.__TAURI_INTERNALS__)')
@@ -30,7 +64,24 @@ export async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>
 
   try {
     const serialized = args ? (serializeForTauri(args) as Record<string, unknown>) : undefined
-    return await invoke<T>(cmd, serialized)
+    const invokePromise = invoke<T>(cmd, serialized)
+    const timeoutMs = getTauriInvokeTimeoutMs(cmd, options)
+    if (timeoutMs === null) {
+      return await invokePromise
+    }
+
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error(`Tauri invoke timed out after ${timeoutMs}ms: ${cmd}`))
+      }, timeoutMs)
+    })
+
+    try {
+      return await Promise.race([invokePromise, timeoutPromise])
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId)
+    }
   } catch (e) {
     console.warn('[dashboard][tauri] invoke failed', {
       cmd,

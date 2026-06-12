@@ -133,7 +133,7 @@ export const pmSharedStyles: CSSResult[] = [
       overflow-y: auto;
       overflow-x: hidden;
       contain: layout style;
-      scrollbar-gutter: stable both-edges;
+      scrollbar-gutter: var(--cv-scrollable-scrollbar-gutter, stable both-edges);
       overscroll-behavior: contain;
       -webkit-overflow-scrolling: touch;
       scrollbar-width: thin;

@@ -40,6 +40,16 @@ struct LocalMediaSourceManagerInner {
     sessions: HashMap<String, LocalMediaSourceSession>,
 }
 
+fn prune_expired_sessions(inner: &mut LocalMediaSourceManagerInner, now: u64) -> usize {
+    let before = inner.sessions.len();
+    inner.sessions.retain(|_, session| {
+        session.pinned
+            || session.expires_at > now
+            || session.active_requests.load(Ordering::SeqCst) > 0
+    });
+    before.saturating_sub(inner.sessions.len())
+}
+
 pub(crate) struct LocalMediaSourceRequestLease {
     active_requests: Arc<AtomicUsize>,
 }
@@ -74,7 +84,8 @@ impl LocalMediaSourceManager {
         source_revision: u64,
     ) -> Result<LocalMediaSourceSession, String> {
         let token = Uuid::new_v4().to_string();
-        let expires_at = now_ms().saturating_add(MEDIA_STREAM_IDLE_TTL_MS);
+        let now = now_ms();
+        let expires_at = now.saturating_add(MEDIA_STREAM_IDLE_TTL_MS);
         let session = LocalMediaSourceSession {
             token: token.clone(),
             node_id,
@@ -93,6 +104,7 @@ impl LocalMediaSourceManager {
             .inner
             .lock()
             .map_err(|_| LOCAL_MEDIA_SOURCE_MANAGER_POISONED.to_string())?;
+        prune_expired_sessions(&mut inner, now);
         inner.sessions.insert(token, session.clone());
         Ok(session)
     }
@@ -100,19 +112,7 @@ impl LocalMediaSourceManager {
     pub(crate) fn get(&self, token: &str) -> Option<LocalMediaSourceSession> {
         let now = now_ms();
         let mut inner = self.lock_inner("get session")?;
-        let expired = inner
-            .sessions
-            .get(token)
-            .map(|session| {
-                !session.pinned
-                    && session.expires_at <= now
-                    && session.active_requests.load(Ordering::SeqCst) == 0
-            })
-            .unwrap_or(false);
-        if expired {
-            inner.sessions.remove(token);
-            return None;
-        }
+        prune_expired_sessions(&mut inner, now);
         inner.sessions.get(token).cloned()
     }
 
@@ -121,7 +121,8 @@ impl LocalMediaSourceManager {
         token: &str,
         generation: u64,
     ) -> Option<LocalMediaSourceRequestLease> {
-        let inner = self.lock_inner("begin request")?;
+        let mut inner = self.lock_inner("begin request")?;
+        prune_expired_sessions(&mut inner, now_ms());
         let session = inner.sessions.get(token)?;
         if session.generation != generation {
             return None;
@@ -134,7 +135,8 @@ impl LocalMediaSourceManager {
 
     pub(crate) fn is_current(&self, token: &str, generation: u64) -> bool {
         self.lock_inner("check current session")
-            .and_then(|inner| {
+            .and_then(|mut inner| {
+                prune_expired_sessions(&mut inner, now_ms());
                 inner
                     .sessions
                     .get(token)
@@ -145,6 +147,7 @@ impl LocalMediaSourceManager {
 
     pub(crate) fn refresh(&self, token: &str, generation: u64) -> Option<u64> {
         let mut inner = self.lock_inner("refresh session")?;
+        prune_expired_sessions(&mut inner, now_ms());
         let session = inner.sessions.get_mut(token)?;
         if session.generation != generation {
             return None;
@@ -157,6 +160,7 @@ impl LocalMediaSourceManager {
         let Some(mut inner) = self.lock_inner("pin session") else {
             return false;
         };
+        prune_expired_sessions(&mut inner, now_ms());
         let Some(session) = inner.sessions.get_mut(token) else {
             return false;
         };
@@ -184,7 +188,10 @@ impl LocalMediaSourceManager {
     pub(crate) fn count(&self) -> usize {
         self.inner
             .lock()
-            .map(|inner| inner.sessions.len())
+            .map(|mut inner| {
+                prune_expired_sessions(&mut inner, now_ms());
+                inner.sessions.len()
+            })
             .unwrap_or_default()
     }
 
@@ -281,6 +288,65 @@ mod tests {
         assert!(manager.get(&session.token).is_some());
         assert!(manager.release(&session.token));
         assert!(manager.get(&session.token).is_none());
+    }
+
+    #[test]
+    fn register_prunes_other_expired_idle_sessions() {
+        let manager = LocalMediaSourceManager::new();
+        let expired = manager
+            .register(7, LocalMediaKind::Audio, "audio/mpeg".to_string(), 1, 1)
+            .expect("register expired media source");
+        manager.expire_for_tests(&expired.token);
+
+        let current = manager
+            .register(8, LocalMediaKind::Video, "video/mp4".to_string(), 1, 1)
+            .expect("register current media source");
+
+        assert!(manager.get(&expired.token).is_none());
+        assert!(manager.get(&current.token).is_some());
+        assert_eq!(manager.count(), 1);
+    }
+
+    #[test]
+    fn begin_request_rejects_and_prunes_expired_idle_session() {
+        let manager = LocalMediaSourceManager::new();
+        let session = manager
+            .register(7, LocalMediaKind::Audio, "audio/mpeg".to_string(), 1, 1)
+            .expect("register media source");
+        manager.expire_for_tests(&session.token);
+
+        assert!(manager
+            .begin_request(&session.token, session.generation)
+            .is_none());
+        assert_eq!(manager.count(), 0);
+    }
+
+    #[test]
+    fn active_request_prevents_prune_until_lease_drops() {
+        let manager = LocalMediaSourceManager::new();
+        let active = manager
+            .register(7, LocalMediaKind::Audio, "audio/mpeg".to_string(), 1, 1)
+            .expect("register active media source");
+        let lease = manager
+            .begin_request(&active.token, active.generation)
+            .expect("active session should lease");
+        manager.expire_for_tests(&active.token);
+
+        let second = manager
+            .register(8, LocalMediaKind::Video, "video/mp4".to_string(), 1, 1)
+            .expect("register second media source");
+        assert!(manager.get(&active.token).is_some());
+        assert_eq!(manager.count(), 2);
+
+        drop(lease);
+        let third = manager
+            .register(9, LocalMediaKind::Audio, "audio/aac".to_string(), 1, 1)
+            .expect("register third media source");
+
+        assert!(manager.get(&active.token).is_none());
+        assert!(manager.get(&second.token).is_some());
+        assert!(manager.get(&third.token).is_some());
+        assert_eq!(manager.count(), 2);
     }
 
     #[test]

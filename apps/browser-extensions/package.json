@@ -5,13 +5,13 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
-    "build": "npm run build -w @project/i18n && tsx ./scripts/build.ts && node ./scripts/build-css.mjs && node ./scripts/package-extension.mjs",
-    "dev": "npm run build -w @project/i18n && node ./scripts/build-css.mjs && tsx ./scripts/build.ts --watch",
+    "build": "bun run --cwd ../../packages/i18n build && tsx ./scripts/build.ts && node ./scripts/build-css.mjs && node ./scripts/package-extension.mjs",
+    "dev": "bun run --cwd ../../packages/i18n build && node ./scripts/build-css.mjs && tsx ./scripts/build.ts --watch",
     "build:css": "node ./scripts/build-css.mjs",
     "build:package": "node ./scripts/package-extension.mjs",
     "fix": "oxlint --fix **/*.{ts,tsx}",
     "lint": "tsc --noEmit",
-    "test": "npm run build -w @project/i18n && tsx --test --test-force-exit src/*.test.ts src/**/*.test.ts"
+    "test": "bun run --cwd ../../packages/i18n build && tsx --test --test-force-exit src/*.test.ts src/**/*.test.ts"
   },
   "keywords": [],
   "author": "Kaifat",
@@ -21,8 +21,8 @@
     "@noble/ciphers": "^2.1.1",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
-    "@chromvoid/uikit": "0.1.0",
-    "@reatom/core": "^1000.15.0",
+    "@chromvoid/uikit": "0.2.0",
+    "@reatom/core": "^1001.0.0",
     "@project/passmanager": "0.0.2",
     "@project/utils": "0.0.2",
     "@types/chrome": "^0.0.270"
@@ -31,6 +31,6 @@
     "@types/node": "^24.11.0",
     "@webcomponents/custom-elements": "^1.6.0",
     "tsx": "^4.21.0",
-    "vite": "^8.0.2"
+    "vite": "^8.0.16"
   }
 }

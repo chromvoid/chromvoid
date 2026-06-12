@@ -182,6 +182,20 @@ export type NativeUploadOptions = {
   onFailed?: (failed: NativeUploadFailed) => void
 }
 
+export type HostPathTokenGrant = {
+  token: string
+  name: string
+  size?: number | null
+}
+
+export type HostPathSaveTargetOptions = {
+  defaultPath?: string
+  filters?: Array<{
+    name: string
+    extensions: string[]
+  }>
+}
+
 export type PreviewCachePurgeResult = {
   filesRemoved: number
   directoriesRemoved: number
@@ -271,11 +285,11 @@ export type TransportLike = {
   ): Promise<{nodeId: number}>
 
   // Optional fast path for Desktop (Tauri): upload directly from a native file path.
-  // Web runtimes can't access paths for security reasons.
-  statPath?: (path: string) => Promise<{name: string; size: number}>
+  // The backend owns host paths and only exposes short-lived capability tokens.
+  pickUploadFiles?: () => Promise<HostPathTokenGrant[]>
   uploadFilePath?: (
     target: number | {parentPath?: string; name: string},
-    path: string,
+    pathToken: string,
     opts?: {
       uploadId?: string
       chunkSize?: number
@@ -306,9 +320,11 @@ export type TransportLike = {
   startNativeOtpQrScan?: (scanId: string) => Promise<void>
   cancelNativeOtpQrScan?: (scanId: string) => Promise<void>
 
+  pickDownloadTarget?: (options: HostPathSaveTargetOptions) => Promise<HostPathTokenGrant | null>
+
   downloadFilePath?: (
     nodeId: number,
-    targetPath: string,
+    targetPathToken: string,
     opts?: {
       downloadId?: string
       totalBytes?: number

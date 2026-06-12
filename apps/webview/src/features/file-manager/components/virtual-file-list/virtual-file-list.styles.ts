@@ -20,6 +20,9 @@ export const virtualFileListStyles = [
       background: transparent;
       overflow: hidden;
       position: relative;
+      --file-list-padding-block: var(--app-spacing-6);
+      --file-list-padding-inline: var(--app-spacing-6);
+      --file-list-item-height: 80px;
     }
 
     /* ========== SCROLL CONTAINER ========== */
@@ -64,14 +67,13 @@ export const virtualFileListStyles = [
 
     .list-container > cv-empty-state {
       padding: var(--cv-empty-state-page-gap, var(--cv-space-3))
-        var(--cv-empty-state-page-inline-padding, var(--app-surface-gutter-desktop, var(--cv-space-4)))
-        0;
+        var(--cv-empty-state-page-inline-padding, var(--app-surface-gutter-desktop, var(--cv-space-4))) 0;
     }
 
     /* ========== LAYOUT CONTAINERS ========== */
 
     .list-view {
-      padding: var(--app-spacing-3);
+      padding: var(--file-list-padding-block) var(--file-list-padding-inline);
       display: flex;
       flex-direction: column;
     }
@@ -314,8 +316,7 @@ export const virtualFileListStyles = [
           background: var(--cv-color-primary-surface-strong);
           border-color: var(--cv-color-primary);
           outline-color: var(--cv-color-primary-ring);
-          box-shadow:
-            inset 4px 0 0 var(--cv-color-primary);
+          box-shadow: inset 4px 0 0 var(--cv-color-primary);
         }
 
         &[aria-busy='true'] {
@@ -348,34 +349,12 @@ export const virtualFileListStyles = [
       align-items: center;
       justify-content: space-between;
       gap: var(--app-spacing-3);
-      padding: var(--cv-space-2) var(--cv-space-3);
       color: var(--cv-color-text);
       font-size: var(--cv-font-size-sm);
 
       .status-summary {
         flex: 1 1 auto;
         min-inline-size: 0;
-        --pm-summary-rail-inline-size: 100%;
-      }
-
-      .status-right {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-
-        cv-button::part(base) {
-          color: var(--cv-color-text-muted);
-          background: transparent;
-        }
-
-        cv-button:hover::part(base) {
-          color: var(--cv-color-text);
-          background: var(--cv-color-hover);
-        }
-
-        cv-icon {
-          color: inherit;
-        }
       }
     }
 
@@ -417,6 +396,20 @@ export const virtualFileListStyles = [
       }
     }
 
+    @media (hover: none) and (pointer: coarse) {
+      @container (min-width: 700px) and (max-width: 900px) {
+        .grid-view {
+          --file-grid-touch-card-block-size: 144px;
+          --file-grid-touch-thumbnail-size: 56px;
+          --file-grid-touch-icon-size: 34px;
+          --file-grid-touch-icon-target-size: 40px;
+          --file-grid-touch-thumbnail-gap: var(--app-spacing-2);
+          gap: var(--app-spacing-2);
+          padding: var(--app-spacing-2);
+        }
+      }
+    }
+
     @container (min-width: 600px) and (max-width: 700px) {
       .table-header {
         grid-template-columns: 36px 1fr 72px;
@@ -452,7 +445,7 @@ export const virtualFileListStyles = [
 
       .table-header {
         grid-template-columns: 32px 1fr 56px;
-        padding: var(--app-spacing-2) var(--app-spacing-3);
+        padding: var(--app-spacing-2) var(--app-mobile-surface-gutter-inline);
 
         .header-cell:nth-child(3),
         .header-cell:nth-child(4) {
@@ -463,7 +456,7 @@ export const virtualFileListStyles = [
       .table-view {
         .file-item-wrapper {
           grid-template-columns: 32px 1fr 56px;
-          padding: var(--app-spacing-2) var(--app-spacing-3);
+          padding: var(--app-spacing-2) var(--app-mobile-surface-gutter-inline);
 
           > div:nth-child(3),
           > div:nth-child(4) {
@@ -474,27 +467,28 @@ export const virtualFileListStyles = [
 
       .grid-view {
         grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-        gap: var(--app-spacing-2);
-        padding: var(--app-spacing-2);
+        gap: var(--app-mobile-surface-gap);
+        padding: var(--app-mobile-surface-gutter-block-start) var(--app-mobile-surface-gutter-inline)
+          var(--app-mobile-surface-gutter-block-end);
       }
 
       .list-view {
-        padding: var(--app-spacing-3);
+        padding: var(--app-mobile-surface-gutter-block-start) var(--app-mobile-surface-gutter-inline)
+          var(--app-mobile-surface-gutter-block-end);
       }
 
       .list-container > cv-empty-state {
         padding-block-start: var(--cv-empty-state-page-gap, var(--cv-space-3));
-        padding-inline: var(--cv-empty-state-page-inline-padding, var(--app-surface-gutter-mobile, var(--cv-space-4)));
+        padding-inline: var(
+          --cv-empty-state-page-inline-padding,
+          var(--app-mobile-surface-gutter-inline, var(--cv-space-4))
+        );
       }
 
       .status-bar {
-        padding: var(--app-surface-gutter-mobile) var(--cv-space-3);
+        padding: 0 var(--cv-space-3);
         font-size: var(--cv-font-size-xs, 0.75rem);
         gap: var(--app-spacing-2);
-
-        .status-right {
-          gap: 2px;
-        }
       }
     }
 
@@ -509,11 +503,6 @@ export const virtualFileListStyles = [
         }
 
         scrollbar-width: none;
-      }
-
-      .status-bar .status-right cv-button {
-        min-block-size: 36px;
-        min-inline-size: 36px;
       }
     }
 

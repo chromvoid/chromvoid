@@ -795,7 +795,7 @@ export class ImportDialog extends ReatomLitElement {
     `
   }
 
-  private handleDropZoneClick = () => {
+  private handleDropZoneClick() {
     const input = this.shadowRoot?.querySelector('input[type="file"]') as HTMLInputElement | null
     if (!input) return
 
@@ -807,18 +807,18 @@ export class ImportDialog extends ReatomLitElement {
     }
   }
 
-  private handleDragOver = (e: DragEvent) => {
+  private handleDragOver(e: DragEvent) {
     e.preventDefault()
     e.stopPropagation()
     ;(e.currentTarget as HTMLElement).classList.add('dragover')
   }
 
-  private handleDragLeave = (e: DragEvent) => {
+  private handleDragLeave(e: DragEvent) {
     e.preventDefault()
     ;(e.currentTarget as HTMLElement).classList.remove('dragover')
   }
 
-  private handleDrop = (e: DragEvent) => {
+  private handleDrop(e: DragEvent) {
     e.preventDefault()
     e.stopPropagation()
     ;(e.currentTarget as HTMLElement).classList.remove('dragover')
@@ -826,18 +826,18 @@ export class ImportDialog extends ReatomLitElement {
     if (file) void this.model.selectFile(file)
   }
 
-  private handleFileSelected = (e: Event) => {
+  private handleFileSelected(e: Event) {
     this.endFilePickerSession()
     const input = e.target as HTMLInputElement
     const file = input.files?.[0]
     if (file) void this.model.selectFile(file)
   }
 
-  private handleFileSelectionCancelled = () => {
+  private handleFileSelectionCancelled() {
     this.endFilePickerSession()
   }
 
-  private handlePasswordKeydown = (e: KeyboardEvent) => {
+  private handlePasswordKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') void this.handleDecrypt()
   }
 

@@ -1,10 +1,11 @@
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::Path;
 
 use getrandom::getrandom;
 
 use crate::error::{Error, Result};
+use crate::storage::backend::StorageArtifact;
 use crate::storage::FormatVersionFile;
 use crate::types::SALT_SIZE;
 
@@ -33,12 +34,17 @@ impl FlatStorageBackend {
                     e.to_string(),
                 ))
             })?;
-            let mut file = File::create(&format_path)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
+            let backend = Self {
+                base_path: base_path.clone(),
+            };
+            backend.write_artifact_atomic_durable(StorageArtifact::FormatVersion, &bytes)?;
         }
 
-        Ok(Self { base_path })
+        let backend = Self { base_path };
+        // Best-effort: reclaim any chunk temp files left by a prior crash so
+        // they cannot accumulate (they are already excluded from list_chunks).
+        let _ = backend.sweep_chunk_temp_files();
+        Ok(backend)
     }
 
     pub fn read_format_version(&self) -> Result<FormatVersionFile> {
@@ -57,9 +63,7 @@ impl FlatStorageBackend {
                         e.to_string(),
                     ))
                 })?;
-                let mut file = File::create(&format_path)?;
-                file.write_all(&out)?;
-                file.sync_all()?;
+                self.write_artifact_atomic_durable(StorageArtifact::FormatVersion, &out)?;
                 return Ok(v);
             }
             Err(error) => return Err(Error::StorageIo(error)),
@@ -73,19 +77,19 @@ impl FlatStorageBackend {
     }
 
     pub fn get_or_create_salt(&self) -> Result<[u8; SALT_SIZE]> {
-        self.get_or_create_top_level_salt("salt")
+        self.get_or_create_top_level_salt(StorageArtifact::Salt)
     }
 
     pub fn get_or_create_master_salt(&self) -> Result<[u8; SALT_SIZE]> {
-        self.get_or_create_top_level_salt("master.salt")
+        self.get_or_create_top_level_salt(StorageArtifact::MasterSalt)
     }
 
     pub fn salt_exists(&self) -> bool {
         self.base_path.join("salt").exists()
     }
 
-    fn get_or_create_top_level_salt(&self, file_name: &str) -> Result<[u8; SALT_SIZE]> {
-        let salt_path = self.base_path.join(file_name);
+    fn get_or_create_top_level_salt(&self, artifact: StorageArtifact) -> Result<[u8; SALT_SIZE]> {
+        let salt_path = self.base_path.join(artifact.file_name());
 
         if salt_path.exists() {
             let mut file = File::open(&salt_path)?;
@@ -102,9 +106,9 @@ impl FlatStorageBackend {
             ))
         })?;
 
-        let mut file = File::create(&salt_path)?;
-        file.write_all(&salt)?;
-        file.sync_all()?;
+        // Atomic + durable: a torn salt write would make the vault permanently
+        // unopenable (salt_exists() stays true but read_exact fails) (M3).
+        self.write_artifact_atomic_durable(artifact, &salt)?;
 
         Ok(salt)
     }

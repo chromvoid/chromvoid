@@ -126,6 +126,15 @@ pub(in crate::rpc::router) fn recover_pending_upload_session(
     upload_tx_store(&router.storage, &vault_key, catalog_committed).recover_participant()
 }
 
+pub(super) fn abort_pending_upload_session(router: &mut RpcRouter) -> UploadResult<bool> {
+    let context = UploadVaultContext::require(router)?;
+    let Some(transaction) = read_pending_upload_transaction(router, &context)? else {
+        return Ok(false);
+    };
+    cleanup_upload_marker(router, &context, &transaction, false)?;
+    Ok(true)
+}
+
 pub(super) fn read_pending_upload_transaction(
     router: &RpcRouter,
     context: &UploadVaultContext,

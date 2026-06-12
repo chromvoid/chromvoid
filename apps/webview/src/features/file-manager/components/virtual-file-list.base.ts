@@ -53,6 +53,8 @@ export type {FileListItem} from 'root/shared/contracts/file-manager'
 
 type FileItemHost = HTMLElement & {closeSwipe?: () => void}
 
+const DESKTOP_LIST_ITEM_HEIGHT = 96
+
 export class VirtualFileListBase extends ReatomLitElement {
   static get properties() {
     return {
@@ -135,7 +137,7 @@ export class VirtualFileListBase extends ReatomLitElement {
     getItemClientRect: (id: number) => this.getItemClientRect(id),
     ensureIndexVisible: (index: number) => this.ensureIndexVisible(index),
     getViewMode: () => this.filters.viewMode,
-    getItemHeight: () => this.itemHeight,
+    getItemHeight: () => this.getEffectiveItemHeight(),
     getViewportHeight: () => this.model.viewportHeight(),
     getGridColumnsCount: () => this.getGridColumnsCount(),
     getCurrentPath: () => this.currentPath,
@@ -149,7 +151,7 @@ export class VirtualFileListBase extends ReatomLitElement {
   private readonly focusController = new VirtualFileListFocusController({
     getActionItems: () => this.getActionItems(),
     getFilters: () => this.filters,
-    getItemHeight: () => this.itemHeight,
+    getItemHeight: () => this.getEffectiveItemHeight(),
     getViewportHeight: () => this.model.viewportHeight(),
     getCurrentPath: () => this.currentPath,
     getActiveItemId: () => this.model.activeItemId(),
@@ -308,11 +310,21 @@ export class VirtualFileListBase extends ReatomLitElement {
     return this.getFilteredItems().filter(isRealFileListItem)
   }
 
+  private getEffectiveItemHeight(): number {
+    if (!this.mobile && this.filters.viewMode === 'list') {
+      return DESKTOP_LIST_ITEM_HEIGHT
+    }
+
+    return this.itemHeight
+  }
+
   private getVisibleItems(filteredItems: readonly FileListRenderItem[]): FileListVisibleItem[] {
+    const itemHeight = this.getEffectiveItemHeight()
+
     return this.model.getVisibleItems(
       filteredItems,
       this.filters.viewMode,
-      this.itemHeight,
+      itemHeight,
       this.model.virtualScrollTop(),
       this.model.viewportHeight(),
       this.model.gridColumns(),
@@ -352,10 +364,6 @@ export class VirtualFileListBase extends ReatomLitElement {
     }
   }
 
-  protected renderStatusBarRight(): unknown {
-    return nothing
-  }
-
   private syncVirtualStyles() {
     const filteredItems = this.getFilteredItems()
     const totalItemsCount =
@@ -365,7 +373,7 @@ export class VirtualFileListBase extends ReatomLitElement {
     const {totalHeight, offsetY} = this.model.getVirtualMetrics(
       totalItemsCount,
       this.filters.viewMode,
-      this.itemHeight,
+      this.getEffectiveItemHeight(),
       this.model.virtualScrollTop(),
       this.model.gridColumns(),
       this.model.gridRowHeight(),
@@ -373,6 +381,7 @@ export class VirtualFileListBase extends ReatomLitElement {
 
     this.style.setProperty('--virtual-total-height', `${totalHeight}px`)
     this.style.setProperty('--virtual-offset-y', `${offsetY}px`)
+    this.style.setProperty('--file-list-item-height', `${this.getEffectiveItemHeight()}px`)
   }
 
   private syncMobileDndPointStyles() {
@@ -511,19 +520,23 @@ export class VirtualFileListBase extends ReatomLitElement {
             totalItemsCount: filteredItems.length,
           }
     const actionItems = filteredItems.filter(isRealFileListItem)
+    const hasOnlyPlaceholders = filteredItems.length > 0 && actionItems.length === 0
     const hasActiveFilters = this.hasActiveFilters()
+    const shouldRenderEmptyState = decoratedRows.totalItemsCount === 0 || (hasOnlyPlaceholders && hasActiveFilters)
     const containerRole = this.filters.viewMode === 'table' ? 'grid' : 'listbox'
     const activeItemId = this.model.activeItemId() ?? actionItems[0]?.id ?? null
     const mediaActiveItemId = mediaPlaybackModel.currentTrackId()
     const mediaPlaying = mediaPlaybackModel.isPlaying()
+    const itemHeight = this.getEffectiveItemHeight()
     const virtualMetrics = this.model.getVirtualMetrics(
       decoratedRows.totalItemsCount,
       this.filters.viewMode,
-      this.itemHeight,
+      itemHeight,
       this.model.virtualScrollTop(),
       this.model.gridColumns(),
       this.model.gridRowHeight(),
     )
+    const hasScrollBlockStart = this.scrollEdge.hasBlockStartOverflow()
     const hasScrollBlockEnd = this.scrollEdge.hasBlockEndOverflow()
 
     const fileItemCallbacks = {
@@ -547,9 +560,13 @@ export class VirtualFileListBase extends ReatomLitElement {
     }
 
     return html`
-      <div class="scroll-edge-frame file-list-scroll-edge" data-scroll-block-end=${String(hasScrollBlockEnd)}>
+      <div
+        class="scroll-edge-frame file-list-scroll-edge"
+        data-scroll-block-start=${String(hasScrollBlockStart)}
+        data-scroll-block-end=${String(hasScrollBlockEnd)}
+      >
         <div
-          class="list-container"
+          class="list-container scroll-edge-scroller"
           data-mobile-dnd-target-id=${normalizePath(this.currentPath || '/')}
           tabindex=${containerRole === 'listbox' ? '0' : '-1'}
           @pointerdown=${this.handlers.onPointerDown}
@@ -569,7 +586,7 @@ export class VirtualFileListBase extends ReatomLitElement {
             : nothing}
           aria-label=${i18n('file-manager:files')}
         >
-          ${decoratedRows.totalItemsCount === 0
+          ${shouldRenderEmptyState
             ? html`
                 <cv-empty-state
                   icon="folder-x"
@@ -599,7 +616,7 @@ export class VirtualFileListBase extends ReatomLitElement {
                       items: decoratedRows.items,
                       totalItemsCount: decoratedRows.totalItemsCount,
                       mobile: this.mobile,
-                      itemHeight: this.itemHeight,
+                      itemHeight,
                       virtualScrollTop: this.model.virtualScrollTop(),
                       selectedItems: this.selectedItems,
                       pendingExternalOpenIds: this.pendingExternalOpenIds,
@@ -640,7 +657,7 @@ export class VirtualFileListBase extends ReatomLitElement {
                     items: decoratedRows.items,
                     filteredItems,
                     totalItemsCount: decoratedRows.totalItemsCount,
-                    itemHeight: this.itemHeight,
+                    itemHeight,
                     virtualScrollTop: this.model.virtualScrollTop(),
                     viewportHeight: this.model.viewportHeight(),
                     sortBy: this.filters.sortBy === 'type' ? 'name' : this.filters.sortBy,
@@ -665,10 +682,9 @@ export class VirtualFileListBase extends ReatomLitElement {
         </div>
       </div>
       ${this.renderMobileDndFeedback()}
-      <div class="status-bar">
-        ${this.renderStatusSummary(filteredItems.length)}
-        ${this.renderStatusBarRight()}
-      </div>
+      ${this.mobile
+        ? html`<div class="status-bar">${this.renderStatusSummary(filteredItems.length)}</div>`
+        : nothing}
     `
   }
 
@@ -685,6 +701,11 @@ export class VirtualFileListBase extends ReatomLitElement {
     this.scrollEdge.scheduleMeasure()
 
     if (changed.has('items') || changed.has('filters') || changed.has('currentPath')) {
+      if (changed.has('filters') || changed.has('currentPath')) {
+        this.handlers.clearAnchors()
+      } else {
+        this.handlers.pruneAnchors(this.getActionItems())
+      }
       this.focusController.syncActiveForCurrentItems()
     }
 
@@ -751,7 +772,7 @@ export class VirtualFileListBase extends ReatomLitElement {
     const range = this.model.getVisibleRange(
       filteredItems.length,
       this.filters.viewMode,
-      this.itemHeight,
+      this.getEffectiveItemHeight(),
       this.model.virtualScrollTop(),
       this.model.viewportHeight(),
       this.model.gridColumns(),

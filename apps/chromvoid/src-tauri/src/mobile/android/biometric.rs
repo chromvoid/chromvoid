@@ -49,6 +49,11 @@ impl AndroidBiometricRuntimeState {
             .pending_auth
             .lock()
             .map_err(|_| BiometricAuthError::internal("Biometric bridge state is unavailable"))?;
+        if guard.is_some() {
+            return Err(BiometricAuthError::internal(
+                "Biometric prompt is already in progress",
+            ));
+        }
         *guard = Some(PendingAuth { tx });
         Ok(())
     }
@@ -98,6 +103,26 @@ mod runtime_tests {
         assert!(!second.complete(AUTH_STATE_SUCCESS, 0));
         assert!(first.complete(AUTH_STATE_SUCCESS, 0));
         assert!(rx.blocking_recv().expect("result").is_ok());
+    }
+
+    #[test]
+    fn start_rejects_concurrent_prompt_without_replacing_waiter() {
+        let runtime = AndroidBiometricRuntimeState::new();
+        let (first_tx, first_rx) = oneshot::channel();
+        let (second_tx, second_rx) = oneshot::channel();
+
+        runtime.start(first_tx).expect("first prompt starts");
+        let error = runtime
+            .start(second_tx)
+            .expect_err("second prompt should be rejected");
+        assert_eq!(error.code(), "BIOMETRIC_INTERNAL");
+
+        assert!(runtime.complete(AUTH_STATE_SUCCESS, 0));
+        assert!(first_rx.blocking_recv().expect("first result").is_ok());
+        assert!(
+            second_rx.blocking_recv().is_err(),
+            "rejected second sender should be dropped without replacing the first"
+        );
     }
 }
 

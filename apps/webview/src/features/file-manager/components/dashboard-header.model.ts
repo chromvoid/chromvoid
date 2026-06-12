@@ -1,6 +1,5 @@
-import {open} from '@tauri-apps/plugin-dialog'
-
 import {isTauriRuntime} from 'root/core/runtime/runtime'
+import type {HostPathTokenGrant} from 'root/core/transport/transport'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
 import {atom, computed} from '@reatom/core'
 import {getAppContext} from 'root/shared/services/app-context'
@@ -107,10 +106,7 @@ export class DashboardHeaderModel {
     )
   }
 
-  async pickNativeUploadPaths(): Promise<string[]> {
-    const selected = await open({multiple: true, directory: false})
-    if (Array.isArray(selected)) return selected
-    if (selected) return [selected]
-    return []
+  async pickNativeUploadFiles(): Promise<HostPathTokenGrant[]> {
+    return getAppContext().ws.pickUploadFiles?.() ?? []
   }
 }

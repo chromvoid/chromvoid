@@ -1,10 +1,14 @@
 import {css} from 'lit'
 import {hostLayoutPaintContainStyles, motionPrimitiveStyles, sharedStyles} from 'root/shared/ui/shared-styles'
+import {routeCardStyles} from 'root/shared/ui/route-card.styles'
+import {routeCalloutStyles} from 'root/shared/ui/route-callout.styles'
 
 export const remoteStorageLayoutStyles = [
   sharedStyles,
   hostLayoutPaintContainStyles,
   motionPrimitiveStyles,
+  routeCardStyles,
+  routeCalloutStyles,
   css`
     :host {
       display: block;
@@ -13,6 +17,30 @@ export const remoteStorageLayoutStyles = [
       background: var(--cv-color-bg, var(--cv-color-surface));
       --motion-reveal-start-transform: translateY(8px);
       --motion-reveal-end-transform: translateY(0);
+      --route-card-radius: var(--cv-radius-3);
+      --route-card-header-align-items: center;
+      --route-card-header-background: var(--cv-gradient-surface);
+      --route-card-header-border-color: var(--cv-color-border-muted);
+      --route-card-title-gap: 2px;
+      --route-card-title-name-font-size: var(--cv-font-size-base);
+      --route-card-title-name-letter-spacing: -0.01em;
+      --route-badge-gap: 6px;
+      --route-badge-padding: 5px 12px;
+      --route-badge-font-size: 11px;
+      --route-badge-text-transform: uppercase;
+      --route-badge-letter-spacing: 0.04em;
+      --route-badge-background: var(--cv-color-surface-2);
+      --route-badge-color: var(--cv-color-text-muted);
+      --route-badge-success-border-color: var(--cv-color-success-border-strong);
+      --route-badge-success-color: var(--cv-color-success);
+      --route-badge-info-border-color: var(--cv-color-info-border-strong);
+      --route-badge-info-color: var(--cv-color-info);
+      --route-badge-marker-display: block;
+      --route-callout-title-align-items: center;
+      --route-callout-title-color: var(--cv-color-warning);
+      --route-callout-title-display: flex;
+      --route-callout-title-gap: var(--app-spacing-2);
+      --route-callout-text-line-height: 1.55;
       animation: var(--motion-page-reveal-animation, reveal 0.4s cubic-bezier(0.16, 1, 0.3, 1) both);
     }
 
@@ -186,25 +214,8 @@ export const remoteStorageLayoutStyles = [
     }
 
     /* ========== CARDS ========== */
-    .card {
-      background: var(--cv-color-surface);
-      border: 1px solid var(--cv-color-border-muted);
-      border-radius: var(--cv-radius-3);
-      overflow: hidden;
-    }
-
     .card:hover {
       border-color: var(--cv-color-border);
-    }
-
-    .card-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: var(--app-spacing-3);
-      padding: var(--app-spacing-4);
-      background: linear-gradient(180deg, var(--cv-color-surface) 0%, var(--cv-color-surface-2) 100%);
-      border-block-end: 1px solid var(--cv-color-border-muted);
     }
 
     .card-header-main {
@@ -241,102 +252,20 @@ export const remoteStorageLayoutStyles = [
       --card-icon-color: var(--cv-color-success);
     }
 
-    .card-title {
-      display: grid;
-      gap: 2px;
-
-      .name {
-        font-weight: var(--cv-font-weight-semibold);
-        font-size: var(--cv-font-size-base);
-        letter-spacing: -0.01em;
-      }
-
-      .hint {
-        color: var(--cv-color-text-muted);
-        font-size: var(--cv-font-size-xs);
-      }
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 5px 12px;
-      border-radius: 999px;
-      font-size: 11px;
-      font-weight: var(--cv-font-weight-semibold);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      background: var(--cv-color-surface-2);
-      color: var(--cv-color-text-muted);
-      border: 1px solid var(--cv-color-border-muted);
-      white-space: nowrap;
-    }
-
-    .badge.success {
-      background: var(--cv-color-success-surface);
-      border-color: var(--cv-color-success-border-strong);
-      color: var(--cv-color-success);
-    }
-
-    .badge.info {
-      background: var(--cv-color-info-surface);
-      border-color: var(--cv-color-info-border-strong);
-      color: var(--cv-color-info);
-    }
-
-    .badge::before {
-      content: '';
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: currentColor;
-      flex-shrink: 0;
-    }
-
-    .card-body {
-      padding: var(--app-spacing-4);
-      display: grid;
-      gap: var(--app-spacing-4);
-    }
-
     cv-callout.remote-storage-callout {
       --cv-callout-compact-padding-inline: var(--app-spacing-4);
     }
 
-    cv-callout.remote-storage-callout::part(message) {
-      display: grid;
-      gap: var(--app-spacing-2);
-      min-inline-size: 0;
+    cv-callout.remote-storage-callout[variant='info'] {
+      --route-callout-title-color: var(--cv-color-info);
     }
 
-    .remote-storage-callout-title {
-      display: flex;
-      align-items: center;
-      gap: var(--app-spacing-2);
-      color: var(--cv-color-warning);
-      font-weight: var(--cv-font-weight-semibold);
+    cv-callout.remote-storage-callout[variant='success'] {
+      --route-callout-title-color: var(--cv-color-success);
     }
 
-    cv-callout.remote-storage-callout[variant='info'] .remote-storage-callout-title {
-      color: var(--cv-color-info);
-    }
-
-    cv-callout.remote-storage-callout[variant='success'] .remote-storage-callout-title {
-      color: var(--cv-color-success);
-    }
-
-    cv-callout.remote-storage-callout[variant='danger'] .remote-storage-callout-title {
-      color: var(--cv-color-danger);
-    }
-
-    .remote-storage-callout-title cv-icon {
-      flex-shrink: 0;
-    }
-
-    .remote-storage-callout-text {
-      color: var(--cv-color-text-muted);
-      line-height: 1.55;
+    cv-callout.remote-storage-callout[variant='danger'] {
+      --route-callout-title-color: var(--cv-color-danger);
     }
 
     /* ========== ACTIONS ========== */

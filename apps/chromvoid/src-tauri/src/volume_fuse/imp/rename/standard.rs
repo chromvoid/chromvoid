@@ -6,8 +6,8 @@ impl PrivyFilesystem {
     /// catalog move, catalog rename, and inode cache update.
     pub(in crate::volume_fuse::imp) fn rename_standard(
         &self,
-        parent: u64,
-        name_str: &str,
+        _parent: u64,
+        _name_str: &str,
         newparent: u64,
         newname_str: &str,
         src: &InodeEntry,
@@ -45,8 +45,7 @@ impl PrivyFilesystem {
             }
         }
 
-        // If destination exists and both are files, emulate POSIX rename-replace by deleting dest.
-        match self.find_or_list_child(newparent, newname_str) {
+        let replace_existing_node_id = match self.find_or_list_child(newparent, newname_str) {
             Ok(dst) => {
                 info!(target: "chromvoid_lib::volume_fuse::imp", branch = "replace_dst_exists", node_id, dst_node_id = dst.catalog_node_id, flags, dst_is_dir = dst.is_dir, src_is_dir = src.is_dir, "FUSE rename: destination exists");
                 // If destination resolves to the same node, treat as no-op.
@@ -60,83 +59,45 @@ impl PrivyFilesystem {
                     reply.error(fuse_errno(libc::EEXIST));
                     return;
                 }
-                let mut adapter = match self.adapter.lock() {
-                    Ok(a) => a,
-                    Err(_) => {
-                        info!(target: "chromvoid_lib::volume_fuse::imp", branch = "replace_delete_adapter_lock_failed", node_id, dst_node_id = dst.catalog_node_id, flags, errno = libc::EIO, "FUSE rename: replace delete lock failed");
-                        reply.error(fuse_errno(libc::EIO));
-                        return;
-                    }
-                };
-                info!(target: "chromvoid_lib::volume_fuse::imp", branch = "replace_delete_start", node_id, dst_node_id = dst.catalog_node_id, flags, "FUSE rename: replace delete start");
-                if let Err(e) = rpc_json(
-                    adapter.as_mut(),
-                    "catalog:delete",
-                    json!({"node_id": dst.catalog_node_id}),
-                ) {
-                    info!(target: "chromvoid_lib::volume_fuse::imp", branch = "replace_delete_failed", node_id, dst_node_id = dst.catalog_node_id, flags, errno = e, "FUSE rename: replace delete failed");
-                    reply.error(fuse_errno(e));
-                    return;
-                }
-                let emitted = save_and_flush_best_effort(&self.event_sink, adapter.as_mut());
-                self.inode_table
-                    .remove(fuse_ino_from_catalog_node_id(dst.catalog_node_id));
-                info!(target: "chromvoid_lib::volume_fuse::imp", branch = "replace_delete_ok", node_id, dst_node_id = dst.catalog_node_id, flags, events_emitted = emitted, "FUSE rename: replace delete ok");
+                Some(dst.catalog_node_id)
             }
             Err(e) => {
                 info!(target: "chromvoid_lib::volume_fuse::imp", branch = "replace_dst_missing_or_lookup_error", node_id, flags, errno = e, "FUSE rename: destination lookup result");
+                None
             }
-        }
+        };
 
-        // Move to new parent.
-        if newparent != parent {
-            info!(target: "chromvoid_lib::volume_fuse::imp", branch = "move_start", node_id, flags, dest_parent_path, "FUSE rename: move start");
-            let mut adapter = match self.adapter.lock() {
-                Ok(a) => a,
-                Err(_) => {
-                    info!(target: "chromvoid_lib::volume_fuse::imp", branch = "move_adapter_lock_failed", node_id, flags, errno = libc::EIO, "FUSE rename: move lock failed");
-                    reply.error(fuse_errno(libc::EIO));
-                    return;
-                }
-            };
-            if let Err(e) = rpc_json(
-                adapter.as_mut(),
-                "catalog:move",
-                json!({"node_id": node_id, "new_parent_path": dest_parent_path, "new_name": serde_json::Value::Null}),
-            ) {
-                info!(target: "chromvoid_lib::volume_fuse::imp", branch = "move_failed", node_id, flags, errno = e, "FUSE rename: move failed");
-                reply.error(fuse_errno(e));
+        info!(target: "chromvoid_lib::volume_fuse::imp", branch = "move_replace_start", node_id, flags, dest_parent_path, new_name = newname_str, replace_existing = replace_existing_node_id.is_some(), "FUSE rename: atomic move/replace start");
+        let mut adapter = match self.adapter.lock() {
+            Ok(a) => a,
+            Err(_) => {
+                info!(target: "chromvoid_lib::volume_fuse::imp", branch = "move_replace_adapter_lock_failed", node_id, flags, errno = libc::EIO, "FUSE rename: atomic move/replace lock failed");
+                reply.error(fuse_errno(libc::EIO));
                 return;
             }
-            let emitted = save_and_flush_best_effort(&self.event_sink, adapter.as_mut());
-            info!(target: "chromvoid_lib::volume_fuse::imp", branch = "move_ok", node_id, flags, events_emitted = emitted, "FUSE rename: move ok");
+        };
+        if let Err(e) = rpc_json(
+            adapter.as_mut(),
+            "catalog:move",
+            json!({
+                "node_id": node_id,
+                "new_parent_path": dest_parent_path,
+                "new_name": newname_str,
+                "replace_existing": replace_existing_node_id.is_some(),
+            }),
+        ) {
+            info!(target: "chromvoid_lib::volume_fuse::imp", branch = "move_replace_failed", node_id, flags, errno = e, "FUSE rename: atomic move/replace failed");
+            reply.error(fuse_errno(e));
+            return;
         }
-
-        // Rename if needed.
-        if newname_str != name_str {
-            info!(target: "chromvoid_lib::volume_fuse::imp", branch = "rename_start", node_id, flags, new_name = newname_str, "FUSE rename: rename start");
-            let mut adapter = match self.adapter.lock() {
-                Ok(a) => a,
-                Err(_) => {
-                    info!(target: "chromvoid_lib::volume_fuse::imp", branch = "rename_adapter_lock_failed", node_id, flags, errno = libc::EIO, "FUSE rename: rename lock failed");
-                    reply.error(fuse_errno(libc::EIO));
-                    return;
-                }
-            };
-            if let Err(e) = rpc_json(
-                adapter.as_mut(),
-                "catalog:rename",
-                json!({"node_id": node_id, "new_name": newname_str}),
-            ) {
-                info!(target: "chromvoid_lib::volume_fuse::imp", branch = "rename_failed", node_id, flags, errno = e, "FUSE rename: rename failed");
-                reply.error(fuse_errno(e));
-                return;
-            }
-            let emitted = save_and_flush_best_effort(&self.event_sink, adapter.as_mut());
-            info!(target: "chromvoid_lib::volume_fuse::imp", branch = "rename_ok", node_id, flags, events_emitted = emitted, "FUSE rename: rename ok");
-        }
+        let emitted = save_and_flush_best_effort(&self.event_sink, adapter.as_mut());
+        info!(target: "chromvoid_lib::volume_fuse::imp", branch = "move_replace_ok", node_id, flags, events_emitted = emitted, "FUSE rename: atomic move/replace ok");
 
         // Update inode cache for moved entry.
+        if let Some(dst_node_id) = replace_existing_node_id {
+            self.inode_table
+                .remove(fuse_ino_from_catalog_node_id(dst_node_id));
+        }
         let ino = fuse_ino_from_catalog_node_id(node_id);
         if let Some(mut entry) = self.inode_table.get(ino) {
             entry.name = newname_str.to_string();

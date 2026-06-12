@@ -20,13 +20,16 @@ export class RemotePage extends ReatomLitElement {
 
   static properties = {
     hideBackLink: {type: Boolean, attribute: 'hide-back-link'},
+    externalToolbar: {type: Boolean, attribute: 'external-toolbar'},
   }
 
   declare hideBackLink: boolean
+  declare externalToolbar: boolean
 
   constructor() {
     super()
     this.hideBackLink = false
+    this.externalToolbar = false
   }
 
   static styles = [...remotePageStyles]
@@ -52,21 +55,10 @@ export class RemotePage extends ReatomLitElement {
     const model = this.model
     return renderRemotePage({
       hideBackLink: this.hideBackLink,
+      externalToolbar: this.externalToolbar,
       connectionState: model.connectionState,
       remoteStatus: model.remoteStatus,
-      devices: model.devices,
-      pairedDevices: model.pairedDevices,
-      acting: model.acting,
-      scanning: model.scanning,
-      formatDate: model.formatDate,
-      formatRelativeTime: model.formatRelativeTime,
-      getConnectionBadgeClass: model.getConnectionBadgeClass,
-      getConnectionLabel: model.getConnectionLabel,
       onBack: model.goBack,
-      onDisconnect: model.disconnectDevice,
-      onScan: model.scan,
-      onConnect: model.connectDevice,
-      onPair: model.pair,
       // Mode context
       currentMode: model.currentMode,
       transportType: model.transportType,
@@ -79,7 +71,6 @@ export class RemotePage extends ReatomLitElement {
       getConnectedPeerName,
       isRemoteMode,
       onSwitchToLocal: model.switchToLocal,
-      isMobileRuntime: model.remoteHosts.isMobileHostRuntime,
       remoteHostsModel: model.remoteHosts,
       remoteHostsActions: {
         onRefreshPeers: model.refreshRemotePeers,

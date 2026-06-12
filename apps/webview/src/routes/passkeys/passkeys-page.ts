@@ -4,6 +4,7 @@ import {css, nothing} from 'lit'
 import {i18n} from 'root/i18n'
 import {renderGuidanceInline} from 'root/features/guidance/render-guidance-inline'
 import {CvEmptyState} from 'root/shared/ui/empty-state'
+import {renderRouteBackLink} from 'root/shared/ui/route-back-link'
 import {
   hostLayoutPaintContainStyles,
   pageFadeInStyles,
@@ -12,6 +13,7 @@ import {
   routePageStyles,
   sharedStyles,
 } from 'root/shared/ui/shared-styles'
+import {routeCardStyles} from 'root/shared/ui/route-card.styles'
 import {
   passkeysPageModel,
   type AndroidPasskeyGroup,
@@ -29,15 +31,18 @@ export class PasskeysPage extends ReatomLitElement {
 
   static properties = {
     hideBackLink: {type: Boolean, attribute: 'hide-back-link'},
+    externalToolbar: {type: Boolean, attribute: 'external-toolbar'},
   }
 
   declare hideBackLink: boolean
+  declare externalToolbar: boolean
 
   private readonly model = passkeysPageModel
 
   constructor() {
     super()
     this.hideBackLink = false
+    this.externalToolbar = false
   }
 
   static styles = [
@@ -47,6 +52,7 @@ export class PasskeysPage extends ReatomLitElement {
     hostLayoutPaintContainStyles,
     routeHostStyles,
     routePageStyles,
+    routeCardStyles,
     css`
       .page {
         max-inline-size: 720px;
@@ -59,6 +65,10 @@ export class PasskeysPage extends ReatomLitElement {
         overflow-y: auto;
         overflow-x: hidden;
         -webkit-overflow-scrolling: touch;
+        --route-card-background: var(--surface-elevated, var(--cv-color-surface-elevated));
+        --route-card-border-color: var(--border-subtle, var(--cv-alpha-white-8));
+        --route-card-radius: var(--cv-radius-lg, 12px);
+        --route-card-padding: var(--app-spacing-4);
       }
 
       @media (max-width: 767px) {
@@ -71,50 +81,6 @@ export class PasskeysPage extends ReatomLitElement {
           padding-inline-start: max(var(--app-spacing-4), env(safe-area-inset-left));
           padding-inline-end: max(var(--app-spacing-4), env(safe-area-inset-right));
         }
-      }
-
-      .header {
-        display: grid;
-        gap: var(--app-spacing-2);
-      }
-
-      .back-link {
-        display: inline-flex;
-        align-items: center;
-        gap: var(--app-spacing-2);
-        color: var(--cv-color-text-muted);
-        font-size: var(--cv-font-size-sm);
-        cursor: pointer;
-        text-decoration: none;
-        border: 0;
-        background: transparent;
-        padding: 0;
-
-        cv-icon {
-          font-size: 16px;
-        }
-
-        &:hover {
-          color: var(--cv-color-brand);
-        }
-
-        &:focus-visible {
-          outline: 2px solid var(--cv-color-focus-ring, var(--cv-color-info));
-          outline-offset: 4px;
-          border-radius: var(--cv-radius-1);
-        }
-      }
-
-      .title {
-        font-size: clamp(1.25rem, 2.4cqi + 0.6rem, 1.9rem);
-        font-weight: var(--cv-font-weight-bold);
-        margin: 0;
-      }
-
-      .subtitle {
-        margin: 0;
-        color: var(--cv-color-text-muted);
-        font-size: var(--cv-font-size-sm);
       }
 
       .passkey-explainer {
@@ -136,7 +102,7 @@ export class PasskeysPage extends ReatomLitElement {
         justify-content: center;
         border-radius: var(--cv-radius-md, 8px);
         color: var(--cv-color-info);
-        background: color-mix(in oklab, var(--cv-color-info) 14%, transparent);
+        background: var(--cv-color-info-surface);
 
         cv-icon {
           font-size: 20px;
@@ -151,7 +117,7 @@ export class PasskeysPage extends ReatomLitElement {
 
       .passkey-explainer-title {
         margin: 0;
-        color: var(--text-primary, #fff);
+        color: var(--text-primary, var(--cv-color-text-strongest));
         font-size: var(--cv-font-size-sm);
         font-weight: var(--cv-font-weight-semibold);
       }
@@ -166,10 +132,6 @@ export class PasskeysPage extends ReatomLitElement {
       .card {
         display: grid;
         gap: var(--app-spacing-4);
-        background: var(--surface-elevated, #1f1f1f);
-        border: 1px solid var(--border-subtle, var(--cv-alpha-white-8));
-        border-radius: var(--cv-radius-lg, 12px);
-        padding: var(--app-spacing-4);
       }
 
       .passkey-sections,
@@ -185,7 +147,7 @@ export class PasskeysPage extends ReatomLitElement {
 
       .section-title {
         margin: 0;
-        color: var(--text-primary, #fff);
+        color: var(--text-primary, var(--cv-color-text-strongest));
         font-size: var(--cv-font-size-base);
         font-weight: var(--cv-font-weight-semibold);
       }
@@ -207,7 +169,7 @@ export class PasskeysPage extends ReatomLitElement {
         padding: var(--app-spacing-3);
         border: 1px solid var(--border-subtle, var(--cv-alpha-white-8));
         border-radius: var(--cv-radius-md, 8px);
-        background: var(--surface-muted, #1a1a1a);
+        background: var(--surface-muted, var(--cv-color-surface-3));
       }
 
       .passkey-row,
@@ -232,7 +194,7 @@ export class PasskeysPage extends ReatomLitElement {
       }
 
       .passkey-title {
-        color: var(--text-primary, #fff);
+        color: var(--text-primary, var(--cv-color-text-strongest));
         font-size: var(--cv-font-size-sm);
         font-weight: var(--cv-font-weight-semibold);
         overflow-wrap: anywhere;
@@ -252,7 +214,7 @@ export class PasskeysPage extends ReatomLitElement {
         padding: 2px var(--app-spacing-2);
         border: 1px solid var(--cv-color-warning-border);
         background: var(--cv-color-warning-surface);
-        color: var(--text-primary, #fff);
+        color: var(--text-primary, var(--cv-color-text-strongest));
         font-size: var(--cv-font-size-xs);
         font-weight: var(--cv-font-weight-medium, 500);
       }
@@ -486,16 +448,19 @@ export class PasskeysPage extends ReatomLitElement {
 
     return html`
       <div class="page">
-        <div class="header">
-          ${this.hideBackLink
-            ? nothing
-            : html`<cv-button unstyled class="back-link" @click=${this.handleBack}>
-                <cv-icon slot="prefix" name="arrow-left"></cv-icon>
-                ${i18n('nav:back')}
-              </cv-button>`}
-          <h1 class="title">${i18n('passkeys:title')}</h1>
-          <p class="subtitle">${i18n('passkeys:description')}</p>
-        </div>
+        ${this.externalToolbar
+          ? nothing
+          : html`
+              <div class="header">
+                ${renderRouteBackLink({
+                  hidden: this.hideBackLink,
+                  label: i18n('nav:back'),
+                  onBack: this.handleBack,
+                })}
+                <h1 class="title">${i18n('passkeys:title')}</h1>
+                <p class="subtitle">${i18n('passkeys:description')}</p>
+              </div>
+            `}
 
         <section class="card">
           <cv-guidance-anchor anchor-id="passkeys.manage" surface="passkeys" owner="passkeys">

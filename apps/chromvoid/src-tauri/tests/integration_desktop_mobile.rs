@@ -25,6 +25,8 @@ use tokio::sync::mpsc;
 
 /// Create a test PairedPeerStore in a tempdir with one pre-paired peer.
 fn setup_paired_peer_store() -> (tempfile::TempDir, PairedPeerStore, PairedPeer) {
+    common::enable_local_core_test_keystore();
+
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("test_peers.json");
     let mut store = PairedPeerStore::load(&path);
@@ -223,16 +225,16 @@ fn integration_pairing_cancel_removes_session() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  2. CONNECT — RemoteCoreAdapter from network channel
+//  2. CONNECT — RemoteCoreAdapter from remote data-plane channel
 // ═══════════════════════════════════════════════════════════════════════
 
 #[test]
-fn integration_remote_adapter_from_network_channel() {
-    let (tx, _rx) = mpsc::channel::<chromvoid_lib::network::IoRequest>(16);
+fn integration_remote_adapter_from_remote_data_plane_channel() {
+    let (tx, _rx) = mpsc::channel::<chromvoid_lib::remote_data_plane::RemoteIoRequest>(16);
     let host = RemoteHost::TauriRemoteWss {
         peer_id: "mobile-device-1".to_string(),
     };
-    let adapter = RemoteCoreAdapter::from_network(host, tx);
+    let adapter = RemoteCoreAdapter::from_remote_sender(host, tx);
 
     assert!(matches!(adapter.mode(), CoreMode::Remote { .. }));
     assert_eq!(adapter.connection_state(), ConnectionState::Ready);
@@ -242,11 +244,11 @@ fn integration_remote_adapter_from_network_channel() {
 
 #[test]
 fn integration_remote_adapter_detects_disconnect() {
-    let (tx, rx) = mpsc::channel::<chromvoid_lib::network::IoRequest>(16);
+    let (tx, rx) = mpsc::channel::<chromvoid_lib::remote_data_plane::RemoteIoRequest>(16);
     let host = RemoteHost::TauriRemoteWss {
         peer_id: "mobile-device-1".to_string(),
     };
-    let adapter = RemoteCoreAdapter::from_network(host, tx);
+    let adapter = RemoteCoreAdapter::from_remote_sender(host, tx);
     assert_eq!(adapter.connection_state(), ConnectionState::Ready);
 
     // Drop the receiver → channel closed → adapter detects disconnect.
@@ -257,11 +259,11 @@ fn integration_remote_adapter_detects_disconnect() {
 
 #[test]
 fn integration_remote_adapter_disconnected_rpc_returns_error() {
-    let (tx, rx) = mpsc::channel::<chromvoid_lib::network::IoRequest>(16);
+    let (tx, rx) = mpsc::channel::<chromvoid_lib::remote_data_plane::RemoteIoRequest>(16);
     let host = RemoteHost::TauriRemoteWss {
         peer_id: "mobile-device-1".to_string(),
     };
-    let mut adapter = RemoteCoreAdapter::from_network(host, tx);
+    let mut adapter = RemoteCoreAdapter::from_remote_sender(host, tx);
     drop(rx);
 
     let req = RpcRequest::new("vault:status".to_string(), json!({}));
@@ -279,17 +281,17 @@ fn integration_remote_adapter_disconnected_rpc_returns_error() {
 
 #[test]
 fn integration_remote_adapter_reconnect_via_replace_sender() {
-    let (tx1, _rx1) = mpsc::channel::<chromvoid_lib::network::IoRequest>(16);
+    let (tx1, _rx1) = mpsc::channel::<chromvoid_lib::remote_data_plane::RemoteIoRequest>(16);
     let host = RemoteHost::TauriRemoteWss {
         peer_id: "mobile-device-1".to_string(),
     };
-    let mut adapter = RemoteCoreAdapter::from_network(host, tx1);
+    let mut adapter = RemoteCoreAdapter::from_remote_sender(host, tx1);
     assert!(adapter.is_transport_active());
 
     // Simulate disconnect: drop old rx (but we don't have it — drop tx1's rx was already moved)
     // Instead, create a new sender to replace the old one.
-    let (tx2, _rx2) = mpsc::channel::<chromvoid_lib::network::IoRequest>(16);
-    adapter.replace_network_sender(tx2);
+    let (tx2, _rx2) = mpsc::channel::<chromvoid_lib::remote_data_plane::RemoteIoRequest>(16);
+    adapter.replace_remote_sender(tx2);
     assert!(adapter.is_transport_active());
     assert_eq!(adapter.connection_state(), ConnectionState::Ready);
 }
@@ -310,12 +312,12 @@ fn integration_mode_switch_local_to_remote_adapter_swap() {
 
     // Simulate mode switch to Remote:
     // 1. Auto-lock vault (no-op here, vault not unlocked).
-    // 2. Create RemoteCoreAdapter from network channel.
-    let (tx, _rx) = mpsc::channel::<chromvoid_lib::network::IoRequest>(16);
+    // 2. Create RemoteCoreAdapter from remote data-plane channel.
+    let (tx, _rx) = mpsc::channel::<chromvoid_lib::remote_data_plane::RemoteIoRequest>(16);
     let host = RemoteHost::TauriRemoteWss {
         peer_id: "mobile-device-1".to_string(),
     };
-    let remote = RemoteCoreAdapter::from_network(host, tx);
+    let remote = RemoteCoreAdapter::from_remote_sender(host, tx);
 
     // 3. Swap adapter.
     adapter = Box::new(remote);
@@ -326,11 +328,11 @@ fn integration_mode_switch_local_to_remote_adapter_swap() {
 #[test]
 fn integration_mode_switch_remote_to_local_adapter_swap() {
     // Start in Remote mode.
-    let (tx, _rx) = mpsc::channel::<chromvoid_lib::network::IoRequest>(16);
+    let (tx, _rx) = mpsc::channel::<chromvoid_lib::remote_data_plane::RemoteIoRequest>(16);
     let host = RemoteHost::TauriRemoteWss {
         peer_id: "mobile-device-1".to_string(),
     };
-    let remote = RemoteCoreAdapter::from_network(host, tx);
+    let remote = RemoteCoreAdapter::from_remote_sender(host, tx);
 
     let mut adapter: Box<dyn CoreAdapter> = Box::new(remote);
     assert!(matches!(adapter.mode(), CoreMode::Remote { .. }));
@@ -370,11 +372,11 @@ fn integration_mode_switch_auto_lock_before_swap() {
     }
 
     // Step 2: Swap to Remote.
-    let (tx, _rx) = mpsc::channel::<chromvoid_lib::network::IoRequest>(16);
+    let (tx, _rx) = mpsc::channel::<chromvoid_lib::remote_data_plane::RemoteIoRequest>(16);
     let host = RemoteHost::TauriRemoteWss {
         peer_id: "mobile-device-1".to_string(),
     };
-    let remote = RemoteCoreAdapter::from_network(host, tx);
+    let remote = RemoteCoreAdapter::from_remote_sender(host, tx);
     {
         let mut guard = vault.adapter.lock().unwrap();
         *guard = Box::new(remote);
@@ -568,12 +570,12 @@ fn integration_full_cycle_pairing_to_sync_to_local() {
     let peer = store.get("new-desktop").expect("paired peer must exist");
     assert_eq!(peer.label, "New Desktop");
 
-    // ── Phase 2: Connect (adapter creation from network channel) ─────
-    let (tx, _rx) = mpsc::channel::<chromvoid_lib::network::IoRequest>(16);
+    // ── Phase 2: Connect (adapter creation from remote data-plane channel) ─────
+    let (tx, _rx) = mpsc::channel::<chromvoid_lib::remote_data_plane::RemoteIoRequest>(16);
     let host = RemoteHost::TauriRemoteWss {
         peer_id: "new-desktop".to_string(),
     };
-    let remote = RemoteCoreAdapter::from_network(host, tx);
+    let remote = RemoteCoreAdapter::from_remote_sender(host, tx);
     assert!(matches!(remote.mode(), CoreMode::Remote { .. }));
     assert_eq!(remote.connection_state(), ConnectionState::Ready);
 

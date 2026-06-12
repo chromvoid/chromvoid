@@ -1,9 +1,8 @@
 import {tauriInvoke, tauriListen, type UnlistenFn} from 'root/core/transport/tauri/ipc'
-import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
 import {i18n} from 'root/i18n'
 
 // ---------------------------------------------------------------------------
-// Types (mirror Rust structs from usb + mode_cmds + core_adapter/types)
+// Types (mirror Rust structs from mode_cmds + core_adapter/types)
 // ---------------------------------------------------------------------------
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'syncing' | 'ready' | 'locked' | 'error'
@@ -18,68 +17,6 @@ export interface RemoteStatus {
   vault_locked: boolean
   locked_by_other: boolean
   writer_device: string | null
-}
-
-export interface UsbDevice {
-  port_path: string
-  display_name: string
-  serial_number: string | null
-  vendor_id: number
-  product_id: number
-  is_paired: boolean
-  device_state: 'blank' | 'initialized' | 'unknown' | null
-}
-
-export interface PairedDeviceInfo {
-  serial_number: string
-  label: string
-  last_seen: number
-  paired_at: number
-}
-
-// ---------------------------------------------------------------------------
-// Tauri invoke wrappers
-// ---------------------------------------------------------------------------
-
-export async function scanUsbDevices(): Promise<UsbDevice[]> {
-  if (!getRuntimeCapabilities().supports_usb_remote) return []
-  return tauriInvoke('usb_scan_devices')
-}
-
-export async function getConnectionState(): Promise<ConnectionState> {
-  if (!getRuntimeCapabilities().supports_usb_remote) return 'disconnected'
-  const raw = await tauriInvoke<string>('usb_connection_state')
-  return JSON.parse(raw) as ConnectionState
-}
-
-export async function listPairedDevices(): Promise<PairedDeviceInfo[]> {
-  if (!getRuntimeCapabilities().supports_usb_remote) return []
-  return tauriInvoke('usb_list_paired')
-}
-
-export async function pairUsbDevice(args: {
-  port_path: string
-  serial_number: string
-  label: string
-}): Promise<void> {
-  if (!getRuntimeCapabilities().supports_usb_remote) {
-    throw new Error('USB remote is not available on this platform')
-  }
-  await tauriInvoke('usb_pair_device', args)
-}
-
-export async function connectUsbDevice(args: {port_path: string; serial_number: string}): Promise<void> {
-  if (!getRuntimeCapabilities().supports_usb_remote) {
-    throw new Error('USB remote is not available on this platform')
-  }
-  await tauriInvoke('usb_connect', args)
-}
-
-export async function disconnectUsbDevice(): Promise<void> {
-  if (!getRuntimeCapabilities().supports_usb_remote) {
-    throw new Error('USB remote is not available on this platform')
-  }
-  await tauriInvoke('usb_disconnect')
 }
 
 /**
@@ -105,10 +42,7 @@ export function deriveRemoteStatus(state: ConnectionState): RemoteStatus {
  * Remote host identity discriminated by transport type.
  * Mirrors Rust `RemoteHost` enum with serde `rename_all = snake_case, tag = type`.
  */
-export type RemoteHost =
-  | {type: 'orangepi_usb'; device_id: string}
-  | {type: 'mobile_ble'; device_id: string}
-  | {type: 'tauri_remote_wss'; peer_id: string}
+export type RemoteHost = {type: 'tauri_remote_wss'; peer_id: string}
 
 /**
  * Core operating mode. Mirrors Rust `CoreMode` enum.
@@ -233,15 +167,7 @@ export function getModeLabel(mode: CoreMode): string {
 /** Extract peer/device name from CoreMode when in Remote. */
 export function getConnectedPeerName(mode: CoreMode): string | null {
   if (!isRemoteMode(mode)) return null
-  const host = mode.remote.host
-  switch (host.type) {
-    case 'tauri_remote_wss':
-      return host.peer_id
-    case 'orangepi_usb':
-      return host.device_id
-    case 'mobile_ble':
-      return host.device_id
-  }
+  return mode.remote.host.peer_id
 }
 
 /** Map ConnectionState to a semantic status category for badge styling. */

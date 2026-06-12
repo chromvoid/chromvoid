@@ -3,6 +3,10 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {CVInput, CVSwitch, CVTextarea} from '@chromvoid/uikit'
 import {PMEntryCreateBase} from '../../src/features/passmanager/components/card/entry-create/entry-create-base'
 import {PMEntryOTPCreate} from '../../src/features/passmanager/components/card/entry-otp-create'
+import {
+  resetRuntimeCapabilities,
+  setRuntimeCapabilities,
+} from '../../src/core/runtime/runtime-capabilities'
 
 class TestEntryCreate extends PMEntryCreateBase {
   static define() {
@@ -39,6 +43,12 @@ describe('PMEntryCreateBase switch integration', () => {
   let previousPassmanager: typeof window.passmanager
 
   beforeEach(() => {
+    resetRuntimeCapabilities()
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+      supports_native_otp_qr_scan: true,
+    })
     previousPassmanager = window.passmanager
     window.passmanager = {
       isReadOnly: vi.fn(() => false),
@@ -54,6 +64,7 @@ describe('PMEntryCreateBase switch integration', () => {
   afterEach(() => {
     document.body.innerHTML = ''
     window.passmanager = previousPassmanager
+    resetRuntimeCapabilities()
   })
 
   it('renders OTP and SSH toggles as small cv-switch components', async () => {

@@ -138,4 +138,19 @@ describe('CommandBar shortcut handling', () => {
     expect(runtime.dispatchCommand).toHaveBeenCalledWith({kind: 'create-dir'})
     expect(runtime.openFileInput).toHaveBeenCalledTimes(1)
   })
+
+  it('executes the command at the highlighted rendered order on Enter', () => {
+    setRuntimeCapabilities({platform: 'linux', desktop: true})
+    const {model, runtime} = setupModel()
+    model.open('all')
+    const firstRenderedCommand = model.commandList[0]
+
+    const event = keyEvent('Enter')
+    model.onKeyDown(event)
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(firstRenderedCommand?.category).toBe('actions')
+    expect(firstRenderedCommand?.id).toBe('action-new-note')
+    expect(runtime.dispatchCommand).toHaveBeenCalledWith({kind: 'create-markdown-note'})
+  })
 })

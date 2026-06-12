@@ -5,18 +5,29 @@ import {nothing} from 'lit'
 import {Entry} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
 import {getPassmanagerRoot} from '../../../models/pm-root.adapter'
-import {PMEntryListItemModel, type PMEntryListBadge, type PMEntryListPresentation} from './entry-list-item.model'
+import {
+  PMEntryListItemModel,
+  type PMEntryListBadge,
+  type PMEntryListItemViewMode,
+  type PMEntryListPresentation,
+} from './entry-list-item.model'
 
 export class PMEntryListItemBase extends ReatomLitElement {
   static properties = {
     selectionStateManaged: {type: Boolean, attribute: 'selection-state-managed'},
     selectionActive: {type: Boolean, attribute: 'selection-active'},
     selectedInSelectionMode: {attribute: false},
+    viewMode: {type: String, attribute: 'view-mode', reflect: true},
   }
 
   protected readonly model = new PMEntryListItemModel()
 
-  viewMode: 'default' | 'compact' | 'dense' = 'default'
+  declare viewMode: PMEntryListItemViewMode
+
+  constructor() {
+    super()
+    this.viewMode = 'default'
+  }
 
   set entry(entry: Entry) {
     this.model.setEntry(entry)
@@ -203,6 +214,7 @@ export class PMEntryListItemBase extends ReatomLitElement {
             >
               ${this.renderBadgeIcon(badge)}
               <span class="entry-badge-label">${badge.label}</span>
+              ${badge.hasMore ? html`<span class="entry-badge-suffix" aria-hidden="true">+</span>` : nothing}
             </span>
           `,
         )}
@@ -268,9 +280,67 @@ export class PMEntryListItemBase extends ReatomLitElement {
     return this.model.effectiveRowTabIndex()
   }
 
-  connectedCallback() {
-    super.connectedCallback()
-    this.setAttribute('view-mode', this.viewMode)
+  private isWorkbenchMode(): boolean {
+    return this.viewMode === 'workbench'
+  }
+
+  private renderPrimaryAction(presentation: PMEntryListPresentation) {
+    return html`
+      <cv-button unstyled
+        class="action-button primary-action entry-menu-button"
+        button-tabindex=${String(this.getActionTabIndex())}
+        @click=${this.onMoreActions}
+        aria-label=${presentation.rowActionLabel}
+        title=${presentation.rowActionLabel}
+      >
+        <cv-icon name=${presentation.rowActionIcon}></cv-icon>
+      </cv-button>
+    `
+  }
+
+  private renderDefaultContent(entry: Entry, presentation: PMEntryListPresentation, showSecondaryActions: boolean) {
+    return html`
+      ${this.renderIcon(entry, presentation)}
+
+      <div class="item-content">
+        <div class="item-title">${presentation.title}</div>
+        ${presentation.subtitle ? html`<div class="item-subtitle">${presentation.subtitle}</div>` : nothing}
+      </div>
+
+      ${this.renderBadges(presentation)}
+
+      ${this.renderPrimaryAction(presentation)}
+
+      ${showSecondaryActions ? this.renderActions(entry) : nothing}
+    `
+  }
+
+  private renderWorkbenchStatus(presentation: PMEntryListPresentation) {
+    if (presentation.visibleBadges.length > 0 || presentation.overflowCount > 0) {
+      return this.renderBadges(presentation)
+    }
+
+    return html`<span class="entry-kind-chip">${presentation.kindLabel}</span>`
+  }
+
+  private renderWorkbenchContent(entry: Entry, presentation: PMEntryListPresentation, showSecondaryActions: boolean) {
+    return html`
+      <div class="workbench-name-cell">
+        ${this.renderIcon(entry, presentation)}
+        <div class="item-content">
+          <div class="item-title">${presentation.title}</div>
+          ${presentation.subtitle ? html`<div class="item-subtitle">${presentation.subtitle}</div>` : nothing}
+        </div>
+      </div>
+      <div class="workbench-status-cell">${this.renderWorkbenchStatus(presentation)}</div>
+      <time class="workbench-modified-cell" datetime=${String(presentation.modifiedTimestamp)}>
+        ${presentation.modifiedFormatted}
+      </time>
+      <div class="workbench-actions-cell">
+        ${this.renderPrimaryAction(presentation)}
+        ${showSecondaryActions ? this.renderActions(entry) : nothing}
+      </div>
+    `
   }
 
   render() {
@@ -288,12 +358,14 @@ export class PMEntryListItemBase extends ReatomLitElement {
     const showSecondaryActions = this.model.shouldRenderSecondaryActions()
     const selectedClass = this.isSelected ? ' selected' : ''
     const activeClass = this.manageActiveRowState && this.activeRow ? ' active-row' : ''
+    const viewMode = this.isWorkbenchMode() ? 'workbench' : 'default'
 
     return html`
       <div
         class="list-item mobile-list-row-surface${selectedClass}${activeClass}"
         data-secondary-actions=${showSecondaryActions ? 'true' : 'false'}
         data-entry-type=${presentation.entryType}
+        data-view-mode=${viewMode}
         @click=${this.onClick}
         @keydown=${this.onKeyDown}
         @pointerenter=${this.onPointerEnter}
@@ -306,26 +378,9 @@ export class PMEntryListItemBase extends ReatomLitElement {
         role="button"
         tabindex=${String(this.getRowTabIndex())}
       >
-        ${this.renderIcon(entry, presentation)}
-
-        <div class="item-content">
-          <div class="item-title">${presentation.title}</div>
-          ${presentation.subtitle ? html`<div class="item-subtitle">${presentation.subtitle}</div>` : nothing}
-        </div>
-
-        ${this.renderBadges(presentation)}
-
-        <cv-button unstyled
-          class="action-button primary-action entry-menu-button"
-          button-tabindex=${String(this.getActionTabIndex())}
-          @click=${this.onMoreActions}
-          aria-label=${presentation.rowActionLabel}
-          title=${presentation.rowActionLabel}
-        >
-          <cv-icon name=${presentation.rowActionIcon}></cv-icon>
-        </cv-button>
-
-        ${showSecondaryActions ? this.renderActions(entry) : nothing}
+        ${this.isWorkbenchMode()
+          ? this.renderWorkbenchContent(entry, presentation, showSecondaryActions)
+          : this.renderDefaultContent(entry, presentation, showSecondaryActions)}
       </div>
     `
   }

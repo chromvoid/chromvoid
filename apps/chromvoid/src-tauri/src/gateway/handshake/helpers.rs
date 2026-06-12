@@ -52,16 +52,26 @@ pub(super) fn extract_remote_static_hex(noise: &snow::HandshakeState) -> Result<
 /// Decode a hex string to bytes.
 pub(super) fn hex_decode(s: &str) -> Result<Vec<u8>, String> {
     let s = s.trim();
-    if s.len() % 2 != 0 {
+    let bytes = s.as_bytes();
+    if bytes.len() % 2 != 0 {
         return Err("hex string has odd length".to_string());
     }
-    let mut out = Vec::with_capacity(s.len() / 2);
-    let mut i = 0;
-    while i < s.len() {
-        let byte =
-            u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| format!("invalid hex at {i}: {e}"))?;
-        out.push(byte);
-        i += 2;
+    let mut out = Vec::with_capacity(bytes.len() / 2);
+    for (pair_idx, pair) in bytes.chunks_exact(2).enumerate() {
+        let hi = hex_nibble(pair[0])
+            .ok_or_else(|| format!("invalid hex at {}: invalid digit", pair_idx * 2))?;
+        let lo = hex_nibble(pair[1])
+            .ok_or_else(|| format!("invalid hex at {}: invalid digit", pair_idx * 2 + 1))?;
+        out.push((hi << 4) | lo);
     }
     Ok(out)
+}
+
+fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }

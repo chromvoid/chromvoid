@@ -6,6 +6,7 @@ mod service;
 mod transaction;
 mod types;
 
+pub(super) use transaction::recover_rekey_marker_for_key;
 pub use types::{VaultRekeyProgress, VaultRekeyRequest, VaultRekeyResult};
 
 #[cfg(test)]

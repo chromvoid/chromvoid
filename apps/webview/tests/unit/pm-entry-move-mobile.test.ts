@@ -103,4 +103,62 @@ describe('PMEntryMoveMobile', () => {
     expect(nestedRow?.textContent).toContain('Parent/Nested')
   })
 
+  it('keeps keyboard navigation working for destination ids that require CSS escaping', async () => {
+    const special = createGroup('group:prod/child', 'Prod')
+    setPassmanagerRoot(createRoot([special]))
+
+    const element = document.createElement('pm-entry-move-mobile') as PMEntryMoveMobile
+    element.selectedId = special.id
+    document.body.append(element)
+    await flush(element)
+
+    const input = element.shadowRoot?.querySelector('cv-input')
+    expect(input).not.toBeNull()
+
+    expect(() => {
+      input?.dispatchEvent(
+        new KeyboardEvent('keydown', {key: 'ArrowDown', bubbles: true, composed: true, cancelable: true}),
+      )
+    }).not.toThrow()
+  })
+
+  it('does not confirm the sheet when Enter comes from search or Cancel', async () => {
+    const sheet = document.createElement('pm-entry-move-sheet') as PMEntryMoveSheet
+    sheet.selectedId = 'target-group'
+    document.body.append(sheet)
+    await flush(sheet)
+
+    const confirmSpy = vi.fn()
+    sheet.addEventListener('pm-entry-move-sheet-confirm', confirmSpy)
+
+    const surface = sheet.shadowRoot?.querySelector('cv-bottom-sheet')
+    const cancelButton = sheet.shadowRoot?.querySelector('[data-move-cancel]')
+    expect(surface).not.toBeNull()
+    expect(cancelButton).not.toBeNull()
+
+    const searchInput = document.createElement('input')
+    const searchEvent = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      composed: true,
+      cancelable: true,
+    })
+    Object.defineProperty(searchEvent, 'composedPath', {
+      value: () => [searchInput, surface, sheet, document.body, document, window],
+    })
+    surface?.dispatchEvent(searchEvent)
+
+    const cancelEvent = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      composed: true,
+      cancelable: true,
+    })
+    Object.defineProperty(cancelEvent, 'composedPath', {
+      value: () => [cancelButton, surface, sheet, document.body, document, window],
+    })
+    surface?.dispatchEvent(cancelEvent)
+
+    expect(confirmSpy).not.toHaveBeenCalled()
+  })
 })

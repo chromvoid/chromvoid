@@ -187,13 +187,24 @@ impl RpcRouter {
             }
             "catalog:delete" => self.commit_catalog_mutation_with_output(
                 |s| handle_catalog_delete_with_cleanup(s, &request.data),
-                |session, storage, cleanup| {
-                    let _ = cleanup.cleanup_derivatives(storage, session.vault_key());
+                |session, storage, derivative_index_state, cleanup| {
+                    let _ = cleanup.cleanup_derivatives(
+                        storage,
+                        session.vault_key(),
+                        derivative_index_state,
+                    );
                 },
             ),
-            "catalog:move" => {
-                self.commit_catalog_mutation(|s| handle_catalog_move(s, &request.data))
-            }
+            "catalog:move" => self.commit_catalog_mutation_with_output(
+                |s| handle_catalog_move_with_cleanup(s, &request.data),
+                |session, storage, derivative_index_state, cleanup| {
+                    let _ = cleanup.cleanup_derivatives(
+                        storage,
+                        session.vault_key(),
+                        derivative_index_state,
+                    );
+                },
+            ),
             "catalog:source:metadata" => {
                 self.commit_catalog_mutation(|s| handle_catalog_source_metadata(s, &request.data))
             }
@@ -204,14 +215,23 @@ impl RpcRouter {
                     Some(ErrorCode::InternalError),
                 ),
             },
-            "catalog:derivative:stats" => {
-                let storage = self.storage.clone();
-                self.with_session(|s| handle_catalog_derivative_stats(s, &storage))
-            }
-            "catalog:derivative:compact" => {
-                let storage = self.storage.clone();
-                self.with_session(|s| handle_catalog_derivative_compact(s, &request.data, &storage))
-            }
+            "catalog:derivative:stats" => match self.session.as_ref() {
+                Some(session) => handle_catalog_derivative_stats(
+                    session,
+                    &self.storage,
+                    self.derivative_index_state.as_ref(),
+                ),
+                None => RpcResponse::error("Vault not unlocked", Some(ErrorCode::VaultRequired)),
+            },
+            "catalog:derivative:compact" => match self.session.as_ref() {
+                Some(session) => handle_catalog_derivative_compact(
+                    session,
+                    &request.data,
+                    &self.storage,
+                    self.derivative_index_state.as_ref(),
+                ),
+                None => RpcResponse::error("Vault not unlocked", Some(ErrorCode::VaultRequired)),
+            },
 
             // PassManager domain commands (ADR-028): scoped access to /.passmanager only.
             "passmanager:secret:save" => self.handle_passmanager_secret_save(&request.data),
@@ -235,6 +255,9 @@ impl RpcRouter {
             "passmanager:otp:generate" => self.handle_passmanager_otp_generate(&request.data),
             "passmanager:otp:removeSecret" => {
                 self.handle_passmanager_otp_remove_secret(&request.data)
+            }
+            "passmanager:otp:renameSecret" => {
+                self.handle_passmanager_otp_rename_secret(&request.data)
             }
 
             // Passkeys domain commands (ADR-034): scoped access to /.passkeys only.
@@ -275,6 +298,7 @@ impl RpcRouter {
                     RpcResponse::error("Unexpected upload stream", Some(ErrorCode::InternalError))
                 }
             },
+            "catalog:upload:abort" => self.handle_catalog_upload_abort(),
             "catalog:file:replace" => self.with_session(|s| {
                 if let Err(response) = require_stream_node_gate(s, &request.data, true) {
                     return response;
@@ -361,7 +385,18 @@ impl RpcRouter {
             }),
             "catalog:secret:erase" => {
                 let storage = self.storage.clone();
-                self.with_session_mut(|s| handle_catalog_secret_erase(s, &request.data, &storage))
+                let derivative_index_state = std::sync::Arc::clone(&self.derivative_index_state);
+                match self.session.as_mut() {
+                    Some(session) => handle_catalog_secret_erase(
+                        session,
+                        &request.data,
+                        &storage,
+                        derivative_index_state.as_ref(),
+                    ),
+                    None => {
+                        RpcResponse::error("Vault not unlocked", Some(ErrorCode::VaultRequired))
+                    }
+                }
             }
 
             "catalog:shard:list" => {

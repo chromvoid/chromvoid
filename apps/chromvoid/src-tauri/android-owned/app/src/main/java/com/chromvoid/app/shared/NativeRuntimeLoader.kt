@@ -11,41 +11,50 @@ internal object NativeRuntimeLoader {
 
     @Volatile
     private var loadState: LoadState = LoadState.NotStarted
+    private val libraryLoadStates = mutableMapOf<String, LoadState>()
 
     @Volatile
     private var loadLibraryForTests: ((String) -> Unit)? = null
 
-    fun ensureLoaded(callerTag: String): Boolean {
-        when (val state = loadState) {
+    fun ensureLoaded(callerTag: String): Boolean = ensureLibraryLoaded(callerTag, LIBRARY_NAME)
+
+    fun ensureLibraryLoaded(
+        callerTag: String,
+        libraryName: String,
+    ): Boolean {
+        val normalizedLibraryName = libraryName.trim()
+        if (normalizedLibraryName.isEmpty()) return false
+
+        when (val state = libraryState(normalizedLibraryName)) {
             LoadState.Loaded -> return true
             is LoadState.Failed -> {
-                logUnavailableOnce(callerTag, state)
+                logUnavailableOnce(callerTag, normalizedLibraryName, state)
                 return false
             }
             LoadState.NotStarted -> Unit
         }
 
         synchronized(lock) {
-            when (val state = loadState) {
+            when (val state = libraryStateLocked(normalizedLibraryName)) {
                 LoadState.Loaded -> return true
                 is LoadState.Failed -> {
-                    logUnavailableOnce(callerTag, state)
+                    logUnavailableOnce(callerTag, normalizedLibraryName, state)
                     return false
                 }
                 LoadState.NotStarted -> Unit
             }
 
             val error = runCatching {
-                loadLibraryForTests?.invoke(LIBRARY_NAME) ?: System.loadLibrary(LIBRARY_NAME)
+                loadLibraryForTests?.invoke(normalizedLibraryName) ?: System.loadLibrary(normalizedLibraryName)
             }.exceptionOrNull()
             if (error == null) {
-                loadState = LoadState.Loaded
+                setLibraryStateLocked(normalizedLibraryName, LoadState.Loaded)
                 return true
             }
 
             val failed = LoadState.Failed(error)
-            loadState = failed
-            logUnavailableOnce(callerTag, failed)
+            setLibraryStateLocked(normalizedLibraryName, failed)
+            logUnavailableOnce(callerTag, normalizedLibraryName, failed)
             return false
         }
     }
@@ -57,7 +66,7 @@ internal object NativeRuntimeLoader {
             true
         }.getOrElse { error ->
             if (error is UnsatisfiedLinkError) {
-                recordInvocationFailure(callerTag, error)
+                recordInvocationFailure(callerTag, LIBRARY_NAME, error)
                 false
             } else {
                 throw error
@@ -71,7 +80,7 @@ internal object NativeRuntimeLoader {
             block()
         }.getOrElse { error ->
             if (error is UnsatisfiedLinkError) {
-                recordInvocationFailure(callerTag, error)
+                recordInvocationFailure(callerTag, LIBRARY_NAME, error)
                 fallback
             } else {
                 throw error
@@ -83,6 +92,7 @@ internal object NativeRuntimeLoader {
         synchronized(lock) {
             loadLibraryForTests = loader
             loadState = LoadState.NotStarted
+            libraryLoadStates.clear()
             reportedUnavailableCallers.clear()
         }
     }
@@ -91,6 +101,7 @@ internal object NativeRuntimeLoader {
         synchronized(lock) {
             loadLibraryForTests = null
             loadState = LoadState.NotStarted
+            libraryLoadStates.clear()
             reportedUnavailableCallers.clear()
         }
     }
@@ -102,21 +113,55 @@ internal object NativeRuntimeLoader {
             is LoadState.Failed -> "failed"
         }
 
-    private fun recordInvocationFailure(callerTag: String, error: UnsatisfiedLinkError) {
+    private fun recordInvocationFailure(
+        callerTag: String,
+        libraryName: String,
+        error: UnsatisfiedLinkError,
+    ) {
         val failed = LoadState.Failed(error)
         synchronized(lock) {
-            loadState = failed
+            setLibraryStateLocked(libraryName, failed)
         }
-        logUnavailableOnce(callerTag, failed)
+        logUnavailableOnce(callerTag, libraryName, failed)
     }
 
-    private fun logUnavailableOnce(callerTag: String, state: LoadState.Failed) {
+    private fun logUnavailableOnce(
+        callerTag: String,
+        libraryName: String,
+        state: LoadState.Failed,
+    ) {
         val shouldLog = synchronized(lock) {
-            reportedUnavailableCallers.add(callerTag)
+            reportedUnavailableCallers.add("$callerTag:$libraryName")
         }
         if (!shouldLog) return
 
-        Log.w(TAG, "Native runtime unavailable caller=$callerTag error=${state.error.javaClass.simpleName}")
+        Log.w(
+            TAG,
+            "Native runtime unavailable caller=$callerTag library=$libraryName error=${state.error.javaClass.simpleName}",
+        )
+    }
+
+    private fun libraryState(libraryName: String): LoadState =
+        synchronized(lock) {
+            libraryStateLocked(libraryName)
+        }
+
+    private fun libraryStateLocked(libraryName: String): LoadState =
+        if (libraryName == LIBRARY_NAME) {
+            loadState
+        } else {
+            libraryLoadStates[libraryName] ?: LoadState.NotStarted
+        }
+
+    private fun setLibraryStateLocked(
+        libraryName: String,
+        state: LoadState,
+    ) {
+        if (libraryName == LIBRARY_NAME) {
+            loadState = state
+        } else {
+            libraryLoadStates[libraryName] = state
+        }
     }
 
     private sealed interface LoadState {

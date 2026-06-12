@@ -1,6 +1,7 @@
 import {html, nothing, type TemplateResult} from 'lit'
-import {renderGuidanceInline} from 'root/features/guidance/render-guidance-inline'
 import {i18n} from 'root/i18n'
+import {renderRouteBackLink} from 'root/shared/ui/route-back-link'
+import {renderRouteCallout, type RouteCalloutVariant} from 'root/shared/ui/route-callout'
 import {
   renderRemoteHostsFlowPanel,
   type RemoteHostsFlowPanelActions,
@@ -10,32 +11,19 @@ import {
 import type {
   ConnectionState,
   CoreMode,
-  PairedDeviceInfo,
   RemoteStatus,
   SyncSnapshot,
-  UsbDevice,
 } from './remote.model'
 import type {RemoteHostsFlowModel} from './remote-hosts-flow.model'
 
-type RemoteCalloutVariant = 'info' | 'success' | 'warning' | 'danger' | 'neutral'
+type RemoteCalloutVariant = RouteCalloutVariant
 
 export interface RemotePageRenderContext {
   hideBackLink: boolean
+  externalToolbar: boolean
   connectionState: () => ConnectionState
   remoteStatus: () => RemoteStatus
-  devices: () => UsbDevice[]
-  pairedDevices: () => PairedDeviceInfo[]
-  acting: () => boolean
-  scanning: () => boolean
-  formatDate: (ms: number) => string
-  formatRelativeTime: (ms: number) => string
-  getConnectionBadgeClass: (s: ConnectionState) => string
-  getConnectionLabel: (s: ConnectionState) => string
   onBack: () => void
-  onDisconnect: () => void
-  onScan: () => void
-  onConnect: (dev: UsbDevice) => void
-  onPair: (dev: UsbDevice) => void
   // Mode context
   currentMode: () => CoreMode
   transportType: () => string | null
@@ -48,7 +36,6 @@ export interface RemotePageRenderContext {
   getConnectedPeerName: (mode: CoreMode) => string | null
   isRemoteMode: (mode: CoreMode) => boolean
   onSwitchToLocal: () => void
-  isMobileRuntime: () => boolean
   remoteHostsModel: RemoteHostsFlowModel
   remoteHostsActions: RemoteHostsFlowPanelActions
   remoteHostsUi?: RemoteHostsFlowPanelUI
@@ -73,147 +60,16 @@ function renderRemoteCallout({
   extra?: TemplateResult
   role?: 'alert' | 'status'
 }): TemplateResult {
-  const content = html`
-    ${title ? html`<span class="remote-callout-title">${title}</span>` : nothing}
-    <span class="remote-callout-text">${text}</span>
-    ${extra ?? nothing}
-  `
-
-  return role
-    ? html`<cv-callout class="remote-callout" variant=${variant} density="compact" role=${role}>${content}</cv-callout>`
-    : html`<cv-callout class="remote-callout" variant=${variant} density="compact">${content}</cv-callout>`
-}
-
-export const renderConnectionCard = (ctx: RemotePageRenderContext): TemplateResult | typeof nothing => {
-  const s = ctx.connectionState()
-  const acting = ctx.acting()
-
-  return html`
-    <section class="card">
-      <div class="card-header">
-        <div class="card-title">
-          <div class="name">${i18n('remote:connection-title')}</div>
-          <div class="hint">${i18n('remote:connection-hint')}</div>
-        </div>
-        <div class="card-header-actions">
-          <span class="badge ${ctx.getConnectionBadgeClass(s)}">${ctx.getConnectionLabel(s)}</span>
-          ${s !== 'disconnected'
-            ? html`
-                <cv-button size="small" variant="primary" ?disabled=${acting} @click=${ctx.onDisconnect}>
-                  ${acting ? i18n('status:working') : i18n('button:disconnect')}
-                </cv-button>
-              `
-            : nothing}
-        </div>
-      </div>
-    </section>
-  `
-}
-
-export const renderDeviceItem = (ctx: RemotePageRenderContext, dev: UsbDevice): TemplateResult => {
-  const serial = dev.serial_number ? i18n('remote:serial', {value: dev.serial_number}) : i18n('remote:no-serial')
-  const vid = `VID: 0x${dev.vendor_id.toString(16).padStart(4, '0').toUpperCase()}`
-  const pid = `PID: 0x${dev.product_id.toString(16).padStart(4, '0').toUpperCase()}`
-
-  const acting = ctx.acting()
-  const hasSerial = dev.serial_number !== null
-  const disabled = acting || !hasSerial
-  const label = acting
-    ? i18n('status:working')
-    : dev.is_paired
-      ? i18n('button:connect')
-      : i18n('button:pair')
-  const title = hasSerial ? '' : i18n('remote:no-serial-title')
-  const onClick = dev.is_paired ? () => ctx.onConnect(dev) : () => ctx.onPair(dev)
-
-  return html`
-    <div class="device-item">
-      <div class="device-info">
-        <div class="device-name">${dev.display_name}</div>
-        <div class="device-port">${dev.port_path}</div>
-        <div class="device-meta">${serial} &middot; ${vid} &middot; ${pid}</div>
-      </div>
-      <div class="device-badges">
-        ${dev.is_paired ? html`<span class="badge success">${i18n('status:paired')}</span>` : nothing}
-        ${dev.device_state ? html`<span class="badge">${dev.device_state}</span>` : nothing}
-      </div>
-      <div class="device-actions">
-        <cv-button size="small" variant="primary" ?disabled=${disabled} title=${title} @click=${onClick}>
-          ${label}
-        </cv-button>
-      </div>
-    </div>
-  `
-}
-
-export const renderDevicesCard = (ctx: RemotePageRenderContext): TemplateResult => {
-  const devs = ctx.devices()
-  const isScanning = ctx.scanning()
-
-  return html`
-    <cv-guidance-anchor anchor-id="remote.pair-device" surface="remote" owner="remote">
-      <section class="card">
-        <div class="card-header">
-          <div class="card-title">
-            <div class="name">${i18n('remote:usb-devices-title')}</div>
-            <div class="hint">${i18n('remote:usb-devices-hint')}</div>
-          </div>
-          <cv-button size="small" variant="primary" ?disabled=${isScanning} @click=${ctx.onScan}>
-            ${isScanning ? i18n('loading') : i18n('button:scan')}
-          </cv-button>
-        </div>
-        <div class="card-body">
-          ${devs.length > 0
-            ? html`<div class="device-list">${devs.map((d) => renderDeviceItem(ctx, d))}</div>`
-            : html`
-                <div class="empty-state">
-                  ${i18n('remote:no-devices')}
-                  ${renderGuidanceInline('remote.pair-device', 'remote')}
-                </div>
-              `}
-        </div>
-      </section>
-    </cv-guidance-anchor>
-  `
-}
-
-export const renderPairedDeviceItem = (
-  ctx: RemotePageRenderContext,
-  dev: PairedDeviceInfo,
-): TemplateResult => {
-  return html`
-    <div class="device-item">
-      <div class="device-info">
-        <div class="device-name">${dev.label}</div>
-        <div class="device-meta">
-          ${i18n('remote:serial', {value: dev.serial_number})} &middot;
-          ${i18n('remote:paired-at', {value: ctx.formatDate(dev.paired_at)})} &middot;
-          ${i18n('remote:last-seen', {value: ctx.formatRelativeTime(dev.last_seen)})}
-        </div>
-      </div>
-    </div>
-  `
-}
-
-export const renderPairedDevicesCard = (ctx: RemotePageRenderContext): TemplateResult => {
-  const paired = ctx.pairedDevices()
-
-  return html`
-    <section class="card">
-      <div class="card-header">
-        <div class="card-title">
-          <div class="name">${i18n('remote:paired-devices-title')}</div>
-          <div class="hint">${i18n('remote:paired-devices-hint')}</div>
-        </div>
-        ${paired.length > 0 ? html`<span class="badge">${paired.length} ${i18n('status:paired')}</span>` : nothing}
-      </div>
-      <div class="card-body">
-        ${paired.length > 0
-          ? html`<div class="device-list">${paired.map((d) => renderPairedDeviceItem(ctx, d))}</div>`
-          : html`<div class="empty-state">${i18n('remote:no-paired-devices')}</div>`}
-      </div>
-    </section>
-  `
+  return renderRouteCallout({
+    className: 'remote-callout',
+    variant,
+    titleClassName: 'remote-callout-title',
+    textClassName: 'remote-callout-text',
+    title,
+    text,
+    extra,
+    role,
+  })
 }
 
 export const renderLockedByOtherHint = (ctx: RemotePageRenderContext): TemplateResult | typeof nothing => {
@@ -507,30 +363,31 @@ export const renderUxStateHints = (ctx: RemotePageRenderContext): TemplateResult
 }
 
 export const renderRemotePage = (ctx: RemotePageRenderContext): TemplateResult => {
-  const isMobileRuntime = ctx.isMobileRuntime()
   return html`
     <div class="page">
-      <header class="header">
-        ${ctx.hideBackLink
-          ? nothing
-          : html`<cv-button unstyled class="back-link" @click=${ctx.onBack}>
-              <cv-icon slot="prefix" name="arrow-left"></cv-icon>
-              ${i18n('navigation:files')}
-            </cv-button>`}
-        <h1 class="title">${i18n('remote:title')}</h1>
-        <p class="subtitle">${i18n('remote:subtitle')}</p>
-      </header>
+      ${ctx.externalToolbar
+        ? nothing
+        : html`
+            <header class="header">
+              ${renderRouteBackLink({
+                hidden: ctx.hideBackLink,
+                label: i18n('navigation:files'),
+                onBack: ctx.onBack,
+              })}
+              <h1 class="title">${i18n('remote:title')}</h1>
+              <p class="subtitle">${i18n('remote:subtitle')}</p>
+            </header>
+          `}
 
       <div class="grid">
         ${renderModeCard(ctx)} ${renderSyncStatusBar(ctx)} ${renderWriterLockCard(ctx)}
         ${renderWriterAccessIndicator(ctx)} ${renderUxStateHints(ctx)}
-        ${isMobileRuntime ? nothing : renderConnectionCard(ctx)} ${renderLockedByOtherHint(ctx)}
+        ${renderLockedByOtherHint(ctx)}
         ${renderRemoteHostsFlowPanel({
           model: ctx.remoteHostsModel,
           actions: ctx.remoteHostsActions,
           ui: ctx.remoteHostsUi,
         })}
-        ${isMobileRuntime ? nothing : renderDevicesCard(ctx)} ${isMobileRuntime ? nothing : renderPairedDevicesCard(ctx)}
       </div>
     </div>
   `

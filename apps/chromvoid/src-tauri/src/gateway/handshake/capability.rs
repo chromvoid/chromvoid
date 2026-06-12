@@ -50,24 +50,8 @@ pub(in crate::gateway) fn check_capability(
         }
     }
 
-    // 2. For sensitive commands: check action grant if required
-    if category == CommandCategory::Sensitive && policy.require_action_grant {
-        let Some(gid) = grant_id else {
-            return (
-                Err("action grant required for sensitive command".to_string()),
-                save_snapshot,
-            );
-        };
-        let store = state.grant_store_mut(extension_id);
-        if !store.consume_action_grant(gid, command, node_id) {
-            return (
-                Err("invalid or expired action grant".to_string()),
-                save_snapshot,
-            );
-        }
-    }
-
-    // 3. For sensitive commands with origin: check site grant if required
+    // 2. For sensitive commands with origin: check site grant before consuming
+    // a single-use action grant.
     if category == CommandCategory::Sensitive && policy.require_site_grant {
         let Some(orig) = origin else {
             return (
@@ -88,6 +72,24 @@ pub(in crate::gateway) fn check_capability(
         if !store.has_site_grant(orig) {
             return (
                 Err(format!("no site grant for origin '{}'", orig)),
+                save_snapshot,
+            );
+        }
+    }
+
+    // 3. For sensitive commands: consume action grant only after origin/site
+    // checks have passed.
+    if category == CommandCategory::Sensitive && policy.require_action_grant {
+        let Some(gid) = grant_id else {
+            return (
+                Err("action grant required for sensitive command".to_string()),
+                save_snapshot,
+            );
+        };
+        let store = state.grant_store_mut(extension_id);
+        if !store.consume_action_grant(gid, command, node_id) {
+            return (
+                Err("invalid or expired action grant".to_string()),
                 save_snapshot,
             );
         }

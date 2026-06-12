@@ -693,6 +693,10 @@
     "en": "OTP codes",
     "ru": "OTP коды"
   },
+  "otp:quick_view:subtitle": {
+    "en": "Live codes from saved login entries.",
+    "ru": "Актуальные коды из сохранённых login-записей."
+  },
   "otp:quick_view:support": {
     "en": "Live codes from saved login entries.",
     "ru": "Актуальные коды из сохранённых login-записей."
@@ -820,6 +824,18 @@
     "zh": "取消",
     "ja": "キャンセル",
     "vi": "Hủy bỏ"
+  },
+  "button:discard": {
+    "en": "Discard",
+    "ru": "Сбросить"
+  },
+  "entry:dirty:discard-title": {
+    "en": "Discard unsaved changes?",
+    "ru": "Сбросить несохраненные изменения?"
+  },
+  "entry:dirty:discard-message": {
+    "en": "This entry has unsaved edits. Discard them before leaving?",
+    "ru": "В этой записи есть несохраненные правки. Сбросить их перед выходом?"
   },
   "button:show": {
     "en": "Show",
@@ -1278,6 +1294,10 @@
     "zh": "您将无法撤销此操作！",
     "ja": "これは元に戻せません！",
     "vi": "Bạn sẽ không thể hoàn tác điều này!"
+  },
+  "notify:remove:error": {
+    "en": "Delete failed",
+    "ru": "Не удалось удалить"
   },
   "group:create": {
     "en": "Group",
@@ -2025,8 +2045,8 @@
     "ru": "Скопировать OTP код"
   },
   "otp:tap_to_copy": {
-    "en": "Tap to copy",
-    "ru": "Нажмите, чтобы скопировать"
+    "en": "Copy",
+    "ru": "Копировать"
   },
   "otp:seconds_short": {
     "en": "SEC",
@@ -2587,6 +2607,22 @@
   "metrics:two_factor": {
     "en": "2FA",
     "ru": "2FA"
+  },
+  "credentials:list:column:name": {
+    "en": "Name",
+    "ru": "Название"
+  },
+  "credentials:list:column:status": {
+    "en": "Status",
+    "ru": "Статус"
+  },
+  "credentials:list:column:modified": {
+    "en": "Modified",
+    "ru": "Изменено"
+  },
+  "credentials:list:column:actions": {
+    "en": "Actions",
+    "ru": "Действия"
   },
   "metrics:otp": {
     "en": "OTP",

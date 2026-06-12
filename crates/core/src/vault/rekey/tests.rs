@@ -3,10 +3,15 @@ use std::collections::BTreeSet;
 
 use crate::crypto::keystore::InMemoryKeystore;
 use crate::crypto::{blob_chunk_name, decrypt, encrypt, otp_chunk_name};
+use crate::durable_tx::DurableTxPhase;
 use crate::error::Error;
 use crate::storage::{Storage, StorageArtifact};
 use crate::types::DEFAULT_CHUNK_SIZE;
 use crate::vault::{Vault, VaultRekeyRequest, VaultSession};
+
+use super::transaction::{
+    load_rekey_marker_for_key, write_rekey_marker, RekeyTransaction, REKEY_TX_VERSION,
+};
 use tempfile::TempDir;
 
 fn setup_storage() -> (Storage, TempDir, InMemoryKeystore) {
@@ -86,10 +91,7 @@ fn rekey_changes_password_and_preserves_catalog_blob_and_otp() {
             .rekey_password(
                 &storage,
                 &keystore,
-                VaultRekeyRequest {
-                    current_password: "old-password".to_string(),
-                    new_password: "new-password".to_string(),
-                },
+                VaultRekeyRequest::new("old-password", "new-password"),
                 &|| false,
                 &mut |event| progress.push(event),
             )
@@ -160,10 +162,7 @@ fn rekey_preserves_decoy_vault_chunks() {
             .rekey_password(
                 &storage,
                 &keystore,
-                VaultRekeyRequest {
-                    current_password: "old-password".to_string(),
-                    new_password: "new-password".to_string(),
-                },
+                VaultRekeyRequest::new("old-password", "new-password"),
                 &|| false,
                 &mut |_| {},
             )
@@ -191,10 +190,7 @@ fn rekey_wrong_current_password_leaves_chunks_unchanged() {
     let result = session.rekey_password(
         &storage,
         &keystore,
-        VaultRekeyRequest {
-            current_password: "wrong-password".to_string(),
-            new_password: "new-password".to_string(),
-        },
+        VaultRekeyRequest::new("wrong-password", "new-password"),
         &|| false,
         &mut |_| {},
     );
@@ -221,10 +217,7 @@ fn rekey_cancel_before_commit_rolls_back_staged_chunks() {
     let result = session.rekey_password(
         &storage,
         &keystore,
-        VaultRekeyRequest {
-            current_password: "old-password".to_string(),
-            new_password: "new-password".to_string(),
-        },
+        VaultRekeyRequest::new("old-password", "new-password"),
         &|| {
             let next = calls.get().saturating_add(1);
             calls.set(next);
@@ -238,6 +231,9 @@ fn rekey_cancel_before_commit_rolls_back_staged_chunks() {
     assert!(!storage
         .artifact_exists(StorageArtifact::RekeyTransaction)
         .expect("transaction exists check"));
+    assert!(!storage
+        .artifact_exists(StorageArtifact::RekeyTransactionV2)
+        .expect("transaction v2 exists check"));
 
     let old_session = unlock(&storage, &keystore, "old-password");
     assert!(old_session.catalog().find_by_path("/cancel.txt").is_some());
@@ -262,10 +258,7 @@ fn rekey_tolerates_incomplete_blob_upload_placeholders() {
         .rekey_password(
             &storage,
             &keystore,
-            VaultRekeyRequest {
-                current_password: "old-password".to_string(),
-                new_password: "new-password".to_string(),
-            },
+            VaultRekeyRequest::new("old-password", "new-password"),
             &|| false,
             &mut |_| {},
         )
@@ -289,4 +282,45 @@ fn rekey_tolerates_incomplete_blob_upload_placeholders() {
     assert!(old_session.catalog().find_by_path("/partial.bin").is_none());
     let new_session = unlock(&storage, &keystore, "new-password");
     assert!(new_session.catalog().find_by_path("/partial.bin").is_some());
+}
+
+#[test]
+fn rekey_marker_v2_is_encrypted_and_dual_recipient() {
+    let (storage, _temp_dir, _keystore) = setup_storage();
+    let old_key = [7_u8; crate::types::KEY_SIZE];
+    let new_key = [9_u8; crate::types::KEY_SIZE];
+    let other_key = [3_u8; crate::types::KEY_SIZE];
+    let transaction = RekeyTransaction {
+        version: REKEY_TX_VERSION,
+        phase: DurableTxPhase::Committing,
+        old_chunks: vec!["old-secret-chunk".to_string()],
+        new_chunks: vec!["new-secret-chunk".to_string()],
+        derivative_chunks: vec!["derivative-secret-chunk".to_string()],
+    };
+
+    write_rekey_marker(&storage, &old_key, &new_key, &transaction).expect("write marker");
+
+    assert!(!storage
+        .artifact_exists(StorageArtifact::RekeyTransaction)
+        .expect("legacy marker exists check"));
+    let marker_bytes = storage
+        .read_artifact(StorageArtifact::RekeyTransactionV2)
+        .expect("read marker")
+        .expect("marker exists");
+    let marker_text = String::from_utf8_lossy(&marker_bytes);
+    assert!(!marker_text.contains("old-secret-chunk"));
+    assert!(!marker_text.contains("new-secret-chunk"));
+    assert!(!marker_text.contains("derivative-secret-chunk"));
+
+    let old_loaded = load_rekey_marker_for_key(&storage, &old_key)
+        .expect("load old")
+        .expect("old recipient");
+    assert_eq!(old_loaded.old_chunks, transaction.old_chunks);
+    let new_loaded = load_rekey_marker_for_key(&storage, &new_key)
+        .expect("load new")
+        .expect("new recipient");
+    assert_eq!(new_loaded.new_chunks, transaction.new_chunks);
+    assert!(load_rekey_marker_for_key(&storage, &other_key)
+        .expect("load other")
+        .is_none());
 }

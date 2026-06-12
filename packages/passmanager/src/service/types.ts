@@ -322,6 +322,7 @@ export interface ManagerSaver {
   getOTPSeckey(id: string): Promise<string | undefined>
   removeOTP(id: OTPId): Promise<boolean>
   saveOTP(id: OTPId, secret: string): Promise<boolean>
+  renameOTPLabel?(id: OTPId, previousLabel: string, nextLabel: string): Promise<boolean>
   readEntrySecret(entryId: string, slot: PassManagerSecretSlot): Promise<string | undefined>
   saveEntrySecret(entryId: string, slot: PassManagerSecretSlot, value: string | null): Promise<boolean>
   removeEntrySecret(entryId: string, slot: PassManagerSecretSlot): Promise<boolean>

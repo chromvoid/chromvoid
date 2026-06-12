@@ -11,11 +11,21 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once};
 
 static SHARED_PROVIDER_TEST_LOCK: Mutex<()> = Mutex::new(());
+static TEST_ENV_INIT: Once = Once::new();
+
+fn enable_local_core_test_keystore() {
+    TEST_ENV_INIT.call_once(|| {
+        std::env::set_var("CHROMVOID_TEST_INMEMORY_KEYSTORE", "1");
+        std::env::set_var("CHROMVOID_TEST_FAST_KDF", "1");
+    });
+}
 
 fn unlocked_adapter() -> (tempfile::TempDir, Box<dyn crate::CoreAdapter>) {
+    enable_local_core_test_keystore();
+
     let tmp = tempfile::tempdir().expect("tempdir");
     let storage_root = tmp.path().join("storage");
     let license_store = test_pro_license_store(tmp.path().join("license"));
@@ -144,7 +154,13 @@ fn ensure_entry(adapter: &mut dyn crate::CoreAdapter) {
     let _ = adapter.handle_with_stream(
         &RpcRequest::new(
             "catalog:secret:write".to_string(),
-            json!({"node_id": pwd_node, "size": pwd.len()}),
+            json!({
+                "node_id": pwd_node,
+                "total_size": pwd.len(),
+                "size": pwd.len(),
+                "offset": 0,
+                "finish": true,
+            }),
         ),
         Some(chromvoid_core::rpc::RpcInputStream::from_bytes(pwd)),
     );
@@ -322,10 +338,16 @@ fn password_save_requests_register_and_finish_once() {
     )
     .expect("finish");
     assert!(finished);
-    let (_, state) = password_save::get_password_save_request(&runtime, &token)
-        .expect("store")
-        .expect("state");
-    assert_eq!(state, password_save::PasswordSaveRequestState::Saved);
+    assert!(
+        password_save::get_password_save_request(&runtime, &token)
+            .expect("store")
+            .is_none(),
+        "finished request payload should be removed"
+    );
+    assert_eq!(
+        password_save::pending_password_save_request_count(&runtime).expect("count"),
+        0
+    );
 
     let duplicate = password_save::finish_password_save_request(
         &runtime,
@@ -334,6 +356,21 @@ fn password_save_requests_register_and_finish_once() {
     )
     .expect("duplicate finish");
     assert!(!duplicate);
+}
+
+#[test]
+fn password_save_payload_debug_redacts_password() {
+    let payload = password_save::AndroidPasswordSavePayload {
+        title: "github.com".to_string(),
+        username: "alice@example.com".to_string(),
+        password: "pw-123".to_string(),
+        urls: "https://github.com/login".to_string(),
+    };
+
+    let debug = format!("{payload:?}");
+
+    assert!(!debug.contains("pw-123"));
+    assert!(debug.contains("<redacted>"));
 }
 
 #[test]
@@ -356,10 +393,16 @@ fn password_save_requests_are_invalidated_explicitly() {
     let invalidated = password_save::invalidate_all_password_save_requests(&runtime, "background");
     assert_eq!(invalidated, 1);
 
-    let (_, state) = password_save::get_password_save_request(&runtime, &token)
-        .expect("store")
-        .expect("state");
-    assert_eq!(state, password_save::PasswordSaveRequestState::Dismissed);
+    assert!(
+        password_save::get_password_save_request(&runtime, &token)
+            .expect("store")
+            .is_none(),
+        "invalidated request payload should be removed"
+    );
+    assert_eq!(
+        password_save::pending_password_save_request_count(&runtime).expect("count"),
+        0
+    );
 }
 
 #[test]
@@ -410,7 +453,7 @@ fn password_save_mark_launched_is_one_shot() {
 }
 
 #[test]
-fn runtime_password_save_request_fails_closed_for_terminal_states() {
+fn runtime_password_save_request_fails_closed_after_finish() {
     let _shared_provider_lock = SHARED_PROVIDER_TEST_LOCK
         .lock()
         .expect("shared provider test lock");
@@ -435,8 +478,43 @@ fn runtime_password_save_request_fails_closed_for_terminal_states() {
     let response = password_save::runtime_password_save_request_with_runtime(&runtime, &token);
     assert_eq!(response.get("ok").and_then(|v| v.as_bool()), Some(false));
     assert_eq!(
-        response.get("state").and_then(|v| v.as_str()),
-        Some("dismissed")
+        response.get("message").and_then(|v| v.as_str()),
+        Some("Password save request is no longer valid")
+    );
+}
+
+#[test]
+fn password_save_requests_are_removed_after_expiry() {
+    let _shared_provider_lock = SHARED_PROVIDER_TEST_LOCK
+        .lock()
+        .expect("shared provider test lock");
+    let runtime = password_save::AndroidPasswordSaveRuntimeState::new();
+    let token = password_save::register_password_save_request(
+        &runtime,
+        password_save::AndroidPasswordSavePayload {
+            title: "github.com".to_string(),
+            username: "alice@example.com".to_string(),
+            password: "pw-123".to_string(),
+            urls: "https://github.com/login".to_string(),
+        },
+    )
+    .expect("token");
+    assert!(password_save::force_password_save_request_age(
+        &runtime,
+        &token,
+        std::time::Duration::from_secs(301),
+    )
+    .expect("age request"));
+
+    assert!(
+        password_save::get_password_save_request(&runtime, &token)
+            .expect("store")
+            .is_none(),
+        "expired request payload should be removed"
+    );
+    assert_eq!(
+        password_save::pending_password_save_request_count(&runtime).expect("count"),
+        0
     );
 }
 
@@ -551,8 +629,8 @@ fn passkey_requests_fail_closed_when_adapter_is_not_local() {
     impl crate::CoreAdapter for RemoteAdapter {
         fn mode(&self) -> crate::CoreMode {
             crate::CoreMode::Remote {
-                host: RemoteHost::MobileBle {
-                    device_id: "remote-device".to_string(),
+                host: RemoteHost::TauriRemoteWss {
+                    peer_id: "remote-device".to_string(),
                 },
             }
         }

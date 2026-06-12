@@ -92,7 +92,11 @@ impl RpcRouter {
             }));
         }
 
-        if let Err(error) = DerivativeStore::commit_write(snapshot, write_result) {
+        if let Err(error) = DerivativeStore::commit_write_with_index(
+            snapshot,
+            write_result,
+            self.derivative_index_state.as_ref(),
+        ) {
             return Err(CatalogDerivativeSplitWriteError::internal(error.message));
         }
 

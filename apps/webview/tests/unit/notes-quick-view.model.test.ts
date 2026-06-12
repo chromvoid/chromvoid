@@ -304,6 +304,29 @@ describe('NotesQuickViewModel', () => {
     model.disconnect()
   })
 
+  it('exposes load failure state and retries notes loading explicitly', async () => {
+    const {model, listNotes} = createModel({
+      listNotes: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('notes failed'))
+        .mockResolvedValueOnce(notesResponse([note(2, 'Recovered.md', '/Recovered.md')])),
+    })
+
+    model.connect()
+    await waitFor(() => model.state.loadErrorKey() === 'notes:quick_view:error:load_failed')
+
+    expect(rowNames(model.rows())).toEqual([])
+    expect(model.summary()).toEqual({total: 0, visible: 0})
+
+    model.actions.retryLoad()
+
+    await waitForRows(model, ['Recovered.md'])
+    expect(model.state.loadErrorKey()).toBeNull()
+    expect(listNotes).toHaveBeenCalledTimes(2)
+
+    model.disconnect()
+  })
+
   it('loads notes after transport reconnects', async () => {
     const {model, connected, listNotes} = createModel({
       response: notesResponse([note(1, 'Root.md', '/Root.md')]),

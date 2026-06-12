@@ -309,6 +309,9 @@ mod tests {
             catalog_blocking_io_runtime: Arc::new(
                 crate::catalog_blocking_io::CatalogBlockingIoRuntimeState::new(),
             ),
+            host_path_capabilities: Arc::new(
+                crate::host_path_capability::HostPathCapabilityRegistry::new(),
+            ),
             task_lifecycle: Arc::new(crate::task_lifecycle::TaskLifecycleRuntime::new()),
             image_preview_runtime: Arc::new(crate::image_preview::ImagePreviewRuntimeState::new()),
             prepared_preview_runtime: Arc::new(
@@ -320,6 +323,9 @@ mod tests {
                 crate::network::pairing::NetworkPairingRuntimeState::new(),
             ),
             remote_io_runtime: Arc::new(crate::remote_io_runtime::RemoteIoRuntimeState::new()),
+            mode_transition_coordinator: Arc::new(
+                crate::mode_transition_coordinator::ModeTransitionCoordinator::new(),
+            ),
             mobile_acceptor_runtime: Arc::new(
                 crate::network::mobile_acceptor::MobileAcceptorRuntimeState::new(),
             ),
@@ -375,8 +381,8 @@ mod tests {
     fn ssh_agent_privileged_commands_require_local_mode() {
         let error = ensure_local_mode(
             CoreMode::Remote {
-                host: RemoteHost::MobileBle {
-                    device_id: "peer".to_string(),
+                host: RemoteHost::TauriRemoteWss {
+                    peer_id: "peer".to_string(),
                 },
             },
             "ssh_agent_start",

@@ -20,7 +20,12 @@ export class NoConnection extends ReatomLitElement {
 
   private handleRetry() {
     try {
-      getAppContext().ws?.connect()
+      const {store, ws} = getAppContext()
+      if (store.bootstrapFatalError?.()) {
+        location.reload()
+        return
+      }
+      ws?.connect()
     } catch {}
   }
 

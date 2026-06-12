@@ -118,6 +118,7 @@ const renderLeadingVisual = (data: FileItemRenderData, fileTypeClass: string) =>
           class="thumbnail-image"
           src=${thumbnailUrl}
           alt=""
+          loading="lazy"
           decoding="async"
           @error=${callbacks.onThumbnailError}
         />

@@ -35,7 +35,7 @@
     "test": "echo \"No tests defined\"",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "prepublishOnly": "npm run type-check",
+    "prepublishOnly": "bun run type-check",
     "fix": "oxlint --fix **/*.{ts,tsx}"
   },
   "keywords": [
@@ -49,9 +49,9 @@
     "lit": "^3.0.0"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^4.1.1",
-    "typescript": "^6.0.2",
-    "vitest": "^4.1.1"
+    "@vitest/coverage-v8": "^4.1.8",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
   },
   "engines": {
     "node": ">=20.0.0"

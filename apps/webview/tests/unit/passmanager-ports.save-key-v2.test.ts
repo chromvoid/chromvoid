@@ -41,6 +41,7 @@ function createRepo(opts?: {
           case 'passmanager:group:delete':
             return {ok: true, result: undefined}
           case 'passmanager:group:setMeta':
+          case 'passmanager:tags:setCatalog':
             return {ok: true, result: undefined}
           case 'passmanager:root:export':
             return {ok: true, result: {root: {version: 2, entries: [], folders: []}}}
@@ -255,6 +256,83 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
     expect(lastSavePayload['icon_ref']).toBe(iconRef)
   })
 
+  it('saveEntryMeta sends login metadata with OTP through one domain entry:save command', async () => {
+    const urls = [{match: 'domain' as const, value: 'https://example.com'}]
+    const otps = [
+      {
+        id: 'otp-1',
+        label: 'Primary',
+        algorithm: 'SHA1' as const,
+        digits: 6,
+        period: 30,
+        encoding: 'base16' as const,
+        type: 'TOTP' as const,
+      },
+    ]
+    const sshKeys = [
+      {
+        id: 'ssh-1',
+        type: 'ed25519',
+        fingerprint: 'SHA256:ssh-1',
+        name: 'Laptop',
+      },
+    ]
+
+    const ok = await ctx.repo.saveEntryMeta({
+      id: 'entry-otp-full',
+      entryType: 'login',
+      title: 'OTP entry',
+      urls,
+      username: 'alice',
+      otps,
+      sshKeys,
+      tags: ['  Work ', 'work'],
+      groupPath: 'Common',
+      iconRef,
+    })
+
+    expect(ok).toBe(true)
+
+    const saveCalls = ctx.sendCatalog.mock.calls.filter((call) => call[0] === 'passmanager:entry:save')
+    expect(saveCalls).toHaveLength(1)
+    expect(saveCalls[0]?.[1]).toMatchObject({
+      entry_id: 'entry-otp-full',
+      entry_type: 'login',
+      title: 'OTP entry',
+      username: 'alice',
+      urls,
+      otps: [
+        {
+          id: 'otp-1',
+          label: 'Primary',
+          algorithm: 'SHA1',
+          digits: 6,
+          period: 30,
+          encoding: 'hex',
+          type: 'TOTP',
+        },
+      ],
+      sshKeys,
+      tags: ['Work'],
+      group_path: 'Common',
+      icon_ref: iconRef,
+    })
+  })
+
+  it('saveEntryMeta queues catalog refresh instead of awaiting full refresh', async () => {
+    const ok = await ctx.repo.saveEntryMeta({
+      id: 'entry-refresh',
+      title: 'Refresh entry',
+      urls: [],
+      username: '',
+      otps: [],
+    })
+
+    expect(ok).toBe(true)
+    expect(ctx.catalog.refresh).not.toHaveBeenCalled()
+    expect(ctx.catalog.queueRefresh).toHaveBeenCalledWith(150)
+  })
+
   it('saveEntryMeta sends normalized tags including explicit clearing', async () => {
     const tagged = await ctx.repo.saveEntryMeta({
       id: 'entry-tags',
@@ -344,6 +422,14 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
       secret_type: 'password',
       value: '',
     })
+  })
+
+  it('saveEntryPassword queues catalog refresh instead of awaiting full refresh', async () => {
+    const ok = await ctx.repo.saveEntryPassword('entry-55', 'pass')
+
+    expect(ok).toBe(true)
+    expect(ctx.catalog.refresh).not.toHaveBeenCalled()
+    expect(ctx.catalog.queueRefresh).toHaveBeenCalledWith(150)
   })
 
   it('saveEntryPassword with null uses secret:delete', async () => {
@@ -583,7 +669,11 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
       (call) =>
         call[0] === 'passmanager:group:setMeta' && (call[1] as {icon_ref?: unknown})['icon_ref'] === null,
     )
-    expect(saveCalls).toHaveLength(2)
+    expect(saveCalls).toHaveLength(1)
+    expect(saveCalls[0]?.[1]).toMatchObject({
+      entry_id: 'otp-entry-1',
+      otps: [expect.objectContaining({id: 'otp-1', label: 'Main'})],
+    })
     expect(clearGroupMetaCalls).toHaveLength(0)
     expect(ctx.catalog.lastError.set).toHaveBeenCalled()
     const calls = ctx.catalog.lastError.set.mock.calls
@@ -646,7 +736,7 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
     expect(
       saveCalls.some(
         (call) =>
-          (call[1] as {id?: unknown})['id'] === 'otp-entry-1' &&
+          (call[1] as {entry_id?: unknown})['entry_id'] === 'otp-entry-1' &&
           Array.isArray((call[1] as {otps?: unknown})['otps']) &&
           ((call[1] as {otps?: unknown[]})['otps'] ?? []).length === 0,
       ),

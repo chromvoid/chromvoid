@@ -7,6 +7,22 @@ fn first_message_accepted() {
 }
 
 #[test]
+fn rejects_zero_message_id_without_advancing_window() {
+    let mut ar = AntiReplay::new();
+    assert_eq!(ar.check(0).unwrap_err(), "invalid message_id");
+    assert!(ar.check(1).is_ok());
+    assert_eq!(ar.check(0).unwrap_err(), "invalid message_id");
+}
+
+#[test]
+fn rejects_zero_message_id_even_as_active_stream() {
+    let mut ar = AntiReplay::new();
+    ar.set_active_stream(0);
+    assert_eq!(ar.check(0).unwrap_err(), "invalid message_id");
+    assert!(ar.check(1).is_ok());
+}
+
+#[test]
 fn monotonic_enforcement() {
     let mut ar = AntiReplay::new();
     assert!(ar.check(5).is_ok());

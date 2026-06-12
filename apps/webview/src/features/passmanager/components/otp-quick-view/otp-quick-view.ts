@@ -3,8 +3,8 @@ import {html} from '@chromvoid/uikit/reatom-lit'
 
 import {CvEmptyState} from 'root/shared/ui/empty-state'
 import {PMEntryOTPItem} from '../card/pm-entry-otp-item'
-import {PMSummaryRail} from '../summary-rail'
 import {PMOtpQuickViewBase} from './otp-quick-view-base'
+import {PMOtpQuickViewSearch} from './otp-quick-view-search'
 import {otpQuickViewStyles} from './otp-quick-view.styles'
 
 export class PMOtpQuickView extends PMOtpQuickViewBase {
@@ -15,17 +15,9 @@ export class PMOtpQuickView extends PMOtpQuickViewBase {
         padding: var(--app-surface-gutter-desktop);
       }
 
-      .row {
-        grid-template-columns: minmax(190px, 0.72fr) minmax(260px, 1fr);
-        align-items: center;
-        gap: var(--cv-space-2);
-        padding: var(--cv-space-2);
-      }
-
-      @container (width < 760px) {
-        .row {
-          grid-template-columns: 1fr;
-        }
+      .rows {
+        gap: var(--cv-space-3) var(--cv-space-4);
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
       }
     `,
   ]
@@ -33,7 +25,7 @@ export class PMOtpQuickView extends PMOtpQuickViewBase {
   static define() {
     CvEmptyState.define()
     PMEntryOTPItem.define()
-    PMSummaryRail.define()
+    PMOtpQuickViewSearch.define()
     if (!customElements.get('pm-otp-quick-view')) {
       customElements.define('pm-otp-quick-view', this)
     }
@@ -42,7 +34,7 @@ export class PMOtpQuickView extends PMOtpQuickViewBase {
   render() {
     return html`
       <section class="quick-view" data-layout="desktop">
-        ${this.renderHeader()} ${this.renderSummaryRail()} ${this.renderContent()}
+        <div class="quick-view__content">${this.renderContent()}</div>
       </section>
     `
   }

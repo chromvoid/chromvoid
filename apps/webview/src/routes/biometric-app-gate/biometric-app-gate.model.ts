@@ -183,7 +183,7 @@ export class BiometricAppGateModel {
 
   private async runGate(entrypoint: Exclude<BiometricAppGateEntrypoint, null>): Promise<void> {
     if (this.promptPromise) {
-      await this.promptPromise
+      await wrap(this.promptPromise)
       return
     }
 
@@ -202,7 +202,7 @@ export class BiometricAppGateModel {
     }
 
     try {
-      await this.ensureSessionSettingsLoaded()
+      await wrap(this.ensureSessionSettingsLoaded())
       this.refreshRuntimeFlags()
 
       if (!this.enabled()) {
@@ -219,7 +219,7 @@ export class BiometricAppGateModel {
         }
       })
       this.promptPromise = pending
-      await pending
+      await wrap(pending)
     } finally {
       this.loading.set(false)
     }
@@ -256,15 +256,10 @@ export class BiometricAppGateModel {
 
       const code = normalizeBiometricErrorCode(!isOk(res) ? res.code : null)
       const message = !isOk(res) ? res.error : 'Biometric check failed'
-      if (code === 'BIOMETRIC_DENIED' || code === 'BIOMETRIC_CANCELLED') {
-        this.block(code, message)
-        return
-      }
-
-      this.fallbackCurrentFlow(code, message)
+      this.block(code, message)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Biometric check failed'
-      this.fallbackCurrentFlow('BIOMETRIC_INTERNAL', message)
+      this.block('BIOMETRIC_INTERNAL', message)
     }
   }
 
@@ -272,17 +267,7 @@ export class BiometricAppGateModel {
     this.lastErrorCode.set(code)
     this.lastErrorMessage.set(message)
     this.phase.set('blocked')
-  }
-
-  private fallbackCurrentFlow(code: BiometricAuthCode, message: string): void {
-    this.lastErrorCode.set(code)
-    this.lastErrorMessage.set(message)
-    this.phase.set('disabled')
-    getAppContext().store.pushNotification(
-      'warning',
-      i18n('biometric-app-gate:fallback-warning'),
-    )
-    console.warn('[biometric-app-gate] safe fallback', {
+    console.warn('[biometric-app-gate] prompt blocked', {
       code,
       message,
       entrypoint: this.entrypoint(),

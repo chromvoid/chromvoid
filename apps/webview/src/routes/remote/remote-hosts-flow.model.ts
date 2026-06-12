@@ -255,20 +255,20 @@ export class RemoteHostsFlowModel {
     this.pairError.set(null)
 
     if (this.isMobileHostRuntime()) {
-      await this.startIosHostMode()
+      await wrap(this.startIosHostMode())
       return this.pairPhase() !== 'failed'
     }
 
     this.errorText.set(null)
     this.statusText.set(i18n('welcome:remote-pairing'))
 
-    await this.pairDesktopToIos()
+    await wrap(this.pairDesktopToIos())
     if (this.pairPhase() !== 'success') {
       this.statusText.set(null)
       return false
     }
 
-    await this.loadPeers()
+    await wrap(this.loadPeers())
     this.statusText.set(i18n('welcome:remote-pairing-done'))
     this.resetPairingState({clearDesktopInputs: true})
     this.showHosts()
@@ -310,7 +310,7 @@ export class RemoteHostsFlowModel {
 
     try {
       await wrap(removeNetworkPairedPeer(peer.peer_id))
-      await this.loadPeers()
+      await wrap(this.loadPeers())
       this.statusText.set(i18n('welcome:remote-removed'))
       return true
     } catch (e) {
@@ -330,28 +330,28 @@ export class RemoteHostsFlowModel {
     this.stopPeerPolling()
 
     try {
-      const modeInfo = await this.safeGetModeStatus()
+      const modeInfo = await wrap(this.safeGetModeStatus())
       if (modeInfo && isRemoteMode(modeInfo.mode)) {
         const modePeerId = this.resolveModeRemotePeerId(modeInfo)
         const activePeerId = this.resolveActiveRemotePeerId(modeInfo)
         if (modePeerId === peerId && activePeerId === peerId) {
-          await remoteSessionModel.syncNow()
-          await this.refreshModeState()
+          await wrap(remoteSessionModel.syncNow())
+          await wrap(this.refreshModeState())
           this.statusText.set(i18n('welcome:remote-connected-wait'))
           this.view.set('wait')
           return true
         }
 
-        await this.restoreLocalModeIfNeeded()
+        await wrap(this.restoreLocalModeIfNeeded())
       }
 
       await wrap(switchMode('remote', peerId))
-      await this.refreshModeState()
+      await wrap(this.refreshModeState())
       if (!this.transportConnected()) {
         throw new Error(i18n('welcome:remote-transport-not-ready'))
       }
 
-      await remoteSessionModel.syncNow()
+      await wrap(remoteSessionModel.syncNow())
       this.statusText.set(i18n('welcome:remote-connected-wait'))
       this.view.set('wait')
       return true
@@ -369,13 +369,13 @@ export class RemoteHostsFlowModel {
 
   async disconnectTransport(): Promise<void> {
     this.statusText.set(i18n('welcome:disconnecting'))
-    await this.restoreLocalModeIfNeeded()
+    await wrap(this.restoreLocalModeIfNeeded())
     this.statusText.set(null)
     this.view.set('hosts')
   }
 
   async exitPreAuthRemote(): Promise<void> {
-    await this.restoreLocalModeIfNeeded()
+    await wrap(this.restoreLocalModeIfNeeded())
     this.reset()
   }
 
@@ -394,7 +394,7 @@ export class RemoteHostsFlowModel {
     const requestId = ++this.hostStatusGeneration
 
     try {
-      const relayUrl = await this.resolveRelayUrl()
+      const relayUrl = await wrap(this.resolveRelayUrl())
       if (!this.isHostStatusCurrent(requestId)) return
       const status = await wrap(
         tauriInvoke<MobileHostStatus>('mobile_host_start', {
@@ -489,7 +489,7 @@ export class RemoteHostsFlowModel {
       if (!this.isHostStatusCurrent(requestId)) return
       this.applyHostStatus(status)
       if (this.shouldAutoRefreshPresence(status)) {
-        await this.refreshPresenceInternal(false, requestId)
+        await wrap(this.refreshPresenceInternal(false, requestId))
       }
       if (!this.isHostStatusCurrent(requestId)) return
       if (status.phase === 'Pairing' || status.phase === 'Ready') {
@@ -517,14 +517,14 @@ export class RemoteHostsFlowModel {
   ): Promise<void> {
     if (!this.isMobileHostRuntime()) return
     if (this.presenceRefreshPromise) {
-      await this.presenceRefreshPromise
+      await wrap(this.presenceRefreshPromise)
       return
     }
 
     const requestId = ++this.presenceRefreshGeneration
     this.presenceRefreshPromise = (async () => {
       try {
-        const relayUrl = this.hostStatus()?.relay_url ?? (await this.resolveRelayUrl())
+        const relayUrl = this.hostStatus()?.relay_url ?? (await wrap(this.resolveRelayUrl()))
         if (!this.isPresenceRefreshCurrent(requestId) || !this.isHostStatusCurrent(hostRequestId)) return
         const status = await wrap(tauriInvoke<MobileHostStatus>('mobile_host_publish_presence', {relayUrl}))
         if (!this.isPresenceRefreshCurrent(requestId) || !this.isHostStatusCurrent(hostRequestId)) return
@@ -542,7 +542,7 @@ export class RemoteHostsFlowModel {
       }
     })()
 
-    await this.presenceRefreshPromise
+    await wrap(this.presenceRefreshPromise)
   }
 
   private applyHostStatus(status: MobileHostStatus): void {
@@ -572,7 +572,7 @@ export class RemoteHostsFlowModel {
   private async refreshModeState(): Promise<void> {
     if (this.isMobileHostRuntime()) return
     const requestId = ++this.modeRefreshGeneration
-    const modeInfo = await this.safeGetModeStatus(requestId)
+    const modeInfo = await wrap(this.safeGetModeStatus(requestId))
     if (!this.isModeRefreshCurrent(requestId)) return
     const previousPeerId = this.transportConnectedPeerId()
     const nextPeerId = this.resolveActiveRemotePeerId(modeInfo)
@@ -606,7 +606,7 @@ export class RemoteHostsFlowModel {
     this.stopModePolling()
     this.stopPeerPolling()
     this.invalidateModeRefreshes()
-    const modeInfo = await this.safeGetModeStatus()
+    const modeInfo = await wrap(this.safeGetModeStatus())
     if (modeInfo && isRemoteMode(modeInfo.mode)) {
       try {
         await wrap(switchMode('local'))

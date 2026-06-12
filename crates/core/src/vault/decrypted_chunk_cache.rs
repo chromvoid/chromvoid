@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use zeroize::Zeroizing;
 
@@ -35,7 +35,7 @@ pub struct DecryptedChunkCacheStats {
 }
 
 struct CacheEntry {
-    plaintext: Zeroizing<Vec<u8>>,
+    plaintext: Arc<Zeroizing<Vec<u8>>>,
     last_access: u64,
 }
 
@@ -74,7 +74,7 @@ impl DecryptedChunkCache {
         self.lock_state().generation
     }
 
-    pub fn get(&self, key: &DecryptedChunkCacheKey) -> Option<Zeroizing<Vec<u8>>> {
+    pub fn get(&self, key: &DecryptedChunkCacheKey) -> Option<Arc<Zeroizing<Vec<u8>>>> {
         if key.source_revision == 0 || self.max_bytes == 0 || self.max_entries == 0 {
             return None;
         }
@@ -102,7 +102,7 @@ impl DecryptedChunkCache {
         };
 
         entry.last_access = access;
-        let plaintext = entry.plaintext.clone();
+        let plaintext = Arc::clone(&entry.plaintext);
         state.hits = state.hits.saturating_add(1);
         tracing::debug!(
             "decrypted-chunk-cache:hit node_id={} source_revision={} chunk_index={} chunk_bytes={} cache_bytes={} entries={} generation={}",
@@ -118,13 +118,26 @@ impl DecryptedChunkCache {
     }
 
     pub fn insert(&self, generation: u64, key: DecryptedChunkCacheKey, plaintext: &[u8]) {
+        self.insert_shared(
+            generation,
+            key,
+            Arc::new(Zeroizing::new(plaintext.to_vec())),
+        );
+    }
+
+    pub fn insert_shared(
+        &self,
+        generation: u64,
+        key: DecryptedChunkCacheKey,
+        plaintext: Arc<Zeroizing<Vec<u8>>>,
+    ) -> bool {
         if key.source_revision == 0
             || self.max_bytes == 0
             || self.max_entries == 0
             || plaintext.is_empty()
             || plaintext.len() > self.max_bytes
         {
-            return;
+            return false;
         }
 
         let mut state = self.lock_state();
@@ -139,7 +152,7 @@ impl DecryptedChunkCache {
                 state.entries.len(),
                 state.generation
             );
-            return;
+            return false;
         }
 
         state.access_counter = state.access_counter.saturating_add(1);
@@ -153,7 +166,7 @@ impl DecryptedChunkCache {
         state.entries.insert(
             key,
             CacheEntry {
-                plaintext: Zeroizing::new(plaintext.to_vec()),
+                plaintext,
                 last_access: access,
             },
         );
@@ -168,6 +181,7 @@ impl DecryptedChunkCache {
             state.generation
         );
         self.evict_over_capacity(&mut state);
+        true
     }
 
     pub fn invalidate_node(&self, node_id: u64) {
@@ -287,7 +301,10 @@ mod tests {
         let generation = cache.generation();
         cache.insert(generation, key(7, 11, 0), b"abcd");
 
-        assert_eq!(&*cache.get(&key(7, 11, 0)).expect("cache hit"), b"abcd");
+        assert_eq!(
+            cache.get(&key(7, 11, 0)).expect("cache hit").as_slice(),
+            b"abcd"
+        );
         let stats = cache.stats();
         assert_eq!(stats.entries, 1);
         assert_eq!(stats.hits, 1);
@@ -346,13 +363,22 @@ mod tests {
         let generation = cache.generation();
         cache.insert(generation, key(7, 11, 0), b"aaaa");
         cache.insert(generation, key(7, 11, 1), b"bbbb");
-        assert_eq!(&*cache.get(&key(7, 11, 0)).expect("cache hit"), b"aaaa");
+        assert_eq!(
+            cache.get(&key(7, 11, 0)).expect("cache hit").as_slice(),
+            b"aaaa"
+        );
 
         cache.insert(generation, key(7, 11, 2), b"cccc");
 
         assert!(cache.get(&key(7, 11, 1)).is_none());
-        assert_eq!(&*cache.get(&key(7, 11, 0)).expect("cache hit"), b"aaaa");
-        assert_eq!(&*cache.get(&key(7, 11, 2)).expect("cache hit"), b"cccc");
+        assert_eq!(
+            cache.get(&key(7, 11, 0)).expect("cache hit").as_slice(),
+            b"aaaa"
+        );
+        assert_eq!(
+            cache.get(&key(7, 11, 2)).expect("cache hit").as_slice(),
+            b"cccc"
+        );
         assert_eq!(cache.stats().evictions, 1);
     }
 
@@ -366,7 +392,10 @@ mod tests {
         cache.invalidate_node(7);
 
         assert!(cache.get(&key(7, 11, 0)).is_none());
-        assert_eq!(&*cache.get(&key(8, 11, 0)).expect("cache hit"), b"bbbb");
+        assert_eq!(
+            cache.get(&key(8, 11, 0)).expect("cache hit").as_slice(),
+            b"bbbb"
+        );
         assert_eq!(cache.stats().entries, 1);
         cache.insert(generation, key(7, 11, 1), b"cccc");
         assert!(cache.get(&key(7, 11, 1)).is_none());
@@ -391,6 +420,9 @@ mod tests {
         assert!(cache.get(&key(7, 11, 0)).is_none());
 
         cache.insert(recovered_generation, key(7, 12, 0), b"bbbb");
-        assert_eq!(&*cache.get(&key(7, 12, 0)).expect("cache hit"), b"bbbb");
+        assert_eq!(
+            cache.get(&key(7, 12, 0)).expect("cache hit").as_slice(),
+            b"bbbb"
+        );
     }
 }

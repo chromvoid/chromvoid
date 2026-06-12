@@ -1,5 +1,5 @@
 #[cfg(not(target_os = "android"))]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use std::io::Read;
 #[cfg(not(target_os = "android"))]
@@ -212,12 +212,24 @@ impl BackupSink for PathBackupSink {
             .map_err(|e| format!("Failed to write {name}: sync temp file: {e}"))?;
         temp.persist(&path)
             .map_err(|e| format!("Failed to write {name}: replace target: {}", e.error))?;
+        sync_backup_directory(&self.backup_dir)
+            .map_err(|e| format!("Failed to write {name}: sync backup directory: {e}"))?;
         Ok(written)
     }
 
     fn abort(&mut self) {
         let _ = std::fs::remove_dir_all(&self.backup_dir);
     }
+}
+
+#[cfg(all(unix, not(target_os = "android")))]
+fn sync_backup_directory(path: &Path) -> std::io::Result<()> {
+    std::fs::File::open(path)?.sync_all()
+}
+
+#[cfg(all(not(unix), not(target_os = "android")))]
+fn sync_backup_directory(_path: &Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 #[cfg(not(target_os = "android"))]
@@ -414,5 +426,18 @@ mod tests {
             std::fs::read(tempdir.path().join("manifest.json")).expect("read manifest"),
             b"second"
         );
+    }
+
+    #[test]
+    fn path_backup_directory_sync_helper_requires_existing_directory() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        sync_backup_directory(tempdir.path()).expect("sync existing directory");
+
+        #[cfg(unix)]
+        {
+            let missing = tempdir.path().join("missing");
+            let error = sync_backup_directory(&missing).expect_err("missing directory");
+            assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        }
     }
 }

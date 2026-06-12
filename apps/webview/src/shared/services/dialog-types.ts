@@ -33,6 +33,7 @@ export interface InputDialogOptions extends BaseDialogOptions {
   required?: boolean
   maxLength?: number
   type?: 'text' | 'password' | 'email' | 'url'
+  performanceScope?: string
 }
 
 export interface ConfirmDialogOptions extends BaseDialogOptions {
@@ -163,9 +164,6 @@ export function combineValidators(...validators: ValidatorFunction[]): Validator
         return {valid: false, message: result}
       } else if (result && !result.valid) {
         return result
-      } else if (result === null && validators.indexOf(validator) === 0) {
-        // If the first validator returns the null, we assume it is a mistake.
-        return {valid: false}
       }
     }
 

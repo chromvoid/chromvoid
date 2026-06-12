@@ -1,4 +1,5 @@
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import type {CVMenuButtonInputEvent} from '@chromvoid/uikit/components/cv-menu-button'
 import {nothing, type PropertyValues, type TemplateResult} from 'lit'
 
 import {navigationModel} from 'root/app/navigation/navigation.model'
@@ -13,8 +14,10 @@ import {
 } from 'root/core/pro/module-access.model'
 import {guidanceCompletionBridge, guidanceModel} from 'root/core/guidance'
 import {i18n} from 'root/i18n'
+import type {HostPathTokenGrant} from 'root/core/transport/transport'
 import {getAppContext, getRouter} from 'root/shared/services/app-context'
 import {openCommandPalette} from 'root/shared/services/command-palette'
+import {renderRouteBackLink} from 'root/shared/ui/route-back-link'
 import {subscribeAfterInitial} from 'root/shared/services/subscribed-signal'
 import {
   emitFileActionCommand,
@@ -23,7 +26,16 @@ import {
   type FileOpenCommand,
 } from 'root/shared/services/file-command-service'
 import type {Routes} from 'root/app/router/router'
+import type {SearchFilters} from 'root/shared/contracts/file-manager'
 import {getFileManagerModel} from 'root/features/file-manager/file-manager.model'
+import {
+  definePasswordManagerDesktopToolbarContent,
+  executePasswordManagerDesktopToolbarButtonEvent,
+  executePasswordManagerDesktopToolbarMenuInput,
+  renderPasswordManagerDesktopToolbarContent,
+} from 'root/features/passmanager/components/password-manager-layout/password-manager-desktop-toolbar-content'
+import {passwordManagerDesktopLayoutModel} from 'root/features/passmanager/components/password-manager-layout/password-manager-layout.model'
+import {remoteStorageModel} from './remote-storage/remote-storage.model'
 import {viewTransition} from 'root/utils/view-transitions'
 
 import {FileAppShell} from 'root/features/shell/components/file-app-shell'
@@ -39,6 +51,13 @@ import {appRouteStyles} from './app.route.styles'
 import {ChromVoidAppModel, type MobileToolbarState} from './app.route.model'
 
 const STARTUP_ROUTE_READINESS_SETTLE_MS = 360
+
+type DesktopTitleToolbarOptions = {
+  title: string
+  subtitle?: string
+  backLabel?: string
+  onBack?: (event: Event) => void
+}
 
 declare global {
   interface Window {
@@ -61,6 +80,7 @@ export class ChromVoidApp extends ReatomLitElement {
     MediaPlaybackHost.define()
     AppGuidanceHost.define()
     BiometricAppGate.define()
+    definePasswordManagerDesktopToolbarContent()
   }
   static styles = appRouteStyles
 
@@ -157,19 +177,34 @@ export class ChromVoidApp extends ReatomLitElement {
       }
 
       if (surface === 'remote') {
-        return html`<remote-page .hideBackLink=${hideMobileBackLinks}></remote-page>`
+        return html`<remote-page
+          .hideBackLink=${hideMobileBackLinks}
+          .externalToolbar=${!hideMobileBackLinks}
+        ></remote-page>`
       }
       if (surface === 'gateway') {
-        return html`<gateway-page .hideBackLink=${hideMobileBackLinks}></gateway-page>`
+        return html`<gateway-page
+          .hideBackLink=${hideMobileBackLinks}
+          .externalToolbar=${!hideMobileBackLinks}
+        ></gateway-page>`
       }
       if (surface === 'remote-storage') {
-        return html`<remote-storage-page .hideBackLink=${hideMobileBackLinks}></remote-storage-page>`
+        return html`<remote-storage-page
+          .hideBackLink=${hideMobileBackLinks}
+          .externalToolbar=${!hideMobileBackLinks}
+        ></remote-storage-page>`
       }
       if (surface === 'settings') {
-        return html`<settings-page .hideBackLink=${hideMobileBackLinks}></settings-page>`
+        return html`<settings-page
+          .hideBackLink=${hideMobileBackLinks}
+          .externalToolbar=${!hideMobileBackLinks}
+        ></settings-page>`
       }
       if (surface === 'passkeys') {
-        return html`<passkeys-page .hideBackLink=${hideMobileBackLinks}></passkeys-page>`
+        return html`<passkeys-page
+          .hideBackLink=${hideMobileBackLinks}
+          .externalToolbar=${!hideMobileBackLinks}
+        ></passkeys-page>`
       }
       if (surface === 'passwords') {
         return html`<password-manager></password-manager>`
@@ -177,7 +212,7 @@ export class ChromVoidApp extends ReatomLitElement {
       if (surface === 'notes') {
         return store.layoutMode() === 'mobile'
           ? html`<notes-quick-view-mobile></notes-quick-view-mobile>`
-          : html`<notes-quick-view></notes-quick-view>`
+          : html`<notes-quick-view external-toolbar></notes-quick-view>`
       }
 
       if (this.model.markdownDocumentPending() || this.model.markdownDocumentData()) {
@@ -291,18 +326,228 @@ export class ChromVoidApp extends ReatomLitElement {
     `
   }
 
+  private renderDesktopTitleToolbar(options: DesktopTitleToolbarOptions): TemplateResult {
+    return html`
+      <desktop-shell-toolbar slot="desktop-topbar">
+        ${options.onBack
+          ? html`
+              <div slot="leading">
+                ${renderRouteBackLink({
+                  label: options.backLabel ?? i18n('nav:back'),
+                  onBack: options.onBack,
+                })}
+              </div>
+            `
+          : nothing}
+        <span slot="title">${options.title}</span>
+        ${options.subtitle ? html`<span slot="subtitle">${options.subtitle}</span>` : nothing}
+      </desktop-shell-toolbar>
+    `
+  }
+
+  private getDesktopTitleToolbarOptions(surface: SurfaceId): DesktopTitleToolbarOptions {
+    switch (surface) {
+      case 'notes':
+        return {
+          title: i18n('navigation:notes' as never),
+          subtitle: i18n('notes:quick_view:subtitle' as never),
+        }
+      case 'passwords':
+        return {title: i18n('navigation:passwords')}
+      case 'passkeys':
+        return {
+          title: i18n('passkeys:title'),
+          subtitle: i18n('passkeys:description'),
+          backLabel: i18n('nav:back'),
+          onBack: this.handleDesktopNavigationBack,
+        }
+      case 'settings':
+        return {
+          title: i18n('settings:title'),
+          subtitle: i18n('settings:subtitle'),
+          backLabel: i18n('nav:back'),
+          onBack: this.handleDesktopNavigationBack,
+        }
+      case 'remote':
+        return {
+          title: i18n('remote:title'),
+          subtitle: i18n('remote:subtitle'),
+          backLabel: i18n('navigation:files'),
+          onBack: this.handleDesktopNavigationBack,
+        }
+      case 'gateway':
+        return {
+          title: i18n('gateway:page-title'),
+          subtitle: i18n('gateway:page-subtitle'),
+          backLabel: i18n('gateway:back-to-files'),
+          onBack: this.handleDesktopNavigationBack,
+        }
+      case 'remote-storage':
+        return {
+          title: i18n('remote-storage:page-title'),
+          subtitle: i18n('remote-storage:page-subtitle'),
+          backLabel: i18n('remote-storage:back-to-storage'),
+          onBack: this.handleDesktopRemoteStorageBack,
+        }
+      case 'files':
+      default:
+        return {title: i18n('navigation:files')}
+    }
+  }
+
+  private renderBlockedSurfaceDesktopTopbar(surface: SurfaceId): TemplateResult {
+    return this.renderDesktopTitleToolbar(this.getDesktopTitleToolbarOptions(surface))
+  }
+
+  private renderFilesDesktopTopbar(): TemplateResult {
+    const model = getFileManagerModel(getAppContext())
+
+    return html`
+      <dashboard-header
+        slot="desktop-topbar"
+        .currentPath=${model.currentPath()}
+        .filters=${model.searchFilters()}
+        .filterActions=${model.searchFilterActions}
+        .totalFiles=${model.totalCount()}
+        .filteredFiles=${model.filteredCount()}
+        .selectedCount=${model.selectedCount()}
+        @navigate=${this.handleDesktopFilesNavigate}
+        @filters-change=${this.handleDesktopFilesFiltersChange}
+        @create-dir=${this.handleDesktopFilesCreateDir}
+        @upload-requested=${this.handleDesktopFilesUploadRequested}
+        @upload-paths-requested=${this.handleDesktopFilesUploadPathsRequested}
+        @native-upload-requested=${this.handleDesktopFilesNativeUploadRequested}
+        @delete-selected=${this.handleDesktopFilesDeleteSelected}
+        @clear-selection=${this.handleDesktopFilesClearSelection}
+        @selection-mode-requested=${this.handleDesktopFilesSelectionModeRequested}
+      ></dashboard-header>
+    `
+  }
+
+  private renderNotesDesktopTopbar(): TemplateResult {
+    return html`
+      <desktop-shell-toolbar slot="desktop-topbar">
+        <span slot="title">${i18n('navigation:notes' as never)}</span>
+        <span slot="subtitle">${i18n('notes:quick_view:subtitle' as never)}</span>
+        <notes-quick-view-controls slot="center"></notes-quick-view-controls>
+      </desktop-shell-toolbar>
+    `
+  }
+
+  private renderPasswordsDesktopTopbar(): TemplateResult {
+    return html`
+      <desktop-shell-toolbar
+        slot="desktop-topbar"
+        class="passwords-desktop-toolbar"
+        ?two-row=${passwordManagerDesktopLayoutModel.getCurrentShowElement() !== 'otpView'}
+      >
+        ${renderPasswordManagerDesktopToolbarContent({
+          model: passwordManagerDesktopLayoutModel,
+          onToolbarButtonClick: this.handlePasswordManagerToolbarButtonClick,
+          onActionsMenuInput: this.handlePasswordManagerActionsMenuInput,
+        })}
+      </desktop-shell-toolbar>
+    `
+  }
+
+  private renderDesktopTopbar(route: Routes): TemplateResult | typeof nothing {
+    const {store} = getAppContext()
+    if (route !== 'dashboard' || store.layoutMode() === 'mobile') {
+      return nothing
+    }
+
+    const surface = navigationModel.currentSurface()
+    const moduleAccess = moduleAccessModel.surfaceAccess(surface)
+    if (moduleAccess && moduleAccess.status !== 'enabled') {
+      return this.renderBlockedSurfaceDesktopTopbar(surface)
+    }
+
+    switch (surface) {
+      case 'files':
+        return this.renderFilesDesktopTopbar()
+      case 'notes':
+        return this.renderNotesDesktopTopbar()
+      case 'passwords':
+        return this.renderPasswordsDesktopTopbar()
+      case 'passkeys':
+      case 'settings':
+      case 'remote':
+      case 'gateway':
+      case 'remote-storage':
+        return this.renderDesktopTitleToolbar(this.getDesktopTitleToolbarOptions(surface))
+      default:
+        return nothing
+    }
+  }
+
+  private handleDesktopNavigationBack() {
+    navigationModel.goBack()
+  }
+
+  private handleDesktopRemoteStorageBack() {
+    remoteStorageModel.closePage()
+  }
+
+  private handleDesktopFilesNavigate(event: CustomEvent<{path?: string}>) {
+    const path = event.detail?.path
+    if (typeof path !== 'string') return
+    getFileManagerModel(getAppContext()).handleNavigate(path)
+  }
+
+  private handleDesktopFilesFiltersChange(event: CustomEvent<SearchFilters>) {
+    getFileManagerModel(getAppContext()).handleFiltersChange(event.detail)
+  }
+
+  private handleDesktopFilesCreateDir() {
+    void getFileManagerModel(getAppContext()).handleCreateDir()
+  }
+
+  private handleDesktopFilesUploadRequested(event: CustomEvent<{files?: FileList}>) {
+    const files = event.detail?.files
+    if (files && files.length > 0) {
+      void getFileManagerModel(getAppContext()).handleFileUpload(files)
+    }
+  }
+
+  private handleDesktopFilesUploadPathsRequested(event: CustomEvent<{files?: HostPathTokenGrant[]}>) {
+    const files = event.detail?.files
+    if (Array.isArray(files) && files.length > 0) {
+      void getFileManagerModel(getAppContext()).handlePathUpload(files)
+    }
+  }
+
+  private handleDesktopFilesNativeUploadRequested() {
+    void getFileManagerModel(getAppContext()).handleNativeUpload()
+  }
+
+  private handleDesktopFilesDeleteSelected() {
+    void getFileManagerModel(getAppContext()).handleDeleteSelected()
+  }
+
+  private handleDesktopFilesClearSelection() {
+    getAppContext().store.setSelectedItems([])
+  }
+
+  private handleDesktopFilesSelectionModeRequested(event: CustomEvent<{enabled?: boolean}>) {
+    getFileManagerModel(getAppContext()).setSelectionMode(Boolean(event.detail?.enabled))
+  }
+
+  private handlePasswordManagerToolbarButtonClick(event: Event): void {
+    executePasswordManagerDesktopToolbarButtonEvent(passwordManagerDesktopLayoutModel, event)
+  }
+
+  private handlePasswordManagerActionsMenuInput(event: CVMenuButtonInputEvent): void {
+    executePasswordManagerDesktopToolbarMenuInput(passwordManagerDesktopLayoutModel, event)
+  }
+
   private renderShell(
+    route: Routes,
     routeContent: TemplateResult | '',
     isDetailsOpen: boolean,
     mobileToolbar: MobileToolbarState,
   ): TemplateResult {
     const {store} = getAppContext()
-    const surface = navigationModel.currentSurface()
-    const contentScrollMode =
-      store.layoutMode() === 'mobile' &&
-      (surface === 'files' || surface === 'notes' || surface === 'passkeys')
-        ? 'surface'
-        : 'shell'
+    const contentScrollMode = this.model.getMobileShellContentScrollMode()
 
     return html`
       <file-app-shell
@@ -320,6 +565,7 @@ export class ChromVoidApp extends ReatomLitElement {
         @navigate-back=${this.onNavigateBack}
       >
         ${this.renderMobileTopToolbar(mobileToolbar)}
+        ${this.renderDesktopTopbar(route)}
         <status-bar slot="statusbar"></status-bar>
         ${routeContent} ${this.renderShellDetails()}
       </file-app-shell>
@@ -333,21 +579,21 @@ export class ChromVoidApp extends ReatomLitElement {
     return html`<div class="route-content" data-route=${route}>${content}</div>`
   }
 
-  private onDetailsPanelAction = (e: CustomEvent) => {
+  private onDetailsPanelAction(e: CustomEvent) {
     const {action, fileId} = e.detail
     emitFileActionCommand({kind: 'action', action: String(action), fileId: Number(fileId)})
   }
 
-  private handleOpenGallery = (e: CustomEvent) => {
+  private handleOpenGallery(e: CustomEvent) {
     const {fileId} = e.detail
     this.handleFileOpenCommand({kind: 'gallery', fileId: Number(fileId)})
   }
 
-  private onGalleryClose = (event: CustomEvent<GalleryCloseDetail>) => {
+  private onGalleryClose(event: CustomEvent<GalleryCloseDetail>) {
     this.model.closeGallery({preserveHistoryEntry: event.detail?.reason === 'swipe-dismiss'})
   }
 
-  private handleOpenVideo = (e: CustomEvent) => {
+  private handleOpenVideo(e: CustomEvent) {
     const {fileId, fileName} = e.detail
     this.handleFileOpenCommand({kind: 'video', fileId: Number(fileId), fileName: String(fileName)})
   }
@@ -366,7 +612,7 @@ export class ChromVoidApp extends ReatomLitElement {
     }
   }
 
-  private handleFileOpenCommand = (command: FileOpenCommand) => {
+  private handleFileOpenCommand(command: FileOpenCommand) {
     switch (command.kind) {
       case 'document':
         this.model.openMarkdownDocument(command.fileId)
@@ -386,15 +632,15 @@ export class ChromVoidApp extends ReatomLitElement {
     }
   }
 
-  private onVideoPlayerClose = () => {
+  private onVideoPlayerClose() {
     this.model.closeVideoPlayer()
   }
 
-  private onAudioPlayerClose = () => {
+  private onAudioPlayerClose() {
     this.model.closeAudioPlayer()
   }
 
-  private onPreviewClose = () => {
+  private onPreviewClose() {
     this.model.closePreview()
   }
 
@@ -421,7 +667,7 @@ export class ChromVoidApp extends ReatomLitElement {
     setTimeout(() => style.remove(), 400)
   }
 
-  private onGalleryNavigate = (e: CustomEvent) => {
+  private onGalleryNavigate(e: CustomEvent) {
     const {index: newIndex, direction} = e.detail as {index: number; direction: 'forward' | 'backward'}
     this.applyGallerySlideDirection(direction)
     this.model.setGalleryIndex(newIndex)
@@ -546,7 +792,7 @@ export class ChromVoidApp extends ReatomLitElement {
     return this.model.getMobileToolbarState(route)
   }
 
-  private onMobileToolbarLeading = (e: Event) => {
+  private onMobileToolbarLeading(e: Event) {
     const detail = (e as CustomEvent<{mode: 'menu' | 'back'}>).detail
     if (detail?.mode === 'menu') {
       getAppContext().store.setSidebarOpen(!getAppContext().store.sidebarOpen())
@@ -555,7 +801,7 @@ export class ChromVoidApp extends ReatomLitElement {
     this.model.handleMobileBack()
   }
 
-  private onMobileToolbarCommand = () => {
+  private onMobileToolbarCommand() {
     openCommandPalette({mode: 'search', source: 'mobile-toolbar'})
   }
 
@@ -628,19 +874,19 @@ export class ChromVoidApp extends ReatomLitElement {
     }
   }
 
-  private onShellCloseSidebar = () => {
+  private onShellCloseSidebar() {
     getAppContext().store.setSidebarOpen(false)
   }
 
-  private onShellCloseDetails = () => {
+  private onShellCloseDetails() {
     navigationModel.closeOverlay()
   }
 
-  private onShellOpenSidebar = () => {
+  private onShellOpenSidebar() {
     getAppContext().store.setSidebarOpen(true)
   }
 
-  private onShellOpenDetails = () => {
+  private onShellOpenDetails() {
     const {store} = getAppContext()
     const selected = store.selectedNodeIds()
     if (selected && selected.length === 1) {
@@ -648,11 +894,18 @@ export class ChromVoidApp extends ReatomLitElement {
     }
   }
 
-  private onNavigateBack = () => {
+  private onNavigateBack() {
     this.model.handleMobileBack()
   }
 
-  private focusDashboardCreateDirActionTarget = (): boolean => {
+  private focusDashboardCreateDirActionTarget(): boolean {
+    const shellHeader = this.renderRoot?.querySelector('dashboard-header[slot="desktop-topbar"]') as
+      | (HTMLElement & {focusCreateDirActionTarget?: () => boolean})
+      | null
+    if (shellHeader?.focusCreateDirActionTarget?.()) {
+      return true
+    }
+
     const fileManager = this.renderRoot?.querySelector('chromvoid-file-manager') as
       | (HTMLElement & {focusDashboardCreateDirActionTarget?: () => boolean})
       | null
@@ -661,7 +914,7 @@ export class ChromVoidApp extends ReatomLitElement {
   }
 
   private onKeydown = (e: KeyboardEvent) => {
-    this.model.handleKeydown(e, this.focusDashboardCreateDirActionTarget)
+    this.model.handleKeydown(e, () => this.focusDashboardCreateDirActionTarget())
   }
 
   protected renderContent() {
@@ -684,7 +937,7 @@ export class ChromVoidApp extends ReatomLitElement {
     const routeContent = this.renderRoute(route)
 
     return this.renderRouteContentFrame(route, html`
-      ${this.renderShell(routeContent, isDetailsOpen, mobileToolbar)} ${this.renderGallery()}
+      ${this.renderShell(route, routeContent, isDetailsOpen, mobileToolbar)} ${this.renderGallery()}
       ${this.renderPreviewOverlay()} ${this.renderVideoPlayerOverlay()} ${this.renderAudioPlayerOverlay()}
       ${this.renderPendingMediaOverlay()} ${this.renderMediaPlaybackHost()} <app-guidance-host></app-guidance-host>
     `)

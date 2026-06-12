@@ -23,6 +23,63 @@ const createGroupRow = (id: string): PMGroupFolderRow => ({
 })
 
 describe('PMDeleteMotionModel', () => {
+  it('marks pending visible entry rows as exiting before source rows change', () => {
+    const model = new PMDeleteMotionModel()
+    const rows = [createEntryRow('entry-1'), createEntryRow('entry-2')]
+
+    model.markPending([rows[0]!.item])
+    model.syncVisibleExits(rows, rows.map((row, index) => ({row, index})), {first: 0, last: 1})
+
+    const decorated = model.decorateRows(rows)
+
+    expect(decorated.map((row) => row.id)).toEqual(['entry-1', 'entry-2'])
+    expect(decorated[0]).toMatchObject({id: 'entry-1', deleteExiting: true})
+  })
+
+  it('preserves order when sequential pending entries exit together', () => {
+    const model = new PMDeleteMotionModel()
+    const rows = [createEntryRow('entry-1'), createEntryRow('entry-2'), createEntryRow('entry-3')]
+
+    model.markPending([rows[0]!.item])
+    model.syncVisibleExits(rows, rows.map((row, index) => ({row, index})), {first: 0, last: 2})
+    const firstDecorated = model.decorateRows(rows)
+
+    model.markPending([rows[1]!.item])
+    model.syncVisibleExits(rows, firstDecorated.map((row, index) => ({row, index})), {first: 0, last: 2})
+    const decorated = model.decorateRows(rows)
+
+    expect(decorated.map((row) => row.id)).toEqual(['entry-1', 'entry-2', 'entry-3'])
+    expect(decorated[0]).toMatchObject({id: 'entry-1', deleteExiting: true})
+    expect(decorated[1]).toMatchObject({id: 'entry-2', deleteExiting: true})
+  })
+
+  it('keeps an exited pending row hidden until source rows change', () => {
+    const model = new PMDeleteMotionModel()
+    const rows = [createEntryRow('entry-1'), createEntryRow('entry-2')]
+
+    model.markPending([rows[0]!.item])
+    model.syncVisibleExits(rows, rows.map((row, index) => ({row, index})), {first: 0, last: 1})
+    model.completeExit('entry-1')
+
+    expect(model.decorateRows(rows).map((row) => row.id)).toEqual(['entry-2'])
+
+    model.syncVisibleExits([rows[1]!], [{row: rows[1]!, index: 0}], {first: 0, last: 0})
+
+    expect(model.decorateRows([rows[1]!]).map((row) => row.id)).toEqual(['entry-2'])
+  })
+
+  it('restores a hidden pending row when deletion is cleared', () => {
+    const model = new PMDeleteMotionModel()
+    const rows = [createEntryRow('entry-1'), createEntryRow('entry-2')]
+
+    model.markPending([rows[0]!.item])
+    model.syncVisibleExits(rows, rows.map((row, index) => ({row, index})), {first: 0, last: 1})
+    model.completeExit('entry-1')
+    model.clearPending(['entry-1'])
+
+    expect(model.decorateRows(rows)).toEqual(rows)
+  })
+
   it('retains pending visible entry rows after they disappear from source rows', () => {
     const model = new PMDeleteMotionModel()
     const rows = [createGroupRow('folder-1'), createEntryRow('entry-1'), createEntryRow('entry-2')]

@@ -1,4 +1,3 @@
-use std::io::Read;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -41,19 +40,17 @@ impl<R: tauri::Runtime> DavFileSystem for CatalogDavFs<R> {
                 }
                 let size = size_opt.unwrap_or(0);
 
-                let adapter = self.adapter.clone();
-                let request_io_runtime = self.request_io_runtime.clone();
-                let bytes = request_io_runtime
-                    .spawn_blocking(move || download_node_to_bytes(adapter, node_id))
-                    .await
-                    .map_err(|_| FsError::GeneralFailure)??;
-
                 let meta = CatalogMeta {
                     len: size,
                     is_dir: false,
                     modified: Self::ms_to_system_time(updated_at),
                 };
-                return Ok(Box::new(CatalogDavFile::<R>::new_read(bytes, meta)) as Box<dyn DavFile>);
+                return Ok(Box::new(CatalogDavFile::<R>::new_read(
+                    self.adapter.clone(),
+                    self.request_io_runtime.clone(),
+                    node_id,
+                    meta,
+                )) as Box<dyn DavFile>);
             }
 
             // Write mode
@@ -341,73 +338,34 @@ fn rename_catalog_path<R: tauri::Runtime>(
         CatalogDavFs::<R>::resolve_path_with_adapter(adapter.clone(), &from_path)?;
     let (to_parent, to_name) = CatalogDavFs::<R>::parent_and_name(&to_path)?;
 
-    // Check destination existence for file/dir overwrite semantics.
-    if let Ok((_to_id, to_is_dir, _to_size, _to_updated)) =
+    let replace_existing = if let Ok((_to_id, to_is_dir, _to_size, _to_updated)) =
         CatalogDavFs::<R>::resolve_path_with_adapter(adapter.clone(), &to_path)
     {
         if to_is_dir || is_dir {
             return Err(FsError::Exists);
         }
-        // Destination is a file; we'll delete it and proceed.
-        let mut adapter = adapter.lock().map_err(|_| FsError::GeneralFailure)?;
-        let _ = CatalogDavFs::<R>::rpc_json(
-            adapter.as_mut(),
-            "catalog:delete",
-            json!({"node_id": _to_id}),
-        )?;
-        let _ = adapter.save();
-    }
+        true
+    } else {
+        false
+    };
 
-    // Move to new parent first.
+    // Move, rename, and optional file replacement are one core mutation.
     {
         let mut adapter = adapter.lock().map_err(|_| FsError::GeneralFailure)?;
         let _ = CatalogDavFs::<R>::rpc_json(
             adapter.as_mut(),
             "catalog:move",
-            json!({"node_id": node_id, "new_parent_path": to_parent, "new_name": null}),
-        )?;
-        let _ = adapter.save();
-    }
-
-    // Then rename if name differs.
-    if let Ok((_moved_id, _is_dir2, _s2, _u2)) =
-        CatalogDavFs::<R>::resolve_path_with_adapter(adapter.clone(), &to_path)
-    {
-        // Path already matches; nothing else.
-        return Ok(());
-    }
-
-    if !to_name.is_empty() {
-        let mut adapter = adapter.lock().map_err(|_| FsError::GeneralFailure)?;
-        let _ = CatalogDavFs::<R>::rpc_json(
-            adapter.as_mut(),
-            "catalog:rename",
-            json!({"node_id": node_id, "new_name": to_name}),
+            json!({
+                "node_id": node_id,
+                "new_parent_path": to_parent,
+                "new_name": to_name,
+                "replace_existing": replace_existing,
+            }),
         )?;
         let _ = adapter.save();
     }
 
     Ok(())
-}
-
-fn download_node_to_bytes(
-    adapter: Arc<Mutex<Box<dyn CoreAdapter>>>,
-    node_id: u64,
-) -> Result<Vec<u8>, FsError> {
-    let mut reader = {
-        let mut adapter = adapter.lock().map_err(|_| FsError::GeneralFailure)?;
-        let req = RpcRequest::new("catalog:download".to_string(), json!({"node_id": node_id}));
-        match adapter.handle_with_stream(&req, None) {
-            RpcReply::Stream(out) => out.reader,
-            RpcReply::Json(_) | RpcReply::RangeStream(_) => return Err(FsError::GeneralFailure),
-        }
-    };
-
-    let mut buf = Vec::new();
-    reader
-        .read_to_end(&mut buf)
-        .map_err(|_| FsError::GeneralFailure)?;
-    Ok(buf)
 }
 
 fn download_node_to_staging(

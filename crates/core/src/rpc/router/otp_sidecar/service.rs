@@ -24,6 +24,12 @@ pub(crate) struct OtpRemoveSecretRequest<'a> {
     pub(crate) label: &'a str,
 }
 
+pub(crate) struct OtpRenameSecretRequest<'a> {
+    pub(crate) node_id: u64,
+    pub(crate) previous_label: &'a str,
+    pub(crate) next_label: &'a str,
+}
+
 pub(crate) struct OtpGenerateRequest<'a> {
     pub(crate) node_id: u64,
     pub(crate) label: Option<&'a str>,
@@ -61,6 +67,60 @@ pub(crate) fn set_secret(
 
     save_otp_secrets(vault_key, request.node_id, &secrets, storage).map_err(|e| {
         OtpSidecarError::internal(format!("Failed to save OTP secret: {}", e.into_message()))
+    })?;
+
+    Ok(())
+}
+
+pub(crate) fn rename_secret(
+    session: &VaultSession,
+    storage: &Storage,
+    request: OtpRenameSecretRequest<'_>,
+) -> OtpSidecarResult<()> {
+    ensure_node_exists(session, request.node_id)?;
+
+    if request.previous_label == request.next_label {
+        return Ok(());
+    }
+
+    let vault_key = session.vault_key();
+    let mut secrets = match load_otp_secrets(vault_key, request.node_id, storage) {
+        Some(secrets) => secrets,
+        None => return Ok(()),
+    };
+
+    let previous_index = secrets
+        .secrets
+        .iter()
+        .position(|secret| secret.label == request.previous_label);
+    let next_exists = secrets
+        .secrets
+        .iter()
+        .any(|secret| secret.label == request.next_label);
+
+    let Some(previous_index) = previous_index else {
+        if secrets.secrets.len() == 1 {
+            secrets.secrets[0].label = request.next_label.to_string();
+            save_otp_secrets(vault_key, request.node_id, &secrets, storage).map_err(|e| {
+                OtpSidecarError::internal(format!(
+                    "Failed to rename OTP secret: {}",
+                    e.into_message()
+                ))
+            })?;
+        }
+        return Ok(());
+    };
+
+    if next_exists {
+        return Err(OtpSidecarError::otp_settings_invalid(
+            "OTP label already exists",
+        ));
+    }
+
+    secrets.secrets[previous_index].label = request.next_label.to_string();
+
+    save_otp_secrets(vault_key, request.node_id, &secrets, storage).map_err(|e| {
+        OtpSidecarError::internal(format!("Failed to rename OTP secret: {}", e.into_message()))
     })?;
 
     Ok(())
@@ -152,10 +212,13 @@ pub(crate) fn generate(
     let otp_secret = match otp_secret {
         Some(s) => s,
         None => {
-            if request.label.is_some() {
+            if request.label.is_some() && secrets.secrets.len() == 1 {
+                &secrets.secrets[0]
+            } else if request.label.is_some() {
                 return Err(OtpSidecarError::otp_settings_not_found());
+            } else {
+                return Err(OtpSidecarError::otp_secret_not_found());
             }
-            return Err(OtpSidecarError::otp_secret_not_found());
         }
     };
 

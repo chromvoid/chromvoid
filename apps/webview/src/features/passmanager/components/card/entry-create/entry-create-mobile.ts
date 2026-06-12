@@ -7,6 +7,7 @@ import {
   getPassmanagerRoot,
   isPassmanagerReadOnlyOrMissing,
 } from 'root/features/passmanager/models/pm-root.adapter'
+import {markMobileKeyboardProgrammaticScroll} from 'root/shared/services/mobile-keyboard-scroll-intent'
 import {PMIconPicker} from '../../pm-icon-picker'
 import {renderPaymentCardFace} from '../entry/payment-card-face'
 import {paymentCardFaceMobileStyles, paymentCardFaceStyles} from '../entry/payment-card-face.styles'
@@ -30,6 +31,10 @@ const pmEntryCreateMobileStyles = css`
     --entry-create-surface: var(--cv-color-surface-secondary-glass-strong);
     --entry-create-field: var(--cv-color-surface-tertiary-glass);
     --entry-create-border: var(--cv-color-border-faint);
+    --entry-create-keyboard-clearance: max(
+      var(--mobile-keyboard-scroll-clearance, 0px),
+      var(--visual-viewport-bottom-inset, 0px)
+    );
   }
 
   @supports (-webkit-touch-callout: none) {
@@ -90,6 +95,7 @@ const pmEntryCreateMobileStyles = css`
     overflow-y: auto;
     padding: 1rem 1rem 1.25rem;
     box-sizing: border-box;
+    scroll-padding-block-end: calc(var(--entry-create-keyboard-clearance) + var(--cv-space-4));
     -webkit-overflow-scrolling: touch;
   }
 
@@ -178,34 +184,38 @@ const pmEntryCreateMobileStyles = css`
   }
 
   .entry-type-switch {
+    display: block;
+    --cv-radio-group-gap: 0.25rem;
+  }
+
+  .entry-type-switch::part(base) {
     display: grid;
     grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
     gap: 0.25rem;
     padding: 0.3125rem;
-    border: 1px solid var(--cv-color-border-faint);
+    border-color: var(--cv-color-border-faint);
     border-radius: 1.25rem;
     background: var(--cv-color-surface-secondary-glass);
   }
 
   .entry-type-option {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    --cv-button-gap: 0.5rem;
     min-width: 0;
-    min-height: 2.75rem;
-    padding: 0 0.75rem;
-    border: 1px solid transparent;
-    border-radius: 0.95rem;
-    background: transparent;
     color: var(--cv-color-text-subtle);
     font: inherit;
     font-size: 0.9375rem;
     font-weight: 600;
-    cursor: pointer;
     white-space: nowrap;
-    overflow: hidden;
+  }
+
+  .entry-type-option::part(base) {
+    gap: 0.5rem;
+    min-width: 0;
+    min-height: 2.75rem;
+    justify-content: center;
+    padding: 0 0.75rem;
+    border: 1px solid transparent;
+    border-radius: 0.95rem;
+    background: transparent;
     transition:
       border-color 220ms var(--cv-easing-standard),
       background 220ms var(--cv-easing-standard),
@@ -234,7 +244,7 @@ const pmEntryCreateMobileStyles = css`
     }
   }
 
-  .entry-type-option[data-active='true'] {
+  .entry-type-option[checked]::part(base) {
     background: var(--cv-color-primary-surface);
     border-color: var(--cv-color-primary-border-strong);
     color: var(--cv-color-primary);
@@ -244,7 +254,7 @@ const pmEntryCreateMobileStyles = css`
     animation: pmTypeSwitchPulse 240ms var(--cv-easing-spring);
   }
 
-  .entry-type-option[data-active='true'] cv-icon {
+  .entry-type-option[checked] cv-icon {
     background: var(--cv-color-primary-surface-strong);
     color: var(--cv-color-primary);
     box-shadow:
@@ -490,13 +500,19 @@ const pmEntryCreateMobileStyles = css`
 
   @container (width < 380px) {
     .entry-type-switch {
+      --cv-radio-group-gap: 0.25rem;
+    }
+
+    .entry-type-switch::part(base) {
       grid-template-columns: minmax(0, 0.76fr) minmax(0, 1.24fr);
     }
 
-    .entry-type-option {
+    .entry-type-option::part(base) {
       gap: 0.375rem;
-      --cv-button-gap: 0.375rem;
       padding-inline: 0.45rem;
+    }
+
+    .entry-type-option {
       font-size: 0.875rem;
     }
 
@@ -815,6 +831,7 @@ const pmEntryCreateMobileStyles = css`
   .create-footer {
     flex: 0 0 auto;
     --cv-mobile-bottom-action-padding: var(--cv-space-2) 1rem;
+    margin-block-end: calc(var(--entry-create-keyboard-clearance) + var(--cv-space-1));
   }
 
   .create-footer cv-button {
@@ -923,10 +940,12 @@ const pmEntryCreateMobileStyles = css`
       --pm-icon-picker-trigger-size: 54px;
     }
 
-    .entry-type-option {
+    .entry-type-option::part(base) {
       gap: 0.35rem;
-      --cv-button-gap: 0.35rem;
       padding: 0 0.4rem;
+    }
+
+    .entry-type-option {
       font-size: 0.8125rem;
     }
 
@@ -973,6 +992,7 @@ export class PMEntryCreateMobile extends PMEntryCreateBase {
   }
 
   protected override prepareInitialViewport(): void {
+    markMobileKeyboardProgrammaticScroll('entry-create-prepare-initial-viewport')
     const scroll = this.shadowRoot?.querySelector<HTMLElement>('.create-scroll')
     if (scroll) {
       scroll.scrollTop = 0
@@ -1169,26 +1189,28 @@ export class PMEntryCreateMobile extends PMEntryCreateBase {
       <div class="section-group">
         <div class="section-label">${i18n('entry:type')}</div>
         <div class="section type-section">
-        <div class="entry-type-switch" role="tablist" aria-label=${i18n('entry:type')}>
-          <cv-button unstyled
+        <cv-radio-group
+          class="entry-type-switch"
+          variant="segmented"
+          .value=${entryType}
+          aria-label=${i18n('entry:type')}
+          @cv-change=${this.onEntryTypeChange}
+        >
+          <cv-radio
             class="entry-type-option"
-            type="button"
-            data-active=${String(entryType === 'login')}
-            @click=${this.selectLoginEntryType}
+            value="login"
           >
-            <cv-icon slot="prefix" name="person-circle"></cv-icon>
+            <cv-icon name="person-circle"></cv-icon>
             <span>${i18n('entry:type:login')}</span>
-          </cv-button>
-          <cv-button unstyled
+          </cv-radio>
+          <cv-radio
             class="entry-type-option"
-            type="button"
-            data-active=${String(entryType === 'payment_card')}
-            @click=${this.selectPaymentCardEntryType}
+            value="payment_card"
           >
-            <cv-icon slot="prefix" name="credit-card"></cv-icon>
+            <cv-icon name="credit-card"></cv-icon>
             <span>${i18n('entry:type:payment_card')}</span>
-          </cv-button>
-        </div>
+          </cv-radio>
+        </cv-radio-group>
         </div>
       </div>
     `

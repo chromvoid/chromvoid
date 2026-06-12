@@ -228,35 +228,34 @@ fn core_operation_payload(payload: Value, api_level: u64) -> Result<Value, Passk
             code: "EMPTY_PAYLOAD".to_string(),
             message: "Android passkey request_json is required".to_string(),
         })?;
-    let mut request: Value =
+    let request: Value =
         serde_json::from_str(request_json).map_err(|error| PasskeyRuntimeError {
             code: "INVALID_CONTEXT".to_string(),
             message: format!("Android passkey request_json is invalid: {error}"),
         })?;
-
-    if let Some(origin) = payload
+    let origin = payload
         .get("origin")
         .and_then(|value| value.as_str())
         .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        request["origin"] = json!(origin);
-    }
-    if let Some(client_data_hash) = payload
+        .filter(|value| !value.is_empty());
+    let client_data_hash = payload
         .get("client_data_hash")
         .or_else(|| payload.get("clientDataHash"))
         .and_then(|value| value.as_str())
         .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        request["clientDataHash"] = json!(client_data_hash);
-    }
+        .filter(|value| !value.is_empty());
 
     let mut out = json!({
         "platform": "android",
         "platform_version_major": api_level,
         "request": request,
     });
+    if let Some(origin) = origin {
+        out["origin"] = json!(origin);
+    }
+    if let Some(client_data_hash) = client_data_hash {
+        out["clientDataHash"] = json!(client_data_hash);
+    }
     if let Some(credential_id) = payload
         .get("selected_credential_id")
         .or_else(|| payload.get("credentialIdB64Url"))

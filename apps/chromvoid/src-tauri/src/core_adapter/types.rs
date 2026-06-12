@@ -24,8 +24,6 @@ pub enum CoreMode {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum RemoteHost {
-    OrangePiUsb { device_id: String },
-    MobileBle { device_id: String },
     TauriRemoteWss { peer_id: String },
 }
 
@@ -56,9 +54,17 @@ pub enum RemoteCancelGroup {
 
 #[cfg(desktop)]
 #[derive(Clone)]
-pub(crate) enum RemoteJsonSender {
-    Usb(mpsc::Sender<crate::usb::io_task::IoRequest>),
-    Network(mpsc::Sender<crate::network::io_task::IoRequest>),
+pub(crate) struct RemoteJsonSender(mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>);
+
+#[cfg(desktop)]
+impl RemoteJsonSender {
+    pub(crate) fn new(tx: mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>) -> Self {
+        Self(tx)
+    }
+
+    fn tx(&self) -> &mpsc::Sender<crate::remote_data_plane::RemoteIoRequest> {
+        &self.0
+    }
 }
 
 #[cfg(desktop)]
@@ -75,10 +81,7 @@ impl RemoteJsonClientHandle {
     }
 
     pub(crate) fn is_closed(&self) -> bool {
-        match &self.sender {
-            RemoteJsonSender::Usb(tx) => tx.is_closed(),
-            RemoteJsonSender::Network(tx) => tx.is_closed(),
-        }
+        self.sender.tx().is_closed()
     }
 
     pub(crate) fn features(&self) -> Vec<String> {
@@ -119,26 +122,17 @@ impl RemoteJsonClientHandle {
         }
 
         let (reply_tx, reply_rx) = oneshot::channel();
-        let send_result = match &self.sender {
-            RemoteJsonSender::Usb(tx) => tx
-                .blocking_send(crate::usb::io_task::IoRequest {
-                    request,
-                    stream: None,
-                    reply_tx,
-                    priority,
-                    cancel_group,
-                })
-                .map_err(|_| ()),
-            RemoteJsonSender::Network(tx) => tx
-                .blocking_send(crate::network::io_task::IoRequest {
-                    request,
-                    stream: None,
-                    reply_tx,
-                    priority,
-                    cancel_group,
-                })
-                .map_err(|_| ()),
-        };
+        let send_result = self
+            .sender
+            .tx()
+            .blocking_send(crate::remote_data_plane::RemoteIoRequest {
+                request,
+                stream: None,
+                reply_tx,
+                priority,
+                cancel_group,
+            })
+            .map_err(|_| ());
 
         if send_result.is_err() {
             return RpcResponse::Error {
@@ -175,30 +169,17 @@ impl RemoteJsonClientHandle {
             serde_json::json!({ "epoch": epoch }),
         );
 
-        match &self.sender {
-            RemoteJsonSender::Network(tx) => {
-                let (reply_tx, _reply_rx) = oneshot::channel();
-                tx.try_send(crate::network::io_task::IoRequest {
-                    request,
-                    stream: None,
-                    reply_tx,
-                    priority: RemoteRpcPriority::High,
-                    cancel_group: None,
-                })
-                .is_ok()
-            }
-            RemoteJsonSender::Usb(tx) => {
-                let (reply_tx, _reply_rx) = oneshot::channel();
-                tx.try_send(crate::usb::io_task::IoRequest {
-                    request,
-                    stream: None,
-                    reply_tx,
-                    priority: RemoteRpcPriority::High,
-                    cancel_group: None,
-                })
-                .is_ok()
-            }
-        }
+        let (reply_tx, _reply_rx) = oneshot::channel();
+        self.sender
+            .tx()
+            .try_send(crate::remote_data_plane::RemoteIoRequest {
+                request,
+                stream: None,
+                reply_tx,
+                priority: RemoteRpcPriority::High,
+                cancel_group: None,
+            })
+            .is_ok()
     }
 }
 

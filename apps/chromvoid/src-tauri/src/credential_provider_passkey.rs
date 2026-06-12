@@ -154,8 +154,8 @@ mod tests {
     fn ensure_local_mode_rejects_non_local_adapters() {
         let error = ensure_local_mode(
             CoreMode::Remote {
-                host: RemoteHost::MobileBle {
-                    device_id: "peer".to_string(),
+                host: RemoteHost::TauriRemoteWss {
+                    peer_id: "peer".to_string(),
                 },
             },
             "Android",

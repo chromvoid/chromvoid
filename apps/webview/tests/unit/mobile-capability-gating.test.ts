@@ -1,7 +1,6 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {VolumeMountModel} from '../../src/routes/volume/volume-mount.model'
-import {pairUsbDevice, scanUsbDevices} from '../../src/routes/remote/remote.model'
 import {
   getRuntimeCapabilities,
   isCapabilityEnabled,
@@ -21,33 +20,6 @@ describe('Mobile Capability Gating', () => {
   beforeEach(() => {
     tauriInvoke.mockReset()
     resetRuntimeCapabilities()
-  })
-
-  it('does not call usb IPC when usb remote capability is disabled', async () => {
-    setRuntimeCapabilities({
-      mobile: true,
-      supports_usb_remote: false,
-    })
-
-    const devices = await scanUsbDevices()
-    expect(devices).toEqual([])
-    expect(tauriInvoke).not.toHaveBeenCalled()
-  })
-
-  it('rejects pairing when usb remote capability is disabled', async () => {
-    setRuntimeCapabilities({
-      mobile: true,
-      supports_usb_remote: false,
-    })
-
-    await expect(
-      pairUsbDevice({
-        port_path: '/dev/null',
-        serial_number: 'test-serial',
-        label: 'test',
-      }),
-    ).rejects.toThrow('USB remote is not available on this platform')
-    expect(tauriInvoke).not.toHaveBeenCalled()
   })
 
   it('prevents volume IPC calls on mobile runtime without volume capability', async () => {

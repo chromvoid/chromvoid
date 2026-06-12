@@ -63,7 +63,7 @@ class TestPMGroupMobileRows extends PMGroupBase {
 
   protected override renderEntryItem(item: Entry, active: boolean) {
     return html`
-      <div class="entry-row" data-row-id=${item.id}>
+      <div class="entry-row" data-row-id=${item.id} @click=${() => this.setActiveItemById(item.id)}>
         <pm-entry-list-item-mobile
           .entry=${item}
           .activeRow=${active}
@@ -170,6 +170,20 @@ function getEntryHost(element: TestPMGroupMobileRows, rowId: string) {
   return element.shadowRoot?.querySelector(
     `.entry-row[data-row-id="${rowId}"] pm-entry-list-item-mobile`,
   ) as PMEntryListItemMobile | null
+}
+
+async function openLeftSwipe(element: PMEntryListItemMobile) {
+  ;(element as PMEntryListItemMobile & {handleTouchStart: (event: TouchEvent) => void}).handleTouchStart({
+    touches: [{clientX: 80, clientY: 0}],
+  } as unknown as TouchEvent)
+
+  ;(element as PMEntryListItemMobile & {handleTouchMove: (event: TouchEvent) => void}).handleTouchMove({
+    touches: [{clientX: 0, clientY: 0}],
+    preventDefault() {},
+  } as unknown as TouchEvent)
+
+  ;(element as PMEntryListItemMobile & {handleTouchEnd: () => void}).handleTouchEnd()
+  await flush(element)
 }
 
 function getGroupHost(element: TestPMGroupMobileRows, rowId: string) {
@@ -369,6 +383,42 @@ describe('PMGroup mobile row state', () => {
     expect(deleteSpy).toHaveBeenCalledTimes(1)
     expect(deleteSpy).toHaveBeenCalledWith(entry)
     expect(openItemSpy).not.toHaveBeenCalled()
+  })
+
+  it('routes the opened swipe delete button to the entry delete model without activating the row', async () => {
+    const parent = createGroup('entry-swipe-click-parent', 'Entry Swipe Click Parent')
+    const first = createEntry(parent, 'entry-swipe-click-first', 'Alpha Entry')
+    const entry = createEntry(parent, 'entry-swipe-click-target', 'Zulu Entry')
+    parent.entries.set([first, entry])
+    window.passmanager = createPassmanagerRoot(parent, [parent])
+
+    const deleteSpy = vi.spyOn(PMEntryModel.prototype, 'deleteEntryCard').mockImplementation(() => {})
+    const openItemSpy = vi.spyOn(pmModel, 'openItem').mockImplementation(() => {})
+    const element = document.createElement('test-pm-group-mobile-rows') as TestPMGroupMobileRows
+    document.body.appendChild(element)
+    await flush(element)
+
+    const firstRowBefore = getEntryHost(element, first.id)?.shadowRoot?.querySelector('.list-item') as HTMLElement | null
+    const entryHost = getEntryHost(element, entry.id)
+    expect(firstRowBefore?.classList.contains('active-row')).toBe(true)
+    expect(entryHost).not.toBeNull()
+
+    await openLeftSwipe(entryHost as PMEntryListItemMobile)
+    expect(entryHost?.shadowRoot?.querySelector('.list-item')?.getAttribute('data-swipe-state')).toBe('open-left')
+
+    entryHost?.shadowRoot
+      ?.querySelector('.swipe-actions-right .swipe-action')
+      ?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
+    await flush(element)
+
+    const firstRowAfter = getEntryHost(element, first.id)?.shadowRoot?.querySelector('.list-item') as HTMLElement | null
+    const targetRowAfter = getEntryHost(element, entry.id)?.shadowRoot?.querySelector('.list-item') as HTMLElement | null
+
+    expect(deleteSpy).toHaveBeenCalledTimes(1)
+    expect(deleteSpy).toHaveBeenCalledWith(entry)
+    expect(openItemSpy).not.toHaveBeenCalled()
+    expect(firstRowAfter?.classList.contains('active-row')).toBe(true)
+    expect(targetRowAfter?.classList.contains('active-row')).toBe(false)
   })
 })
 

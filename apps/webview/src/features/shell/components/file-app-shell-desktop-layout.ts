@@ -35,8 +35,9 @@ export class FileAppShellDesktopLayout extends ReatomLitElement {
       :host {
         display: grid;
         grid-template-columns: auto minmax(0, 1fr);
-        grid-template-rows: 1fr min-content;
+        grid-template-rows: auto minmax(0, 1fr) min-content;
         grid-template-areas:
+          'nav topbar'
           'nav content'
           'statusbar statusbar';
         block-size: 100%;
@@ -49,6 +50,18 @@ export class FileAppShellDesktopLayout extends ReatomLitElement {
         @supports (block-size: 100svh) {
           block-size: 100svh;
         }
+      }
+
+      .topbar {
+        grid-area: topbar;
+        min-inline-size: 0;
+        z-index: 25;
+        background: var(--cv-color-surface);
+      }
+
+      .topbar slot {
+        display: block;
+        min-inline-size: 0;
       }
 
       .nav {
@@ -81,8 +94,7 @@ export class FileAppShellDesktopLayout extends ReatomLitElement {
         opacity: 0;
         pointer-events: none;
         transition:
-          opacity var(--cv-duration-normal, 220ms)
-            var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
+          opacity var(--cv-duration-normal, 220ms) var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
           display var(--cv-duration-normal, 220ms) allow-discrete;
         transition-behavior: allow-discrete;
         z-index: var(--cv-z-overlay, 300);
@@ -110,10 +122,8 @@ export class FileAppShellDesktopLayout extends ReatomLitElement {
         pointer-events: none;
         visibility: hidden;
         transition:
-          transform var(--cv-duration-slow, 320ms)
-            var(--cv-easing-decelerate, cubic-bezier(0, 0, 0.2, 1)),
-          opacity var(--cv-duration-fast, 120ms)
-            var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
+          transform var(--cv-duration-slow, 320ms) var(--cv-easing-decelerate, cubic-bezier(0, 0, 0.2, 1)),
+          opacity var(--cv-duration-fast, 120ms) var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
           display var(--cv-duration-slow, 320ms) allow-discrete;
         transition-behavior: allow-discrete;
         z-index: calc(var(--cv-z-overlay, 300) + 1);
@@ -148,6 +158,14 @@ export class FileAppShellDesktopLayout extends ReatomLitElement {
           transform: none;
         }
       }
+
+      @media (hover: none) and (pointer: coarse) {
+        @container (max-width: 1000px) {
+          .nav {
+            --nav-rail-width-expanded: 200px;
+          }
+        }
+      }
     `,
   ]
 
@@ -165,6 +183,8 @@ export class FileAppShellDesktopLayout extends ReatomLitElement {
   protected render() {
     return html`
       <command-bar></command-bar>
+
+      <header class="topbar"><slot name="desktop-topbar"></slot></header>
 
       <nav class="nav"><navigation-rail></navigation-rail></nav>
 

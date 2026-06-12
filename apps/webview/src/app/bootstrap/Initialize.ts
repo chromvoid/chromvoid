@@ -32,6 +32,11 @@ import {syncIOSViewportZoomPolicy} from './ios-viewport'
 import {scheduleAfterFirstPaintIdle} from './idle-scheduler'
 import {startUiComponentIdleWarmup} from './ui-component-idle-warmup'
 
+function formatBootstrapFatalError(scope: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return `${scope} bootstrap failed: ${message}`
+}
+
 export const init = () => {
   if (tryGetAppContext() !== null) return
 
@@ -196,6 +201,7 @@ export const init = () => {
       )
       .catch((error) => {
         console.warn('[dashboard] runtime bootstrap failed:', error)
+        store.markBootstrapFatalError(formatBootstrapFatalError('Runtime', error))
       })
   }
 
@@ -212,6 +218,7 @@ export const init = () => {
       })
       .catch((error) => {
         console.warn('[dashboard] deferred data bootstrap failed:', error)
+        store.markBootstrapFatalError(formatBootstrapFatalError('Data', error))
       })
   }
 

@@ -3,7 +3,6 @@ package com.chromvoid.app.nativebridge
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import com.chromvoid.app.shared.AndroidRuntimeAccess
 import java.io.File
@@ -25,29 +24,6 @@ internal fun buildUriClipData(
     }
 }
 
-internal fun grantReadUriPermissions(
-    context: Context,
-    intent: Intent,
-    uris: List<Uri>,
-) {
-    if (uris.isEmpty()) return
-
-    val resolvedActivities =
-        context.packageManager.queryIntentActivities(
-            intent,
-            PackageManager.MATCH_DEFAULT_ONLY,
-        )
-
-    resolvedActivities.forEach { resolveInfo ->
-        val packageName = resolveInfo.activityInfo?.packageName ?: return@forEach
-        uris.forEach { uri ->
-            runCatching {
-                context.grantUriPermission(packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-        }
-    }
-}
-
 internal fun createChooserIntentWithReadAccess(
     context: Context,
     targetIntent: Intent,
@@ -63,11 +39,6 @@ internal fun createChooserIntentWithReadAccess(
             intent.clipData = clipData
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-    }
-
-    grantReadUriPermissions(context, targetIntent, uris)
-    alternateIntents.forEach { intent ->
-        grantReadUriPermissions(context, intent, uris)
     }
 
     return Intent.createChooser(targetIntent, null).apply {

@@ -6,6 +6,9 @@ use super::super::types::{AccessDuration, CapabilityPolicy, PairedExtension};
 // Config & Pairing Session
 // ---------------------------------------------------------------------------
 
+pub const GATEWAY_PAIRING_MAX_ATTEMPTS: u8 = 5;
+pub const GATEWAY_PAIRING_LOCKOUT_MS: u64 = 60_000;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatewayConfig {
     pub enabled: bool,

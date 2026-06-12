@@ -18,7 +18,6 @@ import {
 } from '../../models/pm-root.adapter'
 import {pmModel} from '../../password-manager.model'
 import type {PMDesktopToolbarActionSpec} from '../desktop-toolbar'
-import {PMEntryModel} from '../card/entry/entry.model'
 import {PMGroupModel} from '../group/group/group.model'
 import {groupBy, sortDirection, sortField} from '../list/sort-controls'
 
@@ -73,29 +72,25 @@ export type PMGlobalShortcutAction =
   | 'open-first-search-result'
   | 'copy-password'
 
+export interface PMSearchElement {
+  focusInput?(): void
+  clear?(): void
+}
+
 export type PMDesktopToolbarContext = {
   readOnly: boolean
-  canGoBack: boolean
   canCreateGroup: boolean
   canCreateEntry: boolean
   canOpenOtpView: boolean
-  canEdit: boolean
-  canDelete: boolean
-  canMove: boolean
-  actionContext: 'entry' | 'group' | 'none'
 }
 
 export type PMDesktopToolbarActionId =
-  | 'pm-back'
   | 'pm-import'
   | 'pm-export'
   | 'pm-clean'
   | 'pm-otp-view'
   | 'pm-create-group'
   | 'pm-create-entry'
-  | 'pm-edit'
-  | 'pm-delete'
-  | 'pm-move'
 
 export type PMDesktopToolbarSection = {
   label: string
@@ -113,20 +108,14 @@ export type PasswordManagerMotionRenderState = {
 function describeDesktopToolbarContext(context: PMDesktopToolbarContext) {
   return {
     readOnly: context.readOnly,
-    canGoBack: context.canGoBack,
     canCreateGroup: context.canCreateGroup,
     canCreateEntry: context.canCreateEntry,
     canOpenOtpView: context.canOpenOtpView,
-    canEdit: context.canEdit,
-    canDelete: context.canDelete,
-    canMove: context.canMove,
-    actionContext: context.actionContext,
   }
 }
 
 export class PasswordManagerLayoutModel {
   private readonly logger = defaultLogger
-  private readonly entryActionsModel = new PMEntryModel()
   private readonly groupActionsModel = new PMGroupModel()
 
   readonly sidebarWidth = atom(DEFAULT_SIDEBAR_WIDTH)
@@ -143,6 +132,7 @@ export class PasswordManagerLayoutModel {
 
   private sidebarResizeStartX = 0
   private sidebarResizeStartWidth = DEFAULT_SIDEBAR_WIDTH
+  private desktopToolbarSearchElement: PMSearchElement | null = null
 
   isLoading(): boolean {
     return isPassmanagerLoading()
@@ -219,16 +209,12 @@ export class PasswordManagerLayoutModel {
 
   isDesktopToolbarAction(value: string | undefined): value is PMDesktopToolbarActionId {
     return (
-      value === 'pm-back' ||
       value === 'pm-import' ||
       value === 'pm-export' ||
       value === 'pm-clean' ||
       value === 'pm-otp-view' ||
       value === 'pm-create-group' ||
-      value === 'pm-create-entry' ||
-      value === 'pm-edit' ||
-      value === 'pm-delete' ||
-      value === 'pm-move'
+      value === 'pm-create-entry'
     )
   }
 
@@ -240,9 +226,6 @@ export class PasswordManagerLayoutModel {
     })
 
     switch (actionId) {
-      case 'pm-back':
-        this.goBackFromCurrent()
-        return
       case 'pm-import':
         this.importEntries()
         return
@@ -261,124 +244,7 @@ export class PasswordManagerLayoutModel {
       case 'pm-create-entry':
         this.createEntry()
         return
-      case 'pm-edit':
-        this.editCurrentSelection()
-        return
-      case 'pm-delete':
-        this.deleteCurrentSelection()
-        return
-      case 'pm-move':
-        void this.moveCurrentSelection()
-        return
     }
-  }
-
-  editCurrentSelection(): void {
-    const readOnly = this.isReadOnly()
-    const showElement = this.getCurrentShowElement()
-    const isEditingEntry = this.isEditingEntry()
-    this.logger.debug('[PassManager][DesktopToolbar] edit begin', {
-      readOnly,
-      showElement: describeShowElement(showElement),
-      isEditingEntry,
-    })
-    if (readOnly) {
-      this.logger.debug('[PassManager][DesktopToolbar] edit abort: readOnly')
-      return
-    }
-
-    if (showElement instanceof Entry && !isEditingEntry) {
-      this.entryActionsModel.startEntryEdit()
-      this.logger.debug('[PassManager][DesktopToolbar] edit entry dispatched', {
-        showElement: describeShowElement(showElement),
-      })
-      return
-    }
-
-    if (showElement instanceof Group) {
-      this.groupActionsModel.enterEditMode()
-      this.logger.debug('[PassManager][DesktopToolbar] edit group dispatched', {
-        showElement: describeShowElement(showElement),
-      })
-      return
-    }
-
-    this.logger.debug('[PassManager][DesktopToolbar] edit abort: unsupported context', {
-      showElement: describeShowElement(showElement),
-      isEditingEntry,
-    })
-  }
-
-  async moveCurrentSelection(): Promise<void> {
-    const readOnly = this.isReadOnly()
-    const showElement = this.getCurrentShowElement()
-    const isEditingEntry = this.isEditingEntry()
-    this.logger.debug('[PassManager][DesktopToolbar] move begin', {
-      readOnly,
-      showElement: describeShowElement(showElement),
-      isEditingEntry,
-    })
-    if (readOnly) {
-      this.logger.debug('[PassManager][DesktopToolbar] move abort: readOnly')
-      return
-    }
-
-    if (showElement instanceof Entry && !isEditingEntry) {
-      await this.entryActionsModel.moveEntryCard(showElement)
-      this.logger.debug('[PassManager][DesktopToolbar] move entry dispatched', {
-        showElement: describeShowElement(showElement),
-      })
-      return
-    }
-
-    if (showElement instanceof Group) {
-      await this.groupActionsModel.moveGroup(showElement)
-      this.logger.debug('[PassManager][DesktopToolbar] move group dispatched', {
-        showElement: describeShowElement(showElement),
-      })
-      return
-    }
-
-    this.logger.debug('[PassManager][DesktopToolbar] move abort: unsupported context', {
-      showElement: describeShowElement(showElement),
-      isEditingEntry,
-    })
-  }
-
-  deleteCurrentSelection(): void {
-    const readOnly = this.isReadOnly()
-    const showElement = this.getCurrentShowElement()
-    const isEditingEntry = this.isEditingEntry()
-    this.logger.debug('[PassManager][DesktopToolbar] delete begin', {
-      readOnly,
-      showElement: describeShowElement(showElement),
-      isEditingEntry,
-    })
-    if (readOnly) {
-      this.logger.debug('[PassManager][DesktopToolbar] delete abort: readOnly')
-      return
-    }
-
-    if (showElement instanceof Entry && !isEditingEntry) {
-      this.entryActionsModel.deleteEntryCard(showElement)
-      this.logger.debug('[PassManager][DesktopToolbar] delete entry dispatched', {
-        showElement: describeShowElement(showElement),
-      })
-      return
-    }
-
-    if (showElement instanceof Group) {
-      this.groupActionsModel.deleteGroup(showElement)
-      this.logger.debug('[PassManager][DesktopToolbar] delete group dispatched', {
-        showElement: describeShowElement(showElement),
-      })
-      return
-    }
-
-    this.logger.debug('[PassManager][DesktopToolbar] delete abort: unsupported context', {
-      showElement: describeShowElement(showElement),
-      isEditingEntry,
-    })
   }
 
   handleImportComplete(event: Event): void {
@@ -399,6 +265,19 @@ export class PasswordManagerLayoutModel {
 
   openSearchPalette(): void {
     openCommandPalette({mode: 'search', source: 'keyboard'})
+  }
+
+  registerDesktopToolbarSearchElement(search: PMSearchElement): () => void {
+    this.desktopToolbarSearchElement = search
+    return () => {
+      if (this.desktopToolbarSearchElement === search) {
+        this.desktopToolbarSearchElement = null
+      }
+    }
+  }
+
+  getDesktopToolbarSearchElement(): PMSearchElement | null {
+    return this.desktopToolbarSearchElement
   }
 
   isShortcutBlocked(event: KeyboardEvent): boolean {
@@ -433,7 +312,12 @@ export class PasswordManagerLayoutModel {
       }
     }
 
-    if (event.key === 'Enter' && !shortcutBlocked && this.getFirstSearchResult()) {
+    if (
+      event.key === 'Enter' &&
+      !shortcutBlocked &&
+      this.shouldOpenFirstSearchResultFromEvent(event) &&
+      this.getFirstSearchResult()
+    ) {
       return 'open-first-search-result'
     }
 
@@ -477,26 +361,16 @@ export class PasswordManagerLayoutModel {
   }
 
   getDesktopToolbarContext(): PMDesktopToolbarContext {
-    const showElement = this.getCurrentShowElement()
     const readOnly = this.isReadOnly()
-    const isEntryContext = showElement instanceof Entry && !this.isEditingEntry()
-    const isGroupContext = showElement instanceof Group
 
     const context: PMDesktopToolbarContext = {
       readOnly,
-      canGoBack: !(showElement instanceof ManagerRoot) || this.isEditingEntry(),
       canCreateGroup: !readOnly,
       canCreateEntry: !readOnly,
       canOpenOtpView: Boolean(getPassmanagerRoot()) && !this.isLoading(),
-      canEdit: !readOnly && (isEntryContext || isGroupContext),
-      canDelete: !readOnly && (isEntryContext || isGroupContext),
-      canMove: !readOnly && (isEntryContext || isGroupContext),
-      actionContext: isEntryContext ? 'entry' : isGroupContext ? 'group' : 'none',
     }
 
     this.logger.debug('[PassManager][DesktopToolbar] context', {
-      showElement: describeShowElement(showElement),
-      isEditingEntry: this.isEditingEntry(),
       ...describeDesktopToolbarContext(context),
     })
 
@@ -505,43 +379,8 @@ export class PasswordManagerLayoutModel {
 
   getDesktopToolbarSections(): readonly PMDesktopToolbarSection[] {
     const context = this.getDesktopToolbarContext()
-    const selectionLabel =
-      context.actionContext === 'entry' ? 'Entry' : context.actionContext === 'group' ? 'Group' : 'Selection'
-    const selectionActions: PMDesktopToolbarSection['actions'] = [
-      {
-        id: 'pm-edit',
-        icon: 'pencil-square',
-        label: i18n('button:edit'),
-        disabled: !context.canEdit,
-      },
-      {
-        id: 'pm-move',
-        icon: 'folder-symlink',
-        label: i18n('button:move'),
-        disabled: !context.canMove,
-      },
-      {
-        id: 'pm-delete',
-        icon: 'trash',
-        label: i18n('button:remove'),
-        disabled: !context.canDelete,
-        danger: true,
-      },
-    ]
 
     return [
-      {
-        label: 'Nav',
-        state: context.canGoBack ? 'active' : 'inactive',
-        actions: [
-          {
-            id: 'pm-back',
-            icon: 'arrow-left',
-            label: i18n('button:back'),
-            disabled: !context.canGoBack,
-          },
-        ],
-      },
       {
         label: 'Vault',
         actions: [
@@ -572,11 +411,6 @@ export class PasswordManagerLayoutModel {
             disabled: !context.canCreateEntry,
           },
         ],
-      },
-      {
-        label: selectionLabel,
-        state: context.actionContext !== 'none' ? 'active' : 'inactive',
-        actions: selectionActions,
       },
     ]
   }
@@ -644,6 +478,10 @@ export class PasswordManagerLayoutModel {
     )
   }
 
+  private shouldOpenFirstSearchResultFromEvent(event: KeyboardEvent): boolean {
+    return event.composedPath().some((target) => this.isListKeyboardRowTarget(target))
+  }
+
   private getFirstSearchResult(): Group | Entry | undefined {
     const current = this.getCurrentShowElement()
     if (!current) {
@@ -670,3 +508,5 @@ export class PasswordManagerLayoutModel {
   }
 
 }
+
+export const passwordManagerDesktopLayoutModel = new PasswordManagerLayoutModel()

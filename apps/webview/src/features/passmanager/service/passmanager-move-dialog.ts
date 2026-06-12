@@ -3,6 +3,11 @@ import {i18n} from '@project/passmanager/i18n'
 import {html} from 'lit'
 
 import {dialogService} from 'root/shared/services/dialog-service'
+import {
+  elementContainsDeepActiveElement,
+  eventPathContainsElement,
+  eventPathContainsTextEditor,
+} from 'root/shared/keyboard/keyboard-event-guards'
 import {pmComponentLoaderModel} from '../models/pm-component-loader.model'
 
 type PassmanagerMovePickerElement = HTMLElement & {
@@ -36,6 +41,14 @@ async function resolveConfirmation(options: PassmanagerMoveDialogOptions, target
   } catch {
     return false
   }
+}
+
+function shouldConfirmMoveDialogEnter(event: KeyboardEvent, cancelElement: Element | null): boolean {
+  if (event.key !== 'Enter' || event.shiftKey) return false
+  if (eventPathContainsTextEditor(event)) return false
+  if (eventPathContainsElement(event, cancelElement)) return false
+  if (elementContainsDeepActiveElement(cancelElement)) return false
+  return true
 }
 
 function openDesktopMoveDialog(options: PassmanagerMoveDialogOptions): Promise<string | null> {
@@ -97,8 +110,7 @@ function openDesktopMoveDialog(options: PassmanagerMoveDialogOptions): Promise<s
       }
 
       const handleKeydown = (event: KeyboardEvent) => {
-        if (event.key !== 'Enter' || event.shiftKey) return
-        if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return
+        if (!shouldConfirmMoveDialogEnter(event, cancelBtn)) return
 
         event.preventDefault()
         void confirmSelection()

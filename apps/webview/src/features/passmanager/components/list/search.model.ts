@@ -1,8 +1,7 @@
-import {atom, computed, withLocalStorage} from '@reatom/core'
+import {atom, computed} from '@reatom/core'
 
 import {Group, ManagerRoot} from '@project/passmanager/core'
-import {type QuickFilter, filterValue, quickFilters} from '@project/passmanager/select'
-import {pmCredentialTagsModel} from '../../models/pm-credential-tags.model'
+import {filterValue} from '@project/passmanager/select'
 import {getPassmanagerShowElement} from '../../models/pm-root.adapter'
 import {pmRootSearchProjectionModel} from '../../models/pm-root-search-projection'
 
@@ -12,10 +11,6 @@ export type PMSearchRenderState = {
   isSearched: number
   resultCount: number
 }
-
-export const filtersExpanded = atom<boolean>(false, 'pm_filters_expanded').extend(
-  withLocalStorage({key: 'pm_filters_expanded'}),
-)
 
 export class PMSearchInputModel {
   readonly isFocused = atom(false, 'passmanager.search.isFocused')
@@ -80,31 +75,6 @@ export class PMSearchInputModel {
 
   submitCurrent(): void {
     this.submit(this.renderValue())
-  }
-
-  toggleQuick(filter: QuickFilter): void {
-    const current = quickFilters()
-    if (current.includes(filter)) {
-      quickFilters.set(current.filter((f) => f !== filter))
-      return
-    }
-    quickFilters.set([...current, filter])
-  }
-
-  toggleFiltersPanel(): void {
-    filtersExpanded.set(!filtersExpanded())
-  }
-
-  isFiltersPanelExpanded(): boolean {
-    return filtersExpanded()
-  }
-
-  setSelectedTagsFromComboboxEvent(event: Event): void {
-    const detail = (event as CustomEvent<{selectedIds?: unknown}>).detail
-    const selectedIds = Array.isArray(detail?.selectedIds) ? detail.selectedIds : []
-    pmCredentialTagsModel.setSelectedFromComboboxIds(
-      selectedIds.filter((id): id is string => typeof id === 'string'),
-    )
   }
 
   getInputValue(): string {

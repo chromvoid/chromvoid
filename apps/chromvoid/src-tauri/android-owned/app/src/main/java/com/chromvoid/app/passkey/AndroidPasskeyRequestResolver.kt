@@ -62,7 +62,12 @@ internal object AndroidPasskeyRequestResolver : PasskeyActivityRequestResolverRu
                     "ChromVoid did not receive a public-key create request.",
                 ),
             )
-        val parsedRequest = PasskeyRequestParser.parseCreateRequest(createRequest)
+        val origin = PasskeyOriginResolver.originForCallingApp(providerRequest.callingAppInfo)
+        val parsedRequest =
+            PasskeyRequestParser.parseCreateRequest(
+                createRequest,
+                PasskeyOriginResolver.rpIdForWebOrigin(origin),
+            )
             ?: return CreateRequestResolution.Failure(
                 CreateCredentialUnknownException("ChromVoid could not parse the passkey create request."),
             )
@@ -77,7 +82,7 @@ internal object AndroidPasskeyRequestResolver : PasskeyActivityRequestResolverRu
             ResolvedCreatePasskeyRequest(
                 requestData = parsedRequest,
                 requestJson = createRequest.requestJson,
-                origin = PasskeyOriginResolver.originForCallingApp(providerRequest.callingAppInfo),
+                origin = origin,
                 clientDataHash = createRequest.clientDataHash,
             ),
         )

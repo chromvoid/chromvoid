@@ -168,6 +168,46 @@ describe('CatalogOTPSecretsGateway', () => {
     })
   })
 
+  describe('renameOTPLabel (passmanager:otp:renameSecret)', () => {
+    it('sends otp_id and label migration keys', async () => {
+      sendCatalog.mockResolvedValue({ok: true})
+
+      const result = await gateway.renameOTPLabel('sha256-otp-rename', 'Primary', 'Backup')
+
+      expect(result).toBe(true)
+      expect(sendCatalog).toHaveBeenCalledTimes(1)
+
+      const [command, payload] = sendCatalog.mock.calls[0]!
+      expect(command).toBe('passmanager:otp:renameSecret')
+      expect(payload).toMatchObject({
+        otp_id: 'sha256-otp-rename',
+        previous_label: 'Primary',
+        next_label: 'Backup',
+      })
+      expect(payload).not.toHaveProperty('node_id')
+      expect(payload).not.toHaveProperty('nodeId')
+    })
+
+    it('preserves unsupported native command errors', async () => {
+      sendCatalog.mockResolvedValue({
+        ok: false,
+        error: 'Unsupported IPC command: passmanager:otp:renameSecret',
+      })
+
+      await expect(gateway.renameOTPLabel('otp-unsupported', 'Primary', 'Backup')).rejects.toThrow(
+        'Unsupported IPC command: passmanager:otp:renameSecret',
+      )
+    })
+
+    it('returns false on non-IPC failures', async () => {
+      sendCatalog.mockResolvedValue({ok: false, error: 'OTP label already exists'})
+
+      const result = await gateway.renameOTPLabel('otp-conflict', 'Primary', 'Backup')
+
+      expect(result).toBe(false)
+    })
+  })
+
   describe('getOTPSeckey (no-op)', () => {
     it('returns undefined — legacy .otp file reading removed', async () => {
       const result = await gateway.getOTPSeckey('any-otp-id')

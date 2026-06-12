@@ -3,15 +3,15 @@ use serde_json::Value;
 use super::crypto::{generate_credential_id, generate_key_material};
 use super::encoding::encode_b64url;
 use super::request::{
-    decode_b64url_field, has_client_data_hash, object_field, optional_str, origin_for_request,
-    public_key_request, required_str,
+    decode_b64url_field, object_field, optional_str, public_key_request,
+    request_has_client_data_hash, required_str,
 };
 use super::types::{
-    now_epoch_ms, PasskeyCredentialSource, PasskeyError, PasskeyRegistration, ES256_ALGORITHM,
-    P256_CURVE, PASSKEY_SCHEMA_V1, STORAGE_KIND_VAULT,
+    now_epoch_ms, PasskeyCredentialSource, PasskeyError, PasskeyInvocationContext,
+    PasskeyRegistration, ES256_ALGORITHM, P256_CURVE, PASSKEY_SCHEMA_V1, STORAGE_KIND_VAULT,
 };
 use super::validation::{
-    reject_excluded_credentials, require_attestation_none, require_es256, validate_rp_id,
+    reject_excluded_credentials, require_attestation_none, require_es256, validate_rp_id_for_origin,
 };
 use super::webauthn::{
     attestation_object_none, client_data_hash, client_data_json, registration_authenticator_data,
@@ -21,12 +21,13 @@ use super::webauthn::{
 pub fn create_registration(
     data: &Value,
     existing_sources: &[PasskeyCredentialSource],
+    context: &PasskeyInvocationContext,
 ) -> Result<PasskeyRegistration, PasskeyError> {
     let request = public_key_request(data);
     let rp = object_field(request, "rp")?;
     let user = object_field(request, "user")?;
     let rp_id = required_str(rp, "id")?.to_string();
-    validate_rp_id(&rp_id)?;
+    validate_rp_id_for_origin(&rp_id, &context.origin)?;
     let rp_name = optional_str(rp, "name").unwrap_or(&rp_id).to_string();
     let user_name = required_str(user, "name")?.to_string();
     let user_display_name = optional_str(user, "displayName")
@@ -40,6 +41,12 @@ pub fn create_registration(
     require_es256(request)?;
     require_attestation_none(request)?;
     reject_excluded_credentials(request, existing_sources)?;
+    if request_has_client_data_hash(request) {
+        return Err(PasskeyError::new(
+            "INVALID_CONTEXT",
+            "clientDataHash must come from trusted provider context",
+        ));
+    }
 
     let key_material = generate_key_material()?;
     let (credential_id, credential_id_b64url) = generate_credential_id();
@@ -54,7 +61,7 @@ pub fn create_registration(
         user_display_name,
         algorithm: ES256_ALGORITHM,
         curve: P256_CURVE.to_string(),
-        private_key_pkcs8_b64url: encode_b64url(&key_material.private_key_pkcs8),
+        private_key_pkcs8_b64url: encode_b64url(key_material.private_key_pkcs8.as_slice()),
         public_key_cose_b64url: encode_b64url(&key_material.public_key_cose),
         public_key_der_b64url: encode_b64url(&key_material.public_key_der),
         backup_eligible: true,
@@ -65,12 +72,10 @@ pub fn create_registration(
     };
 
     let challenge = required_str(request, "challenge")?;
-    let origin = origin_for_request(request, &rp_id);
+    let origin = &context.origin;
     let client_data_json = client_data_json("webauthn.create", challenge, &origin);
-    if has_client_data_hash(request) {
-        client_data_hash(request, client_data_json.as_bytes())?;
-    }
-    let response_client_data_json = response_client_data_json(request, &client_data_json);
+    let _client_data_hash = client_data_hash(context, client_data_json.as_bytes())?;
+    let response_client_data_json = response_client_data_json(context, &client_data_json);
     let auth_data =
         registration_authenticator_data(&rp_id, &credential_id, &key_material.public_key_cose);
     let attestation_object = attestation_object_none(&auth_data);

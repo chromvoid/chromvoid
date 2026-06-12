@@ -22,7 +22,7 @@ class ConsoleLogger implements Logger {
 
   debug(message: string, meta?: unknown): void {
     if (!shouldLog(this.level, 'debug')) return
-    
+
     try {
       console.log(message, meta ?? '')
     } catch {}
@@ -66,4 +66,8 @@ function isDevRuntime(): boolean {
   return false
 }
 
-export const defaultLogger: Logger = isDevRuntime () ? new ConsoleLogger('debug') : new ConsoleLogger('debug')
+export function createDefaultLogger(devRuntime = isDevRuntime()): Logger {
+  return new ConsoleLogger(devRuntime ? 'debug' : 'info')
+}
+
+export const defaultLogger: Logger = createDefaultLogger()

@@ -58,6 +58,7 @@ function createModel(options?: {
   historyGroupMs?: number
   maxHistoryLength?: number
   now?: () => number
+  clipboardTextReader?: MarkdownPreviewModelDeps['clipboardTextReader']
   renderMarkdownSource?: MarkdownPreviewModelDeps['renderMarkdownSource']
   imageAssetService?: MarkdownPreviewModelDeps['imageAssetService']
   loadSessionSettings?: MarkdownPreviewModelDeps['loadSessionSettings']
@@ -75,6 +76,7 @@ function createModel(options?: {
     renderMarkdownSource: renderMarkdownSource as MarkdownPreviewModelDeps['renderMarkdownSource'],
     formatMarkdownSource: formatMarkdownSource as MarkdownPreviewModelDeps['formatMarkdownSource'],
     imageAssetService: options?.imageAssetService,
+    clipboardTextReader: options?.clipboardTextReader,
     loadSessionSettings: options?.loadSessionSettings,
     renderDebounceMs: options?.renderDebounceMs ?? 20,
     autosaveDebounceMs: options?.autosaveDebounceMs,
@@ -249,6 +251,50 @@ describe('MarkdownPreviewModel', () => {
     expect(model.state()).toEqual({kind: 'idle'})
     expect(releaseResolution).toHaveBeenCalledTimes(1)
     expect(release).toHaveBeenCalledTimes(1)
+  })
+
+  it('releases resolved image refs when another ref in the same batch fails', async () => {
+    const release = vi.fn()
+    const releaseResolution = vi.fn((resolution) => resolution.release?.())
+    const resolveImageRef = vi.fn(async (ref) => {
+      if (ref.rawRef === '/attachments/good.png') {
+        return {
+          key: ref.key,
+          rawRef: ref.rawRef,
+          altText: ref.altText,
+          status: 'loaded' as const,
+          url: 'blob:good-markdown-image',
+          release,
+        }
+      }
+
+      throw new Error('image failed')
+    })
+    const {model} = createModel({
+      loadResult: {
+        text: '![Good](/attachments/good.png)\n![Bad](/attachments/bad.png)',
+        size: 72,
+        mimeType: 'text/markdown',
+        sourceRevision: 11,
+      },
+      renderMarkdownSource: renderRealMarkdownSource,
+      imageAssetService: {
+        resolveImageRef,
+        releaseResolution,
+        uploadImageFiles: vi.fn(),
+      },
+    })
+
+    await loadReady(model)
+    await flushAsync()
+
+    const state = expectReady(model)
+    expect(resolveImageRef).toHaveBeenCalledTimes(2)
+    expect(releaseResolution).toHaveBeenCalledTimes(1)
+    expect(release).toHaveBeenCalledTimes(1)
+    expect(state.imageAssets['image-0']).toMatchObject({status: 'error', url: null})
+    expect(state.imageAssets['image-1']).toMatchObject({status: 'error', url: null})
+    expect(state.renderedHtml).not.toContain('blob:good-markdown-image')
   })
 
   it('keeps external Markdown image refs blocked without loadable sources', async () => {
@@ -429,6 +475,49 @@ describe('MarkdownPreviewModel', () => {
       selectionStart: 1,
       selectionEnd: 3,
     })
+  })
+
+  it('pastes clipboard text at the last editor selection and keeps undo history', async () => {
+    const clipboardTextReader = {readText: vi.fn(async () => 'Todo')}
+    const {model} = createModel({clipboardTextReader})
+    await loadReady(model)
+
+    model.updateEditorSelection({selectionStart: 2, selectionEnd: 7})
+
+    await expect(model.pasteTextFromClipboard()).resolves.toBe(true)
+
+    let state = expectReady(model)
+    expect(clipboardTextReader.readText).toHaveBeenCalledTimes(1)
+    expect(state.mode).toBe('edit')
+    expect(state.source).toBe('# Todo')
+    expect(state.dirty).toBe(true)
+    expect(model.editorFocusRequest()?.selectionStart).toBe(6)
+    expect(model.canUndo()).toBe(true)
+
+    expect(model.undo()).toBe(true)
+    state = expectReady(model)
+    expect(state.source).toBe('# Notes')
+    expect(state.dirty).toBe(false)
+  })
+
+  it('does not change the Markdown source when clipboard text is empty or unavailable', async () => {
+    const emptyClipboard = {readText: vi.fn(async () => '')}
+    const {model} = createModel({clipboardTextReader: emptyClipboard})
+    await loadReady(model)
+
+    await expect(model.pasteTextFromClipboard()).resolves.toBe(false)
+    expect(expectReady(model).source).toBe('# Notes')
+    expect(model.canUndo()).toBe(false)
+
+    const failingClipboard = {readText: vi.fn(async () => {
+      throw new Error('clipboard denied')
+    })}
+    const {model: failingModel} = createModel({clipboardTextReader: failingClipboard})
+    await loadReady(failingModel)
+
+    await expect(failingModel.pasteTextFromClipboard()).resolves.toBe(false)
+    expect(expectReady(failingModel).source).toBe('# Notes')
+    expect(failingModel.canUndo()).toBe(false)
   })
 
   it('does not request the image picker while the note is read-only or busy', async () => {
@@ -855,6 +944,34 @@ describe('MarkdownPreviewModel', () => {
     expect(expectReady(model).dirty).toBe(false)
   })
 
+  it('updates ready state fileId after autosave rotates the catalog node id', async () => {
+    vi.useFakeTimers()
+    const {model, saveTextFileById} = createModel({autosaveDebounceMs: 100})
+    saveTextFileById.mockResolvedValue({
+      ...DEFAULT_SAVE_RESULT,
+      nodeId: 70,
+      sourceRevision: 13,
+    })
+    await loadReady(model)
+
+    model.updateSource('# Autosaved')
+    await vi.advanceTimersByTimeAsync(100)
+    await flushAsync()
+
+    let state = expectReady(model)
+    expect(state.fileId).toBe(70)
+    expect(model.currentData()?.fileId).toBe(70)
+
+    model.updateSource('# Autosaved again')
+    await vi.advanceTimersByTimeAsync(100)
+    await flushAsync()
+
+    expect(saveTextFileById.mock.calls[1]?.[0]).toBe(70)
+    state = expectReady(model)
+    expect(state.fileId).toBe(70)
+    expect(state.baseline).toBe('# Autosaved again')
+  })
+
   it('keeps edit mode when autosaved metadata is echoed through preview data', async () => {
     vi.useFakeTimers()
     const {model, loadTextFileById} = createModel({autosaveDebounceMs: 100})
@@ -935,6 +1052,43 @@ describe('MarkdownPreviewModel', () => {
     expect(loadTextFileById).toHaveBeenCalledTimes(1)
     expect(model.currentData()?.fileName).toBe('renamed.md')
     expect(expectReady(model).fileName).toBe('renamed.md')
+  })
+
+  it('preserves dirty source and history when same-file catalog metadata changes', async () => {
+    vi.useFakeTimers()
+    const {model, loadTextFileById} = createModel({autosaveDebounceMs: 100})
+    await loadReady(model)
+
+    model.setMode('edit')
+    model.updateSource('# Local draft')
+    expect(model.canUndo()).toBe(true)
+    expect(model.autosavePending()).toBe(true)
+
+    model.setPreview({
+      ...PREVIEW_DATA,
+      size: 42,
+      lastModified: 999,
+      sourceRevision: 12,
+    })
+    await flushAsync()
+
+    const state = expectReady(model)
+    expect(loadTextFileById).toHaveBeenCalledTimes(1)
+    expect(model.currentData()).toMatchObject({
+      fileId: PREVIEW_DATA.fileId,
+      size: 42,
+      lastModified: 999,
+      sourceRevision: 12,
+    })
+    expect(state.source).toBe('# Local draft')
+    expect(state.baseline).toBe('# Notes')
+    expect(state.sourceRevision).toBe(11)
+    expect(state.baselineSourceRevision).toBe(11)
+    expect(state.dirty).toBe(true)
+    expect(state.stale).toBe(true)
+    expect(state.mode).toBe('edit')
+    expect(model.canUndo()).toBe(true)
+    expect(model.autosavePending()).toBe(true)
   })
 
   it('manual save clears pending autosave and prevents a second save for the same source', async () => {

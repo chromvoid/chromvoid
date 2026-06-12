@@ -10,7 +10,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.resolve(scriptDir, '..')
 const rawForwardedArgs = process.argv.slice(2)
 const forwardedArgs = []
-const devConfigArgs = ['--config', 'src-tauri/tauri.dev.conf.json']
+const devConfigArgs = ['--config', 'src-tauri/tauri.dev.conf.json', '--port', '4410']
 let usePhysicalDeviceDefault = false
 let requestedPhysicalDeviceRef = process.env.IOS_DEVICE?.trim() ?? ''
 
@@ -461,7 +461,7 @@ function resolveDefaultPhysicalDevice(devices, requestedRef) {
   }
 
   fail(
-    'no paired physical iOS device found. Connect and trust an iPhone, or pass a simulator/device to npm run ios.',
+    'no paired physical iOS device found. Connect and trust an iPhone, or pass a simulator/device to bun run ios.',
   )
 }
 

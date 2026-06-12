@@ -1,10 +1,10 @@
-use std::io::Read;
+use std::io::ErrorKind;
 
 use serde_json::Value;
 
 use crate::catalog::CatalogMediaInfo;
 use crate::rpc::commands::{is_system_path_guarded, normalize_path};
-use crate::rpc::stream::RpcInputStream;
+use crate::rpc::stream::{read_stream_exact_limited, RpcInputStream, MAX_SINGLE_RPC_STREAM_BYTES};
 use crate::rpc::types::CatalogFileReplaceResponse;
 use crate::vault::VaultSession;
 
@@ -40,16 +40,13 @@ pub(super) fn replace_file(
     let target = validate_target(session, &request)?;
 
     let stream = stream.ok_or_else(ReplaceCommandError::no_stream)?;
-    let mut reader = stream.into_reader();
-    let mut content = Vec::new();
-    if let Err(error) = reader.read_to_end(&mut content) {
-        return Err(ReplaceCommandError::internal(format!(
-            "Failed to read stream: {error}"
-        )));
-    }
-    if content.len() as u64 != request.size {
-        return Err(ReplaceCommandError::size_mismatch());
-    }
+    let content = read_stream_exact_limited(stream, request.size, MAX_SINGLE_RPC_STREAM_BYTES)
+        .map_err(|error| match error.kind() {
+            ErrorKind::UnexpectedEof | ErrorKind::InvalidData => {
+                ReplaceCommandError::size_mismatch()
+            }
+            _ => ReplaceCommandError::internal(format!("Failed to read stream: {error}")),
+        })?;
     session.invalidate_decrypted_chunk_cache_for_node(request.node_id);
 
     let chunk_size = target.chunk_size as u64;
@@ -94,6 +91,7 @@ pub(super) fn replace_file(
     if let Err(error) = finalize_blob_write(
         session,
         &router.storage,
+        Some(router.derivative_index_state.as_ref()),
         BlobFinalizationInput {
             node_id: request.node_id,
             size: Some(request.size),

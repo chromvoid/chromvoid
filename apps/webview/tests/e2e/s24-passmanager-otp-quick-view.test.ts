@@ -308,7 +308,8 @@ async function quickViewMobileRailSnapshot(page: import('playwright').Page) {
   return page.evaluate(() => {
     const host = deepFind(document, 'pm-otp-quick-view-mobile') as HTMLElement | null
     const root = host?.shadowRoot
-    const content = root?.querySelector('.quick-view__content') as HTMLElement | null
+    const surfaceLayout = root?.querySelector('mobile-surface-layout') as HTMLElement | null
+    const content = surfaceLayout?.shadowRoot?.querySelector('[part~="scroll"]') as HTMLElement | null
     const rail = root?.querySelector('.quick-view__summary-rail') as HTMLElement | null
     const headerRail = root?.querySelector('.quick-view__header pm-summary-rail') as HTMLElement | null
     const tabBar = deepFind(document, 'mobile-tab-bar') as HTMLElement | null
@@ -354,8 +355,9 @@ async function quickViewMobileRailSnapshot(page: import('playwright').Page) {
 async function scrollQuickViewMobileContentToBottom(page: import('playwright').Page): Promise<void> {
   await page.evaluate(async () => {
     const host = deepFind(document, 'pm-otp-quick-view-mobile') as HTMLElement | null
-    const content = host?.shadowRoot?.querySelector('.quick-view__content') as HTMLElement | null
-    if (!content) throw new Error('OTP Quick View mobile content not found')
+    const surfaceLayout = host?.shadowRoot?.querySelector('mobile-surface-layout') as HTMLElement | null
+    const content = surfaceLayout?.shadowRoot?.querySelector('[part~="scroll"]') as HTMLElement | null
+    if (!content) throw new Error('OTP Quick View mobile surface scroller not found')
 
     content.scrollTop = content.scrollHeight
     content.dispatchEvent(new Event('scroll', {bubbles: true}))
@@ -402,11 +404,17 @@ async function openOtpQuickViewFromMobileTab(page: import('playwright').Page): P
 
 async function setQuickViewSearch(page: import('playwright').Page, value: string): Promise<void> {
   await page.evaluate((nextValue) => {
-    const host = deepFind(document, 'pm-otp-quick-view, pm-otp-quick-view-mobile') as HTMLElement | null
-    const input = host?.shadowRoot?.querySelector('.search') as HTMLInputElement | null
+    const search = deepFind(document, 'pm-otp-quick-view-search') as HTMLElement | null
+    const input = search?.shadowRoot?.querySelector('cv-input') as HTMLElement & {value?: string} | null
     if (!input) throw new Error('OTP Quick View search input not found')
     input.value = nextValue
-    input.dispatchEvent(new InputEvent('input', {bubbles: true, composed: true, data: nextValue}))
+    input.dispatchEvent(
+      new CustomEvent('cv-input', {
+        detail: {value: nextValue},
+        bubbles: true,
+        composed: true,
+      }),
+    )
 
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -536,8 +544,10 @@ async function openQuickViewFromEntrySnippet(page: import('playwright').Page): P
       return
     }
 
-    const toolbar = deepFind(document, 'pm-desktop-toolbar') as HTMLElement | null
-    const toolbarButton = toolbar?.shadowRoot?.querySelector('[data-action="pm-otp-view"]') as HTMLElement | null
+    const toolbar = deepFind(document, 'desktop-shell-toolbar[slot="desktop-topbar"]') as HTMLElement | null
+    const toolbarButton = toolbar
+      ? (toolbar.querySelector('[data-action="pm-otp-view"]') as HTMLElement | null)
+      : null
     if (!toolbarButton) throw new Error('OTP Quick View action not found')
     toolbarButton.click()
 

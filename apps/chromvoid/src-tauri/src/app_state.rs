@@ -21,6 +21,8 @@ pub(crate) struct AppState {
         Arc<crate::vault_background_io::VaultBackgroundIoRuntimeState>,
     pub(crate) catalog_blocking_io_runtime:
         Arc<crate::catalog_blocking_io::CatalogBlockingIoRuntimeState>,
+    #[cfg(desktop)]
+    pub(crate) host_path_capabilities: Arc<crate::host_path_capability::HostPathCapabilityRegistry>,
     pub(crate) task_lifecycle: Arc<crate::task_lifecycle::TaskLifecycleRuntime>,
     pub(crate) image_preview_runtime: Arc<crate::image_preview::ImagePreviewRuntimeState>,
     pub(crate) prepared_preview_runtime: Arc<crate::commands::catalog::PreparedPreviewRuntimeState>,
@@ -30,6 +32,9 @@ pub(crate) struct AppState {
     pub(crate) network_pairing_runtime: Arc<crate::network::pairing::NetworkPairingRuntimeState>,
     #[cfg(desktop)]
     pub(crate) remote_io_runtime: Arc<crate::remote_io_runtime::RemoteIoRuntimeState>,
+    #[cfg(desktop)]
+    pub(crate) mode_transition_coordinator:
+        Arc<crate::mode_transition_coordinator::ModeTransitionCoordinator>,
     pub(crate) mobile_acceptor_runtime:
         Arc<crate::network::mobile_acceptor::MobileAcceptorRuntimeState>,
     pub(crate) ios_lifecycle_runtime: Arc<crate::network::ios_lifecycle::IosLifecycleRuntimeState>,

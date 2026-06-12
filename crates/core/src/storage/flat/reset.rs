@@ -16,6 +16,7 @@ impl StorageArtifact {
             StorageArtifact::FormatVersion,
             StorageArtifact::Salt,
             StorageArtifact::RekeyTransaction,
+            StorageArtifact::RekeyTransactionV2,
             StorageArtifact::RestoreTransaction,
         ]
     }

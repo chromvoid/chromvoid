@@ -22,6 +22,26 @@ function passmanagerRoot() {
   ]
 }
 
+async function* textStream(text: string): AsyncIterable<Uint8Array> {
+  yield new TextEncoder().encode(text)
+}
+
+function createTauriCatalog(downloadText = '{"title":"Cached"}') {
+  const handlers = new Map<string, TransportEventHandler[]>()
+  const ws = {
+    kind: 'tauri' as const,
+    on: (event: string, handler: TransportEventHandler) => {
+      handlers.set(event, [...(handlers.get(event) ?? []), handler])
+    },
+    downloadFile: async () => textStream(downloadText),
+  } as unknown as TransportLike
+
+  return {
+    catalog: new CatalogService(ws),
+    handlers,
+  }
+}
+
 describe('CatalogMirror delete subtree', () => {
   it('removes descendants on NODE_DELETED', () => {
     const mirror = new CatalogMirror()
@@ -67,6 +87,71 @@ describe('CatalogMirror delete subtree', () => {
       playbackMimeType: 'audio/mp4',
     })
   })
+
+  it('updates descendant path indexes when a directory moves', () => {
+    const mirror = new CatalogMirror()
+    applyManifestFixture(mirror, [
+      catalogDir({
+        id: 20,
+        name: 'inbox',
+        children: [
+          catalogDir({
+            id: 21,
+            name: 'nested',
+            children: [catalogFile({id: 22, name: 'note.txt', size: 12})],
+          }),
+        ],
+      }),
+      catalogDir({id: 30, name: 'archive', children: []}),
+    ])
+
+    mirror.applyEvent({
+      type: CatalogEventType.NODE_MOVED,
+      nodeId: 20,
+      timestamp: Date.now(),
+      version: 2,
+      metadata: {
+        oldParentId: null,
+        newParentId: 30,
+        newName: 'Inbox',
+      },
+    })
+
+    expect(mirror.findByPath('/inbox')).toBeUndefined()
+    expect(mirror.findByPath('/inbox/nested')).toBeUndefined()
+    expect(mirror.findByPath('/archive/Inbox')?.nodeId).toBe(20)
+    expect(mirror.findByPath('/archive/Inbox/nested')?.nodeId).toBe(21)
+    expect(mirror.findByPath('/archive/Inbox/nested/note.txt')?.nodeId).toBe(22)
+    expect(mirror.getChildren('/archive/Inbox/nested').map((node) => node.name)).toEqual(['note.txt'])
+  })
+
+  it('updates descendant path indexes when a directory is renamed', () => {
+    const mirror = new CatalogMirror()
+    applyManifestFixture(mirror, [
+      catalogDir({
+        id: 40,
+        name: 'drafts',
+        children: [catalogFile({id: 41, name: 'todo.md', size: 4})],
+      }),
+    ])
+
+    expect(mirror.getFolderState('/')).toBeTruthy()
+
+    mirror.applyEvent({
+      type: CatalogEventType.NODE_RENAMED,
+      nodeId: 40,
+      timestamp: Date.now(),
+      version: 2,
+      metadata: {newName: 'notes'},
+    })
+
+    expect(mirror.getFolderState('/')).toBeUndefined()
+    expect(mirror.findByPath('/drafts')).toBeUndefined()
+    expect(mirror.findByPath('/drafts/todo.md')).toBeUndefined()
+    expect(mirror.findByPath('/notes')?.nodeId).toBe(40)
+    expect(mirror.findByPath('/notes/todo.md')?.nodeId).toBe(41)
+    expect(mirror.getChildren('/notes').map((node) => node.name)).toEqual(['todo.md'])
+  })
 })
 
 describe('CatalogService (tauri) catalog:event deltas', () => {
@@ -103,6 +188,85 @@ describe('CatalogService (tauri) catalog:event deltas', () => {
 
     expect(catalog.catalog.findByPath('/.passmanager/Work')).toBeUndefined()
     expect(catalog.catalog.findByPath('/.passmanager/Work/Jira')).toBeUndefined()
+  })
+
+  it('clears cached entry meta before applying a meta.json delete delta', async () => {
+    const {catalog, handlers} = createTauriCatalog('{"title":"Cached entry"}')
+    applyManifestFixture(catalog.catalog, [
+      catalogDir({
+        id: 10,
+        name: '.passmanager',
+        children: [
+          catalogDir({
+            id: 11,
+            name: 'Entry',
+            children: [catalogFile({id: 12, name: 'meta.json', size: 24, mimeType: 'application/json'})],
+          }),
+        ],
+      }),
+    ])
+
+    await catalog.ensureEntryMeta(11)
+    expect(catalog.getEntryMeta(11)?.title).toBe('Cached entry')
+
+    for (const h of handlers.get('catalog:event') ?? []) {
+      h(null, {
+        type: 'delete',
+        shard_id: '.passmanager',
+        node_id: 12,
+        version: 2,
+        delta: {
+          seq: 2,
+          ts: Date.now(),
+          path: '/Entry/meta.json',
+          op: {type: 'delete'},
+          node_id: 12,
+        },
+      })
+    }
+
+    expect(catalog.getEntryMeta(11)).toBeUndefined()
+    expect(catalog.catalog.findByPath('/.passmanager/Entry/meta.json')).toBeUndefined()
+  })
+
+  it('clears cached entry meta before applying an entry directory delete delta', async () => {
+    const {catalog, handlers} = createTauriCatalog('{"title":"Cached entry"}')
+    applyManifestFixture(catalog.catalog, [
+      catalogDir({
+        id: 10,
+        name: '.passmanager',
+        children: [
+          catalogDir({
+            id: 11,
+            name: 'Entry',
+            children: [catalogFile({id: 12, name: 'meta.json', size: 24, mimeType: 'application/json'})],
+          }),
+        ],
+      }),
+    ])
+
+    await catalog.ensureEntryMeta(11)
+    expect(catalog.getEntryMeta(11)?.title).toBe('Cached entry')
+
+    for (const h of handlers.get('catalog:event') ?? []) {
+      h(null, {
+        type: 'delete',
+        shard_id: '.passmanager',
+        node_id: 11,
+        version: 2,
+        delta: {
+          seq: 2,
+          ts: Date.now(),
+          path: '/Entry',
+          op: {type: 'delete'},
+          node_id: 11,
+        },
+      })
+    }
+
+    expect(catalog.getEntryMeta(11)).toBeUndefined()
+    expect(catalog.catalog.findByPath('/.passmanager/Entry')).toBeUndefined()
+    expect(catalog.catalog.findByPath('/.passmanager/Entry/meta.json')).toBeUndefined()
   })
 
   it('applies source revision and media info from create and update deltas', () => {

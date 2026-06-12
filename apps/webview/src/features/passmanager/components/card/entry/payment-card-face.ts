@@ -63,6 +63,7 @@ function renderCardSecretValue(
     className: string
     placeholder: string
     mask?: boolean
+    maskValue?: string
     formatter?: (value: string) => string
   },
 ): TemplateResult {
@@ -71,7 +72,7 @@ function renderCardSecretValue(
   }
 
   if (resource.status === 'ready' && resource.value) {
-    const maskedValue = '•'.repeat(Math.max(resource.value.length, 3))
+    const maskedValue = options.maskValue ?? '•'.repeat(Math.max(resource.value.length, 3))
     return html`
       <span class="${options.className}${options.mask ? ' is-masked' : ''}">
         ${options.mask ? maskedValue : (options.formatter ? options.formatter(resource.value) : resource.value)}
@@ -233,10 +234,11 @@ export function renderPaymentCardFace(options: PaymentCardFaceOptions): Template
                 error: edit.errors?.cardCvv,
               })
             : renderCardSecretValue(cardCvvResource, {
-                className: 'payment-card-cvv-value',
-                placeholder: '•••',
-                mask: !isCvvRevealed,
-              })}
+              className: 'payment-card-cvv-value',
+              placeholder: '•••',
+              mask: !isCvvRevealed,
+              maskValue: '•••',
+            })}
         </div>
       </div>
 
@@ -314,10 +316,10 @@ export function renderPaymentCardFace(options: PaymentCardFaceOptions): Template
                     name: 'payment-card-exp-year',
                     className: 'payment-card-inline-input payment-card-inline-input-expiry payment-card-meta-value',
                     value: edit.expYear,
-                    placeholder: 'YYYY',
+                    placeholder: 'YY',
                     inputMode: 'numeric',
                     autoComplete: 'cc-exp-year',
-                    maxLength: 4,
+                    maxLength: 2,
                     onInput: edit.onInput,
                     onKeyDown: edit.onKeyDown,
                     error: edit.errors?.expYear,

@@ -5,6 +5,10 @@ use crate::types::*;
 use serde_json::Value;
 use tracing::info;
 
+const ACTION_GRANT_DEFAULT_TTL_SECS: u64 = 30;
+const SITE_GRANT_DEFAULT_TTL_SECS: u64 = 15 * 60;
+const GRANT_TTL_ERROR_CODE: &str = "INVALID_TTL";
+
 async fn browser_extension_guard<T>(state: &tauri::State<'_, AppState>) -> Option<RpcResult<T>> {
     crate::pro::guard_pro_feature_async(
         state,
@@ -44,6 +48,20 @@ fn browser_extension_guard_sync<T>(state: &tauri::State<'_, AppState>) -> Option
             code: Some("PRO_REQUIRED".to_string()),
         },
     })
+}
+
+fn checked_grant_expiry_ms(
+    now_ms: u64,
+    ttl_secs: Option<u64>,
+    default_ttl_secs: u64,
+) -> Result<u64, String> {
+    let ttl_secs = ttl_secs.unwrap_or(default_ttl_secs);
+    let ttl_ms = ttl_secs
+        .checked_mul(1_000)
+        .ok_or_else(|| "Grant TTL is too large".to_string())?;
+    now_ms
+        .checked_add(ttl_ms)
+        .ok_or_else(|| "Grant expiry is too large".to_string())
 }
 
 #[tauri::command]
@@ -277,7 +295,11 @@ pub(crate) fn gateway_issue_action_grant(
     let mut st = lock_or_rpc_err!(state.gateway, "Gateway");
 
     let now = gateway::state::now_ms();
-    let ttl = ttl_secs.unwrap_or(30) * 1000;
+    let expires_at_ms = match checked_grant_expiry_ms(now, ttl_secs, ACTION_GRANT_DEFAULT_TTL_SECS)
+    {
+        Ok(expires_at_ms) => expires_at_ms,
+        Err(error) => return rpc_err(error, Some(GRANT_TTL_ERROR_CODE.to_string())),
+    };
 
     let mut id_bytes = [0u8; 16];
     rand::rngs::OsRng.fill_bytes(&mut id_bytes);
@@ -289,7 +311,7 @@ pub(crate) fn gateway_issue_action_grant(
         command,
         node_id,
         created_at_ms: now,
-        expires_at_ms: now.saturating_add(ttl),
+        expires_at_ms,
         consumed: false,
     };
 
@@ -315,7 +337,10 @@ pub(crate) fn gateway_issue_site_grant(
     let mut st = lock_or_rpc_err!(state.gateway, "Gateway");
 
     let now = gateway::state::now_ms();
-    let ttl = ttl_secs.unwrap_or(15 * 60) * 1000;
+    let expires_at_ms = match checked_grant_expiry_ms(now, ttl_secs, SITE_GRANT_DEFAULT_TTL_SECS) {
+        Ok(expires_at_ms) => expires_at_ms,
+        Err(error) => return rpc_err(error, Some(GRANT_TTL_ERROR_CODE.to_string())),
+    };
 
     let mut id_bytes = [0u8; 16];
     rand::rngs::OsRng.fill_bytes(&mut id_bytes);
@@ -326,7 +351,7 @@ pub(crate) fn gateway_issue_site_grant(
         extension_id: extension_id.clone(),
         origin: origin.clone(),
         created_at_ms: now,
-        expires_at_ms: now.saturating_add(ttl),
+        expires_at_ms,
     };
 
     let store = st.grant_store_mut(&extension_id);
@@ -366,4 +391,33 @@ pub(crate) fn gateway_revoke_all_grants(
     }
 
     rpc_ok(serde_json::json!({"revoked": true}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checked_grant_expiry_rejects_ttl_multiplication_overflow() {
+        let error = checked_grant_expiry_ms(0, Some(u64::MAX), ACTION_GRANT_DEFAULT_TTL_SECS)
+            .expect_err("overflow should fail");
+
+        assert_eq!(error, "Grant TTL is too large");
+    }
+
+    #[test]
+    fn checked_grant_expiry_rejects_deadline_overflow() {
+        let error = checked_grant_expiry_ms(u64::MAX - 500, Some(1), ACTION_GRANT_DEFAULT_TTL_SECS)
+            .expect_err("deadline overflow should fail");
+
+        assert_eq!(error, "Grant expiry is too large");
+    }
+
+    #[test]
+    fn checked_grant_expiry_uses_default_ttl() {
+        assert_eq!(
+            checked_grant_expiry_ms(10, None, ACTION_GRANT_DEFAULT_TTL_SECS).expect("default ttl"),
+            30_010
+        );
+    }
 }

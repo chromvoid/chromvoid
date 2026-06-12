@@ -1,4 +1,4 @@
-import {atom} from '@reatom/core'
+import {action, atom, wrap} from '@reatom/core'
 import {css} from 'lit'
 import {ReatomLitElement, html} from '@chromvoid/uikit/reatom-lit'
 
@@ -6,6 +6,29 @@ import type {Entry} from '@project/passmanager/core'
 
 import {type BrowserExtensionLang, getLang, i18n, setLang} from './i18n'
 import {store} from './store'
+
+class AppRootModel {
+  readonly copyFeedback = atom<string | undefined>(undefined, 'app.copyFeedback')
+  private copyFeedbackTimeout: ReturnType<typeof setTimeout> | undefined
+
+  readonly showCopyFeedback = action((message: string) => {
+    this.copyFeedback.set(message)
+    if (this.copyFeedbackTimeout) {
+      clearTimeout(this.copyFeedbackTimeout)
+    }
+    this.copyFeedbackTimeout = setTimeout(wrap(() => {
+      this.copyFeedback.set(undefined)
+      this.copyFeedbackTimeout = undefined
+    }), 1400)
+  }, 'app.showCopyFeedback')
+
+  disconnect(): void {
+    if (this.copyFeedbackTimeout) {
+      clearTimeout(this.copyFeedbackTimeout)
+      this.copyFeedbackTimeout = undefined
+    }
+  }
+}
 
 export class AppRoot extends ReatomLitElement {
   static define() {
@@ -223,26 +246,11 @@ export class AppRoot extends ReatomLitElement {
     }
   `
 
-  private readonly copyFeedback = atom<string | undefined>(undefined, 'app.copyFeedback')
-  private copyFeedbackTimeout: ReturnType<typeof setTimeout> | undefined
-
-  private showCopyFeedback(message: string) {
-    this.copyFeedback.set(message)
-    if (this.copyFeedbackTimeout) {
-      clearTimeout(this.copyFeedbackTimeout)
-    }
-    this.copyFeedbackTimeout = setTimeout(() => {
-      this.copyFeedback.set(undefined)
-      this.copyFeedbackTimeout = undefined
-    }, 1400)
-  }
+  private readonly model = new AppRootModel()
 
   disconnectedCallback(): void {
     super.disconnectedCallback()
-    if (this.copyFeedbackTimeout) {
-      clearTimeout(this.copyFeedbackTimeout)
-      this.copyFeedbackTimeout = undefined
-    }
+    this.model.disconnect()
   }
 
   private handleFill(event: CustomEvent<{entry: Entry}>) {
@@ -256,7 +264,7 @@ export class AppRoot extends ReatomLitElement {
   }
 
   private handleCopyFeedback(event: CustomEvent<{message: string}>) {
-    this.showCopyFeedback(event.detail.message)
+    this.model.showCopyFeedback(event.detail.message)
   }
 
   private handleOtpChange(event: CustomEvent<{entryId: string; otpId: string}>) {
@@ -286,7 +294,7 @@ export class AppRoot extends ReatomLitElement {
       list.length === 1 ? i18n('app.entry.one') : i18n('app.entry.many', {count: list.length})
     const currentLang = getLang()
     const languageOptions: BrowserExtensionLang[] = ['en', 'ru']
-    const copyFeedback = this.copyFeedback()
+    const copyFeedback = this.model.copyFeedback()
     let content
 
     if (store.isLoading()) {

@@ -131,7 +131,7 @@ describe('virtual-file-list viewport restoration', () => {
     const element = createMobileListElement()
     element.items = createItems(60)
     element.filters = {...DEFAULT_FILTERS}
-    element.itemHeight = 80
+    element.itemHeight = 96
     element.currentPath = '/Docs'
     element.mobile = true
     element.restoreViewport = {
@@ -176,7 +176,7 @@ describe('virtual-file-list viewport restoration', () => {
     const element = document.createElement('virtual-file-list') as VirtualFileList
     element.items = items
     element.filters = {...DEFAULT_FILTERS}
-    element.itemHeight = 80
+    element.itemHeight = 96
     element.currentPath = '/Docs'
     element.addEventListener('viewport-state-change', viewportChange)
     element.addEventListener('item-action', itemAction)
@@ -357,7 +357,7 @@ describe('virtual-file-list viewport restoration', () => {
 
     const container = element.shadowRoot?.querySelector<HTMLElement>('.list-container')
     expect(container?.scrollTop).toBe(1680)
-    expect(container?.getAttribute('aria-activedescendant')).toBe('file-option-22')
+    expect(container?.getAttribute('aria-activedescendant')).toBe('file-option-18')
     expect(restored).toHaveBeenCalledWith(expect.objectContaining({detail: {revision: 5}}))
   })
 })

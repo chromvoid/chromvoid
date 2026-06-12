@@ -6,9 +6,18 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::io::Read as _;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, Once, OnceLock};
 
 use chromvoid_lib::{detect_fuse_driver, CoreAdapter, FuseDriverStatus, LocalCoreAdapter};
+
+static TEST_ENV_INIT: Once = Once::new();
+
+pub(crate) fn enable_local_core_test_keystore() {
+    TEST_ENV_INIT.call_once(|| {
+        std::env::set_var("CHROMVOID_TEST_INMEMORY_KEYSTORE", "1");
+        std::env::set_var("CHROMVOID_TEST_FAST_KDF", "1");
+    });
+}
 
 pub struct TestVault {
     _tmp: tempfile::TempDir,
@@ -21,6 +30,8 @@ pub struct TestVault {
 
 impl TestVault {
     pub fn new_unlocked() -> Self {
+        enable_local_core_test_keystore();
+
         let tmp = tempfile::tempdir().expect("tempdir");
         let storage_root = tmp.path().join("storage");
 
@@ -53,6 +64,8 @@ impl TestVault {
     }
 
     pub fn new_unlocked_with_master() -> Self {
+        enable_local_core_test_keystore();
+
         let tmp = tempfile::tempdir().expect("tempdir");
         let storage_root = tmp.path().join("storage");
 
@@ -100,6 +113,8 @@ impl TestVault {
     /// Simulate an app restart: close the current core adapter and re-open
     /// a new LocalCoreAdapter pointing at the same storage.
     pub fn restart_core_unlocked(&self) {
+        enable_local_core_test_keystore();
+
         // Persist any pending changes.
         self.save();
 
@@ -123,6 +138,8 @@ impl TestVault {
     /// Simulate a hard crash / power loss: re-open a new core adapter without
     /// calling save() on the previous instance.
     pub fn restart_core_unlocked_without_save(&self) {
+        enable_local_core_test_keystore();
+
         let mut adapter = LocalCoreAdapter::new(self.storage_root.clone())
             .expect("LocalCoreAdapter::new (restart without save)");
         adapter.set_master_key(Some(self.master_password.clone()));

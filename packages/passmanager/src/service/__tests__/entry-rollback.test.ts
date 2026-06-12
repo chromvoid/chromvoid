@@ -18,6 +18,7 @@ function createMockSaver(overrides: Partial<ManagerSaver> = {}): ManagerSaver {
     getOTPSeckey: vi.fn(async () => undefined),
     removeOTP: vi.fn(async () => true),
     saveOTP: vi.fn(async () => true),
+    renameOTPLabel: vi.fn(async () => true),
     readEntrySecret: vi.fn(async () => undefined),
     saveEntrySecret: vi.fn(async () => true),
     removeEntrySecret: vi.fn(async () => true),
@@ -84,6 +85,42 @@ function makeOtp(overrides: Partial<OTPOptions> = {}): OTPOptions {
     type: 'TOTP',
     ...overrides,
   }
+}
+
+function importBatchOtpEntry(root: ManagerRoot): Entry {
+  const entry = Entry.import(root, {
+    id: 'entry-otp-label-batch-rollback',
+    createdTs: Date.now(),
+    updatedTs: Date.now(),
+    exportedTs: Date.now(),
+    title: 'Rollback OTP Label Batch',
+    urls: [],
+    username: 'user1',
+    otps: [
+      {
+        id: 'otp-1',
+        label: 'Primary',
+        algorithm: 'SHA1',
+        digits: 6,
+        period: 30,
+        encoding: 'base32',
+        secret: '',
+        type: 'TOTP',
+      },
+      {
+        id: 'otp-2',
+        label: 'Recovery',
+        algorithm: 'SHA1',
+        digits: 6,
+        period: 30,
+        encoding: 'base32',
+        secret: '',
+        type: 'TOTP',
+      },
+    ],
+  })
+  root.entries.set([entry])
+  return entry
 }
 
 describe('Entry rollback paths', () => {
@@ -162,6 +199,175 @@ describe('Entry rollback paths', () => {
     expect(otp.isRemoved).toBe(false)
   })
 
+  it('rolls back OTP label updates when meta persistence fails', async () => {
+    const entry = Entry.import(root, {
+      id: 'entry-otp-label-rollback',
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+      exportedTs: Date.now(),
+      title: 'Rollback OTP Label',
+      urls: [],
+      username: 'user1',
+      otps: [
+        {
+          id: 'otp-1',
+          label: 'Primary',
+          algorithm: 'SHA1',
+          digits: 6,
+          period: 30,
+          encoding: 'base32',
+          secret: '',
+          type: 'TOTP',
+        },
+      ],
+    })
+    root.entries.set([entry])
+
+    const otp = entry.otps()[0]
+    if (!otp) throw new Error('expected otp to exist')
+    ;(saver.saveEntryMeta as Mock).mockRejectedValueOnce(new Error('meta failed'))
+
+    await expect(entry.updateOTPLabel(otp, 'Backup')).rejects.toThrow('meta failed')
+
+    expect(otp.label).toBe('Primary')
+    expect(saver.renameOTPLabel).toHaveBeenCalledTimes(2)
+    expect(saver.renameOTPLabel).toHaveBeenNthCalledWith(1, 'otp-1', 'Primary', 'Backup')
+    expect(saver.renameOTPLabel).toHaveBeenNthCalledWith(2, 'otp-1', 'Backup', 'Primary')
+  })
+
+  it('rolls back OTP label metadata when secret label migration fails', async () => {
+    const entry = Entry.import(root, {
+      id: 'entry-otp-label-secret-rollback',
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+      exportedTs: Date.now(),
+      title: 'Rollback OTP Label Secret',
+      urls: [],
+      username: 'user1',
+      otps: [
+        {
+          id: 'otp-1',
+          label: 'Primary',
+          algorithm: 'SHA1',
+          digits: 6,
+          period: 30,
+          encoding: 'base32',
+          secret: '',
+          type: 'TOTP',
+        },
+      ],
+    })
+    root.entries.set([entry])
+
+    const otp = entry.otps()[0]
+    if (!otp) throw new Error('expected otp to exist')
+    ;(saver.saveEntryMeta as Mock).mockResolvedValue(true)
+    ;(saver.renameOTPLabel as Mock).mockResolvedValueOnce(false)
+
+    await expect(entry.updateOTPLabel(otp, 'Backup')).rejects.toThrow('renameOTPLabel failed')
+
+    expect(otp.label).toBe('Primary')
+    expect(saver.renameOTPLabel).toHaveBeenCalledWith('otp-1', 'Primary', 'Backup')
+    expect(saver.saveEntryMeta).not.toHaveBeenCalled()
+  })
+
+  it('does not save OTP label metadata when secret label migration is unavailable', async () => {
+    const entry = Entry.import(root, {
+      id: 'entry-otp-label-secret-unavailable',
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+      exportedTs: Date.now(),
+      title: 'Unavailable OTP Label Secret',
+      urls: [],
+      username: 'user1',
+      otps: [
+        {
+          id: 'otp-1',
+          label: 'Primary',
+          algorithm: 'SHA1',
+          digits: 6,
+          period: 30,
+          encoding: 'base32',
+          secret: '',
+          type: 'TOTP',
+        },
+      ],
+    })
+    root.entries.set([entry])
+
+    const otp = entry.otps()[0]
+    if (!otp) throw new Error('expected otp to exist')
+    delete (saver as Partial<ManagerSaver>).renameOTPLabel
+
+    await expect(entry.updateOTPLabel(otp, 'Backup')).rejects.toThrow('renameOTPLabel unavailable')
+
+    expect(otp.label).toBe('Primary')
+    expect(saver.saveEntryMeta).not.toHaveBeenCalled()
+  })
+
+  it('rolls back multiple OTP label updates when metadata persistence fails', async () => {
+    const entry = importBatchOtpEntry(root)
+    ;(saver.saveEntryMeta as Mock).mockRejectedValueOnce(new Error('meta failed'))
+
+    await expect(
+      entry.updateOTPLabels({
+        'otp-1': 'Backup',
+        'otp-2': 'Admin',
+      }),
+    ).rejects.toThrow('meta failed')
+
+    expect(entry.otps().map((otp) => otp.label)).toEqual(['Primary', 'Recovery'])
+    expect(saver.renameOTPLabel).toHaveBeenCalledTimes(4)
+    expect(saver.renameOTPLabel).toHaveBeenNthCalledWith(1, 'otp-1', 'Primary', 'Backup')
+    expect(saver.renameOTPLabel).toHaveBeenNthCalledWith(2, 'otp-2', 'Recovery', 'Admin')
+    expect(saver.renameOTPLabel).toHaveBeenNthCalledWith(3, 'otp-2', 'Admin', 'Recovery')
+    expect(saver.renameOTPLabel).toHaveBeenNthCalledWith(4, 'otp-1', 'Backup', 'Primary')
+  })
+
+  it('rolls back completed OTP label migrations when a later migration fails', async () => {
+    const entry = importBatchOtpEntry(root)
+    ;(saver.renameOTPLabel as Mock)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+
+    await expect(
+      entry.updateOTPLabels({
+        'otp-1': 'Backup',
+        'otp-2': 'Admin',
+      }),
+    ).rejects.toThrow('renameOTPLabel failed')
+
+    expect(entry.otps().map((otp) => otp.label)).toEqual(['Primary', 'Recovery'])
+    expect(saver.saveEntryMeta).not.toHaveBeenCalled()
+    expect(saver.renameOTPLabel).toHaveBeenCalledTimes(3)
+    expect(saver.renameOTPLabel).toHaveBeenNthCalledWith(1, 'otp-1', 'Primary', 'Backup')
+    expect(saver.renameOTPLabel).toHaveBeenNthCalledWith(2, 'otp-2', 'Recovery', 'Admin')
+    expect(saver.renameOTPLabel).toHaveBeenNthCalledWith(3, 'otp-1', 'Backup', 'Primary')
+  })
+
+  it('attempts every reverse OTP label migration even when one reverse migration fails', async () => {
+    const entry = importBatchOtpEntry(root)
+    ;(saver.saveEntryMeta as Mock).mockRejectedValueOnce(new Error('meta failed'))
+    ;(saver.renameOTPLabel as Mock)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+
+    await expect(
+      entry.updateOTPLabels({
+        'otp-1': 'Backup',
+        'otp-2': 'Admin',
+      }),
+    ).rejects.toThrow('meta failed')
+
+    expect(entry.otps().map((otp) => otp.label)).toEqual(['Primary', 'Recovery'])
+    expect(saver.renameOTPLabel).toHaveBeenCalledTimes(4)
+    expect(saver.renameOTPLabel).toHaveBeenNthCalledWith(3, 'otp-2', 'Admin', 'Recovery')
+    expect(saver.renameOTPLabel).toHaveBeenNthCalledWith(4, 'otp-1', 'Backup', 'Primary')
+  })
+
   it('persists entry moves via point move API without calling root.save', async () => {
     const source = makeGroup('group-source', 'Source')
     const target = makeGroup('group-target', 'Target')
@@ -188,7 +394,6 @@ describe('Entry rollback paths', () => {
 
     source.addEntry(entry)
     root.entries.set([source, target])
-
     ;(saver.moveEntryToGroup as Mock).mockRejectedValueOnce(new Error('move failed'))
 
     await expect(entry.move(target, {silent: true})).rejects.toThrow('move failed')

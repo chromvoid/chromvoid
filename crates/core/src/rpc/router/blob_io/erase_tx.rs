@@ -1,5 +1,6 @@
 use crate::durable_tx::DurableTxStore;
 use crate::rpc::commands::is_system_node;
+use crate::rpc::derivative_index::DerivativeIndexState;
 use crate::storage::Storage;
 use crate::types::KEY_SIZE;
 use crate::vault::VaultSession;
@@ -104,6 +105,7 @@ pub(super) fn erase_tx_store<'a>(
 pub(in crate::rpc) fn erase_single_blob_atomic(
     session: &mut VaultSession,
     storage: &Storage,
+    derivative_index_state: &DerivativeIndexState,
     node_id: u64,
 ) -> Result<(), BlobIoError> {
     if is_system_node(session, node_id) {
@@ -163,6 +165,7 @@ pub(in crate::rpc) fn erase_single_blob_atomic(
     if let Err(error) = finalize_blob_write(
         session,
         storage,
+        Some(derivative_index_state),
         BlobFinalizationInput {
             node_id,
             size: Some(0),

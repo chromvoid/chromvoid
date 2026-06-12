@@ -1,14 +1,17 @@
 use serde_json::Value;
 
 use super::request::{allow_credential_ids, public_key_request, rp_id_from_get_request};
-use super::types::{PasskeyCredentialSource, PasskeyError};
+use super::types::{PasskeyCredentialSource, PasskeyError, PasskeyInvocationContext};
+use super::validation::validate_rp_id_for_origin;
 
 pub fn query_candidates(
     data: &Value,
     sources: &[PasskeyCredentialSource],
+    context: &PasskeyInvocationContext,
 ) -> Result<Vec<PasskeyCredentialSource>, PasskeyError> {
     let request = public_key_request(data);
     let rp_id = rp_id_from_get_request(request)?;
+    validate_rp_id_for_origin(&rp_id, &context.origin)?;
     let allow_credentials = allow_credential_ids(request)?;
     let mut candidates: Vec<PasskeyCredentialSource> = sources
         .iter()

@@ -16,7 +16,10 @@ use tokio::task::JoinSet;
 use tracing::{info, warn};
 
 use crate::core_adapter::{CoreAdapter, LocalCoreAdapter};
-use crate::rpc_transport_protocol::{parse_upload_stream_metadata, upload_stream_chunk_data};
+use crate::remote_data_plane::{recv_decrypted_frame, send_encrypted_frame};
+use crate::rpc_transport_protocol::{
+    append_full_upload_stream_chunk, parse_upload_stream_metadata, upload_stream_chunk_data,
+};
 
 const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 const HOST_MEDIA_INSPECTION_SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(1);
@@ -74,29 +77,6 @@ fn is_download_stream_command(command: &str) -> bool {
 
 fn read_stream_chunk(reader: &mut dyn std::io::Read, buf: &mut [u8]) -> Result<usize, String> {
     reader.read(buf).map_err(|e| format!("stream read: {}", e))
-}
-
-async fn send_encrypted_frame(
-    transport: &mut dyn RemoteTransport,
-    noise: &mut NoiseTransport,
-    frame: Frame,
-) -> Result<(), String> {
-    let encrypted = noise
-        .encrypt(&frame.encode())
-        .map_err(|e| format!("encrypt: {e}"))?;
-    transport
-        .send(&encrypted)
-        .await
-        .map_err(|e| format!("send: {e}"))
-}
-
-async fn recv_decrypted_frame(
-    transport: &mut dyn RemoteTransport,
-    noise: &mut NoiseTransport,
-) -> Result<Frame, String> {
-    let bytes = transport.recv().await.map_err(|e| format!("recv: {e}"))?;
-    let decrypted = noise.decrypt(&bytes).map_err(|e| format!("decrypt: {e}"))?;
-    Frame::decode(&decrypted).map_err(|e| format!("decode: {e}"))
 }
 
 async fn shutdown_host_media_jobs(peer_id: &str, media_jobs: &mut JoinSet<()>) {
@@ -605,7 +585,18 @@ pub(super) async fn run_host_rpc_loop(
                                 .check(chunk_frame.message_id)
                                 .map_err(|e| format!("anti_replay: {e}"))?;
 
-                            body.extend_from_slice(&chunk_frame.payload);
+                            if let Err(response) =
+                                append_full_upload_stream_chunk(&mut body, &chunk_frame.payload)
+                            {
+                                let _ = send_encrypted_frame(
+                                    transport.as_mut(),
+                                    &mut noise,
+                                    frame_from_rpc_response(frame.message_id, &response),
+                                )
+                                .await;
+                                stream_ok = false;
+                                break;
+                            }
 
                             if !chunk_frame.has_continuation() {
                                 break;

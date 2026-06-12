@@ -124,7 +124,7 @@ describe('PMLayoutBase keyboard guards', () => {
     expect(openItemSpy).not.toHaveBeenCalled()
   })
 
-  it('keeps Enter shortcut for non-interactive targets', async () => {
+  it('does not open the first result from bare Enter on a generic target', async () => {
     const layout = document.createElement('test-pm-layout') as TestPMLayout
     const openItemSpy = vi.spyOn(pmModel, 'openItem').mockImplementation(() => {})
 
@@ -143,6 +143,26 @@ describe('PMLayoutBase keyboard guards', () => {
       document,
       window,
     ])
+
+    await layout.triggerGlobalKeyDown(event)
+
+    expect(openItemSpy).not.toHaveBeenCalled()
+  })
+
+  it('opens the first result from Enter on an explicit list row target', async () => {
+    const layout = document.createElement('test-pm-layout') as TestPMLayout
+    const openItemSpy = vi.spyOn(pmModel, 'openItem').mockImplementation(() => {})
+
+    const firstItem = {id: 'first-entry'}
+    const passmanagerStub: PassmanagerStub = {
+      showElement: () => ({id: 'current-entry'}),
+      searched: () => [firstItem],
+    }
+    window.passmanager = passmanagerStub as unknown as typeof window.passmanager
+
+    const row = document.createElement('div')
+    row.className = 'list-item'
+    const event = createKeyboardEvent('Enter', row, [row, layout, document.body, document, window])
 
     await layout.triggerGlobalKeyDown(event)
 

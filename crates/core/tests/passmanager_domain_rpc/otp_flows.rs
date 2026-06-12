@@ -85,6 +85,130 @@ fn test_passmanager_otp_generate_supports_otp_id() {
 }
 
 #[test]
+fn test_passmanager_otp_rename_secret_preserves_generation_by_otp_id() {
+    let (mut router, _tmp) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "pw"));
+
+    let created_entry = router.handle(&RpcRequest::new(
+        "passmanager:entry:save",
+        serde_json::json!({
+            "id": "entry-rename-otp-label",
+            "title": "Rename OTP Label",
+            "otps": [{"id": "otp-rename-1", "label": "Primary"}],
+        }),
+    ));
+    assert_rpc_ok(&created_entry);
+
+    let set_secret = router.handle(&RpcRequest::new(
+        "passmanager:otp:setSecret",
+        serde_json::json!({
+            "otp_id": "otp-rename-1",
+            "secret": "JBSWY3DPEHPK3PXP",
+            "encoding": "base32",
+            "algorithm": "SHA1",
+            "digits": 6,
+            "period": 30,
+        }),
+    ));
+    assert_rpc_ok(&set_secret);
+
+    let updated_entry = router.handle(&RpcRequest::new(
+        "passmanager:entry:save",
+        serde_json::json!({
+            "id": "entry-rename-otp-label",
+            "title": "Rename OTP Label",
+            "otps": [{"id": "otp-rename-1", "label": "Backup"}],
+        }),
+    ));
+    assert_rpc_ok(&updated_entry);
+
+    let renamed_secret = router.handle(&RpcRequest::new(
+        "passmanager:otp:renameSecret",
+        serde_json::json!({
+            "otp_id": "otp-rename-1",
+            "previous_label": "Primary",
+            "next_label": "Backup",
+        }),
+    ));
+    assert_rpc_ok(&renamed_secret);
+
+    let generated = router.handle(&RpcRequest::new(
+        "passmanager:otp:generate",
+        serde_json::json!({"otp_id": "otp-rename-1", "ts": 0}),
+    ));
+    assert_rpc_ok(&generated);
+    let otp = generated
+        .result()
+        .and_then(|r| r.get("otp"))
+        .and_then(|v| v.as_str())
+        .expect("otp");
+    assert_eq!(otp.len(), 6);
+    assert!(otp.chars().all(|c| c.is_ascii_digit()));
+
+    let mismatched_label = router.handle(&RpcRequest::new(
+        "passmanager:otp:generate",
+        serde_json::json!({
+            "entry_id": "entry-rename-otp-label",
+            "label": "Primary",
+            "ts": 0,
+        }),
+    ));
+    assert_rpc_ok(&mismatched_label);
+}
+
+#[test]
+fn test_passmanager_otp_generate_recovers_single_secret_label_mismatch() {
+    let (mut router, _tmp) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "pw"));
+
+    let created_entry = router.handle(&RpcRequest::new(
+        "passmanager:entry:save",
+        serde_json::json!({
+            "id": "entry-single-otp-label-mismatch",
+            "title": "Single OTP Label Mismatch",
+            "otps": [{"id": "otp-mismatch-1", "label": "Primary"}],
+        }),
+    ));
+    assert_rpc_ok(&created_entry);
+
+    let set_secret = router.handle(&RpcRequest::new(
+        "passmanager:otp:setSecret",
+        serde_json::json!({
+            "otp_id": "otp-mismatch-1",
+            "secret": "JBSWY3DPEHPK3PXP",
+            "encoding": "base32",
+            "algorithm": "SHA1",
+            "digits": 6,
+            "period": 30,
+        }),
+    ));
+    assert_rpc_ok(&set_secret);
+
+    let updated_entry = router.handle(&RpcRequest::new(
+        "passmanager:entry:save",
+        serde_json::json!({
+            "id": "entry-single-otp-label-mismatch",
+            "title": "Single OTP Label Mismatch",
+            "otps": [{"id": "otp-mismatch-1", "label": "Backup"}],
+        }),
+    ));
+    assert_rpc_ok(&updated_entry);
+
+    let generated = router.handle(&RpcRequest::new(
+        "passmanager:otp:generate",
+        serde_json::json!({"otp_id": "otp-mismatch-1", "ts": 0}),
+    ));
+    assert_rpc_ok(&generated);
+    let otp = generated
+        .result()
+        .and_then(|r| r.get("otp"))
+        .and_then(|v| v.as_str())
+        .expect("otp");
+    assert_eq!(otp.len(), 6);
+    assert!(otp.chars().all(|c| c.is_ascii_digit()));
+}
+
+#[test]
 fn test_passmanager_otp_generate_supports_entry_id_with_label() {
     let (mut router, _tmp) = create_test_router();
     assert_rpc_ok(&unlock_vault(&mut router, "pw"));

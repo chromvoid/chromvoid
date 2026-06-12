@@ -1,7 +1,6 @@
+use crate::catalog::RootIndex;
 use std::collections::HashMap;
 
-#[cfg(test)]
-use crate::catalog::RootIndex;
 use crate::catalog::{CatalogManager, DeltaEntry, Shard, MAX_DELTAS};
 use crate::crypto::shard_snapshot_chunk_name;
 use crate::crypto::{decrypt, delta_chunk_name, encrypt, root_index_chunk_name};
@@ -10,14 +9,11 @@ use crate::storage::Storage;
 use crate::types::KEY_SIZE;
 
 use super::chunks::chunks_for_meta;
-#[cfg(test)]
 use super::chunks::{delete_chunks, unique};
 use super::compaction::CatalogCompactionService;
 use super::root_index::read_root_index;
-#[cfg(test)]
 use super::root_index::write_root_index;
 use super::transaction::CatalogCommitService;
-#[cfg(test)]
 use super::types::CatalogCommitRecord;
 use super::types::CatalogSaveOutcome;
 
@@ -195,11 +191,16 @@ impl<'a> CatalogSaveService<'a> {
             }
         }
 
-        new_chunks.retain(|chunk| self.storage.chunk_exists(chunk).unwrap_or(false));
+        let mut durable_new_chunks = Vec::with_capacity(new_chunks.len());
+        for chunk in new_chunks {
+            if self.storage.chunk_exists(&chunk)? {
+                durable_new_chunks.push(chunk);
+            }
+        }
 
         CatalogCommitService::new(self.storage, self.vault_key).commit_root_index_update(
             &root_index,
-            new_chunks,
+            durable_new_chunks,
             old_chunks,
             format!("catalog-{}", catalog.version()),
         )?;
@@ -210,7 +211,6 @@ impl<'a> CatalogSaveService<'a> {
         })
     }
 
-    #[cfg(test)]
     pub(in crate::vault) fn rewrite_sharded_catalog_from_catalog(
         &self,
         catalog: &CatalogManager,

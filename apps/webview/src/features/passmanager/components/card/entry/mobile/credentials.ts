@@ -280,6 +280,7 @@ export function renderEditEntryAction(context: PMEntryMobileRenderContext) {
           size="large"
           preset="action-primary-subtle"
           ?disabled=${model.inlineSaving()}
+          .loading=${model.inlineSaving()}
           @click=${ui.handleSaveEntryEdit}
         >
           ${i18n('button:save')}

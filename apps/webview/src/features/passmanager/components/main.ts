@@ -14,10 +14,11 @@ import {PMGroup, PMGroupListItemMobile, PMGroupMobile} from './group/group'
 import {PMEntryListItem, PMEntryListItemMobile} from './card/entry-list-item'
 import {ButtonBack} from './list/back-button'
 import {GroupTreeView} from './list/group-tree-view'
+import {PMQuickFilters} from './list/quick-filters'
 import {PMSearch} from './list/search'
 import {PMSearchMobile} from './list/search-mobile'
 import {SortControls} from './list/sort-controls'
-import {PMDesktopToolbar, PasswordManagerDesktopLayout, PasswordManagerMobileLayout} from './password-manager-layout'
+import {PasswordManagerDesktopLayout, PasswordManagerMobileLayout} from './password-manager-layout'
 import {PMAvatarIcon} from './pm-avatar-icon'
 import {PMOtpQuickView, PMOtpQuickViewMobile} from './otp-quick-view'
 
@@ -34,6 +35,7 @@ export class PasswordManagerElement extends ReatomLitElement {
     PMGroupListItemMobile.define()
     GroupTreeView.define()
     PMSearch.define()
+    PMQuickFilters.define()
     PMSearchMobile.define()
     PMEntryListItem.define()
     PMEntryListItemMobile.define()
@@ -44,7 +46,6 @@ export class PasswordManagerElement extends ReatomLitElement {
     PMAvatarIcon.define()
     PMOtpQuickView.define()
     PMOtpQuickViewMobile.define()
-    PMDesktopToolbar.define()
     PasswordManagerMobileLayout.define()
     PasswordManagerDesktopLayout.define()
   }
@@ -99,9 +100,9 @@ declare global {
     'password-manager': PasswordManagerElement
     'password-manager-mobile-layout': PasswordManagerMobileLayout
     'password-manager-desktop-layout': PasswordManagerDesktopLayout
-    'pm-desktop-toolbar': PMDesktopToolbar
     'pm-entry-list-item-mobile': PMEntryListItemMobile
     'pm-search': PMSearch
+    'pm-quick-filters': PMQuickFilters
     'pm-sort-controls': SortControls
     'pm-group': PMGroup
     'pm-group-mobile': PMGroupMobile

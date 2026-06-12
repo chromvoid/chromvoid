@@ -13,7 +13,7 @@ import {
   type NotesQuickViewTreeItem,
 } from './notes-quick-view.model'
 
-type EmptyStateKind = 'unavailable' | 'empty' | 'filtered'
+type EmptyStateKind = 'unavailable' | 'error' | 'empty' | 'filtered'
 type RenderRowOptions = {
   tree?: boolean
   level?: number
@@ -41,6 +41,10 @@ export abstract class NotesQuickViewBase extends ReatomLitElement {
     this.model.actions.clearFilters()
   }
 
+  protected handleRetryLoad() {
+    this.model.actions.retryLoad()
+  }
+
   protected handleViewModeClick(event: Event) {
     const target = event.currentTarget as HTMLButtonElement | null
     const viewMode = target?.value === 'hierarchy' ? 'hierarchy' : 'flat'
@@ -66,24 +70,21 @@ export abstract class NotesQuickViewBase extends ReatomLitElement {
     this.handleOpenNote(event)
   }
 
-  protected renderHeader() {
+  protected renderHeader(slot?: string) {
     return html`
-      <header class="quick-view__header" aria-label=${i18n('notes:quick_view:title' as never)}>
-        ${this.renderHeaderSummary()}
+      <header class="quick-view__header" slot=${slot ?? nothing} aria-label=${i18n('notes:quick_view:title' as never)}>
+        
         ${this.renderControls()}
       </header>
     `
   }
 
-  protected renderHeaderSummary(): TemplateResult | typeof nothing {
-    return this.renderSummary()
-  }
-
-  protected renderSummary(): TemplateResult {
+  protected renderSummary(slot?: string): TemplateResult {
     const summary = this.model.state.summary()
 
     return html`
       <pm-summary-rail
+        slot=${slot ?? nothing}
         class="quick-view__summary-rail"
         .items=${this.getSummaryItems(summary)}
         .label=${i18n('notes:quick_view:summary:label' as never)}
@@ -160,6 +161,10 @@ export abstract class NotesQuickViewBase extends ReatomLitElement {
     }
 
     const rows = this.model.state.rows()
+    if (rows.length === 0 && this.model.state.loadErrorKey()) {
+      return this.renderEmptyState('error')
+    }
+
     if (rows.length === 0) {
       return this.renderEmptyState('empty')
     }
@@ -267,12 +272,16 @@ export abstract class NotesQuickViewBase extends ReatomLitElement {
         ? 'notes:quick_view:empty_filtered:title'
         : kind === 'unavailable'
           ? 'notes:quick_view:unavailable:title'
+          : kind === 'error'
+            ? 'notes:quick_view:error:title'
           : 'notes:quick_view:empty:title'
     const descriptionKey =
       kind === 'filtered'
         ? 'notes:quick_view:empty_filtered:description'
         : kind === 'unavailable'
           ? 'notes:quick_view:unavailable:description'
+          : kind === 'error'
+            ? 'notes:quick_view:error:description'
           : 'notes:quick_view:empty:description'
 
     const content = html`
@@ -287,6 +296,14 @@ export abstract class NotesQuickViewBase extends ReatomLitElement {
               <button slot="actions" class="clear-filters" type="button" @click=${this.handleClearFilters}>
                 <cv-icon name="x" aria-hidden="true"></cv-icon>
                 ${i18n('notes:quick_view:clear_filters' as never)}
+              </button>
+            `
+          : nothing}
+        ${kind === 'error'
+          ? html`
+              <button slot="actions" class="retry-load" type="button" @click=${this.handleRetryLoad}>
+                <cv-icon name="refresh-cw" aria-hidden="true"></cv-icon>
+                ${i18n('button:retry' as never)}
               </button>
             `
           : nothing}

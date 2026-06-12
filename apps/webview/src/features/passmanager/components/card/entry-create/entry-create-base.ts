@@ -3,6 +3,7 @@ import {nothing, type TemplateResult} from 'lit'
 
 import {i18n} from '@project/passmanager/i18n'
 import type {CVInputInputEvent} from '@chromvoid/uikit/components/cv-input'
+import type {CVRadioGroupChangeEvent} from '@chromvoid/uikit/components/cv-radio-group'
 import type {CVSwitchChangeEvent} from '@chromvoid/uikit/components/cv-switch'
 import type {CVTextareaInputEvent} from '@chromvoid/uikit/components/cv-textarea'
 import {
@@ -49,12 +50,11 @@ export abstract class PMEntryCreateBase extends ReatomLitElement {
     this.model.setTitle(e.detail.value)
   }
 
-  protected selectLoginEntryType() {
-    this.model.setEntryType('login')
-  }
+  protected onEntryTypeChange(event: CVRadioGroupChangeEvent): void {
+    const {value} = event.detail
+    if (value !== 'login' && value !== 'payment_card') return
 
-  protected selectPaymentCardEntryType() {
-    this.model.setEntryType('payment_card')
+    this.model.setEntryType(value)
   }
 
   protected onUsernameInput(e: CVInputInputEvent) {

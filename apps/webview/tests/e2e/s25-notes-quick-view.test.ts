@@ -368,7 +368,8 @@ async function notesVerticalOverflowSnapshot(page: import('playwright').Page) {
     const shellLayout = deepFind(document, 'file-app-shell-mobile-layout') as HTMLElement | null
     const shellContent = shellLayout?.shadowRoot?.querySelector('.content') as HTMLElement | null
     const routeContent = deepFind(document, '.route-content[data-route="dashboard"]') as HTMLElement | null
-    const quickViewContent = root?.querySelector('.quick-view__content') as HTMLElement | null
+    const surfaceLayout = root?.querySelector('mobile-surface-layout') as HTMLElement | null
+    const surfaceScroller = surfaceLayout?.shadowRoot?.querySelector('[part~="scroll"]') as HTMLElement | null
 
     const metricsFor = (element: HTMLElement | null) => {
       if (!element) return null
@@ -394,7 +395,7 @@ async function notesVerticalOverflowSnapshot(page: import('playwright').Page) {
       hostName: host?.localName ?? null,
       rowCount: root?.querySelectorAll('.row').length ?? null,
       host: metricsFor(host),
-      quickViewContent: metricsFor(quickViewContent),
+      surfaceScroller: metricsFor(surfaceScroller),
       routeContent: metricsFor(routeContent),
       shellContent: metricsFor(shellContent),
     }
@@ -421,7 +422,7 @@ function expectNoMobileNotesVerticalOverflow(
   expect(snapshot.shellContent?.scrollDelta).toBeLessThanOrEqual(1)
   expect(snapshot.routeContent?.scrollDelta).toBeLessThanOrEqual(1)
   expect(snapshot.host?.scrollDelta).toBeLessThanOrEqual(1)
-  expect(snapshot.quickViewContent?.scrollDelta).toBeLessThanOrEqual(1)
+  expect(snapshot.surfaceScroller?.scrollDelta).toBeLessThanOrEqual(1)
   expectHostFillsShellContent(snapshot)
 }
 
@@ -1243,7 +1244,7 @@ async function renameOpenMarkdownTitle(page: import('playwright').Page, value: s
   }, value)
 }
 
-test('S25: mobile Notes surface keeps scroll on the content list only when needed', async (ctx) => {
+test('S25: mobile Notes surface keeps scroll on the surface scroller only when needed', async (ctx) => {
   const page = getPage()
   if (!page) {
     return ctx.skip()
@@ -1273,8 +1274,8 @@ test('S25: mobile Notes surface keeps scroll on the content list only when neede
   expect(longListSnapshot.routeContent?.scrollDelta).toBeLessThanOrEqual(1)
   expect(longListSnapshot.host?.scrollDelta).toBeLessThanOrEqual(1)
   expectHostFillsShellContent(longListSnapshot)
-  expect(longListSnapshot.quickViewContent?.overflowY).toBe('auto')
-  expect(longListSnapshot.quickViewContent?.scrollDelta).toBeGreaterThan(1)
+  expect(longListSnapshot.surfaceScroller?.overflowY).toBe('auto')
+  expect(longListSnapshot.surfaceScroller?.scrollDelta).toBeGreaterThan(1)
 })
 
 test('S25: mobile Markdown editor reserves keyboard clearance while scrolling to the last line', async (ctx) => {

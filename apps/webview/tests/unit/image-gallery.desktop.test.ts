@@ -125,6 +125,25 @@ describe('image-gallery desktop actions', () => {
     expect(focus).toHaveBeenCalledTimes(1)
   })
 
+  it('traps Tab in composed focus order through shadow-root buttons', async () => {
+    const element = await mountGallery()
+    const first = document.createElement('button')
+    const shadowHost = document.createElement('div')
+    const shadow = shadowHost.attachShadow({mode: 'open'})
+    const inner = document.createElement('button')
+    const last = document.createElement('button')
+    const focusLast = vi.spyOn(last, 'focus')
+    shadow.append(inner)
+    element.shadowRoot?.append(first, shadowHost, last)
+    inner.focus()
+
+    const event = new KeyboardEvent('keydown', {key: 'Tab', bubbles: true, cancelable: true})
+    document.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(focusLast).toHaveBeenCalledTimes(1)
+  })
+
   it('renders desktop viewer actions, keeps info local, and emits file actions for the current image', async () => {
     const element = await mountGallery({currentIndex: 1})
     const actions: Array<{action: string; fileId: number}> = []

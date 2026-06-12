@@ -5,6 +5,7 @@ mod file_replace_tx;
 mod file_streams;
 
 use crate::rpc::stream::{RpcInputStream, RpcReply};
+use crate::rpc::types::RpcResponse;
 
 use super::state::RpcRouter;
 
@@ -15,6 +16,10 @@ impl RpcRouter {
         stream: Option<RpcInputStream>,
     ) -> RpcReply {
         file_streams::handle_upload(self, data, stream)
+    }
+
+    pub(super) fn handle_catalog_upload_abort(&mut self) -> RpcResponse {
+        file_streams::handle_abort_upload(self)
     }
 
     pub(super) fn handle_catalog_download_stream(&self, data: &serde_json::Value) -> RpcReply {

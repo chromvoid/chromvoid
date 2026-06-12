@@ -1,5 +1,4 @@
 //! Persistent storage for paired network peers.
-//! Mirrors `usb/paired_devices.rs` for the network transport layer.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -35,8 +34,7 @@ impl PairedPeerStore {
     /// Load paired peers from a JSON file at `path`.
     /// If the file does not exist or is unreadable, returns an empty store.
     pub fn load(path: &Path) -> Self {
-        let peers =
-            crate::helpers::storage::read_json_or_default(path, "network: paired peer store");
+        let peers = crate::paired_store_crypto::load_store(path, "network: paired peer store");
 
         Self {
             path: path.to_path_buf(),
@@ -46,7 +44,7 @@ impl PairedPeerStore {
 
     /// Persist the current peer list to the JSON file on disk.
     pub fn save(&self) -> Result<(), String> {
-        crate::helpers::storage::write_json_pretty_atomic(&self.path, &self.peers)
+        crate::paired_store_crypto::save_store(&self.path, &self.peers)
     }
 
     /// Look up a paired peer by peer_id.

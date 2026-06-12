@@ -15,6 +15,10 @@ import {pmCredentialTagsModel} from 'root/features/passmanager/models/pm-credent
 import {getPassmanagerRoot} from 'root/features/passmanager/models/pm-root.adapter'
 import {passmanagerSshKeygen} from 'root/features/passmanager/service/passmanager-ssh-keygen'
 import {dialogService} from 'root/shared/services/dialog-service'
+import {
+  isPaymentCardExpYearInput,
+  parsePaymentCardExpYearInput,
+} from '../payment-card-expiry'
 import {PMEntryOtpCreateModel} from '../entry-otp-create/entry-otp-create.model'
 import {
   PMEntrySshCreateModel,
@@ -49,6 +53,7 @@ export type PMEntryCreateValidationField =
   | 'cardNumber'
   | 'cardExpMonth'
   | 'cardExpYear'
+  | 'ssh'
 
 export type PMEntryCreateSubmitResult =
   | {ok: true}
@@ -63,12 +68,21 @@ export type PMEntryCreateSubmitResult =
         | 'invalid_ssh'
         | 'invalid_payment_card'
         | 'passmanager_unavailable'
+        | 'aborted'
       field?: PMEntryCreateValidationField
       message?: string
     }
 
 function normalizeCardDigits(value: string): string {
   return value.replace(/\D+/g, '')
+}
+
+function isActionAbort(error: unknown): boolean {
+  return (
+    isAbort(error) ||
+    (error instanceof Error && error.name === 'AbortError') ||
+    Boolean(error && typeof error === 'object' && (error as {name?: unknown}).name === 'AbortError')
+  )
 }
 
 function deriveTitleFromWebsite(value: string): string {
@@ -176,6 +190,10 @@ export class PMEntryCreateModel {
       return false
     }
 
+    if (this.useSsh() && !this.sshGenResult()) {
+      return false
+    }
+
     return Boolean(this.password() && (this.username().trim() || website))
   }, 'passmanager.entryCreate.canSubmit')
 
@@ -267,6 +285,17 @@ export class PMEntryCreateModel {
       return {
         ok: false,
         reason: 'invalid_ssh',
+        field: 'ssh',
+        message: i18n('ssh:error:name_required'),
+      }
+    }
+
+    if (this.useSsh() && !this.sshGenResult()) {
+      this.sshSheetOpen.set(true)
+      return {
+        ok: false,
+        reason: 'invalid_ssh',
+        field: 'ssh',
         message: i18n('ssh:error:name_required'),
       }
     }
@@ -654,8 +683,8 @@ export class PMEntryCreateModel {
         return result
       })
       .catch((error) => {
-        if (isAbort(error)) {
-          return {ok: true} as PMEntryCreateSubmitResult
+        if (isActionAbort(error)) {
+          return {ok: false, reason: 'aborted'} as PMEntryCreateSubmitResult
         }
 
         throw error
@@ -760,14 +789,14 @@ export class PMEntryCreateModel {
     }
 
     const expMonth = Number.parseInt(this.cardExpMonth().trim(), 10)
-    const expYear = Number.parseInt(this.cardExpYear().trim(), 10)
     if (!this.isValidCardExpMonth(this.cardExpMonth())) {
       const error = i18n('payment-card:error-exp-month')
       this.cardExpMonthError.set(error)
       return {error, field: 'cardExpMonth'}
     }
 
-    if (!this.isValidCardExpYear(this.cardExpYear())) {
+    const expYear = parsePaymentCardExpYearInput(this.cardExpYear())
+    if (expYear === undefined) {
       const error = i18n('payment-card:error-exp-year')
       this.cardExpYearError.set(error)
       return {error, field: 'cardExpYear'}
@@ -790,8 +819,7 @@ export class PMEntryCreateModel {
   }
 
   private isValidCardExpYear(value: string): boolean {
-    const expYear = Number.parseInt(value.trim(), 10)
-    return Number.isInteger(expYear) && expYear >= 2000 && expYear <= 9999
+    return isPaymentCardExpYearInput(value)
   }
 
   private updateStrength(value: string): void {
@@ -817,7 +845,7 @@ export class PMEntryCreateModel {
 
     const promise = this.generateSshForEntryAction(entry)
       .catch((error) => {
-        if (!isAbort(error)) {
+        if (!isActionAbort(error)) {
           console.warn('[ssh] failed to generate key on create', error)
         }
       })

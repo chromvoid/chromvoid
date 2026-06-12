@@ -180,6 +180,7 @@ pub enum RpcCommand {
         node_id: u64,
         new_parent_path: String,
         new_name: Option<String>,
+        replace_existing: Option<bool>,
     },
 
     // === File transfer ===
@@ -522,5 +523,13 @@ pub enum RpcCommand {
         otp_id: Option<String>,
         entry_id: Option<String>,
         label: Option<String>,
+    },
+
+    #[serde(rename = "passmanager:otp:renameSecret")]
+    PassmanagerOtpRenameSecret {
+        otp_id: Option<String>,
+        entry_id: Option<String>,
+        previous_label: String,
+        next_label: String,
     },
 }

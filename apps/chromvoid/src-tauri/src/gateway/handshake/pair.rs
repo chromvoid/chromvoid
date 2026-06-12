@@ -7,7 +7,9 @@ use tracing::{info, warn};
 
 use tauri::Manager;
 
-use super::super::state::now_ms;
+use super::super::state::{
+    now_ms, PairingSession, GATEWAY_PAIRING_LOCKOUT_MS, GATEWAY_PAIRING_MAX_ATTEMPTS,
+};
 use super::helpers::{extract_remote_static_hex, pin_to_psk, NOISE_PATTERN_PAIR};
 use super::HandshakeResult;
 
@@ -27,7 +29,7 @@ pub(super) async fn perform_pair_handshake(
             }
         };
 
-        let s = match st.pairing.as_ref() {
+        let s = match st.pairing.as_mut() {
             Some(s) => s,
             None => {
                 warn!("[gateway][pair] reject: no active pairing session");
@@ -54,6 +56,7 @@ pub(super) async fn perform_pair_handshake(
                 );
                 return None;
             }
+            reset_pairing_lockout_after_expiry(s);
         }
         info!("[gateway][pair] session accepted, starting Noise handshake");
         pin_to_psk(&s.pin)
@@ -192,11 +195,84 @@ fn record_pairing_attempt(app_handle: &tauri::AppHandle) {
         }
     };
     if let Some(s) = st.pairing.as_mut() {
-        if s.attempts_left > 0 {
-            s.attempts_left -= 1;
-            if s.attempts_left == 0 {
-                s.locked_until_ms = Some(now_ms().saturating_add(60_000));
-            }
+        record_failed_pairing_attempt_for_session(s, now_ms());
+    }
+}
+
+fn reset_pairing_lockout_after_expiry(session: &mut PairingSession) {
+    session.locked_until_ms = None;
+    session.attempts_left = GATEWAY_PAIRING_MAX_ATTEMPTS;
+}
+
+fn record_failed_pairing_attempt_for_session(session: &mut PairingSession, now: u64) {
+    if let Some(until) = session.locked_until_ms {
+        if now < until {
+            return;
         }
+        reset_pairing_lockout_after_expiry(session);
+    } else if session.attempts_left == 0 {
+        session.attempts_left = GATEWAY_PAIRING_MAX_ATTEMPTS;
+    }
+
+    session.attempts_left = session.attempts_left.saturating_sub(1);
+    if session.attempts_left == 0 {
+        session.locked_until_ms = Some(
+            now.checked_add(GATEWAY_PAIRING_LOCKOUT_MS)
+                .unwrap_or(u64::MAX),
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pairing_session(attempts_left: u8, locked_until_ms: Option<u64>) -> PairingSession {
+        PairingSession {
+            pairing_token: "token".to_string(),
+            pin: "123456".to_string(),
+            token_expires_at_ms: 10_000,
+            pin_expires_at_ms: 10_000,
+            attempts_left,
+            locked_until_ms,
+        }
+    }
+
+    #[test]
+    fn failed_attempt_after_expired_lockout_resets_and_decrements() {
+        let mut session = pairing_session(0, Some(1_000));
+
+        record_failed_pairing_attempt_for_session(&mut session, 1_001);
+
+        assert_eq!(session.locked_until_ms, None);
+        assert_eq!(
+            session.attempts_left,
+            GATEWAY_PAIRING_MAX_ATTEMPTS.saturating_sub(1)
+        );
+    }
+
+    #[test]
+    fn repeated_failures_relock_after_expired_lockout() {
+        let mut session = pairing_session(0, Some(1_000));
+
+        for now in 1_001..=1_005 {
+            record_failed_pairing_attempt_for_session(&mut session, now);
+        }
+
+        assert_eq!(session.attempts_left, 0);
+        assert_eq!(
+            session.locked_until_ms,
+            Some(1_005 + GATEWAY_PAIRING_LOCKOUT_MS)
+        );
+    }
+
+    #[test]
+    fn active_lockout_does_not_decrement_attempts() {
+        let mut session = pairing_session(0, Some(1_000));
+
+        record_failed_pairing_attempt_for_session(&mut session, 999);
+
+        assert_eq!(session.attempts_left, 0);
+        assert_eq!(session.locked_until_ms, Some(1_000));
     }
 }

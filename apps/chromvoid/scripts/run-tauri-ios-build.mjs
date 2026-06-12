@@ -277,7 +277,7 @@ function escapeRegExp(value) {
 }
 
 function injectRustBuildScriptEnv(projectFile, env) {
-  const marker = 'npm run -- tauri ios xcode-script'
+  const marker = 'bun run -- tauri ios xcode-script'
   const envExports = [
     `export APPLE_DEVELOPMENT_TEAM=${quoteShellValue(env.APPLE_DEVELOPMENT_TEAM)}`,
     `export ${licensePublicKeyEnv}=${quoteShellValue(env[licensePublicKeyEnv])}`,

@@ -22,6 +22,14 @@ use chromvoid_protocol::{
 use tempfile::TempDir;
 
 static NEXT_RELAY_PORT: AtomicU16 = AtomicU16::new(18_443);
+static TEST_ENV_INIT: std::sync::Once = std::sync::Once::new();
+
+fn enable_local_core_test_keystore() {
+    TEST_ENV_INIT.call_once(|| {
+        std::env::set_var("CHROMVOID_TEST_INMEMORY_KEYSTORE", "1");
+        std::env::set_var("CHROMVOID_TEST_FAST_KDF", "1");
+    });
+}
 
 fn runtime_test_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -37,6 +45,8 @@ struct RuntimeHarness {
 
 impl RuntimeHarness {
     fn new() -> Self {
+        enable_local_core_test_keystore();
+
         Self {
             mobile_acceptor: Arc::new(MobileAcceptorRuntimeState::new()),
             ios_host: Arc::new(IosHostRuntimeState::new()),
@@ -54,6 +64,41 @@ fn now_ms() -> u64 {
 
 fn repo_relay_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../relay")
+}
+
+fn repo_root_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
+}
+
+fn command_exists(command: &str) -> bool {
+    std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).any(|path| path.join(command).is_file()))
+        .unwrap_or(false)
+}
+
+fn relay_command() -> Command {
+    if let Some(command) = std::env::var_os("CHROMVOID_TEST_RELAY_COMMAND") {
+        let mut command = Command::new(command);
+        command.current_dir(repo_relay_dir());
+        return command;
+    }
+
+    if command_exists("bun") {
+        let mut command = Command::new("bun");
+        command
+            .arg("run")
+            .arg("start")
+            .current_dir(repo_relay_dir());
+        return command;
+    }
+
+    let mut command = Command::new("node");
+    command
+        .arg("--import")
+        .arg("tsx")
+        .arg(repo_relay_dir().join("src/index.ts"))
+        .current_dir(repo_root_dir());
+    command
 }
 
 struct ForceWssAcceptorGuard {
@@ -98,10 +143,8 @@ impl RelayHarness {
         let log_path = log_dir.path().join("relay.log");
         let stdout = File::create(&log_path).expect("create relay log");
         let stderr = stdout.try_clone().expect("clone relay log file");
-        let child = Command::new("npm")
-            .arg("run")
-            .arg("start")
-            .current_dir(repo_relay_dir())
+        let mut command = relay_command();
+        let child = command
             .env("RELAY_PORT", relay_port.to_string())
             .env("METRICS_PORT", metrics_port.to_string())
             .stdout(Stdio::from(stdout))

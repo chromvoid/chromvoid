@@ -14,6 +14,7 @@ use http_body_util::{BodyExt as _, Full, StreamBody};
 use hyper::client::conn::http1;
 use hyper::{Request, StatusCode};
 use hyper_util::rt::TokioIo;
+use sha2::{Digest as _, Sha256};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
@@ -102,6 +103,46 @@ async fn http_request_streaming(
     (status, body)
 }
 
+async fn http_get_streaming_sha256(addr: SocketAddr, path: &str) -> (StatusCode, usize, String) {
+    let stream = TcpStream::connect(addr)
+        .await
+        .expect("tcp connect to webdav");
+    let io = TokioIo::new(stream);
+    let (mut sender, conn) = http1::handshake(io).await.expect("http1 handshake");
+    tokio::spawn(async move {
+        let _ = conn.await;
+    });
+
+    let uri = format!("http://{}{}", addr, path);
+    let req = Request::builder()
+        .method("GET")
+        .uri(uri)
+        .header("host", addr.to_string())
+        .body(Full::new(Bytes::new()))
+        .expect("build request");
+
+    let res = sender.send_request(req).await.expect("send request");
+    let status = res.status();
+    let mut body = res.into_body();
+    let mut total = 0usize;
+    let mut hasher = Sha256::new();
+    while let Some(frame) = body.frame().await {
+        let frame = frame.expect("read response frame");
+        if let Some(data) = frame.data_ref() {
+            total = total.saturating_add(data.len());
+            hasher.update(data);
+        }
+    }
+
+    let digest = hasher.finalize();
+    let mut out = String::with_capacity(64);
+    for b in digest {
+        use std::fmt::Write as _;
+        let _ = write!(&mut out, "{:02x}", b);
+    }
+    (status, total, out)
+}
+
 #[tokio::test]
 async fn webdav_put_get_overwrite_and_range() {
     let app = tauri::test::mock_app();
@@ -174,6 +215,39 @@ async fn webdav_put_get_overwrite_and_range() {
     // Verify persistence through core catalog (list only).
     let docs_list = catalog_list(&vault.adapter, Some("/docs"));
     assert!(docs_list.items.iter().any(|it| it.name == "hello.bin"));
+
+    srv.join().await;
+}
+
+#[tokio::test]
+async fn webdav_large_get_uses_streaming_response_path() {
+    let app = tauri::test::mock_app();
+    let handle = app.handle().clone();
+
+    let vault = TestVault::new_unlocked();
+    let srv = start_webdav_server(handle, vault.adapter.clone())
+        .await
+        .expect("start webdav");
+
+    let data = deterministic_bytes(77, (12 * 1024 * 1024) + 31);
+    let chunks: Vec<Vec<u8>> = data.chunks(128 * 1024).map(|c| c.to_vec()).collect();
+    let (st, _body) = http_request_streaming(
+        srv.addr,
+        "PUT",
+        "/large.bin",
+        vec![("content-type", "application/octet-stream".to_string())],
+        chunks,
+    )
+    .await;
+    assert!(
+        st == StatusCode::CREATED || st == StatusCode::NO_CONTENT,
+        "PUT large status={st}"
+    );
+
+    let (st, total, digest) = http_get_streaming_sha256(srv.addr, "/large.bin").await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(total, data.len());
+    assert_eq!(digest, sha256_hex(&data));
 
     srv.join().await;
 }

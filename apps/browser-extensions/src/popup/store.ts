@@ -1,4 +1,4 @@
-import {atom, computed} from '@reatom/core'
+import {atom, computed, wrap} from '@reatom/core'
 
 import type {ProviderStatus, RpcResult} from '@chromvoid/scheme'
 import {ManagerRoot, type Entry} from '@project/passmanager/core'
@@ -61,19 +61,21 @@ class Store {
   private refreshInterval: ReturnType<typeof setInterval> | undefined
 
   private async refreshGatewayStatus(): Promise<boolean> {
-    const status = await withTimeout(
-      gateway.call<ProviderStatus>('credential_provider:status', {}, 1500),
-      STATUS_CHECK_TIMEOUT_MS,
-      {
-        ok: false,
-        error: 'Gateway status check timeout',
-        code: null,
-      } satisfies RpcResult<ProviderStatus>,
+    const status = await wrap(
+      withTimeout(
+        gateway.call<ProviderStatus>('credential_provider:status', {}, 1500),
+        STATUS_CHECK_TIMEOUT_MS,
+        {
+          ok: false,
+          error: 'Gateway status check timeout',
+          code: null,
+        } satisfies RpcResult<ProviderStatus>,
+      ),
     )
 
     if (!isRpcSuccess(status)) {
       this.gatewayConnected.set(false)
-      const reachable = await gateway.probeReachable(1200)
+      const reachable = await wrap(gateway.probeReachable(1200))
       this.gatewayReachable.set(reachable)
       this.vaultOpen.set(undefined)
       this.providerEnabled.set(undefined)
@@ -115,7 +117,7 @@ class Store {
 
   private async syncStatusAndData(forceReload: boolean) {
     const previousError = this.error()
-    await this.refreshGatewayStatus()
+    await wrap(this.refreshGatewayStatus())
 
     const statusError = this.resolveStatusError()
     if (statusError) {
@@ -130,7 +132,7 @@ class Store {
     }
 
     try {
-      await passmanager.load()
+      await wrap(passmanager.load())
       this.allEntries.set([...passmanager.allEntries])
       this.hasLoadedVaultData = true
     } catch (error) {
@@ -155,8 +157,8 @@ class Store {
 
     this.refreshInFlight = true
     try {
-      await this.loadTab()
-      await this.syncStatusAndData(false)
+      await wrap(this.loadTab())
+      await wrap(this.syncStatusAndData(false))
     } finally {
       this.refreshInFlight = false
     }
@@ -166,13 +168,13 @@ class Store {
     this.isLoading.set(true)
     this.error.set(undefined)
 
-    await this.loadTab()
-    await this.syncStatusAndData(true)
+    await wrap(this.loadTab())
+    await wrap(this.syncStatusAndData(true))
     this.isLoading.set(false)
   }
 
   async loadTab() {
-    const tab = await getCurrentTab()
+    const tab = await wrap(getCurrentTab())
     this.currentTabURL.set(tab)
     currentTabUrl.set(getURL(tab?.url)?.toString())
   }
@@ -188,15 +190,15 @@ class Store {
     this.error.set(undefined)
 
     try {
-      const paired = await gateway.pairWithPin(normalized)
+      const paired = await wrap(gateway.pairWithPin(normalized))
       if (!paired) {
-        const reachable = await gateway.probeReachable(1200)
+        const reachable = await wrap(gateway.probeReachable(1200))
         this.gatewayReachable.set(reachable)
         this.error.set(reachable ? i18n('error.pairingFailed') : i18n('error.gatewayUnreachable'))
         return false
       }
 
-      await this.initialize()
+      await wrap(this.initialize())
       return this.gatewayConnected()
     } finally {
       this.pairingInProgress.set(false)
@@ -255,59 +257,59 @@ class Store {
   }
 
   async fillData(item: Entry) {
-    await this.loadTab()
+    await wrap(this.loadTab())
     if (!this.isAllowedForCurrentSite(item)) {
       return
     }
 
-    const password = await item.password()
+    const password = await wrap(item.password())
     if (!password) {
       return
     }
 
-    await messenger.sendToActiveTab('fill_form', {
+    await wrap(messenger.sendToActiveTab('fill_form', {
       id: item.id,
       username: item.username,
       password,
-    })
+    }))
   }
 
   async fillOTP(item: Entry, otpId?: string) {
-    await this.loadTab()
+    await wrap(this.loadTab())
     if (!this.isAllowedForCurrentSite(item)) {
       return
     }
 
     const otpEntity = pickOtp(item.otps(), otpId)
-    const otp = await otpEntity?.loadCode()
+    const otp = otpEntity ? await wrap(otpEntity.loadCode()) : undefined
     if (!otp) {
       return
     }
 
-    await messenger.sendToActiveTab('fill_otp', {
+    await wrap(messenger.sendToActiveTab('fill_otp', {
       id: item.id,
       username: item.username,
       otp,
-    })
+    }))
   }
 
   async copyPassword(item: Entry): Promise<string | undefined> {
-    await this.loadTab()
+    await wrap(this.loadTab())
     if (!this.isAllowedForCurrentSite(item)) {
       return undefined
     }
 
-    return item.password()
+    return wrap(item.password())
   }
 
   async copyOtp(item: Entry, otpId?: string): Promise<string | undefined> {
-    await this.loadTab()
+    await wrap(this.loadTab())
     if (!this.isAllowedForCurrentSite(item)) {
       return undefined
     }
 
     const otpEntity = pickOtp(item.otps(), otpId)
-    return otpEntity?.loadCode()
+    return otpEntity ? wrap(otpEntity.loadCode()) : undefined
   }
 }
 

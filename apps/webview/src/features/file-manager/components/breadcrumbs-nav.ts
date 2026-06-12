@@ -3,6 +3,7 @@ import {CVBreadcrumb} from '@chromvoid/uikit/components/cv-breadcrumb'
 import {CVBreadcrumbItem} from '@chromvoid/uikit/components/cv-breadcrumb-item'
 
 import {css} from 'lit'
+import {i18n} from 'root/i18n'
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 
 export class BreadcrumbsNav extends ReatomLitElement {
@@ -118,10 +119,12 @@ export class BreadcrumbsNav extends ReatomLitElement {
 
   private getBreadcrumbItemFromEvent(event: Event): CVBreadcrumbItem | null {
     return (
-      event.composedPath().find(
-        (target): target is CVBreadcrumbItem =>
-          target instanceof HTMLElement && target.tagName.toLowerCase() === CVBreadcrumbItem.elementName,
-      ) ?? null
+      event
+        .composedPath()
+        .find(
+          (target): target is CVBreadcrumbItem =>
+            target instanceof HTMLElement && target.tagName.toLowerCase() === CVBreadcrumbItem.elementName,
+        ) ?? null
     )
   }
 
@@ -146,7 +149,7 @@ export class BreadcrumbsNav extends ReatomLitElement {
     items.push(html`
       <cv-breadcrumb-item class="root" value="/" href="/" ?current=${isRoot}>
         <cv-icon slot="prefix" name="house"></cv-icon>
-        Home
+        ${i18n('navigation:files')}
       </cv-breadcrumb-item>
     `)
 
@@ -161,7 +164,9 @@ export class BreadcrumbsNav extends ReatomLitElement {
       const isCurrent = i === parts.length - 1
 
       items.push(html`
-        <cv-breadcrumb-item value=${fullPath} href=${fullPath} ?current=${isCurrent}>${part}</cv-breadcrumb-item>
+        <cv-breadcrumb-item value=${fullPath} href=${fullPath} ?current=${isCurrent}
+          >${part}</cv-breadcrumb-item
+        >
       `)
     }
 
@@ -169,6 +174,8 @@ export class BreadcrumbsNav extends ReatomLitElement {
   }
 
   protected render() {
-    return html`<cv-breadcrumb @click=${this.onBreadcrumbClick}>${this.renderBreadcrumbItems()}</cv-breadcrumb>`
+    return html`<cv-breadcrumb @click=${this.onBreadcrumbClick}
+      >${this.renderBreadcrumbItems()}</cv-breadcrumb
+    >`
   }
 }

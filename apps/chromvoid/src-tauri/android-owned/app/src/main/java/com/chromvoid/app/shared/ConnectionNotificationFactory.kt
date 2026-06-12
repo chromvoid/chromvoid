@@ -55,7 +55,7 @@ internal class ConnectionNotificationFactory(
         return Notification.Builder(context, ConnectionForegroundService.CHANNEL_ID)
             .setContentTitle(context.getString(R.string.connection_notification_title, deviceName))
             .setContentText(context.getString(R.string.connection_notification_text))
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setOngoing(true)
             .setContentIntent(launchPendingIntent)
             .addAction(

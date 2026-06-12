@@ -5,7 +5,6 @@ use crate::error::Result;
 use crate::storage::Storage;
 use crate::types::KEY_SIZE;
 
-use super::compaction::CatalogCompactionService;
 use super::root_index::read_root_index;
 use super::transaction::CatalogCommitService;
 use super::types::{CatalogLoadKind, CatalogLoadOutcome};
@@ -79,7 +78,7 @@ impl<'a> CatalogLoadService<'a> {
                     let delta: DeltaEntry = serde_json::from_slice(&delta_plain)?;
                     deltas.push(delta);
                 }
-                crate::catalog::apply_deltas(&mut shard.root, &deltas);
+                crate::catalog::apply_deltas(&mut shard.root, &deltas)?;
             }
         }
 
@@ -95,111 +94,58 @@ impl<'a> CatalogLoadService<'a> {
             eprintln!("[core][vault] sharded catalog: root index chunk missing");
             return Ok(None);
         }
-        let encrypted = match self.storage.read_chunk(&root_name) {
-            Ok(b) => b,
-            Err(_) => {
-                #[cfg(debug_assertions)]
-                eprintln!("[core][vault] sharded catalog: failed to read root index chunk");
-                return Ok(None);
-            }
-        };
-        let plaintext = match decrypt(&encrypted, self.vault_key, root_name.as_bytes()) {
-            Ok(p) => p,
-            Err(_) => {
-                #[cfg(debug_assertions)]
-                eprintln!("[core][vault] sharded catalog: failed to decrypt root index chunk");
-                return Ok(None);
-            }
-        };
-        let mut root_index: RootIndex = match serde_json::from_slice(&plaintext) {
-            Ok(v) => v,
-            Err(_) => {
-                #[cfg(debug_assertions)]
-                eprintln!("[core][vault] sharded catalog: invalid root index chunk");
-                return Ok(None);
-            }
-        };
+        // The root index chunk EXISTS, which means its name was derived from the
+        // correct vault key (a wrong password derives a different name and is
+        // handled by the `chunk_exists` branch above as Ok(None) → empty vault).
+        // Therefore any read/decrypt/parse failure here is corruption or a
+        // transient I/O error, NOT "no catalog". Returning Ok(None) would
+        // surface as an empty vault and the next save would destructively delete
+        // the real catalog (see H3). Propagate as an error instead.
+        let encrypted = self.storage.read_chunk(&root_name)?;
+        let plaintext =
+            decrypt(&encrypted, self.vault_key, root_name.as_bytes()).map_err(|_| {
+                crate::error::Error::InvalidDataFormat(
+                    "root index chunk exists but failed to decrypt (corrupt catalog)".to_string(),
+                )
+            })?;
+        let root_index: RootIndex = serde_json::from_slice(&plaintext).map_err(|_| {
+            crate::error::Error::InvalidDataFormat(
+                "root index chunk exists but failed to parse (corrupt catalog)".to_string(),
+            )
+        })?;
         if !root_index.is_sharded() {
             #[cfg(debug_assertions)]
             eprintln!("[core][vault] sharded catalog: root index is not sharded");
             return Ok(None);
         }
 
-        for shard_id in crate::catalog::eager_system_shard_ids() {
-            let Some(meta) = root_index.get_shard(shard_id) else {
-                continue;
-            };
-            if meta.has_deltas {
-                let from = meta.base_version.saturating_add(1);
-                let to = meta.last_delta_seq;
-                let delta_len = to.saturating_sub(from).saturating_add(1);
-                if from <= to && delta_len > MAX_DELTAS as u64 {
-                    #[cfg(debug_assertions)]
-                    eprintln!(
-                        "[core][vault] sharded catalog: compacting eager system shard on unlock (shard_id={} deltas={} from={} to={})",
-                        shard_id, delta_len, from, to
-                    );
-
-                    match CatalogCompactionService::new(self.storage, self.vault_key)
-                        .compact_shard(root_index.clone(), shard_id)
-                    {
-                        Ok((updated_root_index, _, _)) => {
-                            root_index = updated_root_index;
-                        }
-                        Err(_e) => {
-                            #[cfg(debug_assertions)]
-                            eprintln!(
-                                "[core][vault] sharded catalog: eager system shard unlock compaction failed: shard_id={} error={}",
-                                shard_id, _e
-                            );
-                            return Ok(None);
-                        }
-                    }
-                }
-            }
-        }
-
+        // Every chunk referenced below is named via the (correct) vault key and
+        // is recorded in the root index, so its absence or undecryptability is
+        // corruption — not a wrong-password signal. All failures propagate as
+        // errors so the caller never silently substitutes an empty catalog and
+        // destroys the real data on the next save (H3).
         let mut shards: Vec<Shard> = Vec::new();
         for meta in root_index.shards.values() {
             let name = shard_snapshot_chunk_name(self.vault_key, &meta.shard_id, meta.snapshot_seq);
             if !self.storage.chunk_exists(&name)? {
-                #[cfg(debug_assertions)]
-                eprintln!(
-                    "[core][vault] sharded catalog: shard snapshot missing: shard_id={}",
+                return Err(crate::error::Error::InvalidDataFormat(format!(
+                    "shard snapshot referenced by root index is missing (shard_id={})",
                     meta.shard_id
-                );
-                return Ok(None);
+                )));
             }
-            let encrypted = match self.storage.read_chunk(&name) {
-                Ok(b) => b,
-                Err(_) => {
-                    #[cfg(debug_assertions)]
-                    eprintln!(
-                        "[core][vault] sharded catalog: failed to read shard snapshot: shard_id={}",
-                        meta.shard_id
-                    );
-                    return Ok(None);
-                }
-            };
-            let plaintext = match decrypt(&encrypted, self.vault_key, name.as_bytes()) {
-                Ok(p) => p,
-                Err(_) => {
-                    #[cfg(debug_assertions)]
-                    eprintln!("[core][vault] sharded catalog: failed to decrypt shard snapshot: shard_id={}", meta.shard_id);
-                    return Ok(None);
-                }
-            };
-            let mut shard: Shard = match serde_json::from_slice(&plaintext) {
-                Ok(s) => s,
-                Err(_) => {
-                    #[cfg(debug_assertions)]
-                    eprintln!(
-                        "[core][vault] sharded catalog: invalid shard snapshot: shard_id={}",
-                        meta.shard_id
-                    );
-                    return Ok(None);
-                }
-            };
+            let encrypted = self.storage.read_chunk(&name)?;
+            let plaintext = decrypt(&encrypted, self.vault_key, name.as_bytes()).map_err(|_| {
+                crate::error::Error::InvalidDataFormat(format!(
+                    "shard snapshot failed to decrypt (shard_id={})",
+                    meta.shard_id
+                ))
+            })?;
+            let mut shard: Shard = serde_json::from_slice(&plaintext).map_err(|_| {
+                crate::error::Error::InvalidDataFormat(format!(
+                    "shard snapshot failed to parse (shard_id={})",
+                    meta.shard_id
+                ))
+            })?;
 
             if meta.has_deltas {
                 let mut deltas: Vec<DeltaEntry> = Vec::new();
@@ -208,60 +154,32 @@ impl<'a> CatalogLoadService<'a> {
                 let mut loaded: u32 = 0;
                 for seq in from..=to {
                     if loaded >= MAX_DELTAS {
-                        #[cfg(debug_assertions)]
-                        eprintln!(
-                            "[core][vault] sharded catalog: too many deltas ({}), fallback: shard_id={} from={} to={}",
-                            MAX_DELTAS,
-                            meta.shard_id,
-                            from,
-                            to
-                        );
-                        return Ok(None);
+                        return Err(crate::error::Error::InvalidDataFormat(format!(
+                            "shard delta log exceeds MAX_DELTAS ({}) (shard_id={} from={} to={})",
+                            MAX_DELTAS, meta.shard_id, from, to
+                        )));
                     }
                     let delta_name = delta_chunk_name(self.vault_key, &meta.shard_id, seq);
-                    let encrypted = match self.storage.read_chunk(&delta_name) {
-                        Ok(b) => b,
-                        Err(_) => {
-                            #[cfg(debug_assertions)]
-                            eprintln!(
-                                "[core][vault] sharded catalog: missing delta chunk, fallback: shard_id={} seq={}",
-                                meta.shard_id,
-                                seq
-                            );
-                            return Ok(None);
-                        }
-                    };
-                    let plaintext = match decrypt(&encrypted, self.vault_key, delta_name.as_bytes())
-                    {
-                        Ok(p) => p,
-                        Err(_) => {
-                            #[cfg(debug_assertions)]
-                            eprintln!(
-                                "[core][vault] sharded catalog: failed to decrypt delta chunk, fallback: shard_id={} seq={}",
-                                meta.shard_id,
-                                seq
-                            );
-                            return Ok(None);
-                        }
-                    };
-                    let delta: DeltaEntry = match serde_json::from_slice(&plaintext) {
-                        Ok(d) => d,
-                        Err(_) => {
-                            #[cfg(debug_assertions)]
-                            eprintln!(
-                                "[core][vault] sharded catalog: invalid delta chunk, fallback: shard_id={} seq={}",
-                                meta.shard_id,
-                                seq
-                            );
-                            return Ok(None);
-                        }
-                    };
+                    let encrypted = self.storage.read_chunk(&delta_name)?;
+                    let plaintext = decrypt(&encrypted, self.vault_key, delta_name.as_bytes())
+                        .map_err(|_| {
+                            crate::error::Error::InvalidDataFormat(format!(
+                                "delta chunk failed to decrypt (shard_id={} seq={})",
+                                meta.shard_id, seq
+                            ))
+                        })?;
+                    let delta: DeltaEntry = serde_json::from_slice(&plaintext).map_err(|_| {
+                        crate::error::Error::InvalidDataFormat(format!(
+                            "delta chunk failed to parse (shard_id={} seq={})",
+                            meta.shard_id, seq
+                        ))
+                    })?;
                     deltas.push(delta);
                     loaded += 1;
                 }
 
                 if !deltas.is_empty() {
-                    crate::catalog::apply_deltas(&mut shard.root, &deltas);
+                    crate::catalog::apply_deltas(&mut shard.root, &deltas)?;
                     shard.version = deltas.last().map(|d| d.seq).unwrap_or(shard.version);
                 }
             }

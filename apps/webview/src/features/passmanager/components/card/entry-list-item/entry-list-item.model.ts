@@ -36,14 +36,19 @@ export type PMEntryListBadge = {
   label: string
   icon: string
   priority: number
+  hasMore?: boolean
 }
 
 export type PMEntryListEntryType = 'login' | 'payment_card'
+export type PMEntryListItemViewMode = 'default' | 'compact' | 'dense' | 'workbench'
 
 export type PMEntryListPresentation = {
   entryType: PMEntryListEntryType
+  kindLabel: string
   title: string
   subtitle: string
+  modifiedFormatted: string
+  modifiedTimestamp: number
   badges: PMEntryListBadge[]
   typeMarker: PMEntryListBadge | null
   visibleBadges: PMEntryListBadge[]
@@ -168,8 +173,11 @@ export class PMEntryListItemModel {
 
     return {
       entryType,
+      kindLabel: this.getEntryTypeLabel(entryType),
       title: entry.title || i18n('no_title'),
       subtitle: this.getSubtitle(entry),
+      modifiedFormatted: entry.updatedFormatted,
+      modifiedTimestamp: entry.updatedTs,
       badges,
       typeMarker,
       visibleBadges,
@@ -181,7 +189,7 @@ export class PMEntryListItemModel {
 
   getMobilePresentation(entry: Entry): PMEntryListMobilePresentation {
     const presentation = this.getPresentation(entry)
-    const textBadges = presentation.badges.filter((badge) => badge.family === 'meta')
+    const textBadges = this.getAllTagBadges(entry)
     const visibleTextBadgeLimit = presentation.entryType === 'payment_card' ? 1 : 2
     const visibleTextBadges = textBadges.slice(0, visibleTextBadgeLimit)
 
@@ -198,6 +206,10 @@ export class PMEntryListItemModel {
 
   private getEntryType(entry: Entry): PMEntryListEntryType {
     return entry.entryType === 'payment_card' ? 'payment_card' : 'login'
+  }
+
+  private getEntryTypeLabel(entryType: PMEntryListEntryType): string {
+    return entryType === 'payment_card' ? i18n('entry:type:payment_card') : i18n('entry:type:login')
   }
 
   private getTypeMarker(entryType: PMEntryListEntryType, badges: PMEntryListBadge[]): PMEntryListBadge | null {
@@ -275,16 +287,40 @@ export class PMEntryListItemModel {
   }
 
   private getTagBadges(entry: Entry): PMEntryListBadge[] {
-    return normalizeCredentialTags(entry.tags)
-      .slice(0, 2)
-      .map((tag, index) => ({
-        id: `tag:${credentialTagKey(tag)}`,
-        family: 'meta' as const,
-        severity: 'neutral' as const,
-        label: tag,
-        icon: 'tag',
-        priority: 80 + index,
-      }))
+    const tags = normalizeCredentialTags(entry.tags)
+    const tag = this.getSnippetTag(tags)
+    if (!tag) return []
+
+    return [{
+      id: `tag:${credentialTagKey(tag)}`,
+      family: 'meta',
+      severity: 'neutral',
+      label: tag,
+      icon: 'tag',
+      priority: 80,
+      hasMore: tags.length > 1,
+    }]
+  }
+
+  private getAllTagBadges(entry: Entry): PMEntryListBadge[] {
+    return normalizeCredentialTags(entry.tags).map((tag, index) => ({
+      id: `tag:${credentialTagKey(tag)}`,
+      family: 'meta',
+      severity: 'neutral',
+      label: tag,
+      icon: 'tag',
+      priority: 80 + index,
+    }))
+  }
+
+  private getSnippetTag(tags: readonly string[]): string | undefined {
+    return tags.reduce<string | undefined>((shortest, tag) => {
+      if (shortest === undefined || [...tag].length < [...shortest].length) {
+        return tag
+      }
+
+      return shortest
+    }, undefined)
   }
 
   getVisibleBadges(badges: PMEntryListBadge[]): {visibleBadges: PMEntryListBadge[]; overflowCount: number} {

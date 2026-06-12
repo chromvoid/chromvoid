@@ -182,7 +182,23 @@ pub(crate) async fn rpc_dispatch(
                     );
                 }
 
-                let _ = adapter.save();
+                if command_bg == "vault:lock" && !resp.is_ok() {
+                    let now_unlocked = adapter.is_unlocked();
+                    return Ok::<(RpcResponse, bool, bool), RpcResult<Value>>((
+                        resp,
+                        was_unlocked,
+                        now_unlocked,
+                    ));
+                }
+
+                if let Err(error) = adapter.save() {
+                    if command_bg == "vault:lock" {
+                        return Err(rpc_err(
+                            format!("Failed to save vault lock state: {error}"),
+                            Some("INTERNAL".to_string()),
+                        ));
+                    }
+                }
                 flush_core_events(&app_bg, adapter.as_mut());
 
                 let now_unlocked = adapter.is_unlocked();

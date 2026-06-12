@@ -172,6 +172,7 @@ pub(in crate::rpc::router) fn write_single_blob_atomic(
     finalize_blob_write(
         session,
         storage,
+        None,
         BlobFinalizationInput {
             node_id,
             size: Some(bytes.len() as u64),

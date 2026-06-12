@@ -99,6 +99,13 @@ export class ManagerSaverAdapter implements ManagerSaver {
     return ok
   }
 
+  async renameOTPLabel(id: string, previousLabel: string, nextLabel: string): Promise<boolean> {
+    if (typeof this.secrets.renameOTPLabel !== 'function') {
+      return previousLabel === nextLabel
+    }
+    return this.secrets.renameOTPLabel(id, previousLabel, nextLabel)
+  }
+
   async readEntrySecret(entryId: string, slot: PassManagerSecretSlot): Promise<string | undefined> {
     try {
       this.logger.debug('[PassManager][Adapter.readEntrySecret] begin', {entryId, slot})

@@ -1223,13 +1223,19 @@ fn normalize_exif_datetime(value: &str) -> Option<String> {
 
     let bytes = value.as_bytes();
     if bytes.get(4) == Some(&b':') && bytes.get(7) == Some(&b':') {
-        return Some(format!(
-            "{}-{}-{}T{}",
-            &value[0..4],
-            &value[5..7],
-            &value[8..10],
-            &value[11..19]
-        ));
+        let Some(year) = value.get(0..4) else {
+            return Some(value.to_string());
+        };
+        let Some(month) = value.get(5..7) else {
+            return Some(value.to_string());
+        };
+        let Some(day) = value.get(8..10) else {
+            return Some(value.to_string());
+        };
+        let Some(time) = value.get(11..19) else {
+            return Some(value.to_string());
+        };
+        return Some(format!("{year}-{month}-{day}T{time}"));
     }
 
     Some(value.to_string())
@@ -1704,6 +1710,13 @@ mod tests {
                 .map(|diagnostic| diagnostic.status.as_str()),
             Some("available"),
         );
+    }
+
+    #[test]
+    fn exif_datetime_normalization_is_char_boundary_safe() {
+        let value = "2026:04:21 123456🕘";
+
+        assert_eq!(normalize_exif_datetime(value).as_deref(), Some(value));
     }
 
     #[test]

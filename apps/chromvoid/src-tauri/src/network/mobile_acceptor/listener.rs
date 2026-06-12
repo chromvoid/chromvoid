@@ -46,7 +46,8 @@ impl AcceptErrorClass {
         } else if error.contains("msg1 recv")
             && (error.contains("wss closed")
                 || error.contains("without close frame")
-                || error.contains("transport closed"))
+                || error.contains("transport closed")
+                || error.contains("timeout"))
         {
             Self::PreMsg1Closed
         } else {

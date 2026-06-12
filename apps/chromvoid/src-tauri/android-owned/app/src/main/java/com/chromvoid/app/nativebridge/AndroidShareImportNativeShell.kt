@@ -349,7 +349,7 @@ internal object AndroidShareImportNativeShell {
         uri: Uri,
     ) {
         when (uri.scheme?.lowercase()) {
-            "content", "file" -> ordered.add(uri)
+            "content" -> ordered.add(uri)
         }
     }
 

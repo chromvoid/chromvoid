@@ -92,8 +92,8 @@ export const createPointerHandlers = (
       const filtered = getItems()
       const idx = filtered.findIndex((item) => item.id === id)
       if (idx >= 0) {
-        selectionState.lastSelectionAnchorIndex = idx
-        selectionState.lastKeyboardAnchorIndex = idx
+        selectionState.lastSelectionAnchorId = id
+        selectionState.lastKeyboardAnchorId = id
       }
 
       if (!isSelectionMode()) {
@@ -136,8 +136,8 @@ export const createPointerHandlers = (
       const filtered = getItems()
       const idx = filtered.findIndex((candidate) => candidate.id === item.id)
       if (idx >= 0) {
-        selectionState.lastSelectionAnchorIndex = idx
-        selectionState.lastKeyboardAnchorIndex = idx
+        selectionState.lastSelectionAnchorId = item.id
+        selectionState.lastKeyboardAnchorId = item.id
       }
       if (!isSelectionMode()) {
         emitSelectionModeRequested(true)

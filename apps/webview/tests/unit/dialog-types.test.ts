@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 
-import {FileValidators} from '../../src/shared/services/dialog-types'
+import {combineValidators, FileValidators} from '../../src/shared/services/dialog-types'
 
 describe('FileValidators', () => {
   it('returns translated required and max-length validation messages', () => {
@@ -35,5 +35,15 @@ describe('FileValidators', () => {
       valid: false,
       message: 'File name cannot start or end with a dot or space',
     })
+  })
+
+  it('treats null validator results as a valid no-error result', () => {
+    const validator = combineValidators(
+      () => null,
+      (value) => (value === 'blocked' ? 'Blocked value' : null),
+    )
+
+    expect(validator('ok')).toEqual({valid: true})
+    expect(validator('blocked')).toEqual({valid: false, message: 'Blocked value'})
   })
 })

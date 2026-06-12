@@ -17,7 +17,7 @@ if (signedMode && !childEnv.CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER) {
   childEnv.CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER = linkerPath
 }
 
-const tauriArgs = ['dev', '--config', 'src-tauri/tauri.dev.conf.json']
+const tauriArgs = ['dev', '--config', 'src-tauri/tauri.dev.conf.json', '--port', '4410']
 const child = spawn('tauri', tauriArgs, {
   cwd: appRoot,
   env: childEnv,

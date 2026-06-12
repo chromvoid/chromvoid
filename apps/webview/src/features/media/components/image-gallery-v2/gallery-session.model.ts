@@ -34,6 +34,7 @@ type ThumbnailVirtualMetrics = {
 }
 type NavigateOptions = {
   syncThumbnailCenter?: boolean
+  replaceCurrentPreviewInFlight?: boolean
 }
 
 export type GalleryPanelSnapshotDebugReason =
@@ -318,7 +319,8 @@ export class ImageGallerySessionModel {
     }
 
     const previousIndex = this.currentIndex()
-    this.abortDisplayLoads()
+    const retainNeighborAssetKeys = this.getDisplayPreviewAssetKeys(images, index)
+    this.abortDisplayLoads({retainNeighborAssetKeys})
     this.lastDirection.set(toDirection(index - previousIndex))
     this.currentIndex.set(index)
     if (options.syncThumbnailCenter !== false) {
@@ -334,10 +336,12 @@ export class ImageGallerySessionModel {
       imageId: images[index]?.id ?? null,
       debug: this.store.getDebugSnapshot(),
     })
-    this.loadCurrentThenPrimeNeighbor()
+    this.loadCurrentThenPrimeNeighbor({
+      replaceInFlightPreview: options.replaceCurrentPreviewInFlight === true,
+    })
   }
 
-  async loadCurrent(): Promise<void> {
+  async loadCurrent(options: {replaceInFlightPreview?: boolean} = {}): Promise<void> {
     const image = this.images()[this.currentIndex()]
     if (!image) {
       this.log('load-current.no-image', {
@@ -371,7 +375,9 @@ export class ImageGallerySessionModel {
     }
 
     try {
-      const load = this.store.loadDisplayAsset(image, 'preview-image', 'current')
+      const load = this.store.loadDisplayAsset(image, 'preview-image', 'current', undefined, {
+        replaceInFlight: options.replaceInFlightPreview === true,
+      })
       this.syncResourceState()
       await wrap(load)
       this.log('load-current.wait', {
@@ -816,17 +822,33 @@ export class ImageGallerySessionModel {
     }
   }
 
-  private abortDisplayLoads() {
+  private getDisplayPreviewAssetKeys(images: readonly GalleryImage[], centerIndex: number): Set<GalleryAssetKey> {
+    const retainKeys = new Set<GalleryAssetKey>()
+    for (const index of [centerIndex - 1, centerIndex, centerIndex + 1]) {
+      const image = images[index]
+      if (image) {
+        retainKeys.add(getGalleryAssetKey(image, 'preview-image'))
+      }
+    }
+    return retainKeys
+  }
+
+  private abortDisplayLoads(options: {retainNeighborAssetKeys?: Set<GalleryAssetKey>} = {}) {
     this.currentLoadToken += 1
-    this.neighborLoadToken += 1
     this.cancelDerivativePrewarm()
     this.store.abortIntent('current')
-    this.store.abortIntent('neighbor')
+    const neighborAbortResult = this.store.abortIntent('neighbor', {
+      retainAssetKeys: options.retainNeighborAssetKeys,
+      reason: 'display-navigation',
+    })
+    if (neighborAbortResult.abortedCount > 0) {
+      this.neighborLoadToken += 1
+    }
     this.syncResourceState()
   }
 
-  private loadCurrentThenPrimeNeighbor(): void {
-    void this.loadCurrent().then(() => this.primeDirectionalNeighbor(this.lastDirection()))
+  private loadCurrentThenPrimeNeighbor(options: {replaceInFlightPreview?: boolean} = {}): void {
+    void this.loadCurrent(options).then(() => this.primeDirectionalNeighbor(this.lastDirection()))
   }
 
   private logNavigationStart(

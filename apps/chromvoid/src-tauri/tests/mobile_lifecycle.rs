@@ -7,8 +7,17 @@ use chromvoid_lib::{
 };
 use serde_json::json;
 use std::collections::VecDeque;
+use std::sync::Once;
 
 static BIOMETRIC_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static TEST_ENV_INIT: Once = Once::new();
+
+fn enable_local_core_test_keystore() {
+    TEST_ENV_INIT.call_once(|| {
+        std::env::set_var("CHROMVOID_TEST_INMEMORY_KEYSTORE", "1");
+        std::env::set_var("CHROMVOID_TEST_FAST_KDF", "1");
+    });
+}
 
 struct ScriptedAdapter {
     unlocked: bool,
@@ -97,6 +106,8 @@ impl CoreAdapter for ScriptedAdapter {
 }
 
 fn unlocked_adapter() -> (tempfile::TempDir, Box<dyn CoreAdapter>) {
+    enable_local_core_test_keystore();
+
     let tmp = tempfile::tempdir().expect("tempdir");
     let storage_root = tmp.path().join("storage");
 

@@ -10,11 +10,11 @@ import {ScrollEdgeAffordanceModel} from 'root/shared/ui/scroll-edge-affordance.m
 import {scrollEdgeAffordanceStyles} from 'root/shared/ui/scroll-edge-affordance.styles'
 import {pmComponentLoaderModel} from '../../models/pm-component-loader.model'
 import {pmSharedStyles} from '../../styles/shared'
+import {PMMobileTagFilterSheet} from '../list/mobile-tag-filter-sheet'
 import {PMOtpQuickView} from '../otp-quick-view'
 import {PMLayoutBase, type SearchElement} from './password-manager-layout-base'
-import {PMDesktopToolbar} from './password-manager-desktop-toolbar'
+import {passwordManagerDesktopLayoutModel} from './password-manager-layout.model'
 import {passwordManagerLayoutStyles} from './password-manager-layout.styles'
-import type {PMSearch} from '../list/search'
 
 type PMKeyboardNavigableGroup = HTMLElement & {
   moveKeyboardFocus(step: number): boolean
@@ -31,8 +31,8 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
     if (!customElements.get(this.elementName)) {
       customElements.define(this.elementName, this as unknown as CustomElementConstructor)
     }
-    PMDesktopToolbar.define()
     PMOtpQuickView.define()
+    PMMobileTagFilterSheet.define()
   }
 
   static styles = [
@@ -53,8 +53,8 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
 
       .page {
         display: grid;
-        grid-template-rows: auto 1fr;
-        gap: 10px;
+        grid-template-rows: minmax(0, 1fr);
+        gap: 8px;
         block-size: 100%;
         min-block-size: 0;
       }
@@ -69,16 +69,10 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
         align-items: stretch;
       }
 
-      .head-row {
-        display: grid;
-        grid-template-columns: 1fr;
-        align-items: start;
-      }
-
       .sidebar {
-        padding: 8px 6px 8px 2px;
+        padding: 6px 6px 8px 2px;
         display: grid;
-        grid-template-rows: auto 1fr;
+        grid-template-rows: 1fr;
         gap: 10px;
         overflow: hidden;
         min-block-size: 0;
@@ -99,24 +93,6 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
       .sidebar-tree-scroll-frame > group-tree-view.scrollable {
         display: block;
         block-size: 100%;
-      }
-
-      .head {
-        z-index: 1;
-        flex-shrink: 0;
-        padding-block: 2px 12px;
-        padding-inline: var(--pm-credentials-content-inset-start) var(--pm-credentials-content-inset-end);
-        margin-block-end: 0;
-        position: relative;
-      }
-
-      .head::after {
-        content: '';
-        position: absolute;
-        inset-inline: var(--pm-credentials-content-inset-start) var(--pm-credentials-content-inset-end);
-        inset-block-end: 0;
-        block-size: 1px;
-        background: var(--cv-gradient-divider-subtle);
       }
 
       .resizer {
@@ -217,8 +193,12 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
     `,
   ]
 
+  constructor() {
+    super(passwordManagerDesktopLayoutModel)
+  }
+
   protected getSearchElement(): SearchElement | null {
-    return this.shadowRoot?.querySelector('pm-search') as PMSearch | null
+    return this.model.getDesktopToolbarSearchElement()
   }
 
   private renderEntry(entry: Entry, editing: boolean) {
@@ -226,15 +206,14 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
       class="card"
       .entry=${entry}
       .editing=${editing}
-      .showBackButton=${false}
-      .showHeaderActions=${false}
+      .showHeaderActions=${true}
     ></pm-entry>`
   }
 
   private renderGroup() {
     return keyed(
       this.model.getGroupViewKey(),
-      html`<pm-group class="card" .showBackButton=${false} .showToolbarActions=${false}></pm-group>`,
+      html`<pm-group class="card" .showToolbarActions=${true}></pm-group>`,
     )
   }
 
@@ -254,6 +233,31 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
 
   private renderOtpQuickView() {
     return html`<pm-otp-quick-view class="card"></pm-otp-quick-view>`
+  }
+
+  private renderMotionContent() {
+    const motion = this.model.getMotionRenderState()
+
+    return html`
+      <div
+        class="pm-content"
+        data-motion-kind=${motion.kind}
+        data-motion-direction=${motion.direction}
+        data-motion-target=${motion.target ?? ''}
+        data-reduced-motion=${String(motion.reducedMotion)}
+      >
+        ${this.renderMain()}
+      </div>
+    `
+  }
+
+  private renderOtpQuickViewPage() {
+    return html`
+      <div class="page">
+        <div class="content scrollable">${this.renderMotionContent()}</div>
+        <pm-mobile-tag-filter-sheet></pm-mobile-tag-filter-sheet>
+      </div>
+    `
   }
 
   private renderMain() {
@@ -392,23 +396,18 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
   }
 
   override render() {
+    if (this.model.getCurrentShowElement() === 'otpView') {
+      return this.renderOtpQuickViewPage()
+    }
+
     const sidebarWidth = this.model.sidebarWidth()
     const isDragging = this.model.isSidebarDragging()
-    const motion = this.model.getMotionRenderState()
     const treeHasScrollBlockEnd = this.treeScrollEdge.hasBlockEndOverflow()
 
     return html`
       <div class="page">
-        <pm-desktop-toolbar .model=${this.model}>
-          <slot name="buttons" slot="buttons"></slot>
-        </pm-desktop-toolbar>
         <div class="wrapper" data-sidebar-width=${String(sidebarWidth)}>
           <div class="sidebar">
-            <div class="head">
-              <div class="head-row">
-                <pm-search></pm-search>
-              </div>
-            </div>
             <div
               class="scroll-edge-frame sidebar-tree-scroll-frame"
               data-scroll-block-end=${String(treeHasScrollBlockEnd)}
@@ -418,17 +417,10 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
           </div>
           <div class="resizer ${isDragging ? 'dragging' : ''}" @pointerdown=${this.onResizerPointerDown}></div>
           <div class="content scrollable">
-            <div
-              class="pm-content"
-              data-motion-kind=${motion.kind}
-              data-motion-direction=${motion.direction}
-              data-motion-target=${motion.target ?? ''}
-              data-reduced-motion=${String(motion.reducedMotion)}
-            >
-              ${this.renderMain()}
-            </div>
+            ${this.renderMotionContent()}
           </div>
         </div>
+        <pm-mobile-tag-filter-sheet></pm-mobile-tag-filter-sheet>
       </div>
     `
   }

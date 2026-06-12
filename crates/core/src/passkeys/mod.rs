@@ -17,6 +17,7 @@ pub use query::query_candidates;
 pub use registration::create_registration;
 pub use summary::source_to_summary;
 pub use types::{
-    now_epoch_ms, PasskeyAssertion, PasskeyCredentialSource, PasskeyError, PasskeyRegistration,
-    ES256_ALGORITHM, P256_CURVE, PASSKEY_SCHEMA_V1, STORAGE_KIND_VAULT,
+    now_epoch_ms, PasskeyAssertion, PasskeyCredentialSource, PasskeyError,
+    PasskeyInvocationContext, PasskeyRegistration, ES256_ALGORITHM, P256_CURVE, PASSKEY_SCHEMA_V1,
+    STORAGE_KIND_VAULT,
 };

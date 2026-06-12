@@ -5,8 +5,16 @@ const toastMock = vi.hoisted(() => ({
   show: vi.fn(),
 }))
 
+const dialogMock = vi.hoisted(() => ({
+  showConfirmDialog: vi.fn(),
+}))
+
 vi.mock('root/shared/services/toast-manager', () => {
   return {toast: toastMock}
+})
+
+vi.mock('root/shared/services/dialog-service', () => {
+  return {dialogService: dialogMock}
 })
 
 import {Entry, Group, ManagerRoot} from '@project/passmanager'
@@ -65,6 +73,11 @@ function installClipboardInvokeSpy(result: Promise<unknown> = Promise.resolve(un
   return invoke
 }
 
+async function flushMicrotasks() {
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
 describe('PasswordManagerModel navigation', () => {
   let originalPassmanager: typeof window.passmanager
 
@@ -73,6 +86,7 @@ describe('PasswordManagerModel navigation', () => {
     vi.useRealTimers()
     toastMock.success.mockReset()
     toastMock.show.mockReset()
+    dialogMock.showConfirmDialog.mockReset()
     delete (globalThis as {__TAURI_INTERNALS__?: unknown}).__TAURI_INTERNALS__
     window.passmanager = originalPassmanager
     clearPassmanagerRoot()
@@ -260,6 +274,136 @@ describe('PasswordManagerModel navigation', () => {
 
     expect(pmModel.goBackFromCurrent()).toBe(true)
     expect(root.showElement()).toBe(group)
+  })
+
+  it('keeps the current entry when dirty navigation is cancelled', async () => {
+    originalPassmanager = window.passmanager
+
+    const root = new ManagerRoot({} as any)
+    const group = createGroup('group-dirty-cancel', 'Group Dirty Cancel')
+    const entry = createEntry(group, 'entry-dirty-cancel', 'Entry Dirty Cancel')
+    const other = createEntry(group, 'entry-dirty-target', 'Entry Dirty Target')
+
+    group.entries.set([entry, other])
+    root.entries.set([group])
+    root.showElement.set(entry)
+    window.passmanager = root
+    pmEntryEditorModel.openSurface(entry.id, 'entry')
+    pmEntryEditorModel.markDirty(entry.id, true)
+    dialogMock.showConfirmDialog.mockResolvedValue(false)
+
+    pmModel.openItem(other)
+    await flushMicrotasks()
+
+    expect(dialogMock.showConfirmDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        confirmVariant: 'danger',
+      }),
+    )
+    expect(root.showElement()).toBe(entry)
+    expect(pmEntryEditorModel.dirtyEntryId()).toBe(entry.id)
+  })
+
+  it('keeps a dirty editor open when applying the same entry route', () => {
+    originalPassmanager = window.passmanager
+
+    const root = new ManagerRoot({} as any)
+    const group = createGroup('group-dirty-same-route', 'Group Dirty Same Route')
+    const entry = createEntry(group, 'entry-dirty-same-route', 'Entry Dirty Same Route')
+
+    group.entries.set([entry])
+    root.entries.set([group])
+    root.showElement.set(entry)
+    window.passmanager = root
+    pmEntryEditorModel.openSurface(entry.id, 'entry')
+    pmEntryEditorModel.markDirty(entry.id, true)
+
+    expect(passmanagerNavigationController.applyRoute({kind: 'entry', entryId: entry.id, groupPath: group.name})).toBe(
+      true,
+    )
+
+    expect(dialogMock.showConfirmDialog).not.toHaveBeenCalled()
+    expect(root.showElement()).toBe(entry)
+    expect(pmEntryEditorModel.active()).toBe(true)
+    expect(pmEntryEditorModel.dirtyEntryId()).toBe(entry.id)
+  })
+
+  it('discards dirty edits before replaying item navigation', async () => {
+    originalPassmanager = window.passmanager
+
+    const root = new ManagerRoot({} as any)
+    const group = createGroup('group-dirty-confirm', 'Group Dirty Confirm')
+    const entry = createEntry(group, 'entry-dirty-confirm', 'Entry Dirty Confirm')
+    const other = createEntry(group, 'entry-dirty-confirm-target', 'Entry Dirty Confirm Target')
+
+    group.entries.set([entry, other])
+    root.entries.set([group])
+    root.showElement.set(entry)
+    window.passmanager = root
+    pmEntryEditorModel.openSurface(entry.id, 'entry')
+    pmEntryEditorModel.markDirty(entry.id, true)
+    dialogMock.showConfirmDialog.mockResolvedValue(true)
+
+    pmModel.openItem(other)
+    await flushMicrotasks()
+
+    expect(root.showElement()).toBe(other)
+    expect(pmEntryEditorModel.dirty()).toBe(false)
+    expect(pmMotionModel.intent()).toEqual({
+      kind: 'surface-change',
+      direction: 'forward',
+      target: `entry:${other.id}`,
+    })
+  })
+
+  it('blocks route and create-surface navigation until dirty edits are discarded', async () => {
+    originalPassmanager = window.passmanager
+
+    const root = new ManagerRoot({} as any)
+    const group = createGroup('group-dirty-route', 'Group Dirty Route')
+    const entry = createEntry(group, 'entry-dirty-route', 'Entry Dirty Route')
+
+    group.entries.set([entry])
+    root.entries.set([group])
+    root.showElement.set(entry)
+    window.passmanager = root
+    pmEntryEditorModel.openSurface(entry.id, 'entry')
+    pmEntryEditorModel.markDirty(entry.id, true)
+    dialogMock.showConfirmDialog.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+
+    expect(passmanagerNavigationController.applyRoute({kind: 'group', groupPath: group.name})).toBe(false)
+    await flushMicrotasks()
+    expect(root.showElement()).toBe(entry)
+    expect(pmEntryEditorModel.dirty()).toBe(true)
+
+    passmanagerNavigationController.openCreateEntry(group.name)
+    await flushMicrotasks()
+
+    expect(root.showElement()).toBe('createEntry')
+    expect(pmEntryEditorModel.dirty()).toBe(false)
+  })
+
+  it('prompts before closing a dirty editor from back navigation', async () => {
+    originalPassmanager = window.passmanager
+
+    const root = new ManagerRoot({} as any)
+    const group = createGroup('group-dirty-back', 'Group Dirty Back')
+    const entry = createEntry(group, 'entry-dirty-back', 'Entry Dirty Back')
+
+    group.entries.set([entry])
+    root.entries.set([group])
+    root.showElement.set(entry)
+    window.passmanager = root
+    pmEntryEditorModel.openSurface(entry.id, 'note')
+    pmEntryEditorModel.markDirty(entry.id, true)
+    dialogMock.showConfirmDialog.mockResolvedValue(true)
+
+    expect(pmModel.goBackFromCurrent()).toBe(true)
+    await flushMicrotasks()
+
+    expect(root.showElement()).toBe(entry)
+    expect(pmEntryEditorModel.active()).toBe(false)
+    expect(pmEntryEditorModel.dirty()).toBe(false)
   })
 
   it('sets open and close motion for create and import surfaces', () => {

@@ -1,4 +1,4 @@
-import {HOTP, TOTP} from 'otpauth'
+import {HOTP, Secret, TOTP} from 'otpauth'
 import {action, atom, computed, wrap} from '@reatom/core'
 
 import {
@@ -497,7 +497,7 @@ export class PMEntryOtpCreateModel {
       const token = new TOTP({
         issuer: '',
         label: form.label || i18n('otp:default:name'),
-        secret: form.secret ?? '',
+        secret: this.createOtpAuthSecret(form),
         algorithm: form.algorithm,
         digits: form.digits,
         period,
@@ -522,7 +522,7 @@ export class PMEntryOtpCreateModel {
         new HOTP({
           issuer: '',
           label: form.label || i18n('otp:default:name'),
-          secret: form.secret ?? '',
+          secret: this.createOtpAuthSecret(form),
           algorithm: form.algorithm,
           digits: form.digits,
           counter: form.counter ?? 0,
@@ -533,7 +533,7 @@ export class PMEntryOtpCreateModel {
       new TOTP({
         issuer: '',
         label: form.label || i18n('otp:default:name'),
-        secret: form.secret ?? '',
+        secret: this.createOtpAuthSecret(form),
         algorithm: form.algorithm,
         digits: form.digits,
         period: form.period ?? 30,
@@ -552,6 +552,23 @@ export class PMEntryOtpCreateModel {
     }
 
     return compact.toUpperCase()
+  }
+
+  private createOtpAuthSecret(form: OTPOptions): string | Secret {
+    const secret = form.secret ?? ''
+    switch (form.encoding) {
+      case 'base16':
+        return Secret.fromHex(secret)
+      case 'base64': {
+        const binary = atob(secret)
+        return Secret.fromLatin1(binary)
+      }
+      case 'utf-8':
+        return Secret.fromUTF8(secret)
+      case 'base32':
+      default:
+        return secret
+    }
   }
 
   private formatSecretInput(value: string): string {

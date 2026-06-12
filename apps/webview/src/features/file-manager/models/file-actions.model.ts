@@ -282,7 +282,7 @@ export class FileActionsModel {
       this.deps.isLoading.set(true)
       await wrap(catalog.api.rename(item.id, newName))
       if (item.isDir) {
-        await this.refreshCatalogBestEffort()
+        await wrap(this.refreshCatalogBestEffort())
       } else {
         catalog.catalog.applyEvent({
           type: CatalogEventType.NODE_RENAMED,
@@ -346,7 +346,7 @@ export class FileActionsModel {
 
   async handleDelete(item: FileItemData): Promise<void> {
     const {catalog, store} = this.ctx
-    if (await this.shouldConfirmFileDeletion()) {
+    if (await wrap(this.shouldConfirmFileDeletion())) {
       const confirmed = await wrap(dialogService.showDeleteConfirmDialog([item.name], item.isDir))
       if (!confirmed) return
     }
@@ -355,7 +355,7 @@ export class FileActionsModel {
     try {
       this.deps.isLoading.set(true)
       await wrap(catalog.api.delete(item.id))
-      await this.refreshCatalogBestEffort()
+      await wrap(this.refreshCatalogBestEffort())
       try {
         store.setSelectedItems([])
       } catch {
@@ -392,7 +392,7 @@ export class FileActionsModel {
     if (selected.length === 0) return
 
     const items = this.deps.fileList.fileItems().filter((item) => selected.includes(item.id))
-    if (await this.shouldConfirmFileDeletion()) {
+    if (await wrap(this.shouldConfirmFileDeletion())) {
       const confirmed = await wrap(dialogService.showDeleteConfirmDialog(items.map((item) => item.name)))
       if (!confirmed) return
     }
@@ -413,7 +413,23 @@ export class FileActionsModel {
       }
     }
     this.deps.deletionMotion.clearPending(failedIds)
-    await this.refreshCatalogBestEffort()
+    await wrap(this.refreshCatalogBestEffort())
+    if (failedIds.length > 0) {
+      try {
+        store.setSelectedItems(failedIds)
+      } catch {
+        // ignore
+      }
+      this.showNotification(
+        failedIds.length === items.length ? 'error' : 'warning',
+        i18n('file-manager:selected-delete-partial', {
+          deleted: String(items.length - failedIds.length),
+          failed: String(failedIds.length),
+        }),
+      )
+      return
+    }
+
     try {
       store.setSelectedItems([])
     } catch {
@@ -433,7 +449,7 @@ export class FileActionsModel {
     try {
       this.deps.isLoading.set(true)
       await wrap(catalog.api.createDir(name, currentPath === '/' ? undefined : currentPath))
-      await this.refreshCatalogBestEffort()
+      await wrap(this.refreshCatalogBestEffort())
       this.showNotification('success', i18n('file-manager:folder-created', {name}))
     } catch (error) {
       this.showNotification(
@@ -463,7 +479,7 @@ export class FileActionsModel {
         name,
         type: MARKDOWN_MIME_TYPE,
       }))
-      await this.refreshCatalogBestEffort()
+      await wrap(this.refreshCatalogBestEffort())
       this.prepareDocumentReturnViewport(uploaded.nodeId)
       emitFileOpenCommand({kind: 'document', mode: 'markdown', fileId: uploaded.nodeId})
       this.showNotification('success', i18n('file-manager:note-created', {name}))

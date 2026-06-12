@@ -291,6 +291,7 @@ export class PMEntrySessionModel implements PMEntrySessionController {
       this.sshPublicKeysState.set({})
       this.activeSshSignature.set(nextSignature)
       if (!options.skipLoads) {
+        void this.actions.ensureSecretsLoaded(entry).catch(() => {})
         this.actions.reloadSsh(entry)
       }
       return
@@ -305,7 +306,7 @@ export class PMEntrySessionModel implements PMEntrySessionController {
       value: '',
     })
 
-    const resource = await this.loadSecretResource(entry, 'password')
+    const resource = await wrap(this.loadSecretResource(entry, 'password'))
     this.setPasswordResourceState(resource)
   }
 
@@ -315,7 +316,7 @@ export class PMEntrySessionModel implements PMEntrySessionController {
       value: '',
     })
 
-    const resource = await this.loadSecretResource(entry, 'note')
+    const resource = await wrap(this.loadSecretResource(entry, 'note'))
     this.setNoteResourceState(resource)
   }
 
@@ -325,7 +326,7 @@ export class PMEntrySessionModel implements PMEntrySessionController {
       value: '',
     })
 
-    const resource = await this.loadSecretResource(entry, 'card_pan')
+    const resource = await wrap(this.loadSecretResource(entry, 'card_pan'))
     this.setCardPanResourceState(resource)
   }
 
@@ -335,7 +336,7 @@ export class PMEntrySessionModel implements PMEntrySessionController {
       value: '',
     })
 
-    const resource = await this.loadSecretResource(entry, 'card_cvv')
+    const resource = await wrap(this.loadSecretResource(entry, 'card_cvv'))
     this.setCardCvvResourceState(resource)
   }
 

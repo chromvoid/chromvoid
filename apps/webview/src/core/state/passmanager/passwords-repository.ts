@@ -347,6 +347,12 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
     } catch {}
   }
 
+  private schedulePostPassmanagerWriteRefresh(): void {
+    try {
+      this.catalog.queueRefresh(150)
+    } catch {}
+  }
+
   private buildIntegrityKey(root: PassManagerRootV3): string {
     const entryParts = root.entries
       .map((entry) => {
@@ -561,8 +567,8 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
 
       const groupPath = normalizeGroupPath(getEntryFolderPath(entry))
       try {
-        await this.transport.sendPassmanager('passmanager:entry:save', {
-          id: entry.id,
+        await this.transport.saveEntry({
+          entryId: entry.id,
           title: entry.title,
           entryType: 'login',
           createdTs: entry.createdTs,
@@ -902,12 +908,13 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
             createdTs: entry.createdTs,
             updatedTs: entry.updatedTs,
             title: entry.title,
-            urls: (entry.urls ?? []).map((rule) => rule.value),
+            urls: entry.urls ?? [],
             username: entry.username,
             groupPath: groupPath ?? '',
             iconRef: getEntryIconRef(entry),
             sshKeys: entry.sshKeys,
             tags: entry.tags,
+            otps: entry.otps,
           })
         } else {
           await this.transport.saveEntry({
@@ -920,23 +927,6 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
             groupPath: groupPath ?? '',
             iconRef: getEntryIconRef(entry),
             tags: entry.tags,
-          })
-        }
-
-        if (isLoginEntry(entry) && (entry.otps ?? []).length > 0 && this.transport.hasSendPassmanager) {
-          await this.transport.sendPassmanager('passmanager:entry:save', {
-            id: entry.id,
-            title: entry.title,
-            entryType: 'login',
-            createdTs: entry.createdTs,
-            updatedTs: entry.updatedTs,
-            urls: entry.urls,
-            username: entry.username,
-            groupPath: groupPath ?? '',
-            iconRef: getEntryIconRef(entry),
-            sshKeys: entry.sshKeys,
-            tags: entry.tags,
-            otps: entry.otps,
           })
         }
       }
@@ -1053,44 +1043,17 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
           createdTs: data.createdTs,
           updatedTs: data.updatedTs,
           title: data.title,
-          urls: (data.urls ?? []).map((rule) => rule.value),
-          username: data.username,
-          groupPath: groupPath ?? '',
-          iconRef: data.iconRef,
-          sshKeys: data.sshKeys,
-          tags: data.tags !== undefined ? normalizeCredentialTags(data.tags) : undefined,
-        })
-      }
-
-      if (entryType === 'login' && (data.otps ?? []).length > 0 && this.transport.hasSendPassmanager) {
-        await this.transport.sendPassmanager('passmanager:entry:save', {
-          id: data.id,
-          title: data.title,
-          entryType: 'login',
-          createdTs: data.createdTs,
-          updatedTs: data.updatedTs,
           urls: data.urls ?? [],
           username: data.username,
-          otps: (data.otps ?? []).map((otp) => ({
-            id: otp.id,
-            label: otp.label,
-            algorithm: otp.algorithm,
-            digits: otp.digits,
-            period: otp.period,
-            encoding: normalizeOTPEncoding(otp.encoding),
-            type: otp.type,
-            counter: otp.counter,
-          })),
           groupPath: groupPath ?? '',
           iconRef: data.iconRef,
           sshKeys: data.sshKeys,
           tags: data.tags !== undefined ? normalizeCredentialTags(data.tags) : undefined,
+          otps: data.otps ?? [],
         })
       }
 
-      try {
-        await this.catalog.refresh()
-      } catch {}
+      this.schedulePostPassmanagerWriteRefresh()
 
       return true
     } catch (e) {
@@ -1147,9 +1110,7 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
       } else {
         await this.transport.saveSecret(entryId, secretType, value)
       }
-      try {
-        await this.catalog.refresh()
-      } catch {}
+      this.schedulePostPassmanagerWriteRefresh()
       return true
     } catch (error) {
       if (value === null && isMissingSecretError(error)) {

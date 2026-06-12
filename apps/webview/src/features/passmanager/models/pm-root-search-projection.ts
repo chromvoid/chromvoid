@@ -48,12 +48,40 @@ type SortState = {
   sortDirection: SortDirection
 }
 
+type PMRootSearchSource = {
+  allEntries?: unknown
+  entriesList?: () => unknown
+  credentialTags?: () => readonly string[]
+}
+
 const EMPTY_PROJECTION: PMRootSearchProjectionSnapshot = {
   rootEntries: [],
   topLevelGroups: [],
   groupMatchCounts: new Map(),
   resultCount: 0,
   rows: [],
+}
+
+export function getPMRootEntriesForSearch(root: PMRootSearchSource | undefined): Entry[] {
+  if (!root) return []
+
+  if (Array.isArray(root.allEntries)) {
+    return root.allEntries.filter((item): item is Entry => item instanceof Entry)
+  }
+
+  const entries = root.entriesList?.()
+  if (!Array.isArray(entries)) return []
+
+  return entries.flatMap((item) => {
+    if (item instanceof Entry) return [item]
+    if (item instanceof Group) return item.entries()
+    return []
+  })
+}
+
+export function getPMRootCredentialTagsForSearch(root: PMRootSearchSource | undefined): readonly string[] {
+  const tags = root?.credentialTags?.()
+  return Array.isArray(tags) ? tags : []
 }
 
 export function composePMGroupRows(
@@ -110,7 +138,10 @@ class PMRootSearchProjectionModel {
 
       const query = filterValue()
       const activeFilters = quickFilters()
-      const selectedTags = getEffectiveSelectedCredentialTagFilters(root.allEntries, root.credentialTags())
+      const selectedTags = getEffectiveSelectedCredentialTagFilters(
+        getPMRootEntriesForSearch(root),
+        getPMRootCredentialTagsForSearch(root),
+      )
       const currentSort = {
         groupBy: groupBy(),
         sortField: sortField(),

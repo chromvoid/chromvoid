@@ -1,4 +1,4 @@
-import {atom} from '@reatom/core'
+import {atom, wrap} from '@reatom/core'
 
 import {isTauriRuntime} from 'root/core/runtime/runtime'
 import {tauriInvoke} from 'root/core/transport/tauri/ipc'
@@ -51,7 +51,7 @@ export async function loadSessionSettings(): Promise<SessionSettings> {
     return settings
   }
 
-  const res = await tauriInvoke<RpcResult<SessionSettings>>('get_session_settings')
+  const res = await wrap(tauriInvoke<RpcResult<SessionSettings>>('get_session_settings'))
   if (!isOk(res)) {
     throw new Error(res.error || i18n('errors:load-session-settings'))
   }
@@ -70,7 +70,7 @@ export async function saveSessionSettings(settings: SessionSettings): Promise<Se
     return settings
   }
 
-  const res = await tauriInvoke<RpcResult<SessionSettings>>('set_session_settings', {settings})
+  const res = await wrap(tauriInvoke<RpcResult<SessionSettings>>('set_session_settings', {settings}))
   if (!isOk(res)) {
     throw new Error(res.error || i18n('errors:save-session-settings'))
   }

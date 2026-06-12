@@ -6,7 +6,7 @@ use std::time::SystemTime;
 
 use bytes::{Buf, Bytes};
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
-use chromvoid_core::rpc::RpcInputStream;
+use chromvoid_core::rpc::{RpcInputStream, RpcReply};
 use serde_json::json;
 
 use dav_server::fs::{DavFile, DavMetaData, FsError, FsFuture};
@@ -16,6 +16,11 @@ use crate::core_adapter::CoreAdapter;
 use super::metadata::CatalogMeta;
 use super::request_io::WebDavRequestIoRuntimeState;
 use super::UPLOAD_PART_BYTES;
+
+struct CatalogDavReadState {
+    reader: Option<Box<dyn Read + Send>>,
+    pos: u64,
+}
 
 fn upload_node_id_from_value(value: &serde_json::Value) -> Option<u64> {
     value
@@ -33,7 +38,10 @@ pub(super) struct CatalogDavFile<R: tauri::Runtime> {
 
 enum CatalogDavFileMode<R: tauri::Runtime> {
     Read {
-        buf: Vec<u8>,
+        adapter: Arc<Mutex<Box<dyn CoreAdapter>>>,
+        request_io_runtime: Arc<WebDavRequestIoRuntimeState>,
+        node_id: u64,
+        reader_state: Mutex<CatalogDavReadState>,
     },
     Write {
         app: tauri::AppHandle<R>,
@@ -71,7 +79,7 @@ impl<R: tauri::Runtime> std::fmt::Debug for CatalogDavFileMode<R> {
 impl<R: tauri::Runtime> std::fmt::Debug for CatalogDavFile<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let len = match &self.mode {
-            CatalogDavFileMode::Read { buf } => buf.len() as u64,
+            CatalogDavFileMode::Read { .. } => self.meta.len,
             CatalogDavFileMode::Write { .. } => self.meta.len,
         };
         f.debug_struct("CatalogDavFile")
@@ -84,9 +92,22 @@ impl<R: tauri::Runtime> std::fmt::Debug for CatalogDavFile<R> {
 }
 
 impl<R: tauri::Runtime> CatalogDavFile<R> {
-    pub(super) fn new_read(bytes: Vec<u8>, meta: CatalogMeta) -> Self {
+    pub(super) fn new_read(
+        adapter: Arc<Mutex<Box<dyn CoreAdapter>>>,
+        request_io_runtime: Arc<WebDavRequestIoRuntimeState>,
+        node_id: u64,
+        meta: CatalogMeta,
+    ) -> Self {
         Self {
-            mode: CatalogDavFileMode::Read { buf: bytes },
+            mode: CatalogDavFileMode::Read {
+                adapter,
+                request_io_runtime,
+                node_id,
+                reader_state: Mutex::new(CatalogDavReadState {
+                    reader: None,
+                    pos: 0,
+                }),
+            },
             cursor: 0,
             meta,
             dirty: false,
@@ -135,11 +156,7 @@ impl<R: tauri::Runtime> Drop for CatalogDavFile<R> {
 impl<R: tauri::Runtime> DavFile for CatalogDavFile<R> {
     fn metadata(&'_ mut self) -> FsFuture<'_, Box<dyn DavMetaData>> {
         let mut meta = self.meta.clone();
-        if let CatalogDavFileMode::Read { buf } = &self.mode {
-            meta.len = buf.len() as u64;
-        } else {
-            meta.len = self.meta.len;
-        }
+        meta.len = self.meta.len;
         Box::pin(async move { Ok(Box::new(meta) as Box<dyn DavMetaData>) })
     }
 
@@ -192,12 +209,49 @@ impl<R: tauri::Runtime> DavFile for CatalogDavFile<R> {
     fn read_bytes(&'_ mut self, count: usize) -> FsFuture<'_, Bytes> {
         Box::pin(async move {
             match &self.mode {
-                CatalogDavFileMode::Read { buf } => {
-                    let start = self.cursor as usize;
-                    let end = std::cmp::min(start.saturating_add(count), buf.len());
-                    let out = Bytes::copy_from_slice(&buf[start..end]);
-                    self.cursor = end as u64;
-                    Ok(out)
+                CatalogDavFileMode::Read {
+                    adapter,
+                    request_io_runtime,
+                    node_id,
+                    reader_state,
+                } => {
+                    if self.cursor >= self.meta.len {
+                        return Ok(Bytes::new());
+                    }
+                    let adapter = adapter.clone();
+                    let target_pos = self.cursor;
+                    let (current_pos, mut active_reader) = {
+                        let mut state = reader_state.lock().map_err(|_| FsError::GeneralFailure)?;
+                        (state.pos, state.reader.take())
+                    };
+                    let node_id = *node_id;
+                    let (next_reader, next_pos, bytes) = request_io_runtime
+                        .spawn_blocking(move || {
+                            let (mut reader, mut pos) = match active_reader.take() {
+                                Some(reader) if current_pos <= target_pos => (reader, current_pos),
+                                _ => (open_download_reader(adapter.clone(), node_id)?, 0),
+                            };
+
+                            if pos < target_pos {
+                                skip_reader_to(&mut reader, pos, target_pos)?;
+                                pos = target_pos;
+                            }
+
+                            let mut tmp = vec![0u8; count];
+                            let n = reader.read(&mut tmp).map_err(|_| FsError::GeneralFailure)?;
+                            tmp.truncate(n);
+                            pos = pos.saturating_add(n as u64);
+                            Ok::<_, FsError>((reader, pos, Bytes::from(tmp)))
+                        })
+                        .await
+                        .map_err(|_| FsError::GeneralFailure)??;
+                    {
+                        let mut state = reader_state.lock().map_err(|_| FsError::GeneralFailure)?;
+                        state.reader = Some(next_reader);
+                        state.pos = next_pos;
+                    }
+                    self.cursor = next_pos;
+                    Ok(bytes)
                 }
                 CatalogDavFileMode::Write {
                     staging_path,
@@ -230,7 +284,7 @@ impl<R: tauri::Runtime> DavFile for CatalogDavFile<R> {
     fn seek(&'_ mut self, pos: io::SeekFrom) -> FsFuture<'_, u64> {
         Box::pin(async move {
             let len = match &self.mode {
-                CatalogDavFileMode::Read { buf } => buf.len() as i128,
+                CatalogDavFileMode::Read { .. } => self.meta.len as i128,
                 CatalogDavFileMode::Write { .. } => self.meta.len as i128,
             };
             let next: i128 = match pos {
@@ -283,6 +337,38 @@ impl<R: tauri::Runtime> DavFile for CatalogDavFile<R> {
             Ok(())
         })
     }
+}
+
+fn open_download_reader(
+    adapter: Arc<Mutex<Box<dyn CoreAdapter>>>,
+    node_id: u64,
+) -> Result<Box<dyn Read + Send>, FsError> {
+    let mut adapter = adapter.lock().map_err(|_| FsError::GeneralFailure)?;
+    let req = RpcRequest::new("catalog:download".to_string(), json!({"node_id": node_id}));
+    match adapter.handle_with_stream(&req, None) {
+        RpcReply::Stream(out) => Ok(out.reader),
+        _ => Err(FsError::GeneralFailure),
+    }
+}
+
+fn skip_reader_to(
+    reader: &mut Box<dyn Read + Send>,
+    mut current_pos: u64,
+    target_pos: u64,
+) -> Result<(), FsError> {
+    let mut scratch = [0u8; 16 * 1024];
+    while current_pos < target_pos {
+        let remaining = (target_pos - current_pos) as usize;
+        let to_read = std::cmp::min(remaining, scratch.len());
+        let n = reader
+            .read(&mut scratch[..to_read])
+            .map_err(|_| FsError::GeneralFailure)?;
+        if n == 0 {
+            return Err(FsError::GeneralFailure);
+        }
+        current_pos = current_pos.saturating_add(n as u64);
+    }
+    Ok(())
 }
 
 fn flush_staged_upload<R: tauri::Runtime>(

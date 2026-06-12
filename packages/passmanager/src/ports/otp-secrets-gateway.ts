@@ -8,4 +8,5 @@ export interface OTPSecretsGateway {
   getOTPSeckey(id: string): Promise<string | undefined>
   removeOTP(id: string): Promise<boolean>
   saveOTP(id: string, secret: string): Promise<boolean>
+  renameOTPLabel?(id: string, previousLabel: string, nextLabel: string): Promise<boolean>
 }

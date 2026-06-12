@@ -58,11 +58,7 @@ fn mobile_permission_set_allows_mode_commands() {
         "mobile permission set not found in permissions/app.toml"
     );
 
-    for permission in [
-        "allow-mode-get",
-        "allow-mode-switch",
-        "allow-mode-status",
-    ] {
+    for permission in ["allow-mode-get", "allow-mode-switch", "allow-mode-status"] {
         assert!(
             mobile.contains(permission),
             "mobile set must include {permission}"
@@ -80,7 +76,7 @@ fn mobile_permission_set_allows_license_activation_commands() {
 
     for permission in [
         "allow-license-activation-code-activate",
-        "allow-license-account-recovery-activate",
+        "allow-license-account-cabinet-handoff",
         "allow-license-status",
         "allow-license-seat-status",
         "allow-license-current-seat-deactivate",

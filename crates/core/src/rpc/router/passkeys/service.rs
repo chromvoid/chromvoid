@@ -1,6 +1,9 @@
 use serde_json::Value;
 
-use crate::passkeys::{create_assertion, create_registration, query_candidates, source_to_summary};
+use crate::passkeys::{
+    create_assertion, create_registration, query_candidates, source_to_summary,
+    PasskeyInvocationContext,
+};
 use crate::rpc::types::{VaultPasskeyDeleteResponse, VaultPasskeysListResponse};
 use crate::storage::Storage;
 use crate::vault::VaultSession;
@@ -38,9 +41,11 @@ pub(super) fn passkey_query_service(
     session: &VaultSession,
     storage: &Storage,
     data: &Value,
+    context: &PasskeyInvocationContext,
 ) -> Result<VaultPasskeysListResponse, PasskeysCommandError> {
     let sources = list_passkey_sources(session, storage)?;
-    let candidates = query_candidates(data, &sources).map_err(PasskeysCommandError::from)?;
+    let candidates =
+        query_candidates(data, &sources, context).map_err(PasskeysCommandError::from)?;
     let passkeys = candidates.iter().map(source_to_summary).collect();
     Ok(VaultPasskeysListResponse { passkeys })
 }
@@ -50,9 +55,11 @@ pub(super) fn passkey_create_service(
     storage: &Storage,
     uow: &mut DomainUnitOfWork<'_>,
     data: &Value,
+    context: &PasskeyInvocationContext,
 ) -> Result<Value, PasskeysCommandError> {
     let sources = list_passkey_sources(session, storage)?;
-    let registration = create_registration(data, &sources).map_err(PasskeysCommandError::from)?;
+    let registration =
+        create_registration(data, &sources, context).map_err(PasskeysCommandError::from)?;
     save_passkey_source(uow, &registration.source)?;
     Ok(registration.response)
 }
@@ -62,9 +69,11 @@ pub(super) fn passkey_get_service(
     storage: &Storage,
     uow: &mut DomainUnitOfWork<'_>,
     data: &Value,
+    context: &PasskeyInvocationContext,
 ) -> Result<Value, PasskeysCommandError> {
     let sources = list_passkey_sources(session, storage)?;
-    let assertion = create_assertion(data, &sources).map_err(PasskeysCommandError::from)?;
+    let assertion =
+        create_assertion(data, &sources, context).map_err(PasskeysCommandError::from)?;
     save_passkey_source(uow, &assertion.source)?;
     Ok(assertion.response)
 }

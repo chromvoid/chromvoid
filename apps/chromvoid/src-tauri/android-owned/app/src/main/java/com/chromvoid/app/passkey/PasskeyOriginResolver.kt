@@ -42,6 +42,28 @@ internal object PasskeyOriginResolver {
         return "android:apk-key-hash:unknown"
     }
 
+    fun defaultRpIdForCreate(
+        info: CallingAppInfo?,
+        privilegedAllowlist: String = PRIVILEGED_BROWSER_ALLOWLIST,
+        privilegedOriginReader: (CallingAppInfo, String) -> String? = ::readPrivilegedOrigin,
+    ): String? =
+        rpIdForWebOrigin(
+            originForCallingApp(
+                info = info,
+                privilegedAllowlist = privilegedAllowlist,
+                privilegedOriginReader = privilegedOriginReader,
+            ),
+        )
+
+    fun rpIdForWebOrigin(origin: String): String? {
+        val uri = runCatching { URI(origin) }.getOrNull() ?: return null
+        val scheme = uri.scheme?.lowercase(Locale.ROOT) ?: return null
+        if (scheme != "http" && scheme != "https") {
+            return null
+        }
+        return uri.host?.lowercase(Locale.ROOT)?.takeIf { it.isNotBlank() }
+    }
+
     private fun resolvePrivilegedOrigin(
         info: CallingAppInfo,
         privilegedAllowlist: String,

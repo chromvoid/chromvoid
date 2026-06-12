@@ -85,70 +85,98 @@ impl PrivyFilesystem {
         // We keep memory bounded by chunking uploads.
         let mut adapter = self.adapter.lock().map_err(|_| libc::EIO)?;
 
-        if total_size == 0 {
-            let req = RpcRequest::new(
-                "catalog:upload".to_string(),
-                match node_id {
-                    Some(node_id) => json!({"node_id": node_id, "size": 0, "offset": 0}),
-                    None => json!({
-                        "parent_path": parent_path.unwrap_or("/"),
-                        "name": name.ok_or(libc::EINVAL)?,
-                        "total_size": 0,
-                        "size": 0,
-                        "offset": 0,
-                        "mime_type": serde_json::Value::Null,
-                        "chunk_size": serde_json::Value::Null,
-                    }),
-                },
-            );
-            match adapter.handle_with_stream(&req, Some(RpcInputStream::from_bytes(Vec::new()))) {
-                RpcReply::Json(RpcResponse::Success { result, .. }) => {
-                    node_id = node_id.or_else(|| upload_node_id_from_value(&result));
-                    return node_id.map(|_| ()).ok_or(libc::EIO);
-                }
-                _ => return Err(libc::EIO),
-            }
-        }
-
-        let mut offset: u64 = 0;
-        while offset < total_size {
-            let remaining = total_size - offset;
-            let part = std::cmp::min(UPLOAD_PART_BYTES, remaining);
-
-            let mut f = File::open(file_path).map_err(|_| libc::EIO)?;
-            f.seek(SeekFrom::Start(offset)).map_err(|_| libc::EIO)?;
-            let reader = f.take(part);
-
-            let req = RpcRequest::new(
-                "catalog:upload".to_string(),
-                match node_id {
-                    Some(node_id) => json!({"node_id": node_id, "size": part, "offset": offset}),
-                    None => json!({
-                        "parent_path": parent_path.unwrap_or("/"),
-                        "name": name.ok_or(libc::EINVAL)?,
-                        "total_size": total_size,
-                        "size": part,
-                        "offset": offset,
-                        "mime_type": serde_json::Value::Null,
-                        "chunk_size": serde_json::Value::Null,
-                    }),
-                },
-            );
-            match adapter.handle_with_stream(&req, Some(RpcInputStream::new(Box::new(reader)))) {
-                RpcReply::Json(RpcResponse::Success { result, .. }) => {
-                    if node_id.is_none() {
-                        node_id = upload_node_id_from_value(&result);
-                        if node_id.is_none() {
-                            return Err(libc::EIO);
-                        }
+        let result = (|| -> Result<(), i32> {
+            if total_size == 0 {
+                let req = RpcRequest::new(
+                    "catalog:upload".to_string(),
+                    match node_id {
+                        Some(node_id) => json!({
+                            "node_id": node_id,
+                            "total_size": 0,
+                            "chunk_size": UPLOAD_PART_BYTES,
+                            "size": 0,
+                            "offset": 0,
+                            "finish": true,
+                        }),
+                        None => json!({
+                            "parent_path": parent_path.unwrap_or("/"),
+                            "name": name.ok_or(libc::EINVAL)?,
+                            "total_size": 0,
+                            "size": 0,
+                            "offset": 0,
+                            "mime_type": serde_json::Value::Null,
+                            "chunk_size": UPLOAD_PART_BYTES,
+                            "finish": true,
+                        }),
+                    },
+                );
+                match adapter.handle_with_stream(&req, Some(RpcInputStream::from_bytes(Vec::new())))
+                {
+                    RpcReply::Json(RpcResponse::Success { result, .. }) => {
+                        node_id = node_id.or_else(|| upload_node_id_from_value(&result));
+                        return node_id.map(|_| ()).ok_or(libc::EIO);
                     }
-                    offset = offset.saturating_add(part);
+                    _ => return Err(libc::EIO),
                 }
-                _ => return Err(libc::EIO),
             }
+
+            let mut offset: u64 = 0;
+            while offset < total_size {
+                let remaining = total_size - offset;
+                let part = std::cmp::min(UPLOAD_PART_BYTES, remaining);
+
+                let mut f = File::open(file_path).map_err(|_| libc::EIO)?;
+                f.seek(SeekFrom::Start(offset)).map_err(|_| libc::EIO)?;
+                let mut chunk = vec![0_u8; part as usize];
+                f.read_exact(&mut chunk).map_err(|_| libc::EIO)?;
+                let finish = offset.saturating_add(part) >= total_size;
+
+                let req = RpcRequest::new(
+                    "catalog:upload".to_string(),
+                    match node_id {
+                        Some(node_id) => json!({
+                            "node_id": node_id,
+                            "total_size": total_size,
+                            "chunk_size": UPLOAD_PART_BYTES,
+                            "size": part,
+                            "offset": offset,
+                            "finish": finish,
+                        }),
+                        None => json!({
+                            "parent_path": parent_path.unwrap_or("/"),
+                            "name": name.ok_or(libc::EINVAL)?,
+                            "total_size": total_size,
+                            "size": part,
+                            "offset": offset,
+                            "mime_type": serde_json::Value::Null,
+                            "chunk_size": UPLOAD_PART_BYTES,
+                            "finish": finish,
+                        }),
+                    },
+                );
+                match adapter.handle_with_stream(&req, Some(RpcInputStream::from_bytes(chunk))) {
+                    RpcReply::Json(RpcResponse::Success { result, .. }) => {
+                        if node_id.is_none() {
+                            node_id = upload_node_id_from_value(&result);
+                            if node_id.is_none() {
+                                return Err(libc::EIO);
+                            }
+                        }
+                        offset = offset.saturating_add(part);
+                    }
+                    _ => return Err(libc::EIO),
+                }
+            }
+
+            Ok(())
+        })();
+
+        if result.is_err() {
+            let req = RpcRequest::new("catalog:upload:abort".to_string(), json!({}));
+            let _ = adapter.handle(&req);
         }
 
-        Ok(())
+        result
     }
 
     pub(super) fn flush_open_file(&self, ino: u64, state: &mut OpenFileState) -> Result<(), i32> {

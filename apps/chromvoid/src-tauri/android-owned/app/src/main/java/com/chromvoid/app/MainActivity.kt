@@ -6,6 +6,7 @@ import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.JavascriptInterface
 import androidx.activity.OnBackPressedCallback
@@ -94,6 +95,11 @@ class MainActivity : TauriActivity() {
         logStartup("webview.create.begin")
         super.onWebViewCreate(webView)
         this.webView = webView
+        if (BuildConfig.DEBUG) {
+            webView.settings.cacheMode = WebSettings.LOAD_NO_CACHE
+            webView.clearCache(true)
+            logStartup("webview.cache.disabled")
+        }
         webView.setBackgroundColor(StartupSplashController.BACKGROUND_COLOR)
         webView.addJavascriptInterface(startupSplashBridge, STARTUP_SPLASH_BRIDGE_NAME)
         webView.addJavascriptInterface(androidShareBridge, ANDROID_SHARE_BRIDGE_NAME)

@@ -81,6 +81,33 @@ class PasskeyComponentsTest {
     }
 
     @Test
+    fun createRequestParser_defaultsMissingRpIdFromFallback() {
+        val request =
+            PasskeyRequestParser.parseCreateRequestJson(
+                CREATE_REQUEST_JSON_WITHOUT_RP_ID,
+                rpIdFallback = "app.example",
+            ) ?: error("valid create request must parse with fallback rp id")
+
+        assertEquals("app.example", request.rpId)
+    }
+
+    @Test
+    fun defaultRpIdForCreate_returnsHostForTrustedWebOrigin() {
+        val rpId =
+            PasskeyOriginResolver.defaultRpIdForCreate(
+                callingAppInfo(packageName = "com.android.chrome", origin = "https://App.Example:443/path"),
+                privilegedOriginReader = { _, _ -> "https://App.Example:443/path" },
+            )
+
+        assertEquals("app.example", rpId)
+    }
+
+    @Test
+    fun defaultRpIdForCreate_returnsNullForUnknownApkOrigin() {
+        assertNull(PasskeyOriginResolver.defaultRpIdForCreate(callingAppInfo(origin = null)))
+    }
+
+    @Test
     fun originForCallingApp_returnsAllowlistedBrowserOrigin() {
         val origin =
             PasskeyOriginResolver.originForCallingApp(
@@ -181,6 +208,7 @@ class PasskeyComponentsTest {
     @Test
     fun parseCreateRequestJson_returnsNullWhenRequiredFieldsMissing() {
         assertNull(PasskeyRequestParser.parseCreateRequestJson("""{"challenge":"challenge-b64"}"""))
+        assertNull(PasskeyRequestParser.parseCreateRequestJson(CREATE_REQUEST_JSON_WITHOUT_RP_ID))
         assertNull(
             PasskeyRequestParser.parseCreateRequestJson(
                 """{"challenge":"challenge-b64","rp":{"id":"example.com"},"user":{"name":"alice","displayName":"Alice"},"pubKeyCredParams":[{"type":"public-key","alg":-7}]}""",
@@ -346,5 +374,7 @@ class PasskeyComponentsTest {
             """{"challenge":"challenge-b64","rpId":"example.com","allowCredentials":[{"id":"cred-a"},{"id":"cred-b"}]}"""
         private const val CREATE_REQUEST_JSON =
             """{"challenge":"challenge-b64","rp":{"id":"example.com","name":"Example"},"user":{"id":"user-b64","name":"alice","displayName":"Alice"},"pubKeyCredParams":[{"type":"public-key","alg":-7},{"type":"public-key","alg":-257}],"excludeCredentials":[{"id":"cred-x"}],"attestation":"none"}"""
+        private const val CREATE_REQUEST_JSON_WITHOUT_RP_ID =
+            """{"challenge":"challenge-b64","rp":{"name":"Example"},"user":{"id":"user-b64","name":"alice","displayName":"Alice"},"pubKeyCredParams":[{"type":"public-key","alg":-7},{"type":"public-key","alg":-257}],"excludeCredentials":[{"id":"cred-x"}],"attestation":"none"}"""
     }
 }

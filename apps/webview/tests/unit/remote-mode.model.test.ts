@@ -37,15 +37,6 @@ describe('remote.model – mode helpers', () => {
       expect(isRemoteMode(mode)).toBe(true)
     })
 
-    it('returns true for remote object with orangepi_usb host', () => {
-      const mode: CoreMode = {remote: {host: {type: 'orangepi_usb', device_id: 'dev-1'}}}
-      expect(isRemoteMode(mode)).toBe(true)
-    })
-
-    it('returns true for remote object with mobile_ble host', () => {
-      const mode: CoreMode = {remote: {host: {type: 'mobile_ble', device_id: 'ble-1'}}}
-      expect(isRemoteMode(mode)).toBe(true)
-    })
   })
 
   describe('getModeLabel', () => {
@@ -77,15 +68,6 @@ describe('remote.model – mode helpers', () => {
       expect(getConnectedPeerName(mode)).toBe('my-phone')
     })
 
-    it('returns device_id for orangepi_usb', () => {
-      const mode: CoreMode = {remote: {host: {type: 'orangepi_usb', device_id: 'usb-dev'}}}
-      expect(getConnectedPeerName(mode)).toBe('usb-dev')
-    })
-
-    it('returns device_id for mobile_ble', () => {
-      const mode: CoreMode = {remote: {host: {type: 'mobile_ble', device_id: 'ble-dev'}}}
-      expect(getConnectedPeerName(mode)).toBe('ble-dev')
-    })
   })
 
   describe('getConnectionStatusCategory', () => {

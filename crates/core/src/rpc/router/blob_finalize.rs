@@ -1,5 +1,6 @@
 use crate::catalog::CatalogMediaInfo;
 use crate::rpc::commands::{normalize_path, shard_id_from_path, shard_relative_path};
+use crate::rpc::derivative_index::DerivativeIndexState;
 use crate::storage::Storage;
 use crate::vault::VaultSession;
 
@@ -41,6 +42,7 @@ pub(super) enum BlobFinalizeError {
 pub(super) fn finalize_blob_write(
     session: &mut VaultSession,
     storage: &Storage,
+    derivative_index_state: Option<&DerivativeIndexState>,
     input: BlobFinalizationInput,
 ) -> Result<BlobFinalizationOutcome, BlobFinalizeError> {
     let path = session.catalog().get_path(input.node_id);
@@ -71,12 +73,20 @@ pub(super) fn finalize_blob_write(
     node.media_inspected_revision = 0;
 
     session.invalidate_decrypted_chunk_cache_for_node(input.node_id);
-    crate::rpc::derivative_index::delete_stale_derivatives_for_node(
-        storage,
-        session.vault_key(),
-        input.node_id,
-        source_revision,
-    )
+    match derivative_index_state {
+        Some(derivative_index_state) => derivative_index_state.delete_stale_derivatives_for_node(
+            storage,
+            session.vault_key(),
+            input.node_id,
+            source_revision,
+        ),
+        None => crate::rpc::derivative_index::delete_stale_derivatives_for_node(
+            storage,
+            session.vault_key(),
+            input.node_id,
+            source_revision,
+        ),
+    }
     .map_err(|error| {
         BlobFinalizeError::DerivativeIndex(format!("Derivative index update failed: {error}"))
     })?;

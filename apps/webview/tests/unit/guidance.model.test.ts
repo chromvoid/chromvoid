@@ -16,7 +16,6 @@ const BASE_CAPABILITIES: RuntimeCapabilities = {
   supports_native_share: false,
   supports_volume: false,
   supports_gateway: false,
-  supports_usb_remote: false,
   supports_network_remote: true,
   supports_biometric: false,
   supports_autofill: false,
@@ -122,13 +121,13 @@ describe('GuidanceModel', () => {
     const model = createModel({
       definitions: [
         definition({
-          id: 'remote.usb',
+          id: 'remote.network',
           platforms: ['desktop'],
-          capabilityGate: {supports_usb_remote: true},
+          capabilityGate: {supports_network_remote: true},
           moduleAccessGate: {feature: 'remote', statuses: ['enabled']},
         }),
       ],
-      capabilities: {supports_usb_remote: false},
+      capabilities: {supports_network_remote: false},
       accessStatus: 'enabled',
     })
     model.setRoute('dashboard')
@@ -137,13 +136,13 @@ describe('GuidanceModel', () => {
     const enabled = createModel({
       definitions: [
         definition({
-          id: 'remote.usb',
+          id: 'remote.network',
           platforms: ['desktop'],
-          capabilityGate: {supports_usb_remote: true},
+          capabilityGate: {supports_network_remote: true},
           moduleAccessGate: {feature: 'remote', statuses: ['enabled']},
         }),
       ],
-      capabilities: {supports_usb_remote: true},
+      capabilities: {supports_network_remote: true},
       accessStatus: 'enabled',
     })
     enabled.setRoute('dashboard')

@@ -19,7 +19,7 @@ let stdout = ''
 let stderr = ''
 let settled = false
 
-const child = spawn('npm', ['run', 'build', '--', '--outDir', outDir], {
+const child = spawn('bun', ['run', 'build', '--', '--outDir', outDir], {
   cwd: webviewRoot,
   stdio: ['ignore', 'pipe', 'pipe'],
 })

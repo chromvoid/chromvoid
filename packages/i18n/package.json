@@ -1,7 +1,7 @@
 {
   "name": "@project/i18n",
   "version": "0.0.1",
-  "description": "Small i18n runtime built on Reatom v1000",
+  "description": "Small i18n runtime built on Reatom v1001",
   "files": [
     "dist",
     "README.md",
@@ -22,11 +22,11 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json && node ./scripts/postbuild.mjs",
-    "check:exports": "npm run build && node ./scripts/check-package-exports.mjs",
-    "check:pack": "npm pack --dry-run",
+    "check:exports": "bun run build && node ./scripts/check-package-exports.mjs",
+    "check:pack": "bun pm pack --dry-run",
     "lint": "tsc --noEmit -p tsconfig.json",
-    "prepack": "npm run build",
-    "prepublishOnly": "npm run lint && npm test && npm run check:exports && npm run check:pack",
+    "prepack": "bun run build",
+    "prepublishOnly": "bun run lint && bun run test && bun run check:exports && bun run check:pack",
     "test": "node --import tsx --test --test-force-exit src/**/*.test.ts"
   },
   "keywords": [
@@ -36,11 +36,11 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@reatom/core": "^1000.15.0"
+    "@reatom/core": "^1001.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.11.0",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.3"
   }
 }

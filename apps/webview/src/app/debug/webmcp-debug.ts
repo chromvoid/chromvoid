@@ -58,8 +58,7 @@ function isWebMcpDebugEnabled(): boolean {
     return false
   }
 
-  const host = window.location.hostname
-  return window.env === 'dev' || host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.')
+  return window.env === 'dev'
 }
 
 function publishStatus(status: Omit<WebMcpDebugStatus, 'registeredTools'>): WebMcpDebugStatus {

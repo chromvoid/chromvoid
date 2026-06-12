@@ -1,4 +1,4 @@
-#[cfg(any(desktop, target_os = "ios"))]
+#[cfg(target_os = "ios")]
 use std::path::PathBuf;
 #[cfg(target_os = "ios")]
 use std::{
@@ -19,7 +19,11 @@ use tracing::info;
 use crate::app_state::AppState;
 #[cfg(target_os = "ios")]
 use crate::core_adapter::CoreAdapter;
+#[cfg(desktop)]
+use crate::core_adapter::CoreAdapter;
 use crate::helpers::*;
+#[cfg(desktop)]
+use crate::host_path_capability::HostPathPurpose;
 #[cfg(target_os = "ios")]
 use crate::mobile::ios::staging::{self, IosStagingArea, IosStagingManifest};
 use crate::types::*;
@@ -76,20 +80,43 @@ pub(crate) fn catalog_upload_request_data(
         if let Some(name) = name {
             data.insert("name".to_string(), Value::from(name));
         }
-        if let Some(total_size) = total_size {
-            data.insert("total_size".to_string(), Value::from(total_size));
-        }
-        if let Some(mime_type) = mime_type {
-            data.insert("mime_type".to_string(), Value::from(mime_type));
-        }
-        if let Some(chunk_size) = chunk_size {
-            data.insert("chunk_size".to_string(), Value::from(chunk_size));
-        }
+    }
+    if let Some(total_size) = total_size {
+        data.insert("total_size".to_string(), Value::from(total_size));
+    }
+    if let Some(mime_type) = mime_type {
+        data.insert("mime_type".to_string(), Value::from(mime_type));
+    }
+    if let Some(chunk_size) = chunk_size {
+        data.insert("chunk_size".to_string(), Value::from(chunk_size));
     }
     if finish {
         data.insert("finish".to_string(), Value::Bool(true));
     }
     Value::Object(data)
+}
+
+#[cfg(any(desktop, target_os = "ios"))]
+fn ensure_uploaded_exact_size(
+    uploaded_bytes: u64,
+    total_bytes: u64,
+    source_label: &str,
+) -> Result<(), (String, Option<String>)> {
+    if uploaded_bytes == total_bytes {
+        return Ok(());
+    }
+    Err((
+        format!(
+            "{source_label} changed while uploading: expected {total_bytes} bytes, read {uploaded_bytes}"
+        ),
+        Some("UPLOAD_SIZE_MISMATCH".to_string()),
+    ))
+}
+
+#[cfg(any(desktop, target_os = "ios"))]
+fn abort_catalog_upload_session(adapter: &mut dyn CoreAdapter) {
+    let req = RpcRequest::new("catalog:upload:abort".to_string(), serde_json::json!({}));
+    let _ = adapter.handle(&req);
 }
 
 #[tauri::command]
@@ -138,11 +165,17 @@ pub(crate) async fn catalog_upload_chunk(
 
             let req = RpcRequest::new("catalog:upload".to_string(), request_data);
             let reply = adapter.handle_with_stream(&req, Some(RpcInputStream::from_bytes(chunk)));
+            let upload_result = catalog_upload_json_reply(reply);
 
-            let _ = adapter.save();
+            if let Err(error) = adapter.save() {
+                return rpc_err(
+                    format!("Catalog upload save failed: {error}"),
+                    Some("INTERNAL".to_string()),
+                );
+            }
             flush_core_events(&app, adapter.as_mut());
 
-            catalog_upload_json_reply(reply)
+            upload_result
         })
         .await
     {
@@ -202,11 +235,17 @@ pub(crate) async fn catalog_file_replace(
 
             let req = RpcRequest::new("catalog:file:replace".to_string(), request_data);
             let reply = adapter.handle_with_stream(&req, Some(RpcInputStream::from_bytes(bytes)));
+            let upload_result = catalog_upload_json_reply(reply);
 
-            let _ = adapter.save();
+            if let Err(error) = adapter.save() {
+                return rpc_err(
+                    format!("Catalog file replace save failed: {error}"),
+                    Some("INTERNAL".to_string()),
+                );
+            }
             flush_core_events(&app, adapter.as_mut());
 
-            catalog_upload_json_reply(reply)
+            upload_result
         })
         .await
     {
@@ -549,21 +588,23 @@ pub(crate) async fn catalog_cancel_shared_files(
     shared_session_id: String,
 ) -> TauriRpcResult<Value> {
     let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
-    Ok(match catalog_blocking_io_runtime
-        .spawn_blocking(move || {
-            staging::app_group_container_path().and_then(|root| {
-                staging::purge_session(&root, IosStagingArea::SharedFiles, &shared_session_id)
+    Ok(
+        match catalog_blocking_io_runtime
+            .spawn_blocking(move || {
+                staging::app_group_container_path().and_then(|root| {
+                    staging::purge_session(&root, IosStagingArea::SharedFiles, &shared_session_id)
+                })
             })
-        })
-        .await
-    {
-        Ok(Ok(())) => rpc_ok(Value::Null),
-        Ok(Err(error)) => rpc_err(
-            error.to_string(),
-            Some("ANDROID_SHARE_SESSION_NOT_FOUND".to_string()),
-        ),
-        Err(error) => catalog_blocking_upload_err(error, "Cancel shared files"),
-    })
+            .await
+        {
+            Ok(Ok(())) => rpc_ok(Value::Null),
+            Ok(Err(error)) => rpc_err(
+                error.to_string(),
+                Some("ANDROID_SHARE_SESSION_NOT_FOUND".to_string()),
+            ),
+            Err(error) => catalog_blocking_upload_err(error, "Cancel shared files"),
+        },
+    )
 }
 
 #[cfg(target_os = "ios")]
@@ -581,14 +622,16 @@ pub(crate) async fn catalog_list_shared_files(
     state: tauri::State<'_, AppState>,
 ) -> TauriRpcResult<Value> {
     let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
-    Ok(match catalog_blocking_io_runtime
-        .spawn_blocking(ios_list_shared_files)
-        .await
-    {
-        Ok(Ok(value)) => rpc_ok(value),
-        Ok(Err((error, code))) => rpc_err(error, code),
-        Err(error) => catalog_blocking_upload_err(error, "List shared files"),
-    })
+    Ok(
+        match catalog_blocking_io_runtime
+            .spawn_blocking(ios_list_shared_files)
+            .await
+        {
+            Ok(Ok(value)) => rpc_ok(value),
+            Ok(Err((error, code))) => rpc_err(error, code),
+            Err(error) => catalog_blocking_upload_err(error, "List shared files"),
+        },
+    )
 }
 
 #[cfg(all(mobile, not(any(target_os = "android", target_os = "ios"))))]
@@ -838,17 +881,16 @@ fn ios_stream_staged_upload_file(
     let mut buffer = vec![0_u8; read_chunk_size];
     let mut last_emit = Instant::now();
 
-    loop {
+    while offset < file.total_bytes {
         touch_last_activity(last_activity, "ios_stream_staged_upload_file");
-        let read = source.read(&mut buffer).map_err(|error| {
+        let remaining = file.total_bytes - offset;
+        let read = std::cmp::min(read_chunk_size as u64, remaining) as usize;
+        source.read_exact(&mut buffer[..read]).map_err(|error| {
             (
                 format!("Failed to read staged iOS upload file: {error}"),
                 Some("IO".to_string()),
             )
         })?;
-        if read == 0 {
-            break;
-        }
 
         let req = RpcRequest::new(
             "catalog:upload".to_string(),
@@ -861,7 +903,7 @@ fn ios_stream_staged_upload_file(
                 Some(file.chunk_size),
                 offset,
                 read as u64,
-                false,
+                offset.saturating_add(read as u64) >= file.total_bytes,
             ),
         );
         let reply = {
@@ -920,7 +962,7 @@ fn ios_stream_staged_upload_file(
                 Some(file.chunk_size),
                 0,
                 0,
-                false,
+                true,
             ),
         );
         let reply = {
@@ -953,6 +995,8 @@ fn ios_stream_staged_upload_file(
             }
         }
     }
+
+    ensure_uploaded_exact_size(loaded, file.total_bytes, "Staged iOS upload file")?;
 
     ios_emit_native_upload_progress(app, upload_id, &file, loaded);
     let _ = app.emit(
@@ -1108,11 +1152,19 @@ pub(crate) async fn catalog_upload_path(
     parent_path: Option<String>,
     name: Option<String>,
     total_bytes: Option<u64>,
-    path: String,
+    path_token: String,
     upload_id: String,
     read_chunk_size: Option<u64>,
 ) -> Result<RpcResult<Value>, String> {
     touch_last_activity(&state.last_activity, "catalog_upload_path");
+
+    let path = match state
+        .host_path_capabilities
+        .consume(&path_token, HostPathPurpose::Upload)
+    {
+        Ok(path) => path,
+        Err(error) => return Ok(rpc_err(error, Some("INVALID_PATH_TOKEN".to_string()))),
+    };
 
     let adapter = state.adapter.clone();
     let app2 = app.clone();
@@ -1125,146 +1177,160 @@ pub(crate) async fn catalog_upload_path(
 
     let out = catalog_blocking_io_runtime
         .spawn_blocking(move || -> Result<u64, (String, Option<String>)> {
-            let pb = PathBuf::from(path);
-            let meta = std::fs::metadata(&pb)
-                .map_err(|e| (format!("Failed to stat file: {e}"), Some("IO".to_string())))?;
-            if !meta.is_file() {
-                return Err((
-                    "Path is not a file".to_string(),
-                    Some("INVALID_PATH".to_string()),
-                ));
-            }
-
-            let total_bytes = total_bytes.unwrap_or_else(|| meta.len());
-            let upload_parent_path = parent_path
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| "/".to_string());
-            let upload_name = name
-                .filter(|value| !value.trim().is_empty())
-                .or_else(|| {
-                    pb.file_name()
-                        .and_then(|name| name.to_str())
-                        .map(str::to_string)
-                })
-                .ok_or_else(|| {
-                    (
-                        "Upload file name is required".to_string(),
+            let upload_result = (|| -> Result<u64, (String, Option<String>)> {
+                let pb = path;
+                let meta = std::fs::metadata(&pb)
+                    .map_err(|e| (format!("Failed to stat file: {e}"), Some("IO".to_string())))?;
+                if !meta.is_file() {
+                    return Err((
+                        "Path is not a file".to_string(),
                         Some("INVALID_PATH".to_string()),
-                    )
-                })?;
-            let mut file = std::fs::File::open(&pb)
-                .map_err(|e| (format!("Failed to open file: {e}"), Some("IO".to_string())))?;
-
-            let mut node_id = node_id;
-            let mut offset: u64 = 0;
-            let mut sent_bytes: u64 = 0;
-            let mut buf = vec![0u8; read_cs];
-            let mut last_emit = std::time::Instant::now();
-
-            while offset < total_bytes || (total_bytes == 0 && offset == 0) {
-                touch_last_activity(&last_activity, "catalog_upload_path");
-
-                let n = if total_bytes == 0 {
-                    0
-                } else {
-                    std::io::Read::read(&mut file, &mut buf).map_err(|e| {
-                        (format!("Failed to read file: {e}"), Some("IO".to_string()))
-                    })?
-                };
-                if n == 0 && total_bytes > 0 {
-                    break;
+                    ));
                 }
 
-                let chunk = buf[..n].to_vec();
-                let req = RpcRequest::new(
-                    "catalog:upload".to_string(),
-                    catalog_upload_request_data(
-                        node_id,
-                        Some(&upload_parent_path),
-                        Some(&upload_name),
-                        Some(total_bytes),
-                        None,
-                        Some(read_cs as u64),
-                        offset,
-                        n as u64,
-                        false,
-                    ),
-                );
+                let total_bytes = total_bytes.unwrap_or_else(|| meta.len());
+                let upload_parent_path = parent_path
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| "/".to_string());
+                let upload_name = name
+                    .filter(|value| !value.trim().is_empty())
+                    .or_else(|| {
+                        pb.file_name()
+                            .and_then(|name| name.to_str())
+                            .map(str::to_string)
+                    })
+                    .ok_or_else(|| {
+                        (
+                            "Upload file name is required".to_string(),
+                            Some("INVALID_PATH".to_string()),
+                        )
+                    })?;
+                let mut file = std::fs::File::open(&pb)
+                    .map_err(|e| (format!("Failed to open file: {e}"), Some("IO".to_string())))?;
 
-                let reply = {
+                let mut node_id = node_id;
+                let mut offset: u64 = 0;
+                let mut sent_bytes: u64 = 0;
+                let mut buf = vec![0u8; read_cs];
+                let mut last_emit = std::time::Instant::now();
+
+                while offset < total_bytes || (total_bytes == 0 && offset == 0) {
+                    touch_last_activity(&last_activity, "catalog_upload_path");
+
+                    let n = if total_bytes == 0 {
+                        0
+                    } else {
+                        let remaining = total_bytes - offset;
+                        let n = std::cmp::min(read_cs as u64, remaining) as usize;
+                        std::io::Read::read_exact(&mut file, &mut buf[..n]).map_err(|e| {
+                            (format!("Failed to read file: {e}"), Some("IO".to_string()))
+                        })?;
+                        n
+                    };
+
+                    let chunk = buf[..n].to_vec();
+                    let req = RpcRequest::new(
+                        "catalog:upload".to_string(),
+                        catalog_upload_request_data(
+                            node_id,
+                            Some(&upload_parent_path),
+                            Some(&upload_name),
+                            Some(total_bytes),
+                            None,
+                            Some(read_cs as u64),
+                            offset,
+                            n as u64,
+                            offset.saturating_add(n as u64) >= total_bytes,
+                        ),
+                    );
+
+                    let reply = {
+                        let mut adapter = adapter.lock().map_err(|_| {
+                            (
+                                "Adapter mutex poisoned".to_string(),
+                                Some("INTERNAL".to_string()),
+                            )
+                        })?;
+                        adapter.handle_with_stream(&req, Some(RpcInputStream::from_bytes(chunk)))
+                    };
+
+                    match reply {
+                        RpcReply::Json(resp) => match resp {
+                            RpcResponse::Success { result, .. } => {
+                                if node_id.is_none() {
+                                    node_id = upload_result_node_id(&result);
+                                    if node_id.is_none() {
+                                        return Err((
+                                            "catalog:upload returned no node_id".to_string(),
+                                            Some("INTERNAL".to_string()),
+                                        ));
+                                    }
+                                }
+                            }
+                            RpcResponse::Error { error, code, .. } => return Err((error, code)),
+                        },
+                        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+                            return Err((
+                                "Unexpected stream reply".to_string(),
+                                Some("INTERNAL".to_string()),
+                            ))
+                        }
+                    }
+
+                    offset = offset.saturating_add(n as u64);
+                    sent_bytes = sent_bytes.saturating_add(n as u64);
+
+                    let now = std::time::Instant::now();
+                    if now.duration_since(last_emit).as_millis()
+                        >= PATH_UPLOAD_PROGRESS_EMIT_INTERVAL_MS
+                        || sent_bytes >= total_bytes
+                    {
+                        last_emit = now;
+                        let _ = app2.emit(
+                            "upload:progress",
+                            serde_json::json!({
+                                "uploadId": upload_id.clone(),
+                                "nodeId": node_id,
+                                "sentBytes": sent_bytes,
+                                "totalBytes": total_bytes,
+                            }),
+                        );
+                    }
+                    if total_bytes == 0 {
+                        break;
+                    }
+                }
+
+                ensure_uploaded_exact_size(sent_bytes, total_bytes, "Upload file")?;
+
+                {
                     let mut adapter = adapter.lock().map_err(|_| {
                         (
                             "Adapter mutex poisoned".to_string(),
                             Some("INTERNAL".to_string()),
                         )
                     })?;
-                    adapter.handle_with_stream(&req, Some(RpcInputStream::from_bytes(chunk)))
-                };
-
-                match reply {
-                    RpcReply::Json(resp) => match resp {
-                        RpcResponse::Success { result, .. } => {
-                            if node_id.is_none() {
-                                node_id = upload_result_node_id(&result);
-                                if node_id.is_none() {
-                                    return Err((
-                                        "catalog:upload returned no node_id".to_string(),
-                                        Some("INTERNAL".to_string()),
-                                    ));
-                                }
-                            }
-                        }
-                        RpcResponse::Error { error, code, .. } => return Err((error, code)),
-                    },
-                    RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
-                        return Err((
-                            "Unexpected stream reply".to_string(),
-                            Some("INTERNAL".to_string()),
-                        ))
-                    }
+                    adapter
+                        .save()
+                        .map_err(|error| (error, Some("INTERNAL".to_string())))?;
+                    flush_core_events(&app2, adapter.as_mut());
                 }
 
-                offset = offset.saturating_add(n as u64);
-                sent_bytes = sent_bytes.saturating_add(n as u64);
-
-                let now = std::time::Instant::now();
-                if now.duration_since(last_emit).as_millis()
-                    >= PATH_UPLOAD_PROGRESS_EMIT_INTERVAL_MS
-                    || sent_bytes >= total_bytes
-                {
-                    last_emit = now;
-                    let _ = app2.emit(
-                        "upload:progress",
-                        serde_json::json!({
-                            "uploadId": upload_id.clone(),
-                            "nodeId": node_id,
-                            "sentBytes": sent_bytes,
-                            "totalBytes": total_bytes,
-                        }),
-                    );
-                }
-                if total_bytes == 0 {
-                    break;
-                }
-            }
-
-            {
-                let mut adapter = adapter.lock().map_err(|_| {
+                node_id.ok_or_else(|| {
                     (
-                        "Adapter mutex poisoned".to_string(),
+                        "catalog:upload returned no node_id".to_string(),
                         Some("INTERNAL".to_string()),
                     )
-                })?;
-                let _ = adapter.save();
-                flush_core_events(&app2, adapter.as_mut());
+                })
+            })();
+
+            if upload_result.is_err() {
+                if let Ok(mut adapter) = adapter.lock() {
+                    abort_catalog_upload_session(adapter.as_mut());
+                }
             }
 
-            node_id.ok_or_else(|| {
-                (
-                    "catalog:upload returned no node_id".to_string(),
-                    Some("INTERNAL".to_string()),
-                )
-            })
+            upload_result
         })
         .await;
 
@@ -1331,5 +1397,37 @@ mod tests {
             }
             RpcResult::Success { .. } => panic!("unexpected success"),
         }
+    }
+
+    #[test]
+    fn catalog_upload_request_data_preserves_existing_upload_metadata() {
+        let data = catalog_upload_request_data(
+            Some(7),
+            Some("/ignored"),
+            Some("ignored.txt"),
+            Some(13),
+            Some("text/plain"),
+            Some(4),
+            8,
+            5,
+            true,
+        );
+
+        assert_eq!(data["node_id"], 7);
+        assert_eq!(data["total_size"], 13);
+        assert_eq!(data["chunk_size"], 4);
+        assert_eq!(data["mime_type"], "text/plain");
+        assert_eq!(data["offset"], 8);
+        assert_eq!(data["size"], 5);
+        assert_eq!(data["finish"], true);
+        assert!(data.get("parent_path").is_none());
+        assert!(data.get("name").is_none());
+    }
+
+    #[test]
+    fn ensure_uploaded_exact_size_rejects_short_read() {
+        let error = ensure_uploaded_exact_size(4, 8, "Upload file").unwrap_err();
+        assert_eq!(error.1.as_deref(), Some("UPLOAD_SIZE_MISMATCH"));
+        assert!(error.0.contains("expected 8 bytes, read 4"));
     }
 }

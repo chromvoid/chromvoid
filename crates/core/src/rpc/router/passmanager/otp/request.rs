@@ -21,6 +21,12 @@ pub(super) struct PassmanagerOtpRemoveSecretRequest<'a> {
     pub(super) target: PassmanagerOtpTargetRequest<'a>,
 }
 
+pub(super) struct PassmanagerOtpRenameSecretRequest<'a> {
+    pub(super) target: PassmanagerOtpTargetRequest<'a>,
+    pub(super) previous_label: &'a str,
+    pub(super) next_label: &'a str,
+}
+
 pub(super) fn parse_set_secret(
     data: &Value,
 ) -> Result<PassmanagerOtpSetSecretRequest<'_>, PassmanagerOtpError> {
@@ -43,6 +49,21 @@ pub(super) fn parse_remove_secret(
 ) -> Result<PassmanagerOtpRemoveSecretRequest<'_>, PassmanagerOtpError> {
     Ok(PassmanagerOtpRemoveSecretRequest {
         target: parse_required_target(data)?,
+    })
+}
+
+pub(super) fn parse_rename_secret(
+    data: &Value,
+) -> Result<PassmanagerOtpRenameSecretRequest<'_>, PassmanagerOtpError> {
+    let previous_label = normalize_non_empty(Some(required_str(data, "previous_label")?))
+        .ok_or_else(|| PassmanagerOtpError::empty_payload("previous_label is required"))?;
+    let next_label = normalize_non_empty(Some(required_str(data, "next_label")?))
+        .ok_or_else(|| PassmanagerOtpError::empty_payload("next_label is required"))?;
+
+    Ok(PassmanagerOtpRenameSecretRequest {
+        target: parse_required_target(data)?,
+        previous_label,
+        next_label,
     })
 }
 

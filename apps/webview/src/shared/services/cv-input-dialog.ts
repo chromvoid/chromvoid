@@ -1,7 +1,7 @@
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {CVBottomSheet} from '@chromvoid/uikit/components/cv-bottom-sheet'
 import {CVDialog} from '@chromvoid/uikit/components/cv-dialog'
-import {atom} from '@reatom/core'
+import {atom, wrap} from '@reatom/core'
 import {css, type TemplateResult} from 'lit'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
 import {i18n} from 'root/i18n'
@@ -12,8 +12,79 @@ import {
   enablePasswordInputDialogKeyboardStabilization,
   PASSWORD_INPUT_DIALOG_PROVISIONAL_KEYBOARD_OFFSET,
 } from './mobile-dialog-keyboard-stabilization'
+import {
+  markPerformance,
+  measurePerformance,
+  startFrameRateSampler,
+  type FrameRateSampler,
+} from './performance-measurement'
 
 let inputDialogId = 0
+
+type InputDialogConfirmResult = {ok: true; value: string} | {ok: false}
+
+class CvInputDialogModel {
+  private readonly inputValueState = atom('', 'cvInputDialog.inputValue')
+  private readonly errorState = atom<string | null>(null, 'cvInputDialog.error')
+  private readonly openState = atom(false, 'cvInputDialog.open')
+
+  inputValue(): string {
+    return this.inputValueState()
+  }
+
+  error(): string | null {
+    return this.errorState()
+  }
+
+  isOpen(): boolean {
+    return this.openState()
+  }
+
+  configure(value: string): void {
+    this.inputValueState.set(value)
+    this.errorState.set(null)
+  }
+
+  open(): void {
+    this.openState.set(true)
+  }
+
+  close(): void {
+    this.openState.set(false)
+  }
+
+  setInputValue(value: string, options: InputDialogOptions, validateNow: boolean): void {
+    this.inputValueState.set(value)
+    if (validateNow) {
+      this.errorState.set(this.validate(options, value))
+    }
+  }
+
+  confirm(options: InputDialogOptions): InputDialogConfirmResult {
+    const value = this.inputValueState()
+    const error = this.validate(options, value)
+    if (error) {
+      this.errorState.set(error)
+      return {ok: false}
+    }
+
+    return {ok: true, value: value.trim()}
+  }
+
+  private validate(options: InputDialogOptions, value: string): string | null {
+    if (options.required && value.trim().length === 0) {
+      return i18n('dialogs:field-required' as any)
+    }
+    if (options.validator) {
+      const result = options.validator(value)
+      if (typeof result === 'string') return result
+      if (result !== null && typeof result === 'object' && !result.valid) {
+        return result.message || i18n('dialogs:validation-error' as any)
+      }
+    }
+    return null
+  }
+}
 
 export class CvInputDialog extends ReatomLitElement {
   static define() {
@@ -61,6 +132,10 @@ export class CvInputDialog extends ReatomLitElement {
           --password-input-dialog-keyboard-offset,
           var(--mobile-keyboard-overlay-offset, 0px)
         );
+      }
+
+      cv-bottom-sheet.password-input-dialog::part(overlay) {
+        transition: none;
       }
 
       :is(cv-dialog, cv-bottom-sheet)::part(body) {
@@ -173,9 +248,7 @@ export class CvInputDialog extends ReatomLitElement {
   ]
 
   private opts: InputDialogOptions = {}
-  private inputValue = atom('')
-  private error = atom<string | null>(null)
-  private isOpen = atom(false)
+  private readonly model = new CvInputDialogModel()
 
   private _resolve?: (value: string | null) => void
   private _result: string | null = null
@@ -185,6 +258,9 @@ export class CvInputDialog extends ReatomLitElement {
   private focusTimer: number | null = null
   private focusRaf: number | null = null
   private inputFocusAttemptedForOpen = false
+  private measurementScope: string | null = null
+  private measurementId = 0
+  private openFrameRateSampler: FrameRateSampler | null = null
 
   private get isPasswordDialog() {
     return this.opts.type === 'password'
@@ -192,37 +268,53 @@ export class CvInputDialog extends ReatomLitElement {
 
   configure(options: InputDialogOptions) {
     this.opts = options
-    this.inputValue.set(options.value || '')
+    this.measurementScope = options.performanceScope ?? null
+    this.measurementId = this.measurementScope ? ++inputDialogId : 0
+    this.model.configure(options.value || '')
+    this.markDialogPerformance('configured')
   }
 
   show(): Promise<string | null> {
     return new Promise((resolve) => {
+      this.markDialogPerformance('show-start')
+      this.startOpenFrameRateSampler()
       this.shown = false
       this.closing = false
       this._result = null
       this._resolve = resolve
       this.inputFocusAttemptedForOpen = false
       if (this.isPasswordDialog) {
+        this.markDialogPerformance('keyboard-stabilization-enable-start')
         enablePasswordInputDialogKeyboardStabilization({
           initialKeyboardOffset: this.shouldUsePasswordInputProvisionalKeyboardOffset()
             ? PASSWORD_INPUT_DIALOG_PROVISIONAL_KEYBOARD_OFFSET
             : undefined,
         })
+        this.markDialogPerformance('keyboard-stabilization-enable-end')
       }
-      this.updateComplete.then(() => {
-        this.isOpen.set(true)
-      })
+      this.updateComplete.then(wrap(() => {
+        this.markDialogPerformance('update-complete')
+        this.measureDialogPerformance('show-to-update-complete', 'show-start', 'update-complete')
+        this.measureDialogPerformance('request-to-update-complete', 'dialog-request', 'update-complete')
+        this.model.open()
+        this.markDialogPerformance('open-state-set')
+        this.measureDialogPerformance('request-to-open-state-set', 'dialog-request', 'open-state-set')
+      }))
     })
   }
 
   close(result: string | null = null) {
+    this.markDialogPerformance('close-start', {
+      hadResult: result !== null || this._result !== null,
+    })
+    this.stopOpenFrameRateSampler('close-start')
     this.clearPendingInputFocus()
     this.inputFocusAttemptedForOpen = false
     const nextResult = result === null && this._result !== null ? this._result : result
     this._result = nextResult
     this.closing = true
-    if (!this.isOpen() && !this.shown) {
-      this.isOpen.set(false)
+    if (!this.model.isOpen() && !this.shown) {
+      this.model.close()
       this.closing = false
       this._resolve?.(this._result)
       this._resolve = undefined
@@ -243,13 +335,15 @@ export class CvInputDialog extends ReatomLitElement {
 
     // Give Android WebView/IME one turn to detach from the focused password field
     // before the dialog subtree is removed. Closing synchronously can crash Chromium.
-    this.closeTimer = window.setTimeout(() => {
+    this.closeTimer = window.setTimeout(wrap(() => {
       this.closeTimer = null
-      this.isOpen.set(false)
-    }, 32)
+      this.model.close()
+      this.markDialogPerformance('close-open-state-set')
+    }), 32)
   }
 
   disconnectedCallback(): void {
+    this.stopOpenFrameRateSampler('disconnected')
     this.clearPendingInputFocus()
     if (this.closeTimer !== null) {
       window.clearTimeout(this.closeTimer)
@@ -279,48 +373,50 @@ export class CvInputDialog extends ReatomLitElement {
       window.clearTimeout(this.focusTimer)
       this.focusTimer = null
     }
+
+    this.inputFocusAttemptedForOpen = false
   }
 
   private scheduleInputFocus(input: HTMLElement, options: {requireShown?: boolean} = {}): void {
     const requireShown = options.requireShown ?? true
+    this.markDialogPerformance('focus-scheduled', {requireShown})
     this.clearPendingInputFocus()
     this.focusRaf = window.requestAnimationFrame(() => {
       this.focusRaf = null
+      this.markDialogPerformance('focus-raf')
       this.focusTimer = window.setTimeout(() => {
         this.focusTimer = null
-        if ((requireShown && !this.shown) || !this.isOpen() || !input.isConnected) return
+        this.markDialogPerformance('focus-timer-fired')
+        if ((requireShown && !this.shown) || !this.model.isOpen() || !input.isConnected) {
+          this.markDialogPerformance('focus-skipped', {
+            requireShown,
+            shown: this.shown,
+            open: this.model.isOpen(),
+            inputConnected: input.isConnected,
+          })
+          return
+        }
 
         this.inputFocusAttemptedForOpen = true
+        this.markDialogPerformance('focus-attempt-start')
         try {
           input.focus({preventScroll: true})
         } catch {
           input.focus()
         }
+        this.markDialogPerformance('focus-attempt-end')
+        this.measureDialogPerformance('show-to-focus-attempt', 'show-start', 'focus-attempt-start')
+        this.measureDialogPerformance('request-to-focus-attempt', 'dialog-request', 'focus-attempt-start')
       }, 50)
     })
   }
 
-  private validate(value: string): string | null {
-    if (this.opts.required && value.trim().length === 0) {
-      return i18n('dialogs:field-required' as any)
-    }
-    if (this.opts.validator) {
-      const result = this.opts.validator(value)
-      if (typeof result === 'string') return result
-      if (result !== null && typeof result === 'object' && !result.valid) {
-        return result.message || i18n('dialogs:validation-error' as any)
-      }
-    }
-    return null
-  }
-
   private handleConfirm() {
-    const err = this.validate(this.inputValue())
-    if (err) {
-      this.error.set(err)
+    const result = this.model.confirm(this.opts)
+    if (!result.ok) {
       return
     }
-    this.close(this.inputValue().trim())
+    this.close(result.value)
   }
 
   private handleCancel() {
@@ -331,11 +427,8 @@ export class CvInputDialog extends ReatomLitElement {
     const event = e as CustomEvent<{value?: string}>
     const target = e.target as {value?: string} | null
     const val = event.detail?.value ?? target?.value ?? ''
-    this.inputValue.set(val)
     // Do not validate prior to dialog display – cv-input can fire an event upon initialization
-    if (this.shown) {
-      this.error.set(this.validate(val))
-    }
+    this.model.setInputValue(val, this.opts, this.shown)
   }
 
   private handleKeydown(e: KeyboardEvent) {
@@ -350,22 +443,29 @@ export class CvInputDialog extends ReatomLitElement {
   }
 
   private shouldFocusPasswordInputDuringShow(): boolean {
-    return this.opts.type === 'password' && this.isMobileLayout()
+    if (this.opts.type !== 'password' || !this.isMobileLayout()) return false
+    const capabilities = getRuntimeCapabilities()
+    return capabilities.platform !== 'ios'
   }
 
   private shouldProgrammaticallyFocusInputDuringShow(): boolean {
-    return !this.shouldFocusPasswordInputDuringShow() || !this.inputFocusAttemptedForOpen
+    if (this.opts.type === 'password' && this.isMobileLayout()) {
+      return this.shouldFocusPasswordInputDuringShow() && !this.inputFocusAttemptedForOpen
+    }
+
+    return true
   }
 
   private shouldUsePasswordInputProvisionalKeyboardOffset(): boolean {
-    if (!this.shouldFocusPasswordInputDuringShow()) return false
-    const capabilities = getRuntimeCapabilities()
-    return !(capabilities.platform === 'android' && capabilities.mobile)
+    return false
   }
 
   private handleShow() {
-    if (this.closing || !this.isOpen()) return
+    if (this.closing || !this.model.isOpen()) return
 
+    this.markDialogPerformance('surface-show')
+    this.measureDialogPerformance('show-to-surface-show', 'show-start', 'surface-show')
+    this.measureDialogPerformance('request-to-surface-show', 'dialog-request', 'surface-show')
     const input = this.renderRoot.querySelector('cv-input') as HTMLElement | null
     if (input && this.shouldProgrammaticallyFocusInputDuringShow()) {
       this.scheduleInputFocus(input, {requireShown: false})
@@ -373,8 +473,13 @@ export class CvInputDialog extends ReatomLitElement {
   }
 
   private handleAfterShow() {
-    if (this.closing || !this.isOpen()) return
+    if (this.closing || !this.model.isOpen()) return
     this.shown = true
+    this.markDialogPerformance('surface-after-show')
+    this.measureDialogPerformance('show-to-surface-after-show', 'show-start', 'surface-after-show')
+    this.measureDialogPerformance('request-to-surface-after-show', 'dialog-request', 'surface-after-show')
+    this.measureDialogPerformance('surface-show-to-surface-after-show', 'surface-show', 'surface-after-show')
+    this.stopOpenFrameRateSampler('surface-after-show')
     const input = this.renderRoot.querySelector('cv-input') as HTMLElement | null
     if (
       input &&
@@ -388,6 +493,7 @@ export class CvInputDialog extends ReatomLitElement {
 
   private handleAfterHide() {
     if (!this.shown && !this.closing) return
+    this.markDialogPerformance('surface-after-hide')
     this.shown = false
     this.closing = false
     this.inputFocusAttemptedForOpen = false
@@ -402,9 +508,52 @@ export class CvInputDialog extends ReatomLitElement {
   private handleDialogChange(e: CustomEvent<{open?: boolean}>) {
     if (e.target !== e.currentTarget) return
     if (typeof e.detail?.open !== 'boolean') return
-    if (e.detail.open || !this.isOpen()) return
+    if (e.detail.open || !this.model.isOpen()) return
     if (this._result !== null) return
     this.close(null)
+  }
+
+  private markDialogPerformance(
+    phase: string,
+    detail: Record<string, boolean | number | string | null | undefined> = {},
+  ): void {
+    if (!this.measurementScope) return
+
+    markPerformance(this.measurementScope, phase, this.getDialogPerformanceDetail(detail))
+  }
+
+  private getDialogPerformanceDetail(
+    detail: Record<string, boolean | number | string | null | undefined> = {},
+  ): Record<string, boolean | number | string | null | undefined> {
+    return {
+      dialogId: this.measurementId,
+      type: this.opts.type ?? 'text',
+      mobileLayout: this.isMobileLayout(),
+      ...detail,
+    }
+  }
+
+  private measureDialogPerformance(measureName: string, startPhase: string, endPhase: string): void {
+    if (!this.measurementScope) return
+
+    measurePerformance(this.measurementScope, measureName, startPhase, endPhase)
+  }
+
+  private startOpenFrameRateSampler(): void {
+    this.openFrameRateSampler?.cancel()
+    this.openFrameRateSampler = null
+    if (!this.measurementScope) return
+
+    this.openFrameRateSampler = startFrameRateSampler(
+      this.measurementScope,
+      'open',
+      this.getDialogPerformanceDetail(),
+    )
+  }
+
+  private stopOpenFrameRateSampler(stopPhase: string): void {
+    this.openFrameRateSampler?.stop(this.getDialogPerformanceDetail({stopPhase}))
+    this.openFrameRateSampler = null
   }
 
   private renderSurfaceContent(
@@ -455,8 +604,8 @@ export class CvInputDialog extends ReatomLitElement {
 
   protected render() {
     const opts = this.opts
-    const value = this.inputValue()
-    const error = this.error()
+    const value = this.model.inputValue()
+    const error = this.model.error()
     const maxLength = opts.maxLength
     const isNearLimit = maxLength ? value.length > maxLength * 0.8 : false
     const isOverLimit = maxLength ? value.length > maxLength : false
@@ -469,7 +618,7 @@ export class CvInputDialog extends ReatomLitElement {
       return html`
         <cv-bottom-sheet
           class=${className}
-          .open=${this.isOpen()}
+          .open=${this.model.isOpen()}
           .noHeader=${opts.noHeader ?? false}
           .closable=${closable}
           .closeOnEscape=${closable}
@@ -490,7 +639,7 @@ export class CvInputDialog extends ReatomLitElement {
     return html`
       <cv-dialog
         class=${className}
-        .open=${this.isOpen()}
+        .open=${this.model.isOpen()}
         .noHeader=${opts.noHeader ?? false}
         .closable=${closable}
         .closeOnEscape=${closable}

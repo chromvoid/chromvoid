@@ -9,17 +9,24 @@ import {
 } from '@chromvoid/uikit/components/cv-guidance-anchor'
 
 import {DashboardHeader} from '../../src/features/file-manager/components/dashboard-header'
-import {PMDesktopToolbar} from '../../src/features/passmanager/components/password-manager-layout/password-manager-desktop-toolbar'
+import {DesktopShellToolbar} from '../../src/features/shell/components/desktop-shell-toolbar'
+import {
+  definePasswordManagerDesktopToolbarContent,
+  executePasswordManagerDesktopToolbarButtonEvent,
+  executePasswordManagerDesktopToolbarMenuInput,
+  renderPasswordManagerDesktopToolbarContent,
+} from '../../src/features/passmanager/components/password-manager-layout/password-manager-desktop-toolbar-content'
 import type {PasswordManagerLayoutModel} from '../../src/features/passmanager/components/password-manager-layout/password-manager-layout.model'
 import {WelcomeSetupSection} from '../../src/routes/welcome/sections/steps'
-import {renderDevicesCard, type RemotePageRenderContext} from '../../src/routes/remote/remote-page.render'
+import {RemoteHostsFlowModel} from '../../src/routes/remote/remote-hosts-flow.model'
+import {renderRemoteHostsFlowPanel} from '../../src/routes/remote/remote-hosts-flow.render'
 import {renderGatewayPairingSection} from '../../src/routes/gateway/components/gateway-pairing-section'
 import {renderVolumeMountSection} from '../../src/routes/remote-storage/sections/volume-mount-section'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 
 CVGuidanceAnchor.define()
 DashboardHeader.define()
-PMDesktopToolbar.define()
+definePasswordManagerDesktopToolbarContent()
 WelcomeSetupSection.define()
 
 function captureAnchorRegistrations() {
@@ -77,60 +84,14 @@ function makeWelcomeModel(overrides: Record<string, unknown> = {}) {
 function makeToolbarModel(onAction: (action: string) => void): PasswordManagerLayoutModel {
   return {
     getDesktopToolbarSections: () => [
-      {label: 'Navigation', actions: [{id: 'pm-back', icon: 'arrow-left', label: 'Back', disabled: true}]},
       {label: 'Vault', actions: [{id: 'pm-import', icon: 'cloud-upload', label: 'Import'}]},
       {label: 'Create', actions: [{id: 'pm-create-entry', icon: 'plus', label: 'Create entry'}]},
-      {label: 'Selection', actions: [{id: 'pm-edit', icon: 'pencil', label: 'Edit', disabled: true}]},
     ],
+    getCurrentShowElement: () => 'root',
     isDesktopToolbarAction: (action: string | undefined) => Boolean(action),
     executeDesktopToolbarAction: onAction,
     getDesktopToolbarContext: () => ({}),
   } as unknown as PasswordManagerLayoutModel
-}
-
-function makeRemoteContext(onScan: () => void): RemotePageRenderContext {
-  return {
-    hideBackLink: true,
-    connectionState: () => 'disconnected',
-    remoteStatus: () => ({
-      connection_state: 'disconnected',
-      vault_locked: false,
-      locked_by_other: false,
-      writer_device: null,
-    }),
-    devices: () => [],
-    pairedDevices: () => [],
-    acting: () => false,
-    scanning: () => false,
-    formatDate: () => '',
-    formatRelativeTime: () => '',
-    getConnectionBadgeClass: () => '',
-    getConnectionLabel: () => '',
-    onBack: () => {},
-    onDisconnect: () => {},
-    onScan,
-    onConnect: () => {},
-    onPair: () => {},
-    currentMode: () => 'local',
-    transportType: () => null,
-    modeSwitching: () => false,
-    connectionPhase: () => null,
-    syncPhase: () => null,
-    modeError: () => null,
-    getModeLabel: () => '',
-    getModeBadgeClass: () => '',
-    getConnectedPeerName: () => null,
-    isRemoteMode: () => false,
-    onSwitchToLocal: () => {},
-    isMobileRuntime: () => false,
-    remoteHostsModel: {} as never,
-    remoteHostsActions: {} as never,
-    syncSnapshot: () => ({state: 'idle', progress: null, lastSyncMs: null, writerLock: null, errorMessage: null}),
-    formatLastSyncTime: () => '',
-    onSyncRetry: () => {},
-    onRequestWriteLock: () => {},
-    onReleaseWriteLock: () => {},
-  }
 }
 
 afterEach(() => {
@@ -154,7 +115,9 @@ describe('guidance anchor registration', () => {
     expectAnchor(registrations.details, 'welcome.vault-mode', 'welcome', 'welcome')
 
     section.shadowRoot?.querySelector<HTMLElement>('.mode-card-local')?.click()
-    expect((model as {onSelectLocalMode: ReturnType<typeof vi.fn>}).onSelectLocalMode).toHaveBeenCalledTimes(1)
+    expect((model as {onSelectLocalMode: ReturnType<typeof vi.fn>}).onSelectLocalMode).toHaveBeenCalledTimes(
+      1,
+    )
     registrations.stop()
   })
 
@@ -189,16 +152,24 @@ describe('guidance anchor registration', () => {
   it('registers password create anchors in the desktop toolbar and keeps toolbar dispatch intact', async () => {
     const registrations = captureAnchorRegistrations()
     const execute = vi.fn()
-    const toolbar = document.createElement('pm-desktop-toolbar') as PMDesktopToolbar
-    toolbar.model = makeToolbarModel(execute)
+    const model = makeToolbarModel(execute)
+    const toolbar = document.createElement(DesktopShellToolbar.elementName) as DesktopShellToolbar
 
     document.body.append(toolbar)
+    render(
+      renderPasswordManagerDesktopToolbarContent({
+        model,
+        onToolbarButtonClick: (event) => executePasswordManagerDesktopToolbarButtonEvent(model, event),
+        onActionsMenuInput: (event) => executePasswordManagerDesktopToolbarMenuInput(model, event),
+      }),
+      toolbar,
+    )
     await settleElement(toolbar)
-    await settleAnchors(toolbar.shadowRoot!)
+    await settleAnchors(toolbar)
 
     expectAnchor(registrations.details, 'passwords.create-entry', 'passwords', 'passmanager')
 
-    toolbar.shadowRoot?.querySelector<HTMLElement>('[data-action="pm-create-entry"]')?.click()
+    toolbar.querySelector<HTMLElement>('[data-action="pm-create-entry"]')?.click()
     expect(execute).toHaveBeenCalledWith('pm-create-entry')
     registrations.stop()
   })
@@ -228,10 +199,14 @@ describe('guidance anchor registration', () => {
     const container = document.createElement('div')
     document.body.append(container)
 
-    const scan = vi.fn()
+    const remoteHosts = new RemoteHostsFlowModel()
+    const openPair = vi.fn()
     render(
       html`
-        ${renderDevicesCard(makeRemoteContext(scan))}
+        ${renderRemoteHostsFlowPanel({
+          model: remoteHosts,
+          actions: {onOpenPairIos: openPair},
+        })}
         ${renderGatewayPairingSection({
           phase: 'idle',
           info: null,
@@ -244,7 +219,13 @@ describe('guidance anchor registration', () => {
         ${renderVolumeMountSection({
           model: {
             volume: {
-              status: () => ({state: 'unmounted', backend: null, mountpoint: null, webdav_port: null, error: null}),
+              status: () => ({
+                state: 'unmounted',
+                backend: null,
+                mountpoint: null,
+                webdav_port: null,
+                error: null,
+              }),
               backends: () => [{id: 'webdav', label: 'WebDAV', available: true}],
               selectedBackend: () => 'webdav',
             },
@@ -264,8 +245,10 @@ describe('guidance anchor registration', () => {
     expectAnchor(registrations.details, 'gateway.start-pairing', 'gateway', 'gateway')
     expectAnchor(registrations.details, 'remote-storage.mount', 'remote-storage', 'remote-storage')
 
-    container.querySelector<HTMLElement>('cv-guidance-anchor[anchor-id="remote.pair-device"] cv-button')?.click()
-    expect(scan).toHaveBeenCalledTimes(1)
+    container
+      .querySelector<HTMLElement>('cv-guidance-anchor[anchor-id="remote.pair-device"] cv-button')
+      ?.click()
+    expect(openPair).toHaveBeenCalledTimes(1)
     registrations.stop()
   })
 })

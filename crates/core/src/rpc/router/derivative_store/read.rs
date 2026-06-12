@@ -1,5 +1,6 @@
 use crate::error::{Error, Result};
 use crate::rpc::derivative_index;
+use crate::rpc::derivative_index::DerivativeIndexEntry;
 use crate::storage::Storage;
 
 use super::names::entry_data_chunk_name;
@@ -25,6 +26,14 @@ impl DerivativeStore {
         else {
             return Ok(None);
         };
+        Self::read_validated_entry(storage, vault_key, entry)
+    }
+
+    pub(crate) fn read_validated_entry(
+        storage: &Storage,
+        vault_key: &[u8; crate::types::KEY_SIZE],
+        entry: DerivativeIndexEntry,
+    ) -> Result<Option<ValidatedDerivativeRead>> {
         let encrypted_meta = match storage.read_chunk(&entry.meta_chunk_name) {
             Ok(bytes) => bytes,
             Err(Error::ChunkNotFound(_)) => return Ok(None),

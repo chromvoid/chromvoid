@@ -135,7 +135,7 @@ export class PMEntryModel implements PMEntrySessionController {
       return
     }
 
-    pmEntryEditorModel.openSurface(current.id, current.entryType === 'payment_card' ? 'payment-card' : 'title')
+    pmEntryEditorModel.openSurface(current.id, current.entryType === 'payment_card' ? 'payment-card' : 'entry')
   }
 
   deleteEntryCard(entry: Entry): void {
@@ -420,6 +420,7 @@ export class PMEntryModel implements PMEntrySessionController {
 
   protected buildEntryData(card: Entry): PMEntryRenderData {
     const entryTitleText = card.title || i18n('no_title')
+    const groupSegments = card.groupPath?.split('/').filter(Boolean) ?? []
     const visibleUrls = card.urls
       .filter((rule) => rule.match !== 'never')
       .map((rule) => {
@@ -482,15 +483,14 @@ export class PMEntryModel implements PMEntrySessionController {
     return {
       entryType: card.entryType,
       contextLabel: card.groupPath || i18n('group:scope-root'),
-      contextItems: card.groupPath
-        ? [
-            {label: i18n('root:title-short'), value: ''},
-            ...card.groupPath.split('/').filter(Boolean).map((segment, index, items) => ({
-              label: segment,
-              value: items.slice(0, index + 1).join('/'),
-            })),
-          ]
-        : [{label: i18n('root:title-short'), value: ''}],
+      contextItems: [
+        {label: i18n('root:title-short'), value: ''},
+        ...groupSegments.map((segment, index) => ({
+          label: segment,
+          value: groupSegments.slice(0, index + 1).join('/'),
+        })),
+        {label: entryTitleText, value: `entry:${card.id}`, current: true},
+      ],
       entryTitleText,
       entryAvatarLetter: (entryTitleText.trim().charAt(0) || '?').toUpperCase(),
       avatarBg: this.getAvatarBg(entryTitleText),

@@ -105,6 +105,35 @@ class AndroidShareImportNativeShellTest {
     }
 
     @Test
+    fun actionSendWithFileUri_doesNotStageSession() {
+        val consumed = AndroidShareImportNativeShell.consumeIntent(
+            context,
+            Intent(Intent.ACTION_SEND).putExtra(Intent.EXTRA_STREAM, Uri.parse("file:///sdcard/report.pdf")),
+        )
+
+        assertFalse(consumed)
+        assertNull(AndroidShareImportNativeShell.pendingHandoffForTests())
+    }
+
+    @Test
+    fun mixedShareDropsFileUrisAndKeepsContentUris() {
+        val contentUri = Uri.parse("content://com.example.files/raw/report.pdf")
+        val fileUri = Uri.parse("file:///sdcard/private.txt")
+        val clipData = ClipData.newUri(context.contentResolver, "content", contentUri).apply {
+            addItem(ClipData.Item(fileUri))
+        }
+
+        val consumed =
+            AndroidShareImportNativeShell.consumeIntent(
+                context,
+                Intent(Intent.ACTION_SEND_MULTIPLE).apply { setClipData(clipData) },
+            )
+
+        assertTrue(consumed)
+        assertEquals(1, AndroidShareImportNativeShell.pendingHandoffForTests()?.files?.size)
+    }
+
+    @Test
     fun textOnlyShare_doesNotStageSession() {
         val consumed = AndroidShareImportNativeShell.consumeIntent(
             context,

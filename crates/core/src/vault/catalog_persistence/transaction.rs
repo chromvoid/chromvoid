@@ -48,11 +48,7 @@ impl DurableTxEncryptedParticipant for CatalogCommitParticipant {
         record: &DurableTxRecord<Self::Payload>,
     ) -> Result<()> {
         let payload = &record.payload;
-        if payload
-            .new_chunks
-            .iter()
-            .all(|chunk| storage.chunk_exists(chunk).unwrap_or(false))
-        {
+        if all_chunks_exist(storage, &payload.new_chunks)? {
             write_root_index(storage, vault_key, &payload.root_index)?;
             delete_chunks(storage, &payload.old_chunks)
         } else {
@@ -96,11 +92,7 @@ impl<'a> CatalogCommitService<'a> {
                 self.delete_commit_record()?;
             }
             DurableTxPhase::Committing => {
-                if record
-                    .new_chunks
-                    .iter()
-                    .all(|chunk| self.storage.chunk_exists(chunk).unwrap_or(false))
-                {
+                if all_chunks_exist(self.storage, &record.new_chunks)? {
                     write_root_index(self.storage, self.vault_key, &record.root_index)?;
                     delete_chunks(self.storage, &record.old_chunks)?;
                 } else {
@@ -181,4 +173,13 @@ impl<'a> CatalogCommitService<'a> {
     fn store(&self) -> DurableTxStore<'_, CatalogCommitParticipant> {
         DurableTxStore::new(self.storage, self.vault_key, CatalogCommitParticipant)
     }
+}
+
+fn all_chunks_exist(storage: &Storage, chunks: &[String]) -> Result<bool> {
+    for chunk in chunks {
+        if !storage.chunk_exists(chunk)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }

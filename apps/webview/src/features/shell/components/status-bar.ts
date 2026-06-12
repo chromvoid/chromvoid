@@ -8,9 +8,11 @@ import {hostContentContainStyles, sharedStyles} from 'root/shared/ui/shared-styl
 import {MediaMiniPlayer} from 'root/features/media/components/media-mini-player'
 import {mediaPlaybackModel} from 'root/features/media/models/media-playback.model'
 import {androidShareImportModel} from 'root/features/file-manager/models/android-share-import.model'
+import {PMSummaryRail} from 'root/features/passmanager/components/summary-rail'
+import {statusBarSummaryModel} from '../models/status-bar-summary.model'
 
-/**Status Bar with color state indicators and pulse animations for active processes.
-* Shows: connection status, directory synchronization status, number of selected files, errors.
+/**Status Bar with user-facing state indicators and compact global controls.
+* Shows: remote connection status, pending shared files, selected files, errors.
 */
 export class StatusBar extends ReatomLitElement {
   static define() {
@@ -18,6 +20,7 @@ export class StatusBar extends ReatomLitElement {
       customElements.define('status-bar', this)
     }
     MediaMiniPlayer.define()
+    PMSummaryRail.define()
   }
   static styles = [
     sharedStyles,
@@ -45,7 +48,25 @@ export class StatusBar extends ReatomLitElement {
         display: flex;
         align-items: center;
         gap: var(--app-spacing-4);
-        flex: 1;
+        flex: 0 1 auto;
+        min-inline-size: 0;
+      }
+
+      .status-summary-slot {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        margin-inline-start: auto;
+        min-inline-size: 0;
+      }
+
+      .status-summary-slot pm-summary-rail.status-context-summary {
+        --pm-summary-rail-background: transparent;
+        --pm-summary-rail-border: 0;
+        --pm-summary-rail-padding: 0;
+        flex: 0 1 auto;
+        min-inline-size: min(220px, 100%);
+        max-inline-size: min(720px, 100%);
       }
 
       .status-indicator {
@@ -69,15 +90,6 @@ export class StatusBar extends ReatomLitElement {
 
         &.syncing .status-icon {
           color: var(--cv-color-warning);
-        }
-
-        &.error .status-icon {
-          color: var(--cv-color-danger);
-        }
-
-        &.offline .status-icon {
-          color: var(--cv-color-text-muted);
-          opacity: 0.6;
         }
 
         &[title] {
@@ -123,32 +135,6 @@ export class StatusBar extends ReatomLitElement {
 
         &:empty {
           display: none;
-        }
-      }
-
-      .selection-mode-toggle {
-        display: inline-flex;
-        align-items: center;
-        gap: var(--app-spacing-2);
-        min-block-size: 26px;
-        padding: 1px 12px;
-        border-radius: 999px;
-        border: 1px solid var(--cv-color-border-soft);
-        background: var(--cv-color-surface-2);
-        color: var(--cv-color-text);
-        font-size: var(--cv-font-size-xs);
-        cursor: pointer;
-        box-shadow: inset 0 1px 0 var(--cv-alpha-white-5);
-
-        &:hover {
-          background: var(--cv-color-primary-surface);
-        }
-
-        &.active {
-          background: var(--cv-color-primary-surface-strong);
-          border-color: var(--cv-color-primary-border-strong);
-          color: var(--cv-color-primary);
-          box-shadow: inset 0 0 0 1px var(--cv-color-primary-ring);
         }
       }
 
@@ -218,15 +204,6 @@ export class StatusBar extends ReatomLitElement {
 
       /*==================*/
 
-      .divider {
-        inline-size: 1px;
-        block-size: 16px;
-        background: var(--cv-color-border-muted);
-        flex-shrink: 0;
-      }
-
-      /*====================*/
-
       @container statusbar (max-width: 600px) {
         .status-text {
           display: none;
@@ -260,93 +237,26 @@ export class StatusBar extends ReatomLitElement {
     `,
   ]
 
-  /**WebSocket status mapping on CSS class*/
-  private getWsStatusClass(): string {
-    const status = getAppContext().store.wsStatus()
-    const statusMap: Record<string, string> = {
-      connected: 'connected',
-      connecting: 'syncing',
-      disconnected: 'offline',
-      error: 'error',
-    }
-    return statusMap[status] ?? 'offline'
-  }
+  private renderRemoteConnectionStatus() {
+    const remoteSessionState = getAppContext().store.remoteSessionState()
+    if (remoteSessionState === 'inactive') return nothing
 
-  /**Mapping Directory Status in CSS Class*/
-  private getCatalogStatusClass(): string {
-    const status = getAppContext().store.catalogStatus()
-    const statusMap: Record<string, string> = {
-      idle: 'connected',
-      syncing: 'syncing',
-      loading: 'syncing',
-      error: 'error',
-    }
-    return statusMap[status] ?? 'connected'
-  }
-
-  /**Icon for catalog status*/
-  private getCatalogIcon(): string {
-    const status = getAppContext().store.catalogStatus()
-    const iconMap: Record<string, string> = {
-      idle: 'check-circle',
-      syncing: 'refresh-cw',
-      loading: 'loader',
-      error: 'alert-triangle',
-    }
-    return iconMap[status] ?? 'folder'
-  }
-
-  private renderConnectionStatus() {
-    const wsStatus = getAppContext().store.wsStatus()
-    const statusClass = this.getWsStatusClass()
-    const statusLabel =
-      wsStatus === 'connected'
-        ? i18n('statusbar:connection:connected')
-        : wsStatus === 'connecting'
-          ? i18n('statusbar:connection:connecting')
-          : i18n('statusbar:connection:offline')
+    const ready = remoteSessionState === 'ready'
+    const statusClass = ready ? 'connected' : 'syncing'
+    const statusLabel = ready
+      ? i18n('statusbar:remote-connection:ready')
+      : i18n('statusbar:remote-connection:waiting-host')
+    const icon = ready ? 'wifi' : 'lock'
 
     return html`
       <div
         class="status-indicator ${statusClass}"
-        title="${i18n('statusbar:connection')}: ${statusLabel}"
+        title="${i18n('statusbar:remote-connection')}: ${statusLabel}"
       >
-        <div class="status-icon">
-          <cv-icon
-            size="s"
-            name=${wsStatus === 'connected' ? 'wifi' : wsStatus === 'connecting' ? 'loader' : 'wifi-off'}
-          ></cv-icon>
-        </div>
-        <span class="status-text">${statusLabel}</span>
-      </div>
-    `
-  }
-
-  private renderCatalogStatus() {
-    const store = getAppContext().store
-    const catalogStatus = store.catalogStatus()
-    const statusMessage = store.statusMessage()
-
-    const statusClass = this.getCatalogStatusClass()
-    const icon = this.getCatalogIcon()
-
-    const labelMap: Record<string, string> = {
-      idle: i18n('statusbar:catalog:idle'),
-      syncing: i18n('statusbar:catalog:syncing'),
-      loading: i18n('statusbar:catalog:loading'),
-      error: i18n('statusbar:catalog:error'),
-    }
-    const label = labelMap[catalogStatus] ?? i18n('statusbar:catalog:ready')
-
-    const isRecent = statusMessage && Date.now() - statusMessage.timestamp < 5000
-    const tooltipText = isRecent ? statusMessage.message : `${i18n('statusbar:catalog')}: ${label}`
-
-    return html`
-      <div class="status-indicator ${statusClass}" title="${tooltipText}">
         <div class="status-icon">
           <cv-icon size="s" name=${icon}></cv-icon>
         </div>
-        <span class="status-text">${label}</span>
+        <span class="status-text">${statusLabel}</span>
       </div>
     `
   }
@@ -384,22 +294,21 @@ export class StatusBar extends ReatomLitElement {
     `
   }
 
-  private renderSelectionModeToggle() {
-    const store = getAppContext().store
-    const enabled = store.selectionMode()
+  private renderContextSummarySlot() {
+    const summary = statusBarSummaryModel.current()
+    if (!summary) return nothing
+
     return html`
-      <cv-button unstyled
-        class="selection-mode-toggle ${enabled ? 'active' : ''}"
-        title=${`${i18n('statusbar:selection-mode')}: ${i18n(
-          enabled ? 'statusbar:selection-mode:on' : 'statusbar:selection-mode:off',
-        )}`}
-        aria-pressed=${enabled ? 'true' : 'false'}
-        aria-label=${i18n(enabled ? 'statusbar:selection-mode:disable' : 'statusbar:selection-mode:enable')}
-        @click=${this.onToggleSelectionMode}
-      >
-        <cv-icon slot="prefix" size="s" name="check-square"></cv-icon>
-        <span>${i18n('statusbar:selection-mode')}</span>
-      </cv-button>
+      <div class="status-summary-slot">
+        <pm-summary-rail
+          class="status-context-summary"
+          .items=${summary.items}
+          .label=${summary.label}
+          .busy=${Boolean(summary.busy)}
+          data-summary-context=${summary.id}
+          data-security-status=${summary.status ?? nothing}
+        ></pm-summary-rail>
+      </div>
     `
   }
 
@@ -432,22 +341,16 @@ export class StatusBar extends ReatomLitElement {
     getAppContext().store.clearLastError()
   }
 
-  private onToggleSelectionMode = () => {
-    getAppContext().store.toggleSelectionMode()
-  }
-
   render() {
     return html`
       <nav class="status-bar" role="navigation" aria-label=${i18n('statusbar:system')}>
         <div class="status-indicators">
-          ${this.renderConnectionStatus()}
-          <div class="divider"></div>
-          ${this.renderCatalogStatus()}
+          ${this.renderRemoteConnectionStatus()}
           ${this.renderAndroidSharePending()}
         </div>
 
-        ${this.renderMediaMiniControls()} ${this.renderSelectionModeToggle()} ${this.renderSelectionCounter()}
-        ${this.renderError()}
+        ${this.renderMediaMiniControls()} ${this.renderSelectionCounter()} ${this.renderError()}
+        ${this.renderContextSummarySlot()}
       </nav>
     `
   }

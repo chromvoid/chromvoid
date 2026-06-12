@@ -9,19 +9,7 @@ use super::{duration_ms, FlatStorageBackend, STORAGE_PERF_SLOW_IO};
 
 impl FlatStorageBackend {
     pub(super) fn chunk_path(&self, name: &str) -> Result<PathBuf> {
-        if name.len() < 3 {
-            return Err(Error::InvalidChunkName(format!(
-                "chunk name too short: {}",
-                name
-            )));
-        }
-
-        if !name.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(Error::InvalidChunkName(format!(
-                "chunk name must be hex: {}",
-                name
-            )));
-        }
+        validate_chunk_name(name)?;
 
         let first = &name[0..1];
         let next_two = &name[1..3];
@@ -156,11 +144,21 @@ impl FlatStorageBackend {
             .unwrap_or_else(|| Path::new("."))
             .join(format!(".tmp.{}.{}", name, nonce));
 
-        let mut file = File::create(&tmp_path)?;
-        file.write_all(data)?;
-        file.sync_all()?;
-
-        fs::rename(&tmp_path, &path)?;
+        // Clean up the temp file on any failure before the rename publishes it,
+        // so a failed write can never leave a `.tmp.*` file behind that would
+        // later make list_chunks/GC/erase choke (H1).
+        let write_result = (|| -> Result<()> {
+            let mut file = File::create(&tmp_path)?;
+            super::temp::set_private_temp_permissions(&tmp_path)?;
+            file.write_all(data)?;
+            file.sync_all()?;
+            fs::rename(&tmp_path, &path)?;
+            Ok(())
+        })();
+        if let Err(error) = write_result {
+            let _ = fs::remove_file(&tmp_path);
+            return Err(error);
+        }
         if let Some(parent) = path.parent() {
             File::open(parent)?.sync_all()?;
         }
@@ -172,6 +170,12 @@ impl FlatStorageBackend {
 
         if path.exists() {
             fs::remove_file(&path)?;
+            // Make the unlink durable: fsync the leaf directory so a crash
+            // cannot resurrect a "deleted" chunk (M2). Callers pair delete with
+            // storage.sync(), which only fsyncs base_path, not the leaf dir.
+            if let Some(parent) = path.parent() {
+                File::open(parent)?.sync_all()?;
+            }
         }
 
         Ok(())
@@ -205,7 +209,13 @@ impl FlatStorageBackend {
                     let entry3 = entry3?;
                     if entry3.file_type()?.is_file() {
                         if let Some(name) = entry3.file_name().to_str() {
-                            names.push(name.to_string());
+                            // Only return real chunk files. Leftover write/batch
+                            // temp files (e.g. `.tmp.<name>.<nonce>`) are not
+                            // valid chunk names; including them made GC, erase
+                            // and backup choke on the first stale temp (H1).
+                            if validate_chunk_name(name).is_ok() {
+                                names.push(name.to_string());
+                            }
                         }
                     }
                 }
@@ -236,7 +246,11 @@ impl FlatStorageBackend {
                 for entry3 in fs::read_dir(entry2.path())? {
                     let entry3 = entry3?;
                     if entry3.file_type()?.is_file() {
-                        return Ok(true);
+                        if let Some(name) = entry3.file_name().to_str() {
+                            if validate_chunk_name(name).is_ok() {
+                                return Ok(true);
+                            }
+                        }
                     }
                 }
             }
@@ -245,7 +259,70 @@ impl FlatStorageBackend {
         Ok(false)
     }
 
+    /// Remove leftover chunk write/batch temp files (`.tmp.*`, `.batch.*`) from
+    /// the chunk tree. These can be left behind by a crash mid-write; sweeping
+    /// them reclaims space and stale ciphertext. Best-effort: I/O errors on
+    /// individual entries are ignored. Returns the number of files removed.
+    pub fn sweep_chunk_temp_files(&self) -> Result<usize> {
+        let chunks_dir = self.base_path.join("chunks");
+        if !chunks_dir.exists() {
+            return Ok(0);
+        }
+        let mut removed = 0usize;
+        for entry1 in fs::read_dir(&chunks_dir)? {
+            let Ok(entry1) = entry1 else { continue };
+            if !entry1.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            for entry2 in fs::read_dir(entry1.path())? {
+                let Ok(entry2) = entry2 else { continue };
+                if !entry2.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                    continue;
+                }
+                for entry3 in fs::read_dir(entry2.path())? {
+                    let Ok(entry3) = entry3 else { continue };
+                    if !entry3.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                        continue;
+                    }
+                    if let Some(name) = entry3.file_name().to_str() {
+                        if is_chunk_temp_file_name(name) && fs::remove_file(entry3.path()).is_ok() {
+                            removed += 1;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(removed)
+    }
+
     pub fn base_path(&self) -> &Path {
         &self.base_path
     }
+}
+
+/// A real chunk file name: exactly 64 lowercase ASCII hex digits. This mirrors
+/// the BLAKE3-derived names produced by the crypto naming helpers and excludes
+/// dot-prefixed temp/batch files from chunk enumeration.
+pub(super) fn validate_chunk_name(name: &str) -> Result<()> {
+    if name.len() != 64 {
+        return Err(Error::InvalidChunkName(format!(
+            "chunk name must be 64 lowercase hex characters: {name}"
+        )));
+    }
+
+    if !name
+        .bytes()
+        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(Error::InvalidChunkName(format!(
+            "chunk name must be 64 lowercase hex characters: {name}"
+        )));
+    }
+
+    Ok(())
+}
+
+/// A leftover chunk write/batch temp file produced by an interrupted write.
+fn is_chunk_temp_file_name(name: &str) -> bool {
+    name.starts_with(".tmp.") || name.starts_with(".batch.")
 }

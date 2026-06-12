@@ -13,11 +13,13 @@ function isOk<T>(res: RpcResult<T>): res is RpcOk<T> {
   return typeof res === 'object' && res !== null && 'ok' in res && (res as {ok: unknown}).ok === true
 }
 
+class VaultLockRejectedError extends Error {}
+
 type VaultLockStore = {
   vaultLockPending?: () => boolean
   beginVaultLockRequest?: () => void
   finishVaultLockRequest?: () => void
-  handleVaultLocked: (options: {source: 'manual'}) => void
+  handleVaultLocked?: (options: {source: 'manual'}) => void
   pushNotification?: (type: 'success' | 'error' | 'warning' | 'info', message: string) => void
 }
 
@@ -46,20 +48,26 @@ export async function lockVaultFromUi(): Promise<void> {
       },
     })
     if (!isOk(res)) {
-      throw new Error(res.error)
+      throw new VaultLockRejectedError(res.error)
     }
 
     state.update?.({StorageOpened: false})
-    store.handleVaultLocked({source: 'manual'})
+    store.handleVaultLocked?.({source: 'manual'})
     writeAndroidUnlockDebug('vault-lock', 'request:done', {
       dt_ms: Math.round(performance.now() - t0),
     })
   } catch (error) {
-    store.finishVaultLockRequest?.()
-    store.pushNotification?.(
-      'error',
-      error instanceof Error ? error.message : i18n('error:lock-failed'),
-    )
+    if (error instanceof VaultLockRejectedError) {
+      store.finishVaultLockRequest?.()
+      store.pushNotification?.('error', error.message || i18n('error:lock-failed'))
+    } else {
+      state.update?.({StorageOpened: false})
+      store.handleVaultLocked?.({source: 'manual'})
+      store.pushNotification?.(
+        'warning',
+        error instanceof Error ? error.message : i18n('error:lock-failed'),
+      )
+    }
     writeAndroidUnlockDebug('vault-lock', 'request:error', {
       dt_ms: Math.round(performance.now() - t0),
       error: error instanceof Error ? error.message : String(error),

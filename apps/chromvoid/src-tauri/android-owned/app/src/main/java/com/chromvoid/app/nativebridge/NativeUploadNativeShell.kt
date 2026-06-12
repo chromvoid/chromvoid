@@ -17,7 +17,6 @@ import java.util.concurrent.atomic.AtomicReference
 
 internal object NativeUploadNativeShell {
     private const val TAG = "ChromVoid/NativeUpload"
-    private const val MEDIA_LOCATION_PERMISSION_FALLBACK_MS = 1_500L
 
     private val uploadStateLock = Any()
     private val pickerLauncher = AtomicReference<ActivityResultLauncher<Array<String>>?>()
@@ -107,6 +106,30 @@ internal object NativeUploadNativeShell {
             activeUpload.set(null)
         }
     }
+
+    internal fun requestMediaLocationPermissionForTests(context: Context) {
+        requestMediaLocationPermissionOrStream(
+            PendingStream(
+                context = context.applicationContext,
+                uploadId = "upload-test",
+                bufferSize = 64 * 1024,
+                files =
+                    listOf(
+                        PickedFile(
+                            fileId = "file-test",
+                            uri = Uri.parse("content://com.chromvoid.test/photo.jpg"),
+                            name = "photo.jpg",
+                            size = 1,
+                            mimeType = "image/jpeg",
+                        ),
+                    ),
+                batchStartNs = SystemClock.elapsedRealtimeNanos(),
+                source = "test",
+            ),
+        )
+    }
+
+    internal fun hasPendingMediaLocationStreamForTests(): Boolean = pendingMediaLocationStream.get() != null
 
     @JvmStatic
     fun startFilePicker(uploadId: String, readChunkSize: Long): Int {
@@ -416,18 +439,6 @@ internal object NativeUploadNativeShell {
             try {
                 Log.i(TAG, "event=media_location_permission_request uploadId=${traceId(pending.uploadId)}")
                 permissionLauncher.launch(Manifest.permission.ACCESS_MEDIA_LOCATION)
-                mainHandler.postDelayed(
-                    {
-                        if (pendingMediaLocationStream.compareAndSet(pending, null)) {
-                            Log.i(
-                                TAG,
-                                "event=media_location_permission_timeout uploadId=${traceId(pending.uploadId)} fallback=redacted",
-                            )
-                            executeStreamPreparedFiles(pending)
-                        }
-                    },
-                    MEDIA_LOCATION_PERMISSION_FALLBACK_MS,
-                )
             } catch (error: Throwable) {
                 if (!pendingMediaLocationStream.compareAndSet(pending, null)) {
                     Log.i(

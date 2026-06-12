@@ -54,7 +54,6 @@ impl Vault {
         CatalogLoadService::new(storage, vault_key).try_load_sharded_catalog()
     }
 
-    #[cfg(test)]
     pub(super) fn rewrite_sharded_catalog_from_catalog(
         storage: &Storage,
         vault_key: &[u8; KEY_SIZE],

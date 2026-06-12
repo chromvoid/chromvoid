@@ -51,8 +51,10 @@ const searchFilters: SearchFilters = {
   fileTypes: [],
 }
 
-function createModel() {
-  const deleteNode = vi.fn().mockResolvedValue(undefined)
+function createModel(options: {items?: FileItemData[]; selectedIds?: number[]; deleteNode?: (id: number) => Promise<void>} = {}) {
+  const items = options.items ?? [item]
+  const selectedIds = options.selectedIds ?? [item.id]
+  const deleteNode = vi.fn(options.deleteNode ?? (async () => undefined))
   const createDir = vi.fn().mockResolvedValue(undefined)
   const upload = vi.fn().mockResolvedValue({nodeId: 77})
   const refresh = vi.fn().mockResolvedValue(undefined)
@@ -75,7 +77,7 @@ function createModel() {
     store: {
       currentPath: () => '/',
       searchFilters: () => searchFilters,
-      selectedNodeIds: () => [item.id],
+      selectedNodeIds: () => selectedIds,
       setSelectedItems,
       pushNotification,
     },
@@ -84,7 +86,7 @@ function createModel() {
   const model = new FileActionsModel(ctx, {
     isLoading,
     fileList: {
-      fileItems: () => [item],
+      fileItems: () => items,
     } as unknown as FileListModel,
     viewport: {
       prepareDocumentReturn,
@@ -107,6 +109,7 @@ function createModel() {
     prepareDocumentReturn,
     pushNotification,
     refresh,
+    setSelectedItems,
     upload,
   }
 }
@@ -141,6 +144,77 @@ describe('FileActionsModel delete confirmation setting', () => {
 
     expect(mocks.showDeleteConfirmDialog).toHaveBeenCalledWith([item.name], false)
     expect(deleteNode).not.toHaveBeenCalled()
+  })
+
+  it('clears selected items and reports success when selected delete fully succeeds', async () => {
+    mocks.loadSessionSettings.mockResolvedValue({
+      ...DEFAULT_SESSION_SETTINGS,
+      confirm_file_deletion: false,
+    })
+    const first = {...item, id: 1, name: 'a.md'}
+    const second = {...item, id: 2, name: 'b.md'}
+    const {deleteNode, model, pushNotification, refresh, setSelectedItems} = createModel({
+      items: [first, second],
+      selectedIds: [first.id, second.id],
+    })
+
+    await model.handleDeleteSelected()
+
+    expect(deleteNode).toHaveBeenCalledWith(first.id)
+    expect(deleteNode).toHaveBeenCalledWith(second.id)
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(setSelectedItems).toHaveBeenCalledWith([])
+    expect(pushNotification).toHaveBeenCalledWith('success', 'Selected items deleted')
+  })
+
+  it('keeps failed selected items and reports a mixed selected delete result', async () => {
+    mocks.loadSessionSettings.mockResolvedValue({
+      ...DEFAULT_SESSION_SETTINGS,
+      confirm_file_deletion: false,
+    })
+    const first = {...item, id: 1, name: 'a.md'}
+    const second = {...item, id: 2, name: 'b.md'}
+    const third = {...item, id: 3, name: 'c.md'}
+    const {clearPending, model, pushNotification, setSelectedItems} = createModel({
+      items: [first, second, third],
+      selectedIds: [first.id, second.id, third.id],
+      deleteNode: async (id) => {
+        if (id === second.id) {
+          throw new Error('delete failed')
+        }
+      },
+    })
+
+    await model.handleDeleteSelected()
+
+    expect(clearPending).toHaveBeenCalledWith([second.id])
+    expect(setSelectedItems).toHaveBeenCalledWith([second.id])
+    expect(pushNotification).toHaveBeenCalledWith('error', 'Failed to delete b.md: delete failed')
+    expect(pushNotification).toHaveBeenCalledWith('warning', '2 deleted, 1 failed')
+    expect(pushNotification).not.toHaveBeenCalledWith('success', 'Selected items deleted')
+  })
+
+  it('keeps all selected items and does not report success when selected delete fully fails', async () => {
+    mocks.loadSessionSettings.mockResolvedValue({
+      ...DEFAULT_SESSION_SETTINGS,
+      confirm_file_deletion: false,
+    })
+    const first = {...item, id: 1, name: 'a.md'}
+    const second = {...item, id: 2, name: 'b.md'}
+    const {clearPending, model, pushNotification, setSelectedItems} = createModel({
+      items: [first, second],
+      selectedIds: [first.id, second.id],
+      deleteNode: async () => {
+        throw new Error('delete failed')
+      },
+    })
+
+    await model.handleDeleteSelected()
+
+    expect(clearPending).toHaveBeenCalledWith([first.id, second.id])
+    expect(setSelectedItems).toHaveBeenCalledWith([first.id, second.id])
+    expect(pushNotification).toHaveBeenCalledWith('error', '0 deleted, 2 failed')
+    expect(pushNotification).not.toHaveBeenCalledWith('success', 'Selected items deleted')
   })
 
   it('creates folders through the catalog API and refreshes before notifying', async () => {

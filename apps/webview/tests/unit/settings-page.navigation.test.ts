@@ -75,4 +75,16 @@ describe('settings page mobile section navigation', () => {
       scrollSpy.restore()
     }
   })
+
+  it('hides only the local header when rendered with an external toolbar', async () => {
+    ensureDefined()
+
+    const page = document.createElement('settings-page') as SettingsPage
+    page.externalToolbar = true
+    document.body.append(page)
+    await page.updateComplete
+
+    expect(page.shadowRoot?.querySelector('.header')).toBeNull()
+    expect(page.shadowRoot?.querySelector('.settings-shell')).not.toBeNull()
+  })
 })

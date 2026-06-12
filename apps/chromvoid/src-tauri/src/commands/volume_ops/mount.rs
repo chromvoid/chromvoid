@@ -12,12 +12,78 @@ use crate::volume_webdav;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use super::helpers::resolve_volume_backend_choice;
-use super::helpers::volume_status_from_vm;
+use super::helpers::{volume_join_timeout, volume_status_from_vm};
 #[cfg(target_os = "macos")]
 use super::macos::{
     macos_open_path_best_effort, macos_prepare_volumes_mountpoint,
     macos_volumes_mountpoint_owned_by_user,
 };
+
+fn mount_cancel_requested(vm: &Arc<Mutex<volume_manager::VolumeManager>>) -> Result<bool, String> {
+    let vm = vm
+        .lock()
+        .map_err(|_| "VolumeManager mutex poisoned".to_string())?;
+    Ok(!matches!(vm.state(), VolumeState::Mounting))
+}
+
+async fn complete_cancelled_mount_without_backend(
+    app: &tauri::AppHandle,
+    adapter: &Arc<Mutex<Box<dyn CoreAdapter>>>,
+    vm: &Arc<Mutex<volume_manager::VolumeManager>>,
+) -> Result<VolumeStatus, String> {
+    let vault_locked = {
+        let adapter = adapter
+            .lock()
+            .map_err(|_| "Adapter mutex poisoned".to_string())?;
+        !adapter.is_unlocked()
+    };
+
+    let st = {
+        let mut vm = vm
+            .lock()
+            .map_err(|_| "VolumeManager mutex poisoned".to_string())?;
+        if matches!(vm.state(), VolumeState::Unmounting) {
+            let _ = vm.unmount_complete(vault_locked);
+        }
+        volume_status_from_vm(&vm)
+    };
+    let _ = app.emit("volume:status", &st);
+    Ok(st)
+}
+
+async fn shutdown_started_backend_after_cancel(
+    app: &tauri::AppHandle,
+    adapter: &Arc<Mutex<Box<dyn CoreAdapter>>>,
+    vm: &Arc<Mutex<volume_manager::VolumeManager>>,
+    mut backend: volume_manager::VolumeBackendHandle,
+) -> Result<VolumeStatus, String> {
+    let join_timeout = {
+        let vm = vm
+            .lock()
+            .map_err(|_| "VolumeManager mutex poisoned".to_string())?;
+        volume_join_timeout(vm.operation_timeout(), None)
+    };
+
+    backend.shutdown();
+    let fuse_staging_dir = backend.fuse_staging_dir();
+    let join_res = tokio::time::timeout(join_timeout, backend.join()).await;
+    volume_manager::cleanup_fuse_staging_dir(fuse_staging_dir.as_ref());
+
+    if join_res.is_err() {
+        let st = {
+            let mut vm = vm
+                .lock()
+                .map_err(|_| "VolumeManager mutex poisoned".to_string())?;
+            vm.unmount_failed();
+            vm.set_last_error(volume_manager::VolumeError::Timeout.to_string());
+            volume_status_from_vm(&vm)
+        };
+        let _ = app.emit("volume:status", &st);
+        return Ok(st);
+    }
+
+    complete_cancelled_mount_without_backend(app, adapter, vm).await
+}
 
 pub(crate) async fn volume_mount_inner(
     app: tauri::AppHandle,
@@ -155,6 +221,16 @@ pub(crate) async fn volume_mount_inner(
                 .await
                 {
                     Ok(h) => {
+                        if mount_cancel_requested(&vm)? {
+                            return shutdown_started_backend_after_cancel(
+                                &app,
+                                &adapter,
+                                &vm,
+                                volume_manager::VolumeBackendHandle::Fuse(h),
+                            )
+                            .await;
+                        }
+
                         #[cfg(target_os = "macos")]
                         {
                             let mp = h.mountpoint().clone();
@@ -217,9 +293,17 @@ pub(crate) async fn volume_mount_inner(
     }
 
     // WebDAV fallback / explicit selection
+    if mount_cancel_requested(&vm)? {
+        return complete_cancelled_mount_without_backend(&app, &adapter, &vm).await;
+    }
+
     let handle = match volume_webdav::start_webdav_server(app.clone(), adapter.clone()).await {
         Ok(h) => h,
         Err(e) => {
+            if mount_cancel_requested(&vm)? {
+                return complete_cancelled_mount_without_backend(&app, &adapter, &vm).await;
+            }
+
             let msg = format!("WebDAV start failed: {e}");
             let st = {
                 let mut vm = vm
@@ -233,6 +317,16 @@ pub(crate) async fn volume_mount_inner(
             return Err(msg);
         }
     };
+
+    if mount_cancel_requested(&vm)? {
+        return shutdown_started_backend_after_cancel(
+            &app,
+            &adapter,
+            &vm,
+            volume_manager::VolumeBackendHandle::WebDav(handle),
+        )
+        .await;
+    }
 
     let st = {
         let mut vm = vm

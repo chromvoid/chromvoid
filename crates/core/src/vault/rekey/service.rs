@@ -16,7 +16,7 @@ use super::password::{
     constant_time_eq, derive_session_key, reject_existing_target_vault, validate_new_password,
 };
 use super::transaction::{
-    delete_rekey_marker, load_rekey_marker, recover_transaction_record, write_rekey_marker,
+    delete_rekey_marker, load_rekey_marker_for_key, recover_transaction_record, write_rekey_marker,
     RekeyTransaction, REKEY_TX_VERSION,
 };
 use super::types::{VaultRekeyProgress, VaultRekeyRequest, VaultRekeyResult};
@@ -58,6 +58,8 @@ impl VaultSession {
 
         write_rekey_marker(
             storage,
+            &old_key,
+            &new_key,
             &RekeyTransaction {
                 version: REKEY_TX_VERSION,
                 phase: DurableTxPhase::Staging,
@@ -86,6 +88,8 @@ impl VaultSession {
 
         write_rekey_marker(
             storage,
+            &old_key,
+            &new_key,
             &RekeyTransaction {
                 version: REKEY_TX_VERSION,
                 phase: DurableTxPhase::Committing,
@@ -123,7 +127,7 @@ impl VaultSession {
     }
 
     pub fn recover_rekey_transaction(&mut self, storage: &Storage) -> Result<()> {
-        let Some(transaction) = load_rekey_marker(storage)? else {
+        let Some(transaction) = load_rekey_marker_for_key(storage, self.vault_key())? else {
             return Ok(());
         };
 

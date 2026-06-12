@@ -186,9 +186,9 @@ async function main() {
     });
     const androidIcon = await buildScaledIcon(sourceIcon, scales.android, 'android', tempRoot);
 
-    run('npm', ['run', 'tauri', '--', 'icon', desktopIcon, '-o', tempDesktopOut], appRoot);
-    run('npm', ['run', 'tauri', '--', 'icon', iosIcon, '-o', tempIosOut], appRoot);
-    run('npm', ['run', 'tauri', '--', 'icon', androidIcon, '-o', tempAndroidOut], appRoot);
+    run('bun', ['run', 'tauri', '--', 'icon', desktopIcon, '-o', tempDesktopOut], appRoot);
+    run('bun', ['run', 'tauri', '--', 'icon', iosIcon, '-o', tempIosOut], appRoot);
+    run('bun', ['run', 'tauri', '--', 'icon', androidIcon, '-o', tempAndroidOut], appRoot);
 
     await copyRootFiles(tempDesktopOut, iconsDir);
     await copyIosIcons(path.join(tempIosOut, 'ios'), iosIconSetDir);

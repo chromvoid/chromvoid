@@ -28,6 +28,7 @@ impl RpcRouter {
         if self.session.is_some() {
             return Err(VaultOpsError::already_unlocked());
         }
+        self.derivative_index_state.invalidate();
 
         let request = VaultUnlockRequest::parse(data)?;
 
@@ -36,6 +37,7 @@ impl RpcRouter {
             .map_err(VaultOpsError::from_unlock_error)?;
         self.session = Some(session);
         self.recover_after_vault_unlock()?;
+        self.derivative_index_state.invalidate();
         self.credential_provider_runtime.clear_all();
         Ok(())
     }
@@ -50,11 +52,17 @@ impl RpcRouter {
 
     fn vault_lock(&mut self) -> VaultOpsResult<()> {
         // ADR-004: vault:lock is idempotent.
-        if let Some(session) = self.session.take() {
-            // Save and lock
-            if let Err(e) = session.lock(Some(&self.storage)) {
-                return Err(VaultOpsError::internal(e.to_string()));
-            }
+        if let Some(session) = self.session.as_ref() {
+            self.derivative_index_state
+                .flush(&self.storage, session.vault_key())
+                .map_err(|error| VaultOpsError::internal(error.to_string()))?;
+        }
+        if let Some(session) = self.session.as_mut() {
+            session
+                .lock(Some(&self.storage))
+                .map_err(|e| VaultOpsError::internal(e.to_string()))?;
+            self.session = None;
+            self.derivative_index_state.invalidate();
 
             // Push event (ADR-004 attachments): emitted when push pipeline is enabled.
             self.event_queue.push_vault_locked("manual");
@@ -93,10 +101,8 @@ impl RpcRouter {
             ));
         };
 
-        let request = VaultRekeyRequest {
-            current_password: rpc_request.current_password.to_string(),
-            new_password: rpc_request.new_password.to_string(),
-        };
+        let request =
+            VaultRekeyRequest::new(rpc_request.current_password, rpc_request.new_password);
         let result = session
             .rekey_password(
                 &self.storage,
@@ -201,7 +207,7 @@ impl RpcRouter {
         self.erase_token = None;
         self.event_queue.unsubscribe_catalog();
         self.event_queue.clear();
-        self.master_key = None;
+        self.set_master_key(None);
         self.credential_provider_runtime.clear_all();
 
         // Best-effort stats (ADR-004 attachments).

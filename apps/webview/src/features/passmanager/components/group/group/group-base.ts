@@ -7,10 +7,12 @@ import '@lit-labs/virtualizer'
 
 import {Entry, Group, type ManagerRoot} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
+import {getPMDesktopToolbarKey, renderPMDesktopToolbarItems} from '../../desktop-toolbar'
 import {renderGuidanceInline} from 'root/features/guidance/render-guidance-inline'
 import {ScrollEdgeAffordanceModel} from 'root/shared/ui/scroll-edge-affordance.model'
-import type {PMWorkspaceContextItem} from '../../card/pm-workspace-header'
+import type {PMWorkspaceContextItem, PMWorkspaceHeaderDensity} from '../../card/pm-workspace-header'
 import type {PMSummaryRailItem, PMSummaryRailTone} from '../../summary-rail'
+import type {PMEntryListItemViewMode} from '../../card/entry-list-item'
 import {pmEntryMoveModel, type PMDragPayload} from '../../../models/pm-entry-move-model'
 import {
   pmDeleteMotionModel,
@@ -50,6 +52,8 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     showToolbarActions: {type: Boolean, attribute: 'show-toolbar-actions'},
   }
 
+  declare showToolbarActions: boolean
+
   protected readonly model = new PMGroupModel()
   private readonly scrollEdge = new ScrollEdgeAffordanceModel()
 
@@ -58,8 +62,13 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
   private pointerDrag: PMPointerDragState | null = null
   private renderedEditMode = false
   private rangeVirtualizer: HTMLElement | null = null
-  private lastVirtualRows: PMGroupRow[] = []
+  private lastVirtualRows: PMDeleteMotionRow[] = []
   private lastVirtualRange: {first: number; last: number} | null = null
+
+  constructor() {
+    super()
+    this.showToolbarActions = false
+  }
 
   protected getCurrentGroup(): Group | ManagerRoot | null {
     return this.model.getCurrentGroup()
@@ -67,6 +76,22 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
 
   protected usesBlockStartScrollEdge(): boolean {
     return false
+  }
+
+  protected getWorkspaceHeaderDensity(): PMWorkspaceHeaderDensity {
+    return 'regular'
+  }
+
+  protected renderHeaderMeta(_summary: PMGroupPresentation): unknown {
+    return nothing
+  }
+
+  protected getEntryListItemViewMode(): PMEntryListItemViewMode {
+    return 'default'
+  }
+
+  protected renderListHeader(_group: Group | ManagerRoot, _items: PMGroupRow[]): unknown {
+    return nothing
   }
 
   protected isManagerRoot(item: unknown): item is ManagerRoot {
@@ -125,6 +150,42 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     if (group && !this.isManagerRoot(group)) {
       this.model.deleteGroup(group as Group)
     }
+  }
+
+  protected onHeaderToolbarClick(event: MouseEvent): void {
+    const item = this.getHeaderToolbarActionTarget(event)
+    if (!item || item.hasAttribute('disabled')) return
+
+    const action = item.dataset['action']
+    if (!this.model.isToolbarAction(action)) return
+
+    this.model.executeToolbarAction(action)
+  }
+
+  protected onHeaderToolbarKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+
+    const item = this.getHeaderToolbarActionTarget(event)
+    if (!item || item.hasAttribute('disabled')) return
+
+    const action = item.dataset['action']
+    if (!this.model.isToolbarAction(action)) return
+
+    if (event.key === ' ') {
+      event.preventDefault()
+    }
+
+    this.model.executeToolbarAction(action)
+  }
+
+  private getHeaderToolbarActionTarget(event: Event): HTMLElement | null {
+    for (const node of event.composedPath()) {
+      if (node instanceof HTMLElement && node.tagName.toLowerCase() === 'cv-toolbar-item') {
+        return node
+      }
+    }
+
+    return null
   }
 
   protected handleEditEnd(): void {
@@ -625,16 +686,14 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
       return [{label: i18n('root:title-short'), value: '', current: true}]
     }
 
-    const parentSegments = group.name.split('/').filter(Boolean).slice(0, -1)
-    if (parentSegments.length === 0) {
-      return [{label: i18n('root:title-short'), value: ''}]
-    }
+    const groupSegments = group.name.split('/').filter(Boolean)
 
     return [
       {label: i18n('root:title-short'), value: ''},
-      ...parentSegments.map((segment, index) => ({
+      ...groupSegments.map((segment, index) => ({
         label: segment,
-        value: parentSegments.slice(0, index + 1).join('/'),
+        value: groupSegments.slice(0, index + 1).join('/'),
+        current: index === groupSegments.length - 1,
       })),
     ]
   }
@@ -666,7 +725,7 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
   }
 
   protected renderTitleEditAction(isEditing: boolean) {
-    if (isEditing || this.model.isReadOnly()) {
+    if (isEditing || this.showToolbarActions || this.model.isReadOnly()) {
       return nothing
     }
 
@@ -681,6 +740,33 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
       >
         <cv-icon name="pencil-square" aria-hidden="true"></cv-icon>
       </cv-button>
+    `
+  }
+
+  protected renderHeaderActions(group: Group, isRoot: boolean, isEditing: boolean) {
+    if (!this.showToolbarActions || isRoot || isEditing) {
+      return nothing
+    }
+
+    const actions = this.model.getDesktopToolbarActions(group)
+    if (!actions.length) return nothing
+
+    return html`
+      <cv-toolbar
+        slot="actions"
+        class="group-header-actions"
+        data-toolbar-key=${getPMDesktopToolbarKey('group-header', actions)}
+        @click=${this.onHeaderToolbarClick}
+        @keydown=${this.onHeaderToolbarKeydown}
+      >
+        ${renderPMDesktopToolbarItems(actions, {
+          itemClass: 'group-action-item',
+          contentClass: 'group-action-item-content',
+          iconClass: 'group-action-item-icon',
+          dangerClass: 'danger',
+          iconOnlyClass: 'icon-only',
+        })}
+      </cv-toolbar>
     `
   }
 
@@ -723,6 +809,7 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     return html`
       <pm-workspace-header
         .item=${group}
+        .density=${this.getWorkspaceHeaderDensity()}
         .contextLabel=${summary.scopeLabel}
         .contextItems=${this.getHeaderContextItems(group, isRoot)}
         .title=${headerTitle}
@@ -740,12 +827,14 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
         @pm-icon-change=${this.onGroupIconChange}
       >
         <span slot="context-end" class="workspace-summary-value">${summary.visibleLabel}</span>
+        ${this.renderHeaderMeta(summary)}
         ${isEditing ? this.renderInlineEditSupport() : this.renderTitleEditAction(isEditing)}
+        ${this.renderHeaderActions(group, isRoot, isEditing)}
       </pm-workspace-header>
     `
   }
 
-  protected renderGroupMetrics(summary: PMGroupPresentation) {
+  protected renderGroupMetrics(summary: PMGroupPresentation, slotName?: string) {
     if (summary.metrics.length === 0) {
       return nothing
     }
@@ -758,13 +847,16 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
 
     return html`
       <pm-summary-rail
+        slot=${slotName ?? nothing}
         class="group-metrics-strip"
         .items=${this.getGroupMetricItems(summary.metrics)}
         .label=${title}
         .busy=${busy}
         data-security-status=${summary.securityStatus}
       ></pm-summary-rail>
-      ${degraded ? html`<span class="group-metrics-status">${i18n('metrics:degraded')}</span>` : nothing}
+      ${degraded
+        ? html`<span slot=${slotName ?? nothing} class="group-metrics-status">${i18n('metrics:degraded')}</span>`
+        : nothing}
     `
   }
 
@@ -820,6 +912,7 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
       >
         <pm-entry-list-item
           .entry=${item}
+          .viewMode=${this.getEntryListItemViewMode()}
           .activeRow=${active}
           .rowTabIndex=${active ? 0 : -1}
           .manageActiveRowState=${true}
@@ -863,16 +956,23 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
           @dragenter=${(event: DragEvent) => this.onDragOverFolder(event, item.id)}
           @drop=${(event: DragEvent) => this.onDropFolder(event, item.id)}
         >
-          <pm-avatar-icon class="folder-custom-icon" .item=${item} icon="folder"></pm-avatar-icon>
-          <div class="group-copy">
-            <div class="group-name">${presentation.displayName}</div>
-            ${presentation.description
-              ? html`<div class="group-description">${presentation.description}</div>`
-              : nothing}
+          <div class="group-main-cell">
+            <pm-avatar-icon class="folder-custom-icon" .item=${item} icon="folder"></pm-avatar-icon>
+            <div class="group-copy">
+              <div class="group-name">${presentation.displayName}</div>
+              ${presentation.description
+                ? html`<div class="group-description">${presentation.description}</div>`
+                : nothing}
+            </div>
           </div>
           <div class="group-trail">
             <span class="group-size">${presentation.entryCount}</span>
             ${this.renderGroupRiskDot(presentation.riskIndicator)}
+          </div>
+          <time class="group-modified-cell" datetime=${item.updatedFormatted}>
+            ${item.updatedFormatted}
+          </time>
+          <div class="group-actions-cell">
             <cv-icon class="group-chevron" name="chevron-right"></cv-icon>
           </div>
         </div>
@@ -1059,7 +1159,7 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     const renderKey = this.getVirtualListRenderKey(group, renderItems)
     const hasScrollBlockStart = this.usesBlockStartScrollEdge() && this.scrollEdge.hasBlockStartOverflow()
     const hasScrollBlockEnd = this.scrollEdge.hasBlockEndOverflow()
-    this.lastVirtualRows = items
+    this.lastVirtualRows = renderItems
 
     return html`
       <div
@@ -1067,15 +1167,17 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
         data-scroll-block-start=${String(hasScrollBlockStart)}
         data-scroll-block-end=${String(hasScrollBlockEnd)}
       >
+        ${this.renderListHeader(group, items)}
         ${keyed(renderKey, html`
           <lit-virtualizer
-            class="group-virtual-list"
+            class="group-virtual-list scroll-edge-scroller"
             data-drop-target-id=${currentGroupId ?? nothing}
             data-mobile-dnd-target-id=${currentGroupId ?? nothing}
             scroller
             .items=${renderItems}
             .keyFunction=${(item: PMDeleteMotionRow) => item.id}
-            .renderItem=${(item: PMDeleteMotionRow) => this.renderRow(item, item.id === activeId)}
+            .renderItem=${(item: PMDeleteMotionRow) =>
+              this.renderRow(item, item.deleteExiting === true ? false : item.id === activeId)}
             @rangeChanged=${this.onVirtualRangeChanged}
             @dragover=${this.onDragOverContentArea}
             @dragenter=${this.onDragOverContentArea}

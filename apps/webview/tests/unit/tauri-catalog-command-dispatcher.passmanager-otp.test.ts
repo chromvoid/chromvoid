@@ -110,4 +110,77 @@ describe('tauri catalog command dispatcher passmanager otp payloads', () => {
       }),
     ).rejects.toThrow('non-empty secret is required')
   })
+
+  it('accepts passmanager:otp:renameSecret with otp_id and label migration keys', async () => {
+    const rpcDispatch = vi.fn(async () => ({ok: true, result: null}))
+
+    const out = await dispatchTauriCatalogCommand({
+      command: 'passmanager:otp:renameSecret',
+      data: {
+        otp_id: 'otp-42',
+        previous_label: ' Primary ',
+        next_label: ' Backup ',
+      },
+      logger,
+      rpc: vi.fn(async () => ({}) as never),
+      rpcDispatch,
+      rpcDispatchRaw: vi.fn(async () => ({ok: true, result: null})),
+    })
+
+    expect(out).toEqual({ok: true, result: {ok: true, result: null}})
+    expect(rpcDispatch).toHaveBeenCalledWith('passmanager:otp:renameSecret', {
+      otp_id: 'otp-42',
+      entry_id: null,
+      previous_label: 'Primary',
+      next_label: 'Backup',
+    })
+  })
+
+  it('rejects passmanager:otp:renameSecret when otp_id and entry_id are both missing', async () => {
+    await expect(
+      dispatchTauriCatalogCommand({
+        command: 'passmanager:otp:renameSecret',
+        data: {
+          previous_label: 'Primary',
+          next_label: 'Backup',
+        },
+        logger,
+        rpc: vi.fn(async () => ({}) as never),
+        rpcDispatch: vi.fn(async () => ({ok: true, result: null})),
+        rpcDispatchRaw: vi.fn(async () => ({ok: true, result: null})),
+      }),
+    ).rejects.toThrow('otp_id or entry_id is required')
+  })
+
+  it('rejects passmanager:otp:renameSecret when labels are empty', async () => {
+    await expect(
+      dispatchTauriCatalogCommand({
+        command: 'passmanager:otp:renameSecret',
+        data: {
+          otp_id: 'otp-42',
+          previous_label: '',
+          next_label: 'Backup',
+        },
+        logger,
+        rpc: vi.fn(async () => ({}) as never),
+        rpcDispatch: vi.fn(async () => ({ok: true, result: null})),
+        rpcDispatchRaw: vi.fn(async () => ({ok: true, result: null})),
+      }),
+    ).rejects.toThrow('previous_label is required')
+
+    await expect(
+      dispatchTauriCatalogCommand({
+        command: 'passmanager:otp:renameSecret',
+        data: {
+          otp_id: 'otp-42',
+          previous_label: 'Primary',
+          next_label: ' ',
+        },
+        logger,
+        rpc: vi.fn(async () => ({}) as never),
+        rpcDispatch: vi.fn(async () => ({ok: true, result: null})),
+        rpcDispatchRaw: vi.fn(async () => ({ok: true, result: null})),
+      }),
+    ).rejects.toThrow('next_label is required')
+  })
 })

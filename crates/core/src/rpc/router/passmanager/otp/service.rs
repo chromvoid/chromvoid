@@ -2,8 +2,8 @@ use std::sync::Mutex;
 
 use crate::error::ErrorCode;
 use crate::rpc::router::otp_sidecar::{
-    generate_otp, remove_otp_secret, set_otp_secret, OtpGenerateRequest, OtpRemoveSecretRequest,
-    OtpSidecarError,
+    generate_otp, remove_otp_secret, rename_otp_secret, set_otp_secret, OtpGenerateRequest,
+    OtpRemoveSecretRequest, OtpRenameSecretRequest, OtpSidecarError,
 };
 use crate::rpc::types::OtpGenerateResponse;
 use crate::storage::Storage;
@@ -16,7 +16,7 @@ use super::super::path::node_in_passmanager;
 use super::error::PassmanagerOtpError;
 use super::request::{
     PassmanagerOtpGenerateRequest, PassmanagerOtpRemoveSecretRequest,
-    PassmanagerOtpSetSecretRequest,
+    PassmanagerOtpRenameSecretRequest, PassmanagerOtpSetSecretRequest,
 };
 
 pub(super) fn set_secret(
@@ -72,6 +72,26 @@ pub(super) fn remove_secret(
         OtpRemoveSecretRequest {
             node_id: target.node_id,
             label: &target.label,
+        },
+    )
+    .map_err(PassmanagerOtpError::from)
+}
+
+pub(super) fn rename_secret(
+    session: &VaultSession,
+    storage: &Storage,
+    cache: &Mutex<PassmanagerOtpTargetCache>,
+    request: PassmanagerOtpRenameSecretRequest<'_>,
+) -> Result<(), PassmanagerOtpError> {
+    let target = resolve_required_target(session, storage, cache, request.target, false)?;
+    check_pm_access(session, target.node_id)?;
+    rename_otp_secret(
+        session,
+        storage,
+        OtpRenameSecretRequest {
+            node_id: target.node_id,
+            previous_label: request.previous_label,
+            next_label: request.next_label,
         },
     )
     .map_err(PassmanagerOtpError::from)

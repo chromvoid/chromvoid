@@ -1,3 +1,4 @@
+use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
 
 use crate::crypto::keystore::Keystore;
@@ -36,12 +37,20 @@ pub(super) fn derive_session_key(
 }
 
 pub(super) fn constant_time_eq(left: &[u8; KEY_SIZE], right: &[u8; KEY_SIZE]) -> bool {
-    left.iter()
-        .zip(right.iter())
-        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
-        == 0
+    bool::from(left.as_slice().ct_eq(right.as_slice()))
 }
 
+/// Refuse to rekey into a password whose key-derived namespace already holds
+/// vault data, which would otherwise collide with / corrupt a (possibly hidden)
+/// vault under that password.
+///
+/// Plausible-deniability note: rejecting here does reveal, to a holder of the
+/// current password, that the candidate password has a vault. This residual
+/// oracle is inherent to a deniable design and gives the attacker no advantage
+/// over simply unlocking with the candidate password (which, in this design,
+/// already surfaces that vault) — both cost a full Argon2 derivation per guess.
+/// We therefore keep the collision protection but return a generic policy error
+/// rather than a message that explicitly confirms "this password has a vault".
 pub(super) fn reject_existing_target_vault(
     storage: &Storage,
     new_key: &[u8; KEY_SIZE],
@@ -53,7 +62,7 @@ pub(super) fn reject_existing_target_vault(
     for name in target_names {
         if storage.chunk_exists(&name)? {
             return Err(Error::RekeyPasswordPolicy(
-                "new vault password already has vault data in this storage".to_string(),
+                "new vault password is not allowed".to_string(),
             ));
         }
     }

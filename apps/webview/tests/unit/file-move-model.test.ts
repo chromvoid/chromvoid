@@ -230,6 +230,36 @@ describe('FileMoveModel', () => {
     expect(harness.setSelectionMode).toHaveBeenCalledWith(false)
   })
 
+  it('refreshes and keeps only failed items selected after partial multi-move failure', async () => {
+    const harness = createHarness({selectedIds: [3, 4]})
+    harness.move.mockImplementation(async (id: number) => {
+      if (id === 4) throw new Error('target locked')
+    })
+    const toastSpy = vi.spyOn(toast, 'show').mockReturnValue('toast-partial')
+
+    await expect(harness.model.moveItemsByIds([3, 4], '/Archive')).resolves.toBe(false)
+
+    expect(harness.move).toHaveBeenNthCalledWith(1, 3, '/Archive')
+    expect(harness.move).toHaveBeenNthCalledWith(2, 4, '/Archive')
+    expect(harness.refresh).toHaveBeenCalledTimes(1)
+    expect(harness.setSelectedItems).toHaveBeenLastCalledWith([4])
+    expect(harness.setSelectionMode).toHaveBeenLastCalledWith(true)
+    expect(toastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining('Moved 1/2 items'),
+        variant: 'error',
+      }),
+    )
+
+    harness.move.mockClear()
+    harness.move.mockResolvedValue(undefined)
+
+    await expect(harness.model.moveItemsByIds([4], '/Archive')).resolves.toBe(true)
+
+    expect(harness.move).toHaveBeenCalledTimes(1)
+    expect(harness.move).toHaveBeenCalledWith(4, '/Archive')
+  })
+
   it('shows backend error messages when catalog move fails', async () => {
     const harness = createHarness()
     harness.move.mockRejectedValueOnce(new Error('Name already exists'))

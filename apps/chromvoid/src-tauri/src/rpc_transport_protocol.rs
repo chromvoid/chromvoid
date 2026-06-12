@@ -2,6 +2,9 @@ use serde::Serialize;
 use serde_json::Value;
 
 use chromvoid_core::rpc::types::RpcResponse;
+use chromvoid_protocol::MAX_PAYLOAD_SIZE;
+
+pub(crate) const MAX_FULL_UPLOAD_STREAM_BYTES: usize = MAX_PAYLOAD_SIZE;
 
 #[derive(Debug)]
 pub(crate) struct UploadStreamMetadata {
@@ -79,4 +82,24 @@ pub(crate) fn upload_stream_chunk_data(
         }
     }
     Ok(chunk_data)
+}
+
+pub(crate) fn append_full_upload_stream_chunk(
+    body: &mut Vec<u8>,
+    chunk: &[u8],
+) -> Result<(), RpcResponse> {
+    let Some(next_len) = body.len().checked_add(chunk.len()) else {
+        return Err(RpcResponse::error(
+            "full upload stream size overflow",
+            Some("PAYLOAD_TOO_LARGE"),
+        ));
+    };
+    if next_len > MAX_FULL_UPLOAD_STREAM_BYTES {
+        return Err(RpcResponse::error(
+            "full upload stream exceeds maximum size",
+            Some("PAYLOAD_TOO_LARGE"),
+        ));
+    }
+    body.extend_from_slice(chunk);
+    Ok(())
 }

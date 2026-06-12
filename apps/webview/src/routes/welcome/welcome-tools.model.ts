@@ -140,31 +140,29 @@ export class WelcomeToolsModel {
 
     const targetDir = this.supportsMobileBackupRestore()
       ? undefined
-        : await wrap(
-          open({
+      : await wrap(open(
+          {
             directory: true,
             multiple: false,
             title: i18n('welcome:backup-destination'),
             defaultPath: this.storePath() || undefined,
-          }),
-        )
+          },
+        ))
     if (!this.supportsMobileBackupRestore() && !targetDir) return
 
-    const pwd = await wrap(
-      dialogService.showInputDialog({
-        title: i18n('backup:title'),
-        label: i18n('welcome:master-password'),
-        type: 'password',
-        required: true,
-      }),
-    )
+    const pwd = await wrap(dialogService.showInputDialog({
+      title: i18n('backup:title'),
+      label: i18n('welcome:master-password'),
+      type: 'password',
+      required: true,
+    }))
     if (!pwd) return
 
     try {
       this.backupState.set({inProgress: true, cancelling: false})
       this.backupProgress.set(null)
       this.shared.setBusy(true)
-      await this.startBackupProgressListener()
+      await wrap(this.startBackupProgressListener())
       const args: {masterPassword: string; targetDir?: string} = {
         masterPassword: pwd,
       }
@@ -179,7 +177,7 @@ export class WelcomeToolsModel {
       }
 
       guidanceModel.emitDomainEvent('backup.created')
-      toast.success(i18n('welcome:backup-created', {path: res.result.backup_dir}))
+      getAppContext().store.pushNotification('success', i18n('welcome:backup-created', {path: res.result.backup_dir}))
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))
     } finally {
@@ -225,7 +223,7 @@ export class WelcomeToolsModel {
     )
     if (!confirmed) return
 
-    const backupPath = await this.selectRestoreBackupPath()
+    const backupPath = await wrap(this.selectRestoreBackupPath())
     if (!backupPath) return
 
     const pwd = await wrap(
@@ -242,7 +240,7 @@ export class WelcomeToolsModel {
       this.restoreState.set({inProgress: true, cancelling: false})
       this.restoreProgress.set(null)
       this.shared.setBusy(true)
-      await this.startRestoreProgressListener()
+      await wrap(this.startRestoreProgressListener())
       const args: {masterPassword: string; backupPath?: string} = {
         masterPassword: pwd,
       }
@@ -367,7 +365,7 @@ export class WelcomeToolsModel {
     if (!isTauriRuntime()) return
     if (this.shared.busy()) return
 
-    const input = await openWelcomeMasterRekeyDialog()
+    const input = await wrap(openWelcomeMasterRekeyDialog())
     if (!input) return
 
     try {

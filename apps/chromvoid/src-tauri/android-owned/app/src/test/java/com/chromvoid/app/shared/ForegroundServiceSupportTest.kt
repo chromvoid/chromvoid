@@ -110,6 +110,6 @@ class ForegroundServiceSupportTest {
     private fun notification(): Notification =
         Notification.Builder(context, ConnectionForegroundService.CHANNEL_ID)
             .setContentTitle("ChromVoid")
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
             .build()
 }

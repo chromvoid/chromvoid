@@ -6,14 +6,6 @@ import {atom} from '@reatom/core'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 
-const open = vi.fn()
-
-vi.mock('@tauri-apps/plugin-dialog', () => {
-  return {
-    open: (...args: unknown[]) => open(...args),
-  }
-})
-
 vi.mock('root/core/runtime/runtime', () => {
   return {
     isTauriRuntime: () => true,
@@ -29,7 +21,10 @@ const DEFAULT_FILTERS: SearchFilters = {
   fileTypes: [],
 }
 
-function initStore(remoteState: 'inactive' | 'waiting_host_unlock' | 'ready') {
+function initStore(
+  remoteState: 'inactive' | 'waiting_host_unlock' | 'ready',
+  pickUploadFiles: () => Promise<Array<{token: string; name: string}>> = async () => [],
+) {
   const searchFilters = atom<SearchFilters>({...DEFAULT_FILTERS})
 
   initAppContext(
@@ -44,6 +39,9 @@ function initStore(remoteState: 'inactive' | 'waiting_host_unlock' | 'ready') {
           searchFilters.set(next)
         },
         remoteSessionState: atom<'inactive' | 'waiting_host_unlock' | 'ready'>(remoteState),
+      } as never,
+      ws: {
+        pickUploadFiles,
       } as never,
     }),
   )
@@ -66,7 +64,6 @@ function createModel() {
 
 describe('CommandBarModel upload gating', () => {
   beforeEach(() => {
-    open.mockReset()
     resetRuntimeCapabilities()
     setRuntimeCapabilities({
       desktop: true,
@@ -80,45 +77,48 @@ describe('CommandBarModel upload gating', () => {
   })
 
   it('uses native path upload only outside of remote session', async () => {
-    initStore('inactive')
-    open.mockResolvedValue(['/tmp/file.txt'])
+    const files = [{token: 'upload-token', name: 'file.txt'}]
+    const pickUploadFiles = vi.fn(async () => files)
+    initStore('inactive', pickUploadFiles)
 
     const {model, runtime} = createModel()
 
     await (model as unknown as {openUpload: () => Promise<void>}).openUpload()
 
-    expect(open).toHaveBeenCalledWith({multiple: true, directory: false})
+    expect(pickUploadFiles).toHaveBeenCalledTimes(1)
     expect(runtime.dispatchCommand).toHaveBeenCalledWith({
       kind: 'upload-paths',
-      paths: ['/tmp/file.txt'],
+      files,
     })
     expect(runtime.requestClose).toHaveBeenCalledTimes(1)
     expect(runtime.openFileInput).not.toHaveBeenCalled()
   })
 
   it('closes without dispatching upload paths when native path upload is cancelled', async () => {
-    initStore('inactive')
-    open.mockResolvedValue([])
+    const pickUploadFiles = vi.fn(async () => [])
+    initStore('inactive', pickUploadFiles)
 
     const {model, runtime} = createModel()
 
     await (model as unknown as {openUpload: () => Promise<void>}).openUpload()
 
-    expect(open).toHaveBeenCalledWith({multiple: true, directory: false})
+    expect(pickUploadFiles).toHaveBeenCalledTimes(1)
     expect(runtime.dispatchCommand).not.toHaveBeenCalled()
     expect(runtime.openFileInput).not.toHaveBeenCalled()
     expect(runtime.requestClose).toHaveBeenCalledTimes(1)
   })
 
   it('falls back to file input and closes when native path picker fails', async () => {
-    initStore('inactive')
-    open.mockRejectedValue(new Error('picker failed'))
+    const pickUploadFiles = vi.fn(async () => {
+      throw new Error('picker failed')
+    })
+    initStore('inactive', pickUploadFiles)
 
     const {model, runtime} = createModel()
 
     await (model as unknown as {openUpload: () => Promise<void>}).openUpload()
 
-    expect(open).toHaveBeenCalledWith({multiple: true, directory: false})
+    expect(pickUploadFiles).toHaveBeenCalledTimes(1)
     expect(runtime.dispatchCommand).not.toHaveBeenCalled()
     expect(runtime.openFileInput).toHaveBeenCalledTimes(1)
     expect(runtime.requestClose).toHaveBeenCalledTimes(1)
@@ -137,7 +137,6 @@ describe('CommandBarModel upload gating', () => {
 
     await (model as unknown as {openUpload: () => Promise<void>}).openUpload()
 
-    expect(open).not.toHaveBeenCalled()
     expect(runtime.dispatchCommand).toHaveBeenCalledWith({kind: 'native-upload'})
     expect(runtime.openFileInput).not.toHaveBeenCalled()
   })
@@ -149,7 +148,6 @@ describe('CommandBarModel upload gating', () => {
 
     await (model as unknown as {openUpload: () => Promise<void>}).openUpload()
 
-    expect(open).not.toHaveBeenCalled()
     expect(runtime.dispatchCommand).not.toHaveBeenCalled()
     expect(runtime.openFileInput).toHaveBeenCalledTimes(1)
   })

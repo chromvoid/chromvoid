@@ -97,6 +97,8 @@ describe('file-item thumbnail rendering', () => {
       )
       const image = element.shadowRoot?.querySelector<HTMLImageElement>('img.thumbnail-image')
       expect(image?.getAttribute('src')).toBe('blob:file-thumb')
+      expect(image?.getAttribute('loading')).toBe('lazy')
+      expect(image?.getAttribute('decoding')).toBe('async')
     })
 
     element.remove()
@@ -335,6 +337,41 @@ describe('file-item thumbnail rendering', () => {
     resetFileThumbnailCacheForTests()
 
     expect(release).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps an in-flight thumbnail load when the same item host reconnects during sorting', async () => {
+    const pending = deferred<Awaited<ReturnType<typeof fileLoader.loadFileSourceById>>>()
+    const release = vi.fn()
+    const loadSpy = vi.spyOn(fileLoader, 'loadFileSourceById').mockReturnValue(pending.promise)
+    const element = document.createElement('file-item-desktop') as FileItem
+    element.item = IMAGE_ITEM
+    element.viewMode = 'list'
+    document.body.appendChild(element)
+    await settle(element)
+
+    await vi.waitFor(() => {
+      expect(loadSpy).toHaveBeenCalledTimes(1)
+    })
+
+    element.remove()
+    document.body.appendChild(element)
+    await settle(element)
+
+    pending.resolve({
+      kind: 'asset-file',
+      url: 'blob:sort-reconnected-thumbnail',
+      size: 5,
+      mimeType: 'image/webp',
+      release,
+    })
+
+    await vi.waitFor(() => {
+      expect(
+        element.shadowRoot?.querySelector<HTMLImageElement>('img.thumbnail-image')?.getAttribute('src'),
+      ).toBe('blob:sort-reconnected-thumbnail')
+    })
+    expect(loadSpy).toHaveBeenCalledTimes(1)
+    expect(release).not.toHaveBeenCalled()
   })
 
   it('loads a fresh thumbnail when the file source version changes', async () => {

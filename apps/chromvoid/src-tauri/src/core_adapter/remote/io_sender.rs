@@ -4,20 +4,17 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::core_adapter::types::{RemoteCancelGroup, RemoteJsonSender, RemoteRpcPriority};
 
-/// Abstraction over USB and network I/O request senders.
-/// Both sender types carry identical IoRequest structs but are separate Rust types.
+/// Abstraction over remote I/O request senders.
 #[derive(Clone)]
-pub(super) enum IoSender {
-    Usb(mpsc::Sender<crate::usb::io_task::IoRequest>),
-    Network(mpsc::Sender<crate::network::io_task::IoRequest>),
-}
+pub(super) struct IoSender(mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>);
 
 impl IoSender {
+    pub(super) fn new(tx: mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>) -> Self {
+        Self(tx)
+    }
+
     pub(super) fn is_closed(&self) -> bool {
-        match self {
-            Self::Usb(tx) => tx.is_closed(),
-            Self::Network(tx) => tx.is_closed(),
-        }
+        self.0.is_closed()
     }
 
     pub(super) fn blocking_send(
@@ -28,32 +25,18 @@ impl IoSender {
         priority: RemoteRpcPriority,
         cancel_group: Option<RemoteCancelGroup>,
     ) -> Result<(), ()> {
-        match self {
-            Self::Usb(tx) => tx
-                .blocking_send(crate::usb::io_task::IoRequest {
-                    request,
-                    stream,
-                    reply_tx,
-                    priority,
-                    cancel_group,
-                })
-                .map_err(|_| ()),
-            Self::Network(tx) => tx
-                .blocking_send(crate::network::io_task::IoRequest {
-                    request,
-                    stream,
-                    reply_tx,
-                    priority,
-                    cancel_group,
-                })
-                .map_err(|_| ()),
-        }
+        self.0
+            .blocking_send(crate::remote_data_plane::RemoteIoRequest {
+                request,
+                stream,
+                reply_tx,
+                priority,
+                cancel_group,
+            })
+            .map_err(|_| ())
     }
 
     pub(super) fn json_sender(&self) -> RemoteJsonSender {
-        match self {
-            Self::Usb(tx) => RemoteJsonSender::Usb(tx.clone()),
-            Self::Network(tx) => RemoteJsonSender::Network(tx.clone()),
-        }
+        RemoteJsonSender::new(self.0.clone())
     }
 }

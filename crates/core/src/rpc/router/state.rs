@@ -7,7 +7,9 @@ use crate::storage::Storage;
 use crate::vault::VaultSession;
 use crate::wallet::{WalletProvider, WalletRuntimeConfig};
 use std::sync::{Arc, Mutex};
+use zeroize::Zeroize;
 
+use super::super::derivative_index::DerivativeIndexState;
 use super::credential_provider::runtime::CredentialProviderRuntime;
 use super::events::RouterEventQueue;
 use super::passmanager::otp_target::PassmanagerOtpTargetCache;
@@ -47,6 +49,8 @@ pub struct RpcRouter {
 
     pub(super) passmanager_otp_target_cache: Mutex<PassmanagerOtpTargetCache>,
 
+    pub(super) derivative_index_state: Arc<DerivativeIndexState>,
+
     pub(super) storage_gc_scan_registry: StorageGcScanRegistry,
 }
 
@@ -66,6 +70,7 @@ impl RpcRouter {
             wallet_runtime_config: WalletRuntimeConfig::default(),
             wallet_provider: None,
             passmanager_otp_target_cache: Mutex::new(PassmanagerOtpTargetCache::default()),
+            derivative_index_state: Arc::new(DerivativeIndexState::default()),
             storage_gc_scan_registry: StorageGcScanRegistry::default(),
         }
     }
@@ -124,6 +129,9 @@ impl RpcRouter {
     }
 
     pub fn set_master_key(&mut self, master_key: Option<String>) {
+        if let Some(current) = self.master_key.as_mut() {
+            current.zeroize();
+        }
         self.master_key = master_key;
     }
 
@@ -164,7 +172,7 @@ impl RpcRouter {
     where
         F: FnOnce(&mut VaultSession) -> RpcResponse,
     {
-        self.commit_catalog_mutation_with_output(|session| (f(session), ()), |_, _, _| {})
+        self.commit_catalog_mutation_with_output(|session| (f(session), ()), |_, _, _, _| {})
     }
 
     pub(super) fn commit_catalog_mutation_with_output<F, T, P>(
@@ -174,7 +182,7 @@ impl RpcRouter {
     ) -> RpcResponse
     where
         F: FnOnce(&mut VaultSession) -> (RpcResponse, T),
-        P: FnOnce(&mut VaultSession, &Storage, T),
+        P: FnOnce(&mut VaultSession, &Storage, &DerivativeIndexState, T),
     {
         let Some(session) = self.session.as_mut() else {
             return RpcResponse::error("Vault not unlocked", Some(ErrorCode::VaultRequired));
@@ -197,7 +205,12 @@ impl RpcRouter {
         }
 
         if let Some(session) = self.session.as_mut() {
-            post_commit(session, &self.storage, output);
+            post_commit(
+                session,
+                &self.storage,
+                self.derivative_index_state.as_ref(),
+                output,
+            );
         }
 
         response
@@ -206,6 +219,8 @@ impl RpcRouter {
     /// Save current session (if any)
     pub fn save(&mut self) -> crate::error::Result<()> {
         if let Some(session) = &mut self.session {
+            self.derivative_index_state
+                .flush(&self.storage, session.vault_key())?;
             let persisted = session.save(&self.storage)?;
             self.event_queue.enqueue_catalog_events(persisted);
         }
@@ -220,5 +235,13 @@ impl RpcRouter {
     #[cfg(test)]
     pub fn storage(&self) -> &Storage {
         &self.storage
+    }
+}
+
+impl Drop for RpcRouter {
+    fn drop(&mut self) {
+        if let Some(master_key) = self.master_key.as_mut() {
+            master_key.zeroize();
+        }
     }
 }

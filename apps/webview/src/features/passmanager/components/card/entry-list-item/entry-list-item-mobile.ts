@@ -152,9 +152,14 @@ export class PMEntryListItemMobile extends PMEntryListItemBase {
   }
 
   private onSwipeDelete(event: Event) {
+    event.preventDefault()
     event.stopPropagation()
+
+    const entry = peek(this.model.entry)
+    if (!(entry instanceof Entry)) return
+
     this.model.closeSwipe()
-    this.dispatchEvent(new CustomEvent('entry-delete', {detail: peek(this.model.entry), bubbles: true, composed: true}))
+    this.dispatchEvent(new CustomEvent<Entry>('entry-delete', {detail: entry, bubbles: true, composed: true}))
   }
 
   private enterSelectionMode(event?: Event) {

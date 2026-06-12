@@ -32,6 +32,24 @@ export const getVisualViewportLayoutHeight = ({
   return Math.min(rootClientHeight, windowInnerHeight)
 }
 
+export const getVisualViewportBlockSize = ({
+  visualViewportHeight,
+  windowInnerHeight,
+}: {
+  visualViewportHeight: number
+  windowInnerHeight: number
+}): number => {
+  if (Number.isFinite(visualViewportHeight) && visualViewportHeight > 0) {
+    return Math.round(visualViewportHeight)
+  }
+
+  if (Number.isFinite(windowInnerHeight) && windowInnerHeight > 0) {
+    return Math.round(windowInnerHeight)
+  }
+
+  return 0
+}
+
 export const getVisualViewportBottomInset = ({
   layoutViewportHeight,
   visualViewportHeight,
@@ -204,11 +222,20 @@ export const setupMobileVisualViewportSync = () => {
       nativeSafeAreaBottomInset,
       hasNativeSafeAreaBottom,
     })
+    const visualViewportBlockSize = getVisualViewportBlockSize({
+      visualViewportHeight: viewport.height,
+      windowInnerHeight,
+    })
 
     root.style.setProperty(
       '--visual-viewport-bottom-inset',
       `${usesNativeResize ? 0 : effectiveKeyboardInset}px`,
     )
+    if (visualViewportBlockSize > 0) {
+      root.style.setProperty('--visual-viewport-block-size', `${visualViewportBlockSize}px`)
+    } else {
+      root.style.removeProperty('--visual-viewport-block-size')
+    }
     applyMobileKeyboardCssOffsets(root, effectiveKeyboardInset, cssOffsetSource, cssViewportMode)
     root.style.setProperty('--safe-area-bottom-fallback', `${resolvedSafeAreaInset}px`)
     root.toggleAttribute(VISUAL_VIEWPORT_SHRUNK_ATTR, effectiveKeyboardInset > 0)

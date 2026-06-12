@@ -8,6 +8,19 @@ pub(in crate::rpc::router) const BACKUP_PACK_FORMAT_VERSION: u64 = 2;
 pub(in crate::rpc::router) const BACKUP_PACK_FILE_NAME: &str = "chunks.pack";
 pub(in crate::rpc::router) const BACKUP_PACK_STREAM_CHUNK_SIZE: u32 = 1024 * 1024;
 
+/// Upper bound on a single declared chunk size in a restore manifest.
+///
+/// A restore client controls `chunk.size`, and the upload path allocates a
+/// buffer of that size up front (`buffer.resize(size, 0)`). Without a bound a
+/// manifest declaring e.g. `u64::MAX` forces an immediate huge allocation that
+/// aborts the process. Real encrypted chunks are at most a few MiB; 512 MiB is
+/// generous headroom while still preventing the DoS.
+pub(in crate::rpc::router) const MAX_MANIFEST_CHUNK_BYTES: u64 = 512 * 1024 * 1024;
+
+/// Upper bound on the total declared pack size in a restore manifest, to reject
+/// absurd manifests before any chunk is read or written.
+pub(in crate::rpc::router) const MAX_MANIFEST_TOTAL_BYTES: u64 = 64 * 1024 * 1024 * 1024;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(in crate::rpc::router) struct BackupChunkManifest {
     pub v: u64,
@@ -52,10 +65,22 @@ impl BackupChunkManifest {
             if !seen.insert(chunk.name.clone()) {
                 return Err(format!("Duplicate chunk name in manifest: {}", chunk.name));
             }
+            if chunk.size > MAX_MANIFEST_CHUNK_BYTES {
+                return Err(format!(
+                    "chunks.manifest.json chunk size exceeds limit: {} > {}",
+                    chunk.size, MAX_MANIFEST_CHUNK_BYTES
+                ));
+            }
             total_size = total_size.saturating_add(chunk.size);
         }
         if self.total_size != total_size {
             return Err("chunks.manifest.json total_size mismatch".to_string());
+        }
+        if self.total_size > MAX_MANIFEST_TOTAL_BYTES {
+            return Err(format!(
+                "chunks.manifest.json total_size exceeds limit: {} > {}",
+                self.total_size, MAX_MANIFEST_TOTAL_BYTES
+            ));
         }
 
         Ok(())

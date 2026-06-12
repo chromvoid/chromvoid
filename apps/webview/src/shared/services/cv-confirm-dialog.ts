@@ -3,6 +3,10 @@ import {CVDialog} from '@chromvoid/uikit/components/cv-dialog'
 import {atom, wrap} from '@reatom/core'
 import {css, type TemplateResult} from 'lit'
 import {i18n} from 'root/i18n'
+import {
+  elementContainsDeepActiveElement,
+  eventPathContainsElement,
+} from 'root/shared/keyboard/keyboard-event-guards'
 import type {ConfirmDialogOptions} from './dialog-types.js'
 import {writeAndroidUnlockDebug} from './android-unlock-debug'
 
@@ -58,6 +62,22 @@ const variantIcons: Record<string, TemplateResult> = {
     />
     <circle cx="12" cy="17.5" r="0.75" fill="currentColor" />
   </svg>`,
+}
+
+class CvConfirmDialogModel {
+  private readonly openState = atom(false, 'cvConfirmDialog.open')
+
+  isOpen(): boolean {
+    return this.openState()
+  }
+
+  open(): void {
+    this.openState.set(true)
+  }
+
+  close(): void {
+    this.openState.set(false)
+  }
 }
 
 export class CvConfirmDialog extends ReatomLitElement {
@@ -225,7 +245,7 @@ export class CvConfirmDialog extends ReatomLitElement {
   ]
 
   private opts: CvConfirmDialogOptions = {}
-  private isOpen = atom(false)
+  private readonly model = new CvConfirmDialogModel()
 
   private _resolve?: (value: boolean | null) => void
   private _result: boolean | null = null
@@ -236,6 +256,17 @@ export class CvConfirmDialog extends ReatomLitElement {
 
   configure(options: CvConfirmDialogOptions) {
     this.opts = options
+  }
+
+  disconnectedCallback(): void {
+    if (this._resolve) {
+      this.showToken += 1
+      this.model.close()
+      this.shown = false
+      this.closing = false
+      this.resolveResult()
+    }
+    super.disconnectedCallback()
   }
 
   show(): Promise<boolean | null> {
@@ -256,11 +287,11 @@ export class CvConfirmDialog extends ReatomLitElement {
     this._result = result
     this.closing = true
     this.trace('close:requested', {result})
-    if (!this.isOpen() && !this.shown) {
+    if (!this.model.isOpen() && !this.shown) {
       this.resolveResult()
       return
     }
-    this.isOpen.set(false)
+    this.model.close()
     this.trace('close:open-state-set', {result})
   }
 
@@ -270,7 +301,7 @@ export class CvConfirmDialog extends ReatomLitElement {
       this.trace('show:skipped-stale', {token})
       return
     }
-    this.isOpen.set(true)
+    this.model.open()
   }
 
   private handleConfirm() {
@@ -281,15 +312,33 @@ export class CvConfirmDialog extends ReatomLitElement {
     this.close(false)
   }
 
+  private isDangerConfirm(): boolean {
+    return this.opts.confirmVariant === 'danger'
+  }
+
+  private getConfirmButton(): Element | null {
+    return this.renderRoot.querySelector('[data-confirm-action="confirm"]')
+  }
+
   private handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      this.close(true)
+    if (e.key !== 'Enter') return
+
+    if (this.isDangerConfirm()) {
+      const confirmButton = this.getConfirmButton()
+      if (
+        !eventPathContainsElement(e, confirmButton) &&
+        !elementContainsDeepActiveElement(confirmButton, this.renderRoot as ShadowRoot)
+      ) {
+        return
+      }
     }
+
+    e.preventDefault()
+    this.close(true)
   }
 
   private handleAfterShow() {
-    if (this.closing || !this.isOpen()) return
+    if (this.closing || !this.model.isOpen()) return
     this.shown = true
     this.trace('after-show')
     this.dispatchEvent(new Event('cv-after-show', {bubbles: true}))
@@ -317,7 +366,7 @@ export class CvConfirmDialog extends ReatomLitElement {
     const payload = {
       title: this.opts.title ?? null,
       dt_ms: dtMs,
-      open: this.isOpen(),
+      open: this.model.isOpen(),
       shown: this.shown,
       closing: this.closing,
       ...meta,
@@ -329,7 +378,7 @@ export class CvConfirmDialog extends ReatomLitElement {
   private handleDialogChange(e: CustomEvent<{open?: boolean}>) {
     if (e.target !== e.currentTarget) return
     if (typeof e.detail?.open !== 'boolean') return
-    if (e.detail.open || !this.isOpen()) return
+    if (e.detail.open || !this.model.isOpen()) return
     this.close(null)
   }
 
@@ -344,7 +393,7 @@ export class CvConfirmDialog extends ReatomLitElement {
     return html`
       <cv-dialog
         class=${`size-${size}`}
-        .open=${this.isOpen()}
+        .open=${this.model.isOpen()}
         .noHeader=${opts.noHeader ?? false}
         .closable=${closable}
         .closeOnEscape=${closable}
@@ -371,7 +420,7 @@ export class CvConfirmDialog extends ReatomLitElement {
                   >${opts.cancelText || i18n('button:cancel' as any)}</cv-button
                 >
               `}
-          <cv-button variant=${confirmVariant} @click=${this.handleConfirm}
+          <cv-button variant=${confirmVariant} data-confirm-action="confirm" @click=${this.handleConfirm}
             >${opts.confirmText || i18n('button:ok' as any)}</cv-button
           >
         </div>

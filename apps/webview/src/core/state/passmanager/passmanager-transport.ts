@@ -1,11 +1,42 @@
 import type {CatalogDeps} from './types'
-import type {PassManagerEntryType, PaymentCardMeta} from '@project/passmanager/types'
-import {streamToText} from '../../pass-utils'
+import type {
+  Algorithm,
+  Encoding,
+  OTPType,
+  PassManagerEntryType,
+  PaymentCardMeta,
+  UrlRule,
+} from '@project/passmanager/types'
+import {normalizeOTPEncoding, streamToText} from '../../pass-utils'
 
 function normalizeGroupDescription(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null
   const normalized = value.trim()
   return normalized ? normalized : null
+}
+
+type SaveEntryOtpMeta = {
+  id?: string
+  label?: string
+  algorithm?: Algorithm
+  digits?: number
+  period?: number
+  encoding?: Encoding | 'hex'
+  type?: OTPType
+  counter?: number
+}
+
+function toSaveEntryOtpPayload(otp: SaveEntryOtpMeta): Record<string, unknown> {
+  return {
+    id: otp.id,
+    label: otp.label,
+    algorithm: otp.algorithm,
+    digits: otp.digits,
+    period: otp.period,
+    encoding: normalizeOTPEncoding(otp.encoding),
+    type: otp.type,
+    counter: otp.counter,
+  }
 }
 
 export class PassmanagerTransport {
@@ -28,8 +59,9 @@ export class PassmanagerTransport {
     entryType?: PassManagerEntryType
     createdTs?: number
     updatedTs?: number
-    urls?: string[]
+    urls?: Array<string | UrlRule>
     username?: string
+    otps?: SaveEntryOtpMeta[]
     paymentCard?: PaymentCardMeta
     groupPath?: string
     iconRef?: string
@@ -44,6 +76,7 @@ export class PassmanagerTransport {
       updated_ts: params.updatedTs,
       urls: params.urls,
       username: params.username,
+      otps: params.otps?.map(toSaveEntryOtpPayload),
       payment_card: params.paymentCard
         ? {
             cardholder_name: params.paymentCard.cardholderName,

@@ -247,7 +247,7 @@ describe('PMEntryCreateModel', () => {
     model.setCardholderName('Alice Doe')
     model.setCardNumber('4111 1111 1111 1111')
     model.setCardExpMonth('12')
-    model.setCardExpYear('2031')
+    model.setCardExpYear('31')
     model.setCardCvv('123')
 
     const result = await model.submit()
@@ -295,7 +295,7 @@ describe('PMEntryCreateModel', () => {
     model.setCardholderName('Alice Doe')
     model.setCardNumber('4111 1111 1111 1111')
     model.setCardExpMonth('12')
-    model.setCardExpYear('2031')
+    model.setCardExpYear('31')
     model.setCardCvv('123')
 
     const submit = model.submit()
@@ -334,7 +334,7 @@ describe('PMEntryCreateModel', () => {
     model.setCardholderName('Alice Doe')
     model.setCardNumber('4111 1111 1111 1111')
     model.setCardExpMonth('12')
-    model.setCardExpYear('2031')
+    model.setCardExpYear('31')
     model.setTags(['Finance', 'finance', '  Travel  '])
 
     const result = await model.submit()
@@ -392,8 +392,31 @@ describe('PMEntryCreateModel', () => {
     )
     expect(model.cardExpYearError()).not.toBe('')
 
-    model.setCardExpYear('2031')
+    model.setCardExpYear('31')
     expect(model.cardExpYearError()).toBe('')
+    expect(createEntry).not.toHaveBeenCalled()
+  })
+
+  it('rejects four-digit payment-card expiry years', async () => {
+    const createEntry = vi.fn()
+    window.passmanager = {
+      createEntry,
+      isReadOnly: vi.fn(() => false),
+    } as unknown as typeof window.passmanager
+
+    const model = new PMEntryCreateModel()
+    model.setEntryType('payment_card')
+    model.setTitle('Team Visa')
+    model.setCardholderName('Alice Doe')
+    model.setCardNumber('4111 1111 1111 1111')
+    model.setCardExpMonth('12')
+    model.setCardExpYear('2031')
+
+    await expect(model.submit()).resolves.toEqual(
+      expect.objectContaining({ok: false, reason: 'invalid_payment_card', field: 'cardExpYear'}),
+    )
+
+    expect(model.cardExpYearError()).not.toBe('')
     expect(createEntry).not.toHaveBeenCalled()
   })
 
@@ -415,6 +438,62 @@ describe('PMEntryCreateModel', () => {
     await expect(first).resolves.toEqual({ok: true})
     await expect(second).resolves.toEqual({ok: true})
     expect(createEntry).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns aborted instead of saved when reset aborts an in-flight create', async () => {
+    const persistence = deferred<void>()
+    const entry = {
+      flushPendingPersistence: vi.fn(async () => {
+        await persistence.promise
+      }),
+      saveCardPan: vi.fn(async () => true),
+      saveCardCvv: vi.fn(async () => true),
+    }
+    const createEntry = vi.fn(() => entry)
+    window.passmanager = {
+      createEntry,
+      isReadOnly: vi.fn(() => false),
+    } as unknown as typeof window.passmanager
+
+    const model = new PMEntryCreateModel()
+    model.setEntryType('payment_card')
+    model.setTitle('Team Visa')
+    model.setCardholderName('Alice Doe')
+    model.setCardNumber('4111 1111 1111 1111')
+    model.setCardExpMonth('12')
+    model.setCardExpYear('31')
+    model.setCardCvv('123')
+
+    const submit = model.submit()
+    await Promise.resolve()
+    expect(entry.flushPendingPersistence).toHaveBeenCalledTimes(1)
+
+    model.reset()
+    persistence.resolve()
+
+    await expect(submit).resolves.toEqual({ok: false, reason: 'aborted'})
+    expect(entry.saveCardPan).not.toHaveBeenCalled()
+    expect(entry.saveCardCvv).not.toHaveBeenCalled()
+  })
+
+  it('blocks submit when SSH is enabled without a generated key request', async () => {
+    const createEntry = vi.fn(() => undefined)
+    window.passmanager = {
+      createEntry,
+      isReadOnly: vi.fn(() => false),
+    } as unknown as typeof window.passmanager
+
+    const model = new PMEntryCreateModel()
+    model.setTitle('Entry')
+    model.setUsername('alice')
+    model.setPassword('secret')
+    model.setUseSsh(true)
+
+    await expect(model.submit()).resolves.toEqual(
+      expect.objectContaining({ok: false, reason: 'invalid_ssh'}),
+    )
+    expect(model.sshSheetOpen()).toBe(true)
+    expect(createEntry).not.toHaveBeenCalled()
   })
 
   it('dedupes SSH generation when repeated submits race on the same create flow', async () => {

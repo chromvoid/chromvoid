@@ -7,7 +7,7 @@ mod shards;
 pub mod system;
 
 pub use catalog::*;
-pub use catalog_secret_erase::*;
+pub(in crate::rpc) use catalog_secret_erase::*;
 #[cfg(debug_assertions)]
 pub use guards::set_bypass_system_shard_guards;
 pub(crate) use guards::{

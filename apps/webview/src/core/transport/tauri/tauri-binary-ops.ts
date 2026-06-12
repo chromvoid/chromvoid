@@ -1,14 +1,14 @@
 import type {RpcResult} from '@chromvoid/scheme'
 import {isSuccess} from '@chromvoid/scheme'
-import {convertFileSrc} from '@tauri-apps/api/core'
 
 import type {
   AndroidAudioCommand,
   AndroidAudioCommandResult,
+  HostPathSaveTargetOptions,
+  HostPathTokenGrant,
   NativeAudioCommand,
   NativeAudioCommandResult,
   ImagePhotoMetadata,
-  NativeUploadCompleted,
   NativeUploadFailed,
   NativeUploadFile,
   NativeUploadOptions,
@@ -228,6 +228,14 @@ type CatalogFileReplacePayload = {
   mediaInfo?: unknown
   media_inspected_revision?: number
   mediaInspectedRevision?: number
+}
+
+type HostPathUploadFilesPayload = {
+  files?: HostPathTokenGrant[]
+}
+
+type HostPathSaveTargetPayload = {
+  target?: HostPathTokenGrant | null
 }
 
 function unwrapRpcResult<T>(result: RpcResult<T>, fallbackMessage: string): T {
@@ -464,14 +472,44 @@ export async function uploadFileViaTauri(
   return {nodeId}
 }
 
-export async function statPathViaTauri(path: string): Promise<{name: string; size: number}> {
-  const response = await tauriInvoke<RpcResult<{name: string; size: number}>>('file_stat', {path})
-  return unwrapRpcResult(response, 'file_stat failed')
+export async function pickUploadFilesViaTauri(): Promise<HostPathTokenGrant[]> {
+  const response = await tauriInvoke<RpcResult<HostPathUploadFilesPayload>>(
+    'host_path_pick_upload_files',
+  )
+  const result = unwrapRpcResult(response, 'host_path_pick_upload_files failed')
+  return Array.isArray(result.files) ? result.files : []
+}
+
+export async function pickDownloadTargetViaTauri(
+  options: HostPathSaveTargetOptions,
+): Promise<HostPathTokenGrant | null> {
+  const response = await tauriInvoke<RpcResult<HostPathSaveTargetPayload>>(
+    'host_path_pick_download_target',
+    {args: options},
+  )
+  const result = unwrapRpcResult(response, 'host_path_pick_download_target failed')
+  return result.target ?? null
+}
+
+export async function pickTextFileTargetViaTauri(
+  options: HostPathSaveTargetOptions,
+): Promise<HostPathTokenGrant | null> {
+  const response = await tauriInvoke<RpcResult<HostPathSaveTargetPayload>>(
+    'host_path_pick_text_file_target',
+    {args: options},
+  )
+  const result = unwrapRpcResult(response, 'host_path_pick_text_file_target failed')
+  return result.target ?? null
+}
+
+export async function writeTextFileViaTauri(pathToken: string, content: string): Promise<void> {
+  const response = await tauriInvoke<RpcResult<unknown>>('write_text_file', {pathToken, content})
+  unwrapRpcResult(response, 'write_text_file failed')
 }
 
 export async function uploadFilePathViaTauri(
   target: number | {parentPath?: string; name: string},
-  path: string,
+  pathToken: string,
   opts?: {
     uploadId?: string
     chunkSize?: number
@@ -502,7 +540,7 @@ export async function uploadFilePathViaTauri(
   try {
     const readChunkSize = chunkSize
     const payload: Record<string, unknown> = {
-      path,
+      pathToken,
       uploadId,
       readChunkSize,
     }
@@ -1001,7 +1039,7 @@ export async function warmupAndroidAudioViaTauri(): Promise<boolean> {
 
 export async function downloadFilePathViaTauri(
   nodeId: number,
-  targetPath: string,
+  targetPathToken: string,
   opts?: {
     downloadId?: string
     totalBytes?: number
@@ -1030,7 +1068,7 @@ export async function downloadFilePathViaTauri(
   try {
     const response = await tauriInvoke<RpcResult<{bytes_written: number; name: string; mime_type: string}>>(
       'catalog_download_path',
-      {args: {nodeId, targetPath, downloadId}},
+      {args: {nodeId, targetPathToken, downloadId}},
     )
     return unwrapRpcResult(response, 'catalog_download_path failed')
   } finally {

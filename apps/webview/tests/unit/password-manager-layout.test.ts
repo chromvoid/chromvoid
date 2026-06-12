@@ -15,6 +15,7 @@ import {
   PASSMANAGER_NO_MOTION_INTENT,
   pmMotionModel,
 } from '../../src/features/passmanager/models/pm-motion.model'
+import {pmCredentialTagsModel} from '../../src/features/passmanager/models/pm-credential-tags.model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
 
 const originalMatchMedia = window.matchMedia
@@ -89,6 +90,7 @@ describe('password-manager layout selection', () => {
       .querySelectorAll('password-manager-desktop-layout, password-manager-mobile-layout')
       .forEach((element) => element.remove())
     setPassmanagerRoot(undefined)
+    pmCredentialTagsModel.closeSheet()
     pmMotionModel.reset()
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
@@ -217,7 +219,7 @@ describe('password-manager layout selection', () => {
   })
 
   describe('OTP quick view shell rendering', () => {
-    it('desktop layout renders the OTP quick view for otpView state', async () => {
+    it('desktop layout renders the OTP quick view as a standalone page for otpView state', async () => {
       const root = new ManagerRoot({} as any)
       root.entries.set([])
       root.showElement.set('otpView')
@@ -232,6 +234,9 @@ describe('password-manager layout selection', () => {
 
       expect(element.shadowRoot?.querySelector('pm-otp-quick-view')).not.toBeNull()
       expect(element.shadowRoot?.querySelector('pm-group')).toBeNull()
+      expect(element.shadowRoot?.querySelector('.wrapper')).toBeNull()
+      expect(element.shadowRoot?.querySelector('.sidebar')).toBeNull()
+      expect(element.shadowRoot?.querySelector('.resizer')).toBeNull()
     })
 
     it('mobile layout renders the OTP quick view for otpView state', async () => {
@@ -249,6 +254,78 @@ describe('password-manager layout selection', () => {
 
       expect(element.shadowRoot?.querySelector('pm-otp-quick-view-mobile')).not.toBeNull()
       expect(element.shadowRoot?.querySelector('pm-group-mobile')).toBeNull()
+    })
+  })
+
+  describe('tag management sheet host', () => {
+    it.each([
+      {
+        name: 'desktop create entry',
+        tagName: 'password-manager-desktop-layout',
+        define: () => PasswordManagerDesktopLayout.define(),
+        resolveShowElement: (_fixture: ReturnType<typeof createRootFixture>) => 'createEntry' as const,
+      },
+      {
+        name: 'desktop entry',
+        tagName: 'password-manager-desktop-layout',
+        define: () => PasswordManagerDesktopLayout.define(),
+        resolveShowElement: (fixture: ReturnType<typeof createRootFixture>) => fixture.entry,
+      },
+      {
+        name: 'mobile create entry',
+        tagName: 'password-manager-mobile-layout',
+        define: () => PasswordManagerMobileLayout.define(),
+        resolveShowElement: (_fixture: ReturnType<typeof createRootFixture>) => 'createEntry' as const,
+      },
+      {
+        name: 'mobile entry',
+        tagName: 'password-manager-mobile-layout',
+        define: () => PasswordManagerMobileLayout.define(),
+        resolveShowElement: (fixture: ReturnType<typeof createRootFixture>) => fixture.entry,
+      },
+    ])('renders one tag management sheet host for $name', async ({tagName, define, resolveShowElement}) => {
+      const fixture = createRootFixture()
+      fixture.root.showElement.set(resolveShowElement(fixture) as never)
+      setPassmanagerRoot(fixture.root)
+      define()
+
+      const element = document.createElement(tagName) as HTMLElement & {updateComplete: Promise<unknown>}
+      document.body.appendChild(element)
+      await settle(element)
+
+      const shadowRoot = element.shadowRoot
+      expect(shadowRoot).not.toBeNull()
+      expect(shadowRoot!.querySelectorAll('pm-mobile-tag-filter-sheet')).toHaveLength(1)
+    })
+
+    it('keeps mobile create entry tag sheet outside search and opens it from the tag model', async () => {
+      const fixture = createRootFixture()
+      fixture.root.showElement.set('createEntry' as never)
+      setPassmanagerRoot(fixture.root)
+      PasswordManagerMobileLayout.define()
+
+      const element = document.createElement(
+        'password-manager-mobile-layout',
+      ) as PasswordManagerMobileLayout
+      document.body.appendChild(element)
+      await settle(element)
+
+      const shadowRoot = element.shadowRoot
+      expect(shadowRoot).not.toBeNull()
+      expect(shadowRoot!.querySelector('pm-search-mobile')).toBeNull()
+      const sheet = shadowRoot!.querySelector(
+        'pm-mobile-tag-filter-sheet',
+      ) as (HTMLElement & {updateComplete: Promise<unknown>}) | null
+      expect(sheet).not.toBeNull()
+
+      pmCredentialTagsModel.openManageSheet()
+      await settle(sheet!)
+
+      const sheetShadowRoot = sheet!.shadowRoot
+      expect(sheetShadowRoot).not.toBeNull()
+      const bottomSheet = sheetShadowRoot!.querySelector('cv-bottom-sheet') as ({open?: boolean} & HTMLElement) | null
+      expect(bottomSheet).not.toBeNull()
+      expect(bottomSheet!.open).toBe(true)
     })
   })
 

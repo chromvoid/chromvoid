@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 use std::io::Read;
 
+use crate::rpc::stream::read_exact_limited;
 use crate::rpc::{RpcInputStream, RpcReply, RpcResponse, RpcRouter};
 
 use super::super::super::backup_pack::BackupChunkManifest;
@@ -15,6 +16,19 @@ use super::super::tx::{
 };
 use super::super::RestoreLocalSession;
 use super::cancel::rollback_restore_local;
+
+/// Reject a restore unless storage holds no chunks and no salt, mirroring
+/// `admin:restore`. This is the gate that prevents an unauthenticated caller
+/// from writing chunks into — and thereby corrupting — an existing vault.
+fn require_blank_storage_for_restore(router: &RpcRouter) -> RestoreResult<()> {
+    let existing_chunks = router.storage.list_chunks().map_err(|error| {
+        RestoreCommandError::internal(format!("Failed to check storage state: {error}"))
+    })?;
+    if !existing_chunks.is_empty() || router.storage.salt_exists() {
+        return Err(RestoreCommandError::storage_not_blank());
+    }
+    Ok(())
+}
 
 pub(in crate::rpc::router::restore) fn handle_restore_local_start(
     router: &mut RpcRouter,
@@ -35,6 +49,12 @@ fn restore_local_start(
     router
         .recover_before_restore_entry()
         .map_err(RestoreCommandError::from)?;
+
+    // Restore writes attacker-controllable chunks straight into storage. Like
+    // admin:restore, it must only run against blank storage so it can never
+    // overwrite or corrupt an existing vault (H5). Recovery above first clears
+    // any half-finished prior restore.
+    require_blank_storage_for_restore(router)?;
 
     router.expire_restore_local_if_idle();
     if router.restore_local_is_active() {
@@ -105,6 +125,11 @@ fn restore_local_upload_pack(
         .restore_local_session(restore_id)
         .map_err(RestoreCommandError::from)?;
 
+    // Defense in depth: re-verify storage is still blank before writing any
+    // attacker-supplied chunk, so a concurrently-created vault cannot be
+    // clobbered between start and upload (H5).
+    require_blank_storage_for_restore(router)?;
+
     let stream = match stream {
         Some(stream) => stream,
         None => return Err(RestoreCommandError::no_stream()),
@@ -115,25 +140,21 @@ fn restore_local_upload_pack(
     let mut chunk_batch = router
         .storage
         .begin_chunk_write_batch("restore-local-upload-pack");
-    let mut buffer = Vec::new();
 
     for (index, chunk) in manifest.chunks.iter().enumerate() {
-        let size = match usize::try_from(chunk.size) {
-            Ok(size) => size,
-            Err(_) => {
+        let buffer = match read_exact_limited(
+            &mut *reader,
+            chunk.size,
+            super::super::super::backup_pack::MAX_MANIFEST_CHUNK_BYTES,
+        ) {
+            Ok(buffer) => buffer,
+            Err(error) => {
                 chunk_batch.rollback_temps();
-                return Err(RestoreCommandError::restore_invalid_format(
-                    "chunks.manifest.json chunk size is too large",
-                ));
+                return Err(RestoreCommandError::restore_invalid_format(format!(
+                    "chunks.pack is truncated or oversized at chunk {index}: {error}"
+                )));
             }
         };
-        buffer.resize(size, 0);
-        if let Err(error) = reader.read_exact(&mut buffer) {
-            chunk_batch.rollback_temps();
-            return Err(RestoreCommandError::restore_invalid_format(format!(
-                "chunks.pack is truncated at chunk {index}: {error}"
-            )));
-        }
 
         if let Err(error) = chunk_batch.write_chunk(chunk.name.clone(), &buffer) {
             chunk_batch.rollback_temps();

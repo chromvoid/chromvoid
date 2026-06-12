@@ -154,7 +154,7 @@ impl FlatStorageBackend {
 }
 
 #[cfg(unix)]
-fn set_private_temp_permissions(path: &Path) -> Result<()> {
+pub(super) fn set_private_temp_permissions(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
     fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
@@ -162,7 +162,7 @@ fn set_private_temp_permissions(path: &Path) -> Result<()> {
 }
 
 #[cfg(not(unix))]
-fn set_private_temp_permissions(_path: &Path) -> Result<()> {
+pub(super) fn set_private_temp_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }
 

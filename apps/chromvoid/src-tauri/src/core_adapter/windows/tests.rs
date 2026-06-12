@@ -59,8 +59,8 @@ struct RemoteAdapter;
 impl CoreAdapter for RemoteAdapter {
     fn mode(&self) -> CoreMode {
         CoreMode::Remote {
-            host: crate::core_adapter::RemoteHost::MobileBle {
-                device_id: "peer-1".to_string(),
+            host: crate::core_adapter::RemoteHost::TauriRemoteWss {
+                peer_id: "peer-1".to_string(),
             },
         }
     }

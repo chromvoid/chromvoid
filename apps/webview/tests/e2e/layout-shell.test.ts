@@ -1,6 +1,7 @@
 import {expect, test} from 'vitest'
 
 declare global {
+  var __E2E_BROWSER__: import('playwright').Browser | undefined
   var __E2E_PAGE__: import('playwright').Page | undefined
 }
 
@@ -21,6 +22,105 @@ async function deepQuerySelector(page: import('playwright').Page, selector: stri
     }
     return deepFind(document, sel) !== null
   }, selector)
+}
+
+async function deepQuerySelectorCount(page: import('playwright').Page, selector: string): Promise<number> {
+  return page.evaluate((sel) => {
+    function deepFindAll(root: Document | ShadowRoot, selector: string): Element[] {
+      const found = Array.from(root.querySelectorAll(selector))
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          found.push(...deepFindAll(el.shadowRoot, selector))
+        }
+      }
+      return found
+    }
+    return deepFindAll(document, sel).length
+  }, selector)
+}
+
+async function waitForDeepSelector(page: import('playwright').Page, selector: string): Promise<void> {
+  await page.waitForFunction((sel) => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+    return deepFind(document, sel) !== null
+  }, selector)
+}
+
+async function getDesktopNavigationRailMetrics(page: import('playwright').Page) {
+  return page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const layout = deepFind(document, 'file-app-shell-desktop-layout') as HTMLElement | null
+    const rail = layout?.shadowRoot?.querySelector('navigation-rail') as HTMLElement | null
+    if (!rail) return null
+
+    return {
+      expanded: rail.hasAttribute('expanded'),
+      pointerCoarse: matchMedia('(hover: none) and (pointer: coarse)').matches,
+      width: rail.getBoundingClientRect().width,
+    }
+  })
+}
+
+async function getCollapsedNavigationRailIconAlignment(page: import('playwright').Page) {
+  return page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const layout = deepFind(document, 'file-app-shell-desktop-layout') as HTMLElement | null
+    const rail = layout?.shadowRoot?.querySelector('navigation-rail') as HTMLElement | null
+    if (!rail) return []
+
+    const buttons = Array.from(
+      rail.shadowRoot?.querySelectorAll<HTMLElement>('cv-button.item, cv-button.theme-toggle') ?? [],
+    )
+
+    return buttons.flatMap((button) => {
+      const base = button.shadowRoot?.querySelector<HTMLElement>('[part="base"]')
+      const prefix = button.shadowRoot?.querySelector<HTMLElement>('[part="prefix"]')
+      if (!base || !prefix || prefix.hasAttribute('hidden')) return []
+
+      const baseRect = base.getBoundingClientRect()
+      const prefixRect = prefix.getBoundingClientRect()
+      if (baseRect.width === 0 || prefixRect.width === 0) return []
+
+      return [
+        {
+          label: (button.textContent || '').replace(/\s+/g, ' ').trim(),
+          centerDelta: Math.abs(prefixRect.left + prefixRect.width / 2 - (baseRect.left + baseRect.width / 2)),
+        },
+      ]
+    })
+  })
 }
 
 async function deepClick(page: import('playwright').Page, selector: string): Promise<boolean> {
@@ -283,6 +383,116 @@ test('force desktop layout on mobile viewport shows navigation-rail, no mobile-t
   const hasMobileTabBar = await deepQuerySelector(page, 'file-app-shell-desktop-layout mobile-tab-bar')
   expect(hasMobileTabBar).toBe(false)
 
+})
+
+test('desktop dashboard surfaces render one shell toolbar and no mobile toolbar', async () => {
+  const page = globalThis.__E2E_PAGE__!
+  await page.setViewportSize({width: 1280, height: 820})
+
+  const surfaces = [
+    'files',
+    'notes',
+    'passwords',
+    'passkeys',
+    'settings',
+    'remote',
+    'gateway',
+    'remote-storage',
+  ]
+
+  for (const surface of surfaces) {
+    await page.goto(`${BASE_URL}?layout=desktop&surface=${surface}`, {waitUntil: 'domcontentloaded'})
+    await waitForDeepSelector(page, 'file-app-shell-desktop-layout')
+    await waitForDeepSelector(page, 'desktop-shell-toolbar')
+
+    expect(await deepQuerySelectorCount(page, 'desktop-shell-toolbar'), surface).toBe(1)
+    expect(await deepQuerySelector(page, 'mobile-top-toolbar'), surface).toBe(false)
+    expect(await deepQuerySelector(page, 'file-app-shell-mobile-layout'), surface).toBe(false)
+  }
+})
+
+test('desktop navigation rail stays collapsed on touch tablet until expanded', async () => {
+  const browser = globalThis.__E2E_BROWSER__!
+  const context = await browser.newContext({
+    deviceScaleFactor: 2,
+    hasTouch: true,
+    isMobile: true,
+    viewport: {width: 960, height: 600},
+  })
+  const page = await context.newPage()
+
+  try {
+    await page.goto(`${BASE_URL}?layout=desktop`, {waitUntil: 'domcontentloaded'})
+    await waitForDeepSelector(page, 'file-app-shell-desktop-layout')
+    await waitForDeepSelector(page, 'navigation-rail')
+
+    const collapsed = await getDesktopNavigationRailMetrics(page)
+    expect(collapsed?.pointerCoarse).toBe(true)
+    expect(collapsed?.expanded).toBe(false)
+    expect(collapsed?.width).toBeLessThan(100)
+
+    const clicked = await page.evaluate(() => {
+      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+        const found = root.querySelector(selector)
+        if (found) return found
+        for (const el of root.querySelectorAll('*')) {
+          if (el.shadowRoot) {
+            const inner = deepFind(el.shadowRoot, selector)
+            if (inner) return inner
+          }
+        }
+        return null
+      }
+
+      const layout = deepFind(document, 'file-app-shell-desktop-layout') as HTMLElement | null
+      const rail = layout?.shadowRoot?.querySelector('navigation-rail') as HTMLElement | null
+      const brandIcon = rail?.shadowRoot?.querySelector<HTMLElement>('.brand-icon')
+      brandIcon?.click()
+      return Boolean(brandIcon)
+    })
+    expect(clicked).toBe(true)
+
+    await page.waitForFunction(() => {
+      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+        const found = root.querySelector(selector)
+        if (found) return found
+        for (const el of root.querySelectorAll('*')) {
+          if (el.shadowRoot) {
+            const inner = deepFind(el.shadowRoot, selector)
+            if (inner) return inner
+          }
+        }
+        return null
+      }
+
+      const layout = deepFind(document, 'file-app-shell-desktop-layout') as HTMLElement | null
+      const rail = layout?.shadowRoot?.querySelector('navigation-rail') as HTMLElement | null
+      return Boolean(rail?.hasAttribute('expanded') && rail.getBoundingClientRect().width > 150)
+    })
+
+    const expanded = await getDesktopNavigationRailMetrics(page)
+    expect(expanded?.expanded).toBe(true)
+    expect(expanded?.width).toBeGreaterThan(150)
+  } finally {
+    await context.close()
+  }
+})
+
+test('desktop collapsed navigation rail centers icon-only actions', async () => {
+  const page = globalThis.__E2E_PAGE__!
+  await page.setViewportSize({width: 1280, height: 820})
+  await page.goto(`${BASE_URL}?layout=desktop`, {waitUntil: 'domcontentloaded'})
+  await waitForDeepSelector(page, 'file-app-shell-desktop-layout')
+  await waitForDeepSelector(page, 'navigation-rail')
+
+  const collapsed = await getDesktopNavigationRailMetrics(page)
+  expect(collapsed?.expanded).toBe(false)
+
+  const alignment = await getCollapsedNavigationRailIconAlignment(page)
+  expect(alignment.length).toBeGreaterThan(0)
+  for (const item of alignment) {
+    expect(item.centerDelta, item.label).toBeLessThanOrEqual(1)
+  }
 })
 
 test('mobile top toolbar appears on dashboard and wires menu + command actions', async () => {

@@ -9,7 +9,6 @@ export type RuntimeCapabilities = {
   supports_native_share: boolean
   supports_volume: boolean
   supports_gateway: boolean
-  supports_usb_remote: boolean
   supports_network_remote: boolean
   supports_biometric: boolean
   supports_autofill: boolean
@@ -37,7 +36,6 @@ export const RUNTIME_CAPABILITY_KEYS = [
   'supports_native_share',
   'supports_volume',
   'supports_gateway',
-  'supports_usb_remote',
   'supports_network_remote',
   'supports_biometric',
   'supports_autofill',
@@ -70,7 +68,6 @@ const FALLBACK_CAPABILITIES: RuntimeCapabilities = {
   supports_native_share: false,
   supports_volume: false,
   supports_gateway: false,
-  supports_usb_remote: false,
   supports_network_remote: true,
   supports_biometric: false,
   supports_autofill: false,

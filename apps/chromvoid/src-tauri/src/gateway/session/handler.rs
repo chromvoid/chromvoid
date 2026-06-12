@@ -12,9 +12,10 @@ use crate::core_adapter::CoreAdapter;
 
 use super::super::handshake::check_capability;
 use super::super::protocol::{
-    error_codes, frame_continuation, frame_from_event, frame_from_heartbeat,
-    frame_from_rpc_response, frame_stream_meta_response, parse_upload_stream_metadata,
-    upload_stream_chunk_data, validate_timestamp, AntiReplay, Frame, FrameType,
+    append_full_upload_stream_chunk, error_codes, frame_continuation, frame_from_event,
+    frame_from_heartbeat, frame_from_rpc_response, frame_stream_meta_response,
+    parse_upload_stream_metadata, upload_stream_chunk_data, validate_timestamp, AntiReplay, Frame,
+    FrameType,
 };
 use super::super::rate_limit::RateLimiter;
 use super::{
@@ -400,7 +401,17 @@ pub(in crate::gateway) async fn handle_extension_session(
                     break;
                   }
 
-                  body.extend_from_slice(&chunk_frame.payload);
+                  if let Err(response) =
+                    append_full_upload_stream_chunk(&mut body, &chunk_frame.payload)
+                  {
+                    warn!(
+                      "[gateway] closing upload stream for extension_id={ext_id}: full upload body exceeded limit stream_id={stream_msg_id}"
+                    );
+                    let response_frame = frame_from_rpc_response(stream_msg_id, &response);
+                    let _ = send_encrypted_frame!(transport, write, response_frame);
+                    stream_ok = false;
+                    break;
+                  }
 
                   if !chunk_frame.has_continuation() {
                     break;

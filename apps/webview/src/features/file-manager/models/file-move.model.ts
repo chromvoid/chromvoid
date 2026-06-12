@@ -191,24 +191,33 @@ export class FileMoveModel {
   }
 
   async moveItems(items: FileItemData[], targetPath: string): Promise<boolean> {
-    const validation = this.validateMove(items, targetPath)
+    const normalizedTargetPath = normalizePath(targetPath || '/')
+    const pendingItems = items.filter((item) => this.getItemParentPath(item) !== normalizedTargetPath)
+    if (pendingItems.length === 0) {
+      this.showToast(i18n('file-manager:move:already-in-folder'), 'info')
+      return false
+    }
+
+    const validation = this.validateMove(pendingItems, normalizedTargetPath)
     if (!validation.ok) {
       this.showToast(validation.message, validation.variant)
       return false
     }
 
     this.deps.isLoading.set(true)
+    const movedItems: FileItemData[] = []
     try {
-      for (const item of items) {
+      for (const item of pendingItems) {
         await wrap(this.ctx.catalog.api.move(item.id, validation.targetPath))
+        movedItems.push(item)
       }
 
       await wrap(this.ctx.catalog.refresh()).catch(() => {})
       this.clearSelection()
       this.rememberRecentTarget(validation.targetPath)
 
-      if (items.length === 1) {
-        const item = items[0]!
+      if (pendingItems.length === 1) {
+        const item = pendingItems[0]!
         this.lastMove.set({
           itemId: item.id,
           sourceParentPath: this.getItemParentPath(item),
@@ -218,11 +227,20 @@ export class FileMoveModel {
         this.showMoveSuccessToast(item, validation.targetPath)
       } else {
         this.lastMove.set(null)
-        this.showMoveManySuccessToast(items.length, validation.targetPath)
+        this.showMoveManySuccessToast(pendingItems.length, validation.targetPath)
       }
 
       return true
     } catch (error) {
+      if (movedItems.length > 0) {
+        await wrap(this.ctx.catalog.refresh()).catch(() => {})
+        this.lastMove.set(null)
+        this.rememberRecentTarget(validation.targetPath)
+        this.reconcileSelectionAfterPartialMove(pendingItems, movedItems)
+        this.showPartialMoveFailureToast(movedItems.length, pendingItems.length, error)
+        return false
+      }
+
       this.showToast(
         i18n('file-manager:move-failed', {message: this.getMoveErrorMessage(error)}),
         'error',
@@ -589,6 +607,13 @@ export class FileMoveModel {
     this.ctx.store.setSelectionMode(false)
   }
 
+  private reconcileSelectionAfterPartialMove(allItems: FileItemData[], movedItems: FileItemData[]): void {
+    const movedIds = new Set(movedItems.map((item) => item.id))
+    const remainingIds = allItems.map((item) => item.id).filter((id) => !movedIds.has(id))
+    this.ctx.store.setSelectedItems(remainingIds)
+    this.ctx.store.setSelectionMode(remainingIds.length > 0)
+  }
+
   private showMoveSuccessToast(item: FileItemData, targetPath: string): void {
     const targetLabel = this.getTargetLabel(targetPath)
     const actions: ToastAction[] = [
@@ -629,6 +654,17 @@ export class FileMoveModel {
           },
         },
       ],
+    )
+  }
+
+  private showPartialMoveFailureToast(movedCount: number, totalCount: number, error: unknown): void {
+    this.showToast(
+      i18n('file-manager:move:partial-failed', {
+        moved: String(movedCount),
+        total: String(totalCount),
+        message: this.getMoveErrorMessage(error),
+      }),
+      'error',
     )
   }
 

@@ -134,6 +134,73 @@ describe('openFileMoveDialog', () => {
     expect(onConfirm).not.toHaveBeenCalled()
   })
 
+  it('does not confirm the desktop dialog when Enter comes from search input', async () => {
+    const onConfirm = vi.fn(() => true)
+
+    vi.spyOn(dialogService, 'showCustomDialog').mockImplementation(async (_options, attach) => {
+      const dialog = document.createElement('div')
+      const picker = document.createElement('file-move') as HTMLElement & {selectedPath?: string}
+      picker.selectedPath = '/Archive'
+      const searchInput = document.createElement('input')
+      const confirmBtn = document.createElement('button')
+      confirmBtn.id = 'move-confirm-btn'
+      const cancelBtn = document.createElement('button')
+      cancelBtn.id = 'move-cancel-btn'
+      dialog.append(picker, searchInput, confirmBtn, cancelBtn)
+
+      return new Promise<string | null>((resolve) => {
+        attach(dialog, resolve)
+        searchInput.dispatchEvent(
+          new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, composed: true, cancelable: true}),
+        )
+        cancelBtn.click()
+      })
+    })
+
+    await expect(
+      openFileMoveDialog({
+        onConfirm,
+        selectedPath: '/Archive',
+        useMobilePicker: false,
+      }),
+    ).resolves.toBeNull()
+
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
+  it('does not confirm the desktop dialog when Enter comes from Cancel', async () => {
+    const onConfirm = vi.fn(() => true)
+
+    vi.spyOn(dialogService, 'showCustomDialog').mockImplementation(async (_options, attach) => {
+      const dialog = document.createElement('div')
+      const picker = document.createElement('file-move') as HTMLElement & {selectedPath?: string}
+      picker.selectedPath = '/Archive'
+      const confirmBtn = document.createElement('button')
+      confirmBtn.id = 'move-confirm-btn'
+      const cancelBtn = document.createElement('button')
+      cancelBtn.id = 'move-cancel-btn'
+      dialog.append(picker, confirmBtn, cancelBtn)
+
+      return new Promise<string | null>((resolve) => {
+        attach(dialog, resolve)
+        cancelBtn.dispatchEvent(
+          new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, composed: true, cancelable: true}),
+        )
+        cancelBtn.click()
+      })
+    })
+
+    await expect(
+      openFileMoveDialog({
+        onConfirm,
+        selectedPath: '/Archive',
+        useMobilePicker: false,
+      }),
+    ).resolves.toBeNull()
+
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
   it('ignores duplicate desktop confirms while confirmation is pending', async () => {
     const deferred = createDeferred<boolean>()
     const onConfirm = vi.fn(() => deferred.promise)
@@ -310,5 +377,48 @@ describe('openFileMoveDialog', () => {
 
     expect(surface.detents).toBe('')
     expect(surface.detent).toBe('expanded')
+  })
+
+  it('does not confirm the mobile sheet when Enter comes from search or Cancel', async () => {
+    setupContext()
+    FileMoveSheet.define()
+    const sheet = document.createElement('file-move-sheet') as FileMoveSheet
+    sheet.selectedPath = '/Archive'
+    document.body.append(sheet)
+
+    await sheet.updateComplete
+
+    const confirmSpy = vi.fn()
+    sheet.addEventListener('file-move-sheet-confirm', confirmSpy)
+
+    const surface = sheet.shadowRoot?.querySelector('cv-bottom-sheet')
+    const cancelButton = sheet.shadowRoot?.querySelector('[data-move-cancel]')
+    expect(surface).not.toBeNull()
+    expect(cancelButton).not.toBeNull()
+
+    const searchInput = document.createElement('input')
+    const searchEvent = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      composed: true,
+      cancelable: true,
+    })
+    Object.defineProperty(searchEvent, 'composedPath', {
+      value: () => [searchInput, surface, sheet, document.body, document, window],
+    })
+    surface?.dispatchEvent(searchEvent)
+
+    const cancelEvent = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      composed: true,
+      cancelable: true,
+    })
+    Object.defineProperty(cancelEvent, 'composedPath', {
+      value: () => [cancelButton, surface, sheet, document.body, document, window],
+    })
+    surface?.dispatchEvent(cancelEvent)
+
+    expect(confirmSpy).not.toHaveBeenCalled()
   })
 })

@@ -9,6 +9,7 @@ fn passkey_create_request() -> serde_json::Value {
     serde_json::json!({
         "platform": "android",
         "platform_version_major": 34,
+        "origin": "https://github.com",
         "request": {
             "rp": {
                 "id": "github.com",
@@ -20,7 +21,6 @@ fn passkey_create_request() -> serde_json::Value {
                 "displayName": "Alice"
             },
             "challenge": "Y2hhbGxlbmdlLTE",
-            "origin": "https://github.com",
             "pubKeyCredParams": [
                 { "type": "public-key", "alg": -7 }
             ],
@@ -34,10 +34,10 @@ fn passkey_get_request(credential_id: &str) -> serde_json::Value {
         "platform": "android",
         "platform_version_major": 34,
         "credentialIdB64Url": credential_id,
+        "origin": "https://github.com",
         "request": {
             "rpId": "github.com",
             "challenge": "Z2V0LWNoYWxsZW5nZQ",
-            "origin": "https://github.com",
             "allowCredentials": [
                 { "type": "public-key", "id": credential_id }
             ]
@@ -86,7 +86,7 @@ fn second_passkey_create_request() -> serde_json::Value {
     request["request"]["user"]["name"] = serde_json::json!("bob@example.com");
     request["request"]["user"]["displayName"] = serde_json::json!("Bob");
     request["request"]["challenge"] = serde_json::json!("Y2hhbGxlbmdlLTI");
-    request["request"]["origin"] = serde_json::json!("https://example.com");
+    request["origin"] = serde_json::json!("https://example.com");
     request
 }
 
@@ -416,12 +416,48 @@ fn test_create_query_get_and_delete_vault_backed_passkey() {
         .decode(auth_data)
         .expect("auth data b64url");
     assert_eq!(auth_data[32], 0x1d, "assertion must advertise UP|UV|BE|BS");
-    assert_eq!(&auth_data[33..37], &[0, 0, 0, 0], "portable signCount is 0");
+    assert_eq!(
+        &auth_data[33..37],
+        &[0, 0, 0, 1],
+        "first assertion signCount is 1"
+    );
     assert_eq!(
         assertion_result
             .get("authenticatorAttachment")
             .and_then(|v| v.as_str()),
         Some("platform")
+    );
+
+    let second_assertion = call(
+        &mut router,
+        "credential_provider:passkey:get",
+        passkey_get_request(&credential_id),
+    );
+    assert_rpc_ok(&second_assertion);
+    let second_auth_data = second_assertion
+        .result()
+        .and_then(|result| result.pointer("/response/authenticatorData"))
+        .and_then(|v| v.as_str())
+        .expect("second assertion authenticatorData");
+    let second_auth_data = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(second_auth_data)
+        .expect("second auth data b64url");
+    assert_eq!(
+        &second_auth_data[33..37],
+        &[0, 0, 0, 2],
+        "second assertion signCount is 2"
+    );
+    let listed_after_assertions = call(&mut router, "passkeys:list", serde_json::json!({}));
+    assert_rpc_ok(&listed_after_assertions);
+    assert_eq!(
+        listed_after_assertions
+            .result()
+            .and_then(|result| result.get("passkeys"))
+            .and_then(|v| v.as_array())
+            .and_then(|passkeys| passkeys.first())
+            .and_then(|passkey| passkey.get("signCount"))
+            .and_then(|v| v.as_u64()),
+        Some(2)
     );
 
     let deleted = call(
@@ -456,7 +492,7 @@ fn test_passkey_responses_use_placeholder_client_data_json_when_android_hash_is_
     unlock_vault(&mut router, "test_password");
 
     let mut create_request = passkey_create_request();
-    create_request["request"]["clientDataHash"] = serde_json::json!(client_data_hash(7));
+    create_request["clientDataHash"] = serde_json::json!(client_data_hash(7));
     let created = call(
         &mut router,
         "credential_provider:passkey:create",
@@ -474,7 +510,7 @@ fn test_passkey_responses_use_placeholder_client_data_json_when_android_hash_is_
 
     let credential_id = credential_id(&created);
     let mut get_request = passkey_get_request(&credential_id);
-    get_request["request"]["clientDataHash"] = serde_json::json!(client_data_hash(8));
+    get_request["clientDataHash"] = serde_json::json!(client_data_hash(8));
     let assertion = call(&mut router, "credential_provider:passkey:get", get_request);
     assert_rpc_ok(&assertion);
     assert_eq!(response_client_data_json(&assertion), "{}");
@@ -484,6 +520,58 @@ fn test_passkey_responses_use_placeholder_client_data_json_when_android_hash_is_
             .and_then(|result| result.get("authenticatorAttachment"))
             .and_then(|v| v.as_str()),
         Some("platform")
+    );
+}
+
+#[test]
+fn test_passkey_create_rejects_forged_origin() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_vault(&mut router, "test_password");
+    let mut request = passkey_create_request();
+    request["origin"] = serde_json::json!("https://evil.example");
+
+    let response = call(&mut router, "credential_provider:passkey:create", request);
+
+    assert_rpc_error(&response, "INVALID_CONTEXT");
+    assert_eq!(
+        response.error_message(),
+        Some("rp.id does not match trusted origin")
+    );
+}
+
+#[test]
+fn test_passkey_rp_id_suffix_boundary_validation() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_vault(&mut router, "test_password");
+
+    let mut suffix_ok = passkey_create_request();
+    suffix_ok["origin"] = serde_json::json!("https://login.github.com");
+    let ok = call(&mut router, "credential_provider:passkey:create", suffix_ok);
+    assert_rpc_ok(&ok);
+
+    let mut boundary_reject = passkey_create_request();
+    boundary_reject["origin"] = serde_json::json!("https://evilgithub.com");
+    let rejected = call(
+        &mut router,
+        "credential_provider:passkey:create",
+        boundary_reject,
+    );
+    assert_rpc_error(&rejected, "INVALID_CONTEXT");
+}
+
+#[test]
+fn test_passkey_rejects_request_level_client_data_hash() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_vault(&mut router, "test_password");
+    let mut request = passkey_create_request();
+    request["request"]["clientDataHash"] = serde_json::json!(client_data_hash(9));
+
+    let response = call(&mut router, "credential_provider:passkey:create", request);
+
+    assert_rpc_error(&response, "INVALID_CONTEXT");
+    assert_eq!(
+        response.error_message(),
+        Some("clientDataHash must come from trusted provider context")
     );
 }
 

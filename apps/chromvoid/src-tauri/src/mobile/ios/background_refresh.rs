@@ -1,10 +1,13 @@
 #[cfg(target_os = "ios")]
 mod native {
     use std::ptr::NonNull;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
     use std::sync::Mutex;
 
-    use block2::global_block;
-    use objc2::AnyThread;
+    use block2::{global_block, RcBlock};
+    use objc2::rc::Retained;
+    use objc2::{AnyThread, Message};
     use objc2_background_tasks::{BGAppRefreshTaskRequest, BGTask, BGTaskScheduler};
     use objc2_foundation::{NSDate, NSString};
     use tracing::{info, warn};
@@ -16,12 +19,6 @@ mod native {
     const IOS_BG_REFRESH_DELAY_SECS: f64 = 60.0;
 
     static REGISTRATION_ATTEMPTED: Mutex<bool> = Mutex::new(false);
-
-    global_block! {
-        static IOS_BG_REFRESH_EXPIRATION_HANDLER = || {
-            warn!("ios_background_refresh: task expiration callback fired");
-        };
-    }
 
     global_block! {
         static IOS_BG_REFRESH_LAUNCH_HANDLER = |task: NonNull<BGTask>| {
@@ -39,14 +36,30 @@ mod native {
         unsafe { task.as_ref().setTaskCompletedWithSuccess(success) };
     }
 
+    fn retain_task(task: NonNull<BGTask>) -> usize {
+        // SAFETY: task is a non-null BGTask pointer from the launch handler. Retaining it keeps the
+        // object alive across the async lifecycle work until complete_retained_task drops it.
+        let retained = unsafe { task.as_ref().retain() };
+        Retained::into_raw(retained) as usize
+    }
+
+    fn complete_retained_task(task_ptr: usize, success: bool, completed: &AtomicBool) {
+        if completed.swap(true, Ordering::AcqRel) {
+            return;
+        }
+
+        let Some(task) = NonNull::new(task_ptr as *mut BGTask) else {
+            return;
+        };
+        // SAFETY: task_ptr comes from retain_task and is dropped exactly once below.
+        unsafe {
+            task.as_ref().setTaskCompletedWithSuccess(success);
+            let _ = Retained::from_raw(task.as_ptr());
+        }
+    }
+
     fn handle_background_launch(task: NonNull<BGTask>) {
         info!("ios_background_refresh: launch handler started");
-
-        // SAFETY: task is non-null and live; IOS_BG_REFRESH_EXPIRATION_HANDLER is a 'static global_block.
-        unsafe {
-            task.as_ref()
-                .setExpirationHandler(Some(&IOS_BG_REFRESH_EXPIRATION_HANDLER));
-        }
 
         let Some(storage_root) = runtime::storage_root() else {
             warn!("ios_background_refresh: storage_root is not initialized");
@@ -74,7 +87,31 @@ mod native {
         };
 
         let _ = schedule();
-        let task_ptr = task.as_ptr() as usize;
+        let task_ptr = retain_task(task);
+        let completed = Arc::new(AtomicBool::new(false));
+        let expiration_completed = completed.clone();
+        let event_completed = completed.clone();
+        let expiration_task_lifecycle = task_lifecycle.clone();
+        let expiration_handler = RcBlock::new(move || {
+            warn!("ios_background_refresh: task expiration callback fired");
+            match expiration_task_lifecycle.cancel_event_tasks(EventTaskName::IosBackgroundRefresh)
+            {
+                Ok(canceled) => {
+                    info!("ios_background_refresh: canceled {canceled} lifecycle task(s) after expiration");
+                }
+                Err(error) => {
+                    warn!("ios_background_refresh: failed to cancel lifecycle task after expiration: {error}");
+                }
+            }
+            complete_retained_task(task_ptr, false, &expiration_completed);
+        });
+
+        // SAFETY: task is non-null and live in the launch handler; the ObjC property retains/copies
+        // the block for use until expiration or setTaskCompletedWithSuccess.
+        unsafe {
+            task.as_ref()
+                .setExpirationHandler(Some(&expiration_handler));
+        }
 
         if let Err(error) = task_lifecycle.spawn_event_async(
             EventTaskName::IosBackgroundRefresh,
@@ -126,14 +163,11 @@ mod native {
                     } => success
                 };
 
-                let task_ptr = task_ptr as *mut BGTask;
-                if let Some(task) = NonNull::new(task_ptr) {
-                    complete_task(task, success);
-                }
+                complete_retained_task(task_ptr, success, &event_completed);
             },
         ) {
             warn!("ios_background_refresh: launch work was not scheduled: {error}");
-            complete_task(task, false);
+            complete_retained_task(task_ptr, false, &completed);
         }
     }
 

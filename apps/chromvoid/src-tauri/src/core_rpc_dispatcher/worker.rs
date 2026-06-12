@@ -112,6 +112,8 @@ impl CoreRpcDispatcher {
         let (tx, rx) = oneshot::channel();
         let command = command.into();
         let phase_name = phase_name.into();
+        let log_command = command.clone();
+        let log_phase_name = phase_name.clone();
         let job = CoreRpcJob {
             priority,
             command,
@@ -127,7 +129,18 @@ impl CoreRpcDispatcher {
                     }
                 };
                 let phase_start = Instant::now();
-                let value = phase();
+                let value = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(phase)) {
+                    Ok(value) => value,
+                    Err(_) => {
+                        tracing::error!(
+                            "core_rpc_dispatcher: adapter phase panicked command={} phase={}",
+                            log_command,
+                            log_phase_name
+                        );
+                        let _ = tx.send(Err(CoreRpcDispatchError::PhasePanicked));
+                        return;
+                    }
+                };
                 let timing = CoreRpcPhaseTiming {
                     dispatcher_wait_ms: context.dispatcher_wait_ms,
                     adapter_phase_ms: phase_start.elapsed().as_millis(),
@@ -337,10 +350,24 @@ fn worker_loop(inner: Arc<DispatcherInner>) {
             dispatcher_wait_ms,
             is_cancelled
         );
-        if is_cancelled {
-            (job.run)(Err(CoreRpcDispatchError::Cancelled));
+        let command = job.command.clone();
+        let phase_name = job.phase_name.clone();
+        let run = job.run;
+        let context = if is_cancelled {
+            Err(CoreRpcDispatchError::Cancelled)
         } else {
-            (job.run)(Ok(CoreRpcJobContext { dispatcher_wait_ms }));
+            Ok(CoreRpcJobContext { dispatcher_wait_ms })
+        };
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            (run)(context);
+        }))
+        .is_err()
+        {
+            tracing::error!(
+                "core_rpc_dispatcher: job runner panicked command={} phase={}",
+                command,
+                phase_name
+            );
         }
     }
 }
@@ -708,6 +735,39 @@ mod tests {
             .await;
 
         assert_eq!(result, Err(CoreRpcDispatchError::QueueUnavailable));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn panicked_adapter_phase_returns_error_and_worker_accepts_later_jobs() {
+        let dispatcher = new_dispatcher();
+
+        let result = dispatcher
+            .run_adapter_phase(
+                CoreRpcPriority::UserBlocking,
+                "test:panic",
+                "panic-phase",
+                dispatcher.low_priority_cancellation_generation(),
+                || -> () { panic!("adapter phase panic for test") },
+            )
+            .await;
+
+        assert_eq!(result, Err(CoreRpcDispatchError::PhasePanicked));
+
+        let later = dispatcher
+            .run_adapter_phase(
+                CoreRpcPriority::UserBlocking,
+                "test:later",
+                "later-phase",
+                dispatcher.low_priority_cancellation_generation(),
+                || "ok",
+            )
+            .await
+            .expect("worker should accept later jobs after panic");
+        assert_eq!(later.value, "ok");
+        assert_eq!(
+            dispatcher.shutdown_with_timeout(Duration::from_secs(2)),
+            Ok(CoreRpcDispatcherShutdown::Joined)
+        );
     }
 
     fn wait_for_pending_counts(dispatcher: &CoreRpcDispatcher, expected: (usize, usize, usize)) {

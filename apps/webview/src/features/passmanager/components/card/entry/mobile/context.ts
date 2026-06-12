@@ -41,6 +41,7 @@ export interface PMEntryMobileUIAdapter {
   handleSaveTags(): void
   handleOtpSave(): void
   handleOtpRemove(event: CustomEvent<{otpId: string}>): void
+  handleOtpLabelInput(event: Event): void
   handleSectionSnippetKeyDown(event: KeyboardEvent): void
   handleGenerateSshKeyRequest(event?: Event): void
   handleSshKeyRemove(event: CustomEvent<{keyId: string}>): Promise<void>

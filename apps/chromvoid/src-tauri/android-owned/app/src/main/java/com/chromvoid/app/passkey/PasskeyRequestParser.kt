@@ -11,8 +11,11 @@ internal object PasskeyRequestParser {
         return parseGetRequestJson(option.requestJson)
     }
 
-    fun parseCreateRequest(request: CreatePublicKeyCredentialRequest): CreatePasskeyRequestData? {
-        return parseCreateRequestJson(request.requestJson)
+    fun parseCreateRequest(
+        request: CreatePublicKeyCredentialRequest,
+        rpIdFallback: String? = null,
+    ): CreatePasskeyRequestData? {
+        return parseCreateRequestJson(request.requestJson, rpIdFallback)
     }
 
     fun parseGetRequestJson(requestJson: String): GetPasskeyRequestData? {
@@ -35,11 +38,14 @@ internal object PasskeyRequestParser {
         )
     }
 
-    fun parseCreateRequestJson(requestJson: String): CreatePasskeyRequestData? {
+    fun parseCreateRequestJson(
+        requestJson: String,
+        rpIdFallback: String? = null,
+    ): CreatePasskeyRequestData? {
         val json = runCatching { JSONObject(requestJson) }.getOrNull() ?: return null
         val rp = json.optJSONObject("rp") ?: return null
         val user = json.optJSONObject("user") ?: return null
-        val rpId = rp.optString("id").ifBlank { return null }
+        val rpId = rp.optString("id").ifBlank { rpIdFallback.orEmpty() }.ifBlank { return null }
         val challengeB64Url = json.optString("challenge").ifBlank { return null }
         val supportedAlgorithms = mutableSetOf<Int>()
         val params = json.optJSONArray("pubKeyCredParams")

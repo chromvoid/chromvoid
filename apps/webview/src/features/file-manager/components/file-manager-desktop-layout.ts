@@ -26,8 +26,7 @@ export class FileManagerDesktopLayout extends ReatomLitElement {
         display: flex;
         flex-direction: column;
         height: 100%;
-        padding: 20px;
-        gap: 16px;
+        padding: var(--app-spacing-2);
       }
 
       :host([data-pm-open]) .dashboard-wrapper {
@@ -40,10 +39,7 @@ export class FileManagerDesktopLayout extends ReatomLitElement {
         display: flex;
         flex-direction: column;
         background: transparent;
-        border-radius: 12px;
-        border: 1px solid var(--cv-color-border);
         overflow: hidden;
-        box-shadow: 0 2px 8px var(--cv-alpha-black-5);
         contain: layout style paint;
       }
 

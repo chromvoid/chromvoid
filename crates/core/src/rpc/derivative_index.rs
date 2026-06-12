@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
 
@@ -60,6 +61,32 @@ impl DerivativeIndexRecord {
                 .fold(0u64, |sum, entry| sum.saturating_add(entry.total_bytes)),
         }
     }
+
+    fn get_entry(
+        &self,
+        node_id: u64,
+        source_revision: u64,
+        tier: &str,
+        storage_version: u32,
+    ) -> Option<DerivativeIndexEntry> {
+        self.entries
+            .iter()
+            .find(|entry| {
+                derivative_entry_matches(entry, node_id, source_revision, tier, storage_version)
+            })
+            .cloned()
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct DerivativeIndexState {
+    state: Mutex<DerivativeIndexCacheState>,
+}
+
+#[derive(Debug, Default)]
+struct DerivativeIndexCacheState {
+    record: Option<DerivativeIndexRecord>,
+    touch_dirty: bool,
 }
 
 fn now_millis() -> u64 {
@@ -103,6 +130,278 @@ fn save_index(
     storage.write_chunk_atomic(&chunk_name, &encrypted)?;
     storage.sync()?;
     Ok(())
+}
+
+fn derivative_entry_matches(
+    entry: &DerivativeIndexEntry,
+    node_id: u64,
+    source_revision: u64,
+    tier: &str,
+    storage_version: u32,
+) -> bool {
+    entry.node_id == node_id
+        && entry.source_revision == source_revision
+        && entry.tier == tier
+        && entry.storage_version == storage_version
+}
+
+fn cached_record_mut<'a>(
+    state: &'a mut DerivativeIndexCacheState,
+    storage: &Storage,
+    vault_key: &[u8; KEY_SIZE],
+) -> Result<&'a mut DerivativeIndexRecord> {
+    if state.record.is_none() {
+        state.record = Some(load_index(storage, vault_key)?);
+    }
+    Ok(state
+        .record
+        .as_mut()
+        .expect("derivative index record loaded"))
+}
+
+fn upsert_entry(record: &mut DerivativeIndexRecord, entry: DerivativeIndexEntry) {
+    let key = entry.key();
+    if let Some(existing) = record
+        .entries
+        .iter_mut()
+        .find(|candidate| candidate.key() == key)
+    {
+        *existing = entry;
+    } else {
+        record.entries.push(entry);
+    }
+}
+
+fn build_derivative_entry(
+    record: &DerivativeIndexRecord,
+    node_id: u64,
+    source_revision: u64,
+    tier: String,
+    storage_version: u32,
+    meta_chunk_name: String,
+    part_count: u32,
+    total_bytes: u64,
+) -> DerivativeIndexEntry {
+    let now = now_millis();
+    let created_at = record
+        .get_entry(node_id, source_revision, &tier, storage_version)
+        .map(|entry| entry.created_at)
+        .unwrap_or(now);
+
+    DerivativeIndexEntry {
+        node_id,
+        source_revision,
+        tier,
+        storage_version,
+        meta_chunk_name,
+        part_count,
+        total_bytes,
+        created_at,
+        last_accessed_at: now,
+    }
+}
+
+impl DerivativeIndexState {
+    fn lock_state(&self) -> MutexGuard<'_, DerivativeIndexCacheState> {
+        match self.state.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("derivative-index-cache:poisoned_recovered");
+                self.state.clear_poison();
+                let mut guard = poisoned.into_inner();
+                *guard = DerivativeIndexCacheState::default();
+                guard
+            }
+        }
+    }
+
+    pub(crate) fn invalidate(&self) {
+        *self.lock_state() = DerivativeIndexCacheState::default();
+    }
+
+    pub(crate) fn flush(&self, storage: &Storage, vault_key: &[u8; KEY_SIZE]) -> Result<()> {
+        let mut state = self.lock_state();
+        if !state.touch_dirty {
+            return Ok(());
+        }
+
+        if let Some(record) = state.record.as_ref() {
+            save_index(storage, vault_key, record)?;
+        }
+        state.touch_dirty = false;
+        Ok(())
+    }
+
+    pub(crate) fn stats(
+        &self,
+        storage: &Storage,
+        vault_key: &[u8; KEY_SIZE],
+    ) -> Result<DerivativeIndexStats> {
+        let mut state = self.lock_state();
+        let record = cached_record_mut(&mut state, storage, vault_key)?;
+        Ok(record.stats())
+    }
+
+    pub(crate) fn get_derivative_entry(
+        &self,
+        storage: &Storage,
+        vault_key: &[u8; KEY_SIZE],
+        node_id: u64,
+        source_revision: u64,
+        tier: &str,
+        storage_version: u32,
+    ) -> Result<Option<DerivativeIndexEntry>> {
+        let mut state = self.lock_state();
+        let record = cached_record_mut(&mut state, storage, vault_key)?;
+        Ok(record.get_entry(node_id, source_revision, tier, storage_version))
+    }
+
+    pub(crate) fn save_derivative_entry(
+        &self,
+        storage: &Storage,
+        vault_key: &[u8; KEY_SIZE],
+        node_id: u64,
+        source_revision: u64,
+        tier: String,
+        storage_version: u32,
+        meta_chunk_name: String,
+        part_count: u32,
+        total_bytes: u64,
+    ) -> Result<DerivativeIndexStats> {
+        let mut state = self.lock_state();
+        let stats = {
+            let record = cached_record_mut(&mut state, storage, vault_key)?;
+            let entry = build_derivative_entry(
+                record,
+                node_id,
+                source_revision,
+                tier,
+                storage_version,
+                meta_chunk_name,
+                part_count,
+                total_bytes,
+            );
+            upsert_entry(record, entry);
+            let stats = record.stats();
+            save_index(storage, vault_key, record)?;
+            stats
+        };
+        state.touch_dirty = false;
+        Ok(stats)
+    }
+
+    pub(crate) fn touch_derivative_entry(
+        &self,
+        storage: &Storage,
+        vault_key: &[u8; KEY_SIZE],
+        node_id: u64,
+        source_revision: u64,
+        tier: &str,
+        storage_version: u32,
+    ) -> Result<bool> {
+        let mut state = self.lock_state();
+        let record = cached_record_mut(&mut state, storage, vault_key)?;
+        let Some(entry) = record.entries.iter_mut().find(|entry| {
+            derivative_entry_matches(entry, node_id, source_revision, tier, storage_version)
+        }) else {
+            return Ok(false);
+        };
+
+        entry.last_accessed_at = now_millis();
+        state.touch_dirty = true;
+        Ok(true)
+    }
+
+    pub(crate) fn delete_indexed_derivatives_for_node(
+        &self,
+        storage: &Storage,
+        vault_key: &[u8; KEY_SIZE],
+        node_id: u64,
+    ) -> Result<DerivativeIndexStats> {
+        let mut state = self.lock_state();
+        let touch_dirty = state.touch_dirty;
+        let (changed, stats) = {
+            let record = cached_record_mut(&mut state, storage, vault_key)?;
+            let remove_keys = record
+                .entries
+                .iter()
+                .filter(|entry| entry.node_id == node_id)
+                .map(DerivativeIndexEntry::key)
+                .collect::<HashSet<_>>();
+            let removed = remove_entries_by_key(storage, vault_key, record, &remove_keys)?;
+            let stats = record.stats();
+            if removed || touch_dirty {
+                save_index(storage, vault_key, record)?;
+            }
+            (removed || touch_dirty, stats)
+        };
+        if changed {
+            state.touch_dirty = false;
+        }
+        Ok(stats)
+    }
+
+    pub(crate) fn delete_stale_derivatives_for_node(
+        &self,
+        storage: &Storage,
+        vault_key: &[u8; KEY_SIZE],
+        node_id: u64,
+        current_source_revision: u64,
+    ) -> Result<DerivativeIndexStats> {
+        let mut state = self.lock_state();
+        let touch_dirty = state.touch_dirty;
+        let (changed, stats) = {
+            let record = cached_record_mut(&mut state, storage, vault_key)?;
+            let remove_keys = record
+                .entries
+                .iter()
+                .filter(|entry| {
+                    entry.node_id == node_id && entry.source_revision != current_source_revision
+                })
+                .map(DerivativeIndexEntry::key)
+                .collect::<HashSet<_>>();
+            let removed = remove_entries_by_key(storage, vault_key, record, &remove_keys)?;
+            let stats = record.stats();
+            if removed || touch_dirty {
+                save_index(storage, vault_key, record)?;
+            }
+            (removed || touch_dirty, stats)
+        };
+        if changed {
+            state.touch_dirty = false;
+        }
+        Ok(stats)
+    }
+
+    pub(crate) fn compact_derivatives(
+        &self,
+        storage: &Storage,
+        vault_key: &[u8; KEY_SIZE],
+        max_indexed_bytes: u64,
+        protected_revisions: &HashMap<u64, u64>,
+    ) -> Result<DerivativeIndexStats> {
+        let mut state = self.lock_state();
+        let touch_dirty = state.touch_dirty;
+        let (changed, stats) = {
+            let record = cached_record_mut(&mut state, storage, vault_key)?;
+            let compacted = compact_record(
+                storage,
+                vault_key,
+                record,
+                max_indexed_bytes,
+                protected_revisions,
+            )?;
+            let stats = record.stats();
+            if compacted || touch_dirty {
+                save_index(storage, vault_key, record)?;
+            }
+            (compacted || touch_dirty, stats)
+        };
+        if changed {
+            state.touch_dirty = false;
+        }
+        Ok(stats)
+    }
 }
 
 fn delete_entry_chunks(
@@ -151,6 +450,7 @@ fn remove_entries_by_key(
     Ok(removed)
 }
 
+#[allow(dead_code)]
 pub(crate) fn stats(storage: &Storage, vault_key: &[u8; KEY_SIZE]) -> Result<DerivativeIndexStats> {
     Ok(load_index(storage, vault_key)?.stats())
 }
@@ -197,9 +497,8 @@ pub(crate) fn upsert_derivative_entry(
     total_bytes: u64,
 ) -> Result<DerivativeIndexStats> {
     let mut record = load_index(storage, vault_key)?;
-    let now = now_millis();
-
-    let mut next_entry = DerivativeIndexEntry {
+    let next_entry = build_derivative_entry(
+        &record,
         node_id,
         source_revision,
         tier,
@@ -207,17 +506,8 @@ pub(crate) fn upsert_derivative_entry(
         meta_chunk_name,
         part_count,
         total_bytes,
-        created_at: now,
-        last_accessed_at: now,
-    };
-    let key = next_entry.key();
-
-    if let Some(existing) = record.entries.iter_mut().find(|entry| entry.key() == key) {
-        next_entry.created_at = existing.created_at;
-        *existing = next_entry;
-    } else {
-        record.entries.push(next_entry);
-    }
+    );
+    upsert_entry(&mut record, next_entry);
 
     save_index(storage, vault_key, &record)?;
     Ok(record.stats())
@@ -255,15 +545,7 @@ pub(crate) fn get_derivative_entry(
     tier: &str,
     storage_version: u32,
 ) -> Result<Option<DerivativeIndexEntry>> {
-    Ok(load_index(storage, vault_key)?
-        .entries
-        .into_iter()
-        .find(|entry| {
-            entry.node_id == node_id
-                && entry.source_revision == source_revision
-                && entry.tier == tier
-                && entry.storage_version == storage_version
-        }))
+    Ok(load_index(storage, vault_key)?.get_entry(node_id, source_revision, tier, storage_version))
 }
 
 pub(crate) fn put_derivative_entry(
@@ -272,17 +554,7 @@ pub(crate) fn put_derivative_entry(
     entry: DerivativeIndexEntry,
 ) -> Result<DerivativeIndexStats> {
     let mut record = load_index(storage, vault_key)?;
-    let key = entry.key();
-
-    if let Some(existing) = record
-        .entries
-        .iter_mut()
-        .find(|candidate| candidate.key() == key)
-    {
-        *existing = entry;
-    } else {
-        record.entries.push(entry);
-    }
+    upsert_entry(&mut record, entry);
 
     save_index(storage, vault_key, &record)?;
     Ok(record.stats())
@@ -311,6 +583,7 @@ pub(crate) fn remove_derivative_entry(
     Ok(record.stats())
 }
 
+#[allow(dead_code)]
 pub(crate) fn touch_derivative_entry(
     storage: &Storage,
     vault_key: &[u8; KEY_SIZE],
@@ -321,10 +594,7 @@ pub(crate) fn touch_derivative_entry(
 ) -> Result<bool> {
     let mut record = load_index(storage, vault_key)?;
     let Some(entry) = record.entries.iter_mut().find(|entry| {
-        entry.node_id == node_id
-            && entry.source_revision == source_revision
-            && entry.tier == tier
-            && entry.storage_version == storage_version
+        derivative_entry_matches(entry, node_id, source_revision, tier, storage_version)
     }) else {
         return Ok(false);
     };
@@ -334,6 +604,7 @@ pub(crate) fn touch_derivative_entry(
     Ok(true)
 }
 
+#[allow(dead_code)]
 pub(crate) fn delete_indexed_derivatives_for_node(
     storage: &Storage,
     vault_key: &[u8; KEY_SIZE],
@@ -383,16 +654,16 @@ fn is_protected(entry: &DerivativeIndexEntry, protected_revisions: &HashMap<u64,
         .is_some_and(|revision| *revision == entry.source_revision)
 }
 
-pub(crate) fn compact_derivatives(
+fn compact_record(
     storage: &Storage,
     vault_key: &[u8; KEY_SIZE],
+    record: &mut DerivativeIndexRecord,
     max_indexed_bytes: u64,
     protected_revisions: &HashMap<u64, u64>,
-) -> Result<DerivativeIndexStats> {
-    let mut record = load_index(storage, vault_key)?;
+) -> Result<bool> {
     let mut indexed_bytes = record.stats().indexed_bytes;
     if indexed_bytes <= max_indexed_bytes {
-        return Ok(record.stats());
+        return Ok(false);
     }
 
     let mut stale_candidates = record
@@ -415,7 +686,7 @@ pub(crate) fn compact_derivatives(
         indexed_bytes = indexed_bytes.saturating_sub(entry.total_bytes);
         remove_keys.insert(entry.key());
     }
-    remove_entries_by_key(storage, vault_key, &mut record, &remove_keys)?;
+    let mut removed = remove_entries_by_key(storage, vault_key, record, &remove_keys)?;
 
     if indexed_bytes > max_indexed_bytes {
         let mut lru_candidates = record
@@ -434,9 +705,28 @@ pub(crate) fn compact_derivatives(
             indexed_bytes = indexed_bytes.saturating_sub(entry.total_bytes);
             remove_keys.insert(entry.key());
         }
-        remove_entries_by_key(storage, vault_key, &mut record, &remove_keys)?;
+        removed = remove_entries_by_key(storage, vault_key, record, &remove_keys)? || removed;
     }
 
-    save_index(storage, vault_key, &record)?;
+    Ok(removed)
+}
+
+#[allow(dead_code)]
+pub(crate) fn compact_derivatives(
+    storage: &Storage,
+    vault_key: &[u8; KEY_SIZE],
+    max_indexed_bytes: u64,
+    protected_revisions: &HashMap<u64, u64>,
+) -> Result<DerivativeIndexStats> {
+    let mut record = load_index(storage, vault_key)?;
+    if compact_record(
+        storage,
+        vault_key,
+        &mut record,
+        max_indexed_bytes,
+        protected_revisions,
+    )? {
+        save_index(storage, vault_key, &record)?;
+    }
     Ok(record.stats())
 }

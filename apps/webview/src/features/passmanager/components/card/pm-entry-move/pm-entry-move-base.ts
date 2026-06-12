@@ -14,6 +14,14 @@ import {
 
 let pickerSequence = 0
 
+function escapeCssIdentifier(value: string): string {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(value)
+  }
+
+  return value.replace(/[^a-zA-Z0-9_-]/g, '\\$&')
+}
+
 export class PMEntryMoveBase extends ReatomLitElement {
   protected readonly model = new PMEntryMovePickerModel()
 
@@ -65,8 +73,8 @@ export class PMEntryMoveBase extends ReatomLitElement {
   }
 
   private scrollOptionIntoView(key: string): void {
-    const option = this.renderRoot.querySelector<HTMLElement>(`#${this.optionId(key)}`)
-    option?.scrollIntoView({block: 'nearest'})
+    const option = this.renderRoot.querySelector<HTMLElement>(`#${escapeCssIdentifier(this.optionId(key))}`)
+    option?.scrollIntoView?.({block: 'nearest'})
   }
 
   private dispatchMoveSelected(id: string): void {

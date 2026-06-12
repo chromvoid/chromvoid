@@ -12,6 +12,7 @@ use tauri::async_runtime::JoinHandle;
 use tokio::sync::watch;
 
 const TASK_LIFECYCLE_POISONED: &str = "Task lifecycle mutex poisoned";
+const TASK_LIFECYCLE_SHUTDOWN_REQUESTED: &str = "Task lifecycle shutdown requested";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(target_os = "android", allow(dead_code))]
@@ -187,14 +188,13 @@ impl TaskLifecycleRuntime {
         F: FnOnce(watch::Receiver<Option<TaskShutdownReason>>) -> Fut + Send + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        if self.is_shutdown_requested() {
-            return Err("Task lifecycle shutdown requested".to_string());
-        }
-
         let mut tasks = self
             .tasks
             .lock()
             .map_err(|_| TASK_LIFECYCLE_POISONED.to_string())?;
+        if self.is_shutdown_requested() {
+            return Err(TASK_LIFECYCLE_SHUTDOWN_REQUESTED.to_string());
+        }
         prune_finished(&mut tasks);
         if tasks.contains_key(&name) {
             return Err(format!("Task lifecycle task already running: {name:?}"));
@@ -215,14 +215,13 @@ impl TaskLifecycleRuntime {
         F: FnOnce(watch::Receiver<Option<TaskShutdownReason>>) -> Fut + Send + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        if self.is_shutdown_requested() {
-            return Err("Task lifecycle shutdown requested".to_string());
-        }
-
         let mut event_tasks = self
             .event_tasks
             .lock()
             .map_err(|_| TASK_LIFECYCLE_POISONED.to_string())?;
+        if self.is_shutdown_requested() {
+            return Err(TASK_LIFECYCLE_SHUTDOWN_REQUESTED.to_string());
+        }
         let handles = event_tasks.entry(name).or_default();
         prune_finished_vec(handles);
 
@@ -232,20 +231,44 @@ impl TaskLifecycleRuntime {
         Ok(())
     }
 
+    #[cfg_attr(not(any(target_os = "ios", test)), allow(dead_code))]
+    pub(crate) fn cancel_event_tasks(&self, name: EventTaskName) -> Result<usize, String> {
+        let handles = {
+            let mut event_tasks = self
+                .event_tasks
+                .lock()
+                .map_err(|_| TASK_LIFECYCLE_POISONED.to_string())?;
+            let Some(handles) = event_tasks.get_mut(&name) else {
+                return Ok(0);
+            };
+            prune_finished_vec(handles);
+            let handles = event_tasks.remove(&name).unwrap_or_default();
+            if handles.is_empty() {
+                return Ok(0);
+            }
+            handles
+        };
+
+        let canceled = handles.len();
+        for handle in handles {
+            handle.abort();
+        }
+        Ok(canceled)
+    }
+
     #[cfg(any(target_os = "ios", target_os = "macos", test))]
     pub(crate) fn register_external_thread(
         &self,
         name: ExternalTaskName,
         task: ExternalThreadTask,
     ) -> Result<(), String> {
-        if self.is_shutdown_requested() {
-            return Err("Task lifecycle shutdown requested".to_string());
-        }
-
         let mut external_threads = self
             .external_threads
             .lock()
             .map_err(|_| TASK_LIFECYCLE_POISONED.to_string())?;
+        if self.is_shutdown_requested() {
+            return Err(TASK_LIFECYCLE_SHUTDOWN_REQUESTED.to_string());
+        }
         if external_threads.contains_key(&name) {
             return Err(format!(
                 "Task lifecycle external task already registered: {name:?}"
@@ -591,7 +614,7 @@ mod tests {
             runtime
                 .register_external_thread(ExternalTaskName::CredentialProviderBridge, task)
                 .expect_err("shutdown should fail"),
-            "Task lifecycle shutdown requested"
+            TASK_LIFECYCLE_SHUTDOWN_REQUESTED
         );
     }
 
@@ -693,6 +716,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancel_event_tasks_aborts_and_removes_named_tasks() {
+        let runtime = TaskLifecycleRuntime::new();
+        runtime
+            .spawn_event_async(EventTaskName::IosBackgroundRefresh, |_shutdown| async {
+                std::future::pending::<()>().await;
+            })
+            .expect("spawn background refresh task");
+
+        assert_eq!(
+            runtime
+                .event_task_count_for_test(EventTaskName::IosBackgroundRefresh)
+                .expect("event count"),
+            1
+        );
+
+        assert_eq!(
+            runtime
+                .cancel_event_tasks(EventTaskName::IosBackgroundRefresh)
+                .expect("cancel event tasks"),
+            1
+        );
+        assert_eq!(
+            runtime
+                .event_task_count_for_test(EventTaskName::IosBackgroundRefresh)
+                .expect("event count"),
+            0
+        );
+    }
+
+    #[tokio::test]
     async fn android_quick_lock_event_tasks_are_tracked_and_shutdown() {
         let runtime = TaskLifecycleRuntime::new();
         runtime
@@ -780,7 +833,72 @@ mod tests {
             runtime
                 .spawn_event_async(EventTaskName::IosBackgroundRefresh, |_shutdown| async {})
                 .expect_err("shutdown should fail"),
-            "Task lifecycle shutdown requested"
+            TASK_LIFECYCLE_SHUTDOWN_REQUESTED
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn unique_spawn_rechecks_shutdown_after_waiting_for_task_lock() {
+        let runtime = std::sync::Arc::new(TaskLifecycleRuntime::new());
+        let task_guard = runtime.tasks.lock().expect("task lock");
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let spawn_runtime = runtime.clone();
+        let spawn_attempt = tokio::spawn(async move {
+            started_tx.send(()).expect("send started");
+            spawn_runtime.spawn_unique_async(ManagedTaskName::AutoLock, |_shutdown| async {
+                std::future::pending::<()>().await;
+            })
+        });
+
+        started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("spawn attempt started");
+        std::thread::sleep(Duration::from_millis(20));
+        runtime.shutdown_requested.store(true, Ordering::Release);
+        drop(task_guard);
+
+        assert_eq!(
+            spawn_attempt.await.expect("spawn task join"),
+            Err(TASK_LIFECYCLE_SHUTDOWN_REQUESTED.to_string())
+        );
+        assert!(runtime
+            .active_task_names_for_test()
+            .expect("task names")
+            .is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn event_spawn_rechecks_shutdown_after_waiting_for_event_lock() {
+        let runtime = std::sync::Arc::new(TaskLifecycleRuntime::new());
+        let event_guard = runtime.event_tasks.lock().expect("event task lock");
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let spawn_runtime = runtime.clone();
+        let spawn_attempt = tokio::spawn(async move {
+            started_tx.send(()).expect("send started");
+            spawn_runtime.spawn_event_async(
+                EventTaskName::SshAgentCatalogRefresh,
+                |_shutdown| async {
+                    std::future::pending::<()>().await;
+                },
+            )
+        });
+
+        started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("spawn attempt started");
+        std::thread::sleep(Duration::from_millis(20));
+        runtime.shutdown_requested.store(true, Ordering::Release);
+        drop(event_guard);
+
+        assert_eq!(
+            spawn_attempt.await.expect("spawn task join"),
+            Err(TASK_LIFECYCLE_SHUTDOWN_REQUESTED.to_string())
+        );
+        assert_eq!(
+            runtime
+                .event_task_count_for_test(EventTaskName::SshAgentCatalogRefresh)
+                .expect("event task count"),
+            0
         );
     }
 

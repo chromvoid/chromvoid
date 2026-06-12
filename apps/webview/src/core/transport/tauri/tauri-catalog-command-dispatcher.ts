@@ -342,6 +342,36 @@ export async function dispatchTauriCatalogCommand(input: DispatchCatalogCommandI
       return {ok: true, result}
     }
 
+    case 'passmanager:otp:renameSecret': {
+      const otp_id_raw = data['otp_id'] ?? data['otpId']
+      const otp_id =
+        otp_id_raw === undefined || otp_id_raw === null ? null : String(otp_id_raw).trim() || null
+      const entry_id_raw = data['entry_id'] ?? data['entryId']
+      const entry_id =
+        entry_id_raw === undefined || entry_id_raw === null ? null : String(entry_id_raw).trim() || null
+      if (otp_id === null && entry_id === null) {
+        throw new Error('Invalid passmanager:otp:renameSecret payload: otp_id or entry_id is required')
+      }
+
+      const previous_label = String(data['previous_label'] ?? data['previousLabel'] ?? '').trim()
+      if (!previous_label) {
+        throw new Error('Invalid passmanager:otp:renameSecret payload: previous_label is required')
+      }
+
+      const next_label = String(data['next_label'] ?? data['nextLabel'] ?? '').trim()
+      if (!next_label) {
+        throw new Error('Invalid passmanager:otp:renameSecret payload: next_label is required')
+      }
+
+      const result = await rpcDispatch('passmanager:otp:renameSecret', {
+        otp_id,
+        entry_id,
+        previous_label,
+        next_label,
+      })
+      return {ok: true, result}
+    }
+
     case 'passmanager:secret:save': {
       const entry_id_raw = data['entry_id'] ?? data['entryId']
       const entry_id =

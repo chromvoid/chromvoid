@@ -41,7 +41,7 @@ export class MobileTabBar extends ReatomLitElement {
         align-items: center;
         justify-content: center;
         gap: 8px;
-        height: 64px;
+        height: var(--app-mobile-tabbar-block-size, 64px);
         padding: 0 16px;
       }
 

@@ -1,5 +1,7 @@
 import {css} from 'lit'
 
+import {entrySkeletonStyles} from './entry-skeleton.styles'
+
 const entryDesktopMainStyles = css`
   :host {
     container-type: inline-size;
@@ -102,6 +104,33 @@ const entryDesktopMainStyles = css`
     background: var(--cv-color-danger-surface);
     border-color: var(--cv-color-danger-border-strong);
     color: var(--cv-color-danger);
+  }
+
+  .entry-edit-actions-shell {
+    display: grid;
+    justify-items: end;
+    gap: 8px;
+    min-inline-size: min(100%, 320px);
+  }
+
+  .entry-edit-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .entry-edit-cancel-action,
+  .entry-edit-save-action {
+    --cv-button-min-height: 36px;
+  }
+
+  .entry-edit-error {
+    max-inline-size: 320px;
+    color: var(--cv-color-danger);
+    font-size: 12px;
+    line-height: 1.35;
+    text-align: end;
   }
 
   .icon-btn {
@@ -375,6 +404,18 @@ const entryDesktopMainStyles = css`
     min-inline-size: 0;
   }
 
+  .otp-label-edit-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+    gap: 12px;
+    align-items: start;
+    min-inline-size: 0;
+  }
+
+  .otp-label-input {
+    min-inline-size: 0;
+  }
+
   .urls-list {
     display: flex;
     flex-wrap: wrap;
@@ -434,23 +475,6 @@ const entryDesktopMainStyles = css`
     word-break: break-word;
     color: var(--cv-color-text);
     opacity: 0.9;
-  }
-
-  .note-skeleton {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 4px 0;
-  }
-
-  .skeleton-line {
-    block-size: 12px;
-    border-radius: var(--cv-radius-1);
-    background: var(--cv-gradient-divider-subtle);
-    background-size: 200% 100%;
-  }
-  .skeleton-line.short {
-    inline-size: 40%;
   }
 
   .credential-field-editing {
@@ -674,6 +698,10 @@ const entryDesktopResponsiveStyles = css`
     }
     .note-card .card-content {
       padding: var(--cv-space-3) var(--cv-space-4);
+    }
+
+    .otp-label-edit-row {
+      grid-template-columns: minmax(0, 1fr);
     }
 
     .payment-card-face {
@@ -901,6 +929,7 @@ const entryDesktopResponsiveStyles = css`
 `
 
 export const entryDesktopStyles = css`
+  ${entrySkeletonStyles}
   ${entryDesktopMainStyles}
   ${entryDesktopResponsiveStyles}
 `

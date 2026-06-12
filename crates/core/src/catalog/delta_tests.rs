@@ -282,7 +282,7 @@ fn test_apply_deltas_multiple() {
         DeltaEntry::delete(3, "/docs/readme.txt"),
     ];
 
-    let applied = apply_deltas(&mut root, &deltas);
+    let applied = apply_deltas(&mut root, &deltas).expect("deltas apply");
 
     assert_eq!(applied, 3);
 
@@ -290,6 +290,26 @@ fn test_apply_deltas_multiple() {
     assert!(docs.find_child("a.txt").is_some());
     assert!(docs.find_child("b.txt").is_some());
     assert!(docs.find_child("readme.txt").is_none());
+}
+
+#[test]
+fn test_apply_deltas_missing_target_rolls_back_prior_changes() {
+    let mut root = create_test_tree();
+    let deltas = vec![
+        DeltaEntry::create(
+            1,
+            "/docs",
+            CatalogNode::new_file(10, "a.txt".to_string(), 10, None),
+        ),
+        DeltaEntry::move_node(2, "/docs/readme.txt", "/nonexistent", None),
+    ];
+
+    let error = apply_deltas(&mut root, &deltas).expect_err("replay must fail");
+    assert!(error.to_string().contains("catalog delta replay failed"));
+
+    let docs = root.find_child("docs").unwrap();
+    assert!(docs.find_child("readme.txt").is_some());
+    assert!(docs.find_child("a.txt").is_none());
 }
 
 #[test]
@@ -316,4 +336,34 @@ fn test_find_node_mut_not_found() {
 
     let found = find_node_mut(&mut root, "/nonexistent/path");
     assert!(found.is_none());
+}
+
+#[test]
+fn test_apply_delta_move_missing_target_keeps_node_in_old_parent() {
+    let mut root = create_test_tree();
+    let delta = DeltaEntry::move_node(1, "/docs/readme.txt", "/nonexistent", None);
+
+    // The delta cannot be applied...
+    assert!(!apply_delta(&mut root, &delta));
+
+    // ...but the node must NOT be dropped: it stays in its old parent.
+    let docs = root.find_child("docs").unwrap();
+    assert!(docs.find_child("readme.txt").is_some());
+}
+
+#[test]
+fn test_apply_delta_move_with_rename_missing_target_restores_original_name() {
+    let mut root = create_test_tree();
+    let delta = DeltaEntry::move_node(
+        1,
+        "/docs/readme.txt",
+        "/nonexistent",
+        Some("moved.txt".to_string()),
+    );
+
+    assert!(!apply_delta(&mut root, &delta));
+
+    let docs = root.find_child("docs").unwrap();
+    assert!(docs.find_child("readme.txt").is_some());
+    assert!(docs.find_child("moved.txt").is_none());
 }

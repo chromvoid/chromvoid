@@ -23,7 +23,7 @@ export class NavigationRail extends ReatomLitElement {
         flex-direction: column;
         block-size: 100%;
         inline-size: var(--nav-rail-width, 72px);
-        background: var(--surface-base, #000);
+        background: var(--surface-base, var(--cv-color-bg));
         border-inline-end: 1px solid var(--border-subtle, var(--cv-alpha-white-6));
         overflow: hidden;
         contain: content;
@@ -66,7 +66,7 @@ export class NavigationRail extends ReatomLitElement {
         align-items: center;
         justify-content: center;
         border-radius: var(--cv-radius-lg, 12px);
-        color: var(--accent, #ff7a00);
+        color: var(--accent, var(--cv-color-primary));
         cursor: pointer;
 
         cv-icon {
@@ -89,7 +89,7 @@ export class NavigationRail extends ReatomLitElement {
         font-family: var(--cv-font-family-display, 'Satoshi', system-ui);
         font-weight: var(--weight-bold, 700);
         letter-spacing: var(--tracking-tight, -0.02em);
-        color: var(--text-primary, #fff);
+        color: var(--text-primary, var(--cv-color-text-strongest));
         white-space: nowrap;
         opacity: 0;
         visibility: hidden;
@@ -139,6 +139,10 @@ export class NavigationRail extends ReatomLitElement {
         margin-block-start: 0;
       }
 
+      :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .nav {
+        align-items: center;
+      }
+
       .item {
         display: flex;
         align-items: center;
@@ -180,25 +184,25 @@ export class NavigationRail extends ReatomLitElement {
           color: var(--text-quaternary, var(--cv-alpha-white-30));
           padding: 3px 8px;
           border-radius: var(--cv-radius-sm, 4px);
-          background: var(--surface-muted, #1a1a1a);
+          background: var(--surface-muted, var(--cv-color-surface-3));
           transition: opacity var(--cv-duration-fast, 150ms) var(--ease-out-quart);
         }
 
         &:hover {
           background: var(--hover-overlay, var(--cv-alpha-white-4));
-          color: var(--text-primary, #fff);
+          color: var(--text-primary, var(--cv-color-text-strongest));
         }
 
         &:focus-visible {
           outline: none;
           box-shadow:
             0 0 0 2px var(--surface-base),
-            0 0 0 4px var(--accent, #ff7a00);
+            0 0 0 4px var(--accent, var(--cv-color-primary));
         }
 
         &.active {
           background: var(--accent-muted, var(--cv-color-accent-surface));
-          color: var(--accent, #ff7a00);
+          color: var(--accent, var(--cv-color-primary));
         }
 
         &[disabled] {
@@ -210,9 +214,63 @@ export class NavigationRail extends ReatomLitElement {
         &.danger {
           &:hover {
             background: var(--error-muted, var(--cv-color-danger-surface));
-            color: var(--error, #ff4757);
+            color: var(--error, var(--cv-color-danger));
           }
         }
+      }
+
+      :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .item,
+      :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .theme-toggle {
+        inline-size: 48px;
+        block-size: 48px;
+        min-block-size: 48px;
+        padding: 0;
+        justify-content: center;
+        text-align: center;
+        --cv-button-gap: 0;
+      }
+
+      :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .item::part(base),
+      :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions))
+        .theme-toggle::part(base) {
+        inline-size: 48px;
+        block-size: 48px;
+        padding: 0;
+        justify-content: center;
+      }
+
+      :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .item::part(label),
+      :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .item::part(suffix),
+      :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions))
+        .theme-toggle::part(label),
+      :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions))
+        .theme-toggle::part(suffix) {
+        display: none;
+      }
+
+      :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .item::part(prefix),
+      :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions))
+        .theme-toggle::part(prefix) {
+        inline-size: 20px;
+        block-size: 20px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .item .label,
+      :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .theme-toggle .label,
+      :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .item .hint,
+      :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions))
+        .item
+        cv-icon[slot='suffix'] {
+        flex: 0 0 0;
+        inline-size: 0;
+        min-inline-size: 0;
+        max-inline-size: 0;
+        padding: 0;
+        overflow: hidden;
+        opacity: 0;
       }
 
       :host([expanded]) .item .label {
@@ -273,7 +331,7 @@ export class NavigationRail extends ReatomLitElement {
 
         &:hover {
           background: var(--hover-overlay, var(--cv-alpha-white-4));
-          color: var(--text-primary, #fff);
+          color: var(--text-primary, var(--cv-color-text-strongest));
         }
       }
 
@@ -283,21 +341,8 @@ export class NavigationRail extends ReatomLitElement {
       }
 
       @media (hover: none) and (pointer: coarse) {
-        :host {
-          inline-size: var(--nav-rail-width-expanded, 240px);
-        }
-
-        .brand-text {
-          opacity: 1;
-          visibility: visible;
-          transform: translateX(0);
-        }
-
-        .item .label,
-        .item .hint,
-        .theme-toggle .label {
-          opacity: 1;
-          transform: translateX(0);
+        .item .hint {
+          display: none;
         }
       }
     `,
@@ -423,15 +468,26 @@ export class NavigationRail extends ReatomLitElement {
 
     return html`
       <nav class="nav main-nav" aria-label=${i18n('navigation:main')}>
-        <cv-button unstyled class="item ${isFiles ? 'active' : ''}" @click=${this.handleFilesClick} aria-current=${isFiles}>
+        <cv-button
+          unstyled
+          class="item ${isFiles ? 'active' : ''}"
+          @click=${this.handleFilesClick}
+          aria-current=${isFiles}
+        >
           <cv-icon slot="prefix" name="folder"></cv-icon>
           <span class="label">${i18n('navigation:files')}</span>
         </cv-button>
-        <cv-button unstyled class="item ${isNotes ? 'active' : ''}" @click=${this.handleNotesClick} aria-current=${isNotes}>
+        <cv-button
+          unstyled
+          class="item ${isNotes ? 'active' : ''}"
+          @click=${this.handleNotesClick}
+          aria-current=${isNotes}
+        >
           <cv-icon slot="prefix" name="file-text"></cv-icon>
           <span class="label">${i18n('navigation:notes' as never)}</span>
         </cv-button>
-        <cv-button unstyled
+        <cv-button
+          unstyled
           class="item ${isPasswords ? 'active' : ''}"
           @click=${this.handlePasswordsClick}
           aria-current=${isPasswords}
@@ -439,7 +495,8 @@ export class NavigationRail extends ReatomLitElement {
           <cv-icon slot="prefix" name="key"></cv-icon>
           <span class="label">${i18n('navigation:passwords')}</span>
         </cv-button>
-        <cv-button unstyled
+        <cv-button
+          unstyled
           class="item ${isOtp ? 'active' : ''}"
           @click=${this.handleOtpCodesClick}
           aria-current=${isOtp}
@@ -449,7 +506,8 @@ export class NavigationRail extends ReatomLitElement {
         </cv-button>
         ${supportsPasskeys
           ? html`
-              <cv-button unstyled
+              <cv-button
+                unstyled
                 class="item ${isPasskeys ? 'active' : ''}"
                 @click=${this.handlePasskeysClick}
                 aria-current=${isPasskeys}
@@ -506,7 +564,12 @@ export class NavigationRail extends ReatomLitElement {
               `
             : commandPaletteButton}
 
-        <cv-button unstyled class="theme-toggle" @click=${this.handleThemeToggle} title=${i18n('theme:toggle')}>
+        <cv-button
+          unstyled
+          class="theme-toggle"
+          @click=${this.handleThemeToggle}
+          title=${i18n('theme:toggle')}
+        >
           <span slot="prefix" class="theme-icon">${theme === 'light' ? sun : moon}</span>
           <span class="label"
             >${theme === 'light'
@@ -522,25 +585,35 @@ export class NavigationRail extends ReatomLitElement {
               <cv-button unstyled class="item ${isStorage ? 'active' : ''}" @click=${this.handleStorageClick}>
                 <cv-icon slot="prefix" name="hard-drive"></cv-icon>
                 <span class="label">${i18n('navigation:storage')}</span>
-                ${navigationRailModel.isLocked(storageAccess) ? html`<cv-icon slot="suffix" name="lock"></cv-icon>` : ''}
+                ${navigationRailModel.isLocked(storageAccess)
+                  ? html`<cv-icon slot="suffix" name="lock"></cv-icon>`
+                  : ''}
               </cv-button>
             `
           : ''}
         ${supportsRemote
           ? html`
               <cv-button unstyled class="item ${isRemote ? 'active' : ''}" @click=${this.handleRemoteClick}>
-                <cv-icon slot="prefix" name="usb"></cv-icon>
+                <cv-icon slot="prefix" name="wifi"></cv-icon>
                 <span class="label">${i18n('navigation:remote')}</span>
-                ${navigationRailModel.isLocked(remoteAccess) ? html`<cv-icon slot="suffix" name="lock"></cv-icon>` : ''}
+                ${navigationRailModel.isLocked(remoteAccess)
+                  ? html`<cv-icon slot="suffix" name="lock"></cv-icon>`
+                  : ''}
               </cv-button>
             `
           : ''}
         ${supportsExtensions
           ? html`
-              <cv-button unstyled class="item ${isExtensions ? 'active' : ''}" @click=${this.handleExtensionsClick}>
+              <cv-button
+                unstyled
+                class="item ${isExtensions ? 'active' : ''}"
+                @click=${this.handleExtensionsClick}
+              >
                 <cv-icon slot="prefix" name="puzzle"></cv-icon>
                 <span class="label">${i18n('navigation:extensions')}</span>
-                ${navigationRailModel.isLocked(extensionsAccess) ? html`<cv-icon slot="suffix" name="lock"></cv-icon>` : ''}
+                ${navigationRailModel.isLocked(extensionsAccess)
+                  ? html`<cv-icon slot="suffix" name="lock"></cv-icon>`
+                  : ''}
               </cv-button>
             `
           : ''}
@@ -559,7 +632,9 @@ export class NavigationRail extends ReatomLitElement {
         >
           <cv-icon slot="prefix" name="lock"></cv-icon>
           <span class="label">${i18n('navigation:lock')}</span>
-          ${vaultLockShortcutLabel ? html`<span slot="suffix" class="hint">${vaultLockShortcutLabel}</span>` : ''}
+          ${vaultLockShortcutLabel
+            ? html`<span slot="suffix" class="hint">${vaultLockShortcutLabel}</span>`
+            : ''}
         </cv-button>
       </nav>
     `
@@ -569,8 +644,7 @@ export class NavigationRail extends ReatomLitElement {
     const isMobileLayout = navigationRailModel.isMobileLayout()
 
     return html`
-      ${this.renderBrand()}
-      ${this.renderMainNavigation()}
+      ${this.renderBrand()} ${this.renderMainNavigation()}
       ${isMobileLayout ? '' : this.renderSecondaryActions()}
     `
   }

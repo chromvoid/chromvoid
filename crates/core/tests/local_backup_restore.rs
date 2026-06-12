@@ -1746,3 +1746,42 @@ fn test_restore_local_cancel_rolls_back_uploaded_chunks() {
     ));
     assert_rpc_error_message(&commit, "NODE_NOT_FOUND", "restore_id not found");
 }
+
+#[test]
+fn test_backup_local_start_requires_unlocked_vault() {
+    // No unlock: backup must refuse rather than exposing the encrypted store
+    // and master salt/verifier to an unauthenticated caller.
+    let (mut router, _dir) = create_router_with_master();
+    let start = router.handle(&RpcRequest::new(
+        "backup:local:start",
+        serde_json::json!({}),
+    ));
+    assert_rpc_error(&start, "VAULT_REQUIRED");
+}
+
+#[test]
+fn test_restore_local_upload_pack_rejects_oversized_chunk_size() {
+    let (mut source_router, _source_dir) = create_router_with_master();
+    unlock_vault(&mut source_router, "vault_password");
+    upload_test_file(&mut source_router, "seed.bin", b"oversize seed".to_vec());
+    let (backup_id, _estimated_size, _chunk_count) = start_backup(&mut source_router);
+    let manifest = get_chunk_manifest(&mut source_router, &backup_id);
+    let pack = download_backup_pack(&mut source_router, &backup_id);
+
+    // Declare an absurd per-chunk size; validate() must reject before any
+    // buffer allocation (DoS guard).
+    let mut oversized = manifest.clone();
+    let huge = 1024_u64 * 1024 * 1024 * 1024; // 1 TiB, well over the 512 MiB cap
+    oversized["chunks"][0]["size"] = serde_json::json!(huge);
+    let original: u64 = manifest["chunks"][0]["size"].as_u64().unwrap();
+    oversized["total_size"] = serde_json::json!(manifest["total_size"]
+        .as_u64()
+        .unwrap()
+        .saturating_sub(original)
+        .saturating_add(huge));
+
+    let (mut target_router, _target_dir) = create_router_with_master();
+    let restore_id = start_restore(&mut target_router);
+    let response = upload_backup_pack(&mut target_router, &restore_id, oversized, pack);
+    assert_rpc_error(&response, "RESTORE_INVALID_FORMAT");
+}

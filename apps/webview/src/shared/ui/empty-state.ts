@@ -118,7 +118,7 @@ export class CvEmptyState extends ReatomLitElement {
 
     .title {
       max-inline-size: var(--cv-empty-state-title-max-inline-size, 34ch);
-      color: var(--cv-color-text);
+      color: var(--cv-empty-state-title-color, var(--cv-color-text));
       font-size: var(--cv-empty-state-title-font-size, var(--cv-font-size-sm));
       font-weight: var(--cv-empty-state-title-font-weight, 680);
       line-height: 1.24;

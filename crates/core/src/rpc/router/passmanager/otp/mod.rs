@@ -61,3 +61,20 @@ pub(super) fn handle_remove_secret(
         Err(error) => error.into_rpc_response(),
     }
 }
+
+pub(super) fn handle_rename_secret(
+    s: &VaultSession,
+    storage: &Storage,
+    cache: &Mutex<PassmanagerOtpTargetCache>,
+    data: &Value,
+) -> RpcResponse {
+    let request = match request::parse_rename_secret(data) {
+        Ok(request) => request,
+        Err(error) => return error.into_rpc_response(),
+    };
+
+    match service::rename_secret(s, storage, cache, request) {
+        Ok(()) => RpcResponse::success(Value::Null),
+        Err(error) => error.into_rpc_response(),
+    }
+}

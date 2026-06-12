@@ -27,6 +27,21 @@ type FileDetails = {
   mediaInfo?: FileMediaInfo | null
 }
 
+class FileDetailsPanelModel {
+  readonly imageDimensions = atom<{width: number; height: number} | null>(
+    null,
+    'fileDetailsPanel.imageDimensions',
+  )
+
+  resetImageDimensions(): void {
+    this.imageDimensions.set(null)
+  }
+
+  setImageDimensions(dimensions: {width: number; height: number}): void {
+    this.imageDimensions.set(dimensions)
+  }
+}
+
 export class FileDetailsPanel extends ReatomLitElement {
   static define() {
     ImagePreview.define()
@@ -46,7 +61,7 @@ export class FileDetailsPanel extends ReatomLitElement {
   declare data: FileDetails | null
   declare externalOpenPending: boolean
 
-  private imageDimensions = atom<{width: number; height: number} | null>(null)
+  private readonly model = new FileDetailsPanelModel()
 
   constructor() {
     super()
@@ -57,7 +72,7 @@ export class FileDetailsPanel extends ReatomLitElement {
   updated(changedProperties: Map<string, unknown>) {
     super.updated(changedProperties)
     if (changedProperties.has('data')) {
-      this.imageDimensions.set(null)
+      this.model.resetImageDimensions()
     }
   }
 
@@ -475,12 +490,12 @@ export class FileDetailsPanel extends ReatomLitElement {
                 </div>
               `
             : ''}
-          ${this.imageDimensions()
+          ${this.model.imageDimensions()
             ? html`
                 <div class="detail-row">
                   <span class="detail-label">${i18n('details:dimensions')}</span>
                   <span class="detail-value"
-                    >${this.imageDimensions()!.width} × ${this.imageDimensions()!.height}</span
+                    >${this.model.imageDimensions()!.width} × ${this.model.imageDimensions()!.height}</span
                   >
                 </div>
               `
@@ -490,11 +505,11 @@ export class FileDetailsPanel extends ReatomLitElement {
     `
   }
 
-  private handleClose = () => {
+  private handleClose() {
     this.dispatchEvent(new CustomEvent('close', {bubbles: true, composed: true}))
   }
 
-  private handleAction = (action: string) => {
+  private handleAction(action: string) {
     const fileId = this.data?.id
     if (!fileId) return
     this.dispatchEvent(
@@ -510,11 +525,11 @@ export class FileDetailsPanel extends ReatomLitElement {
     this.handleAction('move')
   }
 
-  private handleDimensionsLoaded = (e: CustomEvent) => {
-    this.imageDimensions.set(e.detail)
+  private handleDimensionsLoaded(e: CustomEvent<{width: number; height: number}>) {
+    this.model.setImageDimensions(e.detail)
   }
 
-  private handleImageDoubleClick = () => {
+  private handleImageDoubleClick() {
     const fileId = this.data?.id
     if (!fileId) return
     this.dispatchEvent(
@@ -526,7 +541,7 @@ export class FileDetailsPanel extends ReatomLitElement {
     )
   }
 
-  private handleVideoOpen = () => {
+  private handleVideoOpen() {
     const d = this.data
     if (!d) return
     this.dispatchEvent(

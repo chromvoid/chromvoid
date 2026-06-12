@@ -19,6 +19,7 @@ import org.gradle.process.ExecOperations
 const val LICENSE_PUBLIC_KEY_ENV = "CHROMVOID_LICENSE_PUBLIC_KEY_ED25519_2026_01"
 const val LICENSE_PUBLIC_KEY_FILE = ".license-public-key"
 const val SKIP_FRESH_TAURI_PREBUILD_PROPERTY = "chromvoidSkipFreshTauriPrebuild"
+const val PRODUCTION_WEBVIEW_DEV_PROPERTY = "chromvoidProductionWebviewDev"
 
 abstract class BuildTask @Inject constructor(
     private val execOperations: ExecOperations,
@@ -34,6 +35,9 @@ abstract class BuildTask @Inject constructor(
     @get:Input
     val licensePublicKey: String
         get() = readLicensePublicKey()
+    @get:Input
+    val productionWebviewDev: Boolean
+        get() = shouldUseProductionWebviewDev()
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
     val rustInputFiles: FileCollection
@@ -51,6 +55,10 @@ abstract class BuildTask @Inject constructor(
                     include("tauri*.conf.json")
                     exclude("target/**")
                     exclude("gen/**")
+                },
+                project.fileTree(File(workspaceRoot, "apps/webview/dist")).matching {
+                    include("**/*")
+                    exclude(".chromvoid-build-cache.json")
                 },
                 project.fileTree(File(workspaceRoot, "crates/core")).matching {
                     include("Cargo.toml")
@@ -79,12 +87,17 @@ abstract class BuildTask @Inject constructor(
             requireLicensePublicKeyForRelease()
         }
 
+        if (shouldUseProductionWebviewDev()) {
+            fallbackCargoBuild()
+            return
+        }
+
         if (shouldSkipFreshTauriPrebuild() && isOutputFreshFromTauriPrebuild()) {
             logger.lifecycle("Skipping $this because ${outputLibrary.path} is already newer than Android Rust inputs")
             return
         }
 
-        val executable = """npm""";
+        val executable = """bun""";
         try {
             runTauriCli(executable)
         } catch (e: Exception) {
@@ -239,6 +252,10 @@ abstract class BuildTask @Inject constructor(
         return project.findProperty(SKIP_FRESH_TAURI_PREBUILD_PROPERTY)?.toString() == "true"
     }
 
+    private fun shouldUseProductionWebviewDev(): Boolean {
+        return release != true && project.findProperty(PRODUCTION_WEBVIEW_DEV_PROPERTY)?.toString() == "true"
+    }
+
     private fun isOutputFreshFromTauriPrebuild(): Boolean {
         val output = outputLibrary
         if (!output.isFile) {
@@ -356,6 +373,12 @@ abstract class BuildTask @Inject constructor(
         val spec = targetSpec(target ?: throw GradleException("target cannot be null"))
         val toolchain = resolveToolchain(ndkHome, spec)
 
+        val cargoFeatures = mutableListOf("android")
+        if (release || shouldUseProductionWebviewDev()) {
+            cargoFeatures += "tauri/custom-protocol"
+        }
+        val cargoFeaturesArg = cargoFeatures.joinToString(",")
+
         val cargoArgs = mutableListOf(
             "build",
             "--manifest-path",
@@ -364,14 +387,14 @@ abstract class BuildTask @Inject constructor(
             spec.rustTarget,
             "--no-default-features",
             "--features",
-            "android",
+            cargoFeaturesArg,
         )
         if (release) {
             cargoArgs += "--release"
         }
 
         logger.lifecycle(
-            "Tauri android-studio-script unavailable for $spec; falling back to direct cargo build"
+            "Building Android Rust library for $spec via direct cargo build with features $cargoFeaturesArg"
         )
 
         execOperations.exec {

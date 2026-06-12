@@ -1,6 +1,7 @@
-import {html, nothing, type TemplateResult} from 'lit'
+import {type TemplateResult} from 'lit'
+import {renderRouteCallout, type RouteCalloutVariant} from 'root/shared/ui/route-callout'
 
-type RemoteStorageCalloutVariant = 'info' | 'success' | 'warning' | 'danger' | 'neutral'
+type RemoteStorageCalloutVariant = RouteCalloutVariant
 
 type RemoteStorageCalloutOptions = {
   variant?: RemoteStorageCalloutVariant
@@ -10,10 +11,6 @@ type RemoteStorageCalloutOptions = {
   text?: unknown
 }
 
-function renderCalloutIcon(icon: string | undefined, iconClass: string | undefined): TemplateResult | typeof nothing {
-  return icon ? html`<cv-icon name=${icon} class=${iconClass ?? ''}></cv-icon>` : nothing
-}
-
 export function renderRemoteStorageCallout({
   variant = 'warning',
   icon,
@@ -21,17 +18,14 @@ export function renderRemoteStorageCallout({
   title,
   text,
 }: RemoteStorageCalloutOptions): TemplateResult {
-  return html`
-    <cv-callout class="remote-storage-callout" variant=${variant} density="compact">
-      ${title
-        ? html`
-            <span class="remote-storage-callout-title">
-              ${renderCalloutIcon(icon, iconClass)}
-              ${title}
-            </span>
-          `
-        : nothing}
-      ${text ? html`<span class="remote-storage-callout-text">${text}</span>` : nothing}
-    </cv-callout>
-  `
+  return renderRouteCallout({
+    className: 'remote-storage-callout',
+    variant,
+    titleClassName: 'remote-storage-callout-title',
+    textClassName: 'remote-storage-callout-text',
+    icon,
+    iconClassName: iconClass,
+    title,
+    text,
+  })
 }

@@ -183,8 +183,13 @@ export const setupMobileLifecycle = (ws: TransportLike, store: Store) => {
     } else {
       if (externalActivitySuppressedHidden) {
         externalActivitySuppressedHidden = false
-        writeAndroidUnlockDebug('lifecycle', 'sync:visible clears suppressed hidden')
-        return
+        const stillSuppressed = externalActivityActive()
+        writeAndroidUnlockDebug('lifecycle', 'sync:visible clears suppressed hidden', {
+          stillSuppressed,
+        })
+        if (stillSuppressed) {
+          return
+        }
       }
       notifyForeground()
       biometricAppGateModel.handleForegroundResume()

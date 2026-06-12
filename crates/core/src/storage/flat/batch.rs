@@ -7,6 +7,7 @@ use std::sync::Arc;
 use crate::error::{Error, Result};
 use crate::storage::backend::{ChunkWriteBatchTemp, StorageBackend};
 
+use super::chunks::validate_chunk_name;
 use super::FlatStorageBackend;
 
 pub(crate) struct ChunkWriteBatch {
@@ -37,11 +38,7 @@ impl ChunkWriteBatch {
 
     pub(crate) fn write_chunk(&mut self, name: impl Into<String>, bytes: &[u8]) -> Result<()> {
         let name = name.into();
-        if name.len() < 3 || !name.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(Error::InvalidChunkName(format!(
-                "chunk name must be hex: {name}"
-            )));
-        }
+        validate_chunk_name(&name)?;
         self.pending.push((name, bytes.to_vec()));
         Ok(())
     }

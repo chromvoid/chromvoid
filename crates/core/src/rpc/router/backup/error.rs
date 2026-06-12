@@ -51,6 +51,10 @@ impl BackupCommandError {
         Self::new(message, Some(ErrorCode::NodeNotFound))
     }
 
+    pub(in crate::rpc::router::backup) fn vault_required() -> Self {
+        Self::new("Vault not unlocked", Some(ErrorCode::VaultRequired))
+    }
+
     pub(in crate::rpc::router::backup) fn internal(message: impl Into<String>) -> Self {
         Self::new(message, Some(ErrorCode::InternalError))
     }

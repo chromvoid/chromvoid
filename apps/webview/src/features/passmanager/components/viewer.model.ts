@@ -1,4 +1,4 @@
-import {action, atom, computed} from '@reatom/core'
+import {action, atom, computed, wrap} from '@reatom/core'
 
 type FileViewerKind = 'empty' | 'image' | 'text' | 'unknown'
 
@@ -60,7 +60,7 @@ export class FileViewerModel {
 
   private async loadTextFile(file: File, version: number): Promise<void> {
     try {
-      const text = await file.text()
+      const text = await wrap(file.text())
       if (!this.isCurrentTextLoad(file, version)) return
       this.textValueState.set(text)
     } finally {

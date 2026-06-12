@@ -98,7 +98,24 @@ fn backup_local_create_inner(
     };
 
     let (backup_id, estimated_size, chunk_count) = match start_response {
-        RpcResponse::Success { result, .. } => parse_backup_start_result(&result),
+        RpcResponse::Success { result, .. } => match parse_backup_start_result(&result) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                if let Some(backup_id) = result
+                    .get("backup_id")
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    if let Err(cancel_error) =
+                        cancel_backup_session_with_adapter(&adapter, backup_id)
+                    {
+                        return backup_internal_error(cancel_error);
+                    }
+                }
+                return backup_internal_error(error);
+            }
+        },
         RpcResponse::Error { error, code, .. } => {
             return RpcResult::Error {
                 ok: false,
@@ -107,10 +124,6 @@ fn backup_local_create_inner(
             }
         }
     };
-
-    if backup_id.is_empty() {
-        return backup_internal_error("Invalid backup_id");
-    }
 
     if cancel_requested.load(Ordering::Relaxed) {
         if let Err(error) = cancel_backup_session_with_adapter(&adapter, &backup_id) {
@@ -178,7 +191,17 @@ fn backup_local_create_inner(
     };
 
     let (meta_b64, master_salt_b64, master_verify_b64) = match metadata_response {
-        RpcResponse::Success { result, .. } => parse_backup_metadata_result(&result),
+        RpcResponse::Success { result, .. } => match parse_backup_metadata_result(&result) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                if let Err(abort_error) =
+                    abort_backup_with_adapter(&adapter, &backup_id, Some(sink.as_mut()))
+                {
+                    return backup_internal_error(abort_error);
+                }
+                return backup_internal_error(error);
+            }
+        },
         RpcResponse::Error { error, code, .. } => {
             if let Err(abort_error) =
                 abort_backup_with_adapter(&adapter, &backup_id, Some(sink.as_mut()))
@@ -193,21 +216,38 @@ fn backup_local_create_inner(
         }
     };
 
-    use base64::engine::general_purpose;
-    use base64::Engine;
-
-    let meta_bytes = match general_purpose::STANDARD.decode(meta_b64.as_bytes()) {
-        Ok(b) => b,
-        Err(_) => {
-            if let Err(error) = abort_backup_with_adapter(&adapter, &backup_id, Some(sink.as_mut()))
+    let meta_bytes = match decode_backup_base64_field(&meta_b64, "metadata") {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            if let Err(abort_error) =
+                abort_backup_with_adapter(&adapter, &backup_id, Some(sink.as_mut()))
             {
-                return backup_internal_error(error);
+                return backup_internal_error(abort_error);
             }
-            return RpcResult::Error {
-                ok: false,
-                error: "Invalid backup metadata".to_string(),
-                code: Some("INTERNAL".to_string()),
-            };
+            return backup_internal_error(error);
+        }
+    };
+    let master_salt_bytes = match decode_backup_base64_field(&master_salt_b64, "master_salt") {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            if let Err(abort_error) =
+                abort_backup_with_adapter(&adapter, &backup_id, Some(sink.as_mut()))
+            {
+                return backup_internal_error(abort_error);
+            }
+            return backup_internal_error(error);
+        }
+    };
+    let master_verify_bytes = match decode_backup_base64_field(&master_verify_b64, "master_verify")
+    {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            if let Err(abort_error) =
+                abort_backup_with_adapter(&adapter, &backup_id, Some(sink.as_mut()))
+            {
+                return backup_internal_error(abort_error);
+            }
+            return backup_internal_error(error);
         }
     };
     if let Err(error) = sink.write_file("metadata.enc", &meta_bytes) {
@@ -223,33 +263,29 @@ fn backup_local_create_inner(
         };
     }
 
-    if let Ok(bytes) = general_purpose::STANDARD.decode(master_salt_b64.as_bytes()) {
-        if let Err(error) = sink.write_file("master.salt", &bytes) {
-            if let Err(abort_error) =
-                abort_backup_with_adapter(&adapter, &backup_id, Some(sink.as_mut()))
-            {
-                return backup_internal_error(abort_error);
-            }
-            return RpcResult::Error {
-                ok: false,
-                error,
-                code: Some("INTERNAL".to_string()),
-            };
+    if let Err(error) = sink.write_file("master.salt", &master_salt_bytes) {
+        if let Err(abort_error) =
+            abort_backup_with_adapter(&adapter, &backup_id, Some(sink.as_mut()))
+        {
+            return backup_internal_error(abort_error);
         }
+        return RpcResult::Error {
+            ok: false,
+            error,
+            code: Some("INTERNAL".to_string()),
+        };
     }
-    if let Ok(bytes) = general_purpose::STANDARD.decode(master_verify_b64.as_bytes()) {
-        if let Err(error) = sink.write_file("master.verify", &bytes) {
-            if let Err(abort_error) =
-                abort_backup_with_adapter(&adapter, &backup_id, Some(sink.as_mut()))
-            {
-                return backup_internal_error(abort_error);
-            }
-            return RpcResult::Error {
-                ok: false,
-                error,
-                code: Some("INTERNAL".to_string()),
-            };
+    if let Err(error) = sink.write_file("master.verify", &master_verify_bytes) {
+        if let Err(abort_error) =
+            abort_backup_with_adapter(&adapter, &backup_id, Some(sink.as_mut()))
+        {
+            return backup_internal_error(abort_error);
         }
+        return RpcResult::Error {
+            ok: false,
+            error,
+            code: Some("INTERNAL".to_string()),
+        };
     }
     tracing::info!(
         backup_id = %backup_id,
@@ -497,33 +533,43 @@ fn backup_local_create_inner(
     }
 }
 
-fn parse_backup_start_result(result: &serde_json::Value) -> (String, u64, u64) {
-    (
-        backup_string_field(result, "backup:local:start", "backup_id"),
-        backup_u64_field(result, "backup:local:start", "estimated_size"),
-        backup_u64_field(result, "backup:local:start", "chunk_count"),
-    )
+fn parse_backup_start_result(result: &serde_json::Value) -> Result<(String, u64, u64), String> {
+    let backup_id = backup_string_field(result, "backup:local:start", "backup_id")?;
+    if backup_id.trim().is_empty() {
+        return Err("backup:local:start returned empty backup_id".to_string());
+    }
+    Ok((
+        backup_id,
+        backup_u64_field(result, "backup:local:start", "estimated_size")?,
+        backup_u64_field(result, "backup:local:start", "chunk_count")?,
+    ))
 }
 
-fn parse_backup_metadata_result(result: &serde_json::Value) -> (String, String, String) {
-    (
-        backup_string_field(result, "backup:local:getMetadata", "metadata"),
-        backup_string_field(result, "backup:local:getMetadata", "master_salt"),
-        backup_string_field(result, "backup:local:getMetadata", "master_verify"),
-    )
+fn parse_backup_metadata_result(
+    result: &serde_json::Value,
+) -> Result<(String, String, String), String> {
+    Ok((
+        backup_string_field(result, "backup:local:getMetadata", "metadata")?,
+        backup_string_field(result, "backup:local:getMetadata", "master_salt")?,
+        backup_string_field(result, "backup:local:getMetadata", "master_verify")?,
+    ))
 }
 
-fn backup_string_field(result: &serde_json::Value, command: &str, field: &str) -> String {
+fn backup_string_field(
+    result: &serde_json::Value,
+    command: &str,
+    field: &str,
+) -> Result<String, String> {
     match result.get(field) {
         Some(value) => match value.as_str() {
-            Some(value) => value.to_string(),
+            Some(value) => Ok(value.to_string()),
             None => {
                 tracing::warn!(
                     command,
                     field,
                     "backup_local_create: response field is not a string"
                 );
-                String::new()
+                Err(format!("{command} returned non-string {field}"))
             }
         },
         None => {
@@ -532,22 +578,22 @@ fn backup_string_field(result: &serde_json::Value, command: &str, field: &str) -
                 field,
                 "backup_local_create: response missing string field"
             );
-            String::new()
+            Err(format!("{command} missing {field}"))
         }
     }
 }
 
-fn backup_u64_field(result: &serde_json::Value, command: &str, field: &str) -> u64 {
+fn backup_u64_field(result: &serde_json::Value, command: &str, field: &str) -> Result<u64, String> {
     match result.get(field) {
         Some(value) => match value.as_u64() {
-            Some(value) => value,
+            Some(value) => Ok(value),
             None => {
                 tracing::warn!(
                     command,
                     field,
                     "backup_local_create: response field is not an unsigned integer"
                 );
-                0
+                Err(format!("{command} returned non-u64 {field}"))
             }
         },
         None => {
@@ -556,9 +602,18 @@ fn backup_u64_field(result: &serde_json::Value, command: &str, field: &str) -> u
                 field,
                 "backup_local_create: response missing unsigned integer field"
             );
-            0
+            Err(format!("{command} missing {field}"))
         }
     }
+}
+
+fn decode_backup_base64_field(value: &str, field: &str) -> Result<Vec<u8>, String> {
+    use base64::engine::general_purpose;
+    use base64::Engine;
+
+    general_purpose::STANDARD
+        .decode(value.as_bytes())
+        .map_err(|_| format!("Invalid backup {field}"))
 }
 
 fn cancel_backup_session_with_adapter(
@@ -609,19 +664,32 @@ mod tests {
             "backup_id": "backup-1",
             "estimated_size": 1024,
             "chunk_count": 3,
-        }));
+        }))
+        .expect("parse start");
 
         assert_eq!(parsed, ("backup-1".to_string(), 1024, 3));
     }
 
     #[test]
-    fn backup_start_parser_defaults_malformed_fields() {
-        let parsed = parse_backup_start_result(&json!({
+    fn backup_start_parser_rejects_malformed_fields() {
+        let error = parse_backup_start_result(&json!({
             "backup_id": 42,
             "estimated_size": "1024",
-        }));
+        }))
+        .expect_err("malformed start response");
 
-        assert_eq!(parsed, (String::new(), 0, 0));
+        assert!(error.contains("backup_id"));
+    }
+
+    #[test]
+    fn backup_start_parser_rejects_missing_fields() {
+        let error = parse_backup_start_result(&json!({
+            "backup_id": "backup-1",
+            "estimated_size": 1024,
+        }))
+        .expect_err("missing chunk_count");
+
+        assert!(error.contains("chunk_count"));
     }
 
     #[test]
@@ -630,7 +698,8 @@ mod tests {
             "metadata": "meta",
             "master_salt": "salt",
             "master_verify": "verify",
-        }));
+        }))
+        .expect("parse metadata");
 
         assert_eq!(
             parsed,
@@ -639,12 +708,32 @@ mod tests {
     }
 
     #[test]
-    fn backup_metadata_parser_defaults_malformed_fields() {
-        let parsed = parse_backup_metadata_result(&json!({
+    fn backup_metadata_parser_rejects_malformed_fields() {
+        let error = parse_backup_metadata_result(&json!({
             "metadata": [],
             "master_salt": "salt",
-        }));
+        }))
+        .expect_err("malformed metadata response");
 
-        assert_eq!(parsed, (String::new(), "salt".to_string(), String::new()));
+        assert!(error.contains("metadata"));
+    }
+
+    #[test]
+    fn backup_metadata_parser_rejects_missing_fields() {
+        let error = parse_backup_metadata_result(&json!({
+            "metadata": "meta",
+            "master_salt": "salt",
+        }))
+        .expect_err("missing master_verify");
+
+        assert!(error.contains("master_verify"));
+    }
+
+    #[test]
+    fn backup_metadata_base64_decoder_rejects_invalid_fields() {
+        let error = decode_backup_base64_field("not base64!!!", "master_verify")
+            .expect_err("invalid base64");
+
+        assert_eq!(error, "Invalid backup master_verify");
     }
 }

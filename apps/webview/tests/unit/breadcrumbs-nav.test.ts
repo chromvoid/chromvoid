@@ -29,6 +29,7 @@ describe('breadcrumbs-nav', () => {
     expect(items[0]?.getAttribute('value')).toBe('/')
     expect(items[0]?.getAttribute('href')).toBe('/')
     expect(items[0]?.querySelector('cv-icon[slot="prefix"][name="house"]')).toBeTruthy()
+    expect(items[0]?.textContent).toContain('Files')
     expect(items[1]?.getAttribute('value')).toBe('/docs')
     expect(items[1]?.getAttribute('href')).toBe('/docs')
     expect(items[1]?.hasAttribute('current')).toBe(false)
@@ -86,7 +87,9 @@ describe('breadcrumbs-nav', () => {
       navigateCount += 1
     })
 
-    const currentItem = element.shadowRoot?.querySelectorAll('cv-breadcrumb-item')[2] as HTMLElement | undefined
+    const currentItem = element.shadowRoot?.querySelectorAll('cv-breadcrumb-item')[2] as
+      | HTMLElement
+      | undefined
     const currentLink = currentItem?.shadowRoot?.querySelector('[part="link"]') as HTMLAnchorElement | null
     const clickEvent = new MouseEvent('click', {bubbles: true, cancelable: true, composed: true})
 

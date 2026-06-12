@@ -38,7 +38,11 @@ internal object PasskeyPreflightPayloadFactory {
     }
 
     fun buildCreate(request: BeginCreatePublicKeyCredentialRequest): CreatePasskeyPreflightPayload {
-        val parsed = PasskeyRequestParser.parseCreateRequestJson(request.requestJson)
+        val parsed =
+            PasskeyRequestParser.parseCreateRequestJson(
+                request.requestJson,
+                PasskeyOriginResolver.defaultRpIdForCreate(request.callingAppInfo),
+            )
         return CreatePasskeyPreflightPayload(
             requestJson = request.requestJson,
             rpId = parsed?.rpId.orEmpty(),

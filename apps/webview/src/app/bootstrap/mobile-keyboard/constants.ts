@@ -1,0 +1,19 @@
+export const MOBILE_KEYBOARD_SCROLL_ATTR = 'data-mobile-keyboard-scroll'
+export const MOBILE_KEYBOARD_SCROLL_CONTAINER_ATTR = 'data-mobile-keyboard-scroll-container'
+
+export const MOBILE_KEYBOARD_SCROLL_OFF_VALUE = 'off'
+export const VISUAL_VIEWPORT_FIELD_MARGIN_PX = 18
+export const MIN_SCROLL_ADJUSTMENT_PX = 1
+export const TAP_MOVEMENT_TOLERANCE_PX = 10
+
+export const KEYBOARD_FALLBACK_SETTLE_MS = 500
+export const REVEAL_FRAME_LIMIT = 18
+export const REVEAL_STABLE_VISIBLE_FRAMES = 2
+export const PRESERVE_WINDOW_MS = 450
+export const PRESERVE_FRAME_LIMIT = 30
+export const RECENT_USER_SCROLL_INTENT_MS = 300
+export const RECENT_PROGRAMMATIC_SCROLL_MS = 120
+export const RECENT_GESTURE_WINDOW_MS = 2_000
+
+export const MIN_KEYBOARD_BOTTOM_INSET = 72
+export const KEYBOARD_BOTTOM_INSET_VIEWPORT_RATIO = 0.08

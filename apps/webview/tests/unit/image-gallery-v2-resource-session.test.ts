@@ -463,6 +463,59 @@ describe('image gallery v2 resource/session core', () => {
     })
   })
 
+  it('retains an in-flight neighbor preview when navigating onto that image', async () => {
+    const pending = new Map<number, ReturnType<typeof deferred<LoadResult>>>()
+    const loadSourceById = vi.fn<LoadSourceById>((fileId, _name, options) => {
+      const item = deferred<LoadResult>()
+      pending.set(fileId, item)
+      options?.signal?.addEventListener(
+        'abort',
+        () => item.reject(new DOMException('Aborted', 'AbortError')),
+        {once: true},
+      )
+      return item.promise
+    })
+    const session = new ImageGallerySessionModel({loadSourceById})
+
+    session.setImages(images, 0)
+    session.primeDirectionalNeighbor(1)
+
+    await vi.waitFor(() => {
+      expect(loadSourceById).toHaveBeenCalledWith(
+        2,
+        'two.jpg',
+        expect.objectContaining({variant: 'preview-image'}),
+      )
+    })
+
+    session.navigate(1)
+
+    await vi.waitFor(() => {
+      expect(session.currentPanel()).toMatchObject({
+        imageId: 2,
+        src: null,
+        loading: true,
+        error: null,
+      })
+    })
+    expect(
+      loadSourceById.mock.calls.filter(
+        ([fileId, , options]) => fileId === 2 && options?.variant === 'preview-image',
+      ),
+    ).toHaveLength(1)
+
+    pending.get(2)?.resolve(result('blob:2:preview-image'))
+
+    await vi.waitFor(() => {
+      expect(session.currentPanel()).toMatchObject({
+        imageId: 2,
+        src: 'blob:2:preview-image',
+        loading: false,
+        error: null,
+      })
+    })
+  })
+
   it('logs successful neighbor completion with explicit success status', async () => {
     localStorage.setItem('chromvoid:image-gallery-debug', '1')
     const info = vi.spyOn(console, 'info').mockImplementation(() => {})

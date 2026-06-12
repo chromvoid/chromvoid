@@ -88,27 +88,10 @@ pub(super) fn excluded_credential_ids(request: &Value) -> impl Iterator<Item = &
         .filter_map(|credential| credential.get("id").and_then(|id| id.as_str()))
 }
 
-pub(super) fn selected_credential_id(value: &Value) -> Option<&str> {
-    value
-        .get("credentialIdB64Url")
-        .or_else(|| value.get("credential_id_b64url"))
-        .or_else(|| value.get("credentialId"))
-        .or_else(|| value.get("selectedCredentialId"))
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
+pub(super) fn request_has_client_data_hash(request: &Value) -> bool {
+    request_client_data_hash_value(request).is_some()
 }
 
-pub(super) fn origin_for_request(request: &Value, rp_id: &str) -> String {
-    optional_str(request, "origin")
-        .map(ToString::to_string)
-        .unwrap_or_else(|| format!("https://{rp_id}"))
-}
-
-pub(super) fn has_client_data_hash(request: &Value) -> bool {
-    client_data_hash_value(request).is_some()
-}
-
-pub(super) fn client_data_hash_value(request: &Value) -> Option<&str> {
+pub(super) fn request_client_data_hash_value(request: &Value) -> Option<&str> {
     optional_str(request, "clientDataHash").or_else(|| optional_str(request, "client_data_hash"))
 }

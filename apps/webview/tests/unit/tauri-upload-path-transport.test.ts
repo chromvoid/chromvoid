@@ -38,7 +38,7 @@ describe('Tauri path upload transport', () => {
 
     expect(tauriInvoke).toHaveBeenCalledWith('catalog_upload_path', {
       nodeId: 7,
-      path: '/tmp/report.bin',
+      pathToken: '/tmp/report.bin',
       uploadId: 'upload-1',
       readChunkSize: 512 * 1024,
     })

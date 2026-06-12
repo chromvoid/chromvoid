@@ -11,11 +11,16 @@ export const notesQuickViewStyles = [
       block-size: 100%;
       min-inline-size: 0;
       color: var(--cv-color-text);
+      --notes-toolbar-control-height: var(--app-toolbar-control-height, 40px);
+      --notes-toolbar-control-radius: var(--app-toolbar-control-radius, var(--cv-radius-2));
+      --notes-toolbar-control-padding-inline: var(--app-toolbar-control-padding-inline, var(--cv-space-3));
+      --notes-toolbar-control-font-size: var(--app-toolbar-control-font-size, var(--cv-font-size-sm));
+      --notes-toolbar-control-gap: var(--app-toolbar-control-gap, var(--cv-space-2));
     }
 
     .quick-view {
       display: grid;
-      align-content: start;
+      grid-template-rows: min-content auto min-content;
       gap: var(--cv-space-3);
       min-block-size: 100%;
       min-inline-size: 0;
@@ -31,14 +36,13 @@ export const notesQuickViewStyles = [
     .quick-view__summary-rail {
       inline-size: 100%;
       box-sizing: border-box;
-      --pm-summary-rail-inline-size: 100%;
     }
 
     .controls {
       display: flex;
       align-items: center;
       justify-content: flex-end;
-      gap: 6px;
+      gap: var(--notes-toolbar-control-gap);
       inline-size: 100%;
       min-inline-size: 0;
       box-sizing: border-box;
@@ -46,13 +50,13 @@ export const notesQuickViewStyles = [
 
     .view-switch {
       display: inline-grid;
-      grid-template-columns: repeat(2, 32px);
+      grid-template-columns: repeat(2, calc(var(--notes-toolbar-control-height) - 8px));
       gap: 2px;
       flex: 0 0 auto;
-      min-block-size: 34px;
+      min-block-size: var(--notes-toolbar-control-height);
       padding: 2px;
       border: 1px solid var(--cv-color-border);
-      border-radius: var(--cv-radius-2);
+      border-radius: var(--notes-toolbar-control-radius);
       background: var(--cv-color-surface-2);
     }
 
@@ -61,10 +65,10 @@ export const notesQuickViewStyles = [
       align-items: center;
       justify-content: center;
       inline-size: 100%;
-      block-size: 28px;
+      block-size: calc(var(--notes-toolbar-control-height) - 8px);
       padding: 0;
       border: 0;
-      border-radius: var(--cv-radius-2);
+      border-radius: var(--notes-toolbar-control-radius);
       background: transparent;
       color: var(--cv-color-text-muted);
       cursor: pointer;
@@ -83,14 +87,14 @@ export const notesQuickViewStyles = [
       flex: 1 1 auto;
       max-inline-size: none;
       min-inline-size: 0;
-      block-size: 34px;
-      padding: 0 var(--cv-space-3);
+      block-size: var(--notes-toolbar-control-height);
+      padding: 0 var(--notes-toolbar-control-padding-inline);
       border: 1px solid var(--cv-color-border);
-      border-radius: var(--cv-radius-2);
+      border-radius: var(--notes-toolbar-control-radius);
       background: var(--cv-color-surface-2);
       color: var(--cv-color-text);
       font: inherit;
-      font-size: var(--cv-font-size-sm);
+      font-size: var(--notes-toolbar-control-font-size);
       outline: none;
     }
 
@@ -104,7 +108,7 @@ export const notesQuickViewStyles = [
       border: 0;
       color: var(--cv-color-text-muted);
       font: inherit;
-      font-size: var(--cv-font-size-xs);
+      font-size: var(--notes-toolbar-control-font-size);
       cursor: pointer;
     }
 
@@ -120,21 +124,22 @@ export const notesQuickViewStyles = [
       align-items: center;
       justify-content: center;
       gap: var(--cv-space-1);
-      min-block-size: 34px;
-      padding: 0 var(--cv-space-3);
+      min-block-size: var(--notes-toolbar-control-height);
+      padding: 0 var(--notes-toolbar-control-padding-inline);
       border: 1px solid var(--cv-color-border);
-      border-radius: var(--cv-radius-2);
+      border-radius: var(--notes-toolbar-control-radius);
       background: var(--cv-color-surface-2);
     }
 
     .clear-filters--compact {
       flex: 0 0 auto;
-      inline-size: 34px;
+      inline-size: var(--notes-toolbar-control-height);
       padding: 0;
     }
 
     .rows {
       display: grid;
+      align-content: start;
       gap: 6px;
       min-inline-size: 0;
     }
@@ -174,7 +179,7 @@ export const notesQuickViewStyles = [
     }
 
     .row--tree {
-      background: color-mix(in oklab, var(--cv-color-surface-secondary-glass-soft), transparent 18%);
+      background: var(--cv-color-surface-glass-subtle);
     }
 
     .row:hover {
@@ -182,7 +187,7 @@ export const notesQuickViewStyles = [
     }
 
     .row:active {
-      background: color-mix(in oklab, var(--cv-color-surface-2), var(--cv-color-accent) 8%);
+      background: var(--cv-color-active);
     }
 
     .row:focus-visible {

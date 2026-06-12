@@ -26,6 +26,7 @@ export type UploadTaskParams = {
   batchId?: string
   batchIndex?: number
   batchCount?: number
+  retryable?: boolean
 }
 
 export class UploadTask {
@@ -37,6 +38,7 @@ export class UploadTask {
   readonly batchId: string
   readonly batchIndex: number
   readonly batchCount: number
+  readonly retryable: boolean
 
   // Progress reactive fields
   readonly loaded = atom(0)
@@ -53,6 +55,7 @@ export class UploadTask {
     this.batchId = params.batchId ?? params.id
     this.batchIndex = Math.max(0, Math.floor(params.batchIndex ?? 0))
     this.batchCount = Math.max(1, Math.floor(params.batchCount ?? 1))
+    this.retryable = params.retryable === true
     this.autoRemoveDoneMs =
       typeof params.autoRemoveDoneMs === 'number' && params.autoRemoveDoneMs > 0
         ? params.autoRemoveDoneMs

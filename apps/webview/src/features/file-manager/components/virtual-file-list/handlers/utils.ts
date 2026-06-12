@@ -94,10 +94,11 @@ export const handleItemSelect = (
   if (currentIndex === -1) return
 
   if (shiftKey) {
-    const anchor =
-      selectionState.lastSelectionAnchorIndex != null && selectionState.lastSelectionAnchorIndex >= 0
-        ? selectionState.lastSelectionAnchorIndex
-        : currentIndex
+    const anchorIndex =
+      selectionState.lastSelectionAnchorId != null
+        ? filtered.findIndex((candidate) => candidate.id === selectionState.lastSelectionAnchorId)
+        : -1
+    const anchor = anchorIndex >= 0 ? anchorIndex : currentIndex
     const start = Math.min(anchor, currentIndex)
     const end = Math.max(anchor, currentIndex)
     newSelection = []
@@ -105,8 +106,8 @@ export const handleItemSelect = (
       const candidate = filtered[i]
       if (candidate) newSelection.push(candidate.id)
     }
-    if (selectionState.lastSelectionAnchorIndex == null) {
-      selectionState.lastSelectionAnchorIndex = anchor
+    if (selectionState.lastSelectionAnchorId == null || anchorIndex < 0) {
+      selectionState.lastSelectionAnchorId = filtered[anchor]?.id ?? item.id
     }
   } else if (ctrlKey) {
     const index = newSelection.indexOf(item.id)
@@ -115,7 +116,7 @@ export const handleItemSelect = (
     } else {
       newSelection.push(item.id)
     }
-    selectionState.lastSelectionAnchorIndex = currentIndex
+    selectionState.lastSelectionAnchorId = item.id
   } else {
     return
   }

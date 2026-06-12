@@ -3,6 +3,7 @@ use tracing::{info, warn};
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use super::super::paired_peers::PairedPeerStore;
 use super::super::signaling::SignalingClient;
@@ -40,6 +41,7 @@ pub(super) struct AcceptAttemptProgress {
 /// IK msg1 minimum size (96+ bytes: encrypted static key + ephemeral).
 /// XX msg1 is ~32 bytes (just ephemeral key).
 const IK_MSG1_MIN_SIZE: usize = 96;
+const NOISE_HANDSHAKE_MESSAGE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Accept a single incoming Desktop connection.
 ///
@@ -72,10 +74,7 @@ pub(super) async fn accept_connection(
         "mobile_acceptor: awaiting noise msg1 relay={} room_id={} transport_type={:?}",
         relay_url, room_id, transport_type
     );
-    let msg1 = transport
-        .recv()
-        .await
-        .map_err(|e| format!("noise msg1 recv: {e}"))?;
+    let msg1 = recv_handshake_message(transport.as_mut(), "noise msg1 recv").await?;
     info!(
         "mobile_acceptor: received noise msg1 relay={} room_id={} len={}",
         relay_url,
@@ -286,6 +285,24 @@ async fn establish_transport(
     }
 }
 
+async fn recv_handshake_message(
+    transport: &mut (dyn RemoteTransport + '_),
+    label: &'static str,
+) -> Result<Vec<u8>, String> {
+    recv_handshake_message_with_timeout_for(transport, label, NOISE_HANDSHAKE_MESSAGE_TIMEOUT).await
+}
+
+async fn recv_handshake_message_with_timeout_for(
+    transport: &mut (dyn RemoteTransport + '_),
+    label: &'static str,
+    timeout_duration: Duration,
+) -> Result<Vec<u8>, String> {
+    tokio::time::timeout(timeout_duration, transport.recv())
+        .await
+        .map_err(|_| format!("{label}: timeout after {}s", timeout_duration.as_secs()))?
+        .map_err(|e| format!("{label}: {e}"))
+}
+
 async fn perform_handshake(
     transport: &mut (dyn RemoteTransport + '_),
     msg1: &[u8],
@@ -403,10 +420,7 @@ async fn noise_xx_responder(
         .await
         .map_err(|e| format!("XX msg2 send: {e}"))?;
 
-    let msg3 = transport
-        .recv()
-        .await
-        .map_err(|e| format!("XX msg3 recv: {e}"))?;
+    let msg3 = recv_handshake_message(transport, "XX msg3 recv").await?;
     responder
         .read_message(&msg3, buf)
         .map_err(|e| format!("XX msg3 read: {e}"))?;
@@ -437,21 +451,76 @@ async fn noise_xx_responder(
 
 pub(super) fn hex_decode(s: &str) -> Result<Vec<u8>, String> {
     let s = s.trim();
-    if s.len() % 2 != 0 {
+    let bytes = s.as_bytes();
+    if bytes.len() % 2 != 0 {
         return Err("hex string has odd length".to_string());
     }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| {
-            u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| format!("invalid hex at {i}: {e}"))
-        })
-        .collect()
+    let mut out = Vec::with_capacity(bytes.len() / 2);
+    for (pair_idx, pair) in bytes.chunks_exact(2).enumerate() {
+        let hi = hex_nibble(pair[0])
+            .ok_or_else(|| format!("invalid hex at {}: invalid digit", pair_idx * 2))?;
+        let lo = hex_nibble(pair[1])
+            .ok_or_else(|| format!("invalid hex at {}: invalid digit", pair_idx * 2 + 1))?;
+        out.push((hi << 4) | lo);
+    }
+    Ok(out)
+}
+
+fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::network::PairedPeer;
+
+    struct PendingTransport;
+
+    #[async_trait::async_trait]
+    impl RemoteTransport for PendingTransport {
+        async fn send(&mut self, _data: &[u8]) -> Result<(), chromvoid_protocol::TransportError> {
+            Ok(())
+        }
+
+        async fn recv(&mut self) -> Result<Vec<u8>, chromvoid_protocol::TransportError> {
+            std::future::pending().await
+        }
+
+        async fn close(&mut self) -> Result<(), chromvoid_protocol::TransportError> {
+            Ok(())
+        }
+
+        fn transport_type(&self) -> TransportType {
+            TransportType::WssRelay
+        }
+    }
+
+    #[test]
+    fn hex_decode_rejects_multibyte_input_without_panic() {
+        assert!(hex_decode("éé").is_err());
+        assert!(hex_decode("0é").is_err());
+    }
+
+    #[tokio::test]
+    async fn recv_handshake_message_times_out() {
+        let mut transport = PendingTransport;
+
+        let error = recv_handshake_message_with_timeout_for(
+            &mut transport,
+            "noise msg1 recv",
+            Duration::from_millis(5),
+        )
+        .await
+        .expect_err("pending transport should time out");
+
+        assert!(error.contains("noise msg1 recv: timeout"));
+    }
 
     #[tokio::test]
     async fn touch_paired_peer_store_blocking_updates_last_seen() {

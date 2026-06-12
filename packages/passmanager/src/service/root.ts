@@ -1,4 +1,4 @@
-import {atom, computed, peek} from '@reatom/core'
+import {atom, computed, peek, wrap} from '@reatom/core'
 
 import {v4} from 'uuid'
 
@@ -683,7 +683,7 @@ export class ManagerRoot implements TGroupActions {
     }
     let dataReceived = false
     try {
-      const data = await this.apiRead(SAVE_KEY)
+      const data = await wrap(this.apiRead(SAVE_KEY))
 
       // undefined means the data source is not ready yet (e.g. catalog not
       // synced, vault still unlocking).  Keep current state — the catalog
@@ -961,12 +961,14 @@ export class ManagerRoot implements TGroupActions {
   }
 
   async fullClean() {
-    const confirmed = await confirmPassManagerAction({
-      title: i18n('remove:dialog:title'),
-      message: i18n('remove:dialog:text'),
-      variant: 'danger',
-      confirmVariant: 'danger',
-    })
+    const confirmed = await wrap(
+      confirmPassManagerAction({
+        title: i18n('remove:dialog:title'),
+        message: i18n('remove:dialog:text'),
+        variant: 'danger',
+        confirmVariant: 'danger',
+      }),
+    )
     if (!confirmed) {
       return false
     }

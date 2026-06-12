@@ -11,7 +11,6 @@ export const pmGroupListItemMobileStyles = css`
 
   .group-row {
     display: grid;
-    --pm-mobile-list-row-gap: 8px;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
     gap: var(--pm-mobile-list-row-gap);

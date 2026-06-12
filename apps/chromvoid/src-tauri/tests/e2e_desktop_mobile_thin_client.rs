@@ -7,7 +7,7 @@
 //! This scenario models the real user journey:
 //! 1. User starts pairing on Desktop, gets PIN
 //! 2. User confirms pairing, peer is persisted
-//! 3. Desktop creates a RemoteCoreAdapter via network channel
+//! 3. Desktop creates a RemoteCoreAdapter via remote data-plane channel
 //! 4. Desktop auto-locks vault, switches from Local to Remote mode
 //! 5. Sync bootstraps (initial sync from Core Host)
 //! 6. Incremental deltas arrive and cursor advances
@@ -90,6 +90,8 @@ macro_rules! phase {
 /// lifecycle in sequence, asserting meaningful outcomes at each transition.
 #[test]
 fn e2e_desktop_mobile_thin_client() {
+    common::enable_local_core_test_keystore();
+
     let _test_start = Instant::now();
     let sync_runtime = SyncRuntimeState::new();
     let pairing_runtime = pairing_runtime();
@@ -221,15 +223,15 @@ fn e2e_desktop_mobile_thin_client() {
     phase!(
         _test_start,
         2,
-        "Connect — create RemoteCoreAdapter from network channel"
+        "Connect — create RemoteCoreAdapter from remote data-plane channel"
     );
     // ═══════════════════════════════════════════════════════════════════
 
-    let (net_tx, net_rx) = mpsc::channel::<chromvoid_lib::network::IoRequest>(32);
+    let (net_tx, net_rx) = mpsc::channel::<chromvoid_lib::remote_data_plane::RemoteIoRequest>(32);
     let host = RemoteHost::TauriRemoteWss {
         peer_id: "e2e-desktop-01".to_string(),
     };
-    let remote_adapter = RemoteCoreAdapter::from_network(host, net_tx);
+    let remote_adapter = RemoteCoreAdapter::from_remote_sender(host, net_tx);
 
     // Validate adapter state.
     assert!(
@@ -460,11 +462,11 @@ fn e2e_desktop_mobile_thin_client() {
 
     // Create a separate adapter to test disconnect detection without
     // disrupting the main vault adapter.
-    let (tx_disc, rx_disc) = mpsc::channel::<chromvoid_lib::network::IoRequest>(16);
+    let (tx_disc, rx_disc) = mpsc::channel::<chromvoid_lib::remote_data_plane::RemoteIoRequest>(16);
     let host_disc = RemoteHost::TauriRemoteWss {
         peer_id: "e2e-desktop-01".to_string(),
     };
-    let adapter_disc = RemoteCoreAdapter::from_network(host_disc, tx_disc);
+    let adapter_disc = RemoteCoreAdapter::from_remote_sender(host_disc, tx_disc);
     assert_eq!(adapter_disc.connection_state(), ConnectionState::Ready);
 
     // Drop receiver → channel closes → adapter detects disconnect.
@@ -496,16 +498,16 @@ fn e2e_desktop_mobile_thin_client() {
     }
     println!("    ✓ RPC on disconnected adapter returns DISCONNECTED error");
 
-    // Test reconnect via replace_network_sender.
-    let (tx_new, _rx_new) = mpsc::channel::<chromvoid_lib::network::IoRequest>(16);
-    adapter_disc.replace_network_sender(tx_new);
+    // Test reconnect via replace_remote_sender.
+    let (tx_new, _rx_new) = mpsc::channel::<chromvoid_lib::remote_data_plane::RemoteIoRequest>(16);
+    adapter_disc.replace_remote_sender(tx_new);
     assert_eq!(
         adapter_disc.connection_state(),
         ConnectionState::Ready,
         "adapter must be Ready after sender replacement"
     );
     assert!(adapter_disc.is_transport_active());
-    println!("    ✓ Adapter reconnected via replace_network_sender");
+    println!("    ✓ Adapter reconnected via replace_remote_sender");
 
     // ═══════════════════════════════════════════════════════════════════
     phase!(_test_start, 9, "Mobile Acceptor — state machine validation");
@@ -676,11 +678,11 @@ fn e2e_desktop_mobile_thin_client() {
     println!("    ✓ Second device paired successfully, both peers in store");
 
     // Quick Remote mode cycle with second device.
-    let (tx2, _rx2) = mpsc::channel::<chromvoid_lib::network::IoRequest>(16);
+    let (tx2, _rx2) = mpsc::channel::<chromvoid_lib::remote_data_plane::RemoteIoRequest>(16);
     let host2 = RemoteHost::TauriRemoteWss {
         peer_id: "e2e-desktop-02".to_string(),
     };
-    let remote2 = RemoteCoreAdapter::from_network(host2, tx2);
+    let remote2 = RemoteCoreAdapter::from_remote_sender(host2, tx2);
     assert!(matches!(remote2.mode(), CoreMode::Remote { .. }));
 
     // Bootstrap sync for second connection.

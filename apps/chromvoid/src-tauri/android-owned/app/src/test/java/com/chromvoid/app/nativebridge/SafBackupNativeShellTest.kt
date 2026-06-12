@@ -1,14 +1,19 @@
 package com.chromvoid.app.nativebridge
 
+import android.content.Context
+import android.database.Cursor
+import android.database.MatrixCursor
 import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
 import androidx.test.core.app.ApplicationProvider
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.OutputStream
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -90,5 +95,87 @@ class SafBackupNativeShellTest {
         assertEquals(emptyList<Int>(), SafBackupNativeShell.readSessionChunk(context, "read-1", 8)?.map { it.toInt() })
         assertTrue(SafBackupNativeShell.closeReadSession(context, "read-1"))
         assertFalse(SafBackupNativeShell.hasReadSessionForTests("read-1"))
+    }
+
+    @Test
+    fun writeFile_doesNotCreateReplacementWhenExistingDeleteReturnsFalse() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val operations = FakeSafDocumentOperations(deleteResult = false)
+        SafBackupNativeShell.setDocumentOperationsForTests(operations)
+        val parentUri = DocumentsContract.buildTreeDocumentUri("com.chromvoid.test", "root")
+
+        val result = SafBackupNativeShell.writeFile(context, parentUri.toString(), "backup.bin", byteArrayOf(1, 2))
+
+        assertNull(result)
+        assertEquals(1, operations.deleteCalls)
+        assertEquals(0, operations.createCalls)
+    }
+
+    @Test
+    fun openWriteSession_doesNotCreateReplacementWhenExistingDeleteThrows() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val operations = FakeSafDocumentOperations(deleteError = IllegalStateException("delete failed"))
+        SafBackupNativeShell.setDocumentOperationsForTests(operations)
+        val parentUri = DocumentsContract.buildTreeDocumentUri("com.chromvoid.test", "root")
+
+        val result = SafBackupNativeShell.openWriteSession(context, parentUri.toString(), "backup.bin")
+
+        assertNull(result)
+        assertEquals(1, operations.deleteCalls)
+        assertEquals(0, operations.createCalls)
+    }
+
+    private class FakeSafDocumentOperations(
+        private val deleteResult: Boolean = true,
+        private val deleteError: Throwable? = null,
+    ) : SafBackupDocumentOperations {
+        var deleteCalls = 0
+        var createCalls = 0
+
+        override fun query(
+            context: Context,
+            uri: Uri,
+            projection: Array<String>,
+        ): Cursor {
+            val cursor = MatrixCursor(projection)
+            if (projection.contains(DocumentsContract.Document.COLUMN_DOCUMENT_ID)) {
+                cursor.addRow(
+                    projection.map { column ->
+                        when (column) {
+                            DocumentsContract.Document.COLUMN_DOCUMENT_ID -> "root/backup.bin"
+                            DocumentsContract.Document.COLUMN_DISPLAY_NAME -> "backup.bin"
+                            DocumentsContract.Document.COLUMN_MIME_TYPE -> "application/octet-stream"
+                            else -> null
+                        }
+                    }.toTypedArray(),
+                )
+            }
+            return cursor
+        }
+
+        override fun deleteDocument(
+            context: Context,
+            uri: Uri,
+        ): Boolean {
+            deleteCalls += 1
+            deleteError?.let { throw it }
+            return deleteResult
+        }
+
+        override fun createDocument(
+            context: Context,
+            parentUri: Uri,
+            mimeType: String,
+            name: String,
+        ): Uri? {
+            createCalls += 1
+            return Uri.parse("content://com.chromvoid.test/document/new")
+        }
+
+        override fun openOutputStream(
+            context: Context,
+            uri: Uri,
+            mode: String,
+        ): OutputStream = ByteArrayOutputStream()
     }
 }

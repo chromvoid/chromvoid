@@ -18,6 +18,10 @@ import {pmCredentialTagsModel} from '../../../models/pm-credential-tags.model'
 import {isPassmanagerReadOnlyOrMissing} from '../../../models/pm-root.adapter'
 import {toast} from 'root/shared/services/toast-manager'
 import {dialogService} from 'root/shared/services/dialog-service'
+import {
+  formatPaymentCardExpYearInput,
+  parsePaymentCardExpYearInput,
+} from '../payment-card-expiry'
 import {PMEntryOtpCreateModel} from '../entry-otp-create/entry-otp-create.model'
 import {PMEntrySshCreateModel} from '../entry-ssh/entry-ssh-create.model'
 import type {PMEntryRenderData} from './entry.model'
@@ -115,11 +119,24 @@ export class PMEntryEditModel extends PMEntryModel {
 
   private readonly urlValidator = new URLValidator({defaultMatch: 'base_domain'})
   private requestedSurface: PMEntryEditorSurface | null = null
+  private requestedSurfaceEntryId: string | null = null
   private entryEditDraftEntryId: string | undefined
+  private entryEditTitleBaseline = ''
+  private entryEditUsernameBaseline = ''
+  private entryEditWebsiteBaseline = ''
+  private entryEditIconRefBaseline: string | undefined
   private entryEditPasswordBaseline: string | undefined
   private entryEditNoteBaseline: string | undefined
   private entryEditPasswordDirty = false
   private entryEditNoteDirty = false
+  private entryEditOtpLabelBaselines: Record<string, string> = {}
+  private entryEditTagBaseline: string[] = []
+  private paymentCardTitleBaseline = ''
+  private paymentCardholderNameBaseline = ''
+  private paymentCardNumberBaseline = ''
+  private paymentCardExpMonthBaseline = ''
+  private paymentCardExpYearBaseline = ''
+  private paymentCardCvvBaseline = ''
   private entryEditTap: PMEntryEditTap | null = null
   private lastEntryEditTap: PMEntryEditLastTap | null = null
   private nextEntryEditFocusToken = 1
@@ -133,7 +150,10 @@ export class PMEntryEditModel extends PMEntryModel {
   readonly inlineTitle = atom('', 'passmanager.entryMobile.inlineTitle')
   readonly inlineUsername = atom('', 'passmanager.entryMobile.inlineUsername')
   readonly inlinePassword = atom('', 'passmanager.entryMobile.inlinePassword')
-  readonly inlinePasswordStrengthScore = atom<number | null>(null, 'passmanager.entryMobile.inlinePasswordStrengthScore')
+  readonly inlinePasswordStrengthScore = atom<number | null>(
+    null,
+    'passmanager.entryMobile.inlinePasswordStrengthScore',
+  )
   readonly inlinePasswordStrengthLabel = computed(() => {
     const score = this.inlinePasswordStrengthScore()
     return score === null ? '' : formatPasswordStrengthLabel(score as 0 | 1 | 2 | 3 | 4)
@@ -162,6 +182,8 @@ export class PMEntryEditModel extends PMEntryModel {
   readonly paymentCardSaving = atom(false, 'passmanager.entryMobile.paymentCardSaving')
   readonly otpSaving = atom(false, 'passmanager.entryMobile.otpSaving')
   readonly otpError = atom('', 'passmanager.entryMobile.otpError')
+  readonly otpLabelDrafts = atom<Record<string, string>>({}, 'passmanager.entryMobile.otpLabelDrafts')
+  readonly otpLabelErrors = atom<Record<string, string>>({}, 'passmanager.entryMobile.otpLabelErrors')
   readonly otpDraft = new PMEntryOtpCreateModel()
   readonly sshGeneratorOpen = atom(false, 'passmanager.entryMobile.sshGeneratorOpen')
   readonly sshDraft = new PMEntrySshCreateModel()
@@ -188,6 +210,7 @@ export class PMEntryEditModel extends PMEntryModel {
 
   resetRequestedSurface(): void {
     this.requestedSurface = null
+    this.requestedSurfaceEntryId = null
   }
 
   getRequestedSurfaceFromEditor(entry: Entry): PMEntryEditorSurface | null {
@@ -196,11 +219,15 @@ export class PMEntryEditModel extends PMEntryModel {
 
   syncRequestedSurfaceFromEditor(entry: Entry): void {
     const requestedSurface = this.getRequestedSurfaceFromEditor(entry)
-    if (requestedSurface === this.requestedSurface) {
+    if (
+      requestedSurface === this.requestedSurface &&
+      (requestedSurface === null || entry.id === this.requestedSurfaceEntryId)
+    ) {
       return
     }
 
     this.requestedSurface = requestedSurface
+    this.requestedSurfaceEntryId = requestedSurface ? entry.id : null
     this.applyRequestedSurface(entry, requestedSurface)
   }
 
@@ -215,6 +242,7 @@ export class PMEntryEditModel extends PMEntryModel {
         this.entryEditPasswordBaseline = passwordResource.value
         this.inlinePassword.set(passwordResource.value)
         this.updateInlinePasswordStrength(passwordResource.value)
+        this.publishEntryEditDirty()
       }
     }
 
@@ -223,6 +251,7 @@ export class PMEntryEditModel extends PMEntryModel {
       if (noteResource.status === 'ready') {
         this.entryEditNoteBaseline = noteResource.value
         this.noteDraft.set(noteResource.value)
+        this.publishEntryEditDirty()
       }
     }
   }
@@ -235,7 +264,12 @@ export class PMEntryEditModel extends PMEntryModel {
     this.sectionSnippet.set('note')
     this.noteError.set('')
     const noteResource = this.state.noteResource()
-    this.noteDraft.set(noteResource.status === 'ready' ? noteResource.value : '')
+    const noteDraft = noteResource.status === 'ready' ? noteResource.value : ''
+    this.entryEditDraftEntryId = entry.id
+    this.entryEditNoteBaseline = noteResource.status === 'ready' ? noteResource.value : undefined
+    this.entryEditNoteDirty = false
+    this.noteDraft.set(noteDraft)
+    this.publishEntryEditDirty()
   }
 
   private resolveRequestedSurface(entry: Entry): PMEntryEditorSurface | null {
@@ -254,6 +288,8 @@ export class PMEntryEditModel extends PMEntryModel {
     if (!requestedSurface) {
       this.entryEditDraftEntryId = undefined
       this.resetEntryEditSecretTracking()
+      this.resetEntryEditDraftState()
+      pmEntryEditorModel.clearDirty(entry.id)
       if (inlineField) {
         this.cancelInlineEdit()
       }
@@ -333,6 +369,7 @@ export class PMEntryEditModel extends PMEntryModel {
     this.noteDraft.set(value)
     this.entryEditNoteDirty = this.isSecretDraftDirty(value, this.entryEditNoteBaseline)
     this.noteError.set('')
+    this.publishEntryEditDirty()
   }
 
   async saveNoteEdit(entry: Entry): Promise<boolean> {
@@ -344,6 +381,8 @@ export class PMEntryEditModel extends PMEntryModel {
     try {
       await wrap(entry.update({...entry.data()}, undefined, this.noteDraft()))
       this.actions.applySavedSecrets({note: this.noteDraft()})
+      this.entryEditNoteBaseline = this.noteDraft()
+      this.entryEditNoteDirty = false
       this.closeSectionSnippet()
       return true
     } catch (error) {
@@ -393,6 +432,32 @@ export class PMEntryEditModel extends PMEntryModel {
     return wrap(otp.remove())
   }
 
+  getOtpLabelDraft(otp: OTP): string {
+    return this.otpLabelDrafts()[otp.id] ?? otp.label ?? ''
+  }
+
+  getOtpLabelError(otpId: string): string {
+    return this.otpLabelErrors()[otpId] ?? ''
+  }
+
+  setOtpLabelDraft(otpId: string, value: string): void {
+    this.otpLabelDrafts.set({
+      ...this.otpLabelDrafts(),
+      [otpId]: value,
+    })
+
+    const errors = this.otpLabelErrors()
+    if (errors[otpId]) {
+      const nextErrors = {...errors}
+      delete nextErrors[otpId]
+      this.otpLabelErrors.set(nextErrors)
+    }
+
+    this.otpError.set('')
+    this.inlineError.set('')
+    this.publishEntryEditDirty()
+  }
+
   beginSshSnippet(entry: Entry, _openGenerator = false): void {
     this.openSshGenerator(entry)
   }
@@ -402,7 +467,7 @@ export class PMEntryEditModel extends PMEntryModel {
       return
     }
 
-    const closingTagSnippet = this.sectionSnippet() === 'tags'
+    const closingSnippet = this.sectionSnippet()
 
     if (closeEditorSurface) {
       pmEntryEditorModel.closeSurface()
@@ -417,8 +482,17 @@ export class PMEntryEditModel extends PMEntryModel {
     this.otpError.set('')
     this.tagError.set('')
     this.tagSaving.set(false)
-    if (closingTagSnippet) {
+    if (closingSnippet === 'note') {
+      this.noteDraft.set('')
+    }
+    if (closingSnippet === 'payment-card') {
+      this.resetPaymentCardDraftState()
+    }
+    if (closingSnippet === 'tags') {
       this.tagDraft.set([])
+    }
+    if (closingSnippet === 'otp') {
+      this.otpDraft.reset()
     }
     this.sshGeneratorOpen.set(false)
     this.sshDraft.reset()
@@ -432,13 +506,17 @@ export class PMEntryEditModel extends PMEntryModel {
     this.entryEditFocusRequest.set(null)
     this.sectionSnippet.set('tags')
     this.tagDraft.set(normalizeCredentialTags(entry.tags))
+    this.entryEditDraftEntryId = entry.id
+    this.entryEditTagBaseline = normalizeCredentialTags(entry.tags)
     this.tagError.set('')
     this.tagSaving.set(false)
+    this.publishEntryEditDirty()
   }
 
   setTagDraft(tags: unknown): void {
     this.tagDraft.set(normalizeCredentialTags(tags))
     this.tagError.set('')
+    this.publishEntryEditDirty()
   }
 
   setTagDraftFromKeys(keys: readonly string[]): void {
@@ -454,6 +532,7 @@ export class PMEntryEditModel extends PMEntryModel {
     try {
       await wrap(entry.updateTags(this.tagDraft()))
       await wrap(pmCredentialTagsModel.ensureCatalogTags(this.tagDraft()))
+      this.entryEditTagBaseline = normalizeCredentialTags(this.tagDraft())
       this.closeSectionSnippet()
       return true
     } catch (error) {
@@ -586,9 +665,18 @@ export class PMEntryEditModel extends PMEntryModel {
     this.paymentCardholderNameDraft.set(entry.paymentCard?.cardholderName ?? '')
     this.paymentCardNumberDraft.set(this.state.cardPan() ?? '')
     this.paymentCardExpMonthDraft.set(entry.paymentCard?.expMonth ? String(entry.paymentCard.expMonth) : '')
-    this.paymentCardExpYearDraft.set(entry.paymentCard?.expYear ? String(entry.paymentCard.expYear) : '')
+    this.paymentCardExpYearDraft.set(formatPaymentCardExpYearInput(entry.paymentCard?.expYear))
     this.paymentCardCvvDraft.set(this.state.cardCvv() ?? '')
     this.inlineIconRef.set(entry.iconRef)
+    this.entryEditDraftEntryId = entry.id
+    this.entryEditIconRefBaseline = entry.iconRef
+    this.paymentCardTitleBaseline = entry.title ?? ''
+    this.paymentCardholderNameBaseline = entry.paymentCard?.cardholderName ?? ''
+    this.paymentCardNumberBaseline = normalizeCardDigits(this.state.cardPan() ?? '')
+    this.paymentCardExpMonthBaseline = entry.paymentCard?.expMonth ? String(entry.paymentCard.expMonth) : ''
+    this.paymentCardExpYearBaseline = formatPaymentCardExpYearInput(entry.paymentCard?.expYear)
+    this.paymentCardCvvBaseline = this.state.cardCvv() ?? ''
+    this.publishEntryEditDirty()
   }
 
   setPaymentCardDraft(
@@ -617,6 +705,7 @@ export class PMEntryEditModel extends PMEntryModel {
     }
 
     this.paymentCardError.set('')
+    this.publishEntryEditDirty()
   }
 
   async savePaymentCardEdit(entry: Entry): Promise<boolean> {
@@ -636,13 +725,13 @@ export class PMEntryEditModel extends PMEntryModel {
     }
 
     const expMonth = Number.parseInt(this.paymentCardExpMonthDraft().trim(), 10)
-    const expYear = Number.parseInt(this.paymentCardExpYearDraft().trim(), 10)
     if (!Number.isInteger(expMonth) || expMonth < 1 || expMonth > 12) {
       this.paymentCardError.set(i18n('payment-card:error-exp-month'))
       return false
     }
 
-    if (!Number.isInteger(expYear) || expYear < 2000 || expYear > 9999) {
+    const expYear = parsePaymentCardExpYearInput(this.paymentCardExpYearDraft())
+    if (expYear === undefined) {
       this.paymentCardError.set(i18n('payment-card:error-exp-year'))
       return false
     }
@@ -651,6 +740,17 @@ export class PMEntryEditModel extends PMEntryModel {
     this.paymentCardError.set('')
 
     try {
+      const cardPanSaved = await wrap(entry.saveCardPan(cardPan))
+      if (!cardPanSaved) {
+        throw new Error(i18n('payment-card:error-save-number'))
+      }
+
+      const cardCvv = this.paymentCardCvvDraft().trim()
+      const cardCvvSaved = cardCvv ? await wrap(entry.saveCardCvv(cardCvv)) : await wrap(entry.cleanCardCvv())
+      if (!cardCvvSaved) {
+        throw new Error(i18n('payment-card:error-save-cvv'))
+      }
+
       await wrap(
         entry.update(
           {
@@ -675,21 +775,17 @@ export class PMEntryEditModel extends PMEntryModel {
         ),
       )
 
-      const cardPanSaved = await wrap(entry.saveCardPan(cardPan))
-      if (!cardPanSaved) {
-        throw new Error(i18n('payment-card:error-save-number'))
-      }
-
-      const cardCvv = this.paymentCardCvvDraft().trim()
-      const cardCvvSaved = cardCvv ? await wrap(entry.saveCardCvv(cardCvv)) : await wrap(entry.cleanCardCvv())
-      if (!cardCvvSaved) {
-        throw new Error(i18n('payment-card:error-save-cvv'))
-      }
-
       this.actions.applySavedSecrets({
         cardPan,
         cardCvv: cardCvv || null,
       })
+      this.paymentCardTitleBaseline = this.paymentCardTitleDraft().trim()
+      this.paymentCardholderNameBaseline = cardholderName
+      this.paymentCardNumberBaseline = cardPan
+      this.paymentCardExpMonthBaseline = this.paymentCardExpMonthDraft().trim()
+      this.paymentCardExpYearBaseline = this.paymentCardExpYearDraft().trim()
+      this.paymentCardCvvBaseline = cardCvv
+      this.entryEditIconRefBaseline = this.inlineIconRef()
       this.closeSectionSnippet()
       return true
     } catch (error) {
@@ -706,23 +802,30 @@ export class PMEntryEditModel extends PMEntryModel {
     pmEntryEditorModel.openSurface(entry.id, field)
     this.inlineField.set(field)
     this.inlineError.set('')
+    this.seedEntryEditDrafts(entry)
 
     switch (field) {
       case 'title':
         this.inlineTitle.set(entry.title ?? '')
+        this.publishEntryEditDirty()
         return
       case 'username':
         this.inlineUsername.set(entry.username ?? '')
+        this.publishEntryEditDirty()
         return
       case 'password': {
         const passwordResource = this.state.passwordResource()
         this.inlinePassword.set(passwordResource.status === 'ready' ? passwordResource.value : '')
+        this.entryEditPasswordBaseline = passwordResource.status === 'ready' ? passwordResource.value : undefined
+        this.entryEditPasswordDirty = false
         this.updateInlinePasswordStrength(this.inlinePassword())
         this.inlinePasswordGeneratorOpen.set(false)
+        this.publishEntryEditDirty()
         return
       }
       case 'website':
         this.inlineWebsite.set(entry.urls.map((item) => item.value).join(', '))
+        this.publishEntryEditDirty()
         return
     }
   }
@@ -739,21 +842,13 @@ export class PMEntryEditModel extends PMEntryModel {
     this.startEntryEditTap(entry, field, point, pointerId)
   }
 
-  startNoteEntryEditTap(
-    entry: Entry,
-    point: {x: number; y: number},
-    pointerId: number,
-  ): void {
+  startNoteEntryEditTap(entry: Entry, point: {x: number; y: number}, pointerId: number): void {
     if (isPassmanagerReadOnlyOrMissing()) return
 
     this.startEntryEditTap(entry, 'note', point, pointerId)
   }
 
-  startTitleEntryEditTap(
-    entry: Entry,
-    point: {x: number; y: number},
-    pointerId: number,
-  ): void {
+  startTitleEntryEditTap(entry: Entry, point: {x: number; y: number}, pointerId: number): void {
     if (isPassmanagerReadOnlyOrMissing()) return
 
     this.startEntryEditTap(entry, 'title', point, pointerId)
@@ -935,7 +1030,9 @@ export class PMEntryEditModel extends PMEntryModel {
   beginInlineIconEdit(entry: Entry): void {
     if (isPassmanagerReadOnlyOrMissing()) return
 
-    const activeSurface = pmEntryEditorModel.isActiveForEntry(entry.id) ? pmEntryEditorModel.activeSurface() : null
+    const activeSurface = pmEntryEditorModel.isActiveForEntry(entry.id)
+      ? pmEntryEditorModel.activeSurface()
+      : null
     if (activeSurface === 'entry' || activeSurface === 'payment-card') {
       this.inlineError.set('')
       return
@@ -949,6 +1046,9 @@ export class PMEntryEditModel extends PMEntryModel {
 
   cancelInlineEdit(): void {
     pmEntryEditorModel.closeSurface()
+    this.entryEditDraftEntryId = undefined
+    this.resetEntryEditSecretTracking()
+    this.resetEntryEditDraftState()
     this.resetInlineEditState()
   }
 
@@ -960,11 +1060,14 @@ export class PMEntryEditModel extends PMEntryModel {
     pmEntryEditorModel.closeSurface(entry?.id)
     this.entryEditDraftEntryId = undefined
     this.resetEntryEditSecretTracking()
+    pmEntryEditorModel.clearDirty(entry?.id)
+    this.resetEntryEditDraftState()
     this.resetInlineEditState()
     this.noteError.set('')
     this.noteSaving.set(false)
     this.sectionSnippet.set(null)
     this.entryEditFocusRequest.set(null)
+    this.resetOtpLabelDrafts()
     this.clearEntryEditTap()
   }
 
@@ -975,6 +1078,26 @@ export class PMEntryEditModel extends PMEntryModel {
     this.inlinePasswordStrengthScore.set(null)
     this.inlineError.set('')
     this.inlineSaving.set(false)
+  }
+
+  private resetEntryEditDraftState(): void {
+    this.inlineTitle.set('')
+    this.inlineUsername.set('')
+    this.inlinePassword.set('')
+    this.inlineWebsite.set('')
+    this.noteDraft.set('')
+    this.resetPaymentCardDraftState()
+    this.tagDraft.set([])
+    this.resetOtpLabelDrafts()
+  }
+
+  private resetPaymentCardDraftState(): void {
+    this.paymentCardTitleDraft.set('')
+    this.paymentCardholderNameDraft.set('')
+    this.paymentCardNumberDraft.set('')
+    this.paymentCardExpMonthDraft.set('')
+    this.paymentCardExpYearDraft.set('')
+    this.paymentCardCvvDraft.set('')
   }
 
   setInlineDraft(field: PMEntryInlineField, value: string): void {
@@ -996,6 +1119,7 @@ export class PMEntryEditModel extends PMEntryModel {
     }
 
     this.inlineError.set('')
+    this.publishEntryEditDirty()
   }
 
   setInlinePasswordGenLength(value: number): void {
@@ -1039,11 +1163,13 @@ export class PMEntryEditModel extends PMEntryModel {
     this.entryEditPasswordDirty = this.isSecretDraftDirty(password, this.entryEditPasswordBaseline)
     this.updateInlinePasswordStrength(password)
     this.inlineError.set('')
+    this.publishEntryEditDirty()
   }
 
   setInlineIconRef(value: string | undefined): void {
     this.inlineIconRef.set(value)
     this.inlineError.set('')
+    this.publishEntryEditDirty()
   }
 
   async saveInlineIcon(entry: Entry, iconRef: string | undefined): Promise<boolean> {
@@ -1065,6 +1191,8 @@ export class PMEntryEditModel extends PMEntryModel {
         ),
       )
 
+      this.entryEditIconRefBaseline = iconRef || undefined
+      this.publishEntryEditDirty()
       return true
     } catch (error) {
       this.inlineError.set((error as Error).message || i18n('error:save'))
@@ -1100,6 +1228,7 @@ export class PMEntryEditModel extends PMEntryModel {
               undefined,
             ),
           )
+          this.entryEditTitleBaseline = this.inlineTitle()
           break
         case 'username':
           if (entry.entryType === 'payment_card') {
@@ -1116,6 +1245,7 @@ export class PMEntryEditModel extends PMEntryModel {
               undefined,
             ),
           )
+          this.entryEditUsernameBaseline = this.inlineUsername()
           break
         case 'password':
           if (entry.entryType === 'payment_card') {
@@ -1124,6 +1254,8 @@ export class PMEntryEditModel extends PMEntryModel {
           }
           await wrap(entry.update({...entry.data()}, this.inlinePassword(), undefined))
           this.actions.applySavedSecrets({password: this.inlinePassword()})
+          this.entryEditPasswordBaseline = this.inlinePassword()
+          this.entryEditPasswordDirty = false
           break
         case 'website': {
           if (entry.entryType === 'payment_card') {
@@ -1146,6 +1278,7 @@ export class PMEntryEditModel extends PMEntryModel {
               undefined,
             ),
           )
+          this.entryEditWebsiteBaseline = this.inlineWebsite()
           break
         }
       }
@@ -1176,6 +1309,10 @@ export class PMEntryEditModel extends PMEntryModel {
       return false
     }
 
+    if (!this.validateOtpLabelDrafts(entry)) {
+      return false
+    }
+
     this.inlineSaving.set(true)
     this.inlineError.set('')
 
@@ -1197,10 +1334,25 @@ export class PMEntryEditModel extends PMEntryModel {
         ),
       )
 
+      await wrap(this.saveOtpLabelEdits(entry))
+
       this.actions.applySavedSecrets({
         ...(nextPassword === undefined ? {} : {password: nextPassword}),
         ...(nextNote === undefined ? {} : {note: nextNote}),
       })
+      this.entryEditTitleBaseline = this.inlineTitle()
+      this.entryEditUsernameBaseline = this.inlineUsername()
+      this.entryEditWebsiteBaseline = this.inlineWebsite()
+      this.entryEditIconRefBaseline = this.inlineIconRef()
+      if (nextPassword !== undefined) {
+        this.entryEditPasswordBaseline = nextPassword
+        this.entryEditPasswordDirty = false
+      }
+      if (nextNote !== undefined) {
+        this.entryEditNoteBaseline = nextNote
+        this.entryEditNoteDirty = false
+      }
+      this.entryEditOtpLabelBaselines = {...this.otpLabelDrafts()}
       this.cancelEntryEdit(entry)
       return true
     } catch (error) {
@@ -1216,7 +1368,9 @@ export class PMEntryEditModel extends PMEntryModel {
     }
 
     this.entryEditDraftEntryId = entry.id
+    this.entryEditTitleBaseline = entry.title ?? ''
     this.inlineTitle.set(entry.title ?? '')
+    this.entryEditUsernameBaseline = entry.username ?? ''
     this.inlineUsername.set(entry.username ?? '')
     const passwordResource = this.state.passwordResource()
     const passwordDraft = passwordResource.status === 'ready' ? passwordResource.value : ''
@@ -1224,17 +1378,24 @@ export class PMEntryEditModel extends PMEntryModel {
     this.inlinePassword.set(passwordDraft)
     this.updateInlinePasswordStrength(this.inlinePassword())
     this.inlinePasswordGeneratorOpen.set(false)
-    this.inlineWebsite.set(entry.urls.map((item) => item.value).join(', '))
+    this.entryEditWebsiteBaseline = entry.urls.map((item) => item.value).join(', ')
+    this.inlineWebsite.set(this.entryEditWebsiteBaseline)
+    this.entryEditIconRefBaseline = entry.iconRef
     this.inlineIconRef.set(entry.iconRef)
+    this.entryEditOtpLabelBaselines = Object.fromEntries(entry.otps().map((otp) => [otp.id, otp.label ?? '']))
+    this.otpLabelDrafts.set({...this.entryEditOtpLabelBaselines})
+    this.otpLabelErrors.set({})
     const noteResource = this.state.noteResource()
     this.entryEditNoteBaseline = noteResource.status === 'ready' ? noteResource.value : undefined
     this.noteDraft.set(noteResource.status === 'ready' ? noteResource.value : '')
     this.entryEditPasswordDirty = false
     this.entryEditNoteDirty = false
     this.noteError.set('')
-    this.tagDraft.set(entry.tags)
+    this.entryEditTagBaseline = normalizeCredentialTags(entry.tags)
+    this.tagDraft.set(this.entryEditTagBaseline)
     this.tagError.set('')
     this.tagSaving.set(false)
+    this.publishEntryEditDirty()
   }
 
   private isSecretDraftDirty(value: string, baseline: string | undefined): boolean {
@@ -1242,10 +1403,117 @@ export class PMEntryEditModel extends PMEntryModel {
   }
 
   private resetEntryEditSecretTracking(): void {
+    this.entryEditTitleBaseline = ''
+    this.entryEditUsernameBaseline = ''
+    this.entryEditWebsiteBaseline = ''
+    this.entryEditIconRefBaseline = undefined
     this.entryEditPasswordBaseline = undefined
     this.entryEditNoteBaseline = undefined
     this.entryEditPasswordDirty = false
     this.entryEditNoteDirty = false
+    this.entryEditOtpLabelBaselines = {}
+    this.entryEditTagBaseline = []
+    this.paymentCardTitleBaseline = ''
+    this.paymentCardholderNameBaseline = ''
+    this.paymentCardNumberBaseline = ''
+    this.paymentCardExpMonthBaseline = ''
+    this.paymentCardExpYearBaseline = ''
+    this.paymentCardCvvBaseline = ''
+  }
+
+  private resetOtpLabelDrafts(): void {
+    this.otpLabelDrafts.set({})
+    this.otpLabelErrors.set({})
+  }
+
+  private publishEntryEditDirty(): void {
+    if (!this.entryEditDraftEntryId) {
+      return
+    }
+
+    pmEntryEditorModel.markDirty(this.entryEditDraftEntryId, this.hasEntryEditDirty())
+  }
+
+  private hasEntryEditDirty(): boolean {
+    return (
+      this.inlineTitle() !== this.entryEditTitleBaseline ||
+      this.inlineUsername() !== this.entryEditUsernameBaseline ||
+      this.normalizeUrlsText(this.inlineWebsite()) !== this.normalizeUrlsText(this.entryEditWebsiteBaseline) ||
+      (this.inlineIconRef() ?? '') !== (this.entryEditIconRefBaseline ?? '') ||
+      this.entryEditPasswordDirty ||
+      this.entryEditNoteDirty ||
+      this.hasOtpLabelDraftDirty() ||
+      !this.areTagsEqual(this.tagDraft(), this.entryEditTagBaseline) ||
+      this.hasPaymentCardDraftDirty()
+    )
+  }
+
+  private hasOtpLabelDraftDirty(): boolean {
+    const drafts = this.otpLabelDrafts()
+    const ids = new Set([...Object.keys(this.entryEditOtpLabelBaselines), ...Object.keys(drafts)])
+    for (const id of ids) {
+      if ((drafts[id] ?? '').trim() !== (this.entryEditOtpLabelBaselines[id] ?? '')) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  private areTagsEqual(a: readonly string[], b: readonly string[]): boolean {
+    if (a.length !== b.length) {
+      return false
+    }
+
+    return a.every((tag, index) => tag === b[index])
+  }
+
+  private hasPaymentCardDraftDirty(): boolean {
+    return (
+      this.paymentCardTitleDraft().trim() !== this.paymentCardTitleBaseline ||
+      this.paymentCardholderNameDraft().trim() !== this.paymentCardholderNameBaseline ||
+      normalizeCardDigits(this.paymentCardNumberDraft()) !== this.paymentCardNumberBaseline ||
+      this.paymentCardExpMonthDraft().trim() !== this.paymentCardExpMonthBaseline ||
+      this.paymentCardExpYearDraft().trim() !== this.paymentCardExpYearBaseline ||
+      this.paymentCardCvvDraft().trim() !== this.paymentCardCvvBaseline
+    )
+  }
+
+  private validateOtpLabelDrafts(entry: Entry): boolean {
+    const errors: Record<string, string> = {}
+    for (const otp of entry.otps()) {
+      const draft = this.getOtpLabelDraft(otp)
+      if (draft.length > 64) {
+        errors[otp.id] = i18n('error:label_too_long')
+      }
+    }
+
+    this.otpLabelErrors.set(errors)
+    const firstError = Object.values(errors)[0]
+    if (firstError) {
+      this.inlineError.set(firstError)
+      return false
+    }
+
+    return true
+  }
+
+  private async saveOtpLabelEdits(entry: Entry): Promise<void> {
+    if (entry.entryType === 'payment_card') return
+
+    const labelByOtpId: Record<string, string> = {}
+    for (const otp of entry.otps()) {
+      const nextLabel = this.getOtpLabelDraft(otp).trim()
+      if (nextLabel === (otp.label ?? '')) {
+        continue
+      }
+
+      labelByOtpId[otp.id] = nextLabel
+    }
+
+    if (Object.keys(labelByOtpId).length > 0) {
+      await wrap(entry.updateOTPLabels(labelByOtpId))
+    }
   }
 
   private canOpenSectionSnippet(entry: Entry, surface: 'otp' | 'ssh'): boolean {
@@ -1300,7 +1568,9 @@ export class PMEntryEditModel extends PMEntryModel {
     const base = super.buildEntryData(card)
     const isReadOnly = isPassmanagerReadOnlyOrMissing()
     const canEdit = !isReadOnly
-    const activeSurface = pmEntryEditorModel.isActiveForEntry(card.id) ? pmEntryEditorModel.activeSurface() : null
+    const activeSurface = pmEntryEditorModel.isActiveForEntry(card.id)
+      ? pmEntryEditorModel.activeSurface()
+      : null
     const hasActiveEditorSurface = activeSurface !== null
     const isEditingEntry =
       activeSurface === 'entry' || (card.entryType === 'payment_card' && activeSurface === 'payment-card')
@@ -1328,7 +1598,9 @@ export class PMEntryEditModel extends PMEntryModel {
         canAddMissingSshInEntryView: false,
         canEditTags: canEdit,
         canEditPaymentCard: canEdit,
-        compactMeta: [base.paymentCardExpiryLabel, card.updatedFormatted, card.createdFormatted].filter(Boolean).join(' • '),
+        compactMeta: [base.paymentCardExpiryLabel, card.updatedFormatted, card.createdFormatted]
+          .filter(Boolean)
+          .join(' • '),
       }
     }
 

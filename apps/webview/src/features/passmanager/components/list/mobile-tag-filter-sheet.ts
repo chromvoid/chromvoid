@@ -435,7 +435,6 @@ export class PMMobileTagFilterSheet extends ReatomLitElement {
         variant="primary"
         .loading=${saving}
         ?disabled=${!canMutate || saving || !draft.trim()}
-        @click=${onSubmit}
       >
         ${submitLabel}
       </cv-button>

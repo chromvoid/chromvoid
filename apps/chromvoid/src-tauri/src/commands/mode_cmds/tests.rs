@@ -66,8 +66,8 @@ mod tests {
     fn mode_switch_result_serializes() {
         let result = ModeSwitchResult {
             previous_mode: CoreMode::Remote {
-                host: crate::core_adapter::RemoteHost::OrangePiUsb {
-                    device_id: "dev-1".to_string(),
+                host: crate::core_adapter::RemoteHost::TauriRemoteWss {
+                    peer_id: "peer-1".to_string(),
                 },
             },
             current_mode: CoreMode::Local,

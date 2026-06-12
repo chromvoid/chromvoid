@@ -1,8 +1,10 @@
+import type {HostPathTokenGrant} from 'root/core/transport/transport'
+
 export type FileManagerCommand =
   | {kind: 'create-dir'}
   | {kind: 'create-markdown-note'}
   | {kind: 'upload-files'; files: FileList}
-  | {kind: 'upload-paths'; paths: string[]}
+  | {kind: 'upload-paths'; files: HostPathTokenGrant[]}
   | {kind: 'native-upload'}
 
 const listeners = new Set<(command: FileManagerCommand) => void>()

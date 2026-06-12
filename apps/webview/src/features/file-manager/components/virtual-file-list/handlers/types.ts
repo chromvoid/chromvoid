@@ -64,8 +64,8 @@ export interface VirtualFileListPointerState {
 }
 
 export interface VirtualFileListSelectionState {
-  lastSelectionAnchorIndex: number | null
-  lastKeyboardAnchorIndex: number | null
+  lastSelectionAnchorId: number | null
+  lastKeyboardAnchorId: number | null
 }
 
 export type KeyboardSortHandler = (option: SortOption) => void

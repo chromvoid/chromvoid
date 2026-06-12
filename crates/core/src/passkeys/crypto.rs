@@ -1,12 +1,13 @@
 use p256::ecdsa::{signature::Signer, Signature, SigningKey, VerifyingKey};
 use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey, EncodePublicKey};
 use rand_core::{OsRng, RngCore};
+use zeroize::Zeroizing;
 
 use super::encoding::{decode_b64url, encode_b64url};
 use super::types::PasskeyError;
 
 pub(super) struct PasskeyKeyMaterial {
-    pub(super) private_key_pkcs8: Vec<u8>,
+    pub(super) private_key_pkcs8: Zeroizing<Vec<u8>>,
     pub(super) public_key_der: Vec<u8>,
     pub(super) public_key_cose: Vec<u8>,
 }
@@ -22,7 +23,7 @@ pub(super) fn generate_key_material() -> Result<PasskeyKeyMaterial, PasskeyError
         .map_err(|_| PasskeyError::new("INTERNAL_ERROR", "failed to encode public key"))?;
     let public_key_cose = public_key_cose(verifying_key)?;
     Ok(PasskeyKeyMaterial {
-        private_key_pkcs8: pkcs8.as_bytes().to_vec(),
+        private_key_pkcs8: Zeroizing::new(pkcs8.as_bytes().to_vec()),
         public_key_der: public_der.as_bytes().to_vec(),
         public_key_cose,
     })
@@ -39,9 +40,11 @@ pub(super) fn sign_assertion(
     private_key_pkcs8_b64url: &str,
     signed_bytes: &[u8],
 ) -> Result<Vec<u8>, PasskeyError> {
-    let pkcs8 = decode_b64url(private_key_pkcs8_b64url)
-        .map_err(|_| PasskeyError::new("INTERNAL_ERROR", "stored private key is invalid"))?;
-    let signing_key = SigningKey::from_pkcs8_der(&pkcs8)
+    let pkcs8 = Zeroizing::new(
+        decode_b64url(private_key_pkcs8_b64url)
+            .map_err(|_| PasskeyError::new("INTERNAL_ERROR", "stored private key is invalid"))?,
+    );
+    let signing_key = SigningKey::from_pkcs8_der(pkcs8.as_slice())
         .map_err(|_| PasskeyError::new("INTERNAL_ERROR", "stored private key is invalid"))?;
     let signature: Signature = signing_key.sign(signed_bytes);
     Ok(signature.to_der().as_bytes().to_vec())

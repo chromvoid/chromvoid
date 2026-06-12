@@ -112,6 +112,62 @@ pub(super) fn handle_getattr(
     }
 }
 
+fn truncate_target_fh(
+    open_files: &HashMap<u64, OpenFileState>,
+    ino: u64,
+    fh: Option<u64>,
+) -> Result<u64, i32> {
+    if let Some(fh) = fh {
+        return match open_files.get(&fh) {
+            Some(st) if st.ino == ino => Ok(fh),
+            Some(_) => Err(libc::EIO),
+            None => Err(libc::EBADF),
+        };
+    }
+
+    open_files
+        .iter()
+        .find(|(_, st)| st.ino == ino && st.writeable)
+        .map(|(fh, _)| *fh)
+        .ok_or(libc::EOPNOTSUPP)
+}
+
+fn truncate_open_file_state(
+    inode_table: &InodeTable,
+    open_files: &Mutex<HashMap<u64, OpenFileState>>,
+    ino: u64,
+    fh: Option<u64>,
+    new_size: u64,
+) -> Result<(), i32> {
+    let target_fh = {
+        let map = open_files.lock().map_err(|_| libc::EIO)?;
+        truncate_target_fh(&map, ino, fh)?
+    };
+
+    let mut map = open_files.lock().map_err(|_| libc::EIO)?;
+    let st = map.get_mut(&target_fh).ok_or(libc::EBADF)?;
+    if st.ino != ino {
+        return Err(libc::EIO);
+    }
+    if !st.writeable {
+        return Err(libc::EBADF);
+    }
+    let f = OpenOptions::new()
+        .write(true)
+        .open(&st.tmp_path)
+        .map_err(|_| libc::EIO)?;
+    f.set_len(new_size).map_err(|_| libc::EIO)?;
+    st.dirty = true;
+
+    if let Some(mut entry) = inode_table.get(ino) {
+        entry.size = new_size;
+        entry.modified = Some(SystemTime::now());
+        inode_table.upsert(entry);
+    }
+
+    Ok(())
+}
+
 pub(super) fn handle_setattr(
     fs: &PrivyFilesystem,
     _req: &Request,
@@ -145,40 +201,17 @@ pub(super) fn handle_setattr(
     }
 
     if let Some(new_size) = size {
-        // Try to apply truncate on an opened staged file.
-        let target_fh = if let Some(fh) = fh {
-            Some(fh)
-        } else {
-            let map = match fs.open_files.lock() {
-                Ok(map) => map,
-                Err(_) => {
-                    reply.error(fuse_errno(libc::EIO));
-                    return;
-                }
-            };
-            map.iter().find(|(_, st)| st.ino == ino).map(|(k, _)| *k)
-        };
-
-        if let Some(fh) = target_fh {
-            let mut map = match fs.open_files.lock() {
-                Ok(map) => map,
-                Err(_) => {
-                    reply.error(fuse_errno(libc::EIO));
-                    return;
-                }
-            };
-            if let Some(st) = map.get_mut(&fh) {
-                if let Ok(f) = OpenOptions::new().write(true).open(&st.tmp_path) {
-                    if f.set_len(new_size).is_ok() {
-                        st.dirty = true;
-                        if let Some(mut entry) = fs.inode_table.get(ino) {
-                            entry.size = new_size;
-                            entry.modified = Some(SystemTime::now());
-                            fs.inode_table.upsert(entry);
-                        }
-                    }
-                }
+        if let Some(entry) = fs.inode_table.get(ino) {
+            if entry.is_dir {
+                reply.error(fuse_errno(libc::EISDIR));
+                return;
             }
+        }
+
+        if let Err(e) = truncate_open_file_state(&fs.inode_table, &fs.open_files, ino, fh, new_size)
+        {
+            reply.error(fuse_errno(e));
+            return;
         }
     }
 
@@ -191,5 +224,67 @@ pub(super) fn handle_setattr(
             reply.attr(&ATTR_TTL, &attr);
         }
         None => reply.error(fuse_errno(libc::ENOENT)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn open_state(ino: u64, writeable: bool, tmp_path: PathBuf) -> OpenFileState {
+        OpenFileState {
+            ino,
+            node_id: 9,
+            tmp_path,
+            writeable,
+            dirty: false,
+            read_stream: None,
+            read_pos: 0,
+        }
+    }
+
+    #[test]
+    fn truncate_target_fh_rejects_closed_file() {
+        let open_files = HashMap::new();
+
+        assert_eq!(
+            truncate_target_fh(&open_files, 42, None),
+            Err(libc::EOPNOTSUPP)
+        );
+    }
+
+    #[test]
+    fn truncate_open_file_state_updates_staged_file_and_inode() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let tmp_path = dir.path().join("fh-1");
+        std::fs::write(&tmp_path, b"abcdef").expect("write temp");
+
+        let inode_table = InodeTable::default();
+        inode_table.upsert(InodeEntry {
+            catalog_node_id: 9,
+            name: "file.txt".to_string(),
+            parent_ino: FUSE_ROOT_ID,
+            is_dir: false,
+            size: 6,
+            modified: None,
+        });
+        let ino = fuse_ino_from_catalog_node_id(9);
+        let open_files = Mutex::new(HashMap::from([(
+            1,
+            open_state(ino, true, tmp_path.clone()),
+        )]));
+
+        truncate_open_file_state(&inode_table, &open_files, ino, Some(1), 3)
+            .expect("truncate open file");
+
+        assert_eq!(std::fs::metadata(&tmp_path).expect("stat temp").len(), 3);
+        let state = open_files
+            .lock()
+            .expect("open files lock")
+            .get(&1)
+            .expect("open file state")
+            .dirty;
+        assert!(state);
+        assert_eq!(inode_table.get(ino).expect("inode entry").size, 3);
     }
 }

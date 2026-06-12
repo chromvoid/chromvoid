@@ -5,7 +5,7 @@ export const pmMobileListRowStyles = css`
     --pm-mobile-list-row-min-height: 60px;
     --pm-mobile-list-row-padding-block: 8px;
     --pm-mobile-list-row-padding-inline: 12px;
-    --pm-mobile-list-row-gap: 10px;
+    --pm-mobile-list-row-gap: 8px;
     --pm-mobile-list-row-icon-size: 36px;
     --pm-mobile-list-row-icon-radius: 9px;
     --pm-mobile-list-row-icon-image-padding: 4px;

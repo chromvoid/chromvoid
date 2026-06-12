@@ -122,6 +122,23 @@ describe('PMEntryCreate desktop layout', () => {
     expect(titleInput?.placeholder).toBe('Введите название')
   })
 
+  it('renders desktop payment-card expiry year as YY input', async () => {
+    const component = document.createElement('pm-entry-create-desktop') as PMEntryCreateDesktop
+    document.body.append(component)
+    await settle(component)
+
+    const paymentCardTab = component.shadowRoot?.querySelectorAll('.entry-type-option')[1] as HTMLElement | undefined
+    expect(paymentCardTab).not.toBeUndefined()
+    paymentCardTab!.click()
+    await settle(component)
+
+    const expYearInput = component.shadowRoot?.querySelector('cv-input[name="cardExpYear"]') as CVInput | null
+    expect(expYearInput).not.toBeNull()
+    expect(expYearInput?.placeholder).toBe('YY')
+    expect(expYearInput?.maxlength).toBe(2)
+    expect(expYearInput?.autocomplete).toBe('cc-exp-year')
+  })
+
   it('submits the title entered through the details field', async () => {
     const createEntry = vi.fn()
     window.passmanager = {

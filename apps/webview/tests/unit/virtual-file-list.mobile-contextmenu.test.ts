@@ -35,8 +35,8 @@ function createPointerState(): VirtualFileListPointerState {
 
 function createSelectionState(): VirtualFileListSelectionState {
   return {
-    lastSelectionAnchorIndex: null,
-    lastKeyboardAnchorIndex: null,
+    lastSelectionAnchorId: null,
+    lastKeyboardAnchorId: null,
   }
 }
 
@@ -209,8 +209,8 @@ describe('VirtualFileList mobile contextmenu fallback', () => {
     expect(harness.emitSelectionChange).toHaveBeenCalledWith([ITEM.id])
     expect(harness.isSelectionMode()).toBe(true)
     expect(harness.getSelectedItems()).toEqual([ITEM.id])
-    expect(harness.selectionState.lastSelectionAnchorIndex).toBe(0)
-    expect(harness.selectionState.lastKeyboardAnchorIndex).toBe(0)
+    expect(harness.selectionState.lastSelectionAnchorId).toBe(ITEM.id)
+    expect(harness.selectionState.lastKeyboardAnchorId).toBe(ITEM.id)
     expect(harness.pointerState.lastLongPressItemId).toBe(ITEM.id)
     expect(harness.focusItemById).toHaveBeenCalledWith(ITEM.id)
   })

@@ -27,7 +27,7 @@ describe('no-connection route', () => {
       createMockAppContext({
         store: {
           wsStatus: atom<'disconnected' | 'connecting' | 'connected'>('disconnected'),
-          lastErrorMessage: atom<string | null>('USB transport unavailable'),
+          lastErrorMessage: atom<string | null>('Remote transport unavailable'),
         } as any,
         ws: {
           connect: vi.fn(),
@@ -44,7 +44,7 @@ describe('no-connection route', () => {
     expect(text).toContain('Disconnected')
     expect(text).toContain('Reconnect')
     expect(text).toContain('Reload page')
-    expect(text).toContain('USB transport unavailable')
+    expect(text).toContain('Remote transport unavailable')
   })
 
   it('retries the transport connection when pressing reconnect', async () => {

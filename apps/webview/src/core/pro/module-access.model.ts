@@ -166,13 +166,10 @@ class ModuleAccessModel {
 
   async refresh(): Promise<void> {
     if (!isTauriRuntime()) {
-      this.rawStates.set(
-        DEFAULT_STATES.map((state): ModuleAccessState =>
-          state.status === 'entitlement_unavailable'
-            ? {...state, status: 'enabled' as const, denial_code: null}
-            : state,
-        ),
-      )
+      this.rawStates.set(getNonTauriModuleAccessFallbackStates())
+      this.entitlement.set(null)
+      this.licenseSeatStatus.set(null)
+      this.licenseSeatError.set(null)
       this.error.set(null)
       return
     }
@@ -223,8 +220,8 @@ class ModuleAccessModel {
         return false
       }
       this.entitlement.set(response.result)
-      await this.refresh()
-      await this.refreshLicenseSeatStatus()
+      await wrap(this.refresh())
+      await wrap(this.refreshLicenseSeatStatus())
       return true
     } catch (error) {
       this.error.set(error instanceof Error ? error.message : String(error))
@@ -299,7 +296,7 @@ class ModuleAccessModel {
         return false
       }
       this.licenseSeatStatus.set(response.result)
-      await this.refresh()
+      await wrap(this.refresh())
       if (!this.entitlement()?.licensed) {
         this.licenseSeatStatus.set(null)
       }
@@ -311,6 +308,22 @@ class ModuleAccessModel {
       this.licenseSeatLoading.set(false)
     }
   }
+}
+
+function getNonTauriModuleAccessFallbackStates(): ModuleAccessState[] {
+  if (!isExplicitDevBypassRuntime()) {
+    return DEFAULT_STATES
+  }
+
+  return DEFAULT_STATES.map((state): ModuleAccessState =>
+    state.status === 'entitlement_unavailable'
+      ? {...state, status: 'enabled' as const, denial_code: null}
+      : state,
+  )
+}
+
+function isExplicitDevBypassRuntime(): boolean {
+  return typeof window !== 'undefined' && window.env === 'dev'
 }
 
 function applyRuntimeSupport(
@@ -338,7 +351,7 @@ function isFeatureSupportedByRuntime(
 ): boolean {
   switch (feature) {
     case 'remote':
-      return capabilities.supports_usb_remote || capabilities.supports_network_remote
+      return capabilities.supports_network_remote
     case 'browser-extension':
       return capabilities.supports_gateway
     case 'mounted-vault':

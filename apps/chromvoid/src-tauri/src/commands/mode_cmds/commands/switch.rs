@@ -9,8 +9,9 @@ use crate::catalog_blocking_io::{CatalogBlockingIoError, CatalogBlockingIoRuntim
 use crate::core_adapter::{
     CoreAdapter, CoreMode, LocalCoreAdapter, ModeTransition, RemoteCoreAdapter, RemoteHost,
 };
+use crate::mode_transition_coordinator::ModeTransitionOperation;
 use crate::remote_io_runtime::RemoteIoStopReason;
-use chromvoid_core::rpc::types::RpcRequest;
+use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 
 use super::super::helpers::{drain_in_flight_rpcs, generate_room_id, now_ms};
 use super::super::ios_connect::connect_paired_ios_peer;
@@ -115,7 +116,7 @@ fn mode_switch_peer_store_blocking_err(
 ///
 /// When switching to Remote, `peer_id` must identify a paired peer from `PairedPeerStore`.
 /// The command runs the fallback transport chain, completes a Noise IK handshake,
-/// spawns a network I/O task, and swaps the adapter.
+/// spawns a remote data-plane task, and swaps the adapter.
 #[tauri::command]
 pub(crate) async fn mode_switch(
     app: tauri::AppHandle,
@@ -130,6 +131,9 @@ pub(crate) async fn mode_switch(
             target
         ));
     }
+    let _transition_lease = state
+        .mode_transition_coordinator
+        .try_begin(ModeTransitionOperation::ModeSwitch)?;
 
     // Capture pre-switch state and perform preconditions under lock
     let (previous_mode, _was_unlocked, auto_locked) = {
@@ -159,8 +163,13 @@ pub(crate) async fn mode_switch(
         let auto_locked = if was_unlocked {
             info!("mode_switch: auto-locking vault before switch");
             let lock_req = RpcRequest::new("vault:lock".to_string(), serde_json::Value::Null);
-            let _ = adapter.handle(&lock_req);
-            let _ = adapter.save();
+            let lock_resp = adapter.handle(&lock_req);
+            if let Some(error) = rpc_response_error(&lock_resp) {
+                return Err(format!("Auto-lock before mode switch failed: {error}"));
+            }
+            adapter
+                .save()
+                .map_err(|error| format!("Auto-lock before mode switch save failed: {error}"))?;
             true
         } else {
             false
@@ -309,9 +318,9 @@ pub(crate) async fn mode_switch(
                     serde_json::json!({ "phase": "starting_io_task" }),
                 );
 
-                let req_tx = state.remote_io_runtime.start_network_session(
+                let req_tx = state.remote_io_runtime.start_remote_session(
                     app.clone(),
-                    crate::network::IoTaskConfig {
+                    crate::remote_data_plane::RemoteIoTaskConfig {
                         transport: noise_transport.0,
                         noise_transport: noise_transport.1,
                     },
@@ -322,7 +331,7 @@ pub(crate) async fn mode_switch(
                 };
 
                 let remote_start_result = async {
-                    let mut remote = RemoteCoreAdapter::from_network(host, req_tx);
+                    let mut remote = RemoteCoreAdapter::from_remote_sender(host, req_tx);
                     remote.probe_capabilities();
                     let caps = crate::types::runtime_capabilities_for_current_target();
                     crate::pro::guard_pro_feature_for_adapter(
@@ -367,7 +376,7 @@ pub(crate) async fn mode_switch(
                         crate::helpers::emit_basic_state(&app, &storage_root, adapter.as_ref());
                     }
 
-                    Ok(())
+                    Ok::<(), String>(())
                 }
                 .await;
 
@@ -380,6 +389,14 @@ pub(crate) async fn mode_switch(
                             "mode_switch: remote IO cleanup failed after start error: {stop_error}"
                         );
                     }
+                    emit_mode_switch_failure_restore(
+                        &app,
+                        &state,
+                        previous_mode.clone(),
+                        auto_locked,
+                        drain_completed,
+                        &error,
+                    );
                     return Err(error);
                 }
 
@@ -424,6 +441,40 @@ pub(crate) async fn mode_switch(
     info!("mode_switch: completed, now in {:?}", current_mode);
 
     Ok(result)
+}
+
+fn emit_mode_switch_failure_restore(
+    app: &tauri::AppHandle,
+    state: &tauri::State<'_, AppState>,
+    previous_mode: CoreMode,
+    auto_locked: bool,
+    drain_completed: bool,
+    error: &str,
+) {
+    let (current_mode, remote_core_features) = match state.adapter.lock() {
+        Ok(adapter) => (adapter.mode(), adapter.remote_core_features()),
+        Err(_) => {
+            warn!("mode_switch: adapter mutex poisoned while restoring failed transition state");
+            (previous_mode.clone(), Vec::new())
+        }
+    };
+
+    if let (Ok(root), Ok(adapter)) = (state.storage_root.lock(), state.adapter.lock()) {
+        crate::helpers::emit_basic_state(app, &root, adapter.as_ref());
+    }
+
+    let result = ModeSwitchResult {
+        previous_mode,
+        current_mode,
+        remote_core_features,
+        auto_locked,
+        drain_completed,
+    };
+    let _ = app.emit("mode:changed", &result);
+    let _ = app.emit(
+        "connection:status",
+        serde_json::json!({ "phase": "failed", "error": error }),
+    );
 }
 
 /// Handle transport reconnection in Remote mode.
@@ -472,6 +523,16 @@ fn reconnect_strategy_json(
     }
 }
 
+fn rpc_response_error(resp: &RpcResponse) -> Option<String> {
+    match resp {
+        RpcResponse::Error { error, code, .. } => Some(match code {
+            Some(code) => format!("{error} ({code})"),
+            None => error.clone(),
+        }),
+        RpcResponse::Success { .. } => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -484,6 +545,16 @@ mod tests {
                 "Mode switch paired peer lookup",
             ),
             "Catalog background IO is shutting down"
+        );
+    }
+
+    #[test]
+    fn rpc_response_error_keeps_error_code() {
+        let response = RpcResponse::error("lock failed", Some("LOCK_FAILED"));
+
+        assert_eq!(
+            rpc_response_error(&response).as_deref(),
+            Some("lock failed (LOCK_FAILED)")
         );
     }
 }

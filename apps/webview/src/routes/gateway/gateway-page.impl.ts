@@ -4,6 +4,7 @@ import {nothing} from 'lit'
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import {guidanceCompletionBridge} from 'root/core/guidance'
 import {i18n} from 'root/i18n'
+import {renderRouteBackLink} from 'root/shared/ui/route-back-link'
 
 import {GatewayModel, type AccessDuration} from './gateway.model'
 import {gatewayPageStyles} from './gateway-page.styles'
@@ -21,9 +22,11 @@ export class GatewayPage extends ReatomLitElement {
 
   static properties = {
     hideBackLink: {type: Boolean, attribute: 'hide-back-link'},
+    externalToolbar: {type: Boolean, attribute: 'external-toolbar'},
   }
 
   declare hideBackLink: boolean
+  declare externalToolbar: boolean
 
   static styles = gatewayPageStyles
 
@@ -33,6 +36,7 @@ export class GatewayPage extends ReatomLitElement {
   constructor() {
     super()
     this.hideBackLink = false
+    this.externalToolbar = false
   }
 
   connectedCallback(): void {
@@ -153,16 +157,19 @@ export class GatewayPage extends ReatomLitElement {
 
     return html`
       <div class="page">
-        <header class="header">
-        ${this.hideBackLink
-            ? nothing
-            : html`<cv-button unstyled class="back-link" @click=${this.onBack}>
-                <cv-icon slot="prefix" name="arrow-left"></cv-icon>
-                ${i18n('gateway:back-to-files')}
-              </cv-button>`}
-          <h1 class="title">${i18n('gateway:page-title')}</h1>
-          <p class="subtitle">${i18n('gateway:page-subtitle')}</p>
-        </header>
+        ${this.externalToolbar
+          ? nothing
+          : html`
+              <header class="header">
+                ${renderRouteBackLink({
+                  hidden: this.hideBackLink,
+                  label: i18n('gateway:back-to-files'),
+                  onBack: this.onBack,
+                })}
+                <h1 class="title">${i18n('gateway:page-title')}</h1>
+                <p class="subtitle">${i18n('gateway:page-subtitle')}</p>
+              </header>
+            `}
 
         <div class="grid">
           ${renderGatewaySettingsSection({

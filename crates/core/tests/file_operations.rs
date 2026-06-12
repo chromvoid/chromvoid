@@ -76,6 +76,26 @@ fn download_start(router: &mut RpcRouter, node_id: u64) -> chromvoid_core::rpc::
     ))
 }
 
+fn download_file_bytes(router: &mut RpcRouter, node_id: u64) -> Vec<u8> {
+    let download_request = RpcRequest::new(
+        "catalog:download",
+        serde_json::json!({
+            "node_id": node_id,
+        }),
+    );
+    match router.handle_with_stream(&download_request, None) {
+        RpcReply::Stream(mut out) => {
+            let mut downloaded = Vec::new();
+            out.reader
+                .read_to_end(&mut downloaded)
+                .expect("read stream");
+            downloaded
+        }
+        RpcReply::Json(r) => panic!("expected stream reply, got JSON: {r:?}"),
+        RpcReply::RangeStream(_) => panic!("expected full file stream reply"),
+    }
+}
+
 fn assert_rpc_error_message(response: &RpcResponse, expected_code: &str, expected_message: &str) {
     assert_rpc_error(response, expected_code);
     assert_eq!(response.error_message(), Some(expected_message));
@@ -908,4 +928,95 @@ fn test_upload_resume_with_offset_appends_data() {
         RpcReply::Json(r) => panic!("expected stream reply, got JSON: {r:?}"),
         RpcReply::RangeStream(_) => panic!("expected full file stream reply"),
     }
+}
+
+#[test]
+fn test_existing_upload_uses_declared_total_size_for_shrink() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_vault(&mut router, "test");
+
+    let node_id = upload_file(
+        &mut router,
+        None,
+        "shrink.txt",
+        b"old-long-content".to_vec(),
+        Some("text/plain"),
+    );
+    let replacement = b"short".to_vec();
+
+    let upload_request = RpcRequest::new(
+        "catalog:upload",
+        serde_json::json!({
+            "node_id": node_id,
+            "total_size": replacement.len() as u64,
+            "chunk_size": 8,
+            "size": replacement.len() as u64,
+            "offset": 0,
+            "finish": true,
+        }),
+    );
+    match router.handle_with_stream(
+        &upload_request,
+        Some(RpcInputStream::from_bytes(replacement.clone())),
+    ) {
+        RpcReply::Json(r) => assert_rpc_ok(&r),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:upload must return JSON response")
+        }
+    }
+
+    assert_eq!(download_file_bytes(&mut router, node_id), replacement);
+}
+
+#[test]
+fn test_failed_multipart_upload_aborts_pending_session() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_vault(&mut router, "test");
+
+    let first = RpcRequest::new(
+        "catalog:upload",
+        serde_json::json!({
+            "parent_path": "/",
+            "name": "partial.bin",
+            "total_size": 8,
+            "chunk_size": 4,
+            "size": 4,
+            "offset": 0,
+        }),
+    );
+    let node_id = match router
+        .handle_with_stream(&first, Some(RpcInputStream::from_bytes(b"1234".to_vec())))
+    {
+        RpcReply::Json(r) => {
+            assert_rpc_ok(&r);
+            get_node_id(&r)
+        }
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:upload must return JSON response")
+        }
+    };
+
+    let bad_offset = RpcRequest::new(
+        "catalog:upload",
+        serde_json::json!({
+            "node_id": node_id,
+            "total_size": 8,
+            "chunk_size": 4,
+            "size": 4,
+            "offset": 3,
+        }),
+    );
+    match router.handle_with_stream(
+        &bad_offset,
+        Some(RpcInputStream::from_bytes(b"5678".to_vec())),
+    ) {
+        RpcReply::Json(r) => assert_rpc_error(&r, "INVALID_OFFSET"),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("catalog:upload must return JSON response")
+        }
+    }
+
+    let next_id = upload_file(&mut router, None, "next.bin", b"ok".to_vec(), None);
+    assert_ne!(next_id, 0);
+    assert_eq!(download_file_bytes(&mut router, next_id), b"ok");
 }

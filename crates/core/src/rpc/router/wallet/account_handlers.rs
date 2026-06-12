@@ -9,7 +9,7 @@ impl RpcRouter {
             Ok(request) => request,
             Err(error) => return error.into_rpc_response(),
         };
-        self.with_wallet_session_cleaned(false, |session, storage| {
+        self.with_wallet_read_session_cleaned(|session, storage| {
             let accounts = load_accounts(session, storage, request.wallet_id.as_deref())?;
             Ok(WalletAccountsListResponse { accounts })
         })

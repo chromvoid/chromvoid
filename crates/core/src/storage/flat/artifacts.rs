@@ -43,6 +43,9 @@ impl FlatStorageBackend {
         ));
 
         let mut file = File::create(&temp_path)?;
+        // Restrict to owner-only before writing sensitive material (salt,
+        // master.verify, etc.); the rename preserves these permissions (M5).
+        super::temp::set_private_temp_permissions(&temp_path)?;
         file.write_all(bytes)?;
         Ok(StorageArtifactWriteTemp {
             artifact,
@@ -73,6 +76,29 @@ impl FlatStorageBackend {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(Error::StorageIo(error)),
         }
+    }
+
+    /// Atomically and durably write an artifact: temp file → fsync temp →
+    /// rename into place → fsync parent dir. A crash or torn write can never
+    /// leave a half-written artifact at the final path, which for salt /
+    /// format.version would otherwise brick vault open permanently (M3). The
+    /// temp file is cleaned up on any failure before the rename.
+    pub(crate) fn write_artifact_atomic_durable(
+        &self,
+        artifact: StorageArtifact,
+        bytes: &[u8],
+    ) -> Result<()> {
+        let temp = self.write_artifact_temp(artifact, bytes)?;
+        if let Err(error) = self.sync_artifact_temp(&temp) {
+            let _ = self.remove_artifact_temp(&temp);
+            return Err(error);
+        }
+        if let Err(error) = self.rename_artifact_temp(&temp) {
+            let _ = self.remove_artifact_temp(&temp);
+            return Err(error);
+        }
+        self.sync_artifact_parent(&temp.parent_path)?;
+        Ok(())
     }
 
     pub(crate) fn remove_artifact(&self, artifact: StorageArtifact) -> Result<()> {

@@ -22,8 +22,8 @@ export const fileItemBaseStyles = [
       --file-item-hover-background: var(--cv-color-primary-surface);
       --file-item-selected-border: var(--cv-color-primary);
       --file-item-active-border: var(--cv-color-primary-border-strong);
-      --file-item-selected-outline: 2px solid var(--cv-color-primary-ring);
-      --file-item-selected-outline-offset: -2px;
+      --file-item-selected-outline: 1px solid var(--cv-color-primary-ring);
+      --file-item-selected-outline-offset: -1px;
       --file-item-selected-leading-accent: var(--cv-color-primary);
       --file-item-active-outline: var(--file-item-selected-outline);
       --file-item-active-outline-offset: var(--file-item-selected-outline-offset);

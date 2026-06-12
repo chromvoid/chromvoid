@@ -3,7 +3,9 @@ mod gateway_state;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub use config::{GatewayConfig, PairingSession};
+pub use config::{
+    GatewayConfig, PairingSession, GATEWAY_PAIRING_LOCKOUT_MS, GATEWAY_PAIRING_MAX_ATTEMPTS,
+};
 pub use gateway_state::GatewayState;
 
 // Re-export helper functions used by other gateway files.

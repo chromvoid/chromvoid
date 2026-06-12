@@ -35,7 +35,7 @@ export class PassmanagerMaintenanceModel {
   async prepareImport(): Promise<void> {
     const {catalog} = getAppContext()
 
-    await this.refreshCatalog()
+    await wrap(this.refreshCatalog())
 
     const catalogOps = createCatalogOperationsAdapter(catalog)
     setImportCatalogOps(catalogOps)
@@ -47,11 +47,11 @@ export class PassmanagerMaintenanceModel {
   }
 
   async openSettingsImportDialog(): Promise<void> {
-    await this.runBusy('import', async () => {
+    await wrap(this.runBusy('import', async () => {
       this.importCompletedSuccessfully.set(false)
-      await this.prepareImport()
+      await wrap(this.prepareImport())
       this.importDialogOpen.set(true)
-    })
+    }))
   }
 
   closeSettingsImportDialog(): void {
@@ -70,12 +70,12 @@ export class PassmanagerMaintenanceModel {
       notify.success(i18n('notify:import:success'))
     }
 
-    await this.refreshCatalog()
-    await this.reloadMountedRoot()
+    await wrap(this.refreshCatalog())
+    await wrap(this.reloadMountedRoot())
   }
 
   async exportRoot(): Promise<void> {
-    await this.runBusy('export', async () => {
+    await wrap(this.runBusy('export', async () => {
       const root = getPassmanagerRoot()
       if (root) {
         await wrap(root.export())
@@ -88,11 +88,11 @@ export class PassmanagerMaintenanceModel {
       if (saved) {
         notify.success(i18n('notify:export:success'))
       }
-    })
+    }))
   }
 
   async cleanRoot(): Promise<void> {
-    await this.runBusy('clean', async () => {
+    await wrap(this.runBusy('clean', async () => {
       const confirmed = await wrap(dialogService.showConfirmDialog({
         title: i18n('remove:dialog:title'),
         message: i18n('remove:dialog:text'),
@@ -109,10 +109,10 @@ export class PassmanagerMaintenanceModel {
       }))
       await wrap(transport.gcIcons())
       pmIconStore.clearMissCache()
-      await this.refreshCatalog()
-      await this.reloadMountedRoot()
+      await wrap(this.refreshCatalog())
+      await wrap(this.reloadMountedRoot())
       notify.success(i18n('notify:clean:success'))
-    })
+    }))
   }
 
   private async refreshCatalog(): Promise<void> {

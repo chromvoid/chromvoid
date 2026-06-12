@@ -24,9 +24,9 @@ export const pmEntryHOTPItemSharedStyles = [
       display: grid;
       gap: var(--hotp-card-gap, var(--cv-space-3));
       padding: var(--hotp-card-padding, 10px);
-      background: var(--cv-color-surface);
-      border: 1px solid var(--cv-color-border-strong);
-      border-radius: var(--cv-radius-2);
+      background: var(--hotp-card-background, var(--cv-color-surface));
+      border: 1px solid var(--hotp-card-border-color, var(--cv-color-border-strong));
+      border-radius: var(--hotp-card-radius, var(--cv-radius-2));
       font-family: var(--cv-font-family-sans, sans-serif);
       position: relative;
       overflow: hidden;
@@ -34,12 +34,12 @@ export const pmEntryHOTPItemSharedStyles = [
     }
 
     .hotp-card:hover {
-      border-color: var(--pm-otp-warning-border);
+      border-color: var(--hotp-card-border-hover-color, var(--hotp-accent-border, var(--pm-otp-warning-border)));
     }
 
     .hotp-card:focus-within {
-      border-color: var(--pm-otp-warning-border);
-      outline: 2px solid var(--pm-otp-warning-ring);
+      border-color: var(--hotp-card-border-focus-color, var(--hotp-accent-border, var(--pm-otp-warning-border)));
+      outline: 2px solid var(--hotp-card-focus-ring, var(--hotp-accent-ring, var(--pm-otp-warning-ring)));
       outline-offset: -2px;
     }
 
@@ -71,11 +71,11 @@ export const pmEntryHOTPItemSharedStyles = [
       font-weight: var(--cv-font-weight-bold);
       text-transform: uppercase;
       letter-spacing: 0.1em;
-      color: var(--cv-color-warning);
-      background: var(--cv-color-warning-surface);
+      color: var(--hotp-badge-color, var(--hotp-accent-color, var(--cv-color-warning)));
+      background: var(--hotp-badge-background, var(--hotp-accent-surface, var(--cv-color-warning-surface)));
       padding: 2px 7px;
       border-radius: var(--cv-radius-pill, 999px);
-      border: 1px solid var(--cv-color-warning-border);
+      border: 1px solid var(--hotp-badge-border-color, var(--hotp-accent-border, var(--cv-color-warning-border)));
 
       cv-icon {
         font-size: 11px;
@@ -99,22 +99,22 @@ export const pmEntryHOTPItemSharedStyles = [
       font-weight: var(--cv-font-weight-bold);
       font-size: var(--hotp-code-font-size, calc(var(--cv-font-size-base) * 1.2));
       letter-spacing: 0.12em;
-      color: var(--cv-color-warning);
+      color: var(--hotp-code-color, var(--hotp-accent-color, var(--cv-color-warning)));
       text-align: center;
       padding: var(--hotp-code-padding, 9px 10px);
-      background: var(--cv-color-warning-surface);
+      background: var(--hotp-code-background, var(--hotp-accent-surface, var(--cv-color-warning-surface)));
       border-radius: var(--cv-radius-2);
-      border: 1px solid var(--cv-color-warning-border);
+      border: 1px solid var(--hotp-code-border-color, var(--hotp-accent-border, var(--cv-color-warning-border)));
       cursor: pointer;
       user-select: none;
 
       &:hover {
-        border-color: var(--cv-color-warning-border-strong);
+        border-color: var(--hotp-code-border-hover-color, var(--hotp-accent-border-strong, var(--cv-color-warning-border-strong)));
       }
 
       &[data-hidden] {
-        background: var(--cv-color-surface-highlight);
-        color: var(--cv-color-text-muted);
+        background: var(--hotp-code-hidden-background, var(--cv-color-surface-highlight));
+        color: var(--hotp-code-hidden-color, var(--cv-color-text-muted));
         letter-spacing: 0.1em;
       }
     }
@@ -143,8 +143,8 @@ export const pmEntryHOTPItemSharedStyles = [
         inline-size: var(--hotp-counter-width, 100px);
 
         &::part(base) {
-          border-color: var(--cv-color-warning-border);
-          background: var(--cv-color-warning-surface);
+          border-color: var(--hotp-counter-border-color, var(--hotp-accent-border, var(--cv-color-warning-border)));
+          background: var(--hotp-counter-background, var(--hotp-accent-surface, var(--cv-color-warning-surface)));
         }
 
         &::part(input) {
@@ -163,17 +163,17 @@ export const pmEntryHOTPItemSharedStyles = [
         gap: calc(var(--cv-space-2) * 0.75);
         block-size: var(--hotp-action-size, 38px);
         padding-inline: var(--hotp-generate-padding-inline, var(--cv-space-3));
-        background: var(--cv-color-warning-surface-strong);
-        border: 1px solid var(--cv-color-warning-border-strong);
-        color: var(--cv-color-warning);
+        background: var(--hotp-generate-background, var(--hotp-accent-surface-strong, var(--cv-color-warning-surface-strong)));
+        border: 1px solid var(--hotp-generate-border-color, var(--hotp-accent-border-strong, var(--cv-color-warning-border-strong)));
+        color: var(--hotp-generate-color, var(--hotp-accent-color, var(--cv-color-warning)));
         font-weight: var(--cv-font-weight-semibold);
         border-radius: var(--cv-radius-2);
       }
 
       &:hover::part(base) {
-        background: var(--cv-color-warning);
-        border-color: var(--cv-color-warning);
-        color: var(--cv-color-warning-text);
+        background: var(--hotp-generate-hover-background, var(--hotp-accent-color, var(--cv-color-warning)));
+        border-color: var(--hotp-generate-hover-border-color, var(--hotp-accent-color, var(--cv-color-warning)));
+        color: var(--hotp-generate-hover-color, var(--cv-color-warning-text));
       }
 
       &:active::part(base) {
@@ -231,8 +231,8 @@ export const pmEntryHOTPItemSharedStyles = [
       }
 
       cv-button:hover::part(base) {
-        border-color: var(--cv-color-warning-border-strong);
-        color: var(--cv-color-warning);
+        border-color: var(--hotp-action-border-hover-color, var(--hotp-accent-border-strong, var(--cv-color-warning-border-strong)));
+        color: var(--hotp-action-hover-color, var(--hotp-accent-color, var(--cv-color-warning)));
       }
 
       cv-copy-button {

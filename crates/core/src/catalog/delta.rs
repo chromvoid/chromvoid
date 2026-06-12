@@ -325,6 +325,16 @@ pub fn apply_delta(root: &mut CatalogNode, delta: &DeltaEntry) -> bool {
                 if let Some(new_parent_node) = find_node_mut(root, new_parent) {
                     return new_parent_node.add_child(node);
                 }
+                // Target parent is missing: re-attach the node to its original
+                // parent instead of dropping the (possibly whole) subtree.
+                // Restore the original name first so the node is unchanged.
+                if new_name.is_some() {
+                    node.name = name.to_string();
+                }
+                if let Some(old_parent) = find_node_mut(root, old_parent_path) {
+                    old_parent.add_child(node);
+                }
+                return false;
             } else if let Some(new_parent_node) = find_node_mut(root, new_parent) {
                 return new_parent_node.children().iter().any(|child| {
                     child.name == target_name
@@ -339,14 +349,21 @@ pub fn apply_delta(root: &mut CatalogNode, delta: &DeltaEntry) -> bool {
     }
 }
 
-pub fn apply_deltas(root: &mut CatalogNode, deltas: &[DeltaEntry]) -> u32 {
+pub fn apply_deltas(root: &mut CatalogNode, deltas: &[DeltaEntry]) -> crate::error::Result<u32> {
+    let original_root = root.clone();
     let mut applied = 0;
     for delta in deltas {
         if apply_delta(root, delta) {
             applied += 1;
+        } else {
+            *root = original_root;
+            return Err(crate::error::Error::InvalidDataFormat(format!(
+                "catalog delta replay failed (seq={} path={})",
+                delta.seq, delta.path
+            )));
         }
     }
-    applied
+    Ok(applied)
 }
 
 fn find_node_mut<'a>(root: &'a mut CatalogNode, path: &str) -> Option<&'a mut CatalogNode> {

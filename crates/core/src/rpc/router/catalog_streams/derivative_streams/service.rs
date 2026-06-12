@@ -1,10 +1,12 @@
-use std::io::Read;
+use std::io::ErrorKind;
 
 use serde_json::Value;
 
 use crate::rpc::commands::is_system_path_guarded;
-use crate::rpc::derivative_index;
-use crate::rpc::stream::{RpcInputStream, RpcOutputStream, RpcStreamMeta};
+use crate::rpc::stream::{
+    read_stream_exact_limited, RpcInputStream, RpcOutputStream, RpcStreamMeta,
+    MAX_SINGLE_RPC_STREAM_BYTES,
+};
 use crate::vault::VaultSession;
 
 use super::super::super::blob_reader::DerivativeBlobReader;
@@ -18,44 +20,48 @@ pub(super) fn write_derivative(
     data: &Value,
     stream: Option<RpcInputStream>,
 ) -> DerivativeResult<()> {
-    let session = router
-        .session
-        .as_mut()
-        .ok_or_else(DerivativeCommandError::vault_required)?;
-    let request = DerivativeWriteRequest::parse(data)?;
-    validate_derivative_target(session, request.node_id)?;
+    let derivative_index_state = std::sync::Arc::clone(&router.derivative_index_state);
+    let snapshot = {
+        let session = router
+            .session
+            .as_mut()
+            .ok_or_else(DerivativeCommandError::vault_required)?;
+        let request = DerivativeWriteRequest::parse(data)?;
+        validate_derivative_target(session, request.node_id)?;
+
+        let vault_key = *session.vault_key();
+        DerivativeWriteSnapshot {
+            storage: router.storage.clone(),
+            vault_key,
+            node_id: request.node_id,
+            source_version: request.source_version,
+            tier: request.tier,
+            version: request.version,
+            size: request.expected_size,
+            name: request.name,
+            mime_type: request.mime_type,
+            file_extension: request.file_extension,
+            chunk_size: request.chunk_size,
+        }
+    };
 
     let stream = stream.ok_or_else(DerivativeCommandError::no_stream)?;
-    let mut reader = stream.into_reader();
-    let mut content = Vec::new();
-    if let Err(error) = reader.read_to_end(&mut content) {
-        return Err(DerivativeCommandError::internal(format!(
-            "Failed to read stream: {error}"
-        )));
-    }
-    if content.len() as u64 != request.expected_size {
-        return Err(DerivativeCommandError::internal("Size mismatch"));
-    }
-
-    let vault_key = *session.vault_key();
-    let snapshot = DerivativeWriteSnapshot {
-        storage: router.storage.clone(),
-        vault_key,
-        node_id: request.node_id,
-        source_version: request.source_version,
-        tier: request.tier,
-        version: request.version,
-        size: request.expected_size,
-        name: request.name,
-        mime_type: request.mime_type,
-        file_extension: request.file_extension,
-        chunk_size: request.chunk_size,
-    };
+    let content = read_stream_exact_limited(stream, snapshot.size, MAX_SINGLE_RPC_STREAM_BYTES)
+        .map_err(|error| match error.kind() {
+            ErrorKind::UnexpectedEof | ErrorKind::InvalidData => {
+                DerivativeCommandError::internal("Size mismatch")
+            }
+            _ => DerivativeCommandError::internal(format!("Failed to read stream: {error}")),
+        })?;
 
     let write_result = DerivativeStore::write_chunks(&snapshot, &content, || false)
         .map_err(|error| DerivativeCommandError::internal(error.message))?;
-    DerivativeStore::commit_write(&snapshot, &write_result)
-        .map_err(|error| DerivativeCommandError::internal(error.message))?;
+    DerivativeStore::commit_write_with_index(
+        &snapshot,
+        &write_result,
+        derivative_index_state.as_ref(),
+    )
+    .map_err(|error| DerivativeCommandError::internal(error.message))?;
 
     Ok(())
 }
@@ -71,7 +77,7 @@ pub(super) fn read_derivative(
     let request = DerivativeReadRequest::parse(data)?;
     validate_derivative_target(session, request.node_id)?;
 
-    let validated = match DerivativeStore::read_validated(
+    let entry = match router.derivative_index_state.get_derivative_entry(
         &router.storage,
         session.vault_key(),
         request.node_id,
@@ -79,7 +85,7 @@ pub(super) fn read_derivative(
         &request.tier,
         request.version,
     ) {
-        Ok(Some(validated)) => validated,
+        Ok(Some(entry)) => entry,
         Ok(None) => return Err(DerivativeCommandError::derivative_not_found()),
         Err(error) => {
             return Err(DerivativeCommandError::internal(format!(
@@ -88,7 +94,18 @@ pub(super) fn read_derivative(
         }
     };
 
-    let _ = derivative_index::touch_derivative_entry(
+    let validated =
+        match DerivativeStore::read_validated_entry(&router.storage, session.vault_key(), entry) {
+            Ok(Some(validated)) => validated,
+            Ok(None) => return Err(DerivativeCommandError::derivative_not_found()),
+            Err(error) => {
+                return Err(DerivativeCommandError::internal(format!(
+                    "Derivative read failed: {error}"
+                )));
+            }
+        };
+
+    let _ = router.derivative_index_state.touch_derivative_entry(
         &router.storage,
         session.vault_key(),
         validated.entry.node_id,

@@ -1,4 +1,4 @@
-import type {ManagerSaver, OTPGetParams} from '@project/passmanager/types'
+import type {ManagerSaver, OTPGetParams, PassManagerSecretSlot} from '@project/passmanager/types'
 import type {CredentialCandidate, CredentialSecret, ProviderContext, RpcResult} from '@chromvoid/scheme'
 
 const ROOT_KEY = 'PASSWORDMANAGER'
@@ -210,6 +210,22 @@ class ExtensionManagerSaver implements ManagerSaver {
   }
 
   async removeEntryNote(_entryId: string): Promise<boolean> {
+    return false
+  }
+
+  async readEntrySecret(_entryId: string, _slot: PassManagerSecretSlot): Promise<string | undefined> {
+    return undefined
+  }
+
+  async saveEntrySecret(
+    _entryId: string,
+    _slot: PassManagerSecretSlot,
+    _value: string | null,
+  ): Promise<boolean> {
+    return false
+  }
+
+  async removeEntrySecret(_entryId: string, _slot: PassManagerSecretSlot): Promise<boolean> {
     return false
   }
 

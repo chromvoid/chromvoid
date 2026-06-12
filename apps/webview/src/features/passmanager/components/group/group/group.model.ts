@@ -28,6 +28,8 @@ import {
 } from '../../../models/pm-root.adapter'
 import {
   composePMGroupRows,
+  getPMRootCredentialTagsForSearch,
+  getPMRootEntriesForSearch,
   pmRootSearchProjectionModel,
   type PMGroupEntryRow,
   type PMGroupFolderRow,
@@ -39,7 +41,7 @@ import {openPassmanagerMoveDialog} from '../../../service/passmanager-move-dialo
 import {PMEntryModel} from '../../card/entry/entry.model'
 import {groupBy, sortDirection, sortField} from '../../list/sort-controls'
 
-export type PMToolbarAction = 'create-entry' | 'create-group' | 'edit-group' | 'remove-group'
+export type PMToolbarAction = 'edit-group' | 'move-group' | 'remove-group'
 export type PMGroupMetric = {
   id: 'entries' | 'reused_passwords' | 'weak_passwords' | 'two_factor'
   label: string
@@ -83,9 +85,8 @@ type PMSyncKeyboardResult = {
 }
 
 const toolbarActions = new Set<PMToolbarAction>([
-  'create-entry',
-  'create-group',
   'edit-group',
+  'move-group',
   'remove-group',
 ])
 const groupEditMode = atom(false, 'passmanager.group.isEditMode')
@@ -270,7 +271,7 @@ export class PMGroupModel {
 
     const selectedTags = getEffectiveSelectedCredentialTagFilters(
       rootEntries,
-      this.isManagerRoot(group) ? group.credentialTags() : [],
+      this.isManagerRoot(group) ? getPMRootCredentialTagsForSearch(group) : [],
     )
     const matchesEntry = createEntryFilterMatcher(filterValue(), quickFilters(), Date.now(), selectedTags)
     return rootEntries.filter((entry) => matchesEntry(entry))
@@ -279,8 +280,7 @@ export class PMGroupModel {
   private getRootEntries(group: Group | ManagerRoot): Entry[] | null {
     if (!this.isManagerRoot(group)) return null
 
-    const allEntries = (group as ManagerRoot & {allEntries?: unknown}).allEntries
-    return Array.isArray(allEntries) ? allEntries.filter((item): item is Entry => item instanceof Entry) : null
+    return getPMRootEntriesForSearch(group)
   }
 
   getVisibleRows(group: Group | ManagerRoot): PMGroupRow[] {
@@ -296,7 +296,10 @@ export class PMGroupModel {
     const prefix = currentGroup.name + '/'
     const query = filterValue()
     const filters = quickFilters()
-    const selectedTags = getEffectiveSelectedCredentialTagFilters(root.allEntries, root.credentialTags())
+    const selectedTags = getEffectiveSelectedCredentialTagFilters(
+      getPMRootEntriesForSearch(root),
+      getPMRootCredentialTagsForSearch(root),
+    )
     const matchesGroup = createGroupFilterMatcher(query)
 
     const childGroups = root.entriesList().filter((item): item is Group => {
@@ -638,46 +641,40 @@ export class PMGroupModel {
     return toolbarActions.has(value as PMToolbarAction)
   }
 
-  getDesktopToolbarActions(group: Group | ManagerRoot | null = this.getCurrentGroup()) {
+  getDesktopToolbarActions(
+    group: Group | ManagerRoot | null = this.getCurrentGroup(),
+  ): PMDesktopToolbarActionSpec<PMToolbarAction>[] {
     if (!group) return [] as PMDesktopToolbarActionSpec<PMToolbarAction>[]
 
     const isReadOnly = this.isReadOnly()
     const isRoot = this.isManagerRoot(group)
-    const actions: PMDesktopToolbarActionSpec<PMToolbarAction>[] = [
+    if (isRoot) return [] as PMDesktopToolbarActionSpec<PMToolbarAction>[]
+
+    return [
       {
-        id: 'create-entry',
-        icon: 'plus-lg',
-        label: i18n('enrty:create'),
+        id: 'edit-group',
+        icon: 'pencil-square',
+        label: i18n('button:edit'),
         disabled: isReadOnly,
+        iconOnly: true,
+        appearance: 'ghost',
       },
       {
-        id: 'create-group',
-        icon: 'plus-lg',
-        label: i18n('group:create'),
+        id: 'move-group',
+        icon: 'folder-symlink',
+        label: i18n('button:move'),
         disabled: isReadOnly,
+        iconOnly: true,
+      },
+      {
+        id: 'remove-group',
+        icon: 'trash',
+        label: i18n('button:remove'),
+        disabled: isReadOnly,
+        danger: true,
+        iconOnly: true,
       },
     ]
-
-    if (!isRoot) {
-      actions.push(
-        {
-          id: 'edit-group',
-          icon: 'pencil-square',
-          label: i18n('button:edit'),
-          disabled: isReadOnly,
-          iconOnly: true,
-        },
-        {
-          id: 'remove-group',
-          icon: 'x-lg',
-          label: i18n('button:remove'),
-          disabled: isReadOnly,
-          iconOnly: true,
-        },
-      )
-    }
-
-    return actions
   }
 
   executeToolbarAction(action: PMToolbarAction): void {
@@ -688,15 +685,13 @@ export class PMGroupModel {
     if (!group) return
 
     switch (action) {
-      case 'create-entry':
-        passmanager.setShowElement('createEntry', this.isManagerRoot(group) ? undefined : group)
-        return
-      case 'create-group':
-        pmModel.onCreateGroup()
-        return
       case 'edit-group':
         if (this.isManagerRoot(group)) return
         this.enterEditMode()
+        return
+      case 'move-group':
+        if (this.isManagerRoot(group)) return
+        void this.moveGroup(group)
         return
       case 'remove-group':
         if (this.isManagerRoot(group)) return

@@ -66,7 +66,7 @@ fn connection_state_is_copy() {
 fn remote_media_cancel_try_send_requires_split_feature() {
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
     let client = RemoteJsonClientHandle::new(
-        RemoteJsonSender::Network(tx),
+        RemoteJsonSender::new(tx),
         std::sync::Arc::new(std::sync::Mutex::new(vec![])),
     );
 
@@ -79,7 +79,7 @@ fn remote_media_cancel_try_send_requires_split_feature() {
 fn remote_media_cancel_try_send_enqueues_high_priority_request() {
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
     let client = RemoteJsonClientHandle::new(
-        RemoteJsonSender::Network(tx),
+        RemoteJsonSender::new(tx),
         std::sync::Arc::new(std::sync::Mutex::new(vec![
             chromvoid_core::rpc::types::CORE_FEATURE_REMOTE_MEDIA_INSPECTION_SPLIT_V1.to_string(),
         ])),

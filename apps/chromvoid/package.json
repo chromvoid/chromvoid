@@ -1,7 +1,7 @@
 {
   "name": "@chromvoid/desktop",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.2",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
@@ -9,10 +9,10 @@
     "icons:generate": "node ./scripts/generate-platform-icons.mjs",
     "dev:run": "node ./scripts/run-tauri-dev.mjs",
     "dev:run:signed": "node ./scripts/run-tauri-dev.mjs --signed",
-    "dev": "npm run dev:run",
-    "dev:signed": "npm run dev:run:signed",
-    "build": "tauri build --bundles app",
-    "build:dmg": "tauri build --bundles dmg",
+    "dev": "bun run dev:run",
+    "dev:signed": "bun run dev:run:signed",
+    "build": "node ./scripts/run-tauri-build.mjs",
+    "build:dmg": "node ./scripts/run-tauri-build.mjs --bundles dmg",
     "ios": "node ./scripts/run-tauri-ios-dev.mjs",
     "ios:sim": "tauri ios dev \"iPhone 16\"",
     "ios:sim:17": "tauri ios dev \"iPhone 17\"",
@@ -23,9 +23,9 @@
     "ios:build:release:ipa": "node ./scripts/run-tauri-ios-release-build.mjs",
     "ios:install:release:ipa": "node ./scripts/install-ios-release-ipa.mjs",
     "ios:dev:device": "node ./scripts/run-tauri-ios-dev.mjs --physical-device",
-    "ios:deploy:device": "npm run ios:build -- --build-number 1 && node ./scripts/install-ios-release-ipa.mjs",
-    "ios:deploy:device:launch": "npm run ios:build -- --build-number 1 && node ./scripts/install-ios-release-ipa.mjs --launch",
-    "ios:deploy:release:ipa": "npm run ios:build:release:ipa && node ./scripts/install-ios-release-ipa.mjs --launch",
+    "ios:deploy:device": "bun run ios:build -- --build-number 1 && node ./scripts/install-ios-release-ipa.mjs",
+    "ios:deploy:device:launch": "bun run ios:build -- --build-number 1 && node ./scripts/install-ios-release-ipa.mjs --launch",
+    "ios:deploy:release:ipa": "bun run ios:build:release:ipa && node ./scripts/install-ios-release-ipa.mjs --launch",
     "android": "node ./scripts/run-tauri-android-dev.mjs",
     "android:adb-bridge": "node ./scripts/open-android-adb-bridge.mjs",
     "android:adb-wifi": "node ./scripts/android-adb-wifi-target.mjs",
@@ -35,10 +35,10 @@
     "android:build:release:aab": "node ./scripts/run-tauri-android-release-build.mjs --aab",
     "android:install:release:apk": "node ./scripts/install-android-release-apk.mjs",
     "android:install:release:apk:remote-adb": "CHROMVOID_USE_ADB_TUNNEL=1 node ./scripts/install-android-release-apk.mjs",
-    "android:deploy:release:apk": "npm run android:build:release:apk && node ./scripts/install-android-release-apk.mjs --launch",
-    "android:deploy:release:apk:wifi": "npm run android:build:release:apk && CHROMVOID_USE_ADB_WIFI=1 node ./scripts/install-android-release-apk.mjs --launch",
-    "android:deploy:release:apk:remote-adb": "npm run android:build:release:apk && CHROMVOID_USE_ADB_TUNNEL=1 node ./scripts/install-android-release-apk.mjs --launch",
-    "test:e2e": "npx vitest run --config ./vitest.e2e.config.ts"
+    "android:deploy:release:apk": "node ./scripts/run-tauri-android-release-build.mjs && node ./scripts/install-android-release-apk.mjs --launch",
+    "android:deploy:release:apk:wifi": "node ./scripts/run-tauri-android-release-build.mjs && CHROMVOID_USE_ADB_WIFI=1 node ./scripts/install-android-release-apk.mjs --launch",
+    "android:deploy:release:apk:remote-adb": "node ./scripts/run-tauri-android-release-build.mjs && CHROMVOID_USE_ADB_TUNNEL=1 node ./scripts/install-android-release-apk.mjs --launch",
+    "test:e2e": "bunx vitest run --config ./vitest.e2e.config.ts"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.10.1"

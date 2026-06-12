@@ -1,5 +1,5 @@
 import {sha256} from '@project/utils'
-import {atom, peek} from '@reatom/core'
+import {atom, peek, wrap} from '@reatom/core'
 import {v4} from 'uuid'
 
 import {i18n} from '../i18n'
@@ -105,9 +105,9 @@ export class OTP {
 
     const request = (async () => {
       try {
-        await this.entry.flushPendingPersistence()
+        await wrap(this.entry.flushPendingPersistence())
         const {algorithm, ...data} = {...this.data}
-        const code = await this.entry.root.managerSaver.getOTP({
+        const code = await wrap(this.entry.root.managerSaver.getOTP({
           ...data,
           period: peek(this.type) === 'HOTP' ? 1 : this.data.period,
           ts: requestKey,
@@ -116,7 +116,7 @@ export class OTP {
           label: this.data.label,
           entryTitle: this.entry.title,
           entryGroupPath: this.entry.groupPath,
-        })
+        }))
         this.currentOtp.set(code)
         this.resolvedCodeCache = {requestKey, value: code}
         return code
@@ -173,12 +173,14 @@ export class OTP {
     }
 
     if (!silent) {
-      const confirmed = await confirmPassManagerAction({
-        title: i18n('remove:dialog:title'),
-        message: i18n('remove:dialog:text'),
-        variant: 'danger',
-        confirmVariant: 'danger',
-      })
+      const confirmed = await wrap(
+        confirmPassManagerAction({
+          title: i18n('remove:dialog:title'),
+          message: i18n('remove:dialog:text'),
+          variant: 'danger',
+          confirmVariant: 'danger',
+        }),
+      )
       if (!confirmed) {
         return false
       }
@@ -191,9 +193,7 @@ export class OTP {
   }
 
   setLabel(value: string) {
-    const prevLabel = this.data.label
-    this.data.label = value
-    void this.persistLabel(prevLabel)
+    return this.entry.updateOTPLabel(this, value)
   }
 
   async export() {
@@ -213,34 +213,6 @@ export class OTP {
       encoding: this.data.encoding,
       type: this.data.type,
       counter: this.data.counter,
-    }
-  }
-
-  private async persistLabel(prevLabel: string) {
-    try {
-      const ok = await this.entry.root.managerSaver.saveEntryMeta({
-        id: this.entry.id,
-        title: this.entry.title,
-        urls: this.entry.urls,
-        username: this.entry.username,
-        iconRef: this.entry.iconRef,
-        otps: this.entry.otps().map((o) => ({
-          id: o.id,
-          label: o.data.label,
-          algorithm: o.data.algorithm,
-          digits: o.data.digits,
-          period: o.data.period,
-          encoding: o.data.encoding,
-          type: o.data.type,
-          counter: o.data.counter,
-        })),
-        groupPath: this.entry.groupPath,
-      })
-      if (!ok) {
-        throw new Error('saveEntryMeta failed')
-      }
-    } catch {
-      this.data.label = prevLabel
     }
   }
 }

@@ -12,11 +12,6 @@ use crate::ssh_agent::protocol::{
 
 pub(super) async fn proxy_sign_request(upstream_path: &PathBuf, payload: &[u8]) -> Option<Vec<u8>> {
     let request = build_message(SSH_AGENTC_SIGN_REQUEST, payload);
-
-    if let Some((_msg_type, _payload, raw)) = send_upstream_message(upstream_path, &request).await {
-        return Some(raw);
-    }
-
     let (_msg_type, _payload, raw) = send_upstream_message(upstream_path, &request).await?;
     Some(raw)
 }
@@ -112,4 +107,45 @@ pub(super) fn is_same_socket_endpoint(lhs: &PathBuf, rhs: &PathBuf) -> bool {
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    use tokio::net::UnixListener;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn proxy_sign_request_sends_once_when_upstream_closes_without_frame() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let socket_path = tempdir.path().join("upstream.sock");
+        let listener = UnixListener::bind(&socket_path).expect("bind upstream");
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let server_accepted = accepted.clone();
+
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok(Ok((mut stream, _))) =
+                    timeout(Duration::from_millis(200), listener.accept()).await
+                else {
+                    break;
+                };
+                server_accepted.fetch_add(1, Ordering::SeqCst);
+                let mut header = [0u8; 4];
+                if stream.read_exact(&mut header).await.is_err() {
+                    continue;
+                }
+                let len = u32::from_be_bytes(header) as usize;
+                let mut body = vec![0u8; len];
+                let _ = stream.read_exact(&mut body).await;
+            }
+        });
+
+        assert!(proxy_sign_request(&socket_path, b"payload").await.is_none());
+        server.await.expect("server join");
+        assert_eq!(accepted.load(Ordering::SeqCst), 1);
+    }
 }

@@ -4,6 +4,7 @@ use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 use chromvoid_core::rpc::{RpcInputStream, RpcReply};
 use serde_json::Value;
 use tokio::sync::mpsc;
+use zeroize::Zeroize;
 
 use crate::core_adapter::types::{
     ConnectionState, CoreAdapter, CoreMode, RemoteHost, RemoteJsonClientHandle, RemoteRpcPriority,
@@ -19,37 +20,27 @@ pub struct RemoteCoreAdapter {
 }
 
 impl RemoteCoreAdapter {
-    /// Create a RemoteCoreAdapter backed by a USB I/O task.
-    pub fn new_usb(host: RemoteHost, req_tx: mpsc::Sender<crate::usb::io_task::IoRequest>) -> Self {
-        Self {
-            host,
-            sender: IoSender::Usb(req_tx),
-            unlocked: false,
-            features: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-
-    /// Create a RemoteCoreAdapter backed by a network I/O task.
-    pub fn from_network(
+    /// Create a RemoteCoreAdapter backed by a remote data-plane task.
+    pub fn from_remote_sender(
         host: RemoteHost,
-        req_tx: mpsc::Sender<crate::network::io_task::IoRequest>,
+        req_tx: mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>,
     ) -> Self {
         Self {
             host,
-            sender: IoSender::Network(req_tx),
+            sender: IoSender::new(req_tx),
             unlocked: false,
             features: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
     #[allow(dead_code)]
-    /// Replace the I/O sender after a network reconnection.
-    /// The old sender is dropped, which signals the previous io_task to stop.
-    pub fn replace_network_sender(
+    /// Replace the I/O sender after a remote transport reconnection.
+    /// The old sender is dropped, which signals the previous data-plane task to stop.
+    pub fn replace_remote_sender(
         &mut self,
-        req_tx: mpsc::Sender<crate::network::io_task::IoRequest>,
+        req_tx: mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>,
     ) {
-        self.sender = IoSender::Network(req_tx);
+        self.sender = IoSender::new(req_tx);
         self.clear_features();
     }
 
@@ -89,6 +80,21 @@ impl RemoteCoreAdapter {
     ) -> RpcResponse {
         self.remote_client_handle()
             .send_json_blocking(req.clone(), priority, None)
+    }
+
+    fn apply_json_state_transition(&mut self, req: &RpcRequest, resp: &RpcResponse) {
+        match req.command.as_str() {
+            "vault:unlock" => {
+                self.unlocked = resp.is_ok();
+                if self.unlocked {
+                    self.probe_capabilities();
+                }
+            }
+            "vault:lock" if resp.is_ok() => {
+                self.unlocked = false;
+            }
+            _ => {}
+        }
     }
 }
 
@@ -184,15 +190,7 @@ impl CoreAdapter for RemoteCoreAdapter {
         match reply_rx.blocking_recv() {
             Ok(reply) => match reply {
                 RpcReply::Json(resp) => {
-                    if req.command == "vault:unlock" {
-                        self.unlocked = matches!(resp, RpcResponse::Success { .. });
-                        if self.unlocked {
-                            self.probe_capabilities();
-                        }
-                    }
-                    if req.command == "vault:lock" {
-                        self.unlocked = false;
-                    }
+                    self.apply_json_state_transition(req, &resp);
                     resp
                 }
                 RpcReply::Stream(_) | RpcReply::RangeStream(_) => RpcResponse::Error {
@@ -240,16 +238,8 @@ impl CoreAdapter for RemoteCoreAdapter {
 
         match reply_rx.blocking_recv() {
             Ok(reply) => {
-                if req.command == "vault:unlock" {
-                    if let RpcReply::Json(ref resp) = reply {
-                        self.unlocked = matches!(resp, RpcResponse::Success { .. });
-                        if self.unlocked {
-                            self.probe_capabilities();
-                        }
-                    }
-                }
-                if req.command == "vault:lock" {
-                    self.unlocked = false;
+                if let RpcReply::Json(ref resp) = reply {
+                    self.apply_json_state_transition(req, resp);
                 }
                 reply
             }
@@ -269,7 +259,10 @@ impl CoreAdapter for RemoteCoreAdapter {
         Vec::new()
     }
 
-    fn set_master_key(&mut self, _key: Option<String>) {
+    fn set_master_key(&mut self, mut key: Option<String>) {
+        if let Some(key) = key.as_mut() {
+            key.zeroize();
+        }
         // Remote mode: master key is managed by the remote host
     }
 }

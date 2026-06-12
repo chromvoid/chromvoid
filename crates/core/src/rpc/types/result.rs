@@ -331,4 +331,7 @@ pub enum RpcCommandResult {
 
     #[serde(rename = "passmanager:otp:removeSecret")]
     PassmanagerOtpRemoveSecret {},
+
+    #[serde(rename = "passmanager:otp:renameSecret")]
+    PassmanagerOtpRenameSecret {},
 }

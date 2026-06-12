@@ -15,6 +15,7 @@ use common::{
     catalog_download, catalog_find_child, catalog_list, deterministic_bytes, sha256_hex, TestVault,
 };
 use std::io::Write as _;
+use std::os::unix::ffi::OsStrExt as _;
 use std::path::Path;
 use std::time::Duration;
 use tempfile::tempdir;
@@ -55,6 +56,16 @@ async fn fuse_rw_matrix() {
         buf
     }
 
+    fn truncate_without_open(path: &Path, size: i64) -> std::io::Result<()> {
+        let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).expect("path CString");
+        let rc = unsafe { libc::truncate(c_path.as_ptr(), size) };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+
     // --- Mount #1: write & verify ---
     let fuse = start_fuse_or_skip!(
         "fuse_rw_matrix",
@@ -73,6 +84,13 @@ async fn fuse_rw_matrix() {
 
     let sub = docs.join("sub");
     std::fs::create_dir(&sub).expect("mkdir docs/sub");
+
+    let non_empty_rmdir = std::fs::remove_dir(&docs).expect_err("rmdir non-empty docs must fail");
+    assert_eq!(
+        non_empty_rmdir.raw_os_error(),
+        Some(libc::ENOTEMPTY),
+        "rmdir on non-empty directory must be ENOTEMPTY"
+    );
 
     // 1) small file create + read
     let small = sub.join("hello.txt");
@@ -136,6 +154,18 @@ async fn fuse_rw_matrix() {
     let patch_path = sub.join("patch.bin");
     let mut patch = deterministic_bytes(0xDEAD_BEEF, 64 * 1024);
     std::fs::write(&patch_path, &patch).expect("write patch.bin");
+    let closed_truncate =
+        truncate_without_open(&patch_path, 128).expect_err("closed truncate must fail");
+    assert_eq!(
+        closed_truncate.raw_os_error(),
+        Some(libc::EOPNOTSUPP),
+        "closed truncate must fail instead of reporting unsafe success"
+    );
+    assert_eq!(
+        sha256_hex(&std::fs::read(&patch_path).expect("read after failed closed truncate")),
+        sha256_hex(&patch),
+        "failed closed truncate must preserve content"
+    );
     {
         use std::io::{Seek, SeekFrom, Write};
         let mut f = std::fs::OpenOptions::new()

@@ -204,10 +204,10 @@ log(`opening SSH bridge to ${sshTarget}`)
 log(`dev-ubuntu ADB socket: tcp:127.0.0.1:${adbTunnelPort}`)
 if (!adbOnly) {
   log(`Mac localhost:${devServerPort} forwards to dev-ubuntu localhost:${devServerPort}`)
-  log('keep this process running, then run npm run android:remote-adb -w apps/chromvoid on dev-ubuntu')
+  log('keep this process running, then run bun run --cwd apps/chromvoid android:remote-adb on dev-ubuntu')
 } else {
   log('ADB-only mode is for release install flows and does not build or install by itself')
-  log('for dev WebView sessions, rerun without --adb-only so localhost:4400 is forwarded')
+  log('Tauri dev builds now package production WebView assets; omit --adb-only only for custom localhost:4400 hosts')
 }
 
 const child = spawn('ssh', sshArgs, {stdio: 'inherit'})

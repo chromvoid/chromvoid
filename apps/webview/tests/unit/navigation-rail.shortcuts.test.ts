@@ -9,7 +9,7 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {navigationModel} from '../../src/app/navigation/navigation.model'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
-import {NavigationRail} from '../../src/features/file-manager/components/navigation-rail'
+import {NavigationRail, NavigationRailActions} from '../../src/features/file-manager/components/navigation-rail'
 import {navigationRailModel} from '../../src/features/file-manager/components/navigation-rail.model'
 import {ChromVoidAppModel} from '../../src/routes/app.route.model'
 import {
@@ -78,10 +78,19 @@ async function renderRail() {
   return rail
 }
 
+async function renderRailActions() {
+  NavigationRailActions.define()
+  const actions = document.createElement('navigation-rail-actions') as NavigationRailActions
+  document.body.appendChild(actions)
+  await actions.updateComplete
+  return actions
+}
+
 afterEach(() => {
   navigationModel.disconnect()
   navigationRailModel.expanded.set(false)
   document.querySelectorAll('navigation-rail').forEach((el) => el.remove())
+  document.querySelectorAll('navigation-rail-actions').forEach((el) => el.remove())
   document.querySelectorAll('input').forEach((el) => el.remove())
   tauriInvoke.mockReset()
   vi.unstubAllGlobals()
@@ -127,9 +136,9 @@ describe('NavigationRail shortcut labels and vault lock shortcut', () => {
     setupContext('mobile')
     getAppContext().store.vaultLockPending.set(true)
 
-    const rail = await renderRail()
-    const lockButton = Array.from(rail.shadowRoot?.querySelectorAll('cv-button.item') ?? []).find((button) =>
-      (button.textContent ?? '').includes('Lock'),
+    const actions = await renderRailActions()
+    const lockButton = Array.from(actions.shadowRoot?.querySelectorAll('cv-button.item') ?? []).find(
+      (button) => (button.textContent ?? '').includes('Lock'),
     )
 
     expect(lockButton?.hasAttribute('disabled')).toBe(true)

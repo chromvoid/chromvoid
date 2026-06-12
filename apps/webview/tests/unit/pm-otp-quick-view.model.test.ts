@@ -1,6 +1,7 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {Entry, Group, ManagerRoot} from '@project/passmanager'
+import {i18n} from '@project/passmanager/i18n'
 import {navigationModel} from '../../src/app/navigation/navigation.model'
 import {
   PMOtpQuickViewModel,
@@ -110,6 +111,49 @@ describe('PMOtpQuickViewModel', () => {
     ])
   })
 
+  it('projects compact display paths and non-standard OTP labels', () => {
+    const {root} = createRootFixture()
+    setPassmanagerRoot(root)
+    const model = new PMOtpQuickViewModel()
+
+    expect(
+      model.rows().map((row) => ({
+        id: row.id,
+        displayPath: row.displayPath,
+        otpDisplayLabel: row.otpDisplayLabel,
+      })),
+    ).toEqual([
+      {id: 'entry-github:otp-github', displayPath: 'GitHub', otpDisplayLabel: 'Primary'},
+      {id: 'entry-aws:otp-aws', displayPath: 'Production/Infra/AWS Console', otpDisplayLabel: 'Admin'},
+      {id: 'entry-yubikey:otp-vpn', displayPath: 'Legacy VPN', otpDisplayLabel: 'Hardware token'},
+    ])
+  })
+
+  it('hides blank, fallback, OTP, and generated entry-title OTP labels from row display', () => {
+    const root = new ManagerRoot({} as any)
+    const blank = createEntry(root, 'entry-blank', {
+      title: 'Blank Label',
+      otps: [{id: 'otp-blank', label: ''}],
+    })
+    const fallback = createEntry(root, 'entry-fallback', {
+      title: 'Fallback Label',
+      otps: [{id: 'otp-fallback', label: i18n('otp:default:name')}],
+    })
+    const defaultOtp = createEntry(root, 'entry-otp', {
+      title: 'OTP Label',
+      otps: [{id: 'otp-default', label: 'OTP'}],
+    })
+    const generated = createEntry(root, 'entry-generated', {
+      title: 'Generated Label',
+      otps: [{id: 'otp-generated', label: 'Generated Label'}],
+    })
+    root.entries.set([blank, fallback, defaultOtp, generated])
+    setPassmanagerRoot(root)
+    const model = new PMOtpQuickViewModel()
+
+    expect(model.rows().map((row) => row.otpDisplayLabel)).toEqual(['', '', '', ''])
+  })
+
   it('reacts when an entry OTP atom changes', () => {
     const {root, github} = createRootFixture()
     setPassmanagerRoot(root)
@@ -136,6 +180,9 @@ describe('PMOtpQuickViewModel', () => {
     expect(rowIds(model.visibleRows())).toEqual(['entry-aws:otp-aws'])
 
     model.setQuery('production/infra')
+    expect(rowIds(model.visibleRows())).toEqual(['entry-aws:otp-aws'])
+
+    model.setQuery('production/infra/aws console')
     expect(rowIds(model.visibleRows())).toEqual(['entry-aws:otp-aws'])
 
     model.setQuery('alice@example.test')

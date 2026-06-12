@@ -2055,7 +2055,7 @@ fn prepared_preview_protocol_serves_derivative_from_core_storage() {
             .headers()
             .get(tauri::http::header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok()),
-        Some(crate::image_preview::JPEG_PREVIEW_MIME)
+        Some(crate::image_preview::WEBP_PREVIEW_MIME)
     );
     assert_eq!(response.body().len(), 0);
     let expected_size = prepared.size.to_string();

@@ -23,16 +23,16 @@ export const pmSummaryRailStyles = css`
     flex-wrap: nowrap;
     align-items: center;
     gap: 0;
-    inline-size: var(--pm-summary-rail-inline-size, auto);
+    inline-size: var(--pm-summary-rail-inline-size, 100%);
     max-inline-size: 100%;
     min-inline-size: 0;
     box-sizing: border-box;
     margin: 0;
-    padding: 2px;
+    padding: var(--pm-summary-rail-padding, 2px);
     overflow-x: auto;
     border: var(--pm-summary-rail-border, 1px solid var(--cv-color-border));
     border-radius: var(--cv-radius-2);
-    background: var(--cv-color-surface-2);
+    background: var(--pm-summary-rail-background, var(--cv-color-surface-2));
     box-shadow: var(--pm-summary-rail-box-shadow, none);
     scrollbar-width: none;
   }

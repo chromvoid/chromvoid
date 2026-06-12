@@ -95,7 +95,7 @@ impl<'a> CatalogCompactionService<'a> {
                 let delta: DeltaEntry = serde_json::from_slice(&delta_plain)?;
                 deltas.push(delta);
             }
-            crate::catalog::apply_deltas(&mut shard.root, &deltas);
+            crate::catalog::apply_deltas(&mut shard.root, &deltas)?;
         }
 
         shard.version = previous_meta.version;

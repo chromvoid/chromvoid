@@ -45,6 +45,12 @@ function getFrame(element: VirtualFileList): HTMLElement {
   return frame!
 }
 
+function getContainer(element: VirtualFileList): HTMLElement {
+  const container = element.shadowRoot?.querySelector<HTMLElement>('.list-container')
+  expect(container).not.toBeNull()
+  return container!
+}
+
 describe('virtual-file-list scroll edge affordance', () => {
   afterEach(() => {
     document.body.innerHTML = ''
@@ -63,14 +69,23 @@ describe('virtual-file-list scroll edge affordance', () => {
     await settle(element)
 
     const frame = getFrame(element)
+    const container = getContainer(element)
+    expect(container.classList.contains('scroll-edge-scroller')).toBe(true)
+    expect(frame.getAttribute('data-scroll-block-start')).toBe('false')
     expect(frame.getAttribute('data-scroll-block-end')).toBe('true')
 
-    const container = element.shadowRoot?.querySelector<HTMLElement>('.list-container')
-    expect(container).not.toBeNull()
-    container!.scrollTop = 800
-    container!.dispatchEvent(new Event('scroll'))
+    container.scrollTop = 20
+    container.dispatchEvent(new Event('scroll'))
     await settle(element)
 
+    expect(frame.getAttribute('data-scroll-block-start')).toBe('true')
+    expect(frame.getAttribute('data-scroll-block-end')).toBe('true')
+
+    container.scrollTop = 800
+    container.dispatchEvent(new Event('scroll'))
+    await settle(element)
+
+    expect(frame.getAttribute('data-scroll-block-start')).toBe('true')
     expect(frame.getAttribute('data-scroll-block-end')).toBe('false')
   })
 
@@ -85,6 +100,7 @@ describe('virtual-file-list scroll edge affordance', () => {
     document.body.appendChild(element)
     await settle(element)
 
+    expect(getFrame(element).getAttribute('data-scroll-block-start')).toBe('false')
     expect(getFrame(element).getAttribute('data-scroll-block-end')).toBe('false')
   })
 })

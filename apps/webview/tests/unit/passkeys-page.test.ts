@@ -363,4 +363,16 @@ describe('Provider passkeys page', () => {
     expect(page.shadowRoot?.querySelector('cv-empty-state')).toBeNull()
     expect(tauriInvoke).not.toHaveBeenCalled()
   })
+
+  it('hides only the local header when rendered with an external toolbar', async () => {
+    ensureDefined()
+
+    const page = document.createElement('passkeys-page') as PasskeysPage
+    page.externalToolbar = true
+    document.body.append(page)
+    await waitForPasskeysPage(page)
+
+    expect(page.shadowRoot?.querySelector('.header')).toBeNull()
+    expect(page.shadowRoot?.querySelector('.card')).not.toBeNull()
+  })
 })

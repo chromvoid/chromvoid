@@ -22,15 +22,16 @@ export async function downloadPassmanagerJson(
 
   if (isTauriRuntime()) {
     try {
-      const {save} = await import('@tauri-apps/plugin-dialog')
-      const targetPath = await save({
+      const {pickTextFileTargetViaTauri, writeTextFileViaTauri} = await import(
+        'root/core/transport/tauri/tauri-binary-ops'
+      )
+      const target = await pickTextFileTargetViaTauri({
         defaultPath: filename,
         filters: [{name: 'JSON', extensions: ['json']}],
       })
-      if (!targetPath) return false
+      if (!target) return false
 
-      const {invoke} = await import('@tauri-apps/api/core')
-      await invoke('write_text_file', {path: targetPath, content: json})
+      await writeTextFileViaTauri(target.token, json)
       return true
     } catch {
       downloadJsonBrowser(json, filename)

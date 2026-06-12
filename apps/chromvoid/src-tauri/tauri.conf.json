@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ChromVoid",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "identifier": "com.chromvoid.app",
   "build": {
-    "beforeDevCommand": "cd ../webview && npm run dev",
+    "beforeDevCommand": "node ./scripts/build-webview-if-needed.mjs --force",
     "beforeBuildCommand": "node ./scripts/build-webview-if-needed.mjs",
-    "devUrl": "http://localhost:4400",
+    "devUrl": null,
     "frontendDist": "../../webview/dist",
     "features": ["desktop"]
   },

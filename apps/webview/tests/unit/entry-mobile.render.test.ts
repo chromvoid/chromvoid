@@ -144,14 +144,16 @@ function createEntry(
   return entry
 }
 
-function createPaymentCardEntry(options: {
-  id?: string
-  flushPendingPersistence?: () => Promise<void>
-  cardPan?: () => Promise<string | undefined>
-  cardCvv?: () => Promise<string | undefined>
-  note?: () => Promise<string | undefined>
-  tags?: string[]
-} = {}) {
+function createPaymentCardEntry(
+  options: {
+    id?: string
+    flushPendingPersistence?: () => Promise<void>
+    cardPan?: () => Promise<string | undefined>
+    cardCvv?: () => Promise<string | undefined>
+    note?: () => Promise<string | undefined>
+    tags?: string[]
+  } = {},
+) {
   const entry = new Entry(
     Object.create(ManagerRoot.prototype) as ManagerRoot,
     {
@@ -422,7 +424,9 @@ describe('PMEntryMobile', () => {
     const number = component.shadowRoot?.querySelector('.payment-card-number') as HTMLElement | null
     const cvv = component.shadowRoot?.querySelector('.payment-card-cvv-value') as HTMLElement | null
     const toggle = component.shadowRoot?.querySelector('.payment-card-cvv-toggle') as HTMLButtonElement | null
-    const edit = component.shadowRoot?.querySelector('.payment-card-inline-action-edit') as HTMLButtonElement | null
+    const edit = component.shadowRoot?.querySelector(
+      '.payment-card-inline-action-edit',
+    ) as HTMLButtonElement | null
     const copy = component.shadowRoot?.querySelector('.payment-card-number-copy') as HTMLElement | null
 
     expect(face).not.toBeNull()
@@ -440,9 +444,15 @@ describe('PMEntryMobile', () => {
     await settle(component)
 
     expect(
-      (component.shadowRoot?.querySelector('.payment-card-cvv-value') as HTMLElement | null)?.textContent?.trim(),
+      (
+        component.shadowRoot?.querySelector('.payment-card-cvv-value') as HTMLElement | null
+      )?.textContent?.trim(),
     ).toBe('123')
-    expect((component.shadowRoot?.querySelector('.payment-card-cvv-toggle') as HTMLButtonElement | null)?.getAttribute('aria-pressed')).toBe('true')
+    expect(
+      (
+        component.shadowRoot?.querySelector('.payment-card-cvv-toggle') as HTMLButtonElement | null
+      )?.getAttribute('aria-pressed'),
+    ).toBe('true')
     expect(component.shadowRoot?.querySelector('.note-card')).not.toBeNull()
     expect(component.shadowRoot?.textContent).toContain('Billing address')
     expect(component.shadowRoot?.querySelector('.website-row')).toBeNull()
@@ -477,7 +487,9 @@ describe('PMEntryMobile', () => {
 
     const header = component.shadowRoot?.querySelector('.entry-header') as HTMLElement | null
     const identity = component.shadowRoot?.querySelector('.entry-header-identity') as HTMLElement | null
-    const avatarStatic = component.shadowRoot?.querySelector('.entry-header-avatar-static') as HTMLElement | null
+    const avatarStatic = component.shadowRoot?.querySelector(
+      '.entry-header-avatar-static',
+    ) as HTMLElement | null
     const avatarWrap = component.shadowRoot?.querySelector('.entry-header-avatar-wrap') as HTMLElement | null
     const avatar = component.shadowRoot?.querySelector('.entry-header-avatar') as
       | (HTMLElement & {
@@ -837,7 +849,9 @@ describe('PMEntryMobile', () => {
     document.body.append(component)
     await settle(component)
 
-    const buttons = Array.from(component.shadowRoot?.querySelectorAll<HTMLButtonElement>('.quick-action') ?? [])
+    const buttons = Array.from(
+      component.shadowRoot?.querySelectorAll<HTMLButtonElement>('.quick-action') ?? [],
+    )
 
     expect(buttons.map((button) => button.textContent?.trim())).toEqual([
       'Копировать имя пользователя',
@@ -930,7 +944,13 @@ describe('PMEntryMobile', () => {
 
     combobox?.dispatchEvent(
       new CustomEvent('cv-change', {
-        detail: {selectedIds: ['work', 'rotate'], value: 'work rotate', inputValue: '', activeId: null, open: false},
+        detail: {
+          selectedIds: ['work', 'rotate'],
+          value: 'work rotate',
+          inputValue: '',
+          activeId: null,
+          open: false,
+        },
         bubbles: true,
         composed: true,
       }),
@@ -1081,12 +1101,147 @@ describe('PMEntryMobile', () => {
     input!.dispatchEvent(new InputEvent('input', {bubbles: true, composed: true}))
     await settle(component)
 
-    const saveButton = component.shadowRoot?.querySelector('.entry-edit-save-action') as HTMLButtonElement | null
+    const saveButton = component.shadowRoot?.querySelector(
+      '.entry-edit-save-action',
+    ) as HTMLButtonElement | null
     saveButton?.click()
     await settle(component)
 
     assertUpdate(update)
     expect(getCvInput(component, inputName)).toBeNull()
+  })
+
+  it('shows loading state on the full-entry save action while save is pending', async () => {
+    const savePending = deferred<void>()
+    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const update = vi.fn(() => savePending.promise)
+    ;(entry as Entry & {update: typeof update}).update = update
+
+    window.passmanager = {
+      isReadOnly: () => false,
+    } as unknown as typeof window.passmanager
+
+    const component = document.createElement('pm-entry-mobile') as PMEntryMobile
+    component.entry = entry
+    document.body.append(component)
+    await settle(component)
+    await activateEntryEditMode(component, entry)
+
+    const saveButton = component.shadowRoot?.querySelector('.entry-edit-save-action') as
+      | (HTMLElement & {loading: boolean})
+      | null
+    expect(saveButton).not.toBeNull()
+
+    saveButton?.click()
+    await settle(component)
+
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(saveButton?.loading).toBe(true)
+    expect(saveButton?.hasAttribute('loading')).toBe(true)
+    expect(saveButton?.hasAttribute('disabled')).toBe(true)
+
+    savePending.resolve()
+    await settle(component)
+
+    expect(component.shadowRoot?.querySelector('.entry-edit-save-action')).toBeNull()
+  })
+
+  it('saves OTP label edits from full-entry edit controls', async () => {
+    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+      otps: [
+        {
+          id: 'otp-1',
+          label: 'Main OTP',
+          algorithm: 'SHA1',
+          digits: 6,
+          period: 30,
+          encoding: 'base32',
+          type: 'TOTP',
+        },
+      ],
+    })
+    const update = vi.fn(async () => {})
+    const updateOTPLabels = vi.fn(async () => true)
+    ;(entry as Entry & {update: typeof update}).update = update
+    ;(entry as Entry & {updateOTPLabels: typeof updateOTPLabels}).updateOTPLabels = updateOTPLabels
+
+    window.passmanager = {
+      isReadOnly: () => false,
+    } as unknown as typeof window.passmanager
+
+    const component = document.createElement('pm-entry-mobile') as PMEntryMobile
+    component.entry = entry
+    document.body.append(component)
+    await settle(component)
+    await activateEntryEditMode(component, entry)
+
+    const labelInput = getNativeInput(component, 'otp-label-otp-1')
+    expect(labelInput).not.toBeNull()
+
+    labelInput!.value = 'Backup OTP'
+    labelInput!.dispatchEvent(new InputEvent('input', {bubbles: true, composed: true}))
+    await settle(component)
+
+    const saveButton = component.shadowRoot?.querySelector(
+      '.entry-edit-save-action',
+    ) as HTMLButtonElement | null
+    expect(saveButton).not.toBeNull()
+    saveButton?.click()
+    await settle(component)
+
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(updateOTPLabels).toHaveBeenCalledTimes(1)
+    expect(updateOTPLabels).toHaveBeenCalledWith({'otp-1': 'Backup OTP'})
+    expect(component.shadowRoot?.querySelector('cv-input[data-otp-label-input="otp-1"]')).toBeNull()
+  })
+
+  it('keeps full-entry edit open when an OTP label is too long', async () => {
+    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+      otps: [
+        {
+          id: 'otp-1',
+          label: 'Main OTP',
+          algorithm: 'SHA1',
+          digits: 6,
+          period: 30,
+          encoding: 'base32',
+          type: 'TOTP',
+        },
+      ],
+    })
+    const update = vi.fn(async () => {})
+    const updateOTPLabels = vi.fn(async () => true)
+    ;(entry as Entry & {update: typeof update}).update = update
+    ;(entry as Entry & {updateOTPLabels: typeof updateOTPLabels}).updateOTPLabels = updateOTPLabels
+
+    window.passmanager = {
+      isReadOnly: () => false,
+    } as unknown as typeof window.passmanager
+
+    const component = document.createElement('pm-entry-mobile') as PMEntryMobile
+    component.entry = entry
+    document.body.append(component)
+    await settle(component)
+    await activateEntryEditMode(component, entry)
+
+    const labelInput = getNativeInput(component, 'otp-label-otp-1')
+    expect(labelInput).not.toBeNull()
+    labelInput!.value = 'a'.repeat(65)
+    labelInput!.dispatchEvent(new InputEvent('input', {bubbles: true, composed: true}))
+    await settle(component)
+
+    const saveButton = component.shadowRoot?.querySelector(
+      '.entry-edit-save-action',
+    ) as HTMLButtonElement | null
+    expect(saveButton).not.toBeNull()
+    saveButton?.click()
+    await settle(component)
+
+    expect(update).not.toHaveBeenCalled()
+    expect(updateOTPLabels).not.toHaveBeenCalled()
+    const erroredInput = component.shadowRoot?.querySelector('cv-input[data-otp-label-input="otp-1"]')
+    expect(erroredInput).not.toBeNull()
+    expect(erroredInput?.textContent).toContain('Label is too long')
   })
 
   it('does not overwrite late-loaded secrets when only metadata changes in full-entry edit', async () => {
@@ -1139,7 +1294,9 @@ describe('PMEntryMobile', () => {
     expect(getNativeInput(component, 'inline-password')?.value).toBe('secret')
     expect(getNativeTextarea(component, 'inline-note')?.value).toBe('Personal note')
 
-    const saveButton = component.shadowRoot?.querySelector('.entry-edit-save-action') as HTMLButtonElement | null
+    const saveButton = component.shadowRoot?.querySelector(
+      '.entry-edit-save-action',
+    ) as HTMLButtonElement | null
     saveButton?.click()
     await settle(component)
 
@@ -1287,8 +1444,12 @@ describe('PMEntryMobile', () => {
     document.body.append(component)
     await settle(component)
 
-    const titleEditButton = component.shadowRoot?.querySelector('.entry-title-edit-action') as HTMLButtonElement | null
-    const avatarTrigger = component.shadowRoot?.querySelector('.entry-header-avatar-trigger') as HTMLButtonElement | null
+    const titleEditButton = component.shadowRoot?.querySelector(
+      '.entry-title-edit-action',
+    ) as HTMLButtonElement | null
+    const avatarTrigger = component.shadowRoot?.querySelector(
+      '.entry-header-avatar-trigger',
+    ) as HTMLButtonElement | null
     const usernameEditButton = component.shadowRoot?.querySelector(
       '.inline-action[data-inline-field="username"]',
     ) as HTMLButtonElement | null
@@ -1298,7 +1459,9 @@ describe('PMEntryMobile', () => {
     const websiteEditButton = component.shadowRoot?.querySelector(
       '.inline-action[data-inline-field="website"]',
     ) as HTMLButtonElement | null
-    const noteEditButton = component.shadowRoot?.querySelector('.note-edit-action') as HTMLButtonElement | null
+    const noteEditButton = component.shadowRoot?.querySelector(
+      '.note-edit-action',
+    ) as HTMLButtonElement | null
 
     expect(titleEditButton).toBeNull()
     expect(avatarTrigger).toBeNull()
@@ -1419,7 +1582,9 @@ describe('PMEntryMobile', () => {
       document.body.append(component)
       await settle(component)
 
-      const emptyState = component.shadowRoot?.querySelector('.note-card .empty-state-action') as HTMLElement | null
+      const emptyState = component.shadowRoot?.querySelector(
+        '.note-card .empty-state-action',
+      ) as HTMLElement | null
 
       expect(emptyState).not.toBeNull()
       expect(component.shadowRoot?.querySelector('.note-edit-action')).toBeNull()
@@ -1544,7 +1709,9 @@ describe('PMEntryMobile', () => {
       document.body.append(component)
       await settle(component)
 
-      const noteContent = component.shadowRoot?.querySelector('.note-card .note-content') as HTMLElement | null
+      const noteContent = component.shadowRoot?.querySelector(
+        '.note-card .note-content',
+      ) as HTMLElement | null
       expect(noteContent).not.toBeNull()
       expect(noteContent?.textContent).toBe('Personal note')
 
@@ -1737,33 +1904,36 @@ describe('PMEntryMobile', () => {
       field: 'password',
       inputName: 'inline-password',
     },
-  ] as const)('opens full edit mode and focuses %s from credential double tap', async ({field, inputName}) => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
-    window.passmanager = {
-      isReadOnly: () => false,
-    } as unknown as typeof window.passmanager
+  ] as const)(
+    'opens full edit mode and focuses %s from credential double tap',
+    async ({field, inputName}) => {
+      const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+      window.passmanager = {
+        isReadOnly: () => false,
+      } as unknown as typeof window.passmanager
 
-    const component = document.createElement('pm-entry-mobile') as PMEntryMobile
-    component.entry = entry
-    document.body.append(component)
-    await settle(component)
+      const component = document.createElement('pm-entry-mobile') as PMEntryMobile
+      component.entry = entry
+      document.body.append(component)
+      await settle(component)
 
-    const target = component.shadowRoot?.querySelector(
-      `[data-credential-edit-field="${field}"]`,
-    ) as HTMLElement | null
-    expect(target).not.toBeNull()
+      const target = component.shadowRoot?.querySelector(
+        `[data-credential-edit-field="${field}"]`,
+      ) as HTMLElement | null
+      expect(target).not.toBeNull()
 
-    const doubleTap = new MouseEvent('dblclick', {bubbles: true, cancelable: true, composed: true})
-    target?.dispatchEvent(doubleTap)
-    await settleFocus(component)
+      const doubleTap = new MouseEvent('dblclick', {bubbles: true, cancelable: true, composed: true})
+      target?.dispatchEvent(doubleTap)
+      await settleFocus(component)
 
-    expect(doubleTap.defaultPrevented).toBe(true)
-    expect(pmEntryEditorModel.isActiveForEntry(entry.id, 'entry')).toBe(true)
-    expect(component.shadowRoot?.querySelector('.entry-edit-save-action')).not.toBeNull()
-    expect(component.shadowRoot?.querySelector('.entry-edit-cancel-action')).not.toBeNull()
-    expect(component.shadowRoot?.querySelector('pm-entry-edit-mobile')).toBeNull()
-    expectFocusedInput(component, inputName)
-  })
+      expect(doubleTap.defaultPrevented).toBe(true)
+      expect(pmEntryEditorModel.isActiveForEntry(entry.id, 'entry')).toBe(true)
+      expect(component.shadowRoot?.querySelector('.entry-edit-save-action')).not.toBeNull()
+      expect(component.shadowRoot?.querySelector('.entry-edit-cancel-action')).not.toBeNull()
+      expect(component.shadowRoot?.querySelector('pm-entry-edit-mobile')).toBeNull()
+      expectFocusedInput(component, inputName)
+    },
+  )
 
   it('opens full edit mode and focuses title from title double tap', async () => {
     const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
@@ -1776,7 +1946,9 @@ describe('PMEntryMobile', () => {
     document.body.append(component)
     await settle(component)
 
-    const target = component.shadowRoot?.querySelector('[data-entry-title-edit-field="title"]') as HTMLElement | null
+    const target = component.shadowRoot?.querySelector(
+      '[data-entry-title-edit-field="title"]',
+    ) as HTMLElement | null
     expect(target).not.toBeNull()
 
     const doubleTap = new MouseEvent('dblclick', {bubbles: true, cancelable: true, composed: true})
@@ -1790,6 +1962,48 @@ describe('PMEntryMobile', () => {
     expectFocusedInput(component, 'inline-title')
   })
 
+  it('does not scroll an already focused visible full-entry field on a repeated focus request', async () => {
+    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const scrollSpy = installScrollIntoViewSpy()
+
+    try {
+      window.passmanager = {
+        isReadOnly: () => false,
+      } as unknown as typeof window.passmanager
+
+      const component = document.createElement('pm-entry-mobile') as PMEntryMobile
+      component.entry = entry
+      document.body.append(component)
+      await settle(component)
+
+      const target = component.shadowRoot?.querySelector(
+        '[data-entry-title-edit-field="title"]',
+      ) as HTMLElement | null
+      expect(target).not.toBeNull()
+
+      target?.dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true, composed: true}))
+      await settleFocus(component)
+
+      expectFocusedInput(component, 'inline-title')
+      expect(scrollSpy.scrollIntoView).toHaveBeenCalled()
+
+      const titleInput = getCvInput(component, 'inline-title')
+      expect(titleInput).not.toBeNull()
+      vi.spyOn(titleInput!, 'getBoundingClientRect').mockReturnValue(createDOMRect({top: 100, bottom: 140}))
+      scrollSpy.scrollIntoView.mockClear()
+
+      const model = getEntryMobileTestModel(component)
+      model.entryEditFocusRequest.set({field: 'title', token: 99})
+      component.requestUpdate()
+      await settleFocus(component)
+
+      expectFocusedInput(component, 'inline-title')
+      expect(scrollSpy.scrollIntoView).not.toHaveBeenCalled()
+    } finally {
+      scrollSpy.restore()
+    }
+  })
+
   it('opens full edit mode and focuses title after a touch double tap', async () => {
     const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
     window.passmanager = {
@@ -1801,7 +2015,9 @@ describe('PMEntryMobile', () => {
     document.body.append(component)
     await settle(component)
 
-    const target = component.shadowRoot?.querySelector('[data-entry-title-edit-field="title"]') as HTMLElement | null
+    const target = component.shadowRoot?.querySelector(
+      '[data-entry-title-edit-field="title"]',
+    ) as HTMLElement | null
     expect(target).not.toBeNull()
 
     const firstDown = createTouchPointerEvent('pointerdown', {clientX: 12, clientY: 24})
@@ -1840,7 +2056,9 @@ describe('PMEntryMobile', () => {
     document.body.append(component)
     await settle(component)
 
-    const target = component.shadowRoot?.querySelector('[data-entry-title-edit-field="title"]') as HTMLElement | null
+    const target = component.shadowRoot?.querySelector(
+      '[data-entry-title-edit-field="title"]',
+    ) as HTMLElement | null
     expect(target).not.toBeNull()
 
     target?.dispatchEvent(createTouchPointerEvent('pointerdown', {clientX: 12, clientY: 24}))
@@ -1995,7 +2213,9 @@ describe('PMEntryMobile', () => {
       }),
     )
 
-    const saveButton = component.shadowRoot?.querySelector('.entry-edit-save-action') as HTMLButtonElement | null
+    const saveButton = component.shadowRoot?.querySelector(
+      '.entry-edit-save-action',
+    ) as HTMLButtonElement | null
     saveButton?.click()
     await settle(component)
 
@@ -2040,7 +2260,9 @@ describe('PMEntryMobile', () => {
     )
     await settle(component)
 
-    const saveButton = component.shadowRoot?.querySelector('.entry-edit-save-action') as HTMLButtonElement | null
+    const saveButton = component.shadowRoot?.querySelector(
+      '.entry-edit-save-action',
+    ) as HTMLButtonElement | null
     saveButton?.click()
     await settle(component)
 
@@ -2100,7 +2322,9 @@ describe('PMEntryMobile', () => {
     textarea!.dispatchEvent(new InputEvent('input', {bubbles: true, composed: true}))
     await settle(component)
 
-    const saveButton = component.shadowRoot?.querySelector('.entry-edit-save-action') as HTMLButtonElement | null
+    const saveButton = component.shadowRoot?.querySelector(
+      '.entry-edit-save-action',
+    ) as HTMLButtonElement | null
     saveButton?.click()
     await settle(component)
 
@@ -2312,12 +2536,16 @@ describe('PMEntryMobile', () => {
       manageComponent.shadowRoot?.querySelectorAll('pm-entry-otp-item') ?? [],
     ) as Array<HTMLElement & {shadowRoot?: ShadowRoot; updateComplete?: Promise<unknown>}>
     await Promise.all(otpItems.map((item) => item.updateComplete))
-    const otpInlineRemoveActions = otpItems.filter((item) => item.shadowRoot?.querySelector('.otp-remove-action'))
+    const otpInlineRemoveActions = otpItems.filter((item) =>
+      item.shadowRoot?.querySelector('.otp-remove-action'),
+    )
     const sshItems = Array.from(
       manageComponent.shadowRoot?.querySelectorAll('pm-entry-ssh-key') ?? [],
     ) as Array<HTMLElement & {shadowRoot?: ShadowRoot; updateComplete?: Promise<unknown>}>
     await Promise.all(sshItems.map((item) => item.updateComplete))
-    const sshInlineRemoveActions = sshItems.filter((item) => item.shadowRoot?.querySelector('.ssh-remove-action'))
+    const sshInlineRemoveActions = sshItems.filter((item) =>
+      item.shadowRoot?.querySelector('.ssh-remove-action'),
+    )
     const viewOtpAddButton = manageComponent.shadowRoot?.querySelector(
       '.entry-view-add-action[data-entry-view-add-action="otp"]',
     ) as HTMLButtonElement | null
@@ -2512,7 +2740,6 @@ describe('PMEntryMobile', () => {
     )
     await otpCreate?.updateComplete
     expect(otpCreate?.shadowRoot?.querySelector('.qr-hero-button')).not.toBeNull()
-
     ;(
       component as PMEntryMobile & {model: {otpDraft: {applyQrPayload: (value: string) => boolean}}}
     ).model.otpDraft.applyQrPayload('otpauth://totp/1cCloud?secret=JBSWY3DPEHPK3PXP&issuer=1cCloud')

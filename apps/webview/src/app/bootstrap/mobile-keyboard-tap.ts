@@ -5,6 +5,11 @@ import {
   type MobileKeyboardVisibilityPayload,
 } from './mobile-keyboard-insets'
 import {subscribeToSignalChanges} from '../../shared/services/subscribed-signal'
+import {
+  getDeepActiveElement,
+  getPathElements,
+  isTextInputLike,
+} from './mobile-keyboard'
 
 export {
   applyMobileKeyboardInsetsPayload,
@@ -52,6 +57,7 @@ export const setupMobileKeyboardTapWorkaround = (store: Store) => {
       type KeyboardTapCandidate = {
         active: HTMLElement
         target: HTMLElement
+        preserveKeyboard: boolean
         pointerId: number
         startX: number
         startY: number
@@ -68,32 +74,8 @@ export const setupMobileKeyboardTapWorkaround = (store: Store) => {
           ? performance.now()
           : Date.now()
 
-      const getDeepActiveElement = (): HTMLElement | null => {
-        let active: Element | null = document.activeElement
-        while (active instanceof HTMLElement && active.shadowRoot?.activeElement) {
-          active = active.shadowRoot.activeElement
-        }
-        return active instanceof HTMLElement ? active : null
-      }
-
-      const NON_TEXT_INPUT_TYPES: ReadonlySet<string> = new Set([
-        'button',
-        'submit',
-        'reset',
-        'checkbox',
-        'radio',
-        'range',
-        'color',
-        'file',
-        'image',
-      ])
-
-      const isTextInputLike = (el: HTMLElement): boolean => {
-        if (el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return true
-        if (el.isContentEditable) return true
-        if (!(el instanceof HTMLInputElement)) return false
-        return !NON_TEXT_INPUT_TYPES.has(el.type.toLowerCase())
-      }
+      const isWithinTextInputLike = (path: Array<EventTarget | undefined>): boolean =>
+        path.some((node) => node instanceof HTMLElement && isTextInputLike(node, {includeSelect: true}))
 
       const resolveActionTarget = (path: Array<EventTarget | undefined>): HTMLElement | null => {
         let fallback: HTMLElement | null = null
@@ -129,9 +111,9 @@ export const setupMobileKeyboardTapWorkaround = (store: Store) => {
           if (!document.documentElement.hasAttribute('data-mobile-keyboard-expanded')) return
 
           const active = getDeepActiveElement()
-          if (!active || !isTextInputLike(active)) return
+          if (!active || !isTextInputLike(active, {includeSelect: true})) return
 
-          const path = event.composedPath()
+          const path = getPathElements(event)
           if (path.includes(active)) return
 
           const actionTarget = resolveActionTarget(path)
@@ -142,6 +124,7 @@ export const setupMobileKeyboardTapWorkaround = (store: Store) => {
           candidate = {
             active,
             target: actionTarget,
+            preserveKeyboard: isWithinTextInputLike(path),
             pointerId: event.pointerId,
             startX: event.clientX,
             startY: event.clientY,
@@ -170,7 +153,9 @@ export const setupMobileKeyboardTapWorkaround = (store: Store) => {
           }
 
           const target = candidate.target
-          candidate.active.blur()
+          if (!candidate.preserveKeyboard) {
+            candidate.active.blur()
+          }
           candidate.fallbackTimerId = window.setTimeout(() => {
             if (!candidate || candidate.target !== target) return
             candidate = null

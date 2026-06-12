@@ -6,7 +6,7 @@ use tauri::Emitter;
 
 use crate::core_adapter::CoreAdapter;
 use crate::types::*;
-use crate::volume_manager;
+use crate::volume_manager::{self, VolumeState};
 
 use super::helpers::{volume_join_timeout, volume_status_from_vm};
 #[cfg(target_os = "macos")]
@@ -25,14 +25,28 @@ pub(crate) async fn volume_unmount_inner_with_budget(
         !adapter.is_unlocked()
     };
 
-    let (mut backend, join_timeout) = {
+    let (mut backend, join_timeout, cancelled_mount_without_backend) = {
         let mut vm = vm
             .lock()
             .map_err(|_| "VolumeManager mutex poisoned".to_string())?;
+        let was_mounting = matches!(vm.state(), VolumeState::Mounting);
         let _ = vm.unmount();
         let join_timeout = volume_join_timeout(vm.operation_timeout(), max_wait);
-        (vm.take_backend(), join_timeout)
+        let backend = vm.take_backend();
+        let cancelled_mount_without_backend = was_mounting && backend.is_none();
+        (backend, join_timeout, cancelled_mount_without_backend)
     };
+
+    if cancelled_mount_without_backend {
+        let st = {
+            let vm = vm
+                .lock()
+                .map_err(|_| "VolumeManager mutex poisoned".to_string())?;
+            volume_status_from_vm(&vm)
+        };
+        let _ = app.emit("volume:status", &st);
+        return Ok(st);
+    }
 
     #[cfg(target_os = "macos")]
     let fuse_mountpoint_for_cleanup: Option<std::path::PathBuf> = backend

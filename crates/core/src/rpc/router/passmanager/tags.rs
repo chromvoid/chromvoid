@@ -23,8 +23,12 @@ pub(super) fn normalize_tag_catalog_from_value(value: &Value) -> Vec<String> {
     normalize_credential_tag_catalog(value)
 }
 
-pub(super) fn normalize_tag_catalog_from_labels(labels: impl IntoIterator<Item = String>) -> Vec<String> {
-    normalize_credential_tag_catalog(&Value::Array(labels.into_iter().map(Value::String).collect()))
+pub(super) fn normalize_tag_catalog_from_labels(
+    labels: impl IntoIterator<Item = String>,
+) -> Vec<String> {
+    normalize_credential_tag_catalog(&Value::Array(
+        labels.into_iter().map(Value::String).collect(),
+    ))
 }
 
 pub(super) fn merge_tag_catalogs(catalogs: impl IntoIterator<Item = Vec<String>>) -> Vec<String> {

@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io;
 use std::time::Instant;
 
 mod catalog_update;
@@ -11,7 +11,9 @@ mod tx;
 mod writer;
 
 use crate::durable_tx::DurableTxPhase;
-use crate::rpc::stream::{RpcInputStream, RpcReply};
+use crate::rpc::stream::{
+    read_stream_exact_limited, RpcInputStream, RpcReply, MAX_SINGLE_RPC_STREAM_BYTES,
+};
 use crate::rpc::types::{RpcResponse, UploadResponse};
 
 use super::super::super::state::RpcRouter;
@@ -26,7 +28,17 @@ use target::{
     UploadTarget,
 };
 pub(in crate::rpc::router) use tx::recover_pending_upload_session;
-use tx::{cleanup_upload_marker, write_upload_marker, UploadSessionTransaction};
+use tx::{
+    abort_pending_upload_session, cleanup_upload_marker, write_upload_marker,
+    UploadSessionTransaction,
+};
+
+pub(in crate::rpc::router) fn handle_abort_upload(router: &mut RpcRouter) -> RpcResponse {
+    match abort_pending_upload_session(router) {
+        Ok(aborted) => RpcResponse::success(serde_json::json!({ "aborted": aborted })),
+        Err(error) => error.into_rpc_response(),
+    }
+}
 use writer::{
     backup_existing_chunks, chunk_count, restore_upload_payload, stale_tail_chunk_names,
     write_canonical_upload_chunks, write_upload_content,
@@ -60,18 +72,15 @@ fn handle_upload_result(
         None => return Err(UploadCommandError::no_stream()),
     };
 
-    let mut reader = stream.into_reader();
-    let mut content = Vec::new();
     let read_started = Instant::now();
-    if let Err(error) = reader.read_to_end(&mut content) {
-        return Err(UploadCommandError::internal(format!(
-            "Failed to read stream: {error}"
-        )));
-    }
+    let content = read_stream_exact_limited(stream, request.size, MAX_SINGLE_RPC_STREAM_BYTES)
+        .map_err(|error| match error.kind() {
+            io::ErrorKind::UnexpectedEof | io::ErrorKind::InvalidData => {
+                UploadCommandError::internal("Size mismatch")
+            }
+            _ => UploadCommandError::internal(format!("Failed to read stream: {error}")),
+        })?;
     let stream_read_elapsed = read_started.elapsed();
-    if content.len() as u64 != request.size {
-        return Err(UploadCommandError::internal("Size mismatch"));
-    }
     let mut transaction = match target {
         UploadTarget::Pending(transaction) => transaction,
         UploadTarget::Existing {
@@ -98,80 +107,93 @@ fn handle_upload_result(
         )?,
     };
 
-    if request.offset != transaction.uploaded_bytes {
-        return Err(UploadCommandError::invalid_offset("Invalid offset"));
-    }
-    if request.finish && transaction.total_size.is_none() {
-        transaction.total_size = Some(request.offset.saturating_add(request.size));
-    }
-    if let Some(total_size) = transaction.total_size {
-        if request.offset.saturating_add(request.size) > total_size {
-            return Err(UploadCommandError::invalid_offset(
-                "Size exceeds declared file size",
-            ));
+    let result = (|| -> UploadResult<UploadResponse> {
+        if request.offset != transaction.uploaded_bytes {
+            return Err(UploadCommandError::invalid_offset("Invalid offset"));
         }
-    }
+        if request.finish && transaction.total_size.is_none() {
+            transaction.total_size = Some(request.offset.saturating_add(request.size));
+        }
+        if let Some(total_size) = transaction.total_size {
+            if request.offset.saturating_add(request.size) > total_size {
+                return Err(UploadCommandError::invalid_offset(
+                    "Size exceeds declared file size",
+                ));
+            }
+        }
 
-    let mut perf = UploadPerfTotals::default();
-    if !content.is_empty() {
-        write_upload_content(
-            router,
-            &context,
-            &mut transaction,
-            &content,
-            request.offset,
-            &mut perf,
-        )?;
-    }
-    transaction.uploaded_bytes = request.offset.saturating_add(request.size);
-    if request.finish && transaction.total_size.is_none() {
-        transaction.total_size = Some(transaction.uploaded_bytes);
-    }
+        let mut perf = UploadPerfTotals::default();
+        if !content.is_empty() {
+            write_upload_content(
+                router,
+                &context,
+                &mut transaction,
+                &content,
+                request.offset,
+                &mut perf,
+            )?;
+        }
+        transaction.uploaded_bytes = request.offset.saturating_add(request.size);
+        if request.finish && transaction.total_size.is_none() {
+            transaction.total_size = Some(transaction.uploaded_bytes);
+        }
 
-    write_upload_marker(router, &context, &transaction, DurableTxPhase::Staging)?;
+        write_upload_marker(router, &context, &transaction, DurableTxPhase::Staging)?;
 
-    let is_final = transaction
-        .total_size
-        .map(|total_size| transaction.uploaded_bytes >= total_size)
-        .unwrap_or(false);
-    if is_final {
-        let final_update_started = Instant::now();
-        let node_id = transaction.node_id;
-        let uploaded_bytes = transaction.uploaded_bytes;
-        commit_upload_transaction(router, &context, transaction)?;
-        perf.final_update_elapsed = final_update_started.elapsed();
+        let is_final = transaction
+            .total_size
+            .map(|total_size| transaction.uploaded_bytes >= total_size)
+            .unwrap_or(false);
+        if is_final {
+            let final_update_started = Instant::now();
+            let node_id = transaction.node_id;
+            let uploaded_bytes = transaction.uploaded_bytes;
+            commit_upload_transaction(router, &context, transaction.clone())?;
+            perf.final_update_elapsed = final_update_started.elapsed();
+            log_upload_perf(
+                handler_started.elapsed(),
+                stream_read_elapsed,
+                &perf,
+                node_id,
+                request.offset,
+                request.size,
+                uploaded_bytes,
+                true,
+                None,
+            );
+            return Ok(UploadResponse {
+                node_id,
+                uploaded_bytes,
+            });
+        }
+
         log_upload_perf(
             handler_started.elapsed(),
             stream_read_elapsed,
             &perf,
-            node_id,
+            transaction.node_id,
             request.offset,
             request.size,
-            uploaded_bytes,
-            true,
-            None,
+            transaction.uploaded_bytes,
+            false,
+            transaction.total_size,
         );
         return Ok(UploadResponse {
-            node_id,
-            uploaded_bytes,
+            node_id: transaction.node_id,
+            uploaded_bytes: transaction.uploaded_bytes,
         });
+    })();
+
+    if result.is_err() {
+        if let Err(cleanup_error) = cleanup_upload_marker(router, &context, &transaction, false) {
+            tracing::warn!(
+                "catalog_upload: failed to abort upload transaction after error: {:?}",
+                cleanup_error
+            );
+        }
     }
 
-    log_upload_perf(
-        handler_started.elapsed(),
-        stream_read_elapsed,
-        &perf,
-        transaction.node_id,
-        request.offset,
-        request.size,
-        transaction.uploaded_bytes,
-        false,
-        transaction.total_size,
-    );
-    Ok(UploadResponse {
-        node_id: transaction.node_id,
-        uploaded_bytes: transaction.uploaded_bytes,
-    })
+    result
 }
 
 fn commit_upload_transaction(

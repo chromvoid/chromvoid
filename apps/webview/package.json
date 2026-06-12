@@ -5,7 +5,7 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
-    "build": "npm run build -w @project/passmanager && vite build",
+    "build": "bun run --cwd ../../packages/passmanager build && vite build",
     "build:check-warnings": "node ./scripts/check-build-warnings.mjs",
     "dev": "vite",
     "vendor:fonts": "tsx ./scripts/vendor-fonts.ts",
@@ -31,7 +31,7 @@
     "@project/i18n": "workspace:*",
     "@project/passmanager": "workspace:*",
     "@project/utils": "workspace:*",
-    "@reatom/core": "^1000.15.0",
+    "@reatom/core": "^1001.0.0",
     "@tauri-apps/api": "2.10.1",
     "@tauri-apps/plugin-dialog": "2.6.0",
     "dompurify": "^3.4.1",
@@ -42,12 +42,12 @@
     "@blazediff/core": "1.9.1",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^22.9.0",
-    "@vitest/browser": "^4.1.1",
+    "@vitest/browser": "^4.1.8",
     "jsdom": "^26.1.0",
     "playwright": "^1.54.2",
     "pngjs": "7.0.0",
-    "typescript": "^6.0.2",
-    "vite": "^8.0.2",
-    "vitest": "^4.1.1"
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "vitest": "^4.1.8"
   }
 }

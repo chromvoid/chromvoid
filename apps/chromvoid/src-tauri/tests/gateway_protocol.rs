@@ -30,6 +30,7 @@ fn frame_roundtrip_all_types() {
 #[test]
 fn anti_replay_monotonic() {
     let mut ar = AntiReplay::new();
+    assert!(ar.check(0).is_err(), "message_id 0 must be rejected");
     assert!(ar.check(1).is_ok());
     assert!(ar.check(2).is_ok());
     assert!(ar.check(1).is_err(), "replay must be rejected");

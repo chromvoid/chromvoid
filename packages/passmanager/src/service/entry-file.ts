@@ -1,4 +1,4 @@
-import {atom, computed} from '@reatom/core'
+import {atom, computed, wrap} from '@reatom/core'
 
 import {v4} from 'uuid'
 
@@ -53,14 +53,14 @@ export class EntryFile {
 
   private async save() {
     this.status.set('saving')
-    const snapshot = await this.getSnapshot()
+    const snapshot = await wrap(this.getSnapshot())
     this.entry.root.apiSave(this.id, snapshot)
     this.status.set('ready')
   }
 
   private async load() {
     this.status.set('loading')
-    const value = (await this.entry.root.apiRead(this.id)) as FileSnapshot
+    const value = (await wrap(this.entry.root.apiRead(this.id))) as FileSnapshot
     this.status.set('ready')
     if (value && value.b64) {
       //this.file = new File([await base64ToArrayBuffer(value.b64)], value.name ?? value.id, {type: value.type})
@@ -72,12 +72,12 @@ export class EntryFile {
       return
     }
     if (!silent) {
-      const confirmed = await confirmPassManagerAction({
+      const confirmed = await wrap(confirmPassManagerAction({
         title: i18n('remove:dialog:title'),
         message: i18n('remove:dialog:text'),
         variant: 'danger',
         confirmVariant: 'danger',
-      })
+      }))
       if (!confirmed) {
         return
       }
@@ -85,8 +85,8 @@ export class EntryFile {
     // TODO: Entry.excludeFile not implemented yet
     // this.entry.excludeFile(this)
     this.status.set('deleted')
-    await this.entry.root.apiRemove(this.id)
-    await this.entry.root.save()
+    await wrap(this.entry.root.apiRemove(this.id))
+    await wrap(this.entry.root.save())
   }
 
   private async jsonData() {

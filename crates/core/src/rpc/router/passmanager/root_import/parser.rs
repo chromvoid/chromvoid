@@ -48,7 +48,9 @@ fn parse_tags(data: &Value) -> Result<Vec<String>, RootImportError> {
     if !tags_value.is_array() {
         return Err(RootImportError::empty_payload("tags must be string[]"));
     }
-    Ok(super::super::tags::normalize_tag_catalog_from_value(tags_value))
+    Ok(super::super::tags::normalize_tag_catalog_from_value(
+        tags_value,
+    ))
 }
 
 fn parse_group_meta(

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 pub(crate) const THUMBNAIL_MAX_EDGE: u32 = 256;
 pub(crate) const MAX_PREVIEW_EDGE: u32 = 1920;
@@ -43,6 +44,7 @@ pub(crate) const PNG_PREVIEW_MIME: &str = "image/png";
 pub(crate) const WEBP_PREVIEW_MIME: &str = "image/webp";
 
 pub(crate) const DERIVATIVE_STORAGE_VERSION: u32 = 6;
+const DERIVATIVE_LOCK_IDLE_TTL: Duration = Duration::from_secs(10 * 60);
 const IMAGE_EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico", "avif", "heic", "heif", "tif", "tiff",
 ];
@@ -54,8 +56,13 @@ pub(crate) enum ImageDerivativeTier {
 }
 
 pub(crate) struct ImagePreviewRuntimeState {
-    derivative_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    derivative_locks: Mutex<HashMap<String, ImageDerivativeLockEntry>>,
     legacy_derivative_cleanups: Mutex<HashSet<String>>,
+}
+
+struct ImageDerivativeLockEntry {
+    lock: Arc<Mutex<()>>,
+    last_used: Instant,
 }
 
 impl ImagePreviewRuntimeState {
@@ -106,11 +113,66 @@ impl ImagePreviewRuntimeState {
             .derivative_locks
             .lock()
             .map_err(|_| "Derivative lock registry poisoned".to_string())?;
-        Ok(locks
-            .entry(cache_key.to_string())
-            .or_insert_with(|| Arc::new(Mutex::new(())))
-            .clone())
+        let now = Instant::now();
+        prune_derivative_locks_locked(&mut locks, now);
+        if let Some(entry) = locks.get_mut(cache_key) {
+            entry.last_used = now;
+            return Ok(entry.lock.clone());
+        }
+        let lock = Arc::new(Mutex::new(()));
+        locks.insert(
+            cache_key.to_string(),
+            ImageDerivativeLockEntry {
+                lock: lock.clone(),
+                last_used: now,
+            },
+        );
+        Ok(lock)
     }
+
+    #[cfg(test)]
+    fn derivative_lock_count_for_tests(&self) -> usize {
+        self.derivative_locks
+            .lock()
+            .map(|locks| locks.len())
+            .unwrap_or_default()
+    }
+
+    #[cfg(test)]
+    fn force_derivative_lock_idle_for_tests(&self, cache_key: &str) {
+        let Ok(mut locks) = self.derivative_locks.lock() else {
+            return;
+        };
+        if let Some(entry) = locks.get_mut(cache_key) {
+            entry.last_used = Instant::now()
+                .checked_sub(DERIVATIVE_LOCK_IDLE_TTL + Duration::from_secs(1))
+                .unwrap_or_else(Instant::now);
+        }
+    }
+
+    #[cfg(test)]
+    fn prune_derivative_locks_for_tests(&self) -> Result<usize, String> {
+        let mut locks = self
+            .derivative_locks
+            .lock()
+            .map_err(|_| "Derivative lock registry poisoned".to_string())?;
+        Ok(prune_derivative_locks_locked(&mut locks, Instant::now()))
+    }
+}
+
+fn prune_derivative_locks_locked(
+    locks: &mut HashMap<String, ImageDerivativeLockEntry>,
+    now: Instant,
+) -> usize {
+    let before = locks.len();
+    locks.retain(|_, entry| {
+        Arc::strong_count(&entry.lock) > 1
+            || now
+                .checked_duration_since(entry.last_used)
+                .unwrap_or_default()
+                < DERIVATIVE_LOCK_IDLE_TTL
+    });
+    before.saturating_sub(locks.len())
 }
 
 impl ImageDerivativeTier {
@@ -1064,6 +1126,32 @@ mod tests {
             .expect("second runtime lock should be created");
 
         assert!(!Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn image_preview_runtime_prunes_idle_unshared_locks() {
+        let runtime = ImagePreviewRuntimeState::new();
+        let first = runtime
+            .derivative_lock("node-1-preview")
+            .expect("first lock should be created");
+
+        runtime.force_derivative_lock_idle_for_tests("node-1-preview");
+        assert_eq!(
+            runtime
+                .prune_derivative_locks_for_tests()
+                .expect("in-use lock prune should succeed"),
+            0
+        );
+        assert_eq!(runtime.derivative_lock_count_for_tests(), 1);
+
+        drop(first);
+        assert_eq!(
+            runtime
+                .prune_derivative_locks_for_tests()
+                .expect("idle lock prune should succeed"),
+            1
+        );
+        assert_eq!(runtime.derivative_lock_count_for_tests(), 0);
     }
 
     #[test]

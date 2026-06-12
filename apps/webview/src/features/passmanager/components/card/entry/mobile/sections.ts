@@ -4,15 +4,9 @@ import {html} from '@chromvoid/uikit/reatom-lit'
 import {i18n} from '@project/passmanager/i18n'
 
 import {pmCredentialTagsModel} from '../../../../models/pm-credential-tags.model'
-import {
-  renderEntryTagsEditor,
-  renderEntryTagsReadOnly,
-} from '../../entry-tags/entry-tags-editor'
+import {renderEntryTagsEditor, renderEntryTagsReadOnly} from '../../entry-tags/entry-tags-editor'
 import type {PMEntryMobileRenderContext} from './context'
-import {
-  renderNoteSubmitButtons,
-  renderSectionSnippetButtons,
-} from './shared'
+import {renderNoteSubmitButtons, renderSectionSnippetButtons} from './shared'
 
 export function renderWebsiteSection(context: PMEntryMobileRenderContext) {
   if (context.card.entryType === 'payment_card') {
@@ -56,7 +50,9 @@ export function renderWebsiteSection(context: PMEntryMobileRenderContext) {
           <cv-icon name="globe"></cv-icon>
           <span>${i18n('website')}</span>
           ${data.websiteCount > 1
-            ? html`<cv-badge class="section-count" size="small" variant="neutral">${data.websiteCount}</cv-badge>`
+            ? html`<cv-badge class="section-count" size="small" variant="neutral"
+                >${data.websiteCount}</cv-badge
+              >`
             : nothing}
         </div>
       </div>
@@ -145,7 +141,9 @@ export function renderTagsSection(context: PMEntryMobileRenderContext) {
           <cv-icon name="tag"></cv-icon>
           <span>${i18n('tags:title')}</span>
           ${data.tags.length > 0
-            ? html`<cv-badge class="section-count" size="small" variant="neutral">${data.tags.length}</cv-badge>`
+            ? html`<cv-badge class="section-count" size="small" variant="neutral"
+                >${data.tags.length}</cv-badge
+              >`
             : nothing}
         </div>
         ${data.canEditTags && data.isEditingEntry
@@ -160,7 +158,11 @@ export function renderTagsSection(context: PMEntryMobileRenderContext) {
                 @click=${() => model.startTagEdit(card)}
                 aria-label=${i18n('tags:add')}
               >
-                <cv-icon slot=${data.hasTags ? nothing : 'prefix'} name=${data.hasTags ? 'pencil' : 'plus'} aria-hidden="true"></cv-icon>
+                <cv-icon
+                  slot=${data.hasTags ? nothing : 'prefix'}
+                  name=${data.hasTags ? 'pencil' : 'plus'}
+                  aria-hidden="true"
+                ></cv-icon>
                 ${data.hasTags ? nothing : html`<span>${i18n('tags:add')}</span>`}
               </cv-button>
             `
@@ -170,6 +172,39 @@ export function renderTagsSection(context: PMEntryMobileRenderContext) {
         ? renderEntryTagsReadOnly(data.tags)
         : html`<div class="empty-state" role="status"><span>${i18n('tags:empty')}</span></div>`}
     </section>
+  `
+}
+
+function renderOtpLabelEditor(
+  context: PMEntryMobileRenderContext,
+  otp: ReturnType<PMEntryMobileRenderContext['card']['otps']>[number],
+) {
+  const {model, ui} = context
+  const labelError = model.getOtpLabelError(otp.id)
+
+  return html`
+    <div class="otp-label-edit-row">
+      <pm-entry-otp-item
+        .otp=${otp}
+        .removable=${false}
+        @pm-entry-otp-remove=${ui.handleOtpRemove}
+      ></pm-entry-otp-item>
+      <cv-input
+        class="otp-label-input"
+        name=${`otp-label-${otp.id}`}
+        data-otp-id=${otp.id}
+        data-otp-label-input=${otp.id}
+        .value=${model.getOtpLabelDraft(otp)}
+        autocomplete="off"
+        size="small"
+        ?data-has-error=${!!labelError}
+        @cv-input=${ui.handleOtpLabelInput}
+        @keydown=${ui.handleInlineEditorKeyDown}
+      >
+        <span slot="label">${i18n('otp:label')}</span>
+        ${labelError ? html`<div slot="help-text" class="error-text">${labelError}</div>` : nothing}
+      </cv-input>
+    </div>
   `
 }
 
@@ -194,7 +229,9 @@ export function renderOtpSection(context: PMEntryMobileRenderContext) {
             <cv-icon name="shield-check"></cv-icon>
             <span>${i18n('otp')}</span>
             ${data.otpCount > 0
-              ? html`<cv-badge class="section-count" size="small" variant="neutral">${data.otpCount}</cv-badge>`
+              ? html`<cv-badge class="section-count" size="small" variant="neutral"
+                  >${data.otpCount}</cv-badge
+                >`
               : nothing}
           </div>
         </div>
@@ -228,7 +265,7 @@ export function renderOtpSection(context: PMEntryMobileRenderContext) {
           <span>${i18n('otp')}</span>
           ${data.otpCount > 1
             ? html`<cv-badge class="section-count" size="small" variant="neutral">${data.otpCount}</cv-badge>`
-          : nothing}
+            : nothing}
         </div>
         ${data.canStartOtpSnippet
           ? html`
@@ -248,14 +285,16 @@ export function renderOtpSection(context: PMEntryMobileRenderContext) {
           : nothing}
       </div>
       <div class="otp-codes">
-        ${otpList.map(
-          (otp) => html`
-            <pm-entry-otp-item
-              .otp=${otp}
-              .removable=${false}
-              @pm-entry-otp-remove=${ui.handleOtpRemove}
-            ></pm-entry-otp-item>
-          `,
+        ${otpList.map((otp) =>
+          data.isEditingEntry
+            ? renderOtpLabelEditor(context, otp)
+            : html`
+                <pm-entry-otp-item
+                  .otp=${otp}
+                  .removable=${false}
+                  @pm-entry-otp-remove=${ui.handleOtpRemove}
+                ></pm-entry-otp-item>
+              `,
         )}
       </div>
     </section>
@@ -291,16 +330,15 @@ export function renderSshSection(context: PMEntryMobileRenderContext) {
   if (!data.hasSshKeys) return nothing
 
   return html`
-    <section
-      class="section-block secondary-block"
-      aria-label=${i18n('ssh:title')}
-    >
+    <section class="section-block secondary-block" aria-label=${i18n('ssh:title')}>
       <div class="section-head">
         <div class="section-title">
           <cv-icon name="key"></cv-icon>
           <span>${i18n('ssh:title')}</span>
           ${data.hasSshKeys
-            ? html`<cv-badge class="section-count" size="small" variant="neutral">${card.sshKeys.length}</cv-badge>`
+            ? html`<cv-badge class="section-count" size="small" variant="neutral"
+                >${card.sshKeys.length}</cv-badge
+              >`
             : nothing}
         </div>
         ${data.canStartSshSnippet
@@ -316,7 +354,11 @@ export function renderSshSection(context: PMEntryMobileRenderContext) {
                 @click=${() => model.openSshGenerator(card)}
                 aria-label=${i18n('ssh:add')}
               >
-                <cv-icon slot=${data.hasSshKeys ? nothing : 'prefix'} name="plus" aria-hidden="true"></cv-icon>
+                <cv-icon
+                  slot=${data.hasSshKeys ? nothing : 'prefix'}
+                  name="plus"
+                  aria-hidden="true"
+                ></cv-icon>
                 ${data.hasSshKeys ? nothing : html`<span>${i18n('ssh:add')}</span>`}
               </cv-button>
             `

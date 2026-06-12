@@ -192,7 +192,7 @@ impl RpcRouter {
         request: CredentialProviderSecretRequest<'_>,
         context: Option<ProviderContext>,
     ) -> Result<CredentialProviderSecretResult, CredentialProviderCommandError> {
-        self.credential_provider_validate_session_typed(request.provider_session, true)?;
+        self.credential_provider_validate_session_typed(request.provider_session, false)?;
         self.credential_provider_require_allowlisted_typed(request.credential_id)?;
 
         let entries = self.credential_provider_collect_entries()?;
@@ -201,6 +201,8 @@ impl RpcRouter {
             request.credential_id,
             context.as_ref(),
         )?;
+
+        self.credential_provider_validate_session_typed(request.provider_session, true)?;
 
         let Some(session) = self.session.as_ref() else {
             return Err(CredentialProviderCommandError::vault_required());

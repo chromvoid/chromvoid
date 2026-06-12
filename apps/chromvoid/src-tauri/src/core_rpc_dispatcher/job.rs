@@ -30,6 +30,7 @@ pub(crate) struct CoreRpcDispatchOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CoreRpcDispatchError {
     Cancelled,
+    PhasePanicked,
     QueueUnavailable,
     WorkerClosed,
 }
@@ -38,6 +39,7 @@ impl fmt::Display for CoreRpcDispatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Cancelled => write!(f, "low-priority RPC phase cancelled"),
+            Self::PhasePanicked => write!(f, "core RPC dispatcher phase panicked"),
             Self::QueueUnavailable => write!(f, "core RPC dispatcher queue unavailable"),
             Self::WorkerClosed => write!(f, "core RPC dispatcher worker closed"),
         }

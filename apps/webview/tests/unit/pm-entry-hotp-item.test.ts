@@ -83,4 +83,30 @@ describe('PMEntryHOTPItemModel', () => {
     await expect(model.actions.loadCodeForCopy()).resolves.toBe('123456')
     expect(otp.loadCode).not.toHaveBeenCalled()
   })
+
+  it('loads copy code with the selected HOTP counter when no code is visible', async () => {
+    const model = new PMEntryHOTPItemModel()
+
+    const otp = {
+      data: {
+        id: 'otp-id',
+        label: 'Primary',
+        digits: 6,
+        algorithm: 'SHA1',
+        encoding: 'base32',
+        type: 'HOTP',
+        counter: 7,
+      },
+      isShow: () => false,
+      show: vi.fn(),
+      hide: vi.fn(),
+      loadCode: vi.fn(async () => '777777'),
+      currentOtp: () => undefined,
+    } as unknown as OTP
+
+    model.actions.setOtp(otp)
+
+    await expect(model.actions.loadCodeForCopy()).resolves.toBe('777777')
+    expect(otp.loadCode).toHaveBeenCalledWith(7)
+  })
 })

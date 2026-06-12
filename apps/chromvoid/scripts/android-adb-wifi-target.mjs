@@ -18,9 +18,9 @@ function printUsage() {
   node ./scripts/android-adb-wifi-target.mjs clear
 
 Examples:
-  npm run android:adb-wifi -- pair 192.168.1.42:37123 123456 192.168.1.42:41317
-  npm run android:adb-wifi -- connect 192.168.1.42:41317
-  npm run android:deploy:release:apk:wifi
+  bun run android:adb-wifi -- pair 192.168.1.42:37123 123456 192.168.1.42:41317
+  bun run android:adb-wifi -- connect 192.168.1.42:41317
+  bun run android:deploy:release:apk:wifi
 `)
 }
 

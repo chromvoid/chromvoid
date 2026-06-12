@@ -13,5 +13,11 @@
     ]
   },
   "windows": ["main"],
-  "permissions": ["core:default", "mobile", "dialog:default", "clipboard-manager:allow-write-text"]
+  "permissions": [
+    "core:default",
+    "mobile",
+    "dialog:default",
+    "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-read-text"
+  ]
 }

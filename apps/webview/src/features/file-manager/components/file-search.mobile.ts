@@ -3,6 +3,7 @@ import {CVBottomSheet} from '@chromvoid/uikit/components/cv-bottom-sheet'
 import {html} from '@chromvoid/uikit/reatom-lit'
 
 import {i18n} from 'root/i18n'
+import {notificationIndicatorStyles} from 'root/shared/ui/notification-indicator.styles'
 import {FileFilterControlsMobile} from './file-filter-controls-mobile'
 import {hasMobileFilterBadge} from '../models/file-search-filters.model'
 import {FileSearchBase} from './file-search.base'
@@ -39,6 +40,8 @@ export class FileSearchMobile extends FileSearchBase {
   }
 
   static styles = css`
+    ${notificationIndicatorStyles}
+
     :host {
       display: contents;
       --fab-size: 44px;
@@ -109,19 +112,15 @@ export class FileSearchMobile extends FileSearchBase {
 
     /* Active filter indicator dot */
     .filter-badge {
-      position: absolute;
-      top: 4px;
-      right: 4px;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--cv-color-accent, #ff7a00);
-      border: 1.5px solid var(--cv-color-surface-2);
+      --cv-notification-dot-block-start: 4px;
+      --cv-notification-dot-inline-end: 4px;
+      --cv-notification-dot-size: 8px;
+      --cv-notification-dot-radius: 50%;
     }
 
     .toggle-filters--fab .filter-badge {
-      top: 10px;
-      right: 10px;
+      --cv-notification-dot-block-start: 10px;
+      --cv-notification-dot-inline-end: 10px;
     }
 
     /* ===== SHEET ===== */
@@ -173,7 +172,7 @@ export class FileSearchMobile extends FileSearchBase {
           title=${i18n('file-manager:filters-and-sorting' as any)}
         >
           <cv-icon name="sliders"></cv-icon>
-          ${this.hasActiveFilters ? html`<span class="filter-badge"></span>` : nothing}
+          ${this.hasActiveFilters ? html`<span class="notification-dot filter-badge"></span>` : nothing}
         </cv-button>
       </div>
 

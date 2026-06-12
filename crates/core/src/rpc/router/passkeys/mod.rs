@@ -16,8 +16,8 @@ mod store;
 
 use error::PasskeysCommandError;
 use request::{
-    parse_passkey_delete_request, parse_passkey_platform_request, validate_credential_id,
-    validate_platform,
+    parse_passkey_delete_request, parse_passkey_invocation_context, parse_passkey_platform_request,
+    validate_credential_id, validate_platform,
 };
 use service::{
     passkey_create_service, passkey_get_service, passkey_query_service, passkeys_delete_service,
@@ -56,13 +56,17 @@ impl RpcRouter {
         if let Err(error) = parse_passkey_platform_request(data).and_then(validate_platform) {
             return error.into_rpc_response();
         }
+        let context = match parse_passkey_invocation_context(data) {
+            Ok(context) => context,
+            Err(error) => return error.into_rpc_response(),
+        };
         let storage = self.storage.clone();
-        self.with_session(
-            |session| match passkey_query_service(session, &storage, data) {
+        self.with_session(|session| {
+            match passkey_query_service(session, &storage, data, &context) {
                 Ok(response) => RpcResponse::success(response),
                 Err(error) => error.into_rpc_response(),
-            },
-        )
+            }
+        })
     }
 
     pub(super) fn credential_provider_passkey_create(&mut self, data: &Value) -> RpcResponse {
@@ -72,8 +76,12 @@ impl RpcRouter {
         if let Err(response) = parse_passkey_platform_request(data).and_then(validate_platform) {
             return response.into_rpc_response();
         }
+        let context = match parse_passkey_invocation_context(data) {
+            Ok(context) => context,
+            Err(error) => return error.into_rpc_response(),
+        };
         match self.commit_passkeys_domain_uow("passkeys-create", |session, storage, uow| {
-            passkey_create_service(session, storage, uow, data)
+            passkey_create_service(session, storage, uow, data, &context)
         }) {
             Ok(response) => RpcResponse::success(response),
             Err(error) => error.into_rpc_response(),
@@ -87,8 +95,12 @@ impl RpcRouter {
         if let Err(response) = parse_passkey_platform_request(data).and_then(validate_platform) {
             return response.into_rpc_response();
         }
+        let context = match parse_passkey_invocation_context(data) {
+            Ok(context) => context,
+            Err(error) => return error.into_rpc_response(),
+        };
         match self.commit_passkeys_domain_uow("passkeys-get", |session, storage, uow| {
-            passkey_get_service(session, storage, uow, data)
+            passkey_get_service(session, storage, uow, data, &context)
         }) {
             Ok(response) => RpcResponse::success(response),
             Err(error) => error.into_rpc_response(),

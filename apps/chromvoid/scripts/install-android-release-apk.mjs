@@ -10,12 +10,14 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.resolve(scriptDir, '..')
 const defaultAdbTunnelPort = '15037'
 const releaseLaunchActivity = 'com.chromvoid.app/.MainActivity'
+const releasePackageId = releaseLaunchActivity.split('/')[0]
 const forwardedArgs = process.argv.slice(2)
 const adbWifiTargetFile = path.join(appRoot, '.android-adb-wifi-target.json')
 let launchAfterInstall = false
 let useAdbWifi = false
 let requestedAdbSerial = ''
 let requestedAdbConnect = ''
+let replaceIncompatibleInstall = false
 const apkPath = path.join(
   appRoot,
   'src-tauri',
@@ -88,19 +90,61 @@ function waitForAdbTarget(adbPath, env, timeoutMs) {
   }
 }
 
+function adbTargetArgs(env) {
+  return env.ADB_SERIAL ? ['-s', env.ADB_SERIAL] : []
+}
+
+function printSpawnOutput(result) {
+  if (result.stdout) {
+    process.stdout.write(result.stdout)
+  }
+  if (result.stderr) {
+    process.stderr.write(result.stderr)
+  }
+}
+
+function installFailureOutput(result) {
+  return [result.stdout?.trimEnd(), result.stderr?.trimEnd()].filter(Boolean).join('\n')
+}
+
+function isIncompatibleInstallFailure(output) {
+  return (
+    output.includes('INSTALL_FAILED_UPDATE_INCOMPATIBLE') ||
+    output.includes('INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES')
+  )
+}
+
+function printIncompatibleInstallHelp() {
+  console.error(
+    `[android-release-install] Android refused to update ${releasePackageId} because the installed app is signed with a different certificate.`,
+  )
+  console.error('[android-release-install] The release APK build succeeded; only the device install failed.')
+  console.error(
+    `[android-release-install] To replace the existing app and remove its local app data, rerun with --replace-incompatible or CHROMVOID_ANDROID_REPLACE_INCOMPATIBLE=1.`,
+  )
+  console.error(
+    '[android-release-install] To preserve data, install an APK signed with the same key as the existing app.',
+  )
+}
+
 function printUsage() {
-  console.log(`Usage: node ./scripts/install-android-release-apk.mjs [--launch] [--adb-serial SERIAL] [--adb-connect SERIAL] [--use-wifi]
+  console.log(`Usage: node ./scripts/install-android-release-apk.mjs [--launch] [--adb-serial SERIAL] [--adb-connect SERIAL] [--use-wifi] [--replace-incompatible]
 
 Options:
   --launch              Launch the release app after install.
   --adb-serial SERIAL   Install to a specific adb target, for example 192.168.1.42:41317.
   --adb-connect SERIAL  Run "adb connect SERIAL" before installing, then use that target.
   --use-wifi            Use CHROMVOID_ADB_WIFI_SERIAL or .android-adb-wifi-target.json.
+  --replace-incompatible
+                        If install fails because ${releasePackageId} has a different signature,
+                        uninstall it and retry. This removes app data on the device.
 
 Environment:
   ADB_SERIAL                    Existing adb target override.
   CHROMVOID_USE_ADB_WIFI=1      Same as --use-wifi.
   CHROMVOID_ADB_WIFI_SERIAL     WiFi adb target used by --use-wifi.
+  CHROMVOID_ANDROID_REPLACE_INCOMPATIBLE=1
+                                Same as --replace-incompatible.
 `)
 }
 
@@ -125,6 +169,10 @@ for (let index = 0; index < forwardedArgs.length; index += 1) {
   }
   if (arg === '--use-wifi') {
     useAdbWifi = true
+    continue
+  }
+  if (arg === '--replace-incompatible') {
+    replaceIncompatibleInstall = true
     continue
   }
   if (arg === '--adb-serial') {
@@ -190,14 +238,15 @@ const adbCandidates = [
   path.join(os.homedir(), 'Android', 'sdk', 'platform-tools', 'adb'),
 ].filter(Boolean)
 
-const adbPath = adbCandidates.find((candidate) => {
-  try {
-    fs.accessSync(candidate, fs.constants.X_OK)
-    return true
-  } catch {
-    return false
-  }
-}) ?? 'adb'
+const adbPath =
+  adbCandidates.find((candidate) => {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK)
+      return true
+    } catch {
+      return false
+    }
+  }) ?? 'adb'
 
 if (requestedAdbSerial) {
   childEnv.ADB_SERIAL = requestedAdbSerial
@@ -212,16 +261,20 @@ if (isEnabled(childEnv.CHROMVOID_USE_ADB_WIFI)) {
   useAdbWifi = true
 }
 
+if (isEnabled(childEnv.CHROMVOID_ANDROID_REPLACE_INCOMPATIBLE)) {
+  replaceIncompatibleInstall = true
+}
+
 if (useAdbWifi) {
   const wifiSerial =
-    childEnv.ADB_SERIAL?.trim()
-    || childEnv.CHROMVOID_ADB_WIFI_SERIAL?.trim()
-    || childEnv.CHROMVOID_ADB_WIFI_TARGET?.trim()
-    || readSavedWifiSerial()
+    childEnv.ADB_SERIAL?.trim() ||
+    childEnv.CHROMVOID_ADB_WIFI_SERIAL?.trim() ||
+    childEnv.CHROMVOID_ADB_WIFI_TARGET?.trim() ||
+    readSavedWifiSerial()
 
   if (!wifiSerial) {
     console.error(
-      `WiFi ADB target is not configured. Run "npm run android:adb-wifi -- connect HOST:PORT" or set CHROMVOID_ADB_WIFI_SERIAL.`,
+      `WiFi ADB target is not configured. Run "bun run android:adb-wifi -- connect HOST:PORT" or set CHROMVOID_ADB_WIFI_SERIAL.`,
     )
     process.exit(1)
   }
@@ -230,7 +283,9 @@ if (useAdbWifi) {
     env: childEnv,
     encoding: 'utf8',
   })
-  const connectOutput = [connectResult.stdout?.trim(), connectResult.stderr?.trim()].filter(Boolean).join('\n')
+  const connectOutput = [connectResult.stdout?.trim(), connectResult.stderr?.trim()]
+    .filter(Boolean)
+    .join('\n')
   if (connectResult.error) {
     console.error(`Failed to run adb connect ${wifiSerial}.`)
     console.error(connectResult.error.message)
@@ -247,16 +302,16 @@ if (useAdbWifi) {
   childEnv.ADB_SERIAL = wifiSerial
 }
 
-const adbDeviceWaitMs = readNonNegativeIntegerEnv(childEnv, 'CHROMVOID_ADB_DEVICE_WAIT_MS', useAdbTunnel ? 30_000 : 0)
+const adbDeviceWaitMs = readNonNegativeIntegerEnv(
+  childEnv,
+  'CHROMVOID_ADB_DEVICE_WAIT_MS',
+  useAdbTunnel ? 30_000 : 0,
+)
 waitForAdbTarget(adbPath, childEnv, adbDeviceWaitMs)
 
-const args = []
-if (childEnv.ADB_SERIAL) {
-  args.push('-s', childEnv.ADB_SERIAL)
-}
-args.push('install', '-r', apkPath)
+const installArgs = [...adbTargetArgs(childEnv), 'install', '-r', apkPath]
 
-const result = spawnSync(adbPath, args, {env: childEnv, stdio: 'inherit'})
+let result = spawnSync(adbPath, installArgs, {env: childEnv, encoding: 'utf8'})
 if (result.error) {
   const hint =
     adbPath === 'adb'
@@ -266,17 +321,48 @@ if (result.error) {
   console.error(result.error.message)
   process.exit(1)
 }
+printSpawnOutput(result)
 
-const installStatus = result.status ?? 1
+let installStatus = result.status ?? 1
+if (installStatus !== 0) {
+  const output = installFailureOutput(result)
+  if (isIncompatibleInstallFailure(output)) {
+    if (!replaceIncompatibleInstall) {
+      printIncompatibleInstallHelp()
+      process.exit(installStatus)
+    }
+
+    console.error(
+      `[android-release-install] ${releasePackageId} has an incompatible signature; uninstalling it before retrying. This removes app data on the device.`,
+    )
+    const uninstallArgs = [...adbTargetArgs(childEnv), 'uninstall', releasePackageId]
+    const uninstallResult = spawnSync(adbPath, uninstallArgs, {env: childEnv, encoding: 'utf8'})
+    if (uninstallResult.error) {
+      console.error(`Failed to uninstall ${releasePackageId} before retrying release APK install.`)
+      console.error(uninstallResult.error.message)
+      process.exit(1)
+    }
+    printSpawnOutput(uninstallResult)
+    if ((uninstallResult.status ?? 1) !== 0) {
+      process.exit(uninstallResult.status ?? 1)
+    }
+
+    result = spawnSync(adbPath, installArgs, {env: childEnv, encoding: 'utf8'})
+    if (result.error) {
+      console.error(`Failed to retry release APK install after uninstalling ${releasePackageId}.`)
+      console.error(result.error.message)
+      process.exit(1)
+    }
+    printSpawnOutput(result)
+    installStatus = result.status ?? 1
+  }
+}
+
 if (installStatus !== 0 || !launchAfterInstall) {
   process.exit(installStatus)
 }
 
-const launchArgs = []
-if (childEnv.ADB_SERIAL) {
-  launchArgs.push('-s', childEnv.ADB_SERIAL)
-}
-launchArgs.push('shell', 'am', 'start', '-n', releaseLaunchActivity)
+const launchArgs = [...adbTargetArgs(childEnv), 'shell', 'am', 'start', '-n', releaseLaunchActivity]
 
 const launchResult = spawnSync(adbPath, launchArgs, {env: childEnv, stdio: 'inherit'})
 if (launchResult.error) {

@@ -8,17 +8,27 @@ import {
   beginMobileFilePickerSession,
   type MobileFilePickerSession,
 } from 'root/shared/services/mobile-file-picker-session'
+import {DesktopShellToolbar} from 'root/features/shell/components/desktop-shell-toolbar'
 
 import {BreadcrumbsNav} from './breadcrumbs-nav'
-import {DashboardHeaderDesktopLayout} from './dashboard-header-desktop-layout'
 import {createDefaultDashboardHeaderFilters, DashboardHeaderModel} from './dashboard-header.model'
-import type {SearchFilters} from 'root/shared/contracts/file-manager'
-import type {FileSearchFilterActions} from '../models/file-search-filters.model'
+import {getSortLabel, getViewLabel} from './file-manager-labels'
+import type {SearchFilters, ViewMode} from 'root/shared/contracts/file-manager'
+import {
+  createFileSearchFilterActions,
+  type FileSearchFilterActions,
+} from '../models/file-search-filters.model'
+
+const VIEW_MODE_OPTIONS: Array<{mode: ViewMode; icon: string}> = [
+  {mode: 'list', icon: 'list'},
+  {mode: 'table', icon: 'table'},
+  {mode: 'grid', icon: 'grid'},
+]
 
 export class DashboardHeader extends ReatomLitElement {
   static define() {
     BreadcrumbsNav.define()
-    DashboardHeaderDesktopLayout.define()
+    DesktopShellToolbar.define()
 
     if (!customElements.get('dashboard-header')) {
       customElements.define('dashboard-header', this as unknown as CustomElementConstructor)
@@ -44,6 +54,10 @@ export class DashboardHeader extends ReatomLitElement {
   declare filterActions: FileSearchFilterActions | null
 
   private readonly model = new DashboardHeaderModel()
+  private readonly legacyFilterActions = createFileSearchFilterActions({
+    read: () => this.model.filters(),
+    write: (next) => this.dispatchFiltersChange(next),
+  })
   private filePickerSession: MobileFilePickerSession | null = null
 
   constructor() {
@@ -78,15 +92,123 @@ export class DashboardHeader extends ReatomLitElement {
         min-inline-size: 0;
       }
 
+      desktop-shell-toolbar {
+        --search-padding: 0;
+        --desktop-shell-toolbar-padding-block: var(--app-toolbar-padding-block);
+        --desktop-shell-toolbar-padding-inline: var(--app-toolbar-padding-inline);
+        --desktop-shell-toolbar-padding-inline-wide: var(--app-toolbar-padding-inline-wide);
+        --desktop-shell-toolbar-two-row-row-gap: var(--app-toolbar-two-row-row-gap);
+        --desktop-shell-toolbar-two-row-column-gap: var(--app-toolbar-two-row-column-gap);
+        --desktop-shell-toolbar-border-color: var(--app-toolbar-border-color);
+        --files-toolbar-control-height: var(--app-toolbar-control-height);
+        --files-toolbar-control-radius: var(--app-toolbar-control-radius);
+        --files-toolbar-control-font-size: var(--app-toolbar-control-font-size);
+        --files-toolbar-control-font-weight: var(--app-toolbar-control-font-weight);
+      }
+
+      .breadcrumbs-section,
+      .actions-section,
+      .view-mode-section,
+      .filters-section {
+        display: flex;
+        align-items: center;
+        min-inline-size: 0;
+      }
+
+      .filters-section {
+        justify-content: center;
+        min-inline-size: 0;
+      }
+
+      .breadcrumbs-section breadcrumbs-nav {
+        flex: 1;
+        min-inline-size: 0;
+      }
+
+      .filters-section file-search {
+        --file-search-control-height: var(--files-toolbar-control-height);
+        --file-search-control-radius: var(--files-toolbar-control-radius);
+        --file-search-control-font-size: var(--files-toolbar-control-font-size);
+        --file-search-control-font-weight: var(--files-toolbar-control-font-weight);
+        inline-size: 100%;
+        max-inline-size: min(1080px, 100%);
+        min-inline-size: 0;
+      }
+
       .actions-group {
         display: flex;
         align-items: center;
-        gap: var(--app-spacing-1);
+        gap: var(--app-spacing-2);
         flex-wrap: nowrap;
       }
 
+      .actions-section {
+        justify-content: flex-end;
+      }
+
+      .view-mode-section {
+        justify-content: flex-start;
+      }
+
+      .create-upload-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--app-spacing-2);
+        min-inline-size: 0;
+      }
+
       .action-btn {
+        --cv-button-min-height: var(--files-toolbar-control-height);
+        --cv-button-border-radius: var(--files-toolbar-control-radius);
+        --cv-button-padding-block: 0;
+        --cv-button-padding-inline: var(--app-toolbar-control-padding-inline);
+        --cv-button-font-size: var(--files-toolbar-control-font-size);
+        --cv-button-font-weight: var(--files-toolbar-control-font-weight);
+        --cv-button-gap: var(--app-toolbar-control-gap);
         min-inline-size: auto;
+      }
+
+      .view-mode-group {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 2px;
+        border: 1px solid var(--cv-color-border-muted);
+        border-radius: var(--files-toolbar-control-radius);
+        background: var(--cv-color-surface-2);
+      }
+
+      .view-mode-button {
+        --cv-button-min-height: calc(var(--files-toolbar-control-height) - 6px);
+        --cv-button-border-radius: var(--files-toolbar-control-radius);
+        --cv-button-padding-block: 0;
+        --cv-button-font-size: var(--files-toolbar-control-font-size);
+        --cv-button-font-weight: var(--files-toolbar-control-font-weight);
+        min-inline-size: 32px;
+      }
+
+      .sort-toggle {
+        white-space: nowrap;
+      }
+
+      .view-mode-button[pressed]::part(base) {
+        background: var(--cv-color-primary-surface-strong);
+        border-color: var(--cv-color-primary-border-strong);
+      }
+
+      .view-mode-button[pressed] cv-icon {
+        color: var(--cv-color-primary);
+      }
+
+      .selection-mode-toggle[pressed]::part(base) {
+        background: var(--cv-color-primary-surface-strong);
+        border-color: var(--cv-color-primary-border-strong);
+        box-shadow: 0 0 0 1px var(--cv-color-primary-ring);
+      }
+
+      .selection-mode-toggle[pressed]::part(label),
+      .selection-mode-toggle[pressed] cv-icon {
+        color: var(--cv-color-primary);
       }
 
       .action-btn cv-icon {
@@ -148,6 +270,14 @@ export class DashboardHeader extends ReatomLitElement {
     })
   }
 
+  private dispatchFiltersChange(next: SearchFilters) {
+    this.dispatchEvent(new CustomEvent('filters-change', {detail: next, bubbles: true}))
+  }
+
+  private getFilterActions(): FileSearchFilterActions {
+    return this.filterActions ?? this.legacyFilterActions
+  }
+
   private getFileInput(): HTMLInputElement | null {
     return this.renderRoot.querySelector('#file-input') as HTMLInputElement | null
   }
@@ -165,7 +295,7 @@ export class DashboardHeader extends ReatomLitElement {
   }
 
   private onFiltersChange = (e: CustomEvent) => {
-    this.dispatchEvent(new CustomEvent('filters-change', {detail: e.detail, bubbles: true}))
+    this.dispatchFiltersChange(e.detail)
   }
 
   private onCreateDirClick = () => {
@@ -187,10 +317,10 @@ export class DashboardHeader extends ReatomLitElement {
     if (this.model.canUseNativePathUpload()) {
       this.beginFilePickerSession()
       try {
-        const paths = await this.model.pickNativeUploadPaths()
+        const files = await this.model.pickNativeUploadFiles()
         this.endFilePickerSession()
-        if (paths.length > 0) {
-          this.dispatchEvent(new CustomEvent('upload-paths-requested', {detail: {paths}, bubbles: true}))
+        if (files.length > 0) {
+          this.dispatchEvent(new CustomEvent('upload-paths-requested', {detail: {files}, bubbles: true}))
         }
         return
       } catch (e) {
@@ -230,93 +360,177 @@ export class DashboardHeader extends ReatomLitElement {
     this.dispatchEvent(new CustomEvent('delete-selected', {bubbles: true}))
   }
 
-  private onSelectionModeExit = () => {
+  private onSelectionModeToggle() {
     this.dispatchEvent(
       new CustomEvent('selection-mode-requested', {
-        detail: {enabled: false},
+        detail: {enabled: !this.model.selectionModeEnabled()},
         bubbles: true,
       }),
     )
   }
 
+  private onViewListClick() {
+    this.getFilterActions().setViewMode('list')
+  }
+
+  private onViewTableClick() {
+    this.getFilterActions().setViewMode('table')
+  }
+
+  private onViewGridClick() {
+    this.getFilterActions().setViewMode('grid')
+  }
+
+  private onSortDirectionToggle() {
+    this.getFilterActions().toggleSortDirection()
+  }
+
   private renderBreadcrumbs() {
     return html`
       <breadcrumbs-nav
-        slot="breadcrumbs"
         .currentPath=${this.model.currentPath()}
         @navigate=${this.onNavigate}
       ></breadcrumbs-nav>
     `
   }
 
-  private renderActions() {
+  private renderViewModeControls() {
+    const currentViewMode = this.model.filters().viewMode
+    const handlers: Record<ViewMode, () => void> = {
+      list: this.onViewListClick,
+      table: this.onViewTableClick,
+      grid: this.onViewGridClick,
+    }
+
+    return html`
+      <div class="view-mode-group" role="group" aria-label=${i18n('file-manager:view' as any)}>
+        ${VIEW_MODE_OPTIONS.map(({mode, icon}) => {
+          const active = currentViewMode === mode
+          const label = getViewLabel(mode)
+          return html`
+            <cv-button
+              class="view-mode-button"
+              data-view-mode=${mode}
+              variant="ghost"
+              size="small"
+              toggle
+              .pressed=${active}
+              aria-pressed=${active ? 'true' : 'false'}
+              aria-label=${label}
+              title=${label}
+              @click=${handlers[mode]}
+            >
+              <cv-icon name=${icon}></cv-icon>
+            </cv-button>
+          `
+        })}
+      </div>
+    `
+  }
+
+  private renderPrimaryActions() {
+    return html`
+      <div class="actions-group actions-group-primary">
+        <cv-guidance-anchor
+          class="create-upload-actions"
+          anchor-id="files.create-or-upload"
+          surface="files"
+          owner="file-manager"
+        >
+          <cv-button
+            class="action-btn"
+            data-action="create-dir"
+            variant="primary"
+            size="small"
+            @click=${this.onCreateDirClick}
+            aria-label=${i18n('file-manager:create-folder')}
+          >
+            <cv-icon name="folder-plus" slot="prefix"></cv-icon>
+            <span>${i18n('node:dir')}</span>
+          </cv-button>
+
+          <cv-button
+            class="action-btn"
+            data-action="upload"
+            variant="primary"
+            size="small"
+            @click=${this.onUploadClick}
+            aria-label=${i18n('file-manager:upload-files')}
+          >
+            <cv-icon name="upload" slot="prefix"></cv-icon>
+            <span>${i18n('file-manager:upload')}</span>
+          </cv-button>
+        </cv-guidance-anchor>
+      </div>
+    `
+  }
+
+  private renderSortControl() {
+    const filters = this.model.filters()
+    const sortArrow = filters.sortDirection === 'asc' ? '↑' : '↓'
+    const sortLabel = `${i18n('file-manager:sort-current', {sort: getSortLabel(filters.sortBy)})} ${sortArrow}`
+
+    return html`
+      <cv-button
+        class="action-btn sort-toggle"
+        variant="default"
+        size="small"
+        @click=${this.onSortDirectionToggle}
+        aria-label=${sortLabel}
+        title=${i18n('file-manager:toggle-sort-direction')}
+      >
+        <cv-icon name="arrow-up-down" slot="prefix"></cv-icon>
+        <span>${sortLabel}</span>
+      </cv-button>
+    `
+  }
+
+  private renderSelectionActions() {
     const selectedCount = this.model.selectedCount()
     const selectionModeEnabled = this.model.selectionModeEnabled()
 
-    const content = html`
-      <cv-guidance-anchor anchor-id="files.create-or-upload" surface="files" owner="file-manager">
+    return html`
+      <div class="actions-group actions-group-secondary">
+        ${this.renderSortControl()}
         <cv-button
-          class="action-btn"
-          data-action="create-dir"
-          variant="primary"
+          class="action-btn selection-mode-toggle"
+          variant="default"
           size="small"
-          @click=${this.onCreateDirClick}
-          aria-label=${i18n('file-manager:create-folder')}
+          toggle
+          .pressed=${selectionModeEnabled}
+          aria-pressed=${selectionModeEnabled ? 'true' : 'false'}
+          aria-label=${i18n(
+            selectionModeEnabled ? 'statusbar:selection-mode:disable' : 'statusbar:selection-mode:enable',
+          )}
+          title=${`${i18n('statusbar:selection-mode')}: ${i18n(
+            selectionModeEnabled ? 'statusbar:selection-mode:on' : 'statusbar:selection-mode:off',
+          )}`}
+          @click=${this.onSelectionModeToggle}
         >
-          <cv-icon name="folder-plus" slot="prefix"></cv-icon>
-          <span>${i18n('node:dir')}</span>
+          <cv-icon name="check-square" slot="prefix"></cv-icon>
+          <span>${i18n('statusbar:selection-mode')}</span>
         </cv-button>
-
-        <cv-button
-          class="action-btn"
-          data-action="upload"
-          variant="primary"
-          size="small"
-          @click=${this.onUploadClick}
-          aria-label=${i18n('file-manager:upload-files')}
-        >
-          <cv-icon name="upload" slot="prefix"></cv-icon>
-          <span>${i18n('file-manager:upload')}</span>
-        </cv-button>
-      </cv-guidance-anchor>
-
-      ${selectionModeEnabled
-        ? html`
-            <cv-button
-              class="action-btn"
-              variant="default"
-              size="small"
-              @click=${this.onSelectionModeExit}
-              aria-label=${i18n('file-manager:exit-selection-mode')}
-            >
-              <cv-icon name="check-square" slot="prefix"></cv-icon>
-              <span>${i18n('button:done')}</span>
-            </cv-button>
-          `
-        : nothing}
-      ${this.model.hasSelection()
-        ? html`
-            <cv-button
-              class="action-btn"
-              variant="danger"
-              size="small"
-              @click=${this.onDeleteClick}
-              aria-label=${i18n('file-manager:delete-selected', {count: String(selectedCount)})}
-            >
-              <cv-icon name="trash-2" slot="prefix"></cv-icon>
-              <span>${i18n('file-manager:delete-selected', {count: String(selectedCount)})}</span>
-            </cv-button>
-          `
-        : nothing}
+        ${this.model.hasSelection()
+          ? html`
+              <cv-button
+                class="action-btn"
+                variant="danger"
+                size="small"
+                @click=${this.onDeleteClick}
+                aria-label=${i18n('file-manager:delete-selected', {count: String(selectedCount)})}
+              >
+                <cv-icon name="trash-2" slot="prefix"></cv-icon>
+                <span>${i18n('file-manager:delete-selected', {count: String(selectedCount)})}</span>
+              </cv-button>
+            `
+          : nothing}
+      </div>
     `
-
-    return html` <div slot="actions" class="actions-group actions-group-desktop">${content}</div> `
   }
 
   private renderFilters() {
     return html`
       <file-search
-        slot="filters"
         .filters=${this.model.filters()}
         .filterActions=${this.filterActions}
         .totalFiles=${this.model.totalFiles()}
@@ -332,9 +546,17 @@ export class DashboardHeader extends ReatomLitElement {
 
   private renderDesktopLayout() {
     return html`
-      <dashboard-header-desktop-layout>
-        ${this.renderBreadcrumbs()} ${this.renderActions()} ${this.renderFilters()}
-      </dashboard-header-desktop-layout>
+      <desktop-shell-toolbar two-row>
+        <div slot="leading" class="breadcrumbs-section">${this.renderBreadcrumbs()}</div>
+        <div slot="center" class="filters-section">${this.renderFilters()}</div>
+        <div slot="actions" class="actions-section primary-actions-section">
+          ${this.renderPrimaryActions()}
+        </div>
+        <div slot="start" class="view-mode-section">${this.renderViewModeControls()}</div>
+        <div slot="end" class="actions-section secondary-actions-section">
+          ${this.renderSelectionActions()}
+        </div>
+      </desktop-shell-toolbar>
     `
   }
 

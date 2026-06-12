@@ -1,4 +1,4 @@
-//! Network connection manager — mirrors `usb/connection.rs`.
+//! Network connection manager.
 //!
 //! Manages a single network connection to a remote peer,
 //! implementing the same state machine (ADR-004 section 2.3).

@@ -148,19 +148,31 @@ export async function writeClipboardText(text: string): Promise<void> {
   }
 
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return
+    try {
+      await navigator.clipboard.writeText(text)
+      return
+    } catch (error) {
+      const copied = writeClipboardTextWithExecCommand(text)
+      if (!copied) {
+        throw error
+      }
+      return
+    }
   }
 
-  // execCommand fallback
+  writeClipboardTextWithExecCommand(text)
+}
+
+function writeClipboardTextWithExecCommand(text: string): boolean {
   const textarea = document.createElement('textarea')
   textarea.value = text
   textarea.style.position = 'fixed'
   textarea.style.opacity = '0'
   document.body.appendChild(textarea)
   textarea.select()
-  document.execCommand('copy')
+  const copied = document.execCommand('copy')
   document.body.removeChild(textarea)
+  return copied
 }
 
 export async function copyWithAutoWipe(

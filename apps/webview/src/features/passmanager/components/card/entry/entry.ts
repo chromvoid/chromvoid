@@ -7,14 +7,14 @@ import {i18n} from '@project/passmanager/i18n'
 
 import {isPassmanagerReadOnlyOrMissing} from '../../../models/pm-root.adapter'
 import {PMEntryBase} from './entry-base'
-import {scheduleInlineEditorFocus, scheduleSectionSnippetFocus} from './mobile/focus'
 import {
-  renderInlineEditAction,
-  renderInlineEditSubmitButtons,
+  scheduleEntryEditFieldFocus,
+  scheduleInlineEditorFocus,
+  scheduleSectionSnippetFocus,
+} from './mobile/focus'
+import {
   renderInlinePasswordGeneratorPanel,
   renderInlinePasswordStrength,
-  renderNoteEditAction,
-  renderNoteSubmitButtons,
   renderSectionSnippetButtons,
 } from './mobile/shared'
 import {
@@ -52,6 +52,7 @@ export class PMEntry extends PMEntryBase {
   private readonly afterRenderScheduler = createAfterRenderScheduler(this)
   private renderedInlineField: PMEntryInlineField | null = null
   private renderedSectionSnippet: PMEntrySectionSnippet | null = null
+  private renderedEntryEditFocusToken = 0
 
   protected override updated(changedProperties: PropertyValues): void {
     super.updated(changedProperties)
@@ -59,6 +60,7 @@ export class PMEntry extends PMEntryBase {
     const card = this.entry
     if (card instanceof Entry) {
       this.model.syncRequestedSurfaceFromEditor(card)
+      this.model.syncEntryEditSecretsFromResources(card)
     } else {
       this.model.resetRequestedSurface()
     }
@@ -73,6 +75,16 @@ export class PMEntry extends PMEntryBase {
     if (sectionSnippet !== this.renderedSectionSnippet) {
       this.renderedSectionSnippet = sectionSnippet
       scheduleSectionSnippetFocus(this.afterRenderScheduler, () => this.shadowRoot, sectionSnippet)
+    }
+
+    const entryEditFocusRequest = this.model.entryEditFocusRequest()
+    if (entryEditFocusRequest && entryEditFocusRequest.token !== this.renderedEntryEditFocusToken) {
+      this.renderedEntryEditFocusToken = entryEditFocusRequest.token
+      scheduleEntryEditFieldFocus(
+        this.afterRenderScheduler,
+        () => this.shadowRoot,
+        entryEditFocusRequest.field,
+      )
     }
   }
 
@@ -97,6 +109,55 @@ export class PMEntry extends PMEntryBase {
         )}
       </div>
     `
+  }
+
+  protected override renderHeaderActions() {
+    if (!this.showHeaderActions) return nothing
+
+    const card = this.entry
+    if (!(card instanceof Entry)) {
+      return super.renderHeaderActions()
+    }
+
+    const data = this.model.contracts.getEntryData(card) as PMEntryEditData
+    if (data.isEditingEntry) {
+      const saving = card.entryType === 'payment_card' ? this.model.paymentCardSaving() : this.model.inlineSaving()
+      const error = card.entryType === 'payment_card' ? this.model.paymentCardError() : this.model.inlineError()
+
+      return html`
+        <div slot="actions" class="entry-edit-actions-shell">
+          ${error ? html`<div class="entry-edit-error" role="alert">${error}</div>` : nothing}
+          <div class="entry-edit-actions">
+            <cv-button
+              class="entry-edit-cancel-action"
+              type="button"
+              variant="default"
+              size="small"
+              @click=${this.handleCancelEntryEdit}
+            >
+              ${i18n('button:cancel')}
+            </cv-button>
+            <cv-button
+              class="entry-edit-save-action"
+              type="button"
+              variant="primary"
+              size="small"
+              ?disabled=${saving}
+              .loading=${saving}
+              @click=${this.handleSaveEntryEdit}
+            >
+              ${i18n('button:save')}
+            </cv-button>
+          </div>
+        </div>
+      `
+    }
+
+    if (data.hasActiveEditorSurface) {
+      return nothing
+    }
+
+    return super.renderHeaderActions()
   }
 
   private handleInlineEditInput(event: Event) {
@@ -139,6 +200,14 @@ export class PMEntry extends PMEntryBase {
 
     event.preventDefault()
     event.stopPropagation()
+    if (this.entry instanceof Entry) {
+      const data = this.model.contracts.getEntryData(this.entry) as PMEntryEditData
+      if (data.isEditingEntry) {
+        this.model.cancelEntryEdit(this.entry)
+        return
+      }
+    }
+
     this.model.cancelInlineEdit()
   }
 
@@ -150,16 +219,6 @@ export class PMEntry extends PMEntryBase {
     event.preventDefault()
     event.stopPropagation()
     this.model.closeSectionSnippet()
-  }
-
-  private handleInlineEditSubmit(event: Event) {
-    event.preventDefault()
-    this.handleSaveInlineEdit()
-  }
-
-  private handleSaveInlineEdit() {
-    if (!(this.entry instanceof Entry)) return
-    void this.model.saveInlineEdit(this.entry)
   }
 
   private handleNoteSubmit(event: Event) {
@@ -195,6 +254,11 @@ export class PMEntry extends PMEntryBase {
     void this.model.savePaymentCardEdit(this.entry)
   }
 
+  private handlePaymentCardSubmit(event: Event) {
+    event.preventDefault()
+    this.handleSavePaymentCard()
+  }
+
   private handleTagSelect(event: Event) {
     this.model.setTagDraftFromKeys(getSelectedTagIdsFromEvent(event))
   }
@@ -211,6 +275,36 @@ export class PMEntry extends PMEntryBase {
 
   private handleToggleCardCvv() {
     this.model.actions.toggleCardCvvRevealed()
+  }
+
+  private handleHeaderTitleInput(event: CustomEvent<{value: string}>) {
+    this.model.setInlineDraft('title', event.detail.value)
+  }
+
+  private handleInlineIconChange(event: CustomEvent<{iconRef: string | undefined}>) {
+    this.model.setInlineIconRef(event.detail.iconRef)
+  }
+
+  private handleNoteInput(event: CustomEvent<{value: string}>) {
+    this.model.setNoteDraft(event.detail.value)
+  }
+
+  private handleCancelEntryEdit() {
+    if (!(this.entry instanceof Entry)) return
+    this.model.cancelEntryEdit(this.entry)
+  }
+
+  private handleSaveEntryEdit() {
+    if (!(this.entry instanceof Entry)) return
+    void this.model.saveEntryEdit(this.entry)
+  }
+
+  private handleStartNoteEntryEdit(event: Event) {
+    if (!(this.entry instanceof Entry)) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    this.model.beginEntryEdit(this.entry, 'note')
   }
 
   private handleOtpSave() {
@@ -240,73 +334,35 @@ export class PMEntry extends PMEntryBase {
   }
 
   private renderTitleField(card: Entry, data: PMEntryEditData) {
-    const isEditing = this.model.inlineField() === 'title'
-    const inlineError = this.model.inlineError()
-
     return html`
-      <div class="credential-field ${isEditing ? 'credential-field-editing' : ''}">
-        ${isEditing
-          ? html`
-              <div class="field-editor">
-                <form class="inline-edit-form" @submit=${this.handleInlineEditSubmit}>
-                  <cv-input
-                    class="inline-field-input"
-                    name="inline-title"
-                    data-inline-field="title"
-                    .value=${this.model.inlineTitle()}
-                    @cv-input=${this.handleInlineEditInput}
-                    @keydown=${this.handleInlineEditorKeyDown}
-                    ?data-has-error=${!!inlineError}
-                    size="small"
-                  >
-                    <span slot="label">${i18n('title')}</span>
-                    ${inlineError ? html`<div slot="help-text" class="error-text">${inlineError}</div>` : nothing}
-                  </cv-input>
-                  ${renderInlineEditSubmitButtons(() => this.model.cancelInlineEdit())}
-                </form>
-              </div>
-            `
-          : html`
-              <div class="field-content">
-                <span class="field-label">${i18n('title')}</span>
-                <span class="field-value ${card.title ? '' : 'empty'}">${data.title}</span>
-              </div>
-              <div class="field-actions">
-                ${data.canEditFields
-                  ? renderInlineEditAction('title', i18n('button:edit'), () => this.model.beginInlineEdit(card, 'title'))
-                  : nothing}
-              </div>
-            `}
+      <div class="credential-field">
+        <div class="field-content">
+          <span class="field-label">${i18n('title')}</span>
+          <span class="field-value ${card.title ? '' : 'empty'}">${data.title}</span>
+        </div>
       </div>
     `
   }
 
   protected override renderUsernameField(card: Entry) {
     const data = this.model.contracts.getEntryData(card) as PMEntryEditData
-    const isEditing = this.model.inlineField() === 'username'
-    const inlineError = this.model.inlineError()
 
     return html`
-      <div class="credential-field ${isEditing ? 'credential-field-editing' : ''}">
-        ${isEditing
+      <div class="credential-field ${data.isEditingEntry ? 'credential-field-editing' : ''}">
+        ${data.canEditFields && data.isEditingEntry
           ? html`
               <div class="field-editor">
-                <form class="inline-edit-form" @submit=${this.handleInlineEditSubmit}>
-                  <cv-input
-                    class="inline-field-input"
-                    name="inline-username"
-                    data-inline-field="username"
-                    .value=${this.model.inlineUsername()}
-                    @cv-input=${this.handleInlineEditInput}
-                    @keydown=${this.handleInlineEditorKeyDown}
-                    ?data-has-error=${!!inlineError}
-                    size="small"
-                  >
-                    <span slot="label">${i18n('username')}</span>
-                    ${inlineError ? html`<div slot="help-text" class="error-text">${inlineError}</div>` : nothing}
-                  </cv-input>
-                  ${renderInlineEditSubmitButtons(() => this.model.cancelInlineEdit())}
-                </form>
+                <cv-input
+                  class="inline-field-input"
+                  name="inline-username"
+                  data-inline-field="username"
+                  .value=${this.model.inlineUsername()}
+                  @cv-input=${this.handleInlineEditInput}
+                  @keydown=${this.handleInlineEditorKeyDown}
+                  size="small"
+                >
+                  <span slot="label">${i18n('username')}</span>
+                </cv-input>
               </div>
             `
           : html`
@@ -316,10 +372,6 @@ export class PMEntry extends PMEntryBase {
               </div>
               <div class="field-actions">
                 ${card.username ? renderPMCopyButton({value: card.username, size: 'small'}) : nothing}
-                ${data.canEditFields
-                  ? renderInlineEditAction('username', i18n('button:edit'), () =>
-                      this.model.beginInlineEdit(card, 'username'))
-                  : nothing}
               </div>
             `}
       </div>
@@ -331,58 +383,51 @@ export class PMEntry extends PMEntryBase {
     const passwordResource = this.model.state.passwordResource()
     const isLoading = passwordResource.status === 'idle' || passwordResource.status === 'loading'
     const isReady = passwordResource.status === 'ready'
-    const isEditing = this.model.inlineField() === 'password'
-    const inlineError = this.model.inlineError()
 
     return html`
-      <div class="credential-field ${isEditing ? 'credential-field-editing' : ''}">
-        ${isEditing
+      <div class="credential-field ${data.isEditingEntry ? 'credential-field-editing' : ''}">
+        ${data.canEditFields && data.isEditingEntry
           ? html`
               <div class="field-editor">
-                <form class="inline-edit-form" @submit=${this.handleInlineEditSubmit}>
-                  <div class="password-inline-stack">
-                    <cv-input
-                      class="inline-field-input"
-                      type="password"
-                      password-toggle
-                      name="inline-password"
-                      data-inline-field="password"
-                      .value=${this.model.inlinePassword()}
-                      @cv-input=${this.handleInlineEditInput}
-                      @keydown=${this.handleInlineEditorKeyDown}
-                      ?data-has-error=${!!inlineError}
-                      size="small"
+                <div class="password-inline-stack">
+                  <cv-input
+                    class="inline-field-input"
+                    type="password"
+                    password-toggle
+                    name="inline-password"
+                    data-inline-field="password"
+                    .value=${this.model.inlinePassword()}
+                    @cv-input=${this.handleInlineEditInput}
+                    @keydown=${this.handleInlineEditorKeyDown}
+                    size="small"
+                  >
+                    <span slot="label">${i18n('password')}</span>
+                  </cv-input>
+                  <div class="password-inline-tools">
+                    <cv-button unstyled
+                      class="generator-toggle-button"
+                      type="button"
+                      aria-label=${i18n('password:generator_settings')}
+                      aria-pressed=${String(this.model.inlinePasswordGeneratorOpen())}
+                      title=${i18n('password:generator_settings')}
+                      @click=${() => this.model.toggleInlinePasswordGenerator()}
                     >
-                      <span slot="label">${i18n('password')}</span>
-                      ${inlineError ? html`<div slot="help-text" class="error-text">${inlineError}</div>` : nothing}
-                    </cv-input>
-                    <div class="password-inline-tools">
-                      <cv-button unstyled
-                        class="generator-toggle-button"
-                        type="button"
-                        aria-label=${i18n('password:generator_settings')}
-                        aria-pressed=${String(this.model.inlinePasswordGeneratorOpen())}
-                        title=${i18n('password:generator_settings')}
-                        @click=${() => this.model.toggleInlinePasswordGenerator()}
-                      >
-                        <cv-icon name="gear" aria-hidden="true"></cv-icon>
-                      </cv-button>
-                      <cv-button
-                        class="generate-action-button"
-                        type="button"
-                        variant="primary"
-                        size="small"
-                        @click=${() => this.model.generateInlinePassword()}
-                      >
-                        <cv-icon slot="prefix" name="arrow-clockwise" aria-hidden="true"></cv-icon>
-                        <span>${i18n('button:generate')}</span>
-                      </cv-button>
-                    </div>
-                    ${renderInlinePasswordStrength(this.model)}
-                    ${renderInlinePasswordGeneratorPanel(this.model, (event) => this.handleInlinePasswordLengthInput(event))}
+                      <cv-icon name="gear" aria-hidden="true"></cv-icon>
+                    </cv-button>
+                    <cv-button
+                      class="generate-action-button"
+                      type="button"
+                      variant="primary"
+                      size="small"
+                      @click=${() => this.model.generateInlinePassword()}
+                    >
+                      <cv-icon slot="prefix" name="arrow-clockwise" aria-hidden="true"></cv-icon>
+                      <span>${i18n('button:generate')}</span>
+                    </cv-button>
                   </div>
-                  ${renderInlineEditSubmitButtons(() => this.model.cancelInlineEdit())}
-                </form>
+                  ${renderInlinePasswordStrength(this.model)}
+                  ${renderInlinePasswordGeneratorPanel(this.model, (event) => this.handleInlinePasswordLengthInput(event))}
+                </div>
               </div>
             `
           : html`
@@ -413,41 +458,33 @@ export class PMEntry extends PMEntryBase {
               </div>
               <div class="field-actions">
                 ${isReady ? renderPMCopyButton({value: passwordResource.value, size: 'small'}) : nothing}
-                ${data.canEditFields
-                  ? renderInlineEditAction('password', i18n('button:edit'), () =>
-                      this.model.beginInlineEdit(card, 'password'))
-                  : nothing}
               </div>
             `}
       </div>
     `
   }
 
-  private renderWebsiteField(card: Entry, data: PMEntryEditData) {
-    const isEditing = this.model.inlineField() === 'website'
+  private renderWebsiteField(_card: Entry, data: PMEntryEditData) {
     const inlineError = this.model.inlineError()
 
     return html`
-      <div class="credential-field ${isEditing ? 'credential-field-editing' : ''}">
-        ${isEditing
+      <div class="credential-field ${data.isEditingEntry ? 'credential-field-editing' : ''}">
+        ${data.canEditWebsite && data.isEditingEntry
           ? html`
               <div class="field-editor">
-                <form class="inline-edit-form" @submit=${this.handleInlineEditSubmit}>
-                  <cv-input
-                    class="inline-field-input"
-                    name="inline-website"
-                    data-inline-field="website"
-                    .value=${this.model.inlineWebsite()}
-                    @cv-input=${this.handleInlineEditInput}
-                    @keydown=${this.handleInlineEditorKeyDown}
-                    ?data-has-error=${!!inlineError}
-                    size="small"
-                  >
-                    <span slot="label">${i18n('website:title')}</span>
-                    ${inlineError ? html`<div slot="help-text" class="error-text">${inlineError}</div>` : nothing}
-                  </cv-input>
-                  ${renderInlineEditSubmitButtons(() => this.model.cancelInlineEdit())}
-                </form>
+                <cv-input
+                  class="inline-field-input"
+                  name="inline-website"
+                  data-inline-field="website"
+                  .value=${this.model.inlineWebsite()}
+                  @cv-input=${this.handleInlineEditInput}
+                  @keydown=${this.handleInlineEditorKeyDown}
+                  ?data-has-error=${!!inlineError}
+                  size="small"
+                >
+                  <span slot="label">${i18n('website:title')}</span>
+                  ${inlineError ? html`<div slot="help-text" class="error-text">${inlineError}</div>` : nothing}
+                </cv-input>
               </div>
             `
           : html`
@@ -455,12 +492,7 @@ export class PMEntry extends PMEntryBase {
                 <span class="field-label">${i18n('website')}</span>
                 <div class="urls-list">${data.visibleUrls.length ? this.renderUrlButtons(data.visibleUrls) : html`<span class="field-value empty">—</span>`}</div>
               </div>
-              <div class="field-actions">
-                ${data.canEditWebsite
-                  ? renderInlineEditAction('website', i18n('button:edit'), () =>
-                      this.model.beginInlineEdit(card, 'website'))
-                  : nothing}
-              </div>
+              <div class="field-actions"></div>
             `}
       </div>
     `
@@ -476,23 +508,78 @@ export class PMEntry extends PMEntryBase {
       return nothing
     }
 
+    const data = this.model.contracts.getEntryData(card) as PMEntryEditData
+    if (data.isEditingEntry) {
+      return nothing
+    }
+
     const isReadOnly = isPassmanagerReadOnlyOrMissing()
     const baseActions = super.renderNoteCardActions(noteResource, noteContent)
     if (isReadOnly) {
       return baseActions
     }
 
-    return html`<div class="card-actions">${baseActions}${renderNoteEditAction(() => this.model.beginNoteEdit(card))}</div>`
+    return html`<div class="card-actions">${baseActions}</div>`
   }
 
   protected override onStartNoteEdit() {
     if (!(this.entry instanceof Entry)) return
-    this.model.beginNoteEdit(this.entry)
+    this.model.beginEntryEdit(this.entry, 'note')
   }
 
   protected override renderNote() {
+    const card = this.entry
+    if (card instanceof Entry) {
+      const data = this.model.contracts.getEntryData(card) as PMEntryEditData
+      if (data.isEditingEntry && card.entryType !== 'payment_card') {
+        return html`
+          <cv-textarea
+            class="note-inline-input entry-edit-note-input"
+            name="inline-note"
+            .value=${this.model.noteDraft()}
+            rows="6"
+            size="small"
+            @cv-input=${this.handleNoteInput}
+            @keydown=${this.handleInlineEditorKeyDown}
+          ></cv-textarea>
+        `
+      }
+    }
+
     if (this.model.sectionSnippet() !== 'note') {
-      return super.renderNote()
+      const noteResource = this.model.state.noteResource()
+      const noteContent = this.model.state.note()
+      const isLoading = noteResource.status === 'idle' || noteResource.status === 'loading'
+      const isReadOnly = isPassmanagerReadOnlyOrMissing()
+
+      if (isLoading) {
+        return html`
+          <div class="note-skeleton secret-skeleton" role="status" aria-label=${i18n('loading')}>
+            <div class="skeleton-line"></div>
+            <div class="skeleton-line short"></div>
+          </div>
+        `
+      }
+
+      if (noteResource.status === 'error') {
+        return html`
+          <div class="note-content note-content-error" role="status">${i18n('entry:secret:unavailable')}</div>
+        `
+      }
+
+      if (!noteContent) {
+        return html`<div class="empty-state" role="status"><span>${i18n('entry:note:empty_hint')}</span></div>`
+      }
+
+      return html`
+        <div
+          class="note-content"
+          role="textbox"
+          aria-readonly="true"
+          tabindex="-1"
+          @dblclick=${isReadOnly ? undefined : this.handleStartNoteEntryEdit}
+        >${noteContent}</div>
+      `
     }
 
     const noteError = this.model.noteError()
@@ -507,13 +594,57 @@ export class PMEntry extends PMEntryBase {
             rows="6"
             size="small"
             enter-behavior="submit"
-            @cv-input=${(event: CustomEvent<{value: string}>) => this.model.setNoteDraft(event.detail.value)}
+            @cv-input=${this.handleNoteInput}
             @keydown=${this.handleSectionSnippetKeyDown}
           >
             ${noteError ? html`<div slot="help-text" class="error-text">${noteError}</div>` : nothing}
           </cv-textarea>
-          ${renderNoteSubmitButtons({onCancel: () => this.model.closeSectionSnippet(), saving: this.model.noteSaving()})}
+          ${renderSectionSnippetButtons({
+            onCancel: () => this.model.closeSectionSnippet(),
+            onSave: () => this.handleSaveNote(),
+            saving: this.model.noteSaving(),
+          })}
         </form>
+      </div>
+    `
+  }
+
+  private handleOtpLabelInput(event: Event) {
+    const otpId = (event.currentTarget as HTMLElement | null)?.dataset['otpId']
+    if (!otpId) return
+
+    const target = event.target as (HTMLInputElement & {value?: string}) | null
+    const detailValue = (event as CustomEvent<{value?: string}>).detail?.value
+    const value = typeof detailValue === 'string' ? detailValue : (target?.value ?? '')
+
+    this.model.setOtpLabelDraft(otpId, value)
+  }
+
+  private renderOtpLabelEditor(otp: OTP) {
+    const labelError = this.model.getOtpLabelError(otp.id)
+
+    return html`
+      <div class="otp-label-edit-row">
+        <pm-entry-otp-item
+          .otp=${otp}
+          .removable=${false}
+          @pm-entry-otp-remove=${this.handleOtpRemove}
+        ></pm-entry-otp-item>
+        <cv-input
+          class="otp-label-input"
+          name=${`otp-label-${otp.id}`}
+          data-otp-id=${otp.id}
+          data-otp-label-input=${otp.id}
+          .value=${this.model.getOtpLabelDraft(otp)}
+          autocomplete="off"
+          size="small"
+          ?data-has-error=${!!labelError}
+          @cv-input=${this.handleOtpLabelInput}
+          @keydown=${this.handleInlineEditorKeyDown}
+        >
+          <span slot="label">${i18n('otp:label')}</span>
+          ${labelError ? html`<div slot="help-text" class="error-text">${labelError}</div>` : nothing}
+        </cv-input>
       </div>
     `
   }
@@ -559,6 +690,27 @@ export class PMEntry extends PMEntryBase {
             onSave: () => this.handleOtpSave(),
             saving: this.model.otpSaving(),
           })}
+        </section>
+      `
+    }
+
+    if (data.isEditingEntry) {
+      if (!otpList.length) {
+        return nothing
+      }
+
+      return html`
+        <section class="inline-section-card" aria-label=${i18n('otp')}>
+          <div class="section-head">
+            <div class="section-title">
+              <cv-icon name="shield-check"></cv-icon>
+              <span>${i18n('otp')}</span>
+              ${data.otpCount > 0 ? html`<cv-badge class="section-count" size="small" variant="neutral">${data.otpCount}</cv-badge>` : nothing}
+            </div>
+          </div>
+          <div class="otp-codes">
+            ${otpList.map((otp) => this.renderOtpLabelEditor(otp))}
+          </div>
         </section>
       `
     }
@@ -768,13 +920,7 @@ export class PMEntry extends PMEntryBase {
 
     if (isEditing) {
       return html`
-        <form
-          class="payment-card-form-stack"
-          @submit=${(event: Event) => {
-            event.preventDefault()
-            this.handleSavePaymentCard()
-          }}
-        >
+        <form class="payment-card-form-stack" @submit=${this.handlePaymentCardSubmit}>
           <section
             class="inline-section-card payment-card-surface"
             aria-label=${i18n('entry:type:payment_card')}
@@ -808,11 +954,6 @@ export class PMEntry extends PMEntryBase {
             })}
           </section>
           ${this.model.paymentCardError() ? html`<div class="error-text">${this.model.paymentCardError()}</div>` : nothing}
-          ${renderSectionSnippetButtons({
-            onCancel: () => this.model.closeSectionSnippet(),
-            onSave: () => this.handleSavePaymentCard(),
-            saving: this.model.paymentCardSaving(),
-          })}
         </form>
       `
     }
@@ -839,6 +980,7 @@ export class PMEntry extends PMEntryBase {
 
   private renderMainView(card: Entry) {
     const data = this.model.contracts.getEntryData(card) as PMEntryEditData
+    const editLoginIdentity = data.canEditFields && data.isEditingEntry && card.entryType !== 'payment_card'
 
     this.style.setProperty('--entry-avatar-bg', data.avatarBg)
 
@@ -848,12 +990,19 @@ export class PMEntry extends PMEntryBase {
           .item=${card}
           .contextLabel=${data.contextLabel}
           .contextItems=${data.contextItems}
-          .title=${data.entryTitleText}
+          .title=${editLoginIdentity ? this.model.inlineTitle() : data.entryTitleText}
           .avatarLetter=${data.entryAvatarLetter}
           .avatarFallbackBg=${data.avatarBg}
+          .avatarIconRef=${data.isEditingEntry ? this.model.inlineIconRef() : card.iconRef}
+          .avatarInteractive=${data.canEditFields && data.isEditingEntry}
+          .editableTitle=${editLoginIdentity}
+          .titlePlaceholder=${i18n('title_or_url:placeholder')}
           .updatedFormatted=${card.updatedFormatted}
           .createdFormatted=${card.createdFormatted}
           @pm-workspace-header-navigate=${this.onWorkspaceHeaderNavigate}
+          @pm-workspace-header-title-input=${this.handleHeaderTitleInput}
+          @pm-icon-change=${this.handleInlineIconChange}
+          @keydown=${this.handleInlineEditorKeyDown}
         >
           ${this.renderHeaderBadges(data.headerBadges)}
           ${this.renderHeaderActions()}
@@ -868,7 +1017,7 @@ export class PMEntry extends PMEntryBase {
             `
           : html`
               <div class="fields-card">
-                ${this.renderTitleField(card, data)}
+                ${data.isEditingEntry ? nothing : this.renderTitleField(card, data)}
                 ${this.renderUsernameField(card)}
                 ${this.renderPasswordField(card)}
                 ${this.renderWebsiteField(card, data)}

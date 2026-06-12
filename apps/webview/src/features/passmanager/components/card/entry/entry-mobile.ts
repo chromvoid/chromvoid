@@ -5,6 +5,7 @@ import {CVInput} from '@chromvoid/uikit/components/cv-input'
 import {CVTextarea, type CVTextareaInputEvent} from '@chromvoid/uikit/components/cv-textarea'
 import {Entry, OTP} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
+import {holdMobileKeyboard} from 'root/app/bootstrap/mobile-keyboard'
 import {pmCredentialTagsModel} from '../../../models/pm-credential-tags.model'
 import {isPassmanagerReadOnlyOrMissing} from '../../../models/pm-root.adapter'
 
@@ -71,12 +72,7 @@ export class PMEntryMobile extends PMEntryBase {
     }
   }
 
-  static styles = [
-    ...PMEntryBase.styles,
-    pmEntryTagsStyles,
-    paymentCardFaceMobileStyles,
-    entryMobileStyles,
-  ]
+  static styles = [...PMEntryBase.styles, pmEntryTagsStyles, paymentCardFaceMobileStyles, entryMobileStyles]
 
   protected override updated(changedProperties: PropertyValues): void {
     super.updated(changedProperties)
@@ -108,7 +104,11 @@ export class PMEntryMobile extends PMEntryBase {
     const entryEditFocusRequest = this.model.entryEditFocusRequest()
     if (entryEditFocusRequest && entryEditFocusRequest.token !== this.renderedEntryEditFocusToken) {
       this.renderedEntryEditFocusToken = entryEditFocusRequest.token
-      scheduleEntryEditFieldFocus(this.afterRenderScheduler, () => this.shadowRoot, entryEditFocusRequest.field)
+      scheduleEntryEditFieldFocus(
+        this.afterRenderScheduler,
+        () => this.shadowRoot,
+        entryEditFocusRequest.field,
+      )
     }
   }
 
@@ -180,6 +180,9 @@ export class PMEntryMobile extends PMEntryBase {
     if (!point) return
 
     if (this.model.endCredentialEditTap(point, point.pointerId, this.entry)) {
+      // The inline editor will mount and get focused only after render — park
+      // the keyboard so the IME does not flash hide/show across the swap.
+      holdMobileKeyboard('credential-tap')
       event.preventDefault()
       event.stopPropagation()
     }
@@ -194,6 +197,7 @@ export class PMEntryMobile extends PMEntryBase {
 
     event.preventDefault()
     event.stopPropagation()
+    holdMobileKeyboard('credential-double-tap')
     this.model.beginCredentialEntryEdit(this.entry, field)
   }
 
@@ -213,6 +217,7 @@ export class PMEntryMobile extends PMEntryBase {
     if (!point) return
 
     if (this.model.endTitleEntryEditTap(point, point.pointerId, this.entry)) {
+      holdMobileKeyboard('title-tap')
       event.preventDefault()
       event.stopPropagation()
     }
@@ -413,6 +418,17 @@ export class PMEntryMobile extends PMEntryBase {
     void this.model.saveOtpSnippet(this.entry)
   }
 
+  private handleOtpLabelInput(event: Event) {
+    const otpId = (event.currentTarget as HTMLElement | null)?.dataset['otpId']
+    if (!otpId) return
+
+    const target = event.target as (HTMLInputElement & {value?: string}) | null
+    const detailValue = (event as CustomEvent<{value?: string}>).detail?.value
+    const value = typeof detailValue === 'string' ? detailValue : (target?.value ?? '')
+
+    this.model.setOtpLabelDraft(otpId, value)
+  }
+
   private handleOtpSheetClose() {
     this.model.closeSectionSnippet()
   }
@@ -496,6 +512,7 @@ export class PMEntryMobile extends PMEntryBase {
       handleSaveTags: () => this.handleSaveTags(),
       handleOtpSave: () => this.handleOtpSave(),
       handleOtpRemove: (event) => this.handleOtpRemove(event),
+      handleOtpLabelInput: (event) => this.handleOtpLabelInput(event),
       handleSectionSnippetKeyDown: (event) => this.handleSectionSnippetKeyDown(event),
       handleGenerateSshKeyRequest: (event) => this.handleGenerateSshKeyRequest(event),
       handleSshKeyRemove: (event) => this.handleSshKeyRemove(event),
@@ -564,6 +581,7 @@ export class PMEntryMobile extends PMEntryBase {
       }
       if (noteContent && !isEditingEntry) {
         const isReadOnly = isPassmanagerReadOnlyOrMissing()
+        // prettier-ignore
         return html`
           <div
             class="note-content"
@@ -600,12 +618,9 @@ export class PMEntryMobile extends PMEntryBase {
       <div class="entry-shell">
         <div class="entry-scroll">
           <article class="wrapper" role="main" aria-label=${context.data.title}>
-            <header class="entry-header">
-              ${renderHeaderIdentity(context)}
-            </header>
+            <header class="entry-header">${renderHeaderIdentity(context)}</header>
             ${renderEntryViewAddActions(context)}
             ${card.entryType === 'payment_card' ? null : renderQuickActions(context)}
-
             ${card.entryType === 'payment_card'
               ? html`
                   ${renderPaymentCardPrimarySection(context)}

@@ -396,13 +396,28 @@ export class ImageGallery extends ImageGalleryBase {
   }
 
   private getFocusableElements(): HTMLElement[] {
-    const root = this.renderRoot
-    const nodes = Array.from(
-      root.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-      ),
-    )
+    const nodes = this.collectFocusableElements(this.renderRoot)
     return nodes.filter((el) => !el.hasAttribute('disabled') && !el.getAttribute('aria-hidden'))
+  }
+
+  private collectFocusableElements(root: ParentNode): HTMLElement[] {
+    const selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    const focusables: HTMLElement[] = []
+    for (const child of Array.from(root.childNodes)) {
+      if (!(child instanceof HTMLElement)) {
+        continue
+      }
+
+      if (child.matches(selector)) {
+        focusables.push(child)
+      }
+      if (child.shadowRoot) {
+        focusables.push(...this.collectFocusableElements(child.shadowRoot))
+      }
+      focusables.push(...this.collectFocusableElements(child))
+    }
+
+    return focusables
   }
 
   private trapFocus(e: KeyboardEvent) {

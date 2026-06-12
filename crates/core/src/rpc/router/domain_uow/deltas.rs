@@ -19,7 +19,13 @@ pub(super) fn domain_deltas(
     let mut deltas = Vec::new();
     let mut deleted_paths = old_nodes
         .keys()
-        .filter(|path| !new_nodes.contains_key(*path))
+        .filter(|path| {
+            !new_nodes.contains_key(*path)
+                || new_nodes
+                    .get(*path)
+                    .map(|new| new.node_id != old_nodes[*path].node_id)
+                    .unwrap_or(false)
+        })
         .cloned()
         .collect::<Vec<_>>();
     deleted_paths.sort_by(|a, b| path_depth(b).cmp(&path_depth(a)).then_with(|| a.cmp(b)));
@@ -34,7 +40,13 @@ pub(super) fn domain_deltas(
 
     let mut created_paths = new_nodes
         .keys()
-        .filter(|path| !old_nodes.contains_key(*path))
+        .filter(|path| {
+            !old_nodes.contains_key(*path)
+                || old_nodes
+                    .get(*path)
+                    .map(|old| old.node_id != new_nodes[*path].node_id)
+                    .unwrap_or(false)
+        })
         .cloned()
         .collect::<Vec<_>>();
     created_paths.sort_by(|a, b| path_depth(a).cmp(&path_depth(b)).then_with(|| a.cmp(b)));
@@ -48,7 +60,12 @@ pub(super) fn domain_deltas(
 
     let mut shared_paths = new_nodes
         .keys()
-        .filter(|path| old_nodes.contains_key(*path))
+        .filter(|path| {
+            old_nodes
+                .get(*path)
+                .map(|old| old.node_id == new_nodes[*path].node_id)
+                .unwrap_or(false)
+        })
         .cloned()
         .collect::<Vec<_>>();
     shared_paths.sort();
@@ -131,4 +148,45 @@ fn parent_rel_path(domain_id: &str, path: &str) -> Option<String> {
         .map(|(parent, _)| if parent.is_empty() { "/" } else { parent })
         .unwrap_or("/");
     rel_path(domain_id, parent)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::catalog::{CatalogManager, DeltaOp};
+
+    use super::domain_deltas;
+
+    #[test]
+    fn same_path_different_node_id_is_delete_create_not_update() {
+        let mut old = CatalogManager::new();
+        old.create_dir("/", ".passmanager").expect("domain root");
+        let old_node_id = old
+            .create_file("/.passmanager", ".tags-meta.json", 2, None)
+            .expect("old tags");
+
+        let mut new = old.clone();
+        new.delete(old_node_id).expect("delete old tags");
+        let new_node_id = new
+            .create_file("/.passmanager", ".tags-meta.json", 3, None)
+            .expect("new tags");
+        assert_ne!(old_node_id, new_node_id);
+
+        let deltas = domain_deltas(&old, &new, ".passmanager");
+        let delete = deltas
+            .iter()
+            .find(|delta| delta.path == "/.tags-meta.json")
+            .expect("delete old tag file");
+        assert!(matches!(delete.op, DeltaOp::Delete));
+        assert_eq!(delete.node_id, Some(old_node_id));
+
+        let create = deltas
+            .iter()
+            .find(|delta| match &delta.op {
+                DeltaOp::Create { node } => node.name == ".tags-meta.json",
+                _ => false,
+            })
+            .expect("create new tag file");
+        assert_eq!(create.path, "/");
+        assert_eq!(create.node_id, Some(new_node_id));
+    }
 }

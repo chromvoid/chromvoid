@@ -17,10 +17,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.5.6", features = [] }
 
 [features]
-default = []
+default = ["desktop"]
 desktop = [
-    "dep:serialport",
-    "dep:tokio-serial",
     "dep:webrtc",
     "dep:dav-server",
     "dep:hyper",
@@ -56,9 +54,6 @@ tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tauri-plugin-dialog = "2.6.0"
 tauri-plugin-clipboard-manager = "2.3.2"
-serialport = { version = "4", optional = true }
-tokio-serial = { version = "5.4", optional = true }
-
 webrtc = { version = "0.14", optional = true }
 bytes = "1"
 async-trait = "0.1"
@@ -89,6 +84,7 @@ chromvoid-protocol = { path = "../../../crates/protocol", features = ["async-tra
 [target.'cfg(target_os = "linux")'.dependencies]
 fuser = { path = "../../../crates/fuser" }
 libc = "0.2"
+dbus = "0.9"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 fuser = { path = "../../../crates/fuser", features = ["libfuse2"] }
@@ -99,6 +95,9 @@ ssh2 = "0.9"
 
 [target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
 libheif-rs = { version = "2.7", default-features = false, features = ["v1_17"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "ios"))'.dependencies]
 webp = { version = "0.3", default-features = false }

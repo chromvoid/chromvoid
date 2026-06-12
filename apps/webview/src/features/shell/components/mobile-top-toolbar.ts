@@ -5,6 +5,7 @@ import {CVMenuItem} from '@chromvoid/uikit/components/cv-menu-item'
 import {css, nothing} from 'lit'
 
 import {i18n} from 'root/i18n'
+import {notificationIndicatorStyles} from 'root/shared/ui/notification-indicator.styles'
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 
 export type MobileToolbarLeadingMode = 'menu' | 'back' | 'none'
@@ -66,6 +67,7 @@ export class MobileTopToolbar extends ReatomLitElement {
 
   static styles = [
     sharedStyles,
+    notificationIndicatorStyles,
     css`
       :host {
         display: block;
@@ -81,7 +83,7 @@ export class MobileTopToolbar extends ReatomLitElement {
       .toolbar {
         box-sizing: border-box;
         inline-size: 100%;
-        min-block-size: 56px;
+        min-block-size: var(--app-mobile-topbar-block-size, 56px);
         display: grid;
         grid-template-columns: 44px minmax(0, 1fr) auto;
         align-items: center;
@@ -275,15 +277,11 @@ export class MobileTopToolbar extends ReatomLitElement {
       }
 
       .action-indicator {
-        position: absolute;
-        inset-block-start: 9px;
-        inset-inline-end: 9px;
-        inline-size: 7px;
-        block-size: 7px;
-        border-radius: 999px;
-        background: var(--cv-color-accent, #ff7a00);
-        border: 1.5px solid var(--cv-color-surface-glass-strong, var(--cv-color-surface));
-        pointer-events: none;
+        --cv-notification-dot-block-start: 9px;
+        --cv-notification-dot-inline-end: 9px;
+        --cv-notification-dot-size: 7px;
+        --cv-notification-dot-border: 1.5px solid
+          var(--cv-color-surface-glass-strong, var(--cv-color-surface));
       }
 
       /* ── Overflow dropdown ── */
@@ -501,7 +499,9 @@ export class MobileTopToolbar extends ReatomLitElement {
         aria-label=${i18n('command:search-and-commands' as any)}
       >
         <cv-icon name="search"></cv-icon>
-        ${this.commandActive ? html`<span class="action-indicator" aria-hidden="true"></span>` : nothing}
+        ${this.commandActive
+          ? html`<span class="notification-dot action-indicator" aria-hidden="true"></span>`
+          : nothing}
       </cv-button>
     `
   }
@@ -536,7 +536,9 @@ export class MobileTopToolbar extends ReatomLitElement {
           >
             <span slot="prefix" class="overflow-menu-trigger">
               <cv-icon name="three-dots"></cv-icon>
-              ${overflowActive ? html`<span class="action-indicator" aria-hidden="true"></span>` : nothing}
+              ${overflowActive
+                ? html`<span class="notification-dot action-indicator" aria-hidden="true"></span>`
+                : nothing}
             </span>
             <span class="sr-only">${i18n('button:more_actions' as any)}</span>
             ${overflow.map(
@@ -565,7 +567,9 @@ export class MobileTopToolbar extends ReatomLitElement {
           @click=${this.onActionButtonClick}
         >
           <cv-icon name=${a.icon}></cv-icon>
-          ${a.active ? html`<span class="action-indicator" aria-hidden="true"></span>` : nothing}
+          ${a.active
+            ? html`<span class="notification-dot action-indicator" aria-hidden="true"></span>`
+            : nothing}
         </cv-button>
       `
 

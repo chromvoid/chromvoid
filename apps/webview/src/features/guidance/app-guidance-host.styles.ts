@@ -4,11 +4,7 @@ export const appGuidanceHostStyles = css`
   :host {
     display: contents;
     --app-guidance-z-index: calc(var(--cv-z-overlay, 1000) + 24);
-    --app-guidance-overlay-color: color-mix(
-      in oklab,
-      var(--cv-color-overlay, rgba(0, 0, 0, 0.72)) 82%,
-      transparent
-    );
+    --app-guidance-overlay-color: var(--cv-color-overlay);
   }
 
   cv-popover {
@@ -25,27 +21,15 @@ export const appGuidanceHostStyles = css`
     --cv-guidance-panel-padding-block: 20px;
     --cv-guidance-panel-gap: 16px;
     --cv-guidance-panel-border-radius: 14px;
-    --cv-guidance-panel-border-color: color-mix(
-      in oklab,
-      var(--cv-color-info, #65d7ff) 34%,
-      var(--cv-color-border, #2a3245)
-    );
-    --cv-guidance-panel-background: color-mix(
-      in oklab,
-      var(--cv-color-surface-elevated, #1d2432) 92%,
-      var(--cv-color-info, #65d7ff)
-    );
+    --cv-guidance-panel-border-color: var(--cv-color-info-border-strong);
+    --cv-guidance-panel-background: var(--cv-color-surface-elevated);
     --cv-guidance-panel-shadow:
-      0 20px 56px rgba(0, 0, 0, 0.42),
-      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      var(--cv-shadow-xl),
+      inset 0 1px 0 var(--cv-alpha-white-6);
     --cv-guidance-panel-title-font-size: 17px;
     --cv-guidance-panel-title-line-height: 1.22;
     --cv-guidance-panel-body-line-height: 1.55;
-    --cv-guidance-panel-body-color: color-mix(
-      in oklab,
-      var(--cv-color-text-muted, #bac4d8) 88%,
-      var(--cv-color-text, #e8ecf6)
-    );
+    --cv-guidance-panel-body-color: var(--cv-color-text-muted);
   }
 
   cv-guidance-panel button[data-guidance-action] {
@@ -54,7 +38,7 @@ export const appGuidanceHostStyles = css`
     border: 1px solid transparent;
     border-radius: 999px;
     background: transparent;
-    color: var(--cv-color-text, #e8ecf6);
+    color: var(--cv-color-text);
     font: inherit;
     font-size: 13px;
     font-weight: 650;
@@ -63,27 +47,27 @@ export const appGuidanceHostStyles = css`
   }
 
   cv-guidance-panel button[data-guidance-action]:focus-visible {
-    outline: 2px solid var(--cv-color-primary, #65d7ff);
+    outline: 2px solid var(--cv-color-primary);
     outline-offset: 2px;
   }
 
   cv-guidance-panel button[data-guidance-action='primary'] {
-    background: var(--cv-color-primary, #65d7ff);
-    color: var(--cv-color-on-primary, #06131a);
-    box-shadow: 0 0 0 1px color-mix(in oklab, var(--cv-color-primary, #65d7ff) 70%, transparent);
+    background: var(--cv-color-primary);
+    color: var(--cv-color-on-primary);
+    box-shadow: 0 0 0 1px var(--cv-color-primary-border-strong);
   }
 
   cv-guidance-panel button[data-guidance-action='primary']:hover {
-    background: color-mix(in oklab, var(--cv-color-primary, #65d7ff) 86%, white);
+    background: var(--cv-color-primary-dark);
   }
 
   cv-guidance-panel button[data-guidance-action='secondary'] {
-    border-color: var(--cv-color-border, #2a3245);
-    background: rgba(255, 255, 255, 0.04);
+    border-color: var(--cv-color-border);
+    background: var(--cv-color-surface-highlight);
   }
 
   cv-guidance-panel button[data-guidance-action='secondary']:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--cv-color-hover);
   }
 
   cv-guidance-panel button[data-guidance-action='close'] {
@@ -93,12 +77,12 @@ export const appGuidanceHostStyles = css`
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    color: var(--cv-color-text-muted, #bac4d8);
+    color: var(--cv-color-text-muted);
   }
 
   cv-guidance-panel button[data-guidance-action='close']:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: var(--cv-color-text, #e8ecf6);
+    background: var(--cv-color-hover);
+    color: var(--cv-color-text);
   }
 
   cv-guidance-panel button[data-guidance-action='close'] cv-icon {

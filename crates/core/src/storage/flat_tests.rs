@@ -192,10 +192,52 @@ fn test_list_chunks() {
 }
 
 #[test]
+fn test_list_chunks_ignores_non_real_chunk_names() {
+    let (storage, _temp_dir) = create_test_storage();
+    let valid_name = "01a2b3c4d5e6f7890123456789abcdef01a2b3c4d5e6f7890123456789abcdef";
+    storage
+        .write_chunk(valid_name, b"valid")
+        .expect("write valid chunk");
+
+    let invalid_names = [
+        "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789",
+        "abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678",
+        "abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567890",
+    ];
+    for name in invalid_names {
+        let path = storage
+            .base_path()
+            .join("chunks")
+            .join(&name[0..1])
+            .join(&name[1..3])
+            .join(name);
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+        std::fs::write(path, b"invalid").expect("write invalid chunk name");
+    }
+
+    let listed = storage.list_chunks().expect("list chunks");
+    assert_eq!(listed, vec![valid_name.to_string()]);
+    assert!(storage.has_any_chunk().expect("has any chunk"));
+}
+
+#[test]
 fn test_invalid_chunk_name_short() {
     let (storage, _temp_dir) = create_test_storage();
 
     let result = storage.write_chunk("ab", b"test");
+
+    assert!(result.is_err());
+    assert!(matches!(result, Err(Error::InvalidChunkName(_))));
+}
+
+#[test]
+fn test_invalid_chunk_name_uppercase() {
+    let (storage, _temp_dir) = create_test_storage();
+
+    let result = storage.write_chunk(
+        "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789",
+        b"test",
+    );
 
     assert!(result.is_err());
     assert!(matches!(result, Err(Error::InvalidChunkName(_))));
@@ -222,6 +264,7 @@ fn test_artifact_write_read_remove_roundtrip() {
         StorageArtifact::MasterVerify,
         StorageArtifact::MasterVerifyRekeyTemp,
         StorageArtifact::RekeyTransaction,
+        StorageArtifact::RekeyTransactionV2,
         StorageArtifact::MasterRekeyTransaction,
         StorageArtifact::RestoreTransaction,
     ] {

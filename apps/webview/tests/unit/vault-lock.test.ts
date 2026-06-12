@@ -30,6 +30,8 @@ function setupContext(layout: 'mobile' | 'desktop' = 'mobile') {
   const sidebarOpen = atom(true)
   const vaultLockPending = atom(false)
   const selectedNodeIds = atom<number[]>([1, 2])
+  const uploadTasks = atom([{id: 'upload-1'}])
+  const currentPath = atom('/Secrets/')
   const stateData = atom({StorageOpened: true})
   const pushNotification = vi.fn()
   const setSelectedItems = vi.fn((next: number[]) => selectedNodeIds.set(next))
@@ -51,6 +53,8 @@ function setupContext(layout: 'mobile' | 'desktop' = 'mobile') {
     handleVaultLocked: vi.fn((_options: {source: 'manual'}) => {
       vaultLockPending.set(false)
       setSelectedItems([])
+      uploadTasks.set([])
+      currentPath.set('/')
     }),
     pushNotification,
     setSelectedItems,
@@ -71,7 +75,7 @@ function setupContext(layout: 'mobile' | 'desktop' = 'mobile') {
     }),
   )
 
-  return {catalog, selectedNodeIds, stateData, store}
+  return {catalog, currentPath, selectedNodeIds, stateData, store, uploadTasks}
 }
 
 function rpcDispatchCalls() {
@@ -170,5 +174,25 @@ describe('lockVaultFromUi', () => {
     expect(store.vaultLockPending()).toBe(false)
     expect(stateData().StorageOpened).toBe(true)
     expect(store.pushNotification).toHaveBeenCalledWith('error', 'Lock failed')
+  })
+
+  it('fails closed and clears unlocked UI state when backend lock status is ambiguous', async () => {
+    vi.stubGlobal('__TAURI_INTERNALS__', {invoke: vi.fn()})
+    tauriInvoke.mockImplementation((command: string) =>
+      command === 'rpc_dispatch'
+        ? Promise.reject(new Error('IPC timeout'))
+        : Promise.resolve(null),
+    )
+    const {currentPath, selectedNodeIds, stateData, store, uploadTasks} = setupContext('mobile')
+
+    await lockVaultFromUi()
+
+    expect(store.vaultLockPending()).toBe(false)
+    expect(stateData().StorageOpened).toBe(false)
+    expect(selectedNodeIds()).toEqual([])
+    expect(uploadTasks()).toEqual([])
+    expect(currentPath()).toBe('/')
+    expect(store.handleVaultLocked).toHaveBeenCalledWith({source: 'manual'})
+    expect(store.pushNotification).toHaveBeenCalledWith('warning', 'IPC timeout')
   })
 })

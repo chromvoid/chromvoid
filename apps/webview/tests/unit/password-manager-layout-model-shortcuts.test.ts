@@ -234,7 +234,10 @@ describe('PasswordManagerLayoutModel shortcut guards', () => {
         'none',
       )
       root.showElement.set(root)
-      expect(model.resolveGlobalShortcut(createKeyboardEvent('Enter', target, [target]), false)).toBe(
+      expect(model.resolveGlobalShortcut(createKeyboardEvent('Enter', target, [target]), false)).toBe('none')
+      const row = document.createElement('div')
+      row.className = 'list-item'
+      expect(model.resolveGlobalShortcut(createKeyboardEvent('Enter', row, [row]), false)).toBe(
         'open-first-search-result',
       )
       expect(model.resolveGlobalShortcut(createKeyboardEvent('Enter', target, [target]), true)).toBe('none')

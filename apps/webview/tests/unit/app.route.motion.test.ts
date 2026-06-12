@@ -22,6 +22,15 @@ function setupContext(route: Routes) {
     dualPaneMode: atom(false),
     selectedNodeIds: atom<number[]>([]),
     selectionMode: atom(false),
+    currentPath: atom('/'),
+    searchFilters: atom({
+      query: '',
+      sortBy: 'name',
+      sortDirection: 'asc',
+      viewMode: 'list',
+      showHidden: false,
+      fileTypes: [],
+    }),
     setSidebarOpen: vi.fn(),
   }
 
@@ -31,6 +40,11 @@ function setupContext(route: Routes) {
         route: routeAtom,
       } as never,
       store: store as never,
+      catalog: {
+        catalog: {
+          getChildren: () => [],
+        },
+      } as never,
     }),
   )
   navigationModel.reset()

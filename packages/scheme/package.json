@@ -13,16 +13,16 @@
     }
   },
   "scripts": {
-    "fix": "npm run lint:fix && npm run format",
+    "fix": "bun run lint:fix && bun run format",
     "lint:fix": "oxlint --fix src/**/*.ts",
     "format": "prettier --write src/**/*.ts",
     "build": "tsup src/index.ts --format cjs,esm --dts",
-    "generate": "cd ../.. && npm run types:generate",
-    "prepublish": "npm run generate && npm run build"
+    "generate": "cd ../.. && bun run types:generate",
+    "prepublish": "bun run generate && bun run build"
   },
   "devDependencies": {
     "tsup": "^8.0.0",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.3"
   },
   "files": [
     "dist",

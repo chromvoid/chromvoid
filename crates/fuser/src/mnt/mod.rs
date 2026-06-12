@@ -225,6 +225,8 @@ fn is_mounted(fuse_device: &DevFuse) -> bool {
 #[cfg(test)]
 mod test {
     use std::ffi::CStr;
+    use std::path::Path;
+    use std::process::Command;
 
     use crate::mnt::*;
 
@@ -272,6 +274,14 @@ mod test {
     fn mount_unmount() {
         use std::mem::ManuallyDrop;
 
+        if let Err(reason) = require_fuse_mount_smoke_available() {
+            if std::env::var("CHROMVOID_REQUIRE_FUSE").ok().as_deref() == Some("1") {
+                panic!("FUSE mount smoke required but unavailable: {reason}");
+            }
+            eprintln!("SKIP mount_unmount: FUSE mount smoke unavailable ({reason})");
+            return;
+        }
+
         // We use ManuallyDrop here to leak the directory on test failure.  We don't
         // want to try and clean up the directory if it's a mountpoint otherwise we'll
         // deadlock.
@@ -299,5 +309,21 @@ mod test {
 
         // Filesystem may have been lazy unmounted, so we can't assert this:
         // assert!(!is_mounted(&file));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn require_fuse_mount_smoke_available() -> Result<(), String> {
+        if !Path::new("/dev/fuse").exists() {
+            return Err("/dev/fuse is missing".to_string());
+        }
+        if has_command("fusermount3") || has_command("fusermount") {
+            return Ok(());
+        }
+        Err("fusermount3/fusermount is missing".to_string())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn has_command(command: &str) -> bool {
+        Command::new(command).arg("-h").output().is_ok()
     }
 }

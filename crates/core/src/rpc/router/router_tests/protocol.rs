@@ -1,5 +1,6 @@
 use super::fixtures::*;
 use super::*;
+use crate::storage::test_util::{fault_injecting_storage, FaultRule, StorageOperation};
 
 #[test]
 fn test_ping_pong() {
@@ -157,4 +158,37 @@ fn test_persistence_across_sessions() {
             "persistent_dir"
         );
     }
+}
+
+#[test]
+fn vault_lock_failure_keeps_router_unlocked() {
+    let temp_dir = TempDir::new().expect("failed to create temp dir");
+    let (storage, _faults) = fault_injecting_storage(
+        temp_dir.path(),
+        Some(FaultRule {
+            operation: StorageOperation::WriteChunkAtomic,
+            fail_on: 1,
+        }),
+    )
+    .expect("fault storage");
+    let ks = Arc::new(InMemoryKeystore::new());
+    let mut router = RpcRouter::new(storage).with_keystore(ks);
+
+    let unlock = router.handle(&RpcRequest::new(
+        "vault:unlock",
+        serde_json::json!({"password": "test"}),
+    ));
+    assert!(unlock.is_ok());
+
+    router
+        .session_mut()
+        .expect("unlocked session")
+        .catalog_mut()
+        .create_dir("/", "dirty")
+        .expect("dirty catalog");
+
+    let lock = router.handle(&RpcRequest::new("vault:lock", serde_json::json!({})));
+
+    assert!(!lock.is_ok());
+    assert!(router.is_unlocked());
 }

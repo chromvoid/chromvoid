@@ -30,8 +30,8 @@ const createPointerState = (): VirtualFileListPointerState => ({
 })
 
 const createSelectionState = (): VirtualFileListSelectionState => ({
-  lastSelectionAnchorIndex: null,
-  lastKeyboardAnchorIndex: null,
+  lastSelectionAnchorId: null,
+  lastKeyboardAnchorId: null,
 })
 
 export class VirtualFileListHandlers {
@@ -83,8 +83,8 @@ export class VirtualFileListHandlers {
       ) => this.emitItemAction(action, item, event, source, target),
       getActiveItemId: () => this.context.getActiveItemId(),
       setActiveItemId: (id: number | null) => this.context.setActiveItemId(id),
-      getSelectionAnchor: () => this.selectionState.lastSelectionAnchorIndex,
-      getKeyboardAnchor: () => this.selectionState.lastKeyboardAnchorIndex,
+      getSelectionAnchorId: () => this.selectionState.lastSelectionAnchorId,
+      getKeyboardAnchorId: () => this.selectionState.lastKeyboardAnchorId,
       focusItemById: (id: number) => this.context.focusItemById(id),
       getItemClientRect: (id: number) => this.context.getItemClientRect(id),
       ensureIndexVisible: (index: number) => this.context.ensureIndexVisible(index),
@@ -96,32 +96,47 @@ export class VirtualFileListHandlers {
       normalizePath: (path: string) => this.context.normalizePath(path),
       getParentPath: (path: string) => this.context.getParentPath(path),
       afterUpdate: (callback: () => void) => this.context.afterUpdate(callback),
-      setSelectionAnchor: (index: number | null) => this.setSelectionAnchor(index),
-      setKeyboardAnchor: (index: number | null) => this.setKeyboardAnchor(index),
+      setSelectionAnchorId: (id: number | null) => this.setSelectionAnchor(id),
+      setKeyboardAnchorId: (id: number | null) => this.setKeyboardAnchor(id),
     })
   }
 
   get lastSelectionIndex() {
-    return this.selectionState.lastSelectionAnchorIndex
+    return this.selectionState.lastSelectionAnchorId
   }
 
   get lastKeyboardIndex() {
-    return this.selectionState.lastKeyboardAnchorIndex
+    return this.selectionState.lastKeyboardAnchorId
   }
 
   setSelectionAnchor(value: number | null) {
-    this.selectionState.lastSelectionAnchorIndex = value
+    this.selectionState.lastSelectionAnchorId = value
   }
 
   setKeyboardAnchor(value: number | null) {
-    this.selectionState.lastKeyboardAnchorIndex = value
+    this.selectionState.lastKeyboardAnchorId = value
+  }
+
+  clearAnchors(): void {
+    this.setSelectionAnchor(null)
+    this.setKeyboardAnchor(null)
+  }
+
+  pruneAnchors(items: FileListItem[]): void {
+    const ids = new Set(items.map((item) => item.id))
+    if (this.selectionState.lastSelectionAnchorId != null && !ids.has(this.selectionState.lastSelectionAnchorId)) {
+      this.selectionState.lastSelectionAnchorId = null
+    }
+    if (this.selectionState.lastKeyboardAnchorId != null && !ids.has(this.selectionState.lastKeyboardAnchorId)) {
+      this.selectionState.lastKeyboardAnchorId = null
+    }
   }
 
   getKeyboardCurrentIndex(filtered: FileListItem[]): number {
     return getKeyboardCurrentIndex(filtered, {
       getActiveItemId: () => this.context.getActiveItemId(),
       getSelectedItems: () => this.context.getSelectedItems(),
-      getKeyboardAnchor: () => this.selectionState.lastKeyboardAnchorIndex,
+      getKeyboardAnchorId: () => this.selectionState.lastKeyboardAnchorId,
     })
   }
 

@@ -18,29 +18,36 @@ internal class BiometricPromptRunnerAdapter(
         onSuccess: () -> Unit,
         onError: (GetCredentialException) -> Unit,
     ) {
-        biometricPromptRunner.authenticate(
-            activity = activity,
-            title = activity.getString(R.string.passkey_get_title),
-            subtitle = activity.getString(R.string.passkey_prompt_subtitle),
-            onSuccess = {
-                onSuccess()
-            },
-            onCancel = {
-                onError(
-                    GetCredentialCancellationException(
-                        "ChromVoid passkey prompt was cancelled.",
-                    ),
+        val result =
+            biometricPromptRunner.withPromptLock {
+                biometricPromptRunner.authenticate(
+                    activity = activity,
+                    title = activity.getString(R.string.passkey_get_title),
+                    subtitle = activity.getString(R.string.passkey_prompt_subtitle),
+                    onSuccess = {
+                        onSuccess()
+                    },
+                    onCancel = {
+                        onError(
+                            GetCredentialCancellationException(
+                                "ChromVoid passkey prompt was cancelled.",
+                            ),
+                        )
+                    },
+                    onError = { _, errString ->
+                        onError(
+                            GetCredentialInterruptedException(
+                                errString.takeIf { it.isNotBlank() }
+                                    ?: "ChromVoid passkey prompt was interrupted.",
+                            ),
+                        )
+                    },
                 )
-            },
-            onError = { _, errString ->
-                onError(
-                    GetCredentialInterruptedException(
-                        errString.takeIf { it.isNotBlank() }
-                            ?: "ChromVoid passkey prompt was interrupted.",
-                    ),
-                )
-            },
-        )
+                0
+            }
+        if (result == BiometricPromptRunner.PROMPT_ALREADY_ACTIVE) {
+            onError(GetCredentialInterruptedException("ChromVoid passkey prompt is already active."))
+        }
     }
 
     override fun authenticateCreate(
@@ -48,28 +55,35 @@ internal class BiometricPromptRunnerAdapter(
         onSuccess: () -> Unit,
         onError: (androidx.credentials.exceptions.CreateCredentialException) -> Unit,
     ) {
-        biometricPromptRunner.authenticate(
-            activity = activity,
-            title = activity.getString(R.string.passkey_create_title),
-            subtitle = activity.getString(R.string.passkey_prompt_subtitle),
-            onSuccess = {
-                onSuccess()
-            },
-            onCancel = {
-                onError(
-                    CreateCredentialCancellationException(
-                        "ChromVoid passkey prompt was cancelled.",
-                    ),
+        val result =
+            biometricPromptRunner.withPromptLock {
+                biometricPromptRunner.authenticate(
+                    activity = activity,
+                    title = activity.getString(R.string.passkey_create_title),
+                    subtitle = activity.getString(R.string.passkey_prompt_subtitle),
+                    onSuccess = {
+                        onSuccess()
+                    },
+                    onCancel = {
+                        onError(
+                            CreateCredentialCancellationException(
+                                "ChromVoid passkey prompt was cancelled.",
+                            ),
+                        )
+                    },
+                    onError = { _, errString ->
+                        onError(
+                            CreateCredentialInterruptedException(
+                                errString.takeIf { it.isNotBlank() }
+                                    ?: "ChromVoid passkey prompt was interrupted.",
+                            ),
+                        )
+                    },
                 )
-            },
-            onError = { _, errString ->
-                onError(
-                    CreateCredentialInterruptedException(
-                        errString.takeIf { it.isNotBlank() }
-                            ?: "ChromVoid passkey prompt was interrupted.",
-                    ),
-                )
-            },
-        )
+                0
+            }
+        if (result == BiometricPromptRunner.PROMPT_ALREADY_ACTIVE) {
+            onError(CreateCredentialInterruptedException("ChromVoid passkey prompt is already active."))
+        }
     }
 }

@@ -1,7 +1,6 @@
-use std::io::Read;
-
 use crate::durable_tx::DurableTxPhase;
 use crate::rpc::router::session_lifecycle::now_ms;
+use crate::rpc::stream::{read_stream_to_end_limited, MAX_SINGLE_RPC_STREAM_BYTES};
 use crate::rpc::{RpcInputStream, RpcReply, RpcResponse, RpcRouter};
 
 use super::apply::{apply_restore_materials, RestoreArtifactWrite, RestoreChunkWrite};
@@ -72,14 +71,10 @@ fn admin_restore_stream(
         return Err(RestoreCommandError::storage_not_blank());
     }
 
-    let mut reader = stream.into_reader();
-    let mut backup_bytes = Vec::new();
-    if let Err(error) = reader.read_to_end(&mut backup_bytes) {
-        return Err(RestoreCommandError::internal(format!(
-            "Failed to read backup stream: {}",
-            error
-        )));
-    }
+    let backup_bytes =
+        read_stream_to_end_limited(stream, MAX_SINGLE_RPC_STREAM_BYTES).map_err(|error| {
+            RestoreCommandError::internal(format!("Failed to read backup stream: {}", error))
+        })?;
 
     let backup_data: Vec<(String, Vec<u8>)> =
         serde_json::from_slice(&backup_bytes).map_err(|error| {

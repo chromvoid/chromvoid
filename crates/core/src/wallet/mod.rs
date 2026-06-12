@@ -1,5 +1,7 @@
 //! Core wallet domain primitives (SPEC-217).
 
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 use crate::rpc::types::{
@@ -66,7 +68,7 @@ pub struct SecretBlobV1 {
     pub payload: SecretPayloadV1,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SecretPayloadV1 {
     HdRoot {
@@ -84,6 +86,44 @@ pub enum SecretPayloadV1 {
     PreparedPayload {
         canonical_payload: String,
     },
+}
+
+impl fmt::Debug for SecretPayloadV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::HdRoot {
+                wordlist,
+                bip39_passphrase,
+                mnemonic,
+                ..
+            } => formatter
+                .debug_struct("HdRoot")
+                .field("mnemonic_entropy", &"[redacted]")
+                .field("wordlist", wordlist)
+                .field(
+                    "bip39_passphrase",
+                    &bip39_passphrase.as_ref().map(|_| "[redacted]"),
+                )
+                .field("mnemonic", &format!("[redacted; {} words]", mnemonic.len()))
+                .finish(),
+            Self::ImportedKey {
+                network,
+                curve,
+                encoding,
+                ..
+            } => formatter
+                .debug_struct("ImportedKey")
+                .field("network", network)
+                .field("curve", curve)
+                .field("private_key", &"[redacted]")
+                .field("encoding", encoding)
+                .finish(),
+            Self::PreparedPayload { .. } => formatter
+                .debug_struct("PreparedPayload")
+                .field("canonical_payload", &"[redacted]")
+                .finish(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -205,6 +245,43 @@ pub trait WalletProvider: Send + Sync {
 pub enum WalletProviderError {
     Unavailable,
     Rejected(String),
+}
+
+#[cfg(test)]
+mod secret_hygiene_tests {
+    use super::{SecretPayloadV1, WalletNetwork};
+
+    #[test]
+    fn wallet_secret_payload_debug_redacts_secret_material() {
+        let hd_root = SecretPayloadV1::HdRoot {
+            mnemonic_entropy: "entropy-secret".to_string(),
+            wordlist: "english".to_string(),
+            bip39_passphrase: Some("phrase-secret".to_string()),
+            mnemonic: vec!["alpha".to_string(), "bravo".to_string()],
+        };
+        let imported = SecretPayloadV1::ImportedKey {
+            network: WalletNetwork::Bitcoin,
+            curve: "secp256k1".to_string(),
+            private_key: "private-key-secret".to_string(),
+            encoding: "hex".to_string(),
+        };
+        let prepared = SecretPayloadV1::PreparedPayload {
+            canonical_payload: "canonical-payload-secret".to_string(),
+        };
+
+        let debug = format!("{hd_root:?}\n{imported:?}\n{prepared:?}");
+        for secret in [
+            "entropy-secret",
+            "phrase-secret",
+            "alpha",
+            "bravo",
+            "private-key-secret",
+            "canonical-payload-secret",
+        ] {
+            assert!(!debug.contains(secret), "{secret} leaked in {debug}");
+        }
+        assert!(debug.contains("[redacted"));
+    }
 }
 
 pub fn now_ms() -> u64 {

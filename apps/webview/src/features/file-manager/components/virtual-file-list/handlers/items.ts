@@ -71,8 +71,8 @@ export const createItemHandlers = (deps: VirtualFileListItemHandlersDeps): Virtu
     const filtered = getItems()
     const currentIndex = filtered.findIndex((candidate) => candidate.id === item.id)
     if (currentIndex >= 0) {
-      selectionState.lastSelectionAnchorIndex = currentIndex
-      selectionState.lastKeyboardAnchorIndex = currentIndex
+      selectionState.lastSelectionAnchorId = item.id
+      selectionState.lastKeyboardAnchorId = item.id
     }
 
     focusItemById(item.id)

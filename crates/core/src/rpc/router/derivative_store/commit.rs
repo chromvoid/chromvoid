@@ -1,4 +1,4 @@
-use crate::rpc::derivative_index;
+use crate::rpc::derivative_index::{self, DerivativeIndexState};
 
 use super::cleanup::{cleanup_chunks, cleanup_write_result};
 use super::names::meta_chunk_name_for_cleanup;
@@ -9,9 +9,26 @@ use super::types::{
 };
 
 impl DerivativeStore {
+    #[allow(dead_code)]
     pub(crate) fn commit_write(
         snapshot: &DerivativeWriteSnapshot,
         write_result: &DerivativeWriteResult,
+    ) -> std::result::Result<(), DerivativeCommitError> {
+        Self::commit_write_inner(snapshot, write_result, None)
+    }
+
+    pub(crate) fn commit_write_with_index(
+        snapshot: &DerivativeWriteSnapshot,
+        write_result: &DerivativeWriteResult,
+        derivative_index_state: &DerivativeIndexState,
+    ) -> std::result::Result<(), DerivativeCommitError> {
+        Self::commit_write_inner(snapshot, write_result, Some(derivative_index_state))
+    }
+
+    fn commit_write_inner(
+        snapshot: &DerivativeWriteSnapshot,
+        write_result: &DerivativeWriteResult,
+        derivative_index_state: Option<&DerivativeIndexState>,
     ) -> std::result::Result<(), DerivativeCommitError> {
         let meta_record = DerivativeStreamMetaRecord {
             name: snapshot.name.clone(),
@@ -66,14 +83,24 @@ impl DerivativeStore {
             });
         }
 
-        let previous_entry = derivative_index::get_derivative_entry(
-            &snapshot.storage,
-            &snapshot.vault_key,
-            snapshot.node_id,
-            snapshot.source_version,
-            &snapshot.tier,
-            snapshot.version,
-        )
+        let previous_entry = match derivative_index_state {
+            Some(derivative_index_state) => derivative_index_state.get_derivative_entry(
+                &snapshot.storage,
+                &snapshot.vault_key,
+                snapshot.node_id,
+                snapshot.source_version,
+                &snapshot.tier,
+                snapshot.version,
+            ),
+            None => derivative_index::get_derivative_entry(
+                &snapshot.storage,
+                &snapshot.vault_key,
+                snapshot.node_id,
+                snapshot.source_version,
+                &snapshot.tier,
+                snapshot.version,
+            ),
+        }
         .map_err(|error| {
             let mut cleanup_names = write_result.chunk_names.clone();
             cleanup_names.push(meta_chunk_name_for_cleanup(snapshot));
@@ -85,17 +112,31 @@ impl DerivativeStore {
             }
         })?;
 
-        if let Err(error) = derivative_index::save_derivative_entry(
-            &snapshot.storage,
-            &snapshot.vault_key,
-            snapshot.node_id,
-            snapshot.source_version,
-            snapshot.tier.clone(),
-            snapshot.version,
-            meta_chunk_name,
-            write_result.part_count,
-            snapshot.size,
-        ) {
+        let save_result = match derivative_index_state {
+            Some(derivative_index_state) => derivative_index_state.save_derivative_entry(
+                &snapshot.storage,
+                &snapshot.vault_key,
+                snapshot.node_id,
+                snapshot.source_version,
+                snapshot.tier.clone(),
+                snapshot.version,
+                meta_chunk_name,
+                write_result.part_count,
+                snapshot.size,
+            ),
+            None => derivative_index::save_derivative_entry(
+                &snapshot.storage,
+                &snapshot.vault_key,
+                snapshot.node_id,
+                snapshot.source_version,
+                snapshot.tier.clone(),
+                snapshot.version,
+                meta_chunk_name,
+                write_result.part_count,
+                snapshot.size,
+            ),
+        };
+        if let Err(error) = save_result {
             let mut cleanup_names = write_result.chunk_names.clone();
             cleanup_names.push(meta_chunk_name_for_cleanup(snapshot));
             if !abort_derivative_overwrite(snapshot) {

@@ -146,10 +146,11 @@ describe('file-app-shell layout selection', () => {
       expect(mobileSlots).toContain('mobile-topbar')
     })
 
-    it('desktop layout exposes default slot, details slot and statusbar slot', () => {
-      const desktopSlots = ['default', 'details', 'statusbar']
+    it('desktop layout exposes default slot, details slot, desktop-topbar slot and statusbar slot', () => {
+      const desktopSlots = ['default', 'details', 'desktop-topbar', 'statusbar']
       expect(desktopSlots).toContain('default')
       expect(desktopSlots).toContain('details')
+      expect(desktopSlots).toContain('desktop-topbar')
       expect(desktopSlots).toContain('statusbar')
       expect(desktopSlots).not.toContain('mobile-topbar')
     })
@@ -355,5 +356,41 @@ describe('file-app-shell layout selection', () => {
       expect(result).toBe('desktop')
     })
 
+    it('forwards desktop-topbar only through the desktop shell branch', async () => {
+      setupContext('desktop')
+      FileAppShell.define()
+
+      const element = document.createElement('file-app-shell') as FileAppShell
+      const topbar = document.createElement('div')
+      topbar.slot = 'desktop-topbar'
+      element.append(topbar)
+      document.body.append(element)
+      await element.updateComplete
+
+      const desktopLayout = element.shadowRoot?.querySelector('file-app-shell-desktop-layout') as
+        | (HTMLElement & {updateComplete?: Promise<unknown>})
+        | null
+      await desktopLayout?.updateComplete
+
+      expect(desktopLayout).not.toBeNull()
+      expect(element.shadowRoot?.querySelector('slot[name="desktop-topbar"][slot="desktop-topbar"]')).not.toBeNull()
+      expect(desktopLayout?.shadowRoot?.querySelector('slot[name="desktop-topbar"]')).not.toBeNull()
+    })
+
+    it('does not forward desktop-topbar through the mobile shell branch', async () => {
+      setupContext('mobile')
+      FileAppShell.define()
+
+      const element = document.createElement('file-app-shell') as FileAppShell
+      const topbar = document.createElement('div')
+      topbar.slot = 'desktop-topbar'
+      element.append(topbar)
+      document.body.append(element)
+      await element.updateComplete
+
+      expect(element.shadowRoot?.querySelector('file-app-shell-desktop-layout')).toBeNull()
+      expect(element.shadowRoot?.querySelector('slot[name="desktop-topbar"]')).toBeNull()
+      expect(element.shadowRoot?.querySelector('file-app-shell-mobile-layout')).not.toBeNull()
+    })
   })
 })

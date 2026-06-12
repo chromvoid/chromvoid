@@ -8,7 +8,8 @@ import {fileURLToPath} from 'node:url'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.resolve(scriptDir, '..')
-const webviewRoot = path.resolve(appRoot, '..', 'webview')
+const repoRoot = path.resolve(appRoot, '..', '..')
+const webviewDistRoot = path.join(repoRoot, 'apps', 'webview', 'dist')
 const androidProjectRoot = path.join(appRoot, 'src-tauri', 'gen', 'android')
 const generatedAndroidTauriConfigPath = path.join(
   androidProjectRoot,
@@ -18,21 +19,20 @@ const generatedAndroidTauriConfigPath = path.join(
   'assets',
   'tauri.conf.json',
 )
+const generatedAndroidAssetsRoot = path.dirname(generatedAndroidTauriConfigPath)
 const devTauriConfigPath = path.join(appRoot, 'src-tauri', 'tauri.dev.conf.json')
 const forwardedArgs = process.argv.slice(2)
 const devServerPort = 4400
-const adbReverseHostPort = readTcpPortEnv('CHROMVOID_ADB_REVERSE_HOST_PORT', devServerPort)
-const loopbackHost = '127.0.0.1'
 const defaultAdbTunnelPort = '15037'
 const releaseLaunchIntent = 'Starting: Intent { cmp=com.chromvoid.app/.MainActivity }'
 const debugPackageName = 'com.chromvoid.app.dev'
 const licensePublicKeyEnv = 'CHROMVOID_LICENSE_PUBLIC_KEY_ED25519_2026_01'
 const licensePublicKeyFile = path.join(appRoot, 'src-tauri', 'gen', 'android', '.license-public-key')
 const androidAbiTargets = new Map([
-  ['arm64-v8a', {abi: 'arm64-v8a', arch: 'arm64', target: 'aarch64'}],
-  ['armeabi-v7a', {abi: 'armeabi-v7a', arch: 'arm', target: 'armv7'}],
-  ['x86', {abi: 'x86', arch: 'x86', target: 'i686'}],
-  ['x86_64', {abi: 'x86_64', arch: 'x86_64', target: 'x86_64'}],
+  ['arm64-v8a', {abi: 'arm64-v8a', arch: 'arm64', target: 'aarch64', rustTarget: 'aarch64-linux-android'}],
+  ['armeabi-v7a', {abi: 'armeabi-v7a', arch: 'arm', target: 'armv7', rustTarget: 'armv7-linux-androideabi'}],
+  ['x86', {abi: 'x86', arch: 'x86', target: 'i686', rustTarget: 'i686-linux-android'}],
+  ['x86_64', {abi: 'x86_64', arch: 'x86_64', target: 'x86_64', rustTarget: 'x86_64-linux-android'}],
 ])
 const gradleFlavorSegments = new Map([
   ['arm64', 'Arm64'],
@@ -50,22 +50,6 @@ const tauriBinary = fs.existsSync(localTauriBinary) ? localTauriBinary : 'tauri'
 
 function log(message) {
   console.log(`[tauri-android-runner] ${message}`)
-}
-
-function readTcpPortEnv(name, fallback) {
-  const raw = process.env[name]
-  if (raw === undefined || raw === '') {
-    return fallback
-  }
-
-  if (!/^\d+$/.test(raw)) {
-    throw new Error(`${name} must be a numeric TCP port, got: ${raw}`)
-  }
-  const port = Number.parseInt(raw, 10)
-  if (port < 1 || port > 65535) {
-    throw new Error(`${name} must be between 1 and 65535, got: ${raw}`)
-  }
-  return port
 }
 
 function isEnabled(value) {
@@ -98,7 +82,7 @@ function readJsonFile(filePath) {
 function applyGeneratedAndroidDevConfig() {
   if (!fs.existsSync(generatedAndroidTauriConfigPath)) {
     throw new Error(
-      `generated Android Tauri config not found at ${generatedAndroidTauriConfigPath}; run npm run android:init first`,
+      `generated Android Tauri config not found at ${generatedAndroidTauriConfigPath}; run bun run android:init first`,
     )
   }
   if (!fs.existsSync(devTauriConfigPath)) {
@@ -109,7 +93,8 @@ function applyGeneratedAndroidDevConfig() {
   const devConfig = readJsonFile(devTauriConfigPath)
   const nextConfig = mergeConfigOverlay(generatedConfig, devConfig)
   nextConfig.build ??= {}
-  nextConfig.build.devUrl = `http://localhost:${devServerPort}/`
+  nextConfig.build.devUrl = null
+  nextConfig.build.frontendDist = '../../webview/dist'
 
   const current = fs.readFileSync(generatedAndroidTauriConfigPath, 'utf8')
   const next = `${JSON.stringify(nextConfig, null, 2)}\n`
@@ -133,10 +118,7 @@ function applyRemoteAdbTunnelEnv(env) {
   }
 
   log(`remote ADB tunnel mode enabled via ${env.ADB_SERVER_SOCKET}`)
-  if (adbReverseHostPort !== devServerPort) {
-    log(`ADB reverse host port override: device tcp:${devServerPort} -> ADB host tcp:${adbReverseHostPort}`)
-  }
-  log('ensure npm run android:adb-bridge is running on the Mac with the USB device attached')
+  log('ensure bun run android:adb-bridge is running on the Mac with the USB device attached')
 }
 
 function detectLanHost() {
@@ -330,18 +312,6 @@ async function releaseDevServerPort(port, env) {
   }
 
   throw new Error(`failed to release tcp:${port}; still occupied by PID(s): ${pids.join(', ')}`)
-}
-
-function reverseDevServer(adb, serial, env) {
-  const devicePortRule = `tcp:${devServerPort}`
-  const hostPortRule = `tcp:${adbReverseHostPort}`
-  const result = spawnSync(adb, ['-s', serial, 'reverse', devicePortRule, hostPortRule], {
-    encoding: 'utf8',
-    env,
-  })
-  if (result.status !== 0) {
-    throw new Error(result.stderr?.trim() || `adb reverse failed for ${serial}`)
-  }
 }
 
 function waitForDevice(adb, serial, env) {
@@ -558,17 +528,6 @@ function attachMirroredOutput(stream, output, onText) {
   })
 }
 
-async function waitForDevServerPort(port, env) {
-  const startedAt = Date.now()
-  while (Date.now() - startedAt < 15_000) {
-    if (findListeningPids(port, env).length > 0) {
-      return true
-    }
-    await sleep(250)
-  }
-  return false
-}
-
 function gradleDebugTasksForArchs(archs, action) {
   const uniqueArchs = [...new Set(archs)]
   if (uniqueArchs.length === 0) {
@@ -589,6 +548,54 @@ function debugApkPathForArch(arch) {
     return path.join(androidProjectRoot, 'app', 'build', 'outputs', 'apk', 'universal', 'debug', 'app-universal-debug.apk')
   }
   return path.join(androidProjectRoot, 'app', 'build', 'outputs', 'apk', arch, 'debug', `app-${arch}-debug.apk`)
+}
+
+function androidTargetsForArchs(archs) {
+  const uniqueArchs = [...new Set(archs)]
+  const targets = [...androidAbiTargets.values()]
+  if (uniqueArchs.length === 0) {
+    return targets
+  }
+
+  return uniqueArchs.map((arch) => {
+    const target = targets.find((item) => item.arch === arch)
+    if (!target) {
+      throw new Error(`unsupported Android Gradle arch: ${arch}`)
+    }
+    return target
+  })
+}
+
+function removeStaleAndroidRustArtifacts(archs) {
+  for (const target of androidTargetsForArchs(archs)) {
+    const artifacts = [
+      path.join(appRoot, 'src-tauri', 'target', target.rustTarget, 'debug', 'libchromvoid_lib.so'),
+      path.join(androidProjectRoot, 'app', 'src', 'main', 'jniLibs', target.abi, 'libchromvoid_lib.so'),
+    ]
+
+    for (const artifact of artifacts) {
+      if (!fs.existsSync(artifact)) {
+        continue
+      }
+      fs.rmSync(artifact, {force: true})
+      log(`removed stale Android Rust artifact ${path.relative(appRoot, artifact)}`)
+    }
+  }
+}
+
+function removeStaleDebugApks(archs) {
+  const candidates = new Set([debugApkPathForArch(null)])
+  for (const arch of new Set(archs)) {
+    candidates.add(debugApkPathForArch(arch))
+  }
+
+  for (const apk of candidates) {
+    if (!fs.existsSync(apk)) {
+      continue
+    }
+    fs.rmSync(apk, {force: true})
+    log(`removed stale Android debug APK ${path.relative(appRoot, apk)}`)
+  }
 }
 
 function installDebugApkThroughAdb(adb, devices, archs, env) {
@@ -616,6 +623,49 @@ function installDebugApkThroughAdb(adb, devices, archs, env) {
   }
 }
 
+function runForcedWebviewBuild(env) {
+  log('building production WebView dist for Android debug package')
+  const result = spawnSync('node', ['./scripts/build-webview-if-needed.mjs', '--force'], {
+    cwd: appRoot,
+    env,
+    stdio: 'inherit',
+  })
+  if (result.error) {
+    throw result.error
+  }
+  if (result.status !== 0) {
+    throw new Error(`WebView production build failed with exit code ${result.status}`)
+  }
+}
+
+function syncAndroidWebviewDistAssets() {
+  const distIndex = path.join(webviewDistRoot, 'index.html')
+  if (!fs.existsSync(distIndex)) {
+    throw new Error(`WebView dist index not found at ${distIndex}`)
+  }
+
+  for (const entry of fs.readdirSync(generatedAndroidAssetsRoot, {withFileTypes: true})) {
+    if (entry.name === 'tauri.conf.json') {
+      continue
+    }
+    fs.rmSync(path.join(generatedAndroidAssetsRoot, entry.name), {recursive: true, force: true})
+  }
+
+  const entries = fs.readdirSync(webviewDistRoot, {withFileTypes: true})
+  for (const entry of entries) {
+    if (entry.name === '.chromvoid-build-cache.json' || entry.name === 'tauri.conf.json') {
+      continue
+    }
+
+    const source = path.join(webviewDistRoot, entry.name)
+    const target = path.join(generatedAndroidAssetsRoot, entry.name)
+    fs.rmSync(target, {recursive: true, force: true})
+    fs.cpSync(source, target, {recursive: true, force: true})
+  }
+
+  log('synced production WebView dist into generated Android assets')
+}
+
 function runGradleDebugInstall(env, archs, devices, adb) {
   const gradlew = gradleWrapperPath()
   if (!fs.existsSync(gradlew)) {
@@ -639,61 +689,6 @@ function runGradleDebugInstall(env, archs, devices, adb) {
 
   if (useAdbTunnel) {
     installDebugApkThroughAdb(adb, devices, archs, env)
-  }
-}
-
-async function runWebviewDevSession(adb, devices, env) {
-  await releaseDevServerPort(devServerPort, env)
-  log(`starting WebView dev server for ${debugPackageName}`)
-
-  const child = spawn('npm', ['run', 'dev'], {
-    cwd: webviewRoot,
-    env,
-    stdio: 'inherit',
-  })
-  let childExit = null
-  const childExitPromise = new Promise((resolve) => {
-    child.on('exit', (code, signal) => {
-      childExit = {code, signal}
-      resolve(childExit)
-    })
-  })
-  const stopChild = (signal) => {
-    if (!childExit) {
-      child.kill(signal)
-    }
-  }
-  process.once('SIGINT', stopChild)
-  process.once('SIGTERM', stopChild)
-
-  try {
-    const ready = await waitForDevServerPort(devServerPort, env)
-    if (!ready) {
-      log(`WebView dev server did not start on tcp:${devServerPort}`)
-      stopChild('SIGTERM')
-      await childExitPromise
-      return 1
-    }
-
-    for (const serial of devices) {
-      log(`adb reverse tcp:${devServerPort} tcp:${adbReverseHostPort} for ${serial}`)
-      reverseDevServer(adb, serial, env)
-    }
-
-    if (!maybeRelaunchDebugApp(adb, devices, env) && devices.length > 0) {
-      stopChild('SIGTERM')
-      await childExitPromise
-      return 1
-    }
-
-    const {code, signal} = await childExitPromise
-    if (signal) {
-      return signal === 'SIGINT' ? 130 : 1
-    }
-    return code ?? 1
-  } finally {
-    process.removeListener('SIGINT', stopChild)
-    process.removeListener('SIGTERM', stopChild)
   }
 }
 
@@ -733,7 +728,7 @@ const childEnv = {
   ANDROID_HOME: androidHome,
   ANDROID_SDK_ROOT: androidHome,
   ORG_GRADLE_PROJECT_chromvoidSkipFreshTauriPrebuild: skipFreshTauriPrebuild,
-  TAURI_DEV_HOST: process.env.TAURI_DEV_HOST || '0.0.0.0',
+  ORG_GRADLE_PROJECT_chromvoidProductionWebviewDev: 'true',
 }
 applyGradleJavaHome(childEnv)
 applyRemoteAdbTunnelEnv(childEnv)
@@ -752,20 +747,19 @@ if (!fs.existsSync(adb)) {
 const devices = listConnectedDevices(adb, childEnv)
 let selectedArchs = []
 if (devices.length === 0) {
-  log('no connected Android devices detected; continuing without adb reverse')
+  log('no connected Android devices detected')
 } else {
-  for (const serial of devices) {
-    log(`adb reverse tcp:${devServerPort} tcp:${adbReverseHostPort} for ${serial}`)
-    reverseDevServer(adb, serial, childEnv)
-  }
   selectedArchs = configureAndroidGradleTargets(adb, devices, childEnv)
 }
 
 if (devices.length > 0 && forwardedArgs.length === 0) {
+  runForcedWebviewBuild(childEnv)
+  syncAndroidWebviewDistAssets()
   applyGeneratedAndroidDevConfig()
+  removeStaleAndroidRustArtifacts(selectedArchs)
+  removeStaleDebugApks(selectedArchs)
   runGradleDebugInstall(childEnv, selectedArchs, devices, adb)
-  const exitCode = await runWebviewDevSession(adb, devices, childEnv)
-  process.exit(exitCode)
+  process.exit(maybeRelaunchDebugApp(adb, devices, childEnv) ? 0 : 1)
 }
 
 const hasExplicitHostArg =
@@ -777,7 +771,7 @@ const hasExplicitFeaturesArg =
   || forwardedArgs.some((arg) => arg.startsWith('--features='))
   || forwardedArgs.includes('-f')
 const lanHost = process.env.TAURI_ANDROID_DEV_HOST || detectLanHost()
-const tauriArgs = ['android', 'dev', '--config', 'src-tauri/tauri.dev.conf.json']
+const tauriArgs = ['android', 'dev', '--config', 'src-tauri/tauri.dev.conf.json', '--port', String(devServerPort)]
 
 if (!hasExplicitFeaturesArg) {
   log('using Android Cargo feature set')
@@ -787,9 +781,6 @@ if (!hasExplicitFeaturesArg) {
 if (!hasExplicitHostArg && devices.length === 0 && lanHost) {
   log(`using --host ${lanHost}`)
   tauriArgs.push('--host', lanHost)
-} else if (!hasExplicitHostArg && devices.length > 0) {
-  log(`using adb reverse for dev server on ${loopbackHost}:${devServerPort}`)
-  tauriArgs.push('--host', loopbackHost)
 }
 
 tauriArgs.push(...forwardedArgs)
@@ -818,8 +809,6 @@ for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
   for (const serial of devices) {
     log(`adb wait-for-device for ${serial}`)
     waitForDevice(adb, serial, childEnv)
-    log(`adb reverse tcp:${devServerPort} tcp:${adbReverseHostPort} for ${serial}`)
-    reverseDevServer(adb, serial, childEnv)
   }
 }
 

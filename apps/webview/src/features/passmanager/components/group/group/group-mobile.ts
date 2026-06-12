@@ -19,9 +19,13 @@ import {pmGroupCommonStyles} from './styles'
 
 export const pmGroupMobileStyles = css`
   .wrapper {
-    gap: 1px;
+    gap: var(--app-mobile-surface-gap);
     position: relative;
     min-block-size: 0;
+    --pm-mobile-group-inline-gutter: var(--app-mobile-surface-gutter-inline);
+    --pm-mobile-scroll-edge-block-size: 88px;
+    --pm-mobile-scroll-edge-soft-stop: 48px;
+    --pm-mobile-scroll-edge-subtle-stop: 22px;
     --pm-scrollbar-safe-area-start: 0px;
     --pm-scrollbar-safe-area-end: 0px;
     display: grid;
@@ -29,8 +33,27 @@ export const pmGroupMobileStyles = css`
   }
 
   .group-virtual-list {
+    padding-inline: var(--pm-mobile-group-inline-gutter);
     padding-top: 0;
     scrollbar-gutter: auto;
+  }
+
+  .group-virtual-list > * {
+    width: calc(
+      100% - var(--pm-mobile-group-inline-gutter) - var(--pm-mobile-group-inline-gutter)
+    );
+  }
+
+  .pm-group-scroll-edge {
+    --cv-scroll-edge-block-size: var(--pm-mobile-scroll-edge-block-size);
+    --cv-scroll-edge-inline-start: 0px;
+    --cv-scroll-edge-inline-end: 0px;
+    --cv-scroll-edge-surface: var(--cv-color-bg);
+    --cv-scroll-edge-surface-fade: var(--cv-color-surface-glass-subtle);
+    --cv-scroll-edge-mask-block-size: var(--pm-mobile-scroll-edge-block-size);
+    --cv-scroll-edge-mask-soft-stop: var(--pm-mobile-scroll-edge-soft-stop);
+    --cv-scroll-edge-mask-subtle-stop: var(--pm-mobile-scroll-edge-subtle-stop);
+    inline-size: 100%;
   }
 
   pm-card-header,
@@ -58,7 +81,7 @@ export const pmGroupMobileStyles = css`
   .mobile-search {
     inline-size: 100%;
     box-sizing: border-box;
-    padding-inline: 0;
+    padding-inline: var(--pm-mobile-group-inline-gutter);
   }
 
   .group-metrics-strip {
@@ -66,10 +89,8 @@ export const pmGroupMobileStyles = css`
     inline-size: 100%;
     max-inline-size: none;
     box-sizing: border-box;
+    padding-inline: var(--pm-mobile-group-inline-gutter);
     background: var(--cv-color-bg);
-    --pm-summary-rail-inline-size: 100%;
-    --pm-summary-rail-border: 0;
-    --pm-summary-rail-box-shadow: none;
   }
 
   .mobile-toolbar {

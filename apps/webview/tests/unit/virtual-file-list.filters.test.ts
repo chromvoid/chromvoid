@@ -63,7 +63,23 @@ describe('virtual-file-list filters', () => {
     expect(reset).toHaveBeenCalledTimes(1)
   })
 
-  it('renders the file status summary through pm-summary-rail', async () => {
+  it('renders filtered empty state instead of permanent skeletons when only unloaded filtered slots remain', async () => {
+    VirtualFileList.define()
+    const element = document.createElement('virtual-file-list') as VirtualFileList
+    element.items = [null, null]
+    element.itemsPreFiltered = true
+    element.filters = {
+      ...createDefaultFileSearchFilters(),
+      query: 'missing',
+    }
+    document.body.append(element)
+    await settle(element)
+
+    expect(element.shadowRoot?.querySelector('cv-empty-state')).not.toBeNull()
+    expect(element.shadowRoot?.querySelector('.file-item-skeleton')).toBeNull()
+  })
+
+  it('does not render the desktop file status summary locally', async () => {
     VirtualFileList.define()
     const element = document.createElement('virtual-file-list') as VirtualFileList
     element.items = []
@@ -75,7 +91,26 @@ describe('virtual-file-list filters', () => {
       'pm-summary-rail.status-summary',
     )
 
+    expect(summary).toBeNull()
+    expect(element.shadowRoot?.querySelector('.status-right')).toBeNull()
+    expect(element.shadowRoot?.querySelector('.status-bar')).toBeNull()
+  })
+
+  it('keeps the mobile file status summary local', async () => {
+    VirtualFileList.define()
+    const element = document.createElement('virtual-file-list') as VirtualFileList
+    element.mobile = true
+    element.items = []
+    element.selectedItems = [1, 2]
+    document.body.append(element)
+    await settle(element)
+
+    const summary = element.shadowRoot?.querySelector<HTMLElement & {updateComplete?: Promise<unknown>}>(
+      'pm-summary-rail.status-summary',
+    )
+
     expect(summary).not.toBeNull()
+    expect(element.shadowRoot?.querySelector('.status-bar')).not.toBeNull()
     expect(summary?.shadowRoot?.textContent).toContain('Items')
     expect(summary?.shadowRoot?.textContent).toContain('Selected')
     expect(summary?.shadowRoot?.textContent).toContain('2')

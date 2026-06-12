@@ -75,31 +75,33 @@ const pmEntryCreateBaseStyles = css`
   }
 
   .entry-type-switch {
-    display: inline-flex;
+    --cv-radio-group-gap: var(--cv-space-2);
+  }
+
+  .entry-type-switch::part(base) {
     gap: var(--cv-space-2);
     padding: var(--cv-space-1);
-    border: 1px solid var(--cv-color-border);
+    border-color: var(--cv-color-border);
     border-radius: var(--cv-radius-2);
     background: var(--cv-color-surface-2);
   }
 
   .entry-type-option {
-    display: inline-flex;
-    align-items: center;
+    color: var(--cv-color-text-muted);
+    font: inherit;
+    font-weight: 600;
+  }
+
+  .entry-type-option::part(base) {
     gap: 0.5rem;
-    --cv-button-gap: 0.5rem;
     min-height: 2.25rem;
     padding: 0 var(--cv-space-3);
     border: 0;
     border-radius: calc(var(--cv-radius-2) - 4px);
     background: transparent;
-    color: var(--cv-color-text-muted);
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
   }
 
-  .entry-type-option[data-active='true'] {
+  .entry-type-option[checked]::part(base) {
     background: var(--cv-color-primary);
     color: var(--cv-color-on-primary);
   }
@@ -436,26 +438,28 @@ export class PMEntryCreateDesktop extends PMEntryCreateBase {
           <cv-icon name="grid"></cv-icon>
           ${i18n('entry:type')}
         </div>
-        <div class="entry-type-switch" role="tablist" aria-label=${i18n('entry:type')}>
-          <cv-button unstyled
+        <cv-radio-group
+          class="entry-type-switch"
+          variant="segmented"
+          .value=${entryType}
+          aria-label=${i18n('entry:type')}
+          @cv-change=${this.onEntryTypeChange}
+        >
+          <cv-radio
             class="entry-type-option"
-            type="button"
-            data-active=${String(entryType === 'login')}
-            @click=${this.selectLoginEntryType}
+            value="login"
           >
-            <cv-icon slot="prefix" name="person-circle"></cv-icon>
+            <cv-icon name="person-circle"></cv-icon>
             <span>${i18n('entry:type:login')}</span>
-          </cv-button>
-          <cv-button unstyled
+          </cv-radio>
+          <cv-radio
             class="entry-type-option"
-            type="button"
-            data-active=${String(entryType === 'payment_card')}
-            @click=${this.selectPaymentCardEntryType}
+            value="payment_card"
           >
-            <cv-icon slot="prefix" name="credit-card"></cv-icon>
+            <cv-icon name="credit-card"></cv-icon>
             <span>${i18n('entry:type:payment_card')}</span>
-          </cv-button>
-        </div>
+          </cv-radio>
+        </cv-radio-group>
       </div>
     `
   }
@@ -558,6 +562,9 @@ export class PMEntryCreateDesktop extends PMEntryCreateBase {
               type="text"
               size="small"
               name="cardExpYear"
+              placeholder="YY"
+              maxlength=${2}
+              autocomplete="cc-exp-year"
               .value=${this.model.cardExpYear()}
               @cv-input=${this.onCardExpYearInput}
               ?invalid=${Boolean(cardExpYearError)}

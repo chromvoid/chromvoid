@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -20,6 +20,15 @@ use crate::core_adapter::{CoreAdapter, LocalCoreAdapter};
 use super::filesystem::CatalogDavFs;
 use super::request_io::WebDavRequestIoRuntimeState;
 use super::server::{start_webdav_server, WebDavServerHandle};
+
+static TEST_ENV_INIT: Once = Once::new();
+
+fn enable_local_core_test_keystore() {
+    TEST_ENV_INIT.call_once(|| {
+        std::env::set_var("CHROMVOID_TEST_INMEMORY_KEYSTORE", "1");
+        std::env::set_var("CHROMVOID_TEST_FAST_KDF", "1");
+    });
+}
 
 #[tokio::test]
 async fn webdav_handle_drop_signals_shutdown_channel() {
@@ -77,6 +86,8 @@ async fn http_request(
 
 #[tokio::test]
 async fn webdav_bind_is_loopback_and_file_roundtrip() {
+    enable_local_core_test_keystore();
+
     let app = tauri::test::mock_app();
     let handle = app.handle().clone();
 

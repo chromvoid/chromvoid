@@ -243,7 +243,7 @@ describe('PMEntryTOTPItem', () => {
       expect(getCodeText(item)).toBe('111222')
     })
     const idleFeedbackNode = getFeedbackMotionNode(item)
-    expect(idleFeedbackNode?.textContent?.trim()).toBe('Tap to copy')
+    expect(idleFeedbackNode?.textContent?.trim()).toBe('Copy')
 
     getTotpCard(item)?.click()
     await flushMicrotasks()
@@ -262,7 +262,7 @@ describe('PMEntryTOTPItem', () => {
     await vi.advanceTimersByTimeAsync(1500)
     await item.updateComplete
 
-    expect(getFeedbackText(item)).toBe('Tap to copy')
+    expect(getFeedbackText(item)).toBe('Copy')
     expect(getFeedbackMotionNode(item)).not.toBe(copiedFeedbackNode)
   })
 
@@ -373,9 +373,15 @@ describe('PMEntryTOTPItem', () => {
     expect(invoke).not.toHaveBeenCalled()
   })
 
-  it('does not mark TOTP card urgent when more than 50% time remains', async () => {
+  it.each([
+    {leftSeconds: 11, level: 'safe', urgent: false},
+    {leftSeconds: 10, level: 'warning', urgent: false},
+    {leftSeconds: 6, level: 'warning', urgent: false},
+    {leftSeconds: 5, level: 'danger', urgent: true},
+    {leftSeconds: 4, level: 'danger', urgent: true},
+  ])('marks TOTP countdown as $level at $leftSeconds seconds', async ({leftSeconds, level, urgent}) => {
     ensureDefined()
-    const otp = createOTPFixture({leftSeconds: 16, period: 30})
+    const otp = createOTPFixture({leftSeconds, period: 30})
     const item = document.createElement('pm-entry-totp-item') as PMEntryTOTPItem
     item.otp = otp as OTP
 
@@ -384,35 +390,8 @@ describe('PMEntryTOTPItem', () => {
 
     const card = getTotpCard(item)
     expect(card).toBeTruthy()
-    expect(card?.hasAttribute('data-urgent')).toBe(false)
-  })
-
-  it('does not mark TOTP card urgent between 50% and 20% time remaining', async () => {
-    ensureDefined()
-    const otp = createOTPFixture({leftSeconds: 15, period: 30})
-    const item = document.createElement('pm-entry-totp-item') as PMEntryTOTPItem
-    item.otp = otp as OTP
-
-    document.body.appendChild(item)
-    await item.updateComplete
-
-    const card = getTotpCard(item)
-    expect(card).toBeTruthy()
-    expect(card?.hasAttribute('data-urgent')).toBe(false)
-  })
-
-  it('marks TOTP card urgent below 5 seconds', async () => {
-    ensureDefined()
-    const otp = createOTPFixture({leftSeconds: 4, period: 30})
-    const item = document.createElement('pm-entry-totp-item') as PMEntryTOTPItem
-    item.otp = otp as OTP
-
-    document.body.appendChild(item)
-    await item.updateComplete
-
-    const card = getTotpCard(item)
-    expect(card).toBeTruthy()
-    expect(card?.hasAttribute('data-urgent')).toBe(true)
+    expect(card?.getAttribute('data-countdown-level')).toBe(level)
+    expect(card?.hasAttribute('data-urgent')).toBe(urgent)
   })
 
   it('stops polling after disconnect', async () => {
@@ -457,6 +436,50 @@ describe('PMEntryTOTPItem', () => {
     await flushMicrotasks()
 
     expect(otp.loadCode).toHaveBeenCalledTimes(2)
+  })
+
+  it('reloads copy code when the TOTP slot changes while loading', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-01-01T00:00:29Z'))
+    const invoke = installClipboardInvokeSpy()
+
+    const model = new PMEntryTOTPItemModel()
+    const otp = createOTPFixture({code: '000000', period: 30})
+
+    model.actions.setOtp(otp as unknown as OTP)
+    model.actions.connect()
+    await flushMicrotasks()
+
+    let loadCount = 0
+    let firstResolve!: (value: string) => void
+    let secondResolve!: (value: string) => void
+    otp.loadCode = vi.fn((_counter?: number) => {
+      loadCount += 1
+      return new Promise<string>((resolve) => {
+        if (loadCount === 1) {
+          firstResolve = resolve
+          return
+        }
+        secondResolve = resolve
+      })
+    })
+
+    const copyPromise = model.actions.copyCode()
+    expect(otp.loadCode).toHaveBeenCalledWith(1767225600)
+
+    vi.setSystemTime(new Date('2026-01-01T00:00:30.100Z'))
+    firstResolve('111111')
+    await flushMicrotasks()
+    expect(otp.loadCode).toHaveBeenCalledWith(1767225630)
+
+    secondResolve('222222')
+    await copyPromise
+
+    expect(invoke).toHaveBeenCalledWith(
+      'plugin:clipboard-manager|write_text',
+      expect.objectContaining({text: '222222'}),
+    )
+    expect(model.state.view()?.codeText).toBe('222 222')
   })
 
   it('ignores stale slot completions once a newer slot has loaded', async () => {

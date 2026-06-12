@@ -49,6 +49,14 @@ async function settleFocus(element: PMEntry) {
   await Promise.resolve()
 }
 
+const getCvInput = (component: PMEntry, name: string) =>
+  component.shadowRoot?.querySelector(`cv-input[name="${name}"]`) as
+    | (HTMLElement & {shadowRoot?: ShadowRoot})
+    | null
+
+const getNativeInput = (component: PMEntry, name: string) =>
+  getCvInput(component, name)?.shadowRoot?.querySelector('input') as HTMLInputElement | null
+
 const getCvTextarea = (component: PMEntry, name: string) =>
   component.shadowRoot?.querySelector(`cv-textarea[name="${name}"]`) as
     | (HTMLElement & {shadowRoot?: ShadowRoot})
@@ -328,7 +336,7 @@ describe('PMEntry', () => {
     expect(noteContent?.textContent).toBe('Updated note from reatom')
   })
 
-  it('opens the desktop note editor and focuses note on note double-click', async () => {
+  it('opens full-entry edit and focuses note on note double-click', async () => {
     const entry = createEntry({
       note: async () => 'Desktop note',
     })
@@ -351,8 +359,9 @@ describe('PMEntry', () => {
       noteContent?.dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true, composed: true}))
       await settleFocus(component)
 
-      expect(pmEntryEditorModel.isActiveForEntry(entry.id, 'note')).toBe(true)
+      expect(pmEntryEditorModel.isActiveForEntry(entry.id, 'entry')).toBe(true)
       expect(getCvTextarea(component, 'inline-note')).not.toBeNull()
+      expect(component.shadowRoot?.querySelector('.note-edit-action')).toBeNull()
       expect(scrollSpy.scrollIntoView).toHaveBeenCalledWith({
         behavior: 'smooth',
         block: 'center',
@@ -477,7 +486,7 @@ describe('PMEntry', () => {
   })
 
   it('renders payment card with CVV hidden by default and reveals it on explicit toggle', async () => {
-    const entry = createPaymentCardEntry()
+    const entry = createPaymentCardEntry({cardCvv: async () => '1234'})
 
     window.passmanager = {
       isReadOnly: () => false,
@@ -516,7 +525,7 @@ describe('PMEntry', () => {
       (
         component.shadowRoot?.querySelector('.payment-card-cvv-value') as HTMLElement | null
       )?.textContent?.trim(),
-    ).toBe('123')
+    ).toBe('1234')
     expect(
       (
         component.shadowRoot?.querySelector('.payment-card-cvv-toggle') as HTMLButtonElement | null
@@ -573,7 +582,8 @@ describe('PMEntry', () => {
 
     expect(component.shadowRoot?.querySelector('pm-card-header')).toBeNull()
     expect(header).not.toBeNull()
-    expect(breadcrumbItems.map((item) => item.textContent?.trim() ?? '')).toEqual(['Root'])
+    expect(breadcrumbItems.map((item) => item.textContent?.trim() ?? '')).toEqual(['Root', 'Entry'])
+    expect(breadcrumbItems.map((item) => item.hasAttribute('current'))).toEqual([false, true])
     expect(badges.length).toBe(2)
     expect(badges[0]?.textContent).toContain('Encrypted')
     expect(headerShadow?.querySelector('.workspace-meta')).not.toBeNull()
@@ -724,7 +734,9 @@ describe('PMEntry', () => {
       'Root',
       'Work',
       'Security',
+      'Entry',
     ])
+    expect(breadcrumbItems.at(-1)?.hasAttribute('current')).toBe(true)
   })
 
   it('navigates to the clicked ancestor group when a breadcrumb is pressed', async () => {
@@ -787,7 +799,7 @@ describe('PMEntry', () => {
     expect(applyRouteSpy).toHaveBeenCalledWith({kind: 'root'})
   })
 
-  it('navigates to root when the only breadcrumb of a root entry is pressed', async () => {
+  it('navigates to root from a root entry breadcrumb', async () => {
     const entry = createEntry()
     const applyRouteSpy = vi.spyOn(passmanagerNavigationController, 'applyRoute').mockReturnValue(true)
 
@@ -810,6 +822,38 @@ describe('PMEntry', () => {
     expect(applyRouteSpy).toHaveBeenCalledWith({kind: 'root'})
   })
 
+  it('does not navigate when the current entry breadcrumb is pressed', async () => {
+    const group = new Group({
+      id: 'group-parent',
+      name: 'Work/Security',
+      entries: [],
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+    })
+    const entry = createEntry({parent: group})
+    const applyRouteSpy = vi.spyOn(passmanagerNavigationController, 'applyRoute').mockReturnValue(true)
+
+    window.passmanager = {
+      isReadOnly: () => false,
+      isEditMode: {set: vi.fn()},
+    } as unknown as typeof window.passmanager
+
+    const component = document.createElement('pm-entry') as PMEntry
+    component.entry = entry
+    document.body.append(component)
+    await settle(component)
+
+    const header = component.shadowRoot?.querySelector('pm-workspace-header') as HTMLElement | null
+    const currentItem = header?.shadowRoot?.querySelectorAll('cv-breadcrumb-item')[3] as HTMLElement | undefined
+    const currentLink = currentItem?.shadowRoot?.querySelector('[part="link"]') as HTMLAnchorElement | null
+    const clickEvent = new MouseEvent('click', {bubbles: true, cancelable: true, composed: true})
+
+    currentLink?.dispatchEvent(clickEvent)
+
+    expect(clickEvent.defaultPrevented).toBe(true)
+    expect(applyRouteSpy).not.toHaveBeenCalled()
+  })
+
   it('disables desktop header toolbar actions in readonly mode', async () => {
     const entry = createEntry()
 
@@ -828,7 +872,7 @@ describe('PMEntry', () => {
     expect(items.every((item) => item.hasAttribute('disabled'))).toBe(true)
   })
 
-  it('renders inline section edit affordances directly on the desktop entry page', async () => {
+  it('renders full-entry edit controls instead of per-field edit affordances', async () => {
     const entry = createEntry()
 
     window.passmanager = {
@@ -841,18 +885,124 @@ describe('PMEntry', () => {
     document.body.append(component)
     await settle(component)
 
-    expect(component.shadowRoot?.querySelector('.inline-action')).not.toBeNull()
+    expect(component.shadowRoot?.querySelector('.inline-action[data-inline-field]')).toBeNull()
     expect(
       component.shadowRoot?.querySelector('.section-action-button[data-snippet-section="otp"]'),
     ).not.toBeNull()
 
-    pmEntryEditorModel.openSurface(entry.id, 'title')
+    pmEntryEditorModel.openSurface(entry.id, 'entry')
     await settle(component)
 
-    expect(component.shadowRoot?.querySelector('cv-input[name="inline-title"]')).not.toBeNull()
+    const header = component.shadowRoot?.querySelector('pm-workspace-header') as HTMLElement | null
+    expect(header?.shadowRoot?.querySelector('cv-input.title-input')).not.toBeNull()
+    expect(getCvInput(component, 'inline-username')).not.toBeNull()
+    expect(getCvInput(component, 'inline-password')).not.toBeNull()
+    expect(getCvInput(component, 'inline-website')).not.toBeNull()
+    expect(getCvTextarea(component, 'inline-note')).not.toBeNull()
+    expect(component.shadowRoot?.querySelector('.entry-edit-save-action')).not.toBeNull()
+    expect(component.shadowRoot?.querySelector('.entry-edit-cancel-action')).not.toBeNull()
+    expect(component.shadowRoot?.querySelector('cv-toolbar-item[data-action="edit-entry"]')).toBeNull()
+    expect(component.shadowRoot?.querySelector('cv-toolbar-item[data-action="move-entry"]')).toBeNull()
+    expect(component.shadowRoot?.querySelector('cv-toolbar-item[data-action="delete-entry"]')).toBeNull()
     expect(
       component.shadowRoot?.querySelector('.section-action-button[data-snippet-section="otp"]'),
     ).toBeNull()
+    expect(component.shadowRoot?.querySelector('pm-entry-otp-create[data-snippet="otp"]')).toBeNull()
+  })
+
+  it('saves changed desktop full-entry fields together', async () => {
+    const entry = createEntry({
+      note: async () => 'Old note',
+    })
+    const update = vi.spyOn(entry, 'update').mockResolvedValue(undefined)
+
+    window.passmanager = {
+      isReadOnly: () => false,
+      isEditMode: {set: vi.fn()},
+    } as unknown as typeof window.passmanager
+
+    const component = document.createElement('pm-entry') as PMEntry
+    component.entry = entry
+    document.body.append(component)
+    await settle(component)
+
+    pmEntryEditorModel.openSurface(entry.id, 'entry')
+    await settle(component)
+
+    const header = component.shadowRoot?.querySelector('pm-workspace-header') as HTMLElement | null
+    header?.dispatchEvent(
+      new CustomEvent('pm-workspace-header-title-input', {
+        detail: {value: 'Updated Entry'},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+
+    const usernameInput = getNativeInput(component, 'inline-username')
+    const websiteInput = getNativeInput(component, 'inline-website')
+    const noteInput = getNativeTextarea(component, 'inline-note')
+    expect(usernameInput).not.toBeNull()
+    expect(websiteInput).not.toBeNull()
+    expect(noteInput).not.toBeNull()
+
+    usernameInput!.value = 'bob'
+    usernameInput!.dispatchEvent(new InputEvent('input', {bubbles: true, composed: true}))
+    websiteInput!.value = 'https://changed.example'
+    websiteInput!.dispatchEvent(new InputEvent('input', {bubbles: true, composed: true}))
+    noteInput!.value = 'Updated note'
+    noteInput!.dispatchEvent(new InputEvent('input', {bubbles: true, composed: true}))
+    await settle(component)
+
+    component.shadowRoot?.querySelector<HTMLButtonElement>('.entry-edit-save-action')?.click()
+    await settle(component)
+
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Updated Entry',
+        username: 'bob',
+        urls: [expect.objectContaining({value: 'https://changed.example'})],
+      }),
+      undefined,
+      'Updated note',
+    )
+    expect(getCvInput(component, 'inline-username')).toBeNull()
+    expect(pmEntryEditorModel.isActiveForEntry(entry.id)).toBe(false)
+  })
+
+  it('cancels desktop full-entry edit from the header action and Escape', async () => {
+    const entry = createEntry()
+    const update = vi.spyOn(entry, 'update').mockResolvedValue(undefined)
+
+    window.passmanager = {
+      isReadOnly: () => false,
+      isEditMode: {set: vi.fn()},
+    } as unknown as typeof window.passmanager
+
+    const component = document.createElement('pm-entry') as PMEntry
+    component.entry = entry
+    document.body.append(component)
+    await settle(component)
+
+    pmEntryEditorModel.openSurface(entry.id, 'entry')
+    await settle(component)
+    component.shadowRoot?.querySelector<HTMLButtonElement>('.entry-edit-cancel-action')?.click()
+    await settle(component)
+
+    expect(update).not.toHaveBeenCalled()
+    expect(getCvInput(component, 'inline-username')).toBeNull()
+    expect(pmEntryEditorModel.isActiveForEntry(entry.id)).toBe(false)
+
+    pmEntryEditorModel.openSurface(entry.id, 'entry')
+    await settle(component)
+    getCvInput(component, 'inline-username')?.dispatchEvent(
+      new KeyboardEvent('keydown', {key: 'Escape', bubbles: true, composed: true, cancelable: true}),
+    )
+    await settle(component)
+
+    expect(update).not.toHaveBeenCalled()
+    expect(getCvInput(component, 'inline-username')).toBeNull()
+    expect(pmEntryEditorModel.isActiveForEntry(entry.id)).toBe(false)
   })
 
   it('shows desktop otp add in read mode and hides it while another editor surface is active', async () => {
@@ -891,7 +1041,7 @@ describe('PMEntry', () => {
     expect(otpAddButton?.textContent).toContain('Add OTP')
     expect(otpInlineRemoveActions).toHaveLength(0)
 
-    pmEntryEditorModel.openSurface(entry.id, 'title')
+    pmEntryEditorModel.openSurface(entry.id, 'entry')
     await settle(component)
     const editModeOtpAddButton = component.shadowRoot?.querySelector(
       '.section-action-button[data-snippet-section="otp"]',
@@ -905,6 +1055,102 @@ describe('PMEntry', () => {
     )
     expect(editModeOtpAddButton).toBeNull()
     expect(editModeOtpRemoveActions).toHaveLength(0)
+  })
+
+  it('saves desktop OTP label edits from full-entry edit controls', async () => {
+    const entry = createEntry({
+      otps: [
+        {
+          id: 'otp-1',
+          label: 'Main OTP',
+          algorithm: 'SHA1',
+          digits: 6,
+          period: 30,
+          encoding: 'base32',
+          type: 'TOTP',
+        },
+      ],
+    })
+    const update = vi.spyOn(entry, 'update').mockResolvedValue(undefined)
+    const updateOTPLabels = vi.fn(async () => true)
+    ;(entry as Entry & {updateOTPLabels: typeof updateOTPLabels}).updateOTPLabels = updateOTPLabels
+
+    window.passmanager = {
+      isReadOnly: () => false,
+      isEditMode: {set: vi.fn()},
+    } as unknown as typeof window.passmanager
+
+    const component = document.createElement('pm-entry') as PMEntry
+    component.entry = entry
+    document.body.append(component)
+    await settle(component)
+
+    pmEntryEditorModel.openSurface(entry.id, 'entry')
+    await settle(component)
+
+    expect(component.shadowRoot?.querySelector('pm-entry-otp-create[data-snippet="otp"]')).toBeNull()
+    const labelInput = getNativeInput(component, 'otp-label-otp-1')
+    expect(labelInput).not.toBeNull()
+
+    labelInput!.value = 'Backup OTP'
+    labelInput!.dispatchEvent(new InputEvent('input', {bubbles: true, composed: true}))
+    await settle(component)
+
+    component.shadowRoot?.querySelector<HTMLButtonElement>('.entry-edit-save-action')?.click()
+    await settle(component)
+
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(updateOTPLabels).toHaveBeenCalledTimes(1)
+    expect(updateOTPLabels).toHaveBeenCalledWith({'otp-1': 'Backup OTP'})
+    expect(component.shadowRoot?.querySelector('cv-input[data-otp-label-input="otp-1"]')).toBeNull()
+  })
+
+  it('keeps desktop full-entry edit open when an OTP label is too long', async () => {
+    const entry = createEntry({
+      otps: [
+        {
+          id: 'otp-1',
+          label: 'Main OTP',
+          algorithm: 'SHA1',
+          digits: 6,
+          period: 30,
+          encoding: 'base32',
+          type: 'TOTP',
+        },
+      ],
+    })
+    const update = vi.spyOn(entry, 'update').mockResolvedValue(undefined)
+    const updateOTPLabels = vi.fn(async () => true)
+    ;(entry as Entry & {updateOTPLabels: typeof updateOTPLabels}).updateOTPLabels = updateOTPLabels
+
+    window.passmanager = {
+      isReadOnly: () => false,
+      isEditMode: {set: vi.fn()},
+    } as unknown as typeof window.passmanager
+
+    const component = document.createElement('pm-entry') as PMEntry
+    component.entry = entry
+    document.body.append(component)
+    await settle(component)
+
+    pmEntryEditorModel.openSurface(entry.id, 'entry')
+    await settle(component)
+
+    const labelInput = getNativeInput(component, 'otp-label-otp-1')
+    expect(labelInput).not.toBeNull()
+    labelInput!.value = 'a'.repeat(65)
+    labelInput!.dispatchEvent(new InputEvent('input', {bubbles: true, composed: true}))
+    await settle(component)
+
+    component.shadowRoot?.querySelector<HTMLButtonElement>('.entry-edit-save-action')?.click()
+    await settle(component)
+
+    expect(update).not.toHaveBeenCalled()
+    expect(updateOTPLabels).not.toHaveBeenCalled()
+    const erroredInput = component.shadowRoot?.querySelector('cv-input[data-otp-label-input="otp-1"]')
+    expect(erroredInput).not.toBeNull()
+    expect(erroredInput?.textContent).toContain('Label is too long')
+    expect(component.shadowRoot?.querySelector('.entry-edit-save-action')).not.toBeNull()
   })
 
   it('does not render OTP quick view action in the desktop OTP section', async () => {

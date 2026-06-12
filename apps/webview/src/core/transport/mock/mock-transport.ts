@@ -1,4 +1,4 @@
-import {atom} from '@reatom/core'
+import {atom, wrap} from '@reatom/core'
 import {
   normalizeCredentialTagCatalog,
   normalizeCredentialTags,
@@ -864,7 +864,7 @@ export class MockTransport implements TransportLike {
       return this.sendPassmanager(command, data)
     }
 
-    const result = await (async () => {
+    const result = await wrap((async () => {
       try {
         switch (command) {
           case 'catalog:sync:manifest': {
@@ -1064,14 +1064,14 @@ export class MockTransport implements TransportLike {
         this.lastError.set(msg)
         return err(msg)
       }
-    })()
+    })())
 
     this.logTransportCall('catalog', command, data, result)
     return result
   }
 
   async sendPassmanager(command: string, data: Record<string, unknown>): Promise<unknown> {
-    const result = await (async () => {
+    const result = await wrap((async () => {
       try {
         switch (command) {
           case 'passmanager:subscribe':
@@ -1588,6 +1588,27 @@ export class MockTransport implements TransportLike {
             return ok(undefined)
           }
 
+          case 'passmanager:otp:renameSecret': {
+            const otpId = toOptionalString(data['otp_id'] ?? data['otpId'])
+            const entryId = toOptionalString(data['entry_id'] ?? data['entryId'])
+            const previousLabel = toOptionalString(data['previous_label'] ?? data['previousLabel'])
+            const nextLabel = toOptionalString(data['next_label'] ?? data['nextLabel'])
+            if (!previousLabel) return err('previous_label is required')
+            if (!nextLabel) return err('next_label is required')
+            const resolved = this.resolvePassmanagerOtpTarget({otpId, entryId, label: previousLabel})
+            if (!resolved) return err('otp_id or entry_id is required')
+            const previousSecret = this.passmanagerOtpSecrets.get(resolved.key)
+            if (!previousSecret) return err('OTP_SECRET_NOT_FOUND')
+            const nextKey = `${resolved.entryId}:${nextLabel}`
+            if (nextKey !== resolved.key && this.passmanagerOtpSecrets.has(nextKey)) {
+              return err('OTP label already exists')
+            }
+            this.passmanagerOtpSecrets.delete(resolved.key)
+            this.passmanagerOtpSecrets.set(nextKey, previousSecret)
+            this.bumpPassmanagerRevision()
+            return ok(undefined)
+          }
+
           case 'passmanager:icon:put': {
             const contentBase64 = toOptionalString(data['content_base64'])
             const mimeType = toOptionalString(data['mime_type']) ?? 'image/png'
@@ -1675,7 +1696,7 @@ export class MockTransport implements TransportLike {
         this.lastError.set(msg)
         return err(msg)
       }
-    })()
+    })())
 
     this.logTransportCall('passmanager', command, data, result)
     return result

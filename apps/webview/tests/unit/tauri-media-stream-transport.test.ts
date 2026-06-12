@@ -36,7 +36,6 @@ const capabilities: RuntimeCapabilities = {
   supports_native_share: false,
   supports_volume: true,
   supports_gateway: true,
-  supports_usb_remote: true,
   supports_network_remote: true,
   supports_biometric: false,
   supports_autofill: false,

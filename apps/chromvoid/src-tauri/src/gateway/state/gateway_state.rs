@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use super::super::types::{CapabilityPolicy, GrantStore, PairedExtension};
-use super::config::{GatewayConfig, PairingSession};
+use super::config::{GatewayConfig, PairingSession, GATEWAY_PAIRING_MAX_ATTEMPTS};
 use super::{hex_encode, now_ms};
 
 #[derive(Debug)]
@@ -70,7 +70,7 @@ impl GatewayState {
             pin,
             token_expires_at_ms: now.saturating_add(token_ttl.as_millis() as u64),
             pin_expires_at_ms: now.saturating_add(pin_ttl.as_millis() as u64),
-            attempts_left: 5,
+            attempts_left: GATEWAY_PAIRING_MAX_ATTEMPTS,
             locked_until_ms: None,
         };
         self.pairing = Some(session.clone());

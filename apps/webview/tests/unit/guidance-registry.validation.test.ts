@@ -32,7 +32,7 @@ const releaseMatrix = [
   {rank: 3, ids: ['welcome.local-vs-remote']},
   {rank: 4, ids: ['settings.mobile-autofill']},
   {rank: 5, ids: ['gateway.pair-extension']},
-  {rank: 6, ids: ['remote.setup-usb', 'remote.setup-network']},
+  {rank: 6, ids: ['remote.setup-network']},
   {rank: 7, ids: ['pro.remote.blocked', 'pro.gateway.blocked', 'pro.remote-storage.blocked']},
   {rank: 8, ids: ['passwords.import-migration']},
   {rank: 9, ids: ['passkeys.empty-state']},
@@ -103,7 +103,6 @@ describe('validateGuidanceRegistry', () => {
       presentation: 'popover',
       priority: 110,
     })
-    expect(byId.get('remote.setup-usb')).toMatchObject({presentation: 'inline_hint'})
     expect(byId.get('remote.setup-network')).toMatchObject({presentation: 'inline_hint'})
     expect(byId.get('files.empty-state')).toMatchObject({presentation: 'inline_hint', priority: 10})
     expect(byId.get('notes.empty-state')).toMatchObject({presentation: 'inline_hint', priority: 10})

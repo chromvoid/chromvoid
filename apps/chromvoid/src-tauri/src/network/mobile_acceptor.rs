@@ -670,6 +670,14 @@ mod tests {
     }
 
     #[test]
+    fn classify_accept_error_detects_pre_msg1_timeout() {
+        assert_eq!(
+            AcceptErrorClass::classify("noise msg1 recv: timeout after 5s"),
+            AcceptErrorClass::PreMsg1Closed
+        );
+    }
+
+    #[test]
     fn classify_accept_error_defaults_to_other() {
         assert_eq!(
             AcceptErrorClass::classify("noise xx read failed"),

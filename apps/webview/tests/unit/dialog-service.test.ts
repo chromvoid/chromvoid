@@ -7,6 +7,7 @@ import {CvInputDialog} from 'root/shared/services/cv-input-dialog'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
 import {clearAppContext, createMockAppContext, initAppContext} from 'root/shared/services/app-context'
 import {
+  PASSWORD_INPUT_DIALOG_KEYBOARD_OFFSET_VAR,
   PASSWORD_INPUT_DIALOG_KEYBOARD_STABILIZATION_ATTR,
   syncPasswordInputDialogKeyboardOffset,
 } from 'root/shared/services/mobile-dialog-keyboard-stabilization'
@@ -235,6 +236,10 @@ describe('dialogService', () => {
 
   it('stabilizes mobile password input dialog and owns autofocus', async () => {
     setupLayout('mobile')
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+    })
     const resultPromise = dialogService.showInputDialog({
       title: 'Unlock vault',
       label: 'Vault password',
@@ -307,17 +312,9 @@ describe('dialogService', () => {
       close: (value?: string | null) => void
     }
 
-    await waitFor(
-      () =>
-        Boolean(
-          inputDialog.shadowRoot
-            ?.querySelector('adaptive-modal-surface')
-            ?.shadowRoot?.querySelector('cv-bottom-sheet'),
-        ),
-      'iOS password input sheet',
-    )
+    await waitFor(() => Boolean(inputDialog.shadowRoot?.querySelector('cv-bottom-sheet')), 'iOS password input sheet')
 
-    const inputSurface = inputDialog.shadowRoot?.querySelector('adaptive-modal-surface')
+    const inputSurface = inputDialog.shadowRoot?.querySelector('cv-bottom-sheet')
     const input = inputDialog.shadowRoot?.querySelector('cv-input') as HTMLElement | null
     expect(input).not.toBeNull()
     expect(document.documentElement.hasAttribute(PASSWORD_INPUT_DIALOG_KEYBOARD_STABILIZATION_ATTR)).toBe(true)
@@ -646,7 +643,7 @@ describe('dialogService', () => {
 
     const dialog = new CvInputDialog() as CvInputDialog & {
       shown: boolean
-      isOpen: {(): boolean; set: (value: boolean) => void}
+      model: {isOpen(): boolean; open(): void}
       closeTimer: number | null
     }
     dialog.configure({
@@ -670,7 +667,7 @@ describe('dialogService', () => {
     })
 
     dialog.shown = true
-    dialog.isOpen.set(true)
+    dialog.model.open()
 
     try {
       dialog.close('secret')
@@ -681,7 +678,7 @@ describe('dialogService', () => {
       vi.advanceTimersByTime(32)
       await dialog.updateComplete
 
-      expect(dialog.isOpen()).toBe(false)
+      expect(dialog.model.isOpen()).toBe(false)
     } finally {
       vi.useRealTimers()
       if (activeElementDescriptor) {

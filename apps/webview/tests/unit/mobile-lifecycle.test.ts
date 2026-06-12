@@ -93,6 +93,7 @@ describe('setupMobileLifecycle', () => {
   })
 
   afterEach(async () => {
+    vi.useRealTimers()
     visibilityState = 'visible'
     document.dispatchEvent(new Event('visibilitychange'))
     await Promise.resolve()
@@ -230,6 +231,28 @@ describe('setupMobileLifecycle', () => {
     expect(tauriInvokeMock).not.toHaveBeenCalled()
   })
 
+  it('re-arms foreground biometric flow after a stale mobile file picker suppression expires', async () => {
+    vi.useFakeTimers()
+    window.dispatchEvent(
+      new CustomEvent(MOBILE_FILE_PICKER_LIFECYCLE_START_EVENT, {
+        detail: {timeoutMs: 100},
+      }),
+    )
+
+    visibilityState = 'hidden'
+    document.dispatchEvent(new Event('visibilitychange'))
+
+    expect(handleBackgroundMock).not.toHaveBeenCalled()
+    expect(handleForegroundResumeMock).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(101)
+    visibilityState = 'visible'
+    document.dispatchEvent(new Event('visibilitychange'))
+
+    expect(handleForegroundResumeMock).toHaveBeenCalledTimes(1)
+    expect(tauriInvokeMock).toHaveBeenCalledWith('mobile_notify_foreground')
+  })
+
   it('ignores pause and resume triggered by the mobile file picker', () => {
     window.dispatchEvent(
       new CustomEvent(MOBILE_FILE_PICKER_LIFECYCLE_START_EVENT, {
@@ -324,6 +347,8 @@ describe('setupMobileLifecycle', () => {
     expect(releaseMediaSourcesForAppBackgroundMock).toHaveBeenCalledWith({
       preserveAudioSession: true,
     })
-    expect(mediaPlaybackModel.sessionKind()).toBe('none')
+    await vi.waitFor(() => {
+      expect(mediaPlaybackModel.sessionKind()).toBe('none')
+    })
   })
 })

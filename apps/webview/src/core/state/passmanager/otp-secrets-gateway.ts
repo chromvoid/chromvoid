@@ -19,6 +19,7 @@ const isLogger = (value: unknown): value is Logger => {
 }
 
 const OTP_MISS_RE = /(OTP_SECRET_NOT_FOUND|NODE_NOT_FOUND|not\s*found)/i
+const OTP_RENAME_UNSUPPORTED_RE = /Unsupported IPC command:\s*passmanager:otp:renameSecret/i
 
 export class CatalogOTPSecretsGateway implements OTPSecretsGateway {
   private readonly logger: Logger
@@ -123,6 +124,31 @@ export class CatalogOTPSecretsGateway implements OTPSecretsGateway {
       const message = e instanceof Error ? e.message : String(e)
       this.logger.warn('[OTP] setSecret failed', {otpId: id, message})
       this.setError(ADAPTER_ERROR.OTP_SAVE, 'Failed to save OTP secret', e)
+      return false
+    }
+  }
+
+  async renameOTPLabel(id: string, previousLabel: string, nextLabel: string): Promise<boolean> {
+    try {
+      if (!this.transport.hasSendPassmanager) throw new Error('passmanager transport not available')
+
+      const res = (await this.transport.sendPassmanager('passmanager:otp:renameSecret', {
+        otp_id: id,
+        previous_label: previousLabel,
+        next_label: nextLabel,
+      })) as {ok: boolean; error?: string}
+
+      if (!res.ok) throw new Error(String(res.error || 'passmanager:otp:renameSecret failed'))
+
+      this.logger.info('[OTP] renameSecret ok', {otpId: id})
+      return true
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      this.logger.warn('[OTP] renameSecret failed', {otpId: id, message})
+      this.setError(ADAPTER_ERROR.OTP_SAVE, 'Failed to rename OTP secret', e)
+      if (OTP_RENAME_UNSUPPORTED_RE.test(message)) {
+        throw new Error(message)
+      }
       return false
     }
   }

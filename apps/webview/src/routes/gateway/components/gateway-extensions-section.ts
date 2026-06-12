@@ -30,10 +30,10 @@ function renderGatewayExtensionItem({
   const shortId = ext.id.length > 16 ? ext.id.slice(0, 16) + '...' : ext.id
 
   return html`
-    <div class="ext-item">
-      <div class="ext-info">
+    <div class="route-list-item">
+      <div class="route-item-info">
         <div class="ext-id" title=${ext.id}>${label === ext.id ? shortId : label}</div>
-        <div class="ext-meta">
+        <div class="route-item-meta">
           ${i18n('gateway:extensions:created')}
           : ${formatDate(ext.created_at_ms)}
           ${ext.last_active_ms != null
@@ -43,15 +43,15 @@ function renderGatewayExtensionItem({
             : nothing}
         </div>
       </div>
-      <div class="ext-actions">
-            <cv-button size="small" variant="default" @click=${() => onShowPolicy(ext.id)}>
-              ${i18n('gateway:extensions:settings')}
-            </cv-button>
-            <cv-button size="small" variant="default" @click=${() => onRevoke(ext.id)}>
-              ${i18n('gateway:extensions:revoke')}
-            </cv-button>
-          </div>
-        </div>
+      <div class="route-item-actions ext-actions">
+        <cv-button size="small" variant="default" @click=${() => onShowPolicy(ext.id)}>
+          ${i18n('gateway:extensions:settings')}
+        </cv-button>
+        <cv-button size="small" variant="default" @click=${() => onRevoke(ext.id)}>
+          ${i18n('gateway:extensions:revoke')}
+        </cv-button>
+      </div>
+    </div>
   `
 }
 
@@ -77,7 +77,7 @@ export const renderGatewayExtensionsSection = ({
       </div>
       <div class="card-body">
         ${extensions.length > 0
-          ? html`<div class="ext-list">
+          ? html`<div class="route-list">
               ${extensions.map((e) => renderGatewayExtensionItem({ext: e, onShowPolicy, onRevoke}))}
             </div>`
           : html`<div class="empty-state">${i18n('gateway:extensions:empty')}</div>`}

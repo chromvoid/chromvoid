@@ -91,6 +91,75 @@ describe('openPassmanagerMoveDialog', () => {
     expect(onConfirm).not.toHaveBeenCalled()
   })
 
+  it('does not confirm the desktop move dialog when Enter comes from search input', async () => {
+    vi.spyOn(pmComponentLoaderModel, 'ensureExtendedComponents').mockResolvedValue(undefined)
+    const onConfirm = vi.fn(() => true)
+
+    vi.spyOn(dialogService, 'showCustomDialog').mockImplementation(async (_options, attach) => {
+      const dialog = document.createElement('div')
+      const picker = document.createElement('pm-entry-move') as HTMLElement & {selectedId?: string}
+      picker.selectedId = 'target-group'
+      const searchInput = document.createElement('input')
+      const confirmBtn = document.createElement('button')
+      confirmBtn.id = 'move-confirm-btn'
+      const cancelBtn = document.createElement('button')
+      cancelBtn.id = 'move-cancel-btn'
+      dialog.append(picker, searchInput, confirmBtn, cancelBtn)
+
+      return new Promise<string | null>((resolve) => {
+        attach(dialog, resolve)
+        searchInput.dispatchEvent(
+          new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, composed: true, cancelable: true}),
+        )
+        cancelBtn.click()
+      })
+    })
+
+    await expect(
+      openPassmanagerMoveDialog({
+        onConfirm,
+        selectedId: 'target-group',
+        useMobilePicker: false,
+      }),
+    ).resolves.toBeNull()
+
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
+  it('does not confirm the desktop move dialog when Enter comes from Cancel', async () => {
+    vi.spyOn(pmComponentLoaderModel, 'ensureExtendedComponents').mockResolvedValue(undefined)
+    const onConfirm = vi.fn(() => true)
+
+    vi.spyOn(dialogService, 'showCustomDialog').mockImplementation(async (_options, attach) => {
+      const dialog = document.createElement('div')
+      const picker = document.createElement('pm-entry-move') as HTMLElement & {selectedId?: string}
+      picker.selectedId = 'target-group'
+      const confirmBtn = document.createElement('button')
+      confirmBtn.id = 'move-confirm-btn'
+      const cancelBtn = document.createElement('button')
+      cancelBtn.id = 'move-cancel-btn'
+      dialog.append(picker, confirmBtn, cancelBtn)
+
+      return new Promise<string | null>((resolve) => {
+        attach(dialog, resolve)
+        cancelBtn.dispatchEvent(
+          new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, composed: true, cancelable: true}),
+        )
+        cancelBtn.click()
+      })
+    })
+
+    await expect(
+      openPassmanagerMoveDialog({
+        onConfirm,
+        selectedId: 'target-group',
+        useMobilePicker: false,
+      }),
+    ).resolves.toBeNull()
+
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
   it('ignores duplicate desktop confirms while confirmation is pending', async () => {
     vi.spyOn(pmComponentLoaderModel, 'ensureExtendedComponents').mockResolvedValue(undefined)
     const deferred = createDeferred<boolean>()

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use crate::error::ErrorCode;
+use crate::rpc::derivative_index::DerivativeIndexState;
 use crate::vault::VaultSession;
 
 use super::super::super::types::{
@@ -21,11 +22,12 @@ pub(in crate::rpc::commands::catalog) fn derivative_index_error(
 }
 
 /// Handle catalog:derivative:stats command.
-pub fn handle_catalog_derivative_stats(
+pub(in crate::rpc) fn handle_catalog_derivative_stats(
     session: &VaultSession,
     storage: &crate::storage::Storage,
+    derivative_index_state: &DerivativeIndexState,
 ) -> RpcResponse {
-    match crate::rpc::derivative_index::stats(storage, session.vault_key()) {
+    match derivative_index_state.stats(storage, session.vault_key()) {
         Ok(stats) => RpcResponse::success(DerivativeStatsResponse {
             indexed_count: stats.indexed_count,
             indexed_bytes: stats.indexed_bytes,
@@ -54,10 +56,11 @@ fn parse_protected_revisions(data: &Value) -> std::result::Result<HashMap<u64, u
 }
 
 /// Handle catalog:derivative:compact command.
-pub fn handle_catalog_derivative_compact(
+pub(in crate::rpc) fn handle_catalog_derivative_compact(
     session: &VaultSession,
     data: &Value,
     storage: &crate::storage::Storage,
+    derivative_index_state: &DerivativeIndexState,
 ) -> RpcResponse {
     let max_indexed_bytes = match data
         .get("max_indexed_bytes")
@@ -76,7 +79,7 @@ pub fn handle_catalog_derivative_compact(
         Err(response) => return response,
     };
 
-    match crate::rpc::derivative_index::compact_derivatives(
+    match derivative_index_state.compact_derivatives(
         storage,
         session.vault_key(),
         max_indexed_bytes,

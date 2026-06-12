@@ -190,6 +190,22 @@ describe('WebMCP debug tools', () => {
     })
   })
 
+  it('does not register tools in prod on localhost-like origins', async () => {
+    const {tools, modelContext} = createModelContext()
+    setEnv('prod')
+    setModelContext(modelContext)
+
+    registerChromVoidWebMcpDebugTools()
+
+    expect(tools).toEqual([])
+    expect(window.__chromvoidWebMcpDebug).toMatchObject({
+      enabled: false,
+      available: true,
+      registered: false,
+      registeredTools: [],
+    })
+  })
+
   it('changes route through open_surface and closes the command palette model', async () => {
     const {tools, modelContext} = createModelContext()
     setEnv('dev')

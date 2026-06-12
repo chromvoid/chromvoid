@@ -64,6 +64,8 @@ export type MobileToolbarState = {
   executeAction?: (actionId: string) => boolean
 }
 
+export type MobileShellContentScrollMode = 'shell' | 'surface'
+
 export type AppRouteMotionDirection = 'none' | 'forward' | 'back' | 'replace'
 
 export type AppRouteMotionIntent = {
@@ -235,6 +237,14 @@ function getMarkdownMobileToolbarActions(): PasswordMobileToolbarAction[] {
         disabled: !markdownPreviewModel.canInsertImage(),
         active: imageAttaching,
       },
+    )
+    actions.push(
+      {
+        id: 'markdown-paste',
+        icon: 'clipboard',
+        label: i18n('markdown:paste' as never),
+        disabled: !markdownPreviewModel.canPasteText(),
+      },
       {
         id: 'markdown-undo',
         icon: 'undo-2',
@@ -304,6 +314,10 @@ function executeMarkdownMobileToolbarAction(
   switch (actionId) {
     case 'markdown-insert-image':
       return markdownPreviewModel.requestImagePicker()
+    case 'markdown-paste':
+      if (!markdownPreviewModel.canPasteText()) return false
+      void markdownPreviewModel.pasteTextFromClipboard()
+      return true
     case 'markdown-undo':
       return markdownPreviewModel.undo()
     case 'markdown-redo':
@@ -349,6 +363,25 @@ export function getFilesToolbarTitle(path: string): string {
   const parts = path.split('/').filter(Boolean)
   const name = parts.at(-1)
   return name ? `${filesLabel} • ${name}` : filesLabel
+}
+
+export function resolveMobileShellContentScrollMode(input: {
+  layoutMode: string
+  surface: SurfaceId
+}): MobileShellContentScrollMode {
+  if (input.layoutMode !== 'mobile') {
+    return 'shell'
+  }
+
+  switch (input.surface) {
+    case 'files':
+    case 'notes':
+    case 'passwords':
+    case 'passkeys':
+      return 'surface'
+    default:
+      return 'shell'
+  }
 }
 
 export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToolbarState {
@@ -572,6 +605,12 @@ export class ChromVoidAppModel {
       store: this.toolbarStore,
     })
   })
+  readonly mobileShellContentScrollMode = computed<MobileShellContentScrollMode>(() =>
+    resolveMobileShellContentScrollMode({
+      layoutMode: this.toolbarStore.layoutMode(),
+      surface: navigationModel.currentSurface(),
+    }),
+  )
 
   readonly galleryOpen = computed(() => navigationModel.resolvedOverlay().kind === 'gallery')
   readonly galleryImages = computed<Array<AppGalleryImage>>(() => {
@@ -832,6 +871,18 @@ export class ChromVoidAppModel {
     return resolveMobileToolbarState({
       route,
       store,
+    })
+  }
+
+  getMobileShellContentScrollMode(): MobileShellContentScrollMode {
+    if (this.connected) {
+      return this.mobileShellContentScrollMode()
+    }
+
+    const store = this.connected ? this.toolbarStore : getAppContext().store
+    return resolveMobileShellContentScrollMode({
+      layoutMode: store.layoutMode(),
+      surface: navigationModel.currentSurface(),
     })
   }
 

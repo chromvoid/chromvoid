@@ -2,9 +2,44 @@
 
 mod test_helpers;
 
+use chromvoid_core::rpc::types::RpcRequest;
+use chromvoid_core::rpc::RpcReply;
 use chromvoid_core::rpc::RpcRouter;
 use chromvoid_core::storage::Storage;
 use test_helpers::*;
+
+fn move_node_with_replace(
+    router: &mut RpcRouter,
+    node_id: u64,
+    new_parent_path: &str,
+    new_name: &str,
+    replace_existing: bool,
+) -> chromvoid_core::rpc::types::RpcResponse {
+    router.handle(&RpcRequest::new(
+        "catalog:move",
+        serde_json::json!({
+            "node_id": node_id,
+            "new_parent_path": new_parent_path,
+            "new_name": new_name,
+            "replace_existing": replace_existing,
+        }),
+    ))
+}
+
+fn download_file(router: &mut RpcRouter, node_id: u64) -> Vec<u8> {
+    match router.handle_with_stream(
+        &RpcRequest::new("catalog:download", serde_json::json!({"node_id": node_id})),
+        None,
+    ) {
+        RpcReply::Stream(mut stream) => {
+            let mut out = Vec::new();
+            std::io::Read::read_to_end(&mut stream.reader, &mut out).expect("download stream");
+            out
+        }
+        RpcReply::Json(response) => panic!("expected stream, got JSON: {response:?}"),
+        RpcReply::RangeStream(_) => panic!("expected full stream"),
+    }
+}
 
 // ============================================================================
 // catalog:move tests
@@ -128,6 +163,89 @@ fn test_move_creates_duplicate_name() {
 
     let response = move_node(&mut router, movable_id, "/dest");
     assert_rpc_error(&response, "NAME_EXIST");
+}
+
+#[test]
+fn test_move_replace_existing_file_is_atomic() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_vault(&mut router, "test");
+
+    assert_rpc_ok(&create_dir(&mut router, "source"));
+    assert_rpc_ok(&create_dir(&mut router, "dest"));
+    let source_id = upload_file(
+        &mut router,
+        Some("/source"),
+        ".safe-save.tmp",
+        b"new bytes".to_vec(),
+        Some("text/plain"),
+    );
+    let old_dest_id = upload_file(
+        &mut router,
+        Some("/dest"),
+        "file.txt",
+        b"old bytes".to_vec(),
+        Some("text/plain"),
+    );
+
+    let response = move_node_with_replace(&mut router, source_id, "/dest", "file.txt", true);
+    assert_rpc_ok(&response);
+
+    let source_items = get_items(&list_dir(&mut router, "/source"));
+    assert!(source_items.is_empty());
+    let dest_items = get_items(&list_dir(&mut router, "/dest"));
+    let file = find_item_by_name(&dest_items, "file.txt").expect("replacement file");
+    assert_eq!(
+        file.get("node_id").and_then(|value| value.as_u64()),
+        Some(source_id)
+    );
+    assert_ne!(source_id, old_dest_id);
+    assert_eq!(download_file(&mut router, source_id), b"new bytes");
+
+    let old_dest_download = router.handle_with_stream(
+        &RpcRequest::new(
+            "catalog:download",
+            serde_json::json!({"node_id": old_dest_id}),
+        ),
+        None,
+    );
+    match old_dest_download {
+        RpcReply::Json(response) => assert_rpc_error(&response, "NODE_NOT_FOUND"),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            panic!("old destination node should be gone, got stream")
+        }
+    }
+}
+
+#[test]
+fn test_move_replace_type_mismatch_preserves_source_and_destination() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_vault(&mut router, "test");
+
+    assert_rpc_ok(&create_dir(&mut router, "source"));
+    assert_rpc_ok(&create_dir(&mut router, "dest"));
+    let source_dir = create_dir_at(&mut router, "/source", "folder.tmp");
+    assert_rpc_ok(&source_dir);
+    let source_id = get_node_id(&source_dir);
+    let dest_id = upload_file(
+        &mut router,
+        Some("/dest"),
+        "file.txt",
+        b"keep me".to_vec(),
+        Some("text/plain"),
+    );
+
+    let response = move_node_with_replace(&mut router, source_id, "/dest", "file.txt", true);
+    assert_rpc_error(&response, "NAME_EXIST");
+
+    let source_items = get_items(&list_dir(&mut router, "/source"));
+    assert!(find_item_by_name(&source_items, "folder.tmp").is_some());
+    let dest_items = get_items(&list_dir(&mut router, "/dest"));
+    let file = find_item_by_name(&dest_items, "file.txt").expect("destination preserved");
+    assert_eq!(
+        file.get("node_id").and_then(|value| value.as_u64()),
+        Some(dest_id)
+    );
+    assert_eq!(download_file(&mut router, dest_id), b"keep me");
 }
 
 #[test]

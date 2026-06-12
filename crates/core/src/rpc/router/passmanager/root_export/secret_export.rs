@@ -37,17 +37,25 @@ pub(super) fn attach_entry_secrets(
     let vault_key = session.vault_key();
     if let Some(otp_secrets) = load_otp_secrets(vault_key, node_id, storage) {
         if let Some(otps) = meta_obj.get_mut("otps").and_then(|v| v.as_array_mut()) {
+            let fallback_secret = if otps.len() == 1 && otp_secrets.secrets.len() == 1 {
+                otp_secrets.secrets.first()
+            } else {
+                None
+            };
             for otp in otps.iter_mut() {
                 let Some(otp_obj) = otp.as_object_mut() else {
                     continue;
                 };
                 let otp_label = otp_obj.get("label").and_then(|v| v.as_str());
-                if let Some(secret) = otp_label.and_then(|label| {
-                    otp_secrets
-                        .secrets
-                        .iter()
-                        .find(|candidate| candidate.label == label)
-                }) {
+                if let Some(secret) = otp_label
+                    .and_then(|label| {
+                        otp_secrets
+                            .secrets
+                            .iter()
+                            .find(|candidate| candidate.label == label)
+                    })
+                    .or(fallback_secret)
+                {
                     otp_obj.insert("secret".to_string(), Value::String(secret.secret.clone()));
                     otp_obj.insert(
                         "algorithm".to_string(),

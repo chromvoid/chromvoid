@@ -22,7 +22,10 @@ import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.
 import {pmModel} from '../../src/features/passmanager/password-manager.model'
 import {i18n as passmanagerI18n, setPasswordManagerLang} from '@project/passmanager/i18n'
 import {ChromVoidApp} from '../../src/routes/app.route'
-import {ChromVoidAppModel} from '../../src/routes/app.route.model'
+import {
+  ChromVoidAppModel,
+  resolveMobileShellContentScrollMode,
+} from '../../src/routes/app.route.model'
 import {atom} from '@reatom/core'
 import {i18n as appI18n, setLang as setAppLang} from '../../src/i18n'
 import type {SearchFilters} from '../../src/shared/contracts/file-manager'
@@ -455,6 +458,21 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     ])
   })
 
+  it('resolves mobile shell content scroll mode by surface', () => {
+    expect(resolveMobileShellContentScrollMode({layoutMode: 'mobile', surface: 'files'})).toBe('surface')
+    expect(resolveMobileShellContentScrollMode({layoutMode: 'mobile', surface: 'notes'})).toBe('surface')
+    expect(resolveMobileShellContentScrollMode({layoutMode: 'mobile', surface: 'passwords'})).toBe('surface')
+    expect(resolveMobileShellContentScrollMode({layoutMode: 'mobile', surface: 'passkeys'})).toBe('surface')
+
+    expect(resolveMobileShellContentScrollMode({layoutMode: 'mobile', surface: 'settings'})).toBe('shell')
+    expect(resolveMobileShellContentScrollMode({layoutMode: 'mobile', surface: 'remote'})).toBe('shell')
+    expect(resolveMobileShellContentScrollMode({layoutMode: 'mobile', surface: 'gateway'})).toBe('shell')
+    expect(resolveMobileShellContentScrollMode({layoutMode: 'mobile', surface: 'remote-storage'})).toBe('shell')
+
+    expect(resolveMobileShellContentScrollMode({layoutMode: 'desktop', surface: 'files'})).toBe('shell')
+    expect(resolveMobileShellContentScrollMode({layoutMode: 'desktop', surface: 'passwords'})).toBe('shell')
+  })
+
   it('uses the Notes surface as a mobile toolbar context with create note action', () => {
     setupContext()
     setRoute('dashboard')
@@ -502,10 +520,52 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     expect(layout?.contentScrollMode).toBe('surface')
   })
 
+  it('renders the desktop Notes topbar with the shared shell toolbar and notes controls', async () => {
+    const store = setupContext()
+    store.layoutMode.set('desktop')
+    setRoute('dashboard')
+    navigationModel.navigateToSurface('notes')
+
+    const app = createApp()
+    document.body.append(app)
+    await app.updateComplete
+
+    const topbar = app.shadowRoot?.querySelector('desktop-shell-toolbar[slot="desktop-topbar"]')
+    const notesView = app.shadowRoot?.querySelector('notes-quick-view')
+
+    expect(topbar).not.toBeNull()
+    expect(topbar?.querySelector('notes-quick-view-controls[slot="center"]')).not.toBeNull()
+    expect(topbar?.querySelector('[slot="title"]')?.textContent).toBe('Notes')
+    expect(topbar?.querySelector('[slot="subtitle"]')?.textContent).toBe('Markdown files across Files')
+    expect(notesView?.hasAttribute('external-toolbar')).toBe(true)
+  })
+
   it('uses surface-owned mobile shell scrolling on the Passkeys surface', async () => {
     setupContext()
     setRoute('dashboard')
     navigationModel.navigateToSurface('passkeys')
+
+    const app = createApp()
+    document.body.append(app)
+    await app.updateComplete
+
+    const shell = app.shadowRoot?.querySelector('file-app-shell') as
+      | (HTMLElement & {contentScrollMode?: string; updateComplete?: Promise<unknown>})
+      | null
+    await shell?.updateComplete
+
+    const layout = shell?.shadowRoot?.querySelector('file-app-shell-mobile-layout') as
+      | (HTMLElement & {contentScrollMode?: string})
+      | null
+
+    expect(shell?.contentScrollMode).toBe('surface')
+    expect(layout?.contentScrollMode).toBe('surface')
+  })
+
+  it('uses surface-owned mobile shell scrolling on the Passwords surface', async () => {
+    setupContext()
+    setRoute('dashboard')
+    navigationModel.navigateToSurface('passwords')
 
     const app = createApp()
     document.body.append(app)
@@ -582,9 +642,11 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     const format = vi.spyOn(markdownPreviewModel, 'formatDocument').mockResolvedValue(true)
     const undo = vi.spyOn(markdownPreviewModel, 'undo').mockReturnValue(true)
     const redo = vi.spyOn(markdownPreviewModel, 'redo').mockReturnValue(false)
+    const paste = vi.spyOn(markdownPreviewModel, 'pasteTextFromClipboard').mockResolvedValue(true)
     const requestImagePicker = vi.spyOn(markdownPreviewModel, 'requestImagePicker').mockReturnValue(true)
     vi.spyOn(markdownPreviewModel, 'canUndo').mockReturnValue(true)
     vi.spyOn(markdownPreviewModel, 'canRedo').mockReturnValue(false)
+    vi.spyOn(markdownPreviewModel, 'canPasteText').mockReturnValue(true)
     const rename = vi.spyOn(markdownDocumentRenameModel, 'openRenameDialog').mockResolvedValue(true)
     const share = vi.spyOn(fileManagerModel, 'shareFileById').mockResolvedValue()
     const model = new ChromVoidAppModel()
@@ -597,6 +659,7 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     expect(state.overflowFromIndex).toBe(2)
     expect(state.actions.map((action) => action.id)).toEqual([
       'markdown-insert-image',
+      'markdown-paste',
       'markdown-undo',
       'markdown-redo',
       'markdown-format',
@@ -605,6 +668,7 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     ])
     expect(state.actions.find((action) => action.id === 'markdown-insert-image')?.disabled).toBe(false)
     expect(state.actions.find((action) => action.id === 'markdown-insert-image')?.active).toBe(false)
+    expect(state.actions.find((action) => action.id === 'markdown-paste')?.disabled).toBe(false)
     expect(state.actions.find((action) => action.id === 'markdown-undo')?.disabled).toBe(false)
     expect(state.actions.find((action) => action.id === 'markdown-redo')?.disabled).toBe(true)
     expect(state.actions.find((action) => action.id === 'markdown-rename')?.disabled).toBe(false)
@@ -613,6 +677,7 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     expect(state.actions.map((action) => action.id)).not.toContain('upload')
 
     expect(state.executeAction?.('markdown-insert-image')).toBe(true)
+    expect(state.executeAction?.('markdown-paste')).toBe(true)
     expect(state.executeAction?.('markdown-undo')).toBe(true)
     expect(state.executeAction?.('markdown-redo')).toBe(false)
     expect(state.executeAction?.('markdown-format')).toBe(true)
@@ -620,6 +685,7 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     expect(state.executeAction?.('markdown-share')).toBe(true)
 
     expect(requestImagePicker).toHaveBeenCalledTimes(1)
+    expect(paste).toHaveBeenCalledTimes(1)
     expect(undo).toHaveBeenCalledTimes(1)
     expect(redo).toHaveBeenCalledTimes(1)
     expect(format).toHaveBeenCalledTimes(1)

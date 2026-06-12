@@ -3,6 +3,7 @@ import {describe, expect, it} from 'vitest'
 import {applyMobileKeyboardCssOffsets} from 'root/app/bootstrap/mobile-keyboard-insets'
 import {
   getVisualViewportBottomInset,
+  getVisualViewportBlockSize,
   getVisualViewportLayoutHeight,
   resolveEffectiveKeyboardInset,
   resolveSafeAreaBottomFallback,
@@ -62,6 +63,35 @@ describe('getVisualViewportLayoutHeight', () => {
         preferRootHeight: false,
       }),
     ).toBe(522)
+  })
+})
+
+describe('getVisualViewportBlockSize', () => {
+  it('uses the visible visualViewport height for keyboard-aware sizing', () => {
+    expect(
+      getVisualViewportBlockSize({
+        visualViewportHeight: 522.4,
+        windowInnerHeight: 844,
+      }),
+    ).toBe(522)
+  })
+
+  it('falls back to window.innerHeight when visualViewport reports invalid geometry', () => {
+    expect(
+      getVisualViewportBlockSize({
+        visualViewportHeight: NaN,
+        windowInnerHeight: 844.2,
+      }),
+    ).toBe(844)
+  })
+
+  it('returns zero when no valid viewport height is available', () => {
+    expect(
+      getVisualViewportBlockSize({
+        visualViewportHeight: 0,
+        windowInnerHeight: NaN,
+      }),
+    ).toBe(0)
   })
 })
 

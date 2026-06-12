@@ -13,7 +13,6 @@ const REMOTE_IO_RUNTIME_POISONED: &str = "Remote IO runtime mutex poisoned";
 pub(crate) enum RemoteIoStopReason {
     Replaced,
     ModeSwitchLocal,
-    UsbDisconnect,
     StartFailed,
     AppShutdown,
     #[cfg(test)]
@@ -25,7 +24,6 @@ impl RemoteIoStopReason {
         match self {
             Self::Replaced => "replaced",
             Self::ModeSwitchLocal => "mode_switch_local",
-            Self::UsbDisconnect => "usb_disconnect",
             Self::StartFailed => "start_failed",
             Self::AppShutdown => "app_shutdown",
             #[cfg(test)]
@@ -36,8 +34,7 @@ impl RemoteIoStopReason {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RemoteIoSessionKind {
-    Network,
-    Usb,
+    RemoteTransport,
 }
 
 struct ActiveRemoteIoSession {
@@ -72,26 +69,26 @@ impl RemoteIoRuntimeState {
         }
     }
 
-    pub(crate) fn start_network_session(
+    pub(crate) fn start_remote_session(
         self: &Arc<Self>,
         app: tauri::AppHandle,
-        config: crate::network::IoTaskConfig,
-    ) -> Result<mpsc::Sender<crate::network::IoRequest>, String> {
-        let crate::network::NetworkIoTaskHandle {
+        config: crate::remote_data_plane::RemoteIoTaskConfig,
+    ) -> Result<mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>, String> {
+        let crate::remote_data_plane::RemoteIoTaskHandle {
             req_tx,
             evt_rx,
             task_handle,
-        } = crate::network::spawn_network_io_task(config);
+        } = crate::remote_data_plane::spawn_remote_io_task(config);
         let req_tx_for_adapter = req_tx.clone();
         let generation = self.next_active_generation();
         let event_runtime = self.clone();
         let event_task = tokio::spawn(async move {
-            run_network_event_pump(event_runtime, app, generation, evt_rx).await;
+            run_remote_event_pump(event_runtime, app, generation, evt_rx).await;
         });
 
         let session = ActiveRemoteIoSession {
             generation,
-            kind: RemoteIoSessionKind::Network,
+            kind: RemoteIoSessionKind::RemoteTransport,
             io_task: task_handle,
             event_task: Some(event_task),
         };
@@ -103,38 +100,6 @@ impl RemoteIoRuntimeState {
             }
             Err(PublishActiveError { error, session }) => {
                 self.current_generation.fetch_add(1, Ordering::AcqRel);
-                abort_session(Some(session), RemoteIoStopReason::StartFailed);
-                Err(error)
-            }
-        }
-    }
-
-    pub(crate) fn start_usb_session(
-        self: &Arc<Self>,
-        config: crate::usb::io_task::IoTaskConfig,
-    ) -> Result<mpsc::Sender<crate::usb::io_task::IoRequest>, String> {
-        let crate::usb::io_task::UsbIoTaskHandle {
-            req_tx,
-            evt_rx,
-            task_handle,
-        } = crate::usb::io_task::spawn_io_task(config);
-        let req_tx_for_adapter = req_tx.clone();
-        let generation = self.next_active_generation();
-        drop(evt_rx);
-
-        let session = ActiveRemoteIoSession {
-            generation,
-            kind: RemoteIoSessionKind::Usb,
-            io_task: task_handle,
-            event_task: None,
-        };
-
-        match self.publish_active(session) {
-            Ok(previous) => {
-                abort_session(previous, RemoteIoStopReason::Replaced);
-                Ok(req_tx_for_adapter)
-            }
-            Err(PublishActiveError { error, session }) => {
                 abort_session(Some(session), RemoteIoStopReason::StartFailed);
                 Err(error)
             }
@@ -293,11 +258,11 @@ fn abort_session_for_join(
     handles
 }
 
-async fn run_network_event_pump(
+async fn run_remote_event_pump(
     runtime: Arc<RemoteIoRuntimeState>,
     app: tauri::AppHandle,
     generation: u64,
-    mut evt_rx: mpsc::Receiver<crate::network::IoEvent>,
+    mut evt_rx: mpsc::Receiver<crate::remote_data_plane::RemoteIoEvent>,
 ) {
     while let Some(event) = evt_rx.recv().await {
         if !runtime.is_generation_current(generation) {
@@ -305,7 +270,7 @@ async fn run_network_event_pump(
         }
 
         match event {
-            crate::network::IoEvent::Frame(frame) => {
+            crate::remote_data_plane::RemoteIoEvent::Frame(frame) => {
                 if frame.frame_type != crate::gateway::protocol::FrameType::RpcRequest {
                     continue;
                 }
@@ -319,8 +284,8 @@ async fn run_network_event_pump(
                     }
                 }
             }
-            crate::network::IoEvent::Disconnected { reason } => {
-                warn!("remote_io: network I/O task disconnected: {reason}");
+            crate::remote_data_plane::RemoteIoEvent::Disconnected { reason } => {
+                warn!("remote_io: remote data-plane task disconnected: {reason}");
             }
             _ => {}
         }
@@ -344,10 +309,10 @@ mod tests {
     async fn storing_second_session_replaces_first() {
         let runtime = RemoteIoRuntimeState::new();
         let first = runtime
-            .store_test_session(RemoteIoSessionKind::Usb, None)
+            .store_test_session(RemoteIoSessionKind::RemoteTransport, None)
             .expect("first session");
         let second = runtime
-            .store_test_session(RemoteIoSessionKind::Network, None)
+            .store_test_session(RemoteIoSessionKind::RemoteTransport, None)
             .expect("second session");
 
         assert_ne!(first, second);
@@ -359,7 +324,7 @@ mod tests {
     async fn stop_active_clears_session_and_is_idempotent() {
         let runtime = RemoteIoRuntimeState::new();
         runtime
-            .store_test_session(RemoteIoSessionKind::Usb, None)
+            .store_test_session(RemoteIoSessionKind::RemoteTransport, None)
             .expect("session");
 
         runtime.stop_active(RemoteIoStopReason::Test).expect("stop");
@@ -375,7 +340,7 @@ mod tests {
     async fn stop_active_invalidates_previous_generation() {
         let runtime = RemoteIoRuntimeState::new();
         let generation = runtime
-            .store_test_session(RemoteIoSessionKind::Network, None)
+            .store_test_session(RemoteIoSessionKind::RemoteTransport, None)
             .expect("session");
 
         assert!(runtime.is_generation_current(generation));
@@ -399,7 +364,7 @@ mod tests {
         };
         ready_rx.await.expect("event task ready");
         runtime
-            .store_test_session(RemoteIoSessionKind::Network, Some(event_task))
+            .store_test_session(RemoteIoSessionKind::RemoteTransport, Some(event_task))
             .expect("session");
 
         runtime

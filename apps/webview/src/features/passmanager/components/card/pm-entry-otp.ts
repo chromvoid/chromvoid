@@ -4,6 +4,7 @@ import {ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
 import {i18n} from '@project/passmanager/i18n'
 import {hostLayoutPaintContainStyles, motionPrimitiveStyles} from 'root/shared/ui/shared-styles'
+import {CvEmptyState} from 'root/shared/ui/empty-state'
 
 import {PMEntryOTPItem} from './pm-entry-otp-item'
 import {PMEntryOTPModel} from './pm-entry-otp.model'
@@ -17,6 +18,7 @@ export class PMEntryOTP extends ReatomLitElement {
     }
 
     PMEntryOTPItem.define()
+    CvEmptyState.define()
     customElements.define('pm-entry-otp', this)
   }
 
@@ -36,28 +38,16 @@ export class PMEntryOTP extends ReatomLitElement {
       }
 
       .empty-state {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: var(--cv-space-2);
-        padding: var(--cv-space-6);
-        text-align: center;
-        color: var(--cv-color-text-muted);
-        background: var(--cv-color-surface-2);
-        border: 1px solid var(--cv-color-border);
-        border-radius: var(--cv-radius-3);
+        --cv-empty-state-padding: var(--cv-space-6);
+        --cv-empty-state-border: 1px solid var(--cv-color-border);
+        --cv-empty-state-radius: var(--cv-radius-3);
+        --cv-empty-state-background: var(--cv-color-surface-2);
+        --cv-empty-state-icon-color: var(--cv-color-text-muted);
+        --cv-empty-state-icon-opacity: 0.5;
+        --cv-empty-state-title-color: var(--cv-color-text-muted);
+        --cv-empty-state-title-font-size: var(--cv-font-size-sm);
+        --cv-empty-state-title-font-weight: var(--cv-font-weight-regular);
         font-style: italic;
-      }
-
-      .empty-state cv-icon {
-        opacity: 0.5;
-        color: var(--cv-color-text-muted);
-      }
-
-      .empty-state .empty-text {
-        font-size: var(--cv-font-size-sm);
-        margin: 0;
       }
 
       /*Adaptability*/
@@ -94,10 +84,13 @@ export class PMEntryOTP extends ReatomLitElement {
     const otps = this.model.state.otps()
     if (otps.length === 0) {
       return html`
-        <div class="empty-state" role="status" aria-label=${i18n('no_title')}>
-          <cv-icon name="shield-x" size="lg" aria-hidden="true"></cv-icon>
-          <p class="empty-text">${i18n('no_title')}</p>
-        </div>
+        <cv-empty-state
+          class="empty-state"
+          icon="shield-x"
+          headline=${i18n('no_title')}
+          aria-label=${i18n('no_title')}
+        >
+        </cv-empty-state>
       `
     }
 

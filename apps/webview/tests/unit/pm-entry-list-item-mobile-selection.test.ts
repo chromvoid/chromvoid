@@ -110,6 +110,20 @@ async function flush(element: PMEntryListItemMobile) {
   await Promise.resolve()
 }
 
+async function openLeftSwipe(element: PMEntryListItemMobile, preventDefault: () => void = () => {}) {
+  ;(element as PMEntryListItemMobile & {handleTouchStart: (event: TouchEvent) => void}).handleTouchStart({
+    touches: [{clientX: 80, clientY: 0}],
+  } as unknown as TouchEvent)
+
+  ;(element as PMEntryListItemMobile & {handleTouchMove: (event: TouchEvent) => void}).handleTouchMove({
+    touches: [{clientX: 0, clientY: 0}],
+    preventDefault,
+  } as unknown as TouchEvent)
+
+  ;(element as PMEntryListItemMobile & {handleTouchEnd: () => void}).handleTouchEnd()
+  await flush(element)
+}
+
 describe('PMEntryListItemMobile selection mode', () => {
   let originalPassmanager: typeof window.passmanager
 
@@ -372,23 +386,12 @@ describe('PMEntryListItemMobile selection mode', () => {
     document.body.append(element)
     await flush(element)
 
-    ;(element as PMEntryListItemMobile & {handleTouchStart: (event: TouchEvent) => void}).handleTouchStart({
-      touches: [{clientX: 80, clientY: 0}],
-    } as unknown as TouchEvent)
-
     const preventDefault = vi.fn()
-    ;(element as PMEntryListItemMobile & {handleTouchMove: (event: TouchEvent) => void}).handleTouchMove({
-      touches: [{clientX: 0, clientY: 0}],
-      preventDefault,
-    } as unknown as TouchEvent)
-    await flush(element)
+    await openLeftSwipe(element, preventDefault)
 
     expect(preventDefault).toHaveBeenCalledTimes(1)
     expect(element.shadowRoot?.querySelector('.swipe-actions-right cv-icon[name="trash"]')).not.toBeNull()
     expect(element.shadowRoot?.querySelector('.swipe-actions-left cv-icon[name="person-circle"]')).not.toBeNull()
-
-    ;(element as PMEntryListItemMobile & {handleTouchEnd: () => void}).handleTouchEnd()
-    await flush(element)
 
     expect(element.shadowRoot?.querySelector('.list-item')?.getAttribute('data-swipe-state')).toBe('open-left')
   })
@@ -404,12 +407,17 @@ describe('PMEntryListItemMobile selection mode', () => {
     document.body.append(element)
     await flush(element)
 
+    await openLeftSwipe(element)
+    expect(element.shadowRoot?.querySelector('.list-item')?.getAttribute('data-swipe-state')).toBe('open-left')
+
     element.shadowRoot
       ?.querySelector('.swipe-actions-right .swipe-action')
       ?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
+    await flush(element)
 
     expect(deleteSpy).toHaveBeenCalledTimes(1)
     expect((deleteSpy.mock.calls[0]?.[0] as CustomEvent<Entry>).detail).toBe(entry)
+    expect(element.shadowRoot?.querySelector('.list-item')?.getAttribute('data-swipe-state')).toBe('idle')
   })
 
 })

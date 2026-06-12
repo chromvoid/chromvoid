@@ -91,10 +91,7 @@ fn vault_rekey_inner(
         );
     }
 
-    let request = VaultRekeyRequest {
-        current_password,
-        new_password,
-    };
+    let request = VaultRekeyRequest::new(current_password, new_password);
     let mut progress = |event: chromvoid_core::vault::VaultRekeyProgress| {
         let _ = app.emit(
             "vault:rekey:progress",

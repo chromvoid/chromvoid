@@ -11,6 +11,14 @@ import {mediaPlaybackModel} from '../../src/features/media/models/media-playback
 import {i18n} from '../../src/i18n'
 
 describe('status-bar media mini controls', () => {
+  async function waitForSessionKind(expected: ReturnType<typeof mediaPlaybackModel.sessionKind>): Promise<void> {
+    for (let index = 0; index < 10; index += 1) {
+      if (mediaPlaybackModel.sessionKind() === expected) return
+      await Promise.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+  }
+
   beforeEach(() => {
     StatusBar.define()
 
@@ -78,8 +86,7 @@ describe('status-bar media mini controls', () => {
     const stopItem = mini?.shadowRoot?.querySelector('cv-menu-item[value="stop"]') as HTMLElement | null
     expect(stopItem?.textContent).toContain(i18n('media:stop' as any))
     stopItem?.click()
-    await Promise.resolve()
-    await Promise.resolve()
+    await waitForSessionKind('none')
     expect(mediaPlaybackModel.sessionKind()).toBe('none')
   })
 })

@@ -1,6 +1,5 @@
 pub mod connection;
 mod host_responder_task;
-pub mod io_task;
 pub mod ios_control;
 pub mod ios_lifecycle;
 pub mod ios_pairing;
@@ -32,7 +31,6 @@ pub use fallback::{
     connect_with_fallback, connect_with_fallback_with_options, default_ice_servers,
     FallbackConnectOptions, FallbackResult, LastKnownGoodTransportCache, NetworkContext,
 };
-pub use io_task::{spawn_network_io_task, IoEvent, IoRequest, IoTaskConfig, NetworkIoTaskHandle};
 pub use ios_control::{
     create_pairing_session, fetch_host_presence, fetch_pairing_session, http_base_from_relay_url,
     publish_host_presence, send_wake, HostPresence, PairingOffer, PairingSessionSnapshot,

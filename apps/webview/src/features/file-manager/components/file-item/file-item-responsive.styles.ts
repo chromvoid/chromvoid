@@ -7,6 +7,12 @@ export const fileItemResponsiveStyles = css`
       outline: none;
     }
 
+    :host([active]:not(:focus):not(:focus-visible)) .actions {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
     /* Disable hover transforms that look bad on touch */
     :host([view-mode='list']:not([selected]):not([active])):hover {
       transform: none;
@@ -69,14 +75,20 @@ export const fileItemResponsiveStyles = css`
 
     /* Reduce grid card height on mobile */
     :host([view-mode='grid']) {
-      block-size: 160px;
+      block-size: var(--file-grid-touch-card-block-size, 160px);
+    }
+
+    :host([view-mode='grid']) .thumbnail-shell {
+      inline-size: var(--file-grid-touch-thumbnail-size, 72px);
+      block-size: var(--file-grid-touch-thumbnail-size, 72px);
+      margin-block-end: var(--file-grid-touch-thumbnail-gap, var(--app-spacing-2));
     }
 
     :host([view-mode='grid']) .icon {
-      font-size: 36px;
-      min-inline-size: 48px;
-      block-size: 48px;
-      margin-block-end: var(--app-spacing-2);
+      font-size: var(--file-grid-touch-icon-size, 36px);
+      min-inline-size: var(--file-grid-touch-icon-target-size, 48px);
+      block-size: var(--file-grid-touch-icon-target-size, 48px);
+      margin-block-end: var(--file-grid-touch-thumbnail-gap, var(--app-spacing-2));
     }
 
     :host([view-mode='grid']) .file-item {

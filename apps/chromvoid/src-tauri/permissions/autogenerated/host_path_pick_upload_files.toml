@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-host-path-pick-upload-files"
+description = "Enables the host_path_pick_upload_files command without any pre-configured scope."
+commands.allow = ["host_path_pick_upload_files"]
+
+[[permission]]
+identifier = "deny-host-path-pick-upload-files"
+description = "Denies the host_path_pick_upload_files command without any pre-configured scope."
+commands.deny = ["host_path_pick_upload_files"]

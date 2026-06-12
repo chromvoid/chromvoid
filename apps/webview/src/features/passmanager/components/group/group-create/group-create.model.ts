@@ -15,6 +15,8 @@ export class PMGroupCreateModel {
   readonly targetGroupPath = atom<string | undefined>(
     passmanagerNavigationController.getCreateGroupTargetGroupPath(),
   )
+  readonly isSubmitting = atom(false)
+  readonly nameError = atom('')
   readonly trimmedName = computed(() => this.name().trim())
   readonly nameLength = computed(() => this.name().length)
   readonly descriptionLength = computed(() => this.description().length)
@@ -22,10 +24,11 @@ export class PMGroupCreateModel {
   readonly descriptionCounterLabel = computed(
     () => `${this.descriptionLength()}/${GROUP_CREATE_DESCRIPTION_MAX_LENGTH}`,
   )
-  readonly canSubmit = computed(() => this.trimmedName().length > 0)
+  readonly canSubmit = computed(() => this.trimmedName().length > 0 && !this.isSubmitting())
 
   setName(name: string): void {
     this.name.set(name.slice(0, GROUP_CREATE_NAME_MAX_LENGTH))
+    this.nameError.set('')
   }
 
   setDescription(description: string): void {
@@ -52,21 +55,52 @@ export class PMGroupCreateModel {
     passmanagerNavigationController.applyRoute(path ? {kind: 'group', groupPath: path} : {kind: 'root'})
   }
 
-  async submit(): Promise<void> {
+  async submit(): Promise<boolean> {
     const passmanager = getPassmanagerRoot()
     if (!passmanager || !peek(this.canSubmit)) {
-      return
+      return false
     }
 
     const targetGroupPath = peek(this.targetGroupPath)
     const groupName = peek(this.trimmedName)
     const fullName = targetGroupPath ? `${targetGroupPath}/${groupName}` : groupName
 
-    passmanager.createGroup({
-      name: fullName,
-      description: peek(this.description),
-      iconRef: peek(this.iconRef),
-      entries: [],
-    })
+    if (this.groupPathExists(passmanager, fullName)) {
+      this.nameError.set(i18n('tags:error_exists' as never))
+      return false
+    }
+
+    this.isSubmitting.set(true)
+    try {
+      await Promise.resolve(
+        passmanager.createGroup({
+          name: fullName,
+          description: peek(this.description),
+          iconRef: peek(this.iconRef),
+          entries: [],
+        }),
+      )
+      return true
+    } finally {
+      this.isSubmitting.set(false)
+    }
+  }
+
+  private groupPathExists(passmanager: unknown, fullName: string): boolean {
+    if (!passmanager || typeof passmanager !== 'object') return false
+
+    const root = passmanager as {
+      entriesList?: () => unknown[]
+      entries?: unknown[]
+      getGroup?: (id: string) => unknown
+    }
+    const entries = typeof root.entriesList === 'function' ? root.entriesList() : root.entries
+    if (Array.isArray(entries)) {
+      return entries.some((item) => {
+        return Boolean(item && typeof item === 'object' && (item as {name?: unknown}).name === fullName)
+      })
+    }
+
+    return Boolean(root.getGroup?.(fullName))
   }
 }

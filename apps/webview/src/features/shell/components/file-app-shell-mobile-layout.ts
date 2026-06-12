@@ -81,8 +81,8 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
         background: var(--surface-base, var(--cv-color-bg, #000));
         color: var(--text-primary, var(--cv-color-text, #fff));
         height: 100%;
-        --mobile-topbar-block-size: 56px;
-        --mobile-tab-bar-block-size: 64px;
+        --mobile-topbar-block-size: var(--app-mobile-topbar-block-size, 56px);
+        --mobile-tab-bar-block-size: var(--app-mobile-tabbar-block-size, 64px);
         --mobile-tab-bar-active-block-size: var(
           --mobile-tab-bar-keyboard-aware-block-size,
           var(--mobile-tab-bar-block-size)

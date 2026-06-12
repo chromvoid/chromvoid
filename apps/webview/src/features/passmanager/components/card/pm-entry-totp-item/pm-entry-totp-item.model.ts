@@ -8,6 +8,10 @@ import {defaultLogger} from 'root/core/logger'
 
 const ARC_RADIUS = 17.5
 const ARC_CIRCUMFERENCE = 2 * Math.PI * ARC_RADIUS
+const TOTP_DANGER_SECONDS = 5
+const TOTP_WARNING_SECONDS = 10
+
+export type PMEntryTOTPCountdownLevel = 'safe' | 'warning' | 'danger'
 
 type VisibleCodeState = {
   key: string
@@ -24,8 +28,42 @@ export interface PMEntryTOTPItemViewState {
   readonly isUrgent: boolean
   readonly baseColor: string
   readonly lightColor: string
+  readonly countdownLevel: PMEntryTOTPCountdownLevel
   readonly arcOffset: number
   readonly copyFeedback: 'idle' | 'copied'
+}
+
+function getCountdownLevel(leftSeconds: number): PMEntryTOTPCountdownLevel {
+  if (leftSeconds <= TOTP_DANGER_SECONDS) {
+    return 'danger'
+  }
+
+  if (leftSeconds <= TOTP_WARNING_SECONDS) {
+    return 'warning'
+  }
+
+  return 'safe'
+}
+
+function getCountdownColors(level: PMEntryTOTPCountdownLevel): {baseColor: string; lightColor: string} {
+  if (level === 'danger') {
+    return {
+      baseColor: 'var(--cv-color-danger-dark)',
+      lightColor: 'var(--cv-color-danger-surface)',
+    }
+  }
+
+  if (level === 'warning') {
+    return {
+      baseColor: 'var(--cv-color-warning-dark)',
+      lightColor: 'var(--cv-color-warning-surface)',
+    }
+  }
+
+  return {
+    baseColor: 'var(--cv-color-success-dark)',
+    lightColor: 'var(--cv-color-success-surface)',
+  }
 }
 
 export class PMEntryTOTPItemModel {
@@ -98,17 +136,8 @@ export class PMEntryTOTPItemModel {
       const period = this.getPeriod(otp)
       const leftSeconds = otp.leftSeconds
       const ratio = Math.max(0, Math.min(1, leftSeconds / period))
-
-      let baseColor = 'var(--cv-color-success)'
-      let lightColor = 'var(--cv-color-success-surface-strong)'
-
-      if (leftSeconds < 5) {
-        baseColor = 'var(--cv-color-danger)'
-        lightColor = 'var(--cv-color-danger-surface-strong)'
-      } else if (ratio <= 0.5) {
-        baseColor = 'var(--cv-color-warning)'
-        lightColor = 'var(--cv-color-warning-surface-strong)'
-      }
+      const countdownLevel = getCountdownLevel(leftSeconds)
+      const {baseColor, lightColor} = getCountdownColors(countdownLevel)
 
       const arcOffset = ARC_CIRCUMFERENCE * (1 - ratio)
       const isVisible = otp.isShow()
@@ -124,7 +153,8 @@ export class PMEntryTOTPItemModel {
         codeText,
         digitGroups,
         chars,
-        isUrgent: leftSeconds < 5,
+        isUrgent: countdownLevel === 'danger',
+        countdownLevel,
         baseColor,
         lightColor,
         arcOffset,
@@ -166,7 +196,12 @@ export class PMEntryTOTPItemModel {
         return
       }
 
-      const code = (await wrap(otp.loadCode(this.getSlot(otp) * this.getPeriod(otp)))) ?? ''
+      const period = this.getPeriod(otp)
+      const requestedSlot = this.getSlot(otp)
+      let code = (await wrap(otp.loadCode(requestedSlot * period))) ?? ''
+      if (this.isCurrentConnectedOtp(otp) && this.getSlot(otp) !== requestedSlot) {
+        code = (await wrap(otp.loadCode(this.getSlot(otp) * period))) ?? ''
+      }
       if (!code || !this.isCurrentConnectedOtp(otp)) {
         return
       }

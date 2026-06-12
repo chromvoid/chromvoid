@@ -383,6 +383,82 @@ async fn socket_agent_lists_identities_and_signs_after_approval() {
 }
 
 #[tokio::test]
+async fn sign_approval_is_per_key_within_one_connection() {
+    let _env_lock = env_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let _xdg_guard = XdgConfigGuard::set(tempdir.path());
+
+    let approval_emitter = Arc::new(TestApprovalEmitter::default());
+    let ed25519_key_blob = public_key_blob_from_openssh(ED25519_PUBLIC_KEY).expect("ed25519 blob");
+    let ecdsa_key_blob = public_key_blob_from_openssh(ECDSA_PUBLIC_KEY).expect("ecdsa blob");
+    let agent_state = start_test_agent(
+        approval_emitter.clone(),
+        vec![
+            (
+                "entry-a/key-a".to_string(),
+                ED25519_PUBLIC_KEY.to_string(),
+                "deploy-a".to_string(),
+                "SHA256:key-a".to_string(),
+            ),
+            (
+                "entry-b/key-b".to_string(),
+                ECDSA_PUBLIC_KEY.to_string(),
+                "deploy-b".to_string(),
+                "SHA256:key-b".to_string(),
+            ),
+        ],
+        None,
+        None,
+    );
+    let socket_path = socket_path_for(&agent_state);
+    wait_for_agent_ready(&socket_path).await;
+
+    let mut stream = connect_with_retry(&socket_path).await;
+    stream
+        .write_all(&build_sign_request(&ed25519_key_blob, b"key a", 0))
+        .await
+        .expect("write key-a sign request");
+    let approval_a = approval_emitter.wait_for_request().await;
+    assert_eq!(approval_a.fingerprint, "SHA256:key-a");
+    {
+        let shared = shared_state(&agent_state);
+        shared
+            .lock()
+            .await
+            .resolve_approval(&approval_a.request_id, true)
+            .expect("approval a must exist");
+    }
+    let (msg_type, _) = read_agent_message(&mut stream).await;
+    assert_eq!(msg_type, SSH_AGENT_SIGN_RESPONSE);
+
+    stream
+        .write_all(&build_sign_request(&ecdsa_key_blob, b"key b", 0))
+        .await
+        .expect("write key-b sign request");
+    let approval_b = tokio::time::timeout(
+        Duration::from_secs(2),
+        approval_emitter.wait_for_request_count(2),
+    )
+    .await
+    .expect("second key should require its own approval");
+    assert_eq!(approval_b.fingerprint, "SHA256:key-b");
+    {
+        let shared = shared_state(&agent_state);
+        shared
+            .lock()
+            .await
+            .resolve_approval(&approval_b.request_id, true)
+            .expect("approval b must exist");
+    }
+    let (msg_type, _) = read_agent_message(&mut stream).await;
+    assert_eq!(msg_type, SSH_AGENT_SIGN_RESPONSE);
+
+    stop_shared_state(&agent_state, StopReason::Manual).await;
+}
+
+#[tokio::test]
 async fn sign_request_denied_returns_failure_and_never_signs() {
     let _env_lock = env_lock()
         .lock()
@@ -747,6 +823,9 @@ async fn manual_and_app_shutdown_keep_graceful_stop_contract() {
 
     stop_shared_state(&agent_state, StopReason::Manual).await;
 
+    let audit_log = Arc::new(SshAgentAuditLog::new(
+        tempdir.path().join("audit").join("ssh-agent.jsonl"),
+    ));
     let second_agent_state = start_test_agent(
         Arc::new(TestApprovalEmitter::default()),
         single_test_entry(ED25519_PUBLIC_KEY, "deploy", "SHA256:test"),

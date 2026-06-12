@@ -193,6 +193,10 @@ export const pmEntryListItemBaseStyles = [
       text-overflow: ellipsis;
     }
 
+    .entry-badge-suffix {
+      flex: 0 0 auto;
+    }
+
     .entry-badge cv-icon {
       inline-size: 12px;
       block-size: 12px;
@@ -295,6 +299,70 @@ export const pmEntryListItemDesktopStyles = css`
       background var(--cv-duration-fast) var(--cv-easing-standard);
   }
 
+  .list-item[data-view-mode='workbench'] {
+    grid-template-columns:
+      minmax(240px, 1fr)
+      minmax(150px, 240px)
+      minmax(132px, 168px)
+      minmax(72px, 92px);
+    gap: 16px;
+    background: transparent;
+  }
+
+  .workbench-name-cell {
+    display: inline-grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    min-inline-size: 0;
+  }
+
+  .workbench-status-cell {
+    min-inline-size: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  .workbench-status-cell .entry-badges {
+    justify-content: flex-start;
+    max-inline-size: 100%;
+  }
+
+  .workbench-modified-cell {
+    min-inline-size: 0;
+    color: var(--cv-color-text-secondary);
+    font-family: var(--cv-font-family-code);
+    font-size: 12px;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .workbench-actions-cell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: calc(var(--cv-space-2) * 0.75);
+    min-inline-size: 0;
+  }
+
+  .entry-kind-chip {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 22px;
+    padding: 2px 8px;
+    border-radius: var(--cv-radius-1);
+    border: 1px solid var(--cv-color-border);
+    background: var(--cv-color-surface-2);
+    color: var(--cv-color-text-muted);
+    font-size: 11px;
+    font-weight: var(--cv-font-weight-semibold);
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
   .list-item::before {
     content: '';
     position: absolute;
@@ -394,6 +462,16 @@ export const pmEntryListItemDesktopStyles = css`
     }
   }
 
+  @container (width < 680px) {
+    .list-item[data-view-mode='workbench'] {
+      grid-template-columns: minmax(0, 1fr) minmax(92px, auto) auto;
+    }
+
+    .list-item[data-view-mode='workbench'] .workbench-modified-cell {
+      display: none;
+    }
+  }
+
   .action-button {
     transition:
       background-color var(--cv-duration-fast) var(--cv-easing-standard),
@@ -442,7 +520,6 @@ export const pmEntryListItemMobileStyles = css`
   ${pmMobileListRowStyles}
 
   .list-item {
-    --pm-mobile-list-row-gap: 6px;
     grid-template-columns: auto minmax(0, 1fr) minmax(0, auto) auto;
     gap: var(--pm-mobile-list-row-gap);
     padding:
@@ -624,6 +701,7 @@ export const pmEntryListItemMobileStyles = css`
   .swipe-actions-right {
     position: absolute;
     inset-block: 0;
+    z-index: 2;
     display: flex;
     align-items: center;
     justify-content: center;

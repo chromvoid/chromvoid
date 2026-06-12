@@ -1,9 +1,29 @@
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct VaultRekeyRequest {
-    pub current_password: String,
-    pub new_password: String,
+    pub current_password: Zeroizing<String>,
+    pub new_password: Zeroizing<String>,
+}
+
+impl VaultRekeyRequest {
+    pub fn new(current_password: impl Into<String>, new_password: impl Into<String>) -> Self {
+        Self {
+            current_password: Zeroizing::new(current_password.into()),
+            new_password: Zeroizing::new(new_password.into()),
+        }
+    }
+}
+
+impl std::fmt::Debug for VaultRekeyRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("VaultRekeyRequest")
+            .field("current_password", &"[redacted]")
+            .field("new_password", &"[redacted]")
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,4 +48,25 @@ pub struct VaultRekeyResult {
 pub(super) struct ChunkPair {
     pub(super) old_name: String,
     pub(super) new_name: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use zeroize::Zeroizing;
+
+    use super::VaultRekeyRequest;
+
+    #[test]
+    fn rekey_request_debug_redacts_passwords_and_uses_zeroizing_fields() {
+        let request = VaultRekeyRequest::new("old-secret-password", "new-secret-password");
+        let debug = format!("{request:?}");
+
+        assert!(!debug.contains("old-secret-password"));
+        assert!(!debug.contains("new-secret-password"));
+        assert!(debug.contains("[redacted]"));
+
+        fn assert_zeroizing_string(_: &Zeroizing<String>) {}
+        assert_zeroizing_string(&request.current_password);
+        assert_zeroizing_string(&request.new_password);
+    }
 }

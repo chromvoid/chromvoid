@@ -1,7 +1,7 @@
 //! Portable storage pepper (ADR-010 / ADR-012 / SPEC-100).
 //!
 //! - Pepper is a 32-byte secret stored in a platform keystore (desktop/mobile) or
-//!   in an encrypted file (Orange Pi).
+//!   in an encrypted file for headless remote hosts.
 //! - Pepper is exported only as wrapped bytes inside `metadata.enc`.
 
 use thiserror::Error;

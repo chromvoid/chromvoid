@@ -15,6 +15,7 @@ pub(super) fn apply_upload_catalog_update(
     total_size: u64,
 ) -> UploadResult<()> {
     let storage = router.storage.clone();
+    let derivative_index_state = std::sync::Arc::clone(&router.derivative_index_state);
     let session = require_session_mut(router)?;
     let modtime = transaction
         .new_modtime
@@ -56,6 +57,7 @@ pub(super) fn apply_upload_catalog_update(
         finalize_blob_write(
             session,
             &storage,
+            Some(derivative_index_state.as_ref()),
             BlobFinalizationInput {
                 node_id: transaction.node_id,
                 size: Some(total_size),

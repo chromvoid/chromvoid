@@ -37,6 +37,8 @@ macro_rules! start_fuse_or_skip {
 
 #[tokio::test]
 async fn fuse_rw_roundtrip_mount_smoke() {
+    common::enable_local_core_test_keystore();
+
     if !common::require_fuse_driver("fuse_rw_roundtrip_mount_smoke") {
         return;
     }

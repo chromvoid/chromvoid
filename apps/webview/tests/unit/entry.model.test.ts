@@ -1,4 +1,5 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
+import {atom} from '@reatom/core'
 
 const openExternalBrowserUrl = vi.hoisted(() => vi.fn(() => Promise.resolve()))
 
@@ -12,6 +13,7 @@ import type {ManagerSaver} from '@project/passmanager/types'
 import {PMEntryModel} from '../../src/features/passmanager/components/card/entry/entry.model'
 import {PMEntrySessionModel} from '../../src/features/passmanager/components/card/entry/entry-session.model'
 import {pmDeleteMotionModel} from '../../src/features/passmanager/models/pm-delete-motion.model'
+import {pmEntryEditorModel} from '../../src/features/passmanager/models/pm-entry-editor.model'
 import {clearPassmanagerRoot, setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
 
 function deferred<T>() {
@@ -406,13 +408,98 @@ describe('PMEntrySessionModel', () => {
       k1: 'ssh-ed25519 AAAA retry@test',
     })
   })
+
+  it('reloads same-entry secrets when the SSH signature changes', async () => {
+    const model = new PMEntrySessionModel()
+    const firstEntry = {
+      id: 'entry-same-id-ssh-refresh',
+      flushPendingPersistence: vi.fn(async () => {}),
+      password: vi.fn(async () => 'old-secret'),
+      note: vi.fn(async () => 'old-note'),
+      sshKeys: [],
+      sshPublicKey: vi.fn(),
+    } as unknown as Entry
+    const updatedEntry = {
+      id: 'entry-same-id-ssh-refresh',
+      flushPendingPersistence: vi.fn(async () => {}),
+      password: vi.fn(async () => 'new-secret'),
+      note: vi.fn(async () => 'new-note'),
+      sshKeys: [{id: 'k1', type: 'ed25519', fingerprint: 'SHA256:test'}],
+      sshPublicKey: vi.fn(async () => 'ssh-ed25519 AAAA refreshed@test'),
+    } as unknown as Entry
+
+    await model.actions.ensureSecretsLoaded(firstEntry)
+    expect(model.state.password()).toBe('old-secret')
+    expect(model.state.note()).toBe('old-note')
+
+    model.actions.attach(updatedEntry)
+
+    await vi.waitFor(() => {
+      expect(model.state.password()).toBe('new-secret')
+      expect(model.state.note()).toBe('new-note')
+      expect(model.state.sshPublicKeys()).toEqual({
+        k1: 'ssh-ed25519 AAAA refreshed@test',
+      })
+    })
+  })
 })
 
 describe('PMEntryModel actions', () => {
   afterEach(() => {
     clearPassmanagerRoot()
+    pmEntryEditorModel.reset()
     pmDeleteMotionModel.reset()
     vi.restoreAllMocks()
+  })
+
+  it('opens full-entry edit for login entries from the desktop edit command', () => {
+    const entry = new Entry(Object.create(ManagerRoot.prototype) as ManagerRoot, {
+      id: 'entry-desktop-edit-login',
+      title: 'Entry',
+      username: 'alice',
+      urls: [],
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+      otps: [],
+      sshKeys: [],
+    } as any)
+    setPassmanagerRoot({
+      showElement: atom(entry),
+      isReadOnly: () => false,
+    } as unknown as ManagerRoot)
+
+    new PMEntryModel().startEntryEdit()
+
+    expect(pmEntryEditorModel.isActiveForEntry(entry.id, 'entry')).toBe(true)
+  })
+
+  it('opens payment-card edit for payment cards from the desktop edit command', () => {
+    const entry = new Entry(Object.create(ManagerRoot.prototype) as ManagerRoot, {
+      id: 'entry-desktop-edit-payment-card',
+      entryType: 'payment_card',
+      title: 'Team Visa',
+      username: '',
+      urls: [],
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+      otps: [],
+      sshKeys: [],
+      paymentCard: {
+        cardholderName: 'Alice Doe',
+        expMonth: 12,
+        expYear: 2032,
+        brand: 'visa',
+        last4: '1111',
+      },
+    } as any)
+    setPassmanagerRoot({
+      showElement: atom(entry),
+      isReadOnly: () => false,
+    } as unknown as ManagerRoot)
+
+    new PMEntryModel().startEntryEdit()
+
+    expect(pmEntryEditorModel.isActiveForEntry(entry.id, 'payment-card')).toBe(true)
   })
 
   it('copies an already loaded password without re-reading the entry secret', async () => {

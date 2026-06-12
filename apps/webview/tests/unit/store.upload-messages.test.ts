@@ -5,6 +5,7 @@ import {atom} from '@reatom/core'
 import {Store} from '../../src/app/state/store'
 import {ChromVoidState} from '../../src/core/state/app-state'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
+import {UploadTask} from '../../src/types/upload-task'
 import type {
   NativeUploadCompleted,
   NativeUploadFailed,
@@ -31,7 +32,6 @@ type UploadNativeFilesMock = (
 function createStore(overrides?: {
   kind?: 'ws' | 'tauri'
   uploadFile?: () => Promise<{nodeId: number}>
-  statPath?: (path: string) => Promise<{name: string; size: number}>
   uploadFilePath?: () => Promise<{nodeId: number}>
   uploadNativeFiles?: UploadNativeFilesMock
 }) {
@@ -41,7 +41,6 @@ function createStore(overrides?: {
     connecting: atom(false),
     lastError: atom<string | undefined>(undefined),
     uploadFile: vi.fn(overrides?.uploadFile ?? (async () => ({nodeId: 7}))),
-    statPath: overrides?.statPath ? vi.fn(overrides.statPath) : undefined,
     uploadFilePath: overrides?.uploadFilePath ? vi.fn(overrides.uploadFilePath) : undefined,
     uploadNativeFiles: overrides?.uploadNativeFiles ? vi.fn(overrides.uploadNativeFiles) : undefined,
   }
@@ -140,17 +139,16 @@ describe('Store upload status messages', () => {
     })
     const {store, ws, catalog} = createStore({
       kind: 'tauri',
-      statPath: async (path) => ({
-        name: path.endsWith('one.bin') ? 'one.bin' : 'two.bin',
-        size: path.endsWith('one.bin') ? 100 : 300,
-      }),
       uploadFilePath: async () => {
         await uploadStarted
         return {nodeId: 7}
       },
     })
 
-    const upload = store.startUploadPaths('/', ['/tmp/one.bin', '/tmp/two.bin'])
+    const upload = store.startUploadPaths('/', [
+      {token: 'token-one', name: 'one.bin', size: 100},
+      {token: 'token-two', name: 'two.bin', size: 300},
+    ])
 
     for (let i = 0; i < 6 && store.uploadTasks().length < 2; i += 1) {
       await Promise.resolve()
@@ -166,14 +164,57 @@ describe('Store upload status messages', () => {
     resolveUpload?.()
     await upload
 
-    expect(ws.statPath).toHaveBeenCalledTimes(2)
     expect(ws.uploadFilePath).toHaveBeenCalledTimes(2)
     expect(ws.uploadFilePath).toHaveBeenCalledWith(
       {parentPath: undefined, name: 'one.bin'},
-      '/tmp/one.bin',
+      'token-one',
       expect.objectContaining({chunkSize: 512 * 1024, totalBytes: 100}),
     )
     expect(store.uploadTasks().map((task) => task.status())).toEqual(['done', 'done'])
+  })
+
+  it('retries a failed browser file upload through the retained source', async () => {
+    const uploadFile = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce({nodeId: 8})
+    const {store} = createStore({uploadFile})
+    const file = new File(['payload'], 'retry.txt', {type: 'text/plain'})
+
+    await store.startUploadFile('/docs', file)
+
+    const task = store.uploadTasks()[0]
+    expect(task?.status()).toBe('error')
+    expect(task?.retryable).toBe(true)
+    expect(store.canRetryUploadTask(task!.id)).toBe(true)
+
+    await expect(store.retryUploadTask(task!.id)).resolves.toBe(true)
+
+    expect(uploadFile).toHaveBeenCalledTimes(2)
+    expect(uploadFile).toHaveBeenLastCalledWith(
+      {parentPath: '/docs', name: 'retry.txt'},
+      file,
+      expect.objectContaining({chunkSize: 65536, name: 'retry.txt', type: 'text/plain'}),
+    )
+    expect(task?.status()).toBe('done')
+    expect(store.canRetryUploadTask(task!.id)).toBe(false)
+  })
+
+  it('keeps non-retryable upload tasks failed and reports retry unavailability', async () => {
+    const {store} = createStore()
+    const task = new UploadTask({
+      id: 'native-old',
+      name: 'native.bin',
+      total: 100,
+      kind: 'transfer',
+      initialStatus: 'error',
+    })
+    store.addUploadTask(task)
+
+    await expect(store.retryUploadTask(task.id)).resolves.toBe(false)
+
+    expect(task.status()).toBe('error')
+    expect(store.statusMessage()?.message).toBe('This upload cannot be retried. Start the upload again.')
   })
 
   it('updates native upload tasks from selected, progress, and completed events', async () => {

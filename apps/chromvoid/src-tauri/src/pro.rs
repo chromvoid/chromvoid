@@ -1,4 +1,6 @@
 use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use chromvoid_core::license::{
     feature_set_from_snapshot, BuildPolicy, EntitlementSnapshot, SignedCert,
@@ -62,6 +64,16 @@ struct LicenseHttpErrorBody {
     error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PendingLicenseDeactivation {
+    cert: SignedCert,
+    device_fingerprint: String,
+    created_at_ms: u64,
+}
+
+const LICENSE_HTTP_TIMEOUT: Duration = Duration::from_secs(10);
+const PENDING_LICENSE_DEACTIVATION_FILE: &str = "pending_deactivation.json";
+
 pub(crate) fn current_build_policy() -> BuildPolicy {
     match std::env::var("CHROMVOID_PRO_BUILD_POLICY") {
         Ok(value) if value.eq_ignore_ascii_case("enforce") => BuildPolicy::Enforce,
@@ -69,7 +81,7 @@ pub(crate) fn current_build_policy() -> BuildPolicy {
     }
 }
 
-pub(crate) fn license_vault_dir(data_dir: &std::path::Path) -> std::path::PathBuf {
+pub(crate) fn license_vault_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("license_vault")
 }
 
@@ -264,7 +276,16 @@ pub(crate) async fn license_activation_code_activate(
 
     let api_base = license_api_base();
     let url = format!("{}/api/license/activate-code", api_base);
-    let cert = match reqwest::Client::new()
+    let client = match license_http_client() {
+        Ok(client) => client,
+        Err(error) => {
+            return Ok(rpc_err(
+                format!("Activation code request failed: {error}"),
+                Some("LICENSE_ACTIVATION_FAILED".to_string()),
+            ))
+        }
+    };
+    let cert = match client
         .post(url)
         .json(&serde_json::json!({
             "activation_code": activation_code,
@@ -309,7 +330,16 @@ pub(crate) async fn license_account_cabinet_handoff(
         Err(error) => return Ok(error),
     };
     let device_fingerprint = cert.payload.device_fingerprint.clone();
-    let response = match reqwest::Client::new()
+    let client = match license_http_client() {
+        Ok(client) => client,
+        Err(error) => {
+            return Ok(rpc_err(
+                format!("License cabinet handoff request failed: {error}"),
+                Some("LICENSE_CABINET_HANDOFF_FAILED".to_string()),
+            ))
+        }
+    };
+    let response = match client
         .post(format!("{}/api/account/seat-handoff", license_api_base()))
         .json(&serde_json::json!({
             "cert": cert,
@@ -395,7 +425,15 @@ pub(crate) async fn license_seat_status(
     state: tauri::State<'_, AppState>,
     _args: LicenseSeatStatusArgs,
 ) -> Result<RpcResult<Value>, String> {
-    let client = reqwest::Client::new();
+    let client = match license_http_client() {
+        Ok(client) => client,
+        Err(error) => {
+            return Ok(rpc_err(
+                format!("License seat status request failed: {error}"),
+                Some("LICENSE_SEAT_STATUS_FAILED".to_string()),
+            ))
+        }
+    };
     let api_base = license_api_base();
 
     let cert = match current_license_cert(&state).await {
@@ -433,20 +471,40 @@ pub(crate) async fn license_seat_status(
 pub(crate) async fn license_current_seat_deactivate(
     state: tauri::State<'_, AppState>,
 ) -> Result<RpcResult<Value>, String> {
-    let cert = match current_license_cert(&state).await {
-        Ok(cert) => cert,
-        Err(error) => return Ok(error),
+    let pending = match read_pending_license_deactivation(&state).await {
+        Ok(Some(pending)) => pending,
+        Ok(None) => {
+            let cert = match current_license_cert(&state).await {
+                Ok(cert) => cert,
+                Err(error) => return Ok(error),
+            };
+            let pending = PendingLicenseDeactivation {
+                device_fingerprint: cert.payload.device_fingerprint.clone(),
+                cert,
+                created_at_ms: current_time_ms(),
+            };
+            if let Err(error) = write_pending_license_deactivation(&state, pending.clone()).await {
+                return Ok(rpc_err(
+                    format!("Failed to stage license seat release: {error}"),
+                    Some("LICENSE_SEAT_RELEASE_FAILED".to_string()),
+                ));
+            }
+            pending
+        }
+        Err(error) => {
+            return Ok(rpc_err(
+                format!("Failed to read pending license seat release: {error}"),
+                Some("LICENSE_SEAT_RELEASE_FAILED".to_string()),
+            ))
+        }
     };
-    let device_fingerprint = cert.payload.device_fingerprint.clone();
-    let response = match reqwest::Client::new()
-        .post(format!("{}/api/license/deactivate", license_api_base()))
-        .json(&serde_json::json!({
-            "cert": cert,
-            "device_fingerprint": device_fingerprint,
-        }))
-        .send()
-        .await
-    {
+
+    let uninstall = uninstall_license_cert(&state).await?;
+    let RpcResult::Success { .. } = uninstall else {
+        return Ok(uninstall);
+    };
+
+    let response = match release_pending_license_deactivation(&pending).await {
         Ok(response) => response,
         Err(error) => {
             return Ok(rpc_err(
@@ -455,7 +513,6 @@ pub(crate) async fn license_current_seat_deactivate(
             ))
         }
     };
-
     let seat_status = license_json_response(
         response,
         "LICENSE_SEAT_RELEASE_FAILED",
@@ -466,10 +523,12 @@ pub(crate) async fn license_current_seat_deactivate(
         return Ok(seat_status);
     };
 
-    let uninstall = uninstall_license_cert(&state).await?;
-    let RpcResult::Success { .. } = uninstall else {
-        return Ok(uninstall);
-    };
+    if let Err(error) = remove_pending_license_deactivation(&state).await {
+        return Ok(rpc_err(
+            format!("License seat released but pending release cleanup failed: {error}"),
+            Some("LICENSE_SEAT_RELEASE_FAILED".to_string()),
+        ));
+    }
 
     Ok(rpc_ok(result))
 }
@@ -548,7 +607,7 @@ impl ProRolloutConfig {
 
 fn is_feature_supported(feature_key: &str, caps: &RuntimeCapabilities) -> bool {
     match feature_key {
-        PRO_FEATURE_REMOTE => caps.supports_usb_remote || caps.supports_network_remote,
+        PRO_FEATURE_REMOTE => caps.supports_network_remote,
         PRO_FEATURE_CREDENTIAL_PROVIDER => caps.supports_autofill,
         PRO_FEATURE_SSH_AGENT => cfg!(desktop),
         PRO_FEATURE_BROWSER_EXTENSION => caps.supports_gateway,
@@ -579,6 +638,118 @@ fn license_api_base() -> String {
         .unwrap_or_else(|_| "https://chromvoid.com".to_string())
         .trim_end_matches('/')
         .to_string()
+}
+
+fn license_http_client() -> Result<reqwest::Client, reqwest::Error> {
+    reqwest::Client::builder()
+        .timeout(LICENSE_HTTP_TIMEOUT)
+        .connect_timeout(LICENSE_HTTP_TIMEOUT)
+        .build()
+}
+
+async fn release_pending_license_deactivation(
+    pending: &PendingLicenseDeactivation,
+) -> Result<reqwest::Response, reqwest::Error> {
+    license_http_client()?
+        .post(format!("{}/api/license/deactivate", license_api_base()))
+        .json(&serde_json::json!({
+            "cert": &pending.cert,
+            "device_fingerprint": &pending.device_fingerprint,
+        }))
+        .send()
+        .await
+}
+
+fn current_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn pending_license_deactivation_path(license_root: &Path) -> PathBuf {
+    license_root.join(PENDING_LICENSE_DEACTIVATION_FILE)
+}
+
+async fn read_pending_license_deactivation(
+    state: &tauri::State<'_, AppState>,
+) -> Result<Option<PendingLicenseDeactivation>, String> {
+    let license_root = state.license_root.clone();
+    state
+        .catalog_blocking_io_runtime
+        .spawn_blocking(move || read_pending_license_deactivation_file(&license_root))
+        .await
+        .map_err(|error| format!("pending license deactivation read task failed: {error:?}"))?
+}
+
+async fn write_pending_license_deactivation(
+    state: &tauri::State<'_, AppState>,
+    pending: PendingLicenseDeactivation,
+) -> Result<(), String> {
+    let license_root = state.license_root.clone();
+    state
+        .catalog_blocking_io_runtime
+        .spawn_blocking(move || write_pending_license_deactivation_file(&license_root, &pending))
+        .await
+        .map_err(|error| format!("pending license deactivation write task failed: {error:?}"))?
+}
+
+async fn remove_pending_license_deactivation(
+    state: &tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let license_root = state.license_root.clone();
+    state
+        .catalog_blocking_io_runtime
+        .spawn_blocking(move || remove_pending_license_deactivation_file(&license_root))
+        .await
+        .map_err(|error| format!("pending license deactivation cleanup task failed: {error:?}"))?
+}
+
+fn read_pending_license_deactivation_file(
+    license_root: &Path,
+) -> Result<Option<PendingLicenseDeactivation>, String> {
+    let path = pending_license_deactivation_path(license_root);
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("read {}: {error}", path.display())),
+    };
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .map_err(|error| format!("parse {}: {error}", path.display()))
+}
+
+fn write_pending_license_deactivation_file(
+    license_root: &Path,
+    pending: &PendingLicenseDeactivation,
+) -> Result<(), String> {
+    std::fs::create_dir_all(license_root)
+        .map_err(|error| format!("create {}: {error}", license_root.display()))?;
+    crate::helpers::storage::write_json_pretty_atomic(
+        &pending_license_deactivation_path(license_root),
+        pending,
+    )
+}
+
+fn remove_pending_license_deactivation_file(license_root: &Path) -> Result<(), String> {
+    let path = pending_license_deactivation_path(license_root);
+    match std::fs::remove_file(&path) {
+        Ok(()) => sync_parent_dir_best_effort(license_root),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("remove {}: {error}", path.display())),
+    }
+}
+
+fn sync_parent_dir_best_effort(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        std::fs::File::open(path)
+            .and_then(|dir| dir.sync_all())
+            .map_err(|error| format!("sync {}: {error}", path.display()))?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
 }
 
 async fn license_device_fingerprint(
@@ -714,7 +885,7 @@ fn license_http_error_message_with_status(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chromvoid_core::license::LicensePlan;
+    use chromvoid_core::license::{LicenseCert, LicensePlan, LICENSE_KEY_ID_2026_01};
 
     fn rollout_enabled() -> ProRolloutConfig {
         ProRolloutConfig {
@@ -733,7 +904,6 @@ mod tests {
             supports_native_share: true,
             supports_volume: true,
             supports_gateway: true,
-            supports_usb_remote: false,
             supports_network_remote: true,
             supports_biometric: true,
             supports_autofill: true,
@@ -769,6 +939,68 @@ mod tests {
             source_core: "local".to_string(),
             build_policy,
         }
+    }
+
+    fn test_signed_cert() -> SignedCert {
+        SignedCert {
+            payload: LicenseCert {
+                v: 1,
+                kid: LICENSE_KEY_ID_2026_01.to_string(),
+                license_id: "license-test".to_string(),
+                featureset: "pro".to_string(),
+                seat_limit: 3,
+                device_fingerprint: "device-test".to_string(),
+                issued_at: "2026-06-10T00:00:00Z".to_string(),
+                exp: None,
+                source: None,
+            },
+            signature: "signature".to_string(),
+        }
+    }
+
+    #[test]
+    fn pending_license_deactivation_roundtrips_and_clears() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let pending = PendingLicenseDeactivation {
+            cert: test_signed_cert(),
+            device_fingerprint: "device-test".to_string(),
+            created_at_ms: 42,
+        };
+
+        write_pending_license_deactivation_file(temp.path(), &pending).expect("write pending");
+        let loaded = read_pending_license_deactivation_file(temp.path())
+            .expect("read pending")
+            .expect("pending exists");
+
+        assert_eq!(loaded.device_fingerprint, pending.device_fingerprint);
+        assert_eq!(
+            loaded.cert.payload.license_id,
+            pending.cert.payload.license_id
+        );
+        remove_pending_license_deactivation_file(temp.path()).expect("remove pending");
+        assert!(read_pending_license_deactivation_file(temp.path())
+            .expect("read after remove")
+            .is_none());
+    }
+
+    #[test]
+    fn pending_license_deactivation_parse_error_is_reported() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            pending_license_deactivation_path(temp.path()),
+            b"{not valid json",
+        )
+        .expect("write invalid pending");
+
+        let error = read_pending_license_deactivation_file(temp.path())
+            .expect_err("invalid tombstone must fail");
+
+        assert!(error.contains("parse"));
+    }
+
+    #[test]
+    fn license_http_client_builds_with_timeout_configuration() {
+        license_http_client().expect("client");
     }
 
     #[test]

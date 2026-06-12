@@ -32,3 +32,14 @@ fn udp_unavailable_error_marker_is_detected() {
     ));
     assert!(!is_udp_unavailable_error("quic handshake failed"));
 }
+
+#[test]
+fn quic_payload_len_rejects_oversized_before_allocation() {
+    let err = validate_quic_masque_payload_len(MAX_QUIC_MASQUE_MESSAGE_SIZE + 1)
+        .expect_err("oversized QUIC payload length must fail");
+
+    assert!(
+        matches!(err, TransportError::Io(message) if message.contains("quic payload too large"))
+    );
+    assert!(validate_quic_masque_payload_len(MAX_QUIC_MASQUE_MESSAGE_SIZE).is_ok());
+}

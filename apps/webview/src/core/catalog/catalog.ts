@@ -1,4 +1,4 @@
-import {atom} from '@reatom/core'
+import {atom, wrap} from '@reatom/core'
 
 import type {
   CatalogEvent,
@@ -196,7 +196,7 @@ export class CatalogService {
                 log.debug('[Catalog][tauri-event] apply delete', {nodeId: safeNodeId})
               } catch {}
             }
-            this.mirror.applyEvent({
+            this.applyCatalogEventWithMetaCleanup({
               type: CatalogEventType.NODE_DELETED,
               nodeId: safeNodeId,
               timestamp: ts,
@@ -329,7 +329,7 @@ export class CatalogService {
       }
 
       const event = evt as CatalogEvent
-      this.mirror.applyEvent(event)
+      this.applyCatalogEventWithMetaCleanup(event)
       void this.handleMetaEvent(event)
     })
 
@@ -343,7 +343,7 @@ export class CatalogService {
       }
 
       const catalogEvents = events as CatalogEvent[]
-      this.mirror.applyEvents(catalogEvents)
+      this.applyCatalogEventsWithMetaCleanup(catalogEvents)
       for (const event of catalogEvents) {
         void this.handleMetaEvent(event)
       }
@@ -364,7 +364,7 @@ export class CatalogService {
     }
 
     if (catalogEvents.length > 0) {
-      this.mirror.applyEvents(catalogEvents)
+      this.applyCatalogEventsWithMetaCleanup(catalogEvents)
     }
     if (needsRefresh) {
       this.queueRefresh(150)
@@ -485,6 +485,44 @@ export class CatalogService {
     return null
   }
 
+  private applyCatalogEventWithMetaCleanup(event: CatalogEvent): void {
+    this.clearEntryMetaForDeletedNode(event)
+    this.mirror.applyEvent(event)
+  }
+
+  private applyCatalogEventsWithMetaCleanup(events: readonly CatalogEvent[]): void {
+    for (const event of events) {
+      this.clearEntryMetaForDeletedNode(event)
+    }
+    this.mirror.applyEvents(events)
+  }
+
+  private clearEntryMetaForDeletedNode(event: CatalogEvent): void {
+    if (event.type !== CatalogEventType.NODE_DELETED) return
+    const node = this.mirror.getNode(event.nodeId)
+    if (!node) return
+
+    if (node.isDir) {
+      this.clearEntryMetaForDirectorySubtree(node.nodeId)
+      return
+    }
+
+    if (node.isFile && node.name === 'meta.json') {
+      const entryNode = this.mirror.findByPath(node.parentPath ?? '/')
+      if (entryNode?.isDir) this.entryMeta.delete(entryNode.nodeId)
+    }
+  }
+
+  private clearEntryMetaForDirectorySubtree(nodeId: number): void {
+    const node = this.mirror.getNode(nodeId)
+    if (!node?.isDir) return
+
+    this.entryMeta.delete(node.nodeId)
+    for (const child of this.mirror.getChildren(node.path)) {
+      if (child.isDir) this.clearEntryMetaForDirectorySubtree(child.nodeId)
+    }
+  }
+
   private unwrapRpc<T>(resp: unknown, label: string): T {
     if (resp && typeof resp === 'object' && 'ok' in resp) {
       const r = resp as {ok: unknown; result?: unknown; error?: unknown}
@@ -557,7 +595,7 @@ export class CatalogService {
         const manifestT0 = performance.now()
         writeAndroidUnlockDebug('catalog', 'syncManifest:begin', {attempt})
         console.info('[debug][catalog] syncManifest: begin attempt=%d', attempt)
-        await this.client!.syncManifest(this.mirror)
+        await wrap(this.client!.syncManifest(this.mirror))
         if (!this.isCurrentSyncRun(runId)) {
           this.finishCancelledSyncRun(runId, 'after-syncManifest')
           return
@@ -573,9 +611,9 @@ export class CatalogService {
         const subT0 = performance.now()
         writeAndroidUnlockDebug('catalog', 'subscribe:begin', {attempt})
         console.info('[debug][catalog] subscribe: begin')
-        const unsubscribe = await this.client!.subscribe()
+        const unsubscribe = await wrap(this.client!.subscribe())
         if (!this.isCurrentSyncRun(runId)) {
-          await unsubscribe().catch(() => {})
+          await wrap(unsubscribe().catch(() => {}))
           this.finishCancelledSyncRun(runId, 'after-subscribe')
           return
         }
@@ -627,7 +665,7 @@ export class CatalogService {
               }),
             )
           } catch {}
-          await new Promise((r) => setTimeout(r, delayMs))
+          await wrap(new Promise((r) => setTimeout(r, delayMs)))
           if (!this.isCurrentSyncRun(runId)) {
             this.finishCancelledSyncRun(runId, 'retry-delay')
             return
@@ -648,7 +686,7 @@ export class CatalogService {
   async stopSync(): Promise<void> {
     this.cancelSync('stop')
     if (this.unsubscribe) {
-      await this.unsubscribe()
+      await wrap(this.unsubscribe())
       this.unsubscribe = undefined
     }
   }
@@ -680,7 +718,7 @@ export class CatalogService {
     this.ensureClient()
 
     try {
-      await this.client!.syncManifest(this.mirror)
+      await wrap(this.client!.syncManifest(this.mirror))
       if (!silent) {
         // Notify of successful update
         tryGetAppContext()?.store.pushNotification('success', i18n('catalog:refresh-success'))
@@ -1154,7 +1192,7 @@ export class CatalogService {
       }
 
       // Read meta.json and update your cache
-      const stream = await this.api.download(event.nodeId)
+      const stream = await wrap(this.api.download(event.nodeId))
       const decoder = new TextDecoder()
       let text = ''
       for await (const chunk of stream as AsyncIterable<Uint8Array>) {
@@ -1162,20 +1200,24 @@ export class CatalogService {
       }
       text += decoder.decode()
       try {
-        const json = JSON.parse(text) as PassMeta
-        this.entryMeta.set(entryNode.nodeId, json)
+        wrap(() => {
+          const json = JSON.parse(text) as PassMeta
+          this.entryMeta.set(entryNode.nodeId, json)
+        })()
       } catch {
         // Incorrect JSON – Clear the cache
         this.entryMeta.delete(entryNode.nodeId)
       }
       // Notify mirror subscribers of changes so that the UI is re-rendered
-      this.mirror.applyEvent({
-        type: CatalogEventType.NODE_UPDATED,
-        nodeId: entryNode.nodeId,
-        timestamp: Date.now(),
-        version: 0,
-        metadata: {},
-      })
+      wrap(() => {
+        this.mirror.applyEvent({
+          type: CatalogEventType.NODE_UPDATED,
+          nodeId: entryNode.nodeId,
+          timestamp: Date.now(),
+          version: 0,
+          metadata: {},
+        })
+      })()
     } catch {
       // Ignoring Meta Tracking Errors
     }
@@ -1191,7 +1233,7 @@ export class CatalogService {
       const meta = children.find((c) => c.isFile && c.name === 'meta.json')
       if (!meta) return
 
-      const stream = await this.api.download(meta.nodeId)
+      const stream = await wrap(this.api.download(meta.nodeId))
       const decoder = new TextDecoder()
       let text = ''
       for await (const chunk of stream as AsyncIterable<Uint8Array>) {
@@ -1200,15 +1242,17 @@ export class CatalogService {
       text += decoder.decode()
 
       try {
-        const json = JSON.parse(text) as PassMeta
-        this.entryMeta.set(entryNodeId, json)
-        this.mirror.applyEvent({
-          type: CatalogEventType.NODE_UPDATED,
-          nodeId: entryNodeId,
-          timestamp: Date.now(),
-          version: 0,
-          metadata: {},
-        })
+        wrap(() => {
+          const json = JSON.parse(text) as PassMeta
+          this.entryMeta.set(entryNodeId, json)
+          this.mirror.applyEvent({
+            type: CatalogEventType.NODE_UPDATED,
+            nodeId: entryNodeId,
+            timestamp: Date.now(),
+            version: 0,
+            metadata: {},
+          })
+        })()
       } catch {
         // ignore invalid meta
       }

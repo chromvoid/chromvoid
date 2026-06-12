@@ -5,7 +5,7 @@ mod relay;
 mod tests;
 
 use async_trait::async_trait;
-use chromvoid_protocol::{RemoteTransport, TransportError, TransportType};
+use chromvoid_protocol::{RemoteTransport, TransportError, TransportType, MAX_PAYLOAD_SIZE};
 use quinn::{ClientConfig, Connection, Endpoint, RecvStream, SendStream};
 use std::net::Ipv6Addr;
 use std::time::Duration;
@@ -19,9 +19,19 @@ use relay::{build_extended_connect_headers, ParsedRelay};
 const QUIC_CONNECT_TIMEOUT: Duration = Duration::from_millis(1200);
 const STATUS_PROBE_TIMEOUT: Duration = Duration::from_millis(350);
 const UDP_BLOCKED_MARKER: &str = "udp_unavailable:";
+const MAX_QUIC_MASQUE_MESSAGE_SIZE: usize = MAX_PAYLOAD_SIZE;
 
 pub fn is_udp_unavailable_error(error: &str) -> bool {
     error.starts_with(UDP_BLOCKED_MARKER)
+}
+
+fn validate_quic_masque_payload_len(payload_len: usize) -> Result<(), TransportError> {
+    if payload_len > MAX_QUIC_MASQUE_MESSAGE_SIZE {
+        return Err(TransportError::Io(format!(
+            "quic payload too large: {payload_len} > {MAX_QUIC_MASQUE_MESSAGE_SIZE}"
+        )));
+    }
+    Ok(())
 }
 
 pub struct QuicMasqueTransport {
@@ -95,6 +105,7 @@ impl QuicMasqueTransport {
 #[async_trait]
 impl RemoteTransport for QuicMasqueTransport {
     async fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
+        validate_quic_masque_payload_len(data.len())?;
         let len = (data.len() as u32).to_be_bytes();
         self.send
             .write_all(&len)
@@ -118,6 +129,7 @@ impl RemoteTransport for QuicMasqueTransport {
             .await
             .map_err(|_| TransportError::Closed)?;
         let payload_len = u32::from_be_bytes(len) as usize;
+        validate_quic_masque_payload_len(payload_len)?;
         let mut payload = vec![0u8; payload_len];
         self.recv
             .read_exact(&mut payload)

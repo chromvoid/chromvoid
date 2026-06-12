@@ -45,6 +45,7 @@ export class ImageGalleryViewerModel {
   )
   readonly loading = computed(() => this.session.currentPanel().loading, 'media.imageGallery.loading')
   readonly loadingImageIds = this.session.loadingImageIds
+  private readonly manualPreviewPrimedIndices = new Set<number>()
 
   setImages(images: GalleryImage[], currentIndex: number) {
     this.session.setImages(images, currentIndex)
@@ -67,7 +68,11 @@ export class ImageGalleryViewerModel {
   }
 
   navigate(index: number, options?: NavigateOptions) {
-    this.session.navigate(index, options)
+    const replaceCurrentPreviewInFlight = this.manualPreviewPrimedIndices.delete(index)
+    this.session.navigate(index, {
+      ...options,
+      replaceCurrentPreviewInFlight,
+    })
   }
 
   isImageLoading(index: number): boolean {
@@ -88,6 +93,7 @@ export class ImageGalleryViewerModel {
 
     const direction = toDirection(index - currentIndex)
     if (Math.abs(index - currentIndex) === 1 && direction !== 0) {
+      this.manualPreviewPrimedIndices.add(index)
       this.session.primeDirectionalNeighbor(direction)
       return
     }

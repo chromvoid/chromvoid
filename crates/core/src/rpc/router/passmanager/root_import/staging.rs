@@ -1,3 +1,4 @@
+use super::super::tags;
 use super::catalog_staging::{
     clear_passmanager_root_in_catalog, ensure_dir_path, ensure_passmanager_root_in_catalog,
 };
@@ -5,7 +6,6 @@ use super::entry_staging::stage_entry;
 use super::error::RootImportError;
 use super::group_meta_staging::stage_imported_group_meta;
 use super::types::{RootImportPayload, RootImportPlan};
-use super::super::tags;
 use crate::storage::Storage;
 use crate::vault::VaultSession;
 
@@ -62,7 +62,9 @@ pub(super) fn build_root_import_plan(
     }
     let effective_tags = tags::merge_tag_catalogs(tag_catalogs);
     let tag_meta_bytes = serde_json::to_vec(&serde_json::json!({ "tags": effective_tags }))
-        .map_err(|error| RootImportError::internal(format!("Failed to serialize tag meta index: {error}")))?;
+        .map_err(|error| {
+            RootImportError::internal(format!("Failed to serialize tag meta index: {error}"))
+        })?;
     super::catalog_staging::stage_file_bytes(
         &mut catalog,
         &vault_key,

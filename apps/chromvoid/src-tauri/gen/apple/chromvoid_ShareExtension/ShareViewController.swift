@@ -42,7 +42,9 @@ final class ShareViewController: UIViewController {
         at: sessionRoot,
         withIntermediateDirectories: true
       )
+      try Data().write(to: sessionRoot.appendingPathComponent(".active"))
     } catch {
+      try? FileManager.default.removeItem(at: sessionRoot)
       completeExtension()
       return
     }
@@ -51,6 +53,7 @@ final class ShareViewController: UIViewController {
       .compactMap { $0 as? NSExtensionItem }
       .flatMap { $0.attachments ?? [] } ?? []
     guard !providers.isEmpty else {
+      try? FileManager.default.removeItem(at: sessionRoot)
       completeExtension()
       return
     }
@@ -88,10 +91,17 @@ final class ShareViewController: UIViewController {
 
     group.notify(queue: .main) {
       guard !stagedFiles.isEmpty else {
+        try? FileManager.default.removeItem(at: sessionRoot)
         self.completeExtension()
         return
       }
-      self.writeManifest(sessionId: sessionId, sessionRoot: sessionRoot, files: stagedFiles)
+      if self.writeManifest(sessionId: sessionId, sessionRoot: sessionRoot, files: stagedFiles) {
+        try? FileManager.default.removeItem(
+          at: sessionRoot.appendingPathComponent(".active")
+        )
+      } else {
+        try? FileManager.default.removeItem(at: sessionRoot)
+      }
       self.completeExtension()
     }
   }
@@ -142,7 +152,7 @@ final class ShareViewController: UIViewController {
     }
   }
 
-  private func writeManifest(sessionId: String, sessionRoot: URL, files: [StagedSharedFile]) {
+  private func writeManifest(sessionId: String, sessionRoot: URL, files: [StagedSharedFile]) -> Bool {
     let payload: [String: Any] = [
       "sessionId": sessionId,
       "createdAtUnixMs": Int64(Date().timeIntervalSince1970 * 1000),
@@ -156,9 +166,14 @@ final class ShareViewController: UIViewController {
       },
     ]
     guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted]) else {
-      return
+      return false
     }
-    try? data.write(to: sessionRoot.appendingPathComponent("manifest.json"))
+    do {
+      try data.write(to: sessionRoot.appendingPathComponent("manifest.json"))
+      return true
+    } catch {
+      return false
+    }
   }
 
   private func completeExtension() {

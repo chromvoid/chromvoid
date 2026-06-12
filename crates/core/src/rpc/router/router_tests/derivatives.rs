@@ -187,6 +187,36 @@ fn derivative_stats(router: &mut RpcRouter) -> (usize, u64) {
     )
 }
 
+fn compact_derivatives_rpc(
+    router: &mut RpcRouter,
+    node_id: u64,
+    max_indexed_bytes: u64,
+) -> (usize, u64) {
+    let compact = router.handle(&RpcRequest::new(
+        "catalog:derivative:compact",
+        serde_json::json!({
+            "max_indexed_bytes": max_indexed_bytes,
+            "protected_revisions": [
+                {
+                    "node_id": node_id,
+                    "source_revision": 3
+                }
+            ],
+        }),
+    ));
+    let result = compact.result().expect("compact derivatives result");
+    (
+        result
+            .get("indexed_count")
+            .and_then(|value| value.as_u64())
+            .expect("indexed count") as usize,
+        result
+            .get("indexed_bytes")
+            .and_then(|value| value.as_u64())
+            .expect("indexed bytes"),
+    )
+}
+
 fn expect_derivative_write_error_message(
     router: &mut RpcRouter,
     data: serde_json::Value,
@@ -585,6 +615,100 @@ fn test_catalog_derivative_index_source_revision_invalidation() {
 
     assert_eq!(derivative_stats(&mut router), (0, 0));
     assert!(read_test_derivative(&mut router, node_id, 100).is_none());
+}
+
+#[test]
+fn test_catalog_derivative_touch_updates_compact_order_before_disk_flush() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_test_router(&mut router);
+    let node_id = prepare_test_image(&mut router, "photo.jpg", 3);
+
+    write_test_derivative(&mut router, node_id, 1, b"old1");
+    std::thread::sleep(Duration::from_millis(5));
+    write_test_derivative(&mut router, node_id, 2, b"old2");
+    std::thread::sleep(Duration::from_millis(5));
+
+    assert_eq!(
+        read_test_derivative(&mut router, node_id, 1).unwrap(),
+        b"old1"
+    );
+    assert_eq!(compact_derivatives_rpc(&mut router, node_id, 4), (1, 4));
+    assert_eq!(
+        read_test_derivative(&mut router, node_id, 1).unwrap(),
+        b"old1"
+    );
+    assert!(read_test_derivative(&mut router, node_id, 2).is_none());
+}
+
+#[test]
+fn test_catalog_derivative_touch_flushes_on_vault_lock_for_fresh_router() {
+    let temp_dir = TempDir::new().expect("temp dir");
+    let keystore = Arc::new(InMemoryKeystore::new());
+    let storage = Storage::new(temp_dir.path()).expect("storage");
+    let mut router = RpcRouter::new(storage).with_keystore(keystore.clone());
+    unlock_test_router(&mut router);
+    let node_id = prepare_test_image(&mut router, "photo.jpg", 3);
+
+    write_test_derivative(&mut router, node_id, 1, b"old1");
+    std::thread::sleep(Duration::from_millis(5));
+    write_test_derivative(&mut router, node_id, 2, b"old2");
+    std::thread::sleep(Duration::from_millis(5));
+    assert_eq!(
+        read_test_derivative(&mut router, node_id, 1).unwrap(),
+        b"old1"
+    );
+
+    let locked = router.handle(&RpcRequest::new("vault:lock", serde_json::json!({})));
+    assert!(locked.is_ok());
+    drop(router);
+
+    let storage = Storage::new(temp_dir.path()).expect("reopen storage");
+    let mut reopened = RpcRouter::new(storage).with_keystore(keystore);
+    unlock_test_router(&mut reopened);
+
+    assert_eq!(compact_derivatives_rpc(&mut reopened, node_id, 4), (1, 4));
+    assert_eq!(
+        read_test_derivative(&mut reopened, node_id, 1).unwrap(),
+        b"old1"
+    );
+    assert!(read_test_derivative(&mut reopened, node_id, 2).is_none());
+}
+
+#[test]
+fn test_catalog_derivative_touch_flushes_before_storage_gc_scan() {
+    let temp_dir = TempDir::new().expect("temp dir");
+    let keystore = Arc::new(InMemoryKeystore::new());
+    let storage = Storage::new(temp_dir.path()).expect("storage");
+    let mut router = RpcRouter::new(storage).with_keystore(keystore.clone());
+    unlock_test_router(&mut router);
+    let node_id = prepare_test_image(&mut router, "photo.jpg", 3);
+
+    write_test_derivative(&mut router, node_id, 1, b"old1");
+    std::thread::sleep(Duration::from_millis(5));
+    write_test_derivative(&mut router, node_id, 2, b"old2");
+    std::thread::sleep(Duration::from_millis(5));
+    assert_eq!(
+        read_test_derivative(&mut router, node_id, 1).unwrap(),
+        b"old1"
+    );
+
+    let scan = router.handle(&RpcRequest::new(
+        "admin:storage:gc:scan",
+        serde_json::json!({}),
+    ));
+    assert!(scan.is_ok());
+    drop(router);
+
+    let storage = Storage::new(temp_dir.path()).expect("reopen storage");
+    let mut reopened = RpcRouter::new(storage).with_keystore(keystore);
+    unlock_test_router(&mut reopened);
+
+    assert_eq!(compact_derivatives_rpc(&mut reopened, node_id, 4), (1, 4));
+    assert_eq!(
+        read_test_derivative(&mut reopened, node_id, 1).unwrap(),
+        b"old1"
+    );
+    assert!(read_test_derivative(&mut reopened, node_id, 2).is_none());
 }
 
 #[test]

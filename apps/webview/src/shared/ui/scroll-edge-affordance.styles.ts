@@ -7,6 +7,9 @@ export const scrollEdgeAffordanceStyles = css`
     --cv-scroll-edge-inline-end: var(--cv-scroll-edge-default-inline-end);
     --cv-scroll-edge-surface: var(--cv-scroll-edge-default-surface);
     --cv-scroll-edge-surface-fade: var(--cv-scroll-edge-default-surface-fade);
+    --cv-scroll-edge-mask-block-size: var(--cv-scroll-edge-block-size);
+    --cv-scroll-edge-mask-soft-stop: calc(var(--cv-scroll-edge-mask-block-size) * 0.55);
+    --cv-scroll-edge-mask-subtle-stop: calc(var(--cv-scroll-edge-mask-block-size) * 0.25);
 
     position: relative;
     min-block-size: 0;
@@ -54,6 +57,37 @@ export const scrollEdgeAffordanceStyles = css`
 
   .scroll-edge-frame[data-scroll-block-end='true']::after {
     opacity: 1;
+  }
+
+  @supports ((mask-image: var(--cv-gradient-scroll-edge-mask-block-end)) or (-webkit-mask-image: var(--cv-gradient-scroll-edge-mask-block-end))) {
+    .scroll-edge-frame:has(> .scroll-edge-scroller)::before,
+    .scroll-edge-frame:has(> .scroll-edge-scroller)::after {
+      display: none;
+    }
+
+    .scroll-edge-frame > .scroll-edge-scroller {
+      --cv-scroll-edge-mask: none;
+      -webkit-mask-image: var(--cv-scroll-edge-mask);
+      mask-image: var(--cv-scroll-edge-mask);
+      -webkit-mask-repeat: no-repeat;
+      mask-repeat: no-repeat;
+      -webkit-mask-size: 100% 100%;
+      mask-size: 100% 100%;
+      -webkit-mask-mode: alpha;
+      mask-mode: alpha;
+    }
+
+    .scroll-edge-frame[data-scroll-block-start='false'][data-scroll-block-end='true'] > .scroll-edge-scroller {
+      --cv-scroll-edge-mask: var(--cv-gradient-scroll-edge-mask-block-end);
+    }
+
+    .scroll-edge-frame[data-scroll-block-start='true'][data-scroll-block-end='false'] > .scroll-edge-scroller {
+      --cv-scroll-edge-mask: var(--cv-gradient-scroll-edge-mask-block-start);
+    }
+
+    .scroll-edge-frame[data-scroll-block-start='true'][data-scroll-block-end='true'] > .scroll-edge-scroller {
+      --cv-scroll-edge-mask: var(--cv-gradient-scroll-edge-mask-block-both);
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {

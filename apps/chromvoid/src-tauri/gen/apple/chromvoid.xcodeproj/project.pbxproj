@@ -299,7 +299,6 @@
 		850B0E91F65E5ABC19F5A76B /* helpers.rs */ = {isa = PBXFileReference; lastKnownFileType = file; path = helpers.rs; sourceTree = "<group>"; };
 		85EE16E4755AE5B34D5278B5 /* io_loop.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = io_loop.rs; sourceTree = "<group>"; };
 		8687AEAEDA1775FD8C8DD640 /* saf_backup.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = saf_backup.rs; sourceTree = "<group>"; };
-		8705AAD0BA5E223F0AA0FC12 /* usb_cmds.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = usb_cmds.rs; sourceTree = "<group>"; };
 		871851546793B0052C9B317F /* chromvoid_macos.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = chromvoid_macos.entitlements; sourceTree = "<group>"; };
 		8736A2C02008E6642ADF5F25 /* ChromVoidCredentialProvider.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ChromVoidCredentialProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		875FAFE2190FD8AC5A3CAE22 /* io_sender.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = io_sender.rs; sourceTree = "<group>"; };
@@ -744,24 +743,6 @@
 			path = ios;
 			sourceTree = "<group>";
 		};
-		289D614045E41DD347726DC2 /* usb */ = {
-			isa = PBXGroup;
-			children = (
-				1E6401FFD04D4CF71CC6FD85 /* connection_tests.rs */,
-				CBE4AA069D11E1EF2675C2B3 /* connection.rs */,
-				15553C1B33582C62A6A7EC3C /* discovery_tests.rs */,
-				BBBA29CFA83CFF8BCA215E6E /* discovery.rs */,
-				90473F8A4EFEC490C80B35DA /* handshake.rs */,
-				E2E9DEADCE4A735AD45184F7 /* mod.rs */,
-				66A121799007EFB9ADD21DFF /* noise_session.rs */,
-				55C418B36F8F78EF8510CA35 /* paired_devices_tests.rs */,
-				E9B347116FE3CD23FD9A37B3 /* paired_devices.rs */,
-				C3867431F2EE98D04EFCF56D /* transport.rs */,
-				91DFD9061576685D042274F5 /* io_task */,
-			);
-			path = usb;
-			sourceTree = "<group>";
-		};
 		2C91A91DE5856D6C79A77F8C /* ssh_agent_cmds */ = {
 			isa = PBXGroup;
 			children = (
@@ -1058,7 +1039,6 @@
 				11B5A28B32A4A14198AF6905 /* passmanager.rs */,
 				6DE24144A711C13362013A8A /* ssh_agent_cmds.rs */,
 				1ADE8D9EECDEB20331D5CAD0 /* startup.rs */,
-				8705AAD0BA5E223F0AA0FC12 /* usb_cmds.rs */,
 				4C9AA957E9D920BA05C9B4D1 /* catalog */,
 				C52FB91927B11BAF5BDABFBC /* mode_cmds */,
 				938306CA3863900CC68C221C /* network_cmds */,
@@ -1274,7 +1254,6 @@
 				F82345716188BFB45A800DD0 /* sleep_watcher */,
 				DDF6890BF87192802AEA2E0B /* ssh_agent */,
 				F4101A0AFA60D012DD5A77BF /* ssh_keygen */,
-				289D614045E41DD347726DC2 /* usb */,
 				43488AF15C9E71F00B0B06B3 /* volume_fuse */,
 				31485588EC0238D70A4ED37B /* volume_manager */,
 				23E9E42DE5BFA0DB90C2CB18 /* volume_webdav */,
@@ -1597,7 +1576,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ \"${CHROMVOID_XCODE_SKIP_RUST_BUILD:-0}\" = \"1\" ]; then\n  echo \"Skipping Rust build because CHROMVOID_XCODE_SKIP_RUST_BUILD=1\"\n  exit 0\nfi\nexport APPLE_DEVELOPMENT_TEAM='C5885NFLV2'\nexport CHROMVOID_LICENSE_PUBLIC_KEY_ED25519_2026_01='BnIHXDgX8A4iqZVbLmXD1cdlSEHN_-sU7CRWfi8PtvY'\nnpm run -- tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
+			shellScript = "if [ \"${CHROMVOID_XCODE_SKIP_RUST_BUILD:-0}\" = \"1\" ]; then\n  echo \"Skipping Rust build because CHROMVOID_XCODE_SKIP_RUST_BUILD=1\"\n  exit 0\nfi\nexport APPLE_DEVELOPMENT_TEAM='C5885NFLV2'\nexport CHROMVOID_LICENSE_PUBLIC_KEY_ED25519_2026_01='BnIHXDgX8A4iqZVbLmXD1cdlSEHN_-sU7CRWfi8PtvY'\nbun run -- tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
 		};
 /* End PBXShellScriptBuildPhase section */
 

@@ -57,6 +57,7 @@ export class RemoteStorageModel {
   readonly volume = new VolumeMountModel()
   private progressUnlisten: UnlistenFn | null = null
   private initialized = false
+  private exportInFlight = false
 
   initialize() {
     if (this.initialized) return
@@ -196,6 +197,7 @@ export class RemoteStorageModel {
 
   cancelWizard = () => {
     this.transferStep.set('idle')
+    this.masterPassword.set('')
     this.isCancelling.set(false)
     if (this.progressUnlisten) {
       this.progressUnlisten()
@@ -259,12 +261,14 @@ export class RemoteStorageModel {
 
   startExport = async () => {
     if (!isTauriRuntime()) return
+    if (this.exportInFlight) return
 
     const targetDir = this.targetDir()
     const masterPassword = this.masterPassword()
 
     if (!masterPassword.trim()) return
 
+    this.exportInFlight = true
     this.transferStep.set('progress')
     this.progress.set(null)
     this.transferResult.set(null)
@@ -311,6 +315,8 @@ export class RemoteStorageModel {
         error: e instanceof Error ? e.message : String(e),
       })
     } finally {
+      this.masterPassword.set('')
+      this.exportInFlight = false
       this.isCancelling.set(false)
       if (this.progressUnlisten) {
         this.progressUnlisten()

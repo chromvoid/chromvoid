@@ -1,5 +1,4 @@
 import {nothing} from 'lit'
-import type {CVInputInputEvent} from '@chromvoid/uikit/components/cv-input'
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
 import {i18n} from '@project/passmanager/i18n'
@@ -11,10 +10,6 @@ type EmptyStateKind = 'unavailable' | 'empty' | 'filtered'
 export abstract class PMOtpQuickViewBase extends ReatomLitElement {
   protected readonly model = pmOtpQuickViewModel
 
-  protected handleQueryInput(event: CVInputInputEvent) {
-    this.model.actions.setQuery(event.detail.value)
-  }
-
   protected handleClearFilters() {
     this.model.actions.clearFilters()
   }
@@ -24,19 +19,20 @@ export abstract class PMOtpQuickViewBase extends ReatomLitElement {
     this.model.actions.openEntryById(target?.value ?? '')
   }
 
-  protected renderHeader() {
+  protected renderHeader(slot?: string) {
     return html`
-      <header class="quick-view__header" aria-label=${i18n('otp:quick_view:title')}>
-        ${this.renderControls()}
+      <header class="quick-view__header" slot=${slot ?? nothing} aria-label=${i18n('otp:quick_view:title')}>
+        ${this.renderSearch()}
       </header>
     `
   }
 
-  protected renderSummaryRail() {
+  protected renderSummaryRail(slot?: string) {
     const summary = this.model.state.summary()
 
     return html`
       <pm-summary-rail
+        slot=${slot ?? nothing}
         class="quick-view__summary-rail"
         .items=${this.getSummaryItems(summary)}
         .label=${i18n('otp:quick_view:summary:total')}
@@ -48,37 +44,9 @@ export abstract class PMOtpQuickViewBase extends ReatomLitElement {
     return undefined
   }
 
-  protected renderControls() {
+  protected renderSearch() {
     const preset = this.getSearchInputPreset()
-    return html`
-      <div class="controls">
-        <cv-input
-          class="search"
-          type="search"
-          size="small"
-          preset=${preset ?? nothing}
-          .value=${this.model.state.query()}
-          placeholder=${i18n('otp:quick_view:search')}
-          aria-label=${i18n('otp:quick_view:search')}
-          @cv-input=${this.handleQueryInput}
-        >
-          <cv-icon class="search__prefix-icon" name="search" slot="prefix" aria-hidden="true"></cv-icon>
-        </cv-input>
-        ${this.model.state.hasActiveFilters()
-          ? html`
-              <button
-                class="clear-filters clear-filters--compact"
-                type="button"
-                aria-label=${i18n('otp:quick_view:clear_filters')}
-                title=${i18n('otp:quick_view:clear_filters')}
-                @click=${this.handleClearFilters}
-              >
-                <cv-icon name="x" aria-hidden="true"></cv-icon>
-              </button>
-            `
-          : nothing}
-      </div>
-    `
+    return html`<pm-otp-quick-view-search preset=${preset ?? nothing}></pm-otp-quick-view-search>`
   }
 
   protected renderContent() {
@@ -100,49 +68,23 @@ export abstract class PMOtpQuickViewBase extends ReatomLitElement {
   }
 
   protected renderRow(row: PMOtpQuickViewRow) {
-    const title = row.otpLabel ? `${row.entryTitle} / ${row.otpLabel}` : row.entryTitle
-    const openLabel = `${i18n('otp:quick_view:open')}: ${row.entryTitle}`
+    const openLabel = `${i18n('otp:quick_view:open')}: ${row.displayPath}`
 
     return html`
       <article class="row" role="listitem" data-row-id=${row.id}>
         <div class="row__meta">
-          <div class="row__heading">
-            <h3 class="row__title" title=${title}>
-              <span class="row__entry-title">${row.entryTitle}</span>
-              ${row.otpLabel
-                ? html`
-                    <span class="row__separator" aria-hidden="true">/</span>
-                    <span class="row__otp-label">${row.otpLabel}</span>
-                  `
-                : nothing}
-            </h3>
-            <button
-              class="open-entry"
-              type="button"
-              value=${row.id}
-              aria-label=${openLabel}
-              title=${openLabel}
-              @click=${this.handleOpenEntry}
-            >
-              <cv-icon name="external-link" aria-hidden="true"></cv-icon>
-              <span class="sr-only">${i18n('otp:quick_view:open')}</span>
-            </button>
-          </div>
-          <div class="row__details">
-            <span class="row__type">${row.otpType}</span>
-            ${row.username ? html`<span class="row__detail">${row.username}</span>` : nothing}
-            ${row.groupPath
-              ? html`
-                  <span
-                    class="row__detail"
-                    aria-label=${`${i18n('otp:quick_view:entry_group')}: ${row.groupPath}`}
-                  >
-                    ${row.groupPath}
-                  </span>
-                `
-              : nothing}
-            ${row.urlsText ? html`<span class="row__detail">${row.urlsText}</span>` : nothing}
-          </div>
+          <button
+            class="open-entry"
+            type="button"
+            value=${row.id}
+            aria-label=${openLabel}
+            title=${openLabel}
+            @click=${this.handleOpenEntry}
+          >
+            <span class="row__entry-title row__path">${row.entryTitle}</span>
+            ${row.otpDisplayLabel ? html`<span class="row__otp-label">${row.otpDisplayLabel}</span>` : nothing}
+          </button>
+          <span class="row__type" hidden>${row.otpType}</span>
         </div>
         <div class="row__otp">
           <pm-entry-otp-item .otp=${row.otp} role="listitem" aria-label=${row.otpLabel || row.entryTitle}></pm-entry-otp-item>

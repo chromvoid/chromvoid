@@ -108,7 +108,7 @@ export class FileMovePickerModel {
     this.setExpanded(normalizedPath, expanded)
     if (!expanded) return
 
-    await this.ensureChildrenLoaded(normalizedPath)
+    await wrap(this.ensureChildrenLoaded(normalizedPath))
     if (this.expandedPaths().has(normalizedPath)) {
       if (!this.hasChildTarget(normalizedPath)) {
         this.setExpanded(normalizedPath, false)

@@ -1,6 +1,10 @@
 import {css} from 'lit'
 
+import {entrySkeletonStyles} from './entry-skeleton.styles'
+
 export const entryMobileStyles = css`
+  ${entrySkeletonStyles}
+
   :host {
     display: block;
     block-size: 100%;
@@ -10,9 +14,8 @@ export const entryMobileStyles = css`
     --entry-avatar-bg: var(--cv-color-primary-dark);
     --cv-mobile-bottom-action-footer-block-size: calc(3.375rem + var(--cv-space-2) + var(--cv-space-2));
     --cv-mobile-bottom-action-scroll-padding-end: calc(
-      var(--cv-mobile-bottom-action-footer-block-size) +
-      var(--mobile-keyboard-scroll-clearance, 0px) +
-      var(--cv-space-4)
+      var(--cv-mobile-bottom-action-footer-block-size) + var(--mobile-keyboard-scroll-clearance, 0px) +
+        var(--cv-space-4)
     );
   }
 
@@ -611,9 +614,7 @@ export const entryMobileStyles = css`
     --pm-entry-action-border-color: var(--cv-button-border-color);
     --pm-entry-action-background: var(--cv-button-background);
     --pm-entry-action-text-color: var(--cv-button-text-color);
-    --pm-entry-action-shadow:
-      var(--cv-shadow-sm),
-      0 0 24px var(--cv-color-primary-ring);
+    --pm-entry-action-shadow: var(--cv-shadow-sm), 0 0 24px var(--cv-color-primary-ring);
   }
 
   .entry-edit-entry-action::part(base),
@@ -1117,6 +1118,16 @@ export const entryMobileStyles = css`
     gap: var(--cv-space-2);
   }
 
+  .otp-label-edit-row {
+    display: grid;
+    gap: var(--cv-space-2);
+    min-inline-size: 0;
+  }
+
+  .otp-label-input {
+    min-inline-size: 0;
+  }
+
   .otp-codes pm-entry-otp-item + pm-entry-otp-item {
     padding-block-start: var(--cv-space-2);
     border-block-start: 1px solid var(--cv-color-border-muted);
@@ -1261,20 +1272,9 @@ export const entryMobileStyles = css`
   }
 
   .note-card-demoted .note-skeleton {
-    display: flex;
-    flex-direction: column;
-    gap: var(--cv-space-2);
-  }
-
-  .note-card-demoted .skeleton-line {
-    block-size: 12px;
-    border-radius: var(--cv-radius-1);
-    background: var(--cv-gradient-divider-subtle);
-    background-size: 200% 100%;
-  }
-
-  .note-card-demoted .skeleton-line.short {
-    inline-size: 60%;
+    --pm-entry-note-skeleton-gap: var(--cv-space-2);
+    --pm-entry-note-skeleton-padding: 0;
+    --pm-entry-note-skeleton-short-width: 60%;
   }
 
   .note-card-demoted .empty-state {
@@ -1303,5 +1303,4 @@ export const entryMobileStyles = css`
     overflow-wrap: anywhere;
     word-break: normal;
   }
-
 `

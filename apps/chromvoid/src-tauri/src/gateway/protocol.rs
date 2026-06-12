@@ -12,7 +12,8 @@ use chromvoid_core::rpc::stream::RpcStreamMeta;
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse, PROTOCOL_VERSION};
 
 pub(crate) use crate::rpc_transport_protocol::{
-    json_payload_or_empty_object, parse_upload_stream_metadata, upload_stream_chunk_data,
+    append_full_upload_stream_chunk, json_payload_or_empty_object, parse_upload_stream_metadata,
+    upload_stream_chunk_data,
 };
 
 /// Construct an Error frame using the app's PROTOCOL_VERSION.

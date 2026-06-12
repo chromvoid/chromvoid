@@ -2,7 +2,7 @@
 //!
 //! Provides the `RemoteTransport` trait used by both WebRTC DataChannel
 //! and WSS relay transports. Feature-gated behind `async-transport` to
-//! avoid pulling tokio/async-trait into the Orange Pi daemon.
+//! avoid pulling tokio/async-trait into non-async remote daemons.
 
 #[cfg(feature = "async-transport")]
 use async_trait::async_trait;

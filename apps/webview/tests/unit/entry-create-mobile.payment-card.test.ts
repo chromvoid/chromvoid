@@ -116,7 +116,10 @@ describe('PMEntryCreateMobile payment-card layout', () => {
     expect(component.shadowRoot?.querySelector('input[name="payment-card-cardholder"]')).not.toBeNull()
     expect(component.shadowRoot?.querySelector('input[name="payment-card-number"]')).not.toBeNull()
     expect(component.shadowRoot?.querySelector('input[name="payment-card-exp-month"]')).not.toBeNull()
-    expect(component.shadowRoot?.querySelector('input[name="payment-card-exp-year"]')).not.toBeNull()
+    const expYearInput = component.shadowRoot?.querySelector<HTMLInputElement>('input[name="payment-card-exp-year"]')
+    expect(expYearInput).not.toBeNull()
+    expect(expYearInput?.placeholder).toBe('YY')
+    expect(expYearInput?.getAttribute('maxlength')).toBe('2')
     expect(component.shadowRoot?.querySelector('input[name="payment-card-cvv"]')).not.toBeNull()
     expect(component.shadowRoot?.querySelector('cv-input[name="cardholderName"]')).toBeNull()
     expect(component.shadowRoot?.querySelector('cv-input[name="cardNumber"]')).toBeNull()
@@ -130,7 +133,7 @@ describe('PMEntryCreateMobile payment-card layout', () => {
     await inputNative(component, 'payment-card-cardholder', 'Alice Doe')
     await inputNative(component, 'payment-card-number', '4111 1111 1111 1111')
     await inputNative(component, 'payment-card-exp-month', '12')
-    await inputNative(component, 'payment-card-exp-year', '2031')
+    await inputNative(component, 'payment-card-exp-year', '31')
     await inputNative(component, 'payment-card-cvv', '123')
 
     const form = component.shadowRoot?.querySelector('form') as HTMLFormElement | null

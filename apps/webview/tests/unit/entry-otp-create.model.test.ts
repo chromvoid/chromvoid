@@ -1,4 +1,5 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
+import {Secret, TOTP} from 'otpauth'
 
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {PMEntryOtpCreateModel} from '../../src/features/passmanager/components/card/entry-otp-create/entry-otp-create.model'
@@ -19,6 +20,7 @@ function createScannerPort(overrides: Partial<OtpQrScannerPort> = {}): OtpQrScan
 describe('PMEntryOtpCreateModel', () => {
   afterEach(() => {
     resetRuntimeCapabilities()
+    vi.useRealTimers()
   })
 
   it('groups base32 secret for display and keeps normalized save value', () => {
@@ -322,5 +324,33 @@ describe('PMEntryOtpCreateModel', () => {
     expect(preview?.code).toMatch(/^\d{3} \d{3}$/)
     expect(preview?.leftSeconds).toBeGreaterThanOrEqual(1)
     expect(preview?.leftSeconds).toBeLessThanOrEqual(30)
+  })
+
+  it('uses the same custom encoded secret for validation, preview, and save data', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'))
+    const secret = '3132333435363738393031323334353637383930'
+    const model = new PMEntryOtpCreateModel()
+
+    model.setPreset('custom')
+    model.setEncoding('base16')
+    model.setSecret(secret)
+
+    const form = model.getFormData()
+    const expected = new TOTP({
+      issuer: '',
+      label: form.label || 'OTP',
+      secret: Secret.fromHex(secret),
+      algorithm: form.algorithm,
+      digits: form.digits,
+      period: form.period,
+    }).generate({timestamp: Date.now()})
+
+    expect(model.secretValidation().status).toBe('valid')
+    expect(model.preview()?.code.replace(/\s+/g, '')).toBe(expected)
+    expect(form).toMatchObject({
+      secret,
+      encoding: 'base16',
+    })
   })
 })

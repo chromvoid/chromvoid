@@ -109,21 +109,6 @@ impl CatalogManager {
             }
 
             if let Some(_existing) = parent.find_child(name) {
-                #[cfg(debug_assertions)]
-                {
-                    if super::system_shard::is_system_path(parent_path) {
-                        eprintln!(
-                            "[core][catalog] NAME_EXIST create_dir parent_path={} name={} existing_node_id={} existing_type={:?} existing_birthtime={} existing_modtime={} parent_node_id={}",
-                            parent_path,
-                            name,
-                            _existing.node_id,
-                            _existing.node_type,
-                            _existing.birthtime,
-                            _existing.modtime,
-                            parent.node_id
-                        );
-                    }
-                }
                 return Err(Error::NameExists(name.to_string()));
             }
 
@@ -191,21 +176,6 @@ impl CatalogManager {
             }
 
             if let Some(_existing) = parent.find_child(name) {
-                #[cfg(debug_assertions)]
-                {
-                    if super::system_shard::is_system_path(parent_path) {
-                        eprintln!(
-                            "[core][catalog] NAME_EXIST create_file parent_path={} name={} existing_node_id={} existing_type={:?} existing_birthtime={} existing_modtime={} parent_node_id={}",
-                            parent_path,
-                            name,
-                            _existing.node_id,
-                            _existing.node_type,
-                            _existing.birthtime,
-                            _existing.modtime,
-                            parent.node_id
-                        );
-                    }
-                }
                 return Err(Error::NameExists(name.to_string()));
             }
 
@@ -295,6 +265,40 @@ impl CatalogManager {
 
     /// Move a node to a new parent
     pub fn move_node(&mut self, node_id: u64, new_parent_path: &str) -> Result<()> {
+        self.move_node_with_options(node_id, new_parent_path, None, false)
+    }
+
+    /// Move a node to a new parent, optionally renaming it and replacing an
+    /// existing destination file as one catalog mutation.
+    pub fn move_node_with_options(
+        &mut self,
+        node_id: u64,
+        new_parent_path: &str,
+        new_name: Option<&str>,
+        replace_existing: bool,
+    ) -> Result<()> {
+        let snapshot = self.clone();
+        match self.move_node_with_options_inner(
+            node_id,
+            new_parent_path,
+            new_name,
+            replace_existing,
+        ) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                *self = snapshot;
+                Err(error)
+            }
+        }
+    }
+
+    fn move_node_with_options_inner(
+        &mut self,
+        node_id: u64,
+        new_parent_path: &str,
+        new_name: Option<&str>,
+        replace_existing: bool,
+    ) -> Result<()> {
         if node_id == 0 {
             return Err(Error::CannotModifyRoot);
         }
@@ -312,18 +316,23 @@ impl CatalogManager {
             "/".to_string()
         };
 
-        // If already in the target directory, this is a no-op.
-        // (WebDAV rename calls move + rename separately; move to same dir must succeed.)
-        let old_parent_id = self.find_by_path(&old_parent_path).map(|n| n.node_id);
-        let new_parent_id = self.find_by_path(new_parent_path).map(|n| n.node_id);
-        if old_parent_id.is_some() && old_parent_id == new_parent_id {
-            return Ok(());
-        }
-
         let node_name = current_path
             .last()
             .ok_or(Error::NodeNotFound(node_id))?
             .clone();
+        let destination_name = new_name.unwrap_or(&node_name);
+        validate_name(destination_name)?;
+
+        // If already at the requested path, this is a no-op.
+        // (WebDAV rename calls move + rename separately; move to same dir must succeed.)
+        let old_parent_id = self.find_by_path(&old_parent_path).map(|n| n.node_id);
+        let new_parent_id = self.find_by_path(new_parent_path).map(|n| n.node_id);
+        if old_parent_id.is_some()
+            && old_parent_id == new_parent_id
+            && destination_name == node_name
+        {
+            return Ok(());
+        }
 
         // Check new parent exists and is a directory
         let new_parent = self
@@ -335,8 +344,49 @@ impl CatalogManager {
             return Err(Error::NotADirectory(new_parent.node_id));
         }
 
-        if new_parent.has_child(&node_name) {
-            return Err(Error::NameExists(node_name.clone()));
+        // Reject moving a node into itself or one of its own descendants.
+        // Without this check the node is detached first and the subsequent
+        // lookup of the (now-detached) target parent fails, dropping the whole
+        // subtree permanently. We compare indexed paths: the node is an ancestor
+        // of (or equal to) the target iff `current_path` is a prefix of the
+        // target parent's path.
+        if new_parent_id == node_id {
+            return Err(Error::InvalidPath(new_parent_path.to_string()));
+        }
+        if let Some(target_path) = self.node_index.get(&new_parent_id) {
+            if target_path.len() >= current_path.len()
+                && target_path[..current_path.len()] == current_path[..]
+            {
+                return Err(Error::InvalidPath(new_parent_path.to_string()));
+            }
+        }
+
+        let source_is_dir = self
+            .find_by_id(node_id)
+            .ok_or(Error::NodeNotFound(node_id))?
+            .is_dir();
+        let replace_node_id = match new_parent.find_child(destination_name) {
+            Some(existing) if existing.node_id == node_id => None,
+            Some(_) if !replace_existing => {
+                return Err(Error::NameExists(destination_name.to_string()));
+            }
+            Some(existing) => {
+                if existing.is_dir() || source_is_dir {
+                    return Err(Error::NameExists(destination_name.to_string()));
+                }
+                Some(existing.node_id)
+            }
+            None => None,
+        };
+
+        if let Some(replace_node_id) = replace_node_id {
+            let new_parent = self
+                .find_by_path_mut(new_parent_path)
+                .ok_or_else(|| Error::InvalidPath(new_parent_path.to_string()))?;
+            new_parent
+                .remove_child(replace_node_id)
+                .ok_or(Error::NodeNotFound(replace_node_id))?;
+            self.remove_from_index(replace_node_id);
         }
 
         // Remove from old parent
@@ -347,6 +397,11 @@ impl CatalogManager {
         let node = old_parent
             .remove_child(node_id)
             .ok_or(Error::NodeNotFound(node_id))?;
+        let mut node = node;
+        if node.name != destination_name {
+            node.name = destination_name.to_string();
+        }
+        node.touch();
         let mut moved_ids = vec![node_id];
         Self::collect_descendant_ids(&node, &mut moved_ids);
 
@@ -363,7 +418,7 @@ impl CatalogManager {
             .get(&new_parent_id)
             .cloned()
             .unwrap_or_default();
-        new_path_prefix.push(node_name);
+        new_path_prefix.push(destination_name.to_string());
         let old_prefix_len = current_path.len();
         for id in moved_ids {
             if let Some(indexed_path) = self.node_index.get_mut(&id) {

@@ -13,7 +13,7 @@ Automatically update the code every N seconds
 SVG arc timer with circular progression
 Segmented cells for numbers with shimmer animation
 * - Color indication of the remaining time (green → yellow → red)
-* - Urgency pulse at <=20% of remaining time
+* - Red urgency state at the last 5 seconds
 */
 export class PMEntryTOTPItemBase extends ReatomLitElement {
   protected readonly model = new PMEntryTOTPItemModel()
@@ -102,6 +102,7 @@ export class PMEntryTOTPItemBase extends ReatomLitElement {
         aria-label=${i18n('button:copy-otp')}
         @click=${this.onCopyCode}
         @keydown=${this.onCopyKeyDown}
+        data-countdown-level=${view.countdownLevel}
         ?data-urgent=${view.isUrgent}
       >
         <div class="totp-main">

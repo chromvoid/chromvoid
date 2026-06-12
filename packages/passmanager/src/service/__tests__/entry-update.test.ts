@@ -20,6 +20,7 @@ function createMockSaver(overrides: Partial<ManagerSaver> = {}): ManagerSaver {
     getOTPSeckey: vi.fn(async () => undefined),
     removeOTP: vi.fn(async () => true),
     saveOTP: vi.fn(async () => true),
+    renameOTPLabel: vi.fn(async () => true),
     readEntrySecret: vi.fn(async () => undefined),
     saveEntrySecret: vi.fn(async () => true),
     removeEntrySecret: vi.fn(async () => true),
@@ -247,7 +248,6 @@ describe('Entry.update()', () => {
   it('rolls back optimistic update state and releases guard when note save fails', async () => {
     const entry = Entry.create(root, makeEntryData({title: 'Original'}), 'old-pwd', 'old-note', undefined)
     await entry.flushPendingPersistence()
-
     ;(saver.saveEntryMeta as Mock).mockResolvedValueOnce(true)
     ;(saver.saveEntryPassword as Mock).mockResolvedValueOnce(true)
     ;(saver.saveEntryNote as Mock).mockRejectedValueOnce(new Error('network fail'))
@@ -376,22 +376,16 @@ describe('Entry.persistNew()', () => {
   it('falls back to a non-crypto OTP id when sha256 crypto is unavailable', async () => {
     vi.mocked(sha256).mockRejectedValueOnce(new Error('No crypto implementation available'))
 
-    const entry = Entry.create(
-      root,
-      {title: 'OTP Entry', urls: [], username: ''},
-      '',
-      '',
-      {
-        id: '',
-        label: 'Primary',
-        algorithm: 'SHA1',
-        digits: 6,
-        period: 30,
-        secret: 'JBSWY3DPEHPK3PXP',
-        encoding: 'base32',
-        type: 'TOTP',
-      },
-    )
+    const entry = Entry.create(root, {title: 'OTP Entry', urls: [], username: ''}, '', '', {
+      id: '',
+      label: 'Primary',
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: 'JBSWY3DPEHPK3PXP',
+      encoding: 'base32',
+      type: 'TOTP',
+    })
     await entry.flushPendingPersistence()
 
     const createdOtp = entry.otps()[0]
@@ -399,6 +393,191 @@ describe('Entry.persistNew()', () => {
     expect(createdOtp?.id).toMatch(/^otp:/)
     expect(saver.saveEntryMeta).toHaveBeenCalledOnce()
     expect(saver.saveOTP).toHaveBeenCalledWith(createdOtp?.id, 'JBSWY3DPEHPK3PXP')
+  })
+
+  it('persists OTP label updates through entry metadata', async () => {
+    const callOrder: string[] = []
+    ;(saver.renameOTPLabel as Mock).mockImplementation(async () => {
+      callOrder.push('rename')
+      return true
+    })
+    ;(saver.saveEntryMeta as Mock).mockImplementation(async () => {
+      callOrder.push('meta')
+      return true
+    })
+
+    const entry = Entry.import(root, {
+      id: 'entry-otp-label-update',
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+      exportedTs: Date.now(),
+      title: 'OTP Label Entry',
+      urls: [],
+      username: 'user1',
+      otps: [
+        {
+          id: 'otp-1',
+          label: 'Primary',
+          algorithm: 'SHA1',
+          digits: 6,
+          period: 30,
+          encoding: 'base32',
+          secret: '',
+          type: 'TOTP',
+        },
+      ],
+    })
+    root.entries.set([entry])
+
+    const otp = entry.otps()[0]
+    if (!otp) throw new Error('expected otp to exist')
+
+    await expect(entry.updateOTPLabel(otp, 'Backup')).resolves.toBe(true)
+
+    expect(otp.label).toBe('Backup')
+    expect(callOrder).toEqual(['rename', 'meta'])
+    expect(saver.renameOTPLabel).toHaveBeenCalledWith('otp-1', 'Primary', 'Backup')
+    expect(saver.saveEntryMeta).toHaveBeenCalledWith(
+      expect.objectContaining({
+        otps: [
+          expect.objectContaining({
+            id: 'otp-1',
+            label: 'Backup',
+          }),
+        ],
+      }),
+    )
+  })
+
+  it('persists multiple OTP label updates with one metadata save', async () => {
+    const callOrder: string[] = []
+    ;(saver.renameOTPLabel as Mock).mockImplementation(async (otpId: string) => {
+      callOrder.push(`rename:${otpId}`)
+      return true
+    })
+    ;(saver.saveEntryMeta as Mock).mockImplementation(async () => {
+      callOrder.push('meta')
+      return true
+    })
+
+    const entry = Entry.import(root, {
+      id: 'entry-otp-label-batch',
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+      exportedTs: Date.now(),
+      title: 'OTP Label Batch',
+      urls: [],
+      username: 'user1',
+      otps: [
+        {
+          id: 'otp-1',
+          label: 'Primary',
+          algorithm: 'SHA1',
+          digits: 6,
+          period: 30,
+          encoding: 'base32',
+          secret: '',
+          type: 'TOTP',
+        },
+        {
+          id: 'otp-2',
+          label: 'Recovery',
+          algorithm: 'SHA1',
+          digits: 6,
+          period: 30,
+          encoding: 'base32',
+          secret: '',
+          type: 'TOTP',
+        },
+      ],
+    })
+    root.entries.set([entry])
+
+    await expect(
+      entry.updateOTPLabels({
+        'otp-1': 'Backup',
+        'otp-2': 'Admin',
+      }),
+    ).resolves.toBe(true)
+
+    expect(entry.otps().map((otp) => otp.label)).toEqual(['Backup', 'Admin'])
+    expect(callOrder).toEqual(['rename:otp-1', 'rename:otp-2', 'meta'])
+    expect(saver.renameOTPLabel).toHaveBeenCalledTimes(2)
+    expect(saver.saveEntryMeta).toHaveBeenCalledOnce()
+    expect(saver.saveEntryMeta).toHaveBeenCalledWith(
+      expect.objectContaining({
+        otps: [
+          expect.objectContaining({id: 'otp-1', label: 'Backup'}),
+          expect.objectContaining({id: 'otp-2', label: 'Admin'}),
+        ],
+      }),
+    )
+  })
+
+  it('uses OTP id as the secret label migration key when the previous label is empty', async () => {
+    const entry = Entry.import(root, {
+      id: 'entry-empty-otp-label-update',
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+      exportedTs: Date.now(),
+      title: 'Empty OTP Label Entry',
+      urls: [],
+      username: 'user1',
+      otps: [
+        {
+          id: 'otp-empty-label',
+          label: '',
+          algorithm: 'SHA1',
+          digits: 6,
+          period: 30,
+          encoding: 'base32',
+          secret: '',
+          type: 'TOTP',
+        },
+      ],
+    })
+    root.entries.set([entry])
+
+    const otp = entry.otps()[0]
+    if (!otp) throw new Error('expected otp to exist')
+
+    await expect(entry.updateOTPLabel(otp, 'Backup')).resolves.toBe(true)
+
+    expect(otp.label).toBe('Backup')
+    expect(saver.renameOTPLabel).toHaveBeenCalledWith('otp-empty-label', 'otp-empty-label', 'Backup')
+  })
+
+  it('uses OTP id as the secret label migration key when the next label is empty', async () => {
+    const entry = Entry.import(root, {
+      id: 'entry-clear-otp-label-update',
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+      exportedTs: Date.now(),
+      title: 'Clear OTP Label Entry',
+      urls: [],
+      username: 'user1',
+      otps: [
+        {
+          id: 'otp-clear-label',
+          label: 'Primary',
+          algorithm: 'SHA1',
+          digits: 6,
+          period: 30,
+          encoding: 'base32',
+          secret: '',
+          type: 'TOTP',
+        },
+      ],
+    })
+    root.entries.set([entry])
+
+    const otp = entry.otps()[0]
+    if (!otp) throw new Error('expected otp to exist')
+
+    await expect(entry.updateOTPLabel(otp, '')).resolves.toBe(true)
+
+    expect(otp.label).toBe('')
+    expect(saver.renameOTPLabel).toHaveBeenCalledWith('otp-clear-label', 'Primary', 'otp-clear-label')
   })
 })
 

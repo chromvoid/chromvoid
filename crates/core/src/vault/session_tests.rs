@@ -160,7 +160,7 @@ fn test_lock_with_save() {
 #[test]
 fn test_lock_clears_decrypted_chunk_cache() {
     let (storage, _temp_dir, keystore) = create_test_storage();
-    let session = unlock(&storage, &keystore, "password").expect("should unlock");
+    let mut session = unlock(&storage, &keystore, "password").expect("should unlock");
     let cache = session.decrypted_chunk_cache();
     let generation = session.decrypted_chunk_cache_generation();
     cache.insert(
@@ -186,7 +186,7 @@ fn test_lock_clears_decrypted_chunk_cache() {
 #[test]
 fn test_unlock_creates_new_decrypted_chunk_cache() {
     let (storage, _temp_dir, keystore) = create_test_storage();
-    let first = unlock(&storage, &keystore, "password").expect("should unlock");
+    let mut first = unlock(&storage, &keystore, "password").expect("should unlock");
     let first_cache = first.decrypted_chunk_cache();
     first.lock(Some(&storage)).expect("should lock");
 

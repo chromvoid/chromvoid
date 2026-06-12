@@ -201,6 +201,17 @@ impl RpcRouter {
         otp::handle_remove_secret(session, &storage, &self.passmanager_otp_target_cache, data)
     }
 
+    pub(super) fn handle_passmanager_otp_rename_secret(
+        &self,
+        data: &serde_json::Value,
+    ) -> RpcResponse {
+        let storage = self.storage.clone();
+        let Some(session) = self.session.as_ref() else {
+            return otp::PassmanagerOtpError::vault_required().into_rpc_response();
+        };
+        otp::handle_rename_secret(session, &storage, &self.passmanager_otp_target_cache, data)
+    }
+
     fn commit_passmanager_domain_uow<F>(&mut self, tx_id_hint: &str, f: F) -> RpcResponse
     where
         F: FnOnce(&VaultSession, &Storage, &mut DomainUnitOfWork<'_>) -> RpcResponse,

@@ -23,6 +23,8 @@ import {CVNumber} from '@chromvoid/uikit/components/cv-number'
 import {CVPopover} from '@chromvoid/uikit/components/cv-popover'
 import {CVProgress} from '@chromvoid/uikit/components/cv-progress'
 import {CVProgressRing} from '@chromvoid/uikit/components/cv-progress-ring'
+import {CVRadio} from '@chromvoid/uikit/components/cv-radio'
+import {CVRadioGroup} from '@chromvoid/uikit/components/cv-radio-group'
 import {CVSelect} from '@chromvoid/uikit/components/cv-select'
 import {CVSelectOption} from '@chromvoid/uikit/components/cv-select-option'
 import {CVSlider} from '@chromvoid/uikit/components/cv-slider'
@@ -81,6 +83,8 @@ CVNumber.define()
 CVPopover.define()
 CVProgress.define()
 CVProgressRing.define()
+CVRadio.define()
+CVRadioGroup.define()
 CVSelect.define()
 CVSelectOption.define()
 CVSlider.define()

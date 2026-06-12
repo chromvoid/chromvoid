@@ -249,12 +249,12 @@ export class UploadTaskItem extends ReatomLitElement {
     return 'upload'
   }
 
-  private onRetryClick = () => {
+  private onRetryClick() {
     if (!this.task) return
-    getAppContext().store.updateUploadTask(this.task.id, {status: 'uploading'})
+    void getAppContext().store.retryUploadTask(this.task.id)
   }
 
-  private onCancelClick = () => {
+  private onCancelClick() {
     if (!this.task) return
     getAppContext().store.cancelUploadTask(this.task.id)
   }
@@ -338,7 +338,7 @@ export class UploadTaskItem extends ReatomLitElement {
                 : nothing}
             </div>
             <div class="task-meta-actions">
-              ${t.kind === 'transfer' && status === 'error'
+              ${t.kind === 'transfer' && status === 'error' && t.retryable
                 ? html`<cv-button size="small" variant="ghost" @click=${this.onRetryClick}
                     >${i18n('button:retry')}</cv-button
                   >`

@@ -4,6 +4,7 @@ import {nothing} from 'lit'
 import {isTauriRuntime} from 'root/core/runtime/runtime'
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import {i18n} from 'root/i18n'
+import {renderRouteBackLink} from 'root/shared/ui/route-back-link'
 
 import {renderVolumeMountSection} from './remote-storage/sections/volume-mount-section'
 import {remoteStorageStyles} from './remote-storage/remote-storage.styles'
@@ -24,9 +25,11 @@ export class RemoteStoragePage extends ReatomLitElement {
 
   static properties = {
     hideBackLink: {type: Boolean, attribute: 'hide-back-link'},
+    externalToolbar: {type: Boolean, attribute: 'external-toolbar'},
   }
 
   declare hideBackLink: boolean
+  declare externalToolbar: boolean
 
   static styles = remoteStorageStyles
 
@@ -43,6 +46,7 @@ export class RemoteStoragePage extends ReatomLitElement {
   constructor() {
     super()
     this.hideBackLink = false
+    this.externalToolbar = false
     this.model.initialize()
   }
 
@@ -125,18 +129,21 @@ export class RemoteStoragePage extends ReatomLitElement {
 
     return html`
       <div class="page">
-        <header class="header">
-          ${this.hideBackLink
-            ? nothing
-            : html`<cv-button unstyled class="back-link" @click=${this.onBack}>
-                <cv-icon slot="prefix" name="arrow-left"></cv-icon>
-                ${i18n('remote-storage:back-to-storage')}
-              </cv-button>`}
-          <div class="header-content">
-            <h1 class="title">${i18n('remote-storage:page-title')}</h1>
-            <p class="subtitle">${i18n('remote-storage:page-subtitle')}</p>
-          </div>
-        </header>
+        ${this.externalToolbar
+          ? nothing
+          : html`
+              <header class="header">
+                ${renderRouteBackLink({
+                  hidden: this.hideBackLink,
+                  label: i18n('remote-storage:back-to-storage'),
+                  onBack: this.onBack,
+                })}
+                <div class="header-content">
+                  <h1 class="title">${i18n('remote-storage:page-title')}</h1>
+                  <p class="subtitle">${i18n('remote-storage:page-subtitle')}</p>
+                </div>
+              </header>
+            `}
 
         <div class="quick-stats">
           <div class="stat-card stat-card-info">

@@ -12,6 +12,8 @@ use tracing::info;
 
 use crate::app_state::AppState;
 use crate::helpers::touch_last_activity;
+#[cfg(desktop)]
+use crate::host_path_capability::HostPathPurpose;
 use crate::types::*;
 
 use super::derivatives::{
@@ -438,14 +440,28 @@ pub(crate) async fn catalog_download_path(
 ) -> Result<RpcResult<DownloadPathResult>, String> {
     let DownloadPathArgs {
         node_id,
-        target_path,
+        target_path_token,
         download_id,
     } = args;
+
+    let target_path = match state
+        .host_path_capabilities
+        .consume(&target_path_token, HostPathPurpose::Download)
+    {
+        Ok(path) => path,
+        Err(error) => {
+            return Ok(rpc_result_err(
+                error,
+                Some("INVALID_PATH_TOKEN".to_string()),
+            ))
+        }
+    };
 
     touch_last_activity(&state.last_activity, "catalog_download_path");
     info!(
         "catalog_download_path: start node_id={} target_path={}",
-        node_id, target_path
+        node_id,
+        target_path.display()
     );
 
     let adapter = state.adapter.clone();
@@ -479,12 +495,12 @@ pub(crate) async fn catalog_download_path(
                 let mut last_emit = std::time::Instant::now();
                 let bytes_written = write_stream_to_file_atomically(
                     &mut reader,
-                    std::path::Path::new(&target_path),
+                    target_path.as_path(),
                     total_bytes,
                     |bytes_written, total_bytes| {
                         tracing::error!(
                             "catalog_download_path: incomplete node_id={} wrote={} expected={} target_path={}",
-                            node_id, bytes_written, total_bytes, target_path
+                            node_id, bytes_written, total_bytes, target_path.display()
                         );
                         (
                             format!(
@@ -514,7 +530,7 @@ pub(crate) async fn catalog_download_path(
 
                 info!(
                     "catalog_download_path: done node_id={} bytes_written={} target_path={}",
-                    node_id, bytes_written, target_path
+                    node_id, bytes_written, target_path.display()
                 );
                 Ok(DownloadPathResult {
                     bytes_written,

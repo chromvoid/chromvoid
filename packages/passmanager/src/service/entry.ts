@@ -1,14 +1,5 @@
 import {sha256} from '@project/utils'
-import {
-  action,
-  atom,
-  computed,
-  peek,
-  wrap,
-  withRollback,
-  withTransaction,
-  type Atom,
-} from '@reatom/core'
+import {action, atom, computed, peek, wrap, withRollback, withTransaction, type Atom} from '@reatom/core'
 import {v4} from 'uuid'
 
 import {i18n} from '../i18n'
@@ -96,7 +87,8 @@ export class Entry {
     parent.addEntry(entry)
 
     // Keep in the background - UI is updated immediately
-    entry.pendingPersistence = entry.persistNewAction(parent, password, note, otp)
+    entry.pendingPersistence = entry
+      .persistNewAction(parent, password, note, otp)
       .catch((error) => {
         try {
           logger.error('[PassManager][Entry.persistNew] failed', {entryId: entry.id, error})
@@ -111,8 +103,8 @@ export class Entry {
   }
 
   /*** Stores a new record to disk (meta.json, password, note, OTP).
-* Called in the background after creation.
-*/
+   * Called in the background after creation.
+   */
   flushPendingPersistence(): Promise<unknown> {
     return this.pendingPersistence ?? Promise.resolve()
   }
@@ -189,11 +181,13 @@ export class Entry {
         let otpSecret = ''
         if (otp && this.entryType !== 'payment_card') {
           otpSecret = otp.secret ?? ''
-          const createdOtp = await OTP.create(this, otp)
+          const createdOtp = await wrap(OTP.create(this, otp))
           nextOtps = [...prevOtps, createdOtp]
         }
 
-        const metaSaved = await wrap(this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload(parent, nextOtps)))
+        const metaSaved = await wrap(
+          this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload(parent, nextOtps)),
+        )
         if (!metaSaved) {
           throw new Error('saveEntryMeta failed')
         }
@@ -214,14 +208,14 @@ export class Entry {
         }
 
         if (password && this.entryType !== 'payment_card') {
-          const passwordSaved = await this.savePassword(password)
+          const passwordSaved = await wrap(this.savePassword(password))
           if (!passwordSaved) {
             throw new Error('saveEntryPassword failed')
           }
         }
 
         if (note) {
-          const noteSaved = await this.saveNote(note)
+          const noteSaved = await wrap(this.saveNote(note))
           if (!noteSaved) {
             throw new Error('saveEntryNote failed')
           }
@@ -249,20 +243,24 @@ export class Entry {
       })
 
       try {
-        const metaSaved = await wrap(this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload(undefined, undefined, this.sshKeys)))
+        const metaSaved = await wrap(
+          this.root.managerSaver.saveEntryMeta(
+            this.buildEntryMetaPayload(undefined, undefined, this.sshKeys),
+          ),
+        )
         if (!metaSaved) {
           throw new Error('saveEntryMeta failed')
         }
 
         if (password !== undefined && this.entryType !== 'payment_card') {
-          const passwordSaved = await this.savePassword(password)
+          const passwordSaved = await wrap(this.savePassword(password))
           if (!passwordSaved) {
             throw new Error('saveEntryPassword failed')
           }
         }
 
         if (note !== undefined) {
-          const noteSaved = await this.saveNote(note)
+          const noteSaved = await wrap(this.saveNote(note))
           if (!noteSaved) {
             throw new Error('saveEntryNote failed')
           }
@@ -275,115 +273,206 @@ export class Entry {
     'passmanager.entry.update',
   ).extend(withTransaction())
 
-  private readonly addOTPAction = action(
-    async (params: OTPOptions) => {
-      if (this.entryType === 'payment_card') {
-        throw new Error('payment_card entries do not support OTP')
+  private readonly addOTPAction = action(async (params: OTPOptions) => {
+    if (this.entryType === 'payment_card') {
+      throw new Error('payment_card entries do not support OTP')
+    }
+    const prevOtps = this.otps()
+    if (!params.label) {
+      params.label = `${(params.type ?? 'TOTP').toUpperCase()}-${this.otps().length + 1}`
+    }
+
+    try {
+      const secret = params.secret ?? ''
+      const otp = await wrap(OTP.create(this, params))
+      const nextOtps = [...prevOtps, otp]
+
+      const metaSaved = await wrap(
+        this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload(undefined, nextOtps, this.sshKeys)),
+      )
+      if (!metaSaved) {
+        throw new Error('saveEntryMeta failed')
       }
-      const prevOtps = this.otps()
-      if (!params.label) {
-        params.label = `${(params.type ?? 'TOTP').toUpperCase()}-${this.otps().length + 1}`
+
+      if (secret) {
+        const otpSaved = await wrap(this.root.managerSaver.saveOTP(otp.id, secret))
+        if (!otpSaved) {
+          throw new Error('saveOTP failed')
+        }
+      }
+
+      this.otps.set(nextOtps)
+    } catch (error) {
+      this.otps.set(prevOtps)
+      throw error
+    }
+  }, 'passmanager.entry.addOTP').extend(withTransaction())
+
+  private readonly updateSshKeysAction = action(async (sshKeys: SshKeyEntry[]) => {
+    if (this.entryType === 'payment_card') {
+      throw new Error('payment_card entries do not support SSH keys')
+    }
+    this._data.set({
+      ...this._data(),
+      sshKeys,
+      updatedTs: Date.now(),
+    })
+
+    const metaSaved = await wrap(
+      this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload(undefined, undefined, sshKeys)),
+    )
+    if (!metaSaved) {
+      throw new Error('saveEntryMeta failed')
+    }
+
+    return true
+  }, 'passmanager.entry.updateSshKeys').extend(withTransaction())
+
+  private readonly removeSshKeyAction = action(async (keyId: string) => {
+    if (this.entryType === 'payment_card') {
+      throw new Error('payment_card entries do not support SSH keys')
+    }
+    const newKeys = this.sshKeys.filter((k) => k.id !== keyId)
+    this._data.set({
+      ...this._data(),
+      sshKeys: newKeys,
+      updatedTs: Date.now(),
+    })
+
+    const [okPriv, okPub] = await wrap(
+      Promise.all([
+        this.root.managerSaver.removeEntrySshPrivateKey(this.id, keyId),
+        this.root.managerSaver.removeEntrySshPublicKey(this.id, keyId),
+      ]),
+    )
+    if (!okPriv || !okPub) {
+      throw new Error('removeSshKey failed')
+    }
+
+    const metaSaved = await wrap(
+      this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload(undefined, undefined, newKeys)),
+    )
+    if (!metaSaved) {
+      throw new Error('saveEntryMeta failed')
+    }
+
+    return true
+  }, 'passmanager.entry.removeSshKey').extend(withTransaction())
+
+  private readonly removeOTPAction = action(async (otp: OTP) => {
+    if (this.entryType === 'payment_card') {
+      throw new Error('payment_card entries do not support OTP')
+    }
+    const removed = await wrap(otp.clean())
+    if (!removed) {
+      throw new Error('removeOTP failed')
+    }
+
+    const nextOtps = this.otps().filter((item) => item !== otp)
+    this.otps.set(nextOtps)
+
+    const metaSaved = await wrap(
+      this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload(undefined, nextOtps)),
+    )
+    if (!metaSaved) {
+      throw new Error('saveEntryMeta failed')
+    }
+
+    return true
+  }, 'passmanager.entry.removeOTP').extend(withTransaction())
+
+  private readonly updateOTPLabelsAction = action(async (labelByOtpId: Record<string, string>) => {
+    if (this.entryType === 'payment_card') {
+      throw new Error('payment_card entries do not support OTP')
+    }
+
+    const currentOtps = this.otps()
+    const currentOtpById = new Map(currentOtps.map((otp) => [otp.id, otp]))
+    const changes: Array<{
+      otp: OTP
+      previousData: OTP['data']
+      previousStorageLabel: string
+      nextStorageLabel: string
+      nextLabel: string
+    }> = []
+
+    for (const [otpId, label] of Object.entries(labelByOtpId)) {
+      const otp = currentOtpById.get(otpId)
+      if (!otp) {
+        throw new Error('OTP does not belong to this entry')
+      }
+
+      if (otp.data.label === label) {
+        continue
+      }
+
+      const previousData = otp.data
+      changes.push({
+        otp,
+        previousData,
+        previousStorageLabel: this.getOTPStorageLabel(otp, previousData.label),
+        nextStorageLabel: this.getOTPStorageLabel(otp, label),
+        nextLabel: label,
+      })
+    }
+
+    if (changes.length === 0) {
+      return true
+    }
+
+    const renameOTPLabel = this.root.managerSaver.renameOTPLabel?.bind(this.root.managerSaver)
+    const migrations = changes.filter(
+      (change) => change.previousStorageLabel !== change.nextStorageLabel,
+    )
+    if (migrations.length > 0 && !renameOTPLabel) {
+      throw new Error('renameOTPLabel unavailable')
+    }
+
+    const completedMigrations: typeof migrations = []
+    try {
+      for (const change of migrations) {
+        const secretRenamed = await wrap(
+          renameOTPLabel!(change.otp.id, change.previousStorageLabel, change.nextStorageLabel),
+        )
+        if (!secretRenamed) {
+          throw new Error('renameOTPLabel failed')
+        }
+        completedMigrations.push(change)
       }
 
       try {
-        const secret = params.secret ?? ''
-        const otp = await OTP.create(this, params)
-        const nextOtps = [...prevOtps, otp]
+        for (const change of changes) {
+          change.otp.updateData({
+            ...change.previousData,
+            label: change.nextLabel,
+          })
+        }
 
-        const metaSaved = await wrap(this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload(undefined, nextOtps, this.sshKeys)))
+        const metaSaved = await wrap(this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload()))
         if (!metaSaved) {
           throw new Error('saveEntryMeta failed')
         }
 
-        if (secret) {
-          const otpSaved = await wrap(this.root.managerSaver.saveOTP(otp.id, secret))
-          if (!otpSaved) {
-            throw new Error('saveOTP failed')
-          }
-        }
-
-        this.otps.set(nextOtps)
+        return true
       } catch (error) {
-        this.otps.set(prevOtps)
+        for (const change of changes) {
+          change.otp.updateData(change.previousData)
+        }
         throw error
       }
-    },
-    'passmanager.entry.addOTP',
-  ).extend(withTransaction())
-
-  private readonly updateSshKeysAction = action(
-    async (sshKeys: SshKeyEntry[]) => {
-      if (this.entryType === 'payment_card') {
-        throw new Error('payment_card entries do not support SSH keys')
+    } catch (error) {
+      for (const change of [...completedMigrations].reverse()) {
+        try {
+          await wrap(renameOTPLabel!(change.otp.id, change.nextStorageLabel, change.previousStorageLabel))
+        } catch {}
       }
-      this._data.set({
-        ...this._data(),
-        sshKeys,
-        updatedTs: Date.now(),
-      })
+      throw error
+    }
+  }, 'passmanager.entry.updateOTPLabels').extend(withTransaction())
 
-      const metaSaved = await wrap(this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload(undefined, undefined, sshKeys)))
-      if (!metaSaved) {
-        throw new Error('saveEntryMeta failed')
-      }
-
-      return true
-    },
-    'passmanager.entry.updateSshKeys',
-  ).extend(withTransaction())
-
-  private readonly removeSshKeyAction = action(
-    async (keyId: string) => {
-      if (this.entryType === 'payment_card') {
-        throw new Error('payment_card entries do not support SSH keys')
-      }
-      const newKeys = this.sshKeys.filter((k) => k.id !== keyId)
-      this._data.set({
-        ...this._data(),
-        sshKeys: newKeys,
-        updatedTs: Date.now(),
-      })
-
-      const [okPriv, okPub] = await Promise.all([
-        wrap(this.root.managerSaver.removeEntrySshPrivateKey(this.id, keyId)),
-        wrap(this.root.managerSaver.removeEntrySshPublicKey(this.id, keyId)),
-      ])
-      if (!okPriv || !okPub) {
-        throw new Error('removeSshKey failed')
-      }
-
-      const metaSaved = await wrap(this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload(undefined, undefined, newKeys)))
-      if (!metaSaved) {
-        throw new Error('saveEntryMeta failed')
-      }
-
-      return true
-    },
-    'passmanager.entry.removeSshKey',
-  ).extend(withTransaction())
-
-  private readonly removeOTPAction = action(
-    async (otp: OTP) => {
-      if (this.entryType === 'payment_card') {
-        throw new Error('payment_card entries do not support OTP')
-      }
-      const removed = await wrap(otp.clean())
-      if (!removed) {
-        throw new Error('removeOTP failed')
-      }
-
-      const nextOtps = this.otps().filter((item) => item !== otp)
-      this.otps.set(nextOtps)
-
-      const metaSaved = await wrap(this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload(undefined, nextOtps)))
-      if (!metaSaved) {
-        throw new Error('saveEntryMeta failed')
-      }
-
-      return true
-    },
-    'passmanager.entry.removeOTP',
-  ).extend(withTransaction())
+  private getOTPStorageLabel(otp: OTP, label: string | undefined): string {
+    return label?.trim() || otp.id
+  }
 
   get root() {
     return Entry.root
@@ -658,15 +747,12 @@ export class Entry {
     return formatDateTime(this.createdTs)
   }
 
-  isSelected = computed(
-    () => {
-      if ('root' in this.parent) {
-        return this.parent.root.showElement() === this
-      }
-      return Entry.root.showElement() === this
-    },
-    'isSelected',
-  )
+  isSelected = computed(() => {
+    if ('root' in this.parent) {
+      return this.parent.root.showElement() === this
+    }
+    return Entry.root.showElement() === this
+  }, 'isSelected')
 
   async savePassword(password: string) {
     if (this.entryType === 'payment_card') {
@@ -808,10 +894,9 @@ export class Entry {
 
     const previousPersistence = this.pendingPersistence
     this.root.beginEntryUpdate()
-    const movePromise = this.performMove(previousPersistence, newParent, options)
-      .finally(() => {
-        this.root.endEntryUpdate()
-      })
+    const movePromise = this.performMove(previousPersistence, newParent, options).finally(() => {
+      this.root.endEntryUpdate()
+    })
     this.pendingPersistence = movePromise
     return movePromise
   }
@@ -824,27 +909,29 @@ export class Entry {
     updateParent?: boolean
   } = {}) {
     if (!silent) {
-      const confirmed = await confirmPassManagerAction({
-        title: i18n('remove:dialog:title'),
-        message: i18n('remove:dialog:text'),
-        variant: 'danger',
-        confirmVariant: 'danger',
-      })
+      const confirmed = await wrap(
+        confirmPassManagerAction({
+          title: i18n('remove:dialog:title'),
+          message: i18n('remove:dialog:text'),
+          variant: 'danger',
+          confirmVariant: 'danger',
+        }),
+      )
       if (!confirmed) {
         return
       }
     }
 
     if (this.entryType === 'payment_card') {
-      await Promise.all([this.cleanNote(), this.cleanCardCvv(), this.cleanCardPan()])
+      await wrap(Promise.all([this.cleanNote(), this.cleanCardCvv(), this.cleanCardPan()]))
     } else {
-      await Promise.all([this.cleanNote(), this.cleanPassword(), this.cleanOTPs(), this.cleanSshKeys()])
+      await wrap(Promise.all([this.cleanNote(), this.cleanPassword(), this.cleanOTPs(), this.cleanSshKeys()]))
     }
 
     if (updateParent) {
       this.parent.excludeEntry(this)
       this.parent.updateData({})
-      await this.parent.root.managerSaver.removeEntry(this.id)
+      await wrap(this.parent.root.managerSaver.removeEntry(this.id))
       this.parent.root.showElement.set(this.parent)
       try {
         notify.success(i18n('notify:remove:success'))
@@ -888,7 +975,7 @@ export class Entry {
     options: {silent?: boolean},
   ): Promise<boolean> {
     if (previousPersistence) {
-      await previousPersistence
+      await wrap(previousPersistence)
     }
 
     const previousParent = this.parent
@@ -903,9 +990,11 @@ export class Entry {
     newParent.addEntry(this)
 
     try {
-      const moved = await this.root.managerSaver.moveEntryToGroup(
-        this.id,
-        newParent instanceof Group ? newParent.name : undefined,
+      const moved = await wrap(
+        this.root.managerSaver.moveEntryToGroup(
+          this.id,
+          newParent instanceof Group ? newParent.name : undefined,
+        ),
       )
       if (!moved) {
         throw new Error('moveEntryToGroup failed')
@@ -986,6 +1075,28 @@ export class Entry {
     this.root.beginEntryUpdate()
     try {
       return await this.removeOTPAction(otp)
+    } finally {
+      this.root.endEntryUpdate()
+    }
+  }
+
+  async updateOTPLabel(otp: OTP, label: string) {
+    if (otp.data.label === label) {
+      return true
+    }
+
+    this.root.beginEntryUpdate()
+    try {
+      return await this.updateOTPLabelsAction({[otp.id]: label})
+    } finally {
+      this.root.endEntryUpdate()
+    }
+  }
+
+  async updateOTPLabels(labelByOtpId: Record<string, string>) {
+    this.root.beginEntryUpdate()
+    try {
+      return await this.updateOTPLabelsAction(labelByOtpId)
     } finally {
       this.root.endEntryUpdate()
     }

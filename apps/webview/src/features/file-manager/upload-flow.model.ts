@@ -1,8 +1,8 @@
 import {atom, wrap} from '@reatom/core'
-import {open} from '@tauri-apps/plugin-dialog'
 import {getCurrentWindow} from '@tauri-apps/api/window'
 
 import type {AppContext} from 'root/shared/services/app-context'
+import type {HostPathTokenGrant} from 'root/core/transport/transport'
 import {DragDropService} from 'root/shared/services/drag-drop'
 import {writeAndroidUnlockDebug} from 'root/shared/services/android-unlock-debug'
 import {isTauriRuntime} from 'root/core/runtime/runtime'
@@ -26,8 +26,8 @@ export class FileUploadFlow {
 
     this.dragDrop = new DragDropService({
       onFiles: async (files: FileList) => {
-        // In native runtimes we avoid routing file bytes through the WebView.
-        if (this.canUseNativeUpload() || this.canUseNativePathUpload()) return
+        // Android/iOS native imports preserve platform metadata; desktop path tokens are picker-issued.
+        if (this.canUseNativeUpload()) return
         await this.handleFileUpload(files)
       },
       onActiveChange: (active: boolean) => {
@@ -65,8 +65,8 @@ export class FileUploadFlow {
     await this.ctx.store.startUploadFiles(this.getCurrentPath(), Array.from(files))
   }
 
-  async handlePathUpload(paths: string[]): Promise<void> {
-    await this.ctx.store.startUploadPaths(this.getCurrentPath(), paths)
+  async handlePathUpload(files: HostPathTokenGrant[]): Promise<void> {
+    await this.ctx.store.startUploadPaths(this.getCurrentPath(), files)
   }
 
   async handleNativeUpload(): Promise<void> {
@@ -81,10 +81,9 @@ export class FileUploadFlow {
 
     if (this.canUseNativePathUpload()) {
       try {
-        const selected = await wrap(open({multiple: true, directory: false}))
-        const paths = Array.isArray(selected) ? selected : selected ? [selected] : []
-        if (paths.length > 0) {
-          await this.handlePathUpload(paths)
+        const files = await wrap(this.ctx.ws.pickUploadFiles?.() ?? Promise.resolve([]))
+        if (files.length > 0) {
+          await this.handlePathUpload(files)
         }
         return
       } catch {
@@ -126,7 +125,7 @@ export class FileUploadFlow {
       const win = getCurrentWindow()
 
       // NOTE: Tauri drag-drop events carry native file paths.
-      this.unlistenTauriDragDrop = await win.onDragDropEvent((event: unknown) => {
+      this.unlistenTauriDragDrop = await wrap(win.onDragDropEvent(wrap((event: unknown) => {
         const payload = (event as {payload?: unknown})?.payload ?? event
         const type = (payload as {type?: string})?.type
 
@@ -143,12 +142,10 @@ export class FileUploadFlow {
         if (type === 'drop') {
           this.isDragActive.set(false)
 
-          const paths = (payload as {paths?: unknown})?.paths
-          if (this.canUseNativePathUpload() && Array.isArray(paths) && paths.length > 0) {
-            void this.handlePathUpload(paths.filter((p): p is string => typeof p === 'string'))
-          }
+          // Native drop paths are intentionally not consumed by upload IPC. Path upload grants
+          // must be issued by the backend picker; regular browser FileList drops use DragDropService.
         }
-      })
+      })))
       writeAndroidUnlockDebug('file-manager-model', 'setupTauriDragDrop:listener ready')
     } catch {
       writeAndroidUnlockDebug('file-manager-model', 'setupTauriDragDrop:error')

@@ -7,6 +7,7 @@ import {i18n} from 'root/i18n'
 import {getAppContext} from 'root/shared/services/app-context'
 import {dialogService} from 'root/shared/services/dialog'
 import {writeAndroidUnlockDebug} from 'root/shared/services/android-unlock-debug'
+import {markPerformance} from 'root/shared/services/performance-measurement'
 import {subscribeAfterInitial} from 'root/shared/services/subscribed-signal'
 import type {RemoteSessionState} from 'root/app/state/store'
 
@@ -45,6 +46,8 @@ type WelcomeSetupModelOptions = {
   shared?: WelcomeSharedModel
   remote?: WelcomeRemoteModel
 }
+
+const WELCOME_UNLOCK_PASSWORD_DIALOG_PERFORMANCE_SCOPE = 'welcome.unlock.password-dialog'
 
 export class WelcomeSetupModel {
   readonly shared: WelcomeSharedModel
@@ -211,13 +214,23 @@ export class WelcomeSetupModel {
     if (!isTauriRuntime()) return
     if (this.shared.busy()) return
 
+    markPerformance(WELCOME_UNLOCK_PASSWORD_DIALOG_PERFORMANCE_SCOPE, 'unlock-click', {
+      layoutMode: getAppContext().store.layoutMode?.() ?? null,
+    })
     writeAndroidUnlockDebug('welcome', 'onUnlock:start')
-    const pwd = await wrap(dialogService.showInputDialog({
+    markPerformance(WELCOME_UNLOCK_PASSWORD_DIALOG_PERFORMANCE_SCOPE, 'dialog-request')
+    const passwordDialogResult = dialogService.showInputDialog({
       title: i18n('onboard:hero:unlock'),
       label: i18n('welcome:vault-password'),
       type: 'password',
       required: true,
-    }))
+      performanceScope: WELCOME_UNLOCK_PASSWORD_DIALOG_PERFORMANCE_SCOPE,
+    })
+    markPerformance(WELCOME_UNLOCK_PASSWORD_DIALOG_PERFORMANCE_SCOPE, 'dialog-promise-created')
+    const pwd = await wrap(passwordDialogResult)
+    markPerformance(WELCOME_UNLOCK_PASSWORD_DIALOG_PERFORMANCE_SCOPE, 'dialog-resolved', {
+      cancelled: !pwd,
+    })
     writeAndroidUnlockDebug('welcome', 'onUnlock:dialog resolved', {
       cancelled: !pwd,
     })
@@ -346,7 +359,7 @@ export class WelcomeSetupModel {
 
   private async submitRemotePair(): Promise<void> {
     this.shared.clearError()
-    const success = await this.remote.submitPairing()
+    const success = await wrap(this.remote.submitPairing())
     if (!success) {
       this.shared.setError(this.remote.errorText())
       return
@@ -357,7 +370,7 @@ export class WelcomeSetupModel {
 
   private async connectRemotePeer(peerId: string): Promise<void> {
     this.shared.clearError()
-    const success = await this.remote.connectToPeer(peerId)
+    const success = await wrap(this.remote.connectToPeer(peerId))
     if (!success) {
       this.shared.setError(this.remote.errorText())
       return
@@ -367,28 +380,28 @@ export class WelcomeSetupModel {
 
   private async removeRemotePeer(peer: NetworkPairedPeer): Promise<void> {
     this.shared.clearError()
-    const removed = await this.remote.removePeer(peer)
+    const removed = await wrap(this.remote.removePeer(peer))
     if (!removed && this.remote.errorText()) {
       this.shared.setError(this.remote.errorText())
     }
   }
 
   private async backFromRemoteConnect(): Promise<void> {
-    await this.remote.exitPreAuthRemote()
+    await wrap(this.remote.exitPreAuthRemote())
     this.shared.clearError()
     this.setupStep.set(this.isNeedInit() ? 'mode-select' : null)
   }
 
   private async backFromRemotePair(): Promise<void> {
-    await this.remote.closePairIos()
-    await this.remote.loadPeers()
+    await wrap(this.remote.closePairIos())
+    await wrap(this.remote.loadPeers())
     this.shared.clearError()
     this.setupStep.set('remote-connect')
   }
 
   private async backFromRemoteWait(): Promise<void> {
-    await this.remote.disconnectTransport()
-    await this.remote.loadPeers()
+    await wrap(this.remote.disconnectTransport())
+    await wrap(this.remote.loadPeers())
     this.shared.clearError()
     this.setupStep.set('remote-connect')
   }

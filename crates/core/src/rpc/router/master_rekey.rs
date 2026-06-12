@@ -73,7 +73,7 @@ impl RpcRouter {
         self.clear_vault_export();
         self.credential_provider_runtime.clear_all();
         if self.master_key.is_some() {
-            self.master_key = Some(new_master_password.to_string());
+            self.set_master_key(Some(new_master_password.to_string()));
         }
 
         Ok(MasterRekeyResponse {

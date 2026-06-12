@@ -93,7 +93,7 @@ export class PMIconPickerModel {
 
       this.addStoredIcon(iconRef)
       this.iconUploadState.set({phase: 'refreshing', fileName})
-      await this.loadStoredIcons()
+      await wrap(this.loadStoredIcons())
       if (!this.isLive(revision)) return null
 
       return iconRef

@@ -42,7 +42,7 @@ export const commandBarStyles = [
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      background: var(--surface-overlay, #111);
+      background: var(--surface-overlay, var(--cv-color-surface));
       border: 1px solid var(--border-default, var(--cv-alpha-white-10));
       border-radius: var(--cv-radius-xl, 16px);
       box-shadow: var(--cv-shadow-xl, 0 16px 48px var(--cv-alpha-black-65));
@@ -90,7 +90,7 @@ export const commandBarStyles = [
       border: none;
       outline: none;
       background: transparent;
-      color: var(--text-primary, #fff);
+      color: var(--text-primary, var(--cv-color-text-strongest));
       font-family: var(--cv-font-family-body, 'Inter', system-ui);
       font-size: var(--text-body, 0.9375rem);
     }
@@ -100,7 +100,7 @@ export const commandBarStyles = [
       font-size: var(--text-micro, 0.6875rem);
       color: var(--text-quaternary, var(--cv-alpha-white-30));
       padding: var(--space-1, 4px) var(--space-2, 8px);
-      background: var(--surface-muted, #1a1a1a);
+      background: var(--surface-muted, var(--cv-color-surface-3));
       border-radius: var(--cv-radius-sm, 4px);
     }
 
@@ -163,23 +163,23 @@ export const commandBarStyles = [
         font-size: var(--text-micro, 0.6875rem);
         color: var(--text-quaternary, var(--cv-alpha-white-30));
         padding: var(--space-1, 4px) var(--space-2, 8px);
-        background: var(--surface-muted, #1a1a1a);
+        background: var(--surface-muted, var(--cv-color-surface-3));
         border-radius: var(--cv-radius-sm, 4px);
       }
 
       &:hover,
       &.selected {
         background: var(--hover-overlay, var(--cv-alpha-white-4));
-        color: var(--text-primary, #fff);
+        color: var(--text-primary, var(--cv-color-text-strongest));
 
         cv-icon {
-          color: var(--accent, #ff7a00);
+          color: var(--accent, var(--cv-color-primary));
         }
       }
 
       &:focus-visible {
         outline: none;
-        box-shadow: 0 0 0 2px var(--surface-base), 0 0 0 4px var(--accent, #ff7a00);
+        box-shadow: 0 0 0 2px var(--surface-base), 0 0 0 4px var(--accent, var(--cv-color-primary));
       }
     }
 

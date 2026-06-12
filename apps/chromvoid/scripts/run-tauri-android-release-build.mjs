@@ -110,7 +110,7 @@ function resolveLicensePublicKey() {
   const value = envValue || fileValue
   if (!value) {
     fail(
-      `Missing ${licensePublicKeyEnv}. Run npm run preflight:android:release or write the base64/base64url Ed25519 public key to ${licensePublicKeyFile}.`,
+      `Missing ${licensePublicKeyEnv}. Run bun run preflight:android:release or write the base64/base64url Ed25519 public key to ${licensePublicKeyFile}.`,
     )
   }
 
@@ -269,7 +269,47 @@ function removeStaleReleaseNativeDebugSymbols() {
   fs.rmSync(releaseNativeDebugSymbolsZipPath(), {force: true})
 }
 
-function copyNativeDebugSymbolInputs(aabs, workDir) {
+function resolveReadelf(ndkHome) {
+  const candidates = [
+    process.env.CHROMVOID_READELF,
+    path.join(ndkHome, 'toolchains', 'llvm', 'prebuilt', ndkHostTag(), 'bin', executableName('llvm-readelf')),
+    executableName('llvm-readelf'),
+    executableName('readelf'),
+  ].filter(Boolean)
+
+  for (const candidate of candidates) {
+    const hasPathSeparator = candidate.includes(path.sep)
+    if (hasPathSeparator && !fs.existsSync(candidate)) {
+      continue
+    }
+    const result = spawnSync(candidate, ['--version'], {
+      encoding: 'utf8',
+      stdio: 'ignore',
+    })
+    if (result.status === 0) {
+      return candidate
+    }
+  }
+
+  fail('Unable to find readelf/llvm-readelf for native debug symbols validation')
+}
+
+function nativeLibraryHasSymbolTable(readelfPath, filePath) {
+  const result = spawnSync(readelfPath, ['-S', filePath], {
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+  })
+  if (result.error) {
+    throw result.error
+  }
+  if (result.status !== 0) {
+    const detail = result.stderr?.trim() || result.stdout?.trim() || `${readelfPath} failed`
+    fail(`Failed to inspect native library ${filePath}: ${detail}`)
+  }
+  return result.stdout.includes('.symtab')
+}
+
+function copyNativeDebugSymbolInputs(aabs, workDir, readelfPath) {
   const mergedNativeLibsDir = path.join(
     appRoot,
     'src-tauri',
@@ -293,7 +333,7 @@ function copyNativeDebugSymbolInputs(aabs, workDir) {
         continue
       }
 
-      const zipEntry = `lib/${abi}/${fileName}`
+      const zipEntry = `${abi}/${fileName}`
       if (copiedEntries.has(zipEntry)) {
         continue
       }
@@ -301,6 +341,11 @@ function copyNativeDebugSymbolInputs(aabs, workDir) {
       const source = path.join(mergedNativeLibsDir, abi, fileName)
       if (!fs.existsSync(source)) {
         fail(`Native debug symbol source not found for ${entry}: ${source}`)
+      }
+
+      if (!nativeLibraryHasSymbolTable(readelfPath, source)) {
+        console.log(`[tauri-android-release] Skipping stripped native library in symbols zip: ${zipEntry}`)
+        continue
       }
 
       const destination = path.join(workDir, zipEntry)
@@ -311,13 +356,13 @@ function copyNativeDebugSymbolInputs(aabs, workDir) {
   }
 
   if (copiedEntries.size === 0) {
-    fail('No native libraries found in release AAB; cannot create native debug symbols zip')
+    fail('No native libraries with symbol tables found in release AAB; cannot create native debug symbols zip')
   }
 
   return [...copiedEntries].sort()
 }
 
-function createReleaseNativeDebugSymbolsZip(aabs) {
+function createReleaseNativeDebugSymbolsZip(aabs, readelfPath) {
   const zipPath = releaseNativeDebugSymbolsZipPath()
   const outputDir = path.dirname(zipPath)
   const workDir = path.join(outputDir, 'native-debug-symbols-work')
@@ -325,9 +370,9 @@ function createReleaseNativeDebugSymbolsZip(aabs) {
   fs.mkdirSync(outputDir, {recursive: true})
 
   try {
-    const entries = copyNativeDebugSymbolInputs(aabs, workDir)
+    const entries = copyNativeDebugSymbolInputs(aabs, workDir, readelfPath)
     fs.rmSync(zipPath, {force: true})
-    const result = spawnSync('zip', ['-qr', zipPath, 'lib'], {
+    const result = spawnSync('zip', ['-qr', zipPath, '.'], {
       cwd: workDir,
       encoding: 'utf8',
     })
@@ -393,6 +438,7 @@ function androidToolchainEnv(ndkHome) {
 
 const androidHome = resolveAndroidHome()
 const ndkHome = resolveNdkHome(androidHome)
+const readelfPath = resolveReadelf(ndkHome)
 const licensePublicKey = resolveLicensePublicKey()
 const javaHome = resolveGradleJavaHome()
 const rustBin = resolveRustBinDir()
@@ -417,6 +463,7 @@ if (javaHome) {
 if (rustBin) {
   console.log(`[tauri-android-release] using Rust toolchain bin: ${rustBin}`)
 }
+console.log(`[tauri-android-release] using readelf: ${readelfPath}`)
 childEnv.PATH = [
   javaHome && path.join(javaHome, 'bin'),
   rustBin,
@@ -466,7 +513,7 @@ child.on('exit', (code, signal) => {
   }
   if (buildAab) {
     const aabs = verifyReleaseAabs(licensePublicKey)
-    createReleaseNativeDebugSymbolsZip(aabs)
+    createReleaseNativeDebugSymbolsZip(aabs, readelfPath)
   }
   process.exit(0)
 })

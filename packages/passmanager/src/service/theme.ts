@@ -21,22 +21,18 @@ export function applyThemeToDocument(theme: PMTheme) {
 }
 
 export function bindPMTheme() {
-  // Initialization
-  const initialTheme = pmTheme()
-  applyThemeToDocument(initialTheme)
+  let previousTheme = pmTheme()
+  applyThemeToDocument(previousTheme)
   try {
-    localStorage.setItem(STORAGE_KEY, initialTheme)
+    localStorage.setItem(STORAGE_KEY, previousTheme)
   } catch {}
 
-  // Subscription
-  let suppressInitialDuplicate = true
-  queueMicrotask(() => {
-    suppressInitialDuplicate = false
-  })
   return pmTheme.subscribe((next: PMTheme) => {
-    if (suppressInitialDuplicate && next === initialTheme) {
+    if (next === previousTheme) {
       return
     }
+
+    previousTheme = next
     applyThemeToDocument(next)
     try {
       localStorage.setItem(STORAGE_KEY, next)

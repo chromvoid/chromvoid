@@ -121,7 +121,14 @@ pub async fn authenticate_with_biometric(reason: &str) -> Result<(), BiometricAu
 
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     {
-        return ios::authenticate_with_biometric(reason);
+        let reason = reason.to_string();
+        return tauri::async_runtime::spawn_blocking(move || {
+            ios::authenticate_with_biometric(&reason)
+        })
+        .await
+        .map_err(|error| {
+            BiometricAuthError::internal(format!("Biometric auth task failed: {error}"))
+        })?;
     }
 
     #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "android")))]

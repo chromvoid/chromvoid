@@ -195,7 +195,7 @@ mod tests {
         vm.mount().unwrap();
         assert_eq!(vm.state(), VolumeState::Mounting);
         vm.unmount().unwrap();
-        assert_eq!(vm.state(), VolumeState::Unlocked);
+        assert_eq!(vm.state(), VolumeState::Unmounting);
     }
 
     #[test]

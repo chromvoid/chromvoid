@@ -6,6 +6,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {PMGroupBase} from '../../src/features/passmanager/components/group/group/group-base'
 import {pmActiveRowModel} from '../../src/features/passmanager/models/pm-active-row.model'
+import {pmDeleteMotionModel} from '../../src/features/passmanager/models/pm-delete-motion.model'
 
 function createGroup(id: string, name: string) {
   return new Group({
@@ -140,6 +141,16 @@ function getVirtualizer(element: TestPMGroupVirtualizer) {
   return element.shadowRoot?.querySelector('.fake-virtualizer') as HTMLElement | null
 }
 
+function getLitVirtualizer(element: TestPMGroupScrollEdge) {
+  return element.shadowRoot?.querySelector('lit-virtualizer') as
+    | (HTMLElement & {items?: Array<{id: string; deleteExiting?: true}>})
+    | null
+}
+
+function dispatchVirtualRange(virtualizer: HTMLElement, first: number, last: number): void {
+  virtualizer.dispatchEvent(Object.assign(new Event('rangeChanged'), {first, last}))
+}
+
 async function flushFrame(element: HTMLElement & {updateComplete?: Promise<unknown>}) {
   await Promise.resolve()
   await element.updateComplete
@@ -187,6 +198,7 @@ describe('PMGroup virtualizer active-row updates', () => {
     document.querySelectorAll('test-pm-group-scroll-edge').forEach((element) => element.remove())
     document.querySelectorAll('test-pm-group-block-start-scroll-edge').forEach((element) => element.remove())
     pmActiveRowModel.clearAll()
+    pmDeleteMotionModel.reset()
     window.passmanager = originalPassmanager
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
       configurable: true,
@@ -242,6 +254,7 @@ describe('PMGroup virtualizer active-row updates', () => {
     const virtualizer = element.shadowRoot?.querySelector<HTMLElement>('lit-virtualizer')
     expect(frame).not.toBeNull()
     expect(virtualizer).not.toBeNull()
+    expect(virtualizer?.classList.contains('scroll-edge-scroller')).toBe(true)
     expect(frame?.getAttribute('data-scroll-block-start')).toBe('false')
     expect(frame?.getAttribute('data-scroll-block-end')).toBe('true')
 
@@ -258,6 +271,67 @@ describe('PMGroup virtualizer active-row updates', () => {
 
     expect(frame?.getAttribute('data-scroll-block-start')).toBe('false')
     expect(frame?.getAttribute('data-scroll-block-end')).toBe('false')
+  })
+
+  it('marks sequential pending delete rows as exiting before source entries change', async () => {
+    mockVirtualizerMetrics({clientHeight: 400, scrollHeight: 400})
+    const group = createGroup('delete-motion-parent', 'Delete Motion Parent')
+    const entries = Array.from({length: 3}, (_value, index) =>
+      createEntry(group, `delete-motion-entry-${index}`, `Delete Motion Entry ${index}`),
+    )
+    group.entries.set(entries)
+    window.passmanager = createPassmanagerRoot(group, [group])
+
+    const element = document.createElement('test-pm-group-scroll-edge') as TestPMGroupScrollEdge
+    document.body.appendChild(element)
+    await flushFrame(element)
+    dispatchVirtualRange(getLitVirtualizer(element)!, 0, 2)
+
+    pmDeleteMotionModel.markPending([entries[0]!])
+    await vi.waitFor(() => {
+      expect(pmDeleteMotionModel.hasExiting(entries[0]!.id)).toBe(true)
+    })
+    await flushFrame(element)
+
+    let virtualizer = getLitVirtualizer(element)
+    expect(virtualizer?.items?.map((row) => row.id)).toEqual([
+      entries[0]!.id,
+      entries[1]!.id,
+      entries[2]!.id,
+    ])
+    expect(virtualizer?.items?.[0]).toMatchObject({id: entries[0]!.id, deleteExiting: true})
+
+    dispatchVirtualRange(getLitVirtualizer(element)!, 0, 2)
+    pmDeleteMotionModel.markPending([entries[1]!])
+    await vi.waitFor(() => {
+      expect(pmDeleteMotionModel.hasExiting(entries[1]!.id)).toBe(true)
+    })
+    await flushFrame(element)
+
+    virtualizer = getLitVirtualizer(element)
+    expect(virtualizer?.items?.map((row) => row.id)).toEqual([
+      entries[0]!.id,
+      entries[1]!.id,
+      entries[2]!.id,
+    ])
+    expect(virtualizer?.items?.[0]).toMatchObject({id: entries[0]!.id, deleteExiting: true})
+    expect(virtualizer?.items?.[1]).toMatchObject({id: entries[1]!.id, deleteExiting: true})
+
+    pmDeleteMotionModel.completeExit(entries[0]!.id)
+    await flushFrame(element)
+
+    virtualizer = getLitVirtualizer(element)
+    expect(virtualizer?.items?.map((row) => row.id)).toEqual([entries[1]!.id, entries[2]!.id])
+
+    pmDeleteMotionModel.clearPending([entries[0]!.id])
+    await flushFrame(element)
+
+    virtualizer = getLitVirtualizer(element)
+    expect(virtualizer?.items?.map((row) => row.id)).toEqual([
+      entries[0]!.id,
+      entries[1]!.id,
+      entries[2]!.id,
+    ])
   })
 
   it('toggles the group list top edge only when block-start affordance is enabled', async () => {

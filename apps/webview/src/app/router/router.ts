@@ -21,6 +21,11 @@ function isVaultLockPending(store: Store): boolean {
   return typeof pending === 'function' ? pending() : false
 }
 
+function hasBootstrapFatalError(store: Store): boolean {
+  const fatalError = (store as Store & {bootstrapFatalError?: () => unknown}).bootstrapFatalError
+  return typeof fatalError === 'function' ? Boolean(fatalError()) : false
+}
+
 export class Router {
   route: Computed<Routes>
   isLoading: Computed<boolean>
@@ -40,6 +45,10 @@ export class Router {
 
     this.route = computed<Routes>(() => {
       if (ws.connected() === false) {
+        return 'no-connection'
+      }
+
+      if (hasBootstrapFatalError(store)) {
         return 'no-connection'
       }
 

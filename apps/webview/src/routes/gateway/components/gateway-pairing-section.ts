@@ -1,9 +1,10 @@
 import {html, nothing, type TemplateResult} from 'lit'
 import {i18n} from 'root/i18n'
+import {renderRouteCallout, type RouteCalloutVariant} from 'root/shared/ui/route-callout'
 
 import type {GatewayPairingInfo, PairingPhase} from '../gateway.model'
 
-type GatewayCalloutVariant = 'info' | 'success' | 'warning' | 'danger' | 'neutral'
+type GatewayCalloutVariant = RouteCalloutVariant
 
 function formatSeconds(secs: number): string {
   const m = Math.floor(secs / 60)
@@ -22,14 +23,15 @@ function renderPairingCallout({
   text: unknown
   role?: 'alert' | 'status'
 }): TemplateResult {
-  const content = html`
-    ${title ? html`<span class="gateway-callout-title">${title}</span>` : nothing}
-    <span class="gateway-callout-text">${text}</span>
-  `
-
-  return role
-    ? html`<cv-callout class="gateway-callout" variant=${variant} density="compact" role=${role}>${content}</cv-callout>`
-    : html`<cv-callout class="gateway-callout" variant=${variant} density="compact">${content}</cv-callout>`
+  return renderRouteCallout({
+    className: 'gateway-callout',
+    variant,
+    titleClassName: 'gateway-callout-title',
+    textClassName: 'gateway-callout-text',
+    title,
+    text,
+    role,
+  })
 }
 
 function renderPairingBadge(phase: PairingPhase) {

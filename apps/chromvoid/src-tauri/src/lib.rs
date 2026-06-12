@@ -11,11 +11,10 @@ pub mod gateway;
 mod ios_keep_awake;
 mod mobile;
 pub mod network;
+pub mod remote_data_plane;
 mod session_settings;
 #[cfg(desktop)]
 mod sleep_watcher;
-#[cfg(desktop)]
-pub mod usb;
 #[cfg(all(desktop, any(target_os = "linux", target_os = "macos")))]
 mod volume_fuse;
 #[cfg(desktop)]
@@ -35,11 +34,16 @@ mod credential_provider_bridge;
 mod credential_provider_contract;
 mod credential_provider_passkey;
 mod helpers;
+#[cfg(desktop)]
+mod host_path_capability;
 mod image_preview;
 #[cfg(all(desktop, target_os = "macos"))]
 mod macos_external;
 mod media_source;
 pub mod media_stream;
+#[cfg(desktop)]
+mod mode_transition_coordinator;
+mod paired_store_crypto;
 mod pro;
 #[cfg(desktop)]
 mod remote_io_runtime;
@@ -141,6 +145,10 @@ use commands::gateway_cmds::{
     gateway_set_session_duration, gateway_start_pairing,
 };
 #[cfg(desktop)]
+use commands::host_path::{
+    host_path_pick_download_target, host_path_pick_text_file_target, host_path_pick_upload_files,
+};
+#[cfg(desktop)]
 use commands::mode_cmds::{mode_get, mode_status, mode_switch};
 #[cfg(desktop)]
 use commands::network_cmds::{
@@ -172,11 +180,6 @@ use commands::ssh_agent_cmds::{
 use commands::startup::frontend_splash_ready;
 #[cfg(desktop)]
 use commands::sync_cmds::{sync_delta_apply, sync_initial, sync_reconnect, sync_write};
-#[cfg(desktop)]
-use commands::usb_cmds::{
-    usb_connect, usb_connection_state, usb_disconnect, usb_list_paired, usb_pair_device,
-    usb_scan_devices,
-};
 use commands::vault::{
     android_audio_session_command, android_audio_warmup, android_autofill_provider_status,
     android_media_session_stop, android_media_session_update,
@@ -284,6 +287,9 @@ pub fn run() {
         module_access_resolve,
         catalog_upload_chunk,
         catalog_file_replace,
+        host_path_pick_upload_files,
+        host_path_pick_download_target,
+        host_path_pick_text_file_target,
         passmanager_upload_chunk,
         catalog_upload_path,
         file_stat,
@@ -368,12 +374,6 @@ pub fn run() {
         android_passkey_delete,
         android_quick_lock_tile_status,
         android_request_quick_lock_tile,
-        usb_scan_devices,
-        usb_connection_state,
-        usb_list_paired,
-        usb_pair_device,
-        usb_connect,
-        usb_disconnect,
         network_connection_state,
         network_list_paired_peers,
         network_remove_paired_peer,

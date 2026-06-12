@@ -158,21 +158,7 @@ impl LocalCoreAdapter {
 }
 
 fn wallet_runtime_config_from_env() -> WalletRuntimeConfig {
-    WalletRuntimeConfig {
-        wallet_phase1_enabled: env_flag("CHROMVOID_WALLET_PHASE1_ENABLED"),
-        wallet_core_broadcast_enabled: env_flag("CHROMVOID_WALLET_CORE_BROADCAST_ENABLED"),
-    }
-}
-
-fn env_flag(name: &str) -> bool {
-    std::env::var(name)
-        .map(|value| {
-            matches!(
-                value.as_str(),
-                "1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON"
-            )
-        })
-        .unwrap_or(false)
+    WalletRuntimeConfig::default()
 }
 
 impl CoreAdapter for LocalCoreAdapter {
@@ -196,8 +182,8 @@ impl CoreAdapter for LocalCoreAdapter {
     ) -> Option<RpcResponse> {
         Some(self.router.handle_vault_rekey(
             &serde_json::json!({
-                "current_password": request.current_password,
-                "new_password": request.new_password,
+                "current_password": request.current_password.as_str(),
+                "new_password": request.new_password.as_str(),
             }),
             cancel_requested,
             progress,

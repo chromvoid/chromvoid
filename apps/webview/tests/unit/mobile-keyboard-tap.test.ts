@@ -297,7 +297,84 @@ describe('mobile keyboard tap workaround', () => {
     tauriListen.mockReset()
     document.body.innerHTML = ''
     document.documentElement.removeAttribute('data-mobile-keyboard-expanded')
+    vi.useRealTimers()
     vi.restoreAllMocks()
+  })
+
+  it('blurs the focused input before fallback-clicking an external action', async () => {
+    tauriInvoke.mockResolvedValue(undefined)
+    tauriListen.mockResolvedValue(() => {})
+    const isMobile = atom(true)
+
+    setupMobileKeyboardTapWorkaround({isMobile} as any)
+    await flushDynamicImport()
+
+    const input = document.createElement('input')
+    const action = document.createElement('button')
+    document.body.append(input, action)
+    input.focus()
+    document.documentElement.setAttribute('data-mobile-keyboard-expanded', '')
+
+    vi.useFakeTimers()
+    const blurSpy = vi.spyOn(input, 'blur')
+    const clickSpy = vi.spyOn(action, 'click')
+    action.dispatchEvent(createTouchPointerEvent('pointerdown', {clientX: 12, clientY: 12}))
+    action.dispatchEvent(createTouchPointerEvent('pointerup', {clientX: 12, clientY: 12}))
+    await vi.advanceTimersByTimeAsync(111)
+
+    expect(blurSpy).toHaveBeenCalledTimes(1)
+    expect(clickSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not blur when moving focus from one text input to another', async () => {
+    tauriInvoke.mockResolvedValue(undefined)
+    tauriListen.mockResolvedValue(() => {})
+    const isMobile = atom(true)
+
+    setupMobileKeyboardTapWorkaround({isMobile} as any)
+    await flushDynamicImport()
+
+    const input = document.createElement('input')
+    const nextInput = document.createElement('input')
+    document.body.append(input, nextInput)
+    input.focus()
+    document.documentElement.setAttribute('data-mobile-keyboard-expanded', '')
+
+    const blurSpy = vi.spyOn(input, 'blur')
+    nextInput.dispatchEvent(createTouchPointerEvent('pointerdown', {clientX: 12, clientY: 12}))
+    nextInput.dispatchEvent(createTouchPointerEvent('pointerup', {clientX: 12, clientY: 12}))
+
+    expect(blurSpy).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('fallback-clicks actions inside a text field without hiding the keyboard', async () => {
+    tauriInvoke.mockResolvedValue(undefined)
+    tauriListen.mockResolvedValue(() => {})
+    const isMobile = atom(true)
+
+    setupMobileKeyboardTapWorkaround({isMobile} as any)
+    await flushDynamicImport()
+
+    const input = document.createElement('input')
+    const field = document.createElement('cv-input')
+    const action = document.createElement('span')
+    action.setAttribute('role', 'button')
+    field.append(action)
+    document.body.append(input, field)
+    input.focus()
+    document.documentElement.setAttribute('data-mobile-keyboard-expanded', '')
+
+    vi.useFakeTimers()
+    const blurSpy = vi.spyOn(input, 'blur')
+    const clickSpy = vi.spyOn(action, 'click')
+    action.dispatchEvent(createTouchPointerEvent('pointerdown', {clientX: 12, clientY: 12}))
+    action.dispatchEvent(createTouchPointerEvent('pointerup', {clientX: 12, clientY: 12}))
+    await vi.advanceTimersByTimeAsync(111)
+
+    expect(blurSpy).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(input)
+    expect(clickSpy).toHaveBeenCalled()
   })
 
   it('keeps the focused input when an action touch turns into a scroll gesture', async () => {

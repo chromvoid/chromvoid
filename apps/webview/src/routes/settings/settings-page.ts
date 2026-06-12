@@ -5,6 +5,7 @@ import {css, nothing} from 'lit'
 import {i18n} from 'root/i18n'
 import type {SessionSettings} from 'root/core/session/session-settings'
 import {renderGuidanceInline} from 'root/features/guidance/render-guidance-inline'
+import {renderRouteBackLink} from 'root/shared/ui/route-back-link'
 import {
   hostLayoutPaintContainStyles,
   pageFadeInStyles,
@@ -13,6 +14,7 @@ import {
   routePageStyles,
   sharedStyles,
 } from 'root/shared/ui/shared-styles'
+import {routeCalloutStyles} from 'root/shared/ui/route-callout.styles'
 import {settingsPageModel} from './settings.model'
 
 export class SettingsPage extends ReatomLitElement {
@@ -24,15 +26,18 @@ export class SettingsPage extends ReatomLitElement {
 
   static properties = {
     hideBackLink: {type: Boolean, attribute: 'hide-back-link'},
+    externalToolbar: {type: Boolean, attribute: 'external-toolbar'},
   }
 
   declare hideBackLink: boolean
+  declare externalToolbar: boolean
 
   private readonly model = settingsPageModel
 
   constructor() {
     super()
     this.hideBackLink = false
+    this.externalToolbar = false
   }
 
   static styles = [
@@ -42,11 +47,14 @@ export class SettingsPage extends ReatomLitElement {
     hostLayoutPaintContainStyles,
     routeHostStyles,
     routePageStyles,
+    routeCalloutStyles,
     css`
       .page {
         box-sizing: border-box;
         max-inline-size: 1040px;
         gap: var(--app-spacing-5);
+        --route-callout-base-line-height: 1.45;
+        --route-callout-message-overflow-wrap: anywhere;
         --settings-index-sticky-offset: var(--app-spacing-4);
         --settings-section-scroll-margin-start: var(--app-spacing-6);
       }
@@ -182,8 +190,8 @@ export class SettingsPage extends ReatomLitElement {
         block-size: 36px;
         border: 1px solid var(--cv-color-border-muted);
         border-radius: var(--cv-radius-2);
-        color: var(--cv-color-brand);
-        background: color-mix(in oklab, var(--cv-color-brand) 10%, var(--cv-color-surface-2));
+        color: var(--cv-color-primary);
+        background: var(--cv-color-primary-surface);
       }
 
       .settings-section-icon cv-icon {
@@ -354,15 +362,6 @@ export class SettingsPage extends ReatomLitElement {
         overflow-wrap: anywhere;
       }
 
-      cv-callout.settings-callout::part(base) {
-        line-height: 1.45;
-      }
-
-      cv-callout.settings-callout::part(message) {
-        min-inline-size: 0;
-        overflow-wrap: anywhere;
-      }
-
       .settings-subsection {
         display: grid;
         gap: var(--app-spacing-3);
@@ -374,16 +373,8 @@ export class SettingsPage extends ReatomLitElement {
 
       .provider-card cv-guidance-panel,
       .settings-section cv-guidance-panel {
-        --cv-guidance-panel-border-color: color-mix(
-          in oklab,
-          var(--cv-color-info-border, var(--cv-color-info)) 70%,
-          var(--cv-color-border-muted)
-        );
-        --cv-guidance-panel-background: color-mix(
-          in oklab,
-          var(--cv-color-surface-2) 90%,
-          var(--cv-color-info)
-        );
+        --cv-guidance-panel-border-color: var(--cv-color-info-border-strong);
+        --cv-guidance-panel-background: var(--cv-color-info-surface);
         --cv-guidance-panel-border-radius: var(--cv-radius-2);
         --cv-guidance-panel-gap: var(--app-spacing-2);
         --cv-guidance-panel-padding-block: var(--app-spacing-3);
@@ -637,7 +628,7 @@ export class SettingsPage extends ReatomLitElement {
       .vault-password-input:focus {
         outline: none;
         border-color: var(--cv-color-brand);
-        box-shadow: 0 0 0 2px color-mix(in oklab, var(--cv-color-brand) 22%, transparent);
+        box-shadow: 0 0 0 2px var(--cv-color-primary-ring);
       }
 
       .vault-rekey-progress {
@@ -1138,7 +1129,7 @@ export class SettingsPage extends ReatomLitElement {
           </div>
 
           ${feedbackMessage
-            ? html`<cv-callout class="settings-callout" variant="danger" density="dense" role="alert"
+            ? html`<cv-callout class="route-callout settings-callout" variant="danger" density="dense" role="alert"
                 >${feedbackMessage}</cv-callout
               >`
             : nothing}
@@ -1346,7 +1337,7 @@ export class SettingsPage extends ReatomLitElement {
                 </div>
               `}
           <cv-callout
-            class="settings-callout"
+            class="route-callout settings-callout"
             variant="danger"
             density="dense"
             role="alert"
@@ -1420,7 +1411,7 @@ export class SettingsPage extends ReatomLitElement {
                 : nothing}
               ${this.model.isMobileRuntime() && this.model.supportsCredentialProviderAutofill()
                 ? html`
-                    <cv-callout class="settings-callout" variant="warning" density="dense">
+                    <cv-callout class="route-callout settings-callout" variant="warning" density="dense">
                       ${i18n('settings:autofill-incompatible')}
                     </cv-callout>
                   `
@@ -1711,7 +1702,7 @@ export class SettingsPage extends ReatomLitElement {
           </div>
           ${credentialProviderAccess.status !== 'enabled'
             ? html`
-                <cv-callout class="settings-callout" variant="warning" density="dense">
+                <cv-callout class="route-callout settings-callout" variant="warning" density="dense">
                   ${credentialProviderAccess.status === 'unsupported'
                     ? i18n('settings:credential-provider-unsupported')
                     : i18n('settings:credential-provider-license-required')}
@@ -1733,16 +1724,19 @@ export class SettingsPage extends ReatomLitElement {
 
     return html`
       <div class="page">
-        <div class="header">
-          ${this.hideBackLink
-            ? nothing
-            : html`<cv-button unstyled class="back-link" @click=${this.handleBack}>
-                <cv-icon slot="prefix" name="arrow-left"></cv-icon>
-                ${i18n('nav:back')}
-              </cv-button>`}
-          <h1 class="title">${i18n('settings:title')}</h1>
-          <p class="subtitle">${i18n('settings:subtitle')}</p>
-        </div>
+        ${this.externalToolbar
+          ? nothing
+          : html`
+              <div class="header">
+                ${renderRouteBackLink({
+                  hidden: this.hideBackLink,
+                  label: i18n('nav:back'),
+                  onBack: this.handleBack,
+                })}
+                <h1 class="title">${i18n('settings:title')}</h1>
+                <p class="subtitle">${i18n('settings:subtitle')}</p>
+              </div>
+            `}
 
         <div class="settings-shell">
           ${this.renderSectionIndex()}

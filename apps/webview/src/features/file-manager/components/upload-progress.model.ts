@@ -1,6 +1,7 @@
 import {getAppContext} from 'root/shared/services/app-context'
 import {atom, computed} from '@reatom/core'
 import type {UploadStats, UploadTask} from 'root/types/upload-task'
+export {formatFileSize} from 'root/utils/format-file-size'
 
 import {AnimatedTransferValueModel} from './upload-progress-animation.model'
 
@@ -19,14 +20,6 @@ export type UploadHudSummary = {
   loadedBytes: number
   totalBytes: number
   indeterminate: boolean
-}
-
-export function formatFileSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.max(0, Math.floor(Math.log(bytes) / Math.log(1024)))
-  const value = Math.round((bytes / Math.pow(1024, i)) * 100) / 100
-  return `${value} ${sizes[i] ?? 'B'}`
 }
 
 export class UploadProgressModel {

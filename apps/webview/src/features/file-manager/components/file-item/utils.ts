@@ -1,12 +1,11 @@
 import type {FileItemData} from 'root/shared/contracts/file-manager'
 import {getLang, i18n} from 'root/i18n'
 import {getDisplayFileExtension, resolveFileFormat} from 'root/utils/file-format-registry'
+import {formatFileSize as formatBytes} from 'root/utils/format-file-size'
 
 export const formatFileSize = (bytes?: number): string => {
-  if (!bytes) return ''
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  return Math.round((bytes / Math.pow(1024, i)) * 100) / 100 + ' ' + sizes[i]
+  if (bytes == null) return ''
+  return formatBytes(bytes, {empty: ''})
 }
 
 export const formatDate = (timestamp?: number): string => {

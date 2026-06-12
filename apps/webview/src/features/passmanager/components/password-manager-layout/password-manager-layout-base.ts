@@ -1,13 +1,19 @@
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
-import {PasswordManagerLayoutModel, type PMGlobalShortcutAction} from './password-manager-layout.model'
+import {
+  PasswordManagerLayoutModel,
+  type PMGlobalShortcutAction,
+  type PMSearchElement,
+} from './password-manager-layout.model'
 
-export interface SearchElement {
-  focusInput?(): void
-  clear?(): void
-}
+export type SearchElement = PMSearchElement
 
 export abstract class PMLayoutBase extends ReatomLitElement implements EventListenerObject {
-  protected readonly model = new PasswordManagerLayoutModel()
+  protected readonly model: PasswordManagerLayoutModel
+
+  constructor(model = new PasswordManagerLayoutModel()) {
+    super()
+    this.model = model
+  }
 
   protected abstract getSearchElement(): SearchElement | null
 

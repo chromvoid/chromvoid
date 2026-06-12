@@ -46,7 +46,7 @@ import type {FileManager} from '../features/file-manager/file-manager'
 import type {log} from '@reatom/core'
 
 declare global {
-  var LOG: typeof log
+  var LOG: typeof log | undefined
 
   interface CVPopoverWithExternalInvoker extends CVPopover {
     sourceEl: HTMLElement | null
@@ -64,7 +64,7 @@ declare global {
       domReady?: () => void
       startupLog?: (label: string, webElapsedMs: number, details: string) => void
     }
-    LOG: typeof log
+    LOG?: typeof log
   }
 
   interface HTMLElementTagNameMap {

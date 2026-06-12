@@ -6,7 +6,6 @@ import {afterEach, describe, expect, it} from 'vitest'
 
 import {atom} from '@reatom/core'
 import {PMGroupModel} from '../../src/features/passmanager/components/group/group'
-import {PMSearch} from '../../src/features/passmanager/components/list/search'
 import {
   groupBy,
   sortDirection,
@@ -72,10 +71,6 @@ class TestPMGroup extends ReatomLitElement {
   }
 }
 
-class TestPMSearch extends PMSearch {
-  static override styles = []
-}
-
 class TestSortControls extends SortControls {
   static override styles = []
 }
@@ -105,11 +100,8 @@ function ensureDefined() {
   if (!customElements.get('pm-group')) {
     customElements.define('pm-group', TestPMGroup)
   }
-  if (!customElements.get('pm-search')) {
-    customElements.define('pm-search', TestPMSearch)
-  }
   if (!customElements.get('pm-sort-controls')) {
-    customElements.define('pm-sort-controls', TestSortControls)
+    TestSortControls.define()
   }
 
   if (!customElements.get('password-manager-desktop-layout')) {
@@ -181,7 +173,9 @@ function getGroupRows(layout: PasswordManagerDesktopLayout): string[] {
 
 describe('PasswordManagerDesktopLayout sort controls', () => {
   afterEach(() => {
-    document.querySelectorAll('password-manager-desktop-layout').forEach((el) => el.remove())
+    document
+      .querySelectorAll('password-manager-desktop-layout, pm-sort-controls')
+      .forEach((el) => el.remove())
     ;(window as any).passmanager = originalPassmanager
     setPassmanagerRoot(undefined)
     localStorage.clear()
@@ -192,7 +186,7 @@ describe('PasswordManagerDesktopLayout sort controls', () => {
     groupBy.set('none')
   })
 
-  it('re-renders pm-group rows when pm-search sort and group controls change', async () => {
+  it('re-renders pm-group rows when independent desktop sort controls change', async () => {
     ensureDefined()
     originalPassmanager = (window as any).passmanager
 
@@ -219,19 +213,15 @@ describe('PasswordManagerDesktopLayout sort controls', () => {
 
     expect(getGroupRows(layout)).toEqual(['group:Child', 'entry:Alpha', 'entry:Zulu'])
 
-    const search = layout.shadowRoot?.querySelector('pm-search') as PMSearch | null
-    expect(search).not.toBeNull()
+    const controls = document.createElement('pm-sort-controls') as SortControls
+    controls.classList.add('toolbar-sort-controls')
+    document.body.appendChild(controls)
+    await flush(controls)
 
-    const toggle = search?.shadowRoot?.querySelector('.toggle-filters') as HTMLButtonElement | null
-    toggle?.click()
-    await flush(search!)
-    await flush(layout)
-
-    const controls = search?.shadowRoot?.querySelector('pm-sort-controls') as SortControls | null
     expect(controls).not.toBeNull()
 
     const selects = controls?.shadowRoot?.querySelectorAll('cv-select') ?? []
-    ;(selects[1] as HTMLElement | undefined)?.dispatchEvent(
+    ;(selects[0] as HTMLElement | undefined)?.dispatchEvent(
       new CustomEvent('cv-change', {
         detail: {value: 'website'},
         bubbles: true,
@@ -259,7 +249,7 @@ describe('PasswordManagerDesktopLayout sort controls', () => {
     expect(getGroupRows(layout)).toEqual(['group:Child', 'entry:Alpha', 'entry:Zulu'])
 
     const updatedSelects = controls?.shadowRoot?.querySelectorAll('cv-select') ?? []
-    ;(updatedSelects[0] as HTMLElement | undefined)?.dispatchEvent(
+    ;(updatedSelects[1] as HTMLElement | undefined)?.dispatchEvent(
       new CustomEvent('cv-change', {
         detail: {value: 'website'},
         bubbles: true,

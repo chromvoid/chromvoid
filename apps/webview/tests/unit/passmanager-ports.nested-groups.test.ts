@@ -84,7 +84,7 @@ describe('CatalogPasswordsRepository (nested groups)', () => {
     })
   })
 
-  it('does not emit intermediate queueRefresh while creating entry directories', async () => {
+  it('queues catalog refresh after point entry write without awaiting full refresh', async () => {
     const ok = await ctx.repo.saveEntryMeta({
       id: 'test-qr-1',
       title: 'GitHub',
@@ -95,8 +95,8 @@ describe('CatalogPasswordsRepository (nested groups)', () => {
     })
 
     expect(ok).toBe(true)
-    expect(ctx.catalog.queueRefresh).not.toHaveBeenCalled()
-    expect(ctx.catalog.refresh).toHaveBeenCalled()
+    expect(ctx.catalog.refresh).not.toHaveBeenCalled()
+    expect(ctx.catalog.queueRefresh).toHaveBeenCalledWith(150)
   })
 
   it('saveEntryPassword returns false when secret:save fails for unknown entry', async () => {

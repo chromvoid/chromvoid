@@ -1392,12 +1392,6 @@
     "tags": ["text", "type"]
   },
   {
-    "name": "bluetooth",
-    "title": "Bluetooth",
-    "categories": ["Brand"],
-    "tags": ["wireless"]
-  },
-  {
     "name": "body-text",
     "title": "Body text",
     "categories": ["Typography"],

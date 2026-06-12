@@ -36,6 +36,7 @@ import type {ChromVoidState} from '../../core/state/app-state'
 import type {CatalogService} from '../../core/catalog/catalog'
 import {toast} from '../../shared/services/toast-manager'
 import type {
+  HostPathTokenGrant,
   NativeUploadCompleted,
   NativeUploadFailed,
   NativeUploadFile,
@@ -87,6 +88,10 @@ type UploadTaskUpdate = {
   status?: UploadTaskStatus
 }
 
+type UploadTaskRetrySource =
+  | {kind: 'browser-file'; currentPath: string; file: File}
+  | {kind: 'host-path'; currentPath: string; file: HostPathTokenGrant}
+
 type VaultLockSource = 'manual' | 'system'
 
 type VaultLockedOptions = {
@@ -134,6 +139,7 @@ export type RemoteSessionState = 'inactive' | 'waiting_host_unlock' | 'ready'
 
 export class Store {
   private readonly uploadTaskAutoRemoveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private readonly uploadTaskRetrySources = new Map<string, UploadTaskRetrySource>()
 
   // Dependency injections (without direct access to the window inside the store)
   private readonly ws: TransportLike
@@ -174,6 +180,7 @@ export class Store {
   showSettingsPage = atom(false)
   remoteSessionState = atom<RemoteSessionState>('inactive')
   remoteSessionPeerId = atom<string | null>(null)
+  bootstrapFatalError = atom<string | null>(null)
 
   // Dual-pane mode for tablets
   dualPaneMode = atom<boolean>(false, 'dual-pane-mode').extend(withLocalStorage({key: 'dual-pane-mode'}))
@@ -213,12 +220,24 @@ export class Store {
 
   // Mistakes.
   lastErrorMessage = computed<string | null>(() => {
+    const bootstrapError = this.bootstrapFatalError()
+    if (bootstrapError) return bootstrapError
+
     const wsError = this.ws.lastError()
     const catalogError = this.catalog.lastError()
     return wsError ?? (catalogError ? String(catalogError) : null)
   })
 
+  markBootstrapFatalError(error: unknown) {
+    this.bootstrapFatalError.set(error instanceof Error ? error.message : String(error))
+  }
+
+  clearBootstrapFatalError() {
+    this.bootstrapFatalError.set(null)
+  }
+
   clearLastError() {
+    this.clearBootstrapFatalError()
     this.ws.lastError.set(undefined)
     this.catalog.lastError.set(null)
   }
@@ -516,6 +535,7 @@ export class Store {
     if (updates.status) {
       switch (updates.status) {
         case 'done':
+          this.clearUploadTaskRetrySource(taskId)
           task.markDone()
           this.scheduleUploadTaskAutoRemove(task)
           break
@@ -556,13 +576,43 @@ export class Store {
       .map((t) => t.id)
     for (const taskId of completedTaskIds) {
       this.clearUploadTaskAutoRemove(taskId)
+      this.clearUploadTaskRetrySource(taskId)
     }
     this.uploadTasks.set(this.uploadTasks().filter((t) => t.status() !== 'done'))
   }
 
   cancelUploadTask(taskId: string) {
     this.clearUploadTaskAutoRemove(taskId)
+    this.clearUploadTaskRetrySource(taskId)
     this.uploadTasks.set(this.uploadTasks().filter((t) => t.id !== taskId))
+  }
+
+  canRetryUploadTask(taskId: string): boolean {
+    return this.uploadTaskRetrySources.has(taskId)
+  }
+
+  async retryUploadTask(taskId: string): Promise<boolean> {
+    const task = this.uploadTasks().find((item) => item.id === taskId)
+    const source = this.uploadTaskRetrySources.get(taskId)
+    if (!task || !source || task.status() !== 'error') {
+      this.pushNotification('error', i18n('uploads:retry-unavailable'))
+      return false
+    }
+
+    this.clearUploadTaskAutoRemove(taskId)
+    task.setProgress(0, 0, 0)
+    if (source.kind === 'browser-file') {
+      task.setTotal(source.file.size)
+      task.markQueued()
+      await this.uploadFileTask(source.currentPath, source.file, taskId)
+    } else {
+      const size = this.getHostPathGrantSize(source.file) ?? task.total()
+      task.setTotal(size)
+      task.markQueued()
+      await this.uploadPathTask(source.currentPath, source.file.token, source.file.name, size, taskId)
+    }
+
+    return this.uploadTasks().find((item) => item.id === taskId)?.status() === 'done'
   }
 
   handleVaultLocked(options: VaultLockedOptions = {}) {
@@ -572,6 +622,7 @@ export class Store {
     navigationModel.reset()
 
     this.clearAllUploadTaskAutoRemoveTimers()
+    this.clearAllUploadTaskRetrySources()
     this.uploadTasks.set([])
     this.selectedNodeIds.set([])
     this.detailsPanelFileId.set(null)
@@ -596,6 +647,7 @@ export class Store {
     navigationModel.reset()
 
     this.clearAllUploadTaskAutoRemoveTimers()
+    this.clearAllUploadTaskRetrySources()
     this.uploadTasks.set([])
     this.selectedNodeIds.set([])
     this.detailsPanelFileId.set(null)
@@ -665,6 +717,22 @@ export class Store {
     this.uploadTaskAutoRemoveTimers.clear()
   }
 
+  private registerUploadTaskRetrySource(taskId: string, source: UploadTaskRetrySource): void {
+    this.uploadTaskRetrySources.set(taskId, source)
+  }
+
+  private clearUploadTaskRetrySource(taskId: string): void {
+    this.uploadTaskRetrySources.delete(taskId)
+  }
+
+  private clearAllUploadTaskRetrySources(): void {
+    this.uploadTaskRetrySources.clear()
+  }
+
+  private getHostPathGrantSize(file: HostPathTokenGrant): number | null {
+    return typeof file.size === 'number' && Number.isFinite(file.size) ? Math.max(0, Math.floor(file.size)) : null
+  }
+
   async startUploadFile(currentPath: string, file: File): Promise<void> {
     await this.startUploadFiles(currentPath, [file])
   }
@@ -687,11 +755,15 @@ export class Store {
           batchId,
           batchIndex: index,
           batchCount,
+          retryable: true,
         }),
       }
     })
 
     this.addUploadTasks(entries.map((entry) => entry.task))
+    for (const entry of entries) {
+      this.registerUploadTaskRetrySource(entry.taskId, {kind: 'browser-file', currentPath, file: entry.file})
+    }
 
     for (const entry of entries) {
       await this.uploadFileTask(currentPath, entry.file, entry.taskId)
@@ -758,12 +830,12 @@ export class Store {
     }
   }
 
-  async startUploadPath(currentPath: string, path: string): Promise<void> {
-    await this.startUploadPaths(currentPath, [path])
+  async startUploadPath(currentPath: string, file: HostPathTokenGrant): Promise<void> {
+    await this.startUploadPaths(currentPath, [file])
   }
 
-  async startUploadPaths(currentPath: string, paths: string[]): Promise<void> {
-    if (paths.length === 0) return
+  async startUploadPaths(currentPath: string, files: HostPathTokenGrant[]): Promise<void> {
+    if (files.length === 0) return
 
     const caps = getRuntimeCapabilities()
 
@@ -771,7 +843,6 @@ export class Store {
     if (
       !caps.supports_native_path_io ||
       this.ws.kind !== 'tauri' ||
-      !this.ws.statPath ||
       !this.ws.uploadFilePath
     ) {
       this.pushNotification('error', i18n('uploads:path-upload-desktop-only'))
@@ -789,33 +860,35 @@ export class Store {
       return
     }
 
-    const statPath = this.ws.statPath
     const batchId = crypto.randomUUID()
     const entries: Array<{
-      path: string
+      pathToken: string
+      file: HostPathTokenGrant
       taskId: string
       name: string
       size: number
     }> = []
 
-    for (const path of paths) {
-      try {
-        const stat = await wrap(statPath(path))
-        entries.push({
-          path,
-          taskId: crypto.randomUUID(),
-          name: stat.name,
-          size: stat.size,
-        })
-      } catch (error) {
+    for (const file of files) {
+      const size = this.getHostPathGrantSize(file)
+      if (!file.token || !file.name || size === null) {
         this.pushNotification(
           'error',
           i18n('uploads:file-upload-error', {
             suffix: '',
-            message: error instanceof Error ? error.message : String(error),
+            message: i18n('uploads:services-unavailable'),
           }),
         )
+        continue
       }
+
+      entries.push({
+        pathToken: file.token,
+        file,
+        taskId: crypto.randomUUID(),
+        name: file.name,
+        size,
+      })
     }
 
     if (entries.length === 0) return
@@ -832,18 +905,22 @@ export class Store {
             batchId,
             batchIndex: index,
             batchCount,
+            retryable: true,
           }),
       ),
     )
+    for (const entry of entries) {
+      this.registerUploadTaskRetrySource(entry.taskId, {kind: 'host-path', currentPath, file: entry.file})
+    }
 
     for (const entry of entries) {
-      await this.uploadPathTask(currentPath, entry.path, entry.name, entry.size, entry.taskId)
+      await this.uploadPathTask(currentPath, entry.pathToken, entry.name, entry.size, entry.taskId)
     }
   }
 
   private async uploadPathTask(
     currentPath: string,
-    path: string,
+    pathToken: string,
     name: string,
     size: number,
     taskId: string,
@@ -859,7 +936,7 @@ export class Store {
       const startTime = Date.now()
       let lastUiUpdate = 0
       const uploaded = await wrap(
-        this.ws.uploadFilePath({parentPath: currentPath === '/' ? undefined : currentPath, name}, path, {
+        this.ws.uploadFilePath({parentPath: currentPath === '/' ? undefined : currentPath, name}, pathToken, {
           uploadId: taskId,
           chunkSize,
           totalBytes: size,

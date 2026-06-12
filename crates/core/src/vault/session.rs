@@ -68,6 +68,7 @@ impl Vault {
         };
 
         let vault_key = derive_vault_key_v2(password, &salt, &pepper)?;
+        super::rekey::recover_rekey_marker_for_key(storage, &vault_key)?;
         let catalog = Self::load_catalog_for_unlock(storage, &vault_key)?;
 
         Ok(VaultSession {
@@ -153,6 +154,18 @@ impl VaultSession {
         self.pending_deltas = pending_deltas;
     }
 
+    pub(crate) fn replace_catalog_and_rewrite_snapshots(
+        &mut self,
+        storage: &Storage,
+        catalog: CatalogManager,
+    ) -> Result<()> {
+        Vault::rewrite_sharded_catalog_from_catalog(storage, &self.vault_key, &catalog)?;
+        self.catalog = catalog;
+        self.pending_deltas.clear();
+        self.dirty = false;
+        Ok(())
+    }
+
     /// Check if the catalog has unsaved changes
     pub fn is_dirty(&self) -> bool {
         self.dirty
@@ -197,8 +210,8 @@ impl VaultSession {
         Ok(persisted_deltas)
     }
 
-    /// Lock the vault (consumes the session)
-    pub fn lock(mut self, storage: Option<&Storage>) -> Result<()> {
+    /// Lock the vault.
+    pub fn lock(&mut self, storage: Option<&Storage>) -> Result<()> {
         self.decrypted_chunk_cache.clear("vault_lock");
         if let Some(storage) = storage {
             let _ = self.save(storage)?;

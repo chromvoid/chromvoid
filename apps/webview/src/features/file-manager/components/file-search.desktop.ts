@@ -1,49 +1,31 @@
-import {css} from 'lit'
+import {css, nothing, type TemplateResult} from 'lit'
 import {html} from '@chromvoid/uikit/reatom-lit'
+import {CVInput, type CVInputInputEvent} from '@chromvoid/uikit/components/cv-input'
 
 import {i18n} from 'root/i18n'
 import {keyboardShortcutsModel} from 'root/shared/keyboard'
 import {openCommandPalette} from 'root/shared/services/command-palette'
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 
-import type {ViewMode} from 'root/shared/contracts/file-manager'
-import {hasNonDefaultFileSearchFilters} from '../models/file-search-filters.model'
-import {getFileTypeLabel, getSortLabel, getViewLabel} from './file-manager-labels'
+import {hasContentFiltering} from '../models/file-search-filters.model'
+import {getFileTypeLabel} from './file-manager-labels'
 import {FileSearchBase} from './file-search.base'
-
-const VIEW_ICONS: Record<ViewMode, string> = {
-  list: 'list',
-  grid: 'grid',
-  table: 'table',
-}
 
 export class FileSearch extends FileSearchBase {
   static define() {
+    CVInput.define()
     if (!customElements.get('file-search')) {
       customElements.define('file-search', this as unknown as CustomElementConstructor)
     }
-  }
-
-  static get properties() {
-    return {
-      ...super.properties,
-      compact: {type: Boolean},
-    }
-  }
-
-  /** Hides stats & view-mode chip (duplicated in the bottom bar on mobile) */
-  declare compact: boolean
-
-  constructor() {
-    super()
-    this.compact = false
   }
 
   static styles = [
     sharedStyles,
     css`
       :host {
-        display: contents;
+        display: block;
+        inline-size: 100%;
+        min-inline-size: 0;
       }
 
       .bar {
@@ -51,37 +33,50 @@ export class FileSearch extends FileSearchBase {
         align-items: center;
         gap: var(--app-spacing-2);
         flex-wrap: nowrap;
+        inline-size: 100%;
         min-inline-size: 0;
         overflow-x: auto;
         scrollbar-width: none;
         -webkit-overflow-scrolling: touch;
       }
 
+      .search-input {
+        flex: 1 1 min(320px, 45vw);
+        inline-size: 100%;
+        min-inline-size: min(180px, 100%);
+        --cv-input-height: var(--file-search-control-height, 32px);
+        --cv-input-padding-inline: var(--cv-space-3);
+        --cv-input-border-radius: var(--file-search-control-radius, var(--cv-radius-2));
+        --cv-input-background: var(--cv-color-surface-2);
+        --cv-input-border-color: var(--cv-color-border-muted);
+        --cv-input-color: var(--cv-color-text);
+        --cv-input-placeholder-color: var(--cv-color-text-muted);
+        --cv-input-font-size: var(--file-search-control-font-size, var(--cv-font-size-sm));
+      }
+
+      .search-input::part(form-control-label) {
+        display: none;
+        margin: 0;
+      }
+
       .bar::-webkit-scrollbar {
         display: none;
       }
 
-      .chips {
-        display: flex;
-        flex-wrap: nowrap;
-        gap: 6px;
-        align-items: center;
-        min-inline-size: max-content;
-      }
 
       /* ===== BASE CHIP ===== */
       .chip {
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        padding: 6px 12px;
-        border-radius: var(--cv-radius-2, 8px);
+        min-block-size: var(--file-search-control-height, 32px);
+        padding: 0 12px;
+        border-radius: var(--file-search-control-radius, var(--cv-radius-2, 8px));
         border: 1px solid var(--cv-color-border-muted);
         background: var(--cv-color-surface-2);
         color: var(--cv-color-text);
-        font-size: var(--cv-font-size-xs);
-        font-weight: 500;
-        letter-spacing: 0.01em;
+        font-size: var(--file-search-control-font-size, var(--cv-font-size-sm));
+        font-weight: var(--file-search-control-font-weight, var(--cv-font-weight-medium));
         cursor: pointer;
         -webkit-tap-highlight-color: transparent;
         transition:
@@ -122,7 +117,8 @@ export class FileSearch extends FileSearchBase {
         display: inline-flex;
         align-items: center;
         gap: 0;
-        border-radius: var(--cv-radius-2, 8px);
+        min-block-size: var(--file-search-control-height, 32px);
+        border-radius: var(--file-search-control-radius, var(--cv-radius-2, 8px));
         border: 1px solid var(--cv-color-border-muted);
         background: var(--cv-color-surface-2);
         overflow: hidden;
@@ -137,12 +133,13 @@ export class FileSearch extends FileSearchBase {
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        padding: 6px 10px;
+        min-block-size: calc(var(--file-search-control-height, 32px) - 2px);
+        padding: 0 10px;
         border: none;
         background: transparent;
         color: var(--cv-color-text);
-        font-size: var(--cv-font-size-xs);
-        font-weight: 500;
+        font-size: var(--file-search-control-font-size, var(--cv-font-size-sm));
+        font-weight: var(--file-search-control-font-weight, var(--cv-font-weight-medium));
         cursor: pointer;
         min-inline-size: 0;
         -webkit-tap-highlight-color: transparent;
@@ -179,7 +176,7 @@ export class FileSearch extends FileSearchBase {
         inline-size: 22px;
         block-size: 22px;
         border: none;
-        border-radius: var(--cv-radius-1, 4px);
+        border-radius: var(--file-search-control-radius, var(--cv-radius-2, 8px));
         background: transparent;
         color: var(--cv-color-text-muted);
         cursor: pointer;
@@ -201,14 +198,6 @@ export class FileSearch extends FileSearchBase {
         }
       }
 
-      .stats {
-        color: var(--cv-color-text-muted);
-        font-size: var(--cv-font-size-xs);
-        font-weight: 500;
-        font-variant-numeric: tabular-nums;
-        white-space: nowrap;
-      }
-
       /* ===== TOUCH DEVICES ===== */
       @media (hover: none) and (pointer: coarse) {
         .chip {
@@ -227,6 +216,11 @@ export class FileSearch extends FileSearchBase {
           inline-size: 28px;
           block-size: 28px;
           margin-inline-end: 4px;
+        }
+
+        .search-input {
+          --cv-input-height: 36px;
+          min-inline-size: min(220px, 100%);
         }
 
         .chip cv-icon,
@@ -253,12 +247,8 @@ export class FileSearch extends FileSearchBase {
     this.getFilterActions().reset()
   }
 
-  private toggleSortDirection() {
-    this.getFilterActions().toggleSortDirection()
-  }
-
-  private cycleViewMode() {
-    this.getFilterActions().cycleViewMode()
+  private onQueryInput(event: CVInputInputEvent) {
+    this.getFilterActions().patchFilters({query: event.detail.value})
   }
 
   private removeFileType(typeValue: string) {
@@ -273,141 +263,101 @@ export class FileSearch extends FileSearchBase {
     this.getFilterActions().hideHiddenFiles()
   }
 
+  private onRemoveFileTypeClick(event: Event) {
+    const target = event.currentTarget
+    if (!(target instanceof HTMLElement)) return
+    const type = target.dataset['fileType']
+    if (!type) return
+    this.removeFileType(type)
+  }
+
+  private renderFilterChip(label: string, clearLabel: string, onClear: (event: Event) => void): TemplateResult {
+    return html`
+      <span class="chipgroup">
+        <button
+          type="button"
+          class="chipgroup__main"
+          title=${this.getEditInCommandTitle()}
+          @click=${this.openCommandPalette}
+        >
+          <cv-icon name="filter" aria-hidden="true"></cv-icon>
+          <span class="chip__label">${label}</span>
+        </button>
+        <button type="button" class="chip__close" aria-label=${clearLabel} @click=${onClear}>
+          <cv-icon name="x" aria-hidden="true"></cv-icon>
+        </button>
+      </span>
+    `
+  }
+
+  private renderActiveFilters() {
+    const {filters} = this
+    if (!hasContentFiltering(filters)) return nothing
+
+    return html`
+      ${filters.query.trim()
+        ? this.renderFilterChip(
+            i18n('file-manager:search-current', {query: filters.query}),
+            i18n('file-manager:clear-search'),
+            this.clearQuery,
+          )
+        : nothing}
+      ${filters.showHidden
+        ? this.renderFilterChip(
+            i18n('file-manager:show-hidden'),
+            i18n('file-manager:hide-hidden-files'),
+            this.hideHiddenFiles,
+          )
+        : nothing}
+      ${filters.fileTypes.map((type) => {
+        const label = getFileTypeLabel(type)
+        return html`
+          <span class="chipgroup">
+            <button
+              type="button"
+              class="chipgroup__main"
+              title=${this.getEditInCommandTitle()}
+              @click=${this.openCommandPalette}
+            >
+              <cv-icon name="file-type" aria-hidden="true"></cv-icon>
+              <span class="chip__label">${label}</span>
+            </button>
+            <button
+              type="button"
+              class="chip__close"
+              data-file-type=${type}
+              aria-label=${i18n('file-manager:remove-filter', {label})}
+              @click=${this.onRemoveFileTypeClick}
+            >
+              <cv-icon name="x" aria-hidden="true"></cv-icon>
+            </button>
+          </span>
+        `
+      })}
+      <button type="button" class="chip chip--muted" @click=${this.resetAll}>
+        <cv-icon name="rotate-ccw" aria-hidden="true"></cv-icon>
+        <span class="chip__label">${i18n('button:reset')}</span>
+      </button>
+    `
+  }
+
   render() {
     const {filters} = this
 
-    const hasNonDefaults = hasNonDefaultFileSearchFilters(filters)
-
-    const sortArrow = filters.sortDirection === 'asc' ? '↑' : '↓'
-    const sortLabel = this.compact
-      ? `${getSortLabel(filters.sortBy)} ${sortArrow}`
-      : `${i18n('file-manager:sort-current', {sort: getSortLabel(filters.sortBy)})} ${sortArrow}`
-    const editInCommandTitle = this.getEditInCommandTitle()
-
     return html`
       <div class="bar">
-        ${this.compact ? '' : html`<span class="stats">${this.filteredFiles}/${this.totalFiles}</span>`}
-
-        <div class="chips" role="list" aria-label=${i18n('file-manager:active-filters')}>
-          ${this.compact
-            ? ''
-            : html`
-                <cv-button unstyled
-                  class="chip"
-                  type="button"
-                  role="listitem"
-                  @click=${this.cycleViewMode}
-                  title=${i18n('file-manager:change-view')}
-                >
-                  <cv-icon slot="prefix" name=${VIEW_ICONS[filters.viewMode]}></cv-icon>
-                  <span class="chip__label"
-                    >${i18n('file-manager:view-current', {view: getViewLabel(filters.viewMode)})}</span
-                  >
-                </cv-button>
-              `}
-
-          <cv-button unstyled
-            class="chip"
-            type="button"
-            role="listitem"
-            @click=${this.toggleSortDirection}
-            title=${i18n('file-manager:toggle-sort-direction')}
-          >
-            <cv-icon slot="prefix" name="arrow-up-down"></cv-icon>
-            <span class="chip__label">${sortLabel}</span>
-          </cv-button>
-
-          ${filters.query
-            ? html`
-                <span
-                  class="chipgroup chipgroup--danger"
-                  role="listitem"
-                  title=${i18n('file-manager:search')}
-                >
-                  <cv-button unstyled
-                    class="chipgroup__main"
-                    type="button"
-                    @click=${this.openCommandPalette}
-                    title=${editInCommandTitle}
-                  >
-                    <cv-icon slot="prefix" name="search"></cv-icon>
-                    <span class="chip__label"
-                      >${i18n('file-manager:search-current', {query: filters.query})}</span
-                    >
-                  </cv-button>
-                  <cv-button unstyled
-                    class="chip__close"
-                    type="button"
-                    @click=${this.clearQuery}
-                    aria-label=${i18n('file-manager:clear-search')}
-                  >
-                    <cv-icon name="x"></cv-icon>
-                  </cv-button>
-                </span>
-              `
-            : ''}
-          ${filters.showHidden
-            ? html`
-                <span class="chipgroup" role="listitem" title=${i18n('file-manager:hidden-files')}>
-                  <cv-button unstyled
-                    class="chipgroup__main"
-                    type="button"
-                    @click=${this.openCommandPalette}
-                    title=${editInCommandTitle}
-                  >
-                    <cv-icon slot="prefix" name="eye"></cv-icon>
-                    <span class="chip__label">${i18n('file-manager:show-hidden')}</span>
-                  </cv-button>
-                  <cv-button unstyled
-                    class="chip__close"
-                    type="button"
-                    @click=${this.hideHiddenFiles}
-                    aria-label=${i18n('file-manager:hide-hidden-files')}
-                  >
-                    <cv-icon name="x"></cv-icon>
-                  </cv-button>
-                </span>
-              `
-            : ''}
-          ${filters.fileTypes.map((type) => {
-            const label = getFileTypeLabel(type)
-            return html`
-              <span class="chipgroup" role="listitem" title=${i18n('file-manager:file-type')}>
-                <cv-button unstyled
-                  class="chipgroup__main"
-                  type="button"
-                  @click=${this.openCommandPalette}
-                  title=${editInCommandTitle}
-                >
-                  <cv-icon slot="prefix" name="tag"></cv-icon>
-                  <span class="chip__label">${label}</span>
-                </cv-button>
-                <cv-button unstyled
-                  class="chip__close"
-                  type="button"
-                  @click=${() => this.removeFileType(type)}
-                  aria-label=${i18n('file-manager:remove-filter', {label})}
-                >
-                  <cv-icon name="x"></cv-icon>
-                </cv-button>
-              </span>
-            `
-          })}
-          ${hasNonDefaults
-            ? html`
-                <cv-button unstyled
-                  class="chip chip--muted"
-                  type="button"
-                  role="listitem"
-                  @click=${this.resetAll}
-                  title=${i18n('button:reset')}
-                >
-                  <cv-icon slot="prefix" name="refresh-cw"></cv-icon>
-                  <span class="chip__label">${i18n('button:reset')}</span>
-                </cv-button>
-              `
-            : ''}
-        </div>
+        ${this.renderActiveFilters()}
+        <cv-input
+          class="search-input"
+          type="search"
+          size="small"
+          .value=${filters.query}
+          placeholder=${i18n('file-manager:search')}
+          aria-label=${i18n('file-manager:search')}
+          @cv-input=${this.onQueryInput}
+        >
+          <cv-icon name="search" slot="prefix" aria-hidden="true"></cv-icon>
+        </cv-input>
       </div>
     `
   }

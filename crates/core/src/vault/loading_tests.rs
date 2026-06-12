@@ -7,6 +7,8 @@ use crate::crypto::{
     catalog_chunk_name, catalog_commit_chunk_name, decrypt, delta_chunk_name, encrypt,
     root_index_chunk_name, shard_chunk_name, shard_snapshot_chunk_name,
 };
+use crate::error::Error;
+use crate::storage::test_util::{fault_injecting_storage, FaultRule, StorageOperation};
 use tempfile::TempDir;
 
 fn setup() -> (TempDir, Storage, [u8; KEY_SIZE]) {
@@ -129,7 +131,7 @@ fn try_load_sharded_catalog_none_when_root_index_not_sharded() {
 }
 
 #[test]
-fn try_load_sharded_catalog_none_when_shard_snapshot_missing() {
+fn try_load_sharded_catalog_errors_when_shard_snapshot_missing() {
     let (_d, storage, key) = setup();
     let mut root_index = RootIndex::new();
     root_index.upsert_shard(ShardMeta::passmanager());
@@ -137,9 +139,44 @@ fn try_load_sharded_catalog_none_when_shard_snapshot_missing() {
     let name = root_index_chunk_name(&key, 0);
     write_encrypted_chunk(&storage, &key, &name, &root_index);
 
-    assert!(Vault::try_load_sharded_catalog(&storage, &key)
-        .expect("ok")
-        .is_none());
+    // The root index (written under the correct key) references a shard whose
+    // snapshot chunk is missing — that is corruption, not "no catalog". It must
+    // error rather than silently yield an empty catalog that a later save would
+    // make permanent (H3).
+    assert!(Vault::try_load_sharded_catalog(&storage, &key).is_err());
+}
+
+#[test]
+fn try_load_sharded_catalog_errors_when_delta_replay_fails() {
+    let (_d, storage, key) = setup();
+    let shard_id = "docs";
+    let mut shard = Shard::new(shard_id, CatalogNode::new_dir(1, shard_id.to_string()));
+    assert!(shard
+        .root
+        .add_child(CatalogNode::new_file(2, "readme.txt".to_string(), 12, None,)));
+
+    let mut root_index = RootIndex::new();
+    let mut meta = ShardMeta::new(shard_id, LoadStrategy::Lazy);
+    meta.base_version = 0;
+    meta.version = 1;
+    meta.last_delta_seq = 1;
+    meta.has_deltas = true;
+    meta.snapshot_seq = 0;
+    meta.update_stats(shard.node_count(), shard.size());
+    root_index.root_version = 1;
+    root_index.upsert_shard(meta);
+
+    let root_name = root_index_chunk_name(&key, 0);
+    write_encrypted_chunk(&storage, &key, &root_name, &root_index);
+    let snapshot_name = shard_snapshot_chunk_name(&key, shard_id, 0);
+    write_encrypted_chunk(&storage, &key, &snapshot_name, &shard);
+    let delta = DeltaEntry::move_node(1, "/readme.txt", "/missing", None);
+    let delta_name = delta_chunk_name(&key, shard_id, 1);
+    write_encrypted_chunk(&storage, &key, &delta_name, &delta);
+
+    let result = Vault::try_load_sharded_catalog(&storage, &key);
+
+    assert!(result.is_err(), "failed delta replay must not be masked");
 }
 
 #[test]
@@ -248,6 +285,51 @@ fn unlock_recovers_publishing_catalog_commit() {
             .expect("commit exists check"),
         "publishing commit record should be cleared after recovery"
     );
+}
+
+#[test]
+fn unlock_catalog_commit_recovery_propagates_chunk_exists_error() {
+    let (dir, storage, key) = setup();
+    let old = catalog_with_docs_child("old.bin", 1);
+    write_sharded_catalog(&storage, &key, &old);
+
+    let mut next = catalog_with_docs_child("old.bin", 1);
+    next.create_file("/docs", "new.bin", 2, None)
+        .expect("create new child");
+    let (root_index, new_chunks) = write_sharded_snapshot_set(&storage, &key, &next, 42);
+    write_commit_record_json(
+        &storage,
+        &key,
+        "publishing",
+        &root_index,
+        new_chunks,
+        Vec::new(),
+    );
+
+    let (fault_storage, _handle) = fault_injecting_storage(
+        dir.path(),
+        Some(FaultRule {
+            operation: StorageOperation::ChunkExists,
+            fail_on: 3,
+        }),
+    )
+    .expect("fault storage");
+    let result = Vault::load_catalog_for_unlock(&fault_storage, &key);
+    assert!(
+        matches!(result, Err(Error::StorageIo(_))),
+        "transient chunk_exists failure must propagate"
+    );
+
+    assert!(
+        storage
+            .chunk_exists(&catalog_commit_chunk_name(&key))
+            .expect("commit marker still exists"),
+        "failed recovery must leave marker for retry"
+    );
+
+    let loaded = Vault::load_catalog_for_unlock(&storage, &key).expect("retry load");
+    assert!(catalog_has_path(&loaded, "/docs/old.bin"));
+    assert!(catalog_has_path(&loaded, "/docs/new.bin"));
 }
 
 #[test]
@@ -455,7 +537,7 @@ fn compact_shard_clears_deltas_for_passmanager() {
     let snap_name = shard_chunk_name(&key, ".passmanager", 0);
     write_encrypted_chunk(&storage, &key, &snap_name, &snapshot);
 
-    let delta = DeltaEntry::create(1, "/foo", CatalogNode::new_dir(2, "foo".to_string()));
+    let delta = DeltaEntry::create(1, "/", CatalogNode::new_dir(2, "foo".to_string()));
     let delta_name = delta_chunk_name(&key, ".passmanager", 1);
     write_encrypted_chunk(&storage, &key, &delta_name, &delta);
 

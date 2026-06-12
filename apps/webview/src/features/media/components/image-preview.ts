@@ -2,6 +2,7 @@ import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {css, nothing} from 'lit'
 import {i18n} from 'root/i18n'
 import {ImagePreviewModel, type ImageDimensions} from './image-preview.model'
+import {mediaPreviewStyles} from './media-preview.styles'
 import {motionPrimitiveStyles, skeletonShimmerStyles} from 'root/shared/ui/shared-styles'
 
 export class ImagePreview extends ReatomLitElement {
@@ -38,21 +39,10 @@ export class ImagePreview extends ReatomLitElement {
   static styles = [
     motionPrimitiveStyles,
     skeletonShimmerStyles,
+    mediaPreviewStyles,
     css`
       :host {
         display: contents;
-      }
-
-      .preview-container {
-        width: 100%;
-        height: 250px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: var(--cv-radius-m);
-        overflow: hidden;
-        background: var(--cv-color-surface-secondary);
-        position: relative;
       }
 
       .preview-image {
@@ -65,46 +55,6 @@ export class ImagePreview extends ReatomLitElement {
 
       .preview-image:hover {
         opacity: 0.9;
-      }
-
-      .skeleton {
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(
-          90deg,
-          var(--cv-color-surface) 0%,
-          var(--cv-color-surface-secondary) 50%,
-          var(--cv-color-surface) 100%
-        );
-      }
-
-      .error-state {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: var(--app-spacing-3);
-        padding: var(--app-spacing-4);
-        color: var(--cv-color-text-muted);
-        text-align: center;
-      }
-
-      .error-message {
-        font-size: var(--cv-font-size-sm);
-      }
-
-      .retry-button {
-        padding: var(--app-spacing-2) var(--app-spacing-3);
-        background: var(--cv-color-surface-tertiary);
-        border: 1px solid var(--cv-color-border);
-        border-radius: var(--cv-radius-s);
-        cursor: pointer;
-        font-size: var(--cv-font-size-sm);
-        color: var(--cv-color-text);
-        transition: background 0.2s;
-      }
-
-      .retry-button:hover {
-        background: var(--cv-color-surface-secondary);
       }
     `,
   ]

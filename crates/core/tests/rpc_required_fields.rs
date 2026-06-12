@@ -218,6 +218,7 @@ fn test_required_fields_admin_and_erase() {
 #[test]
 fn test_required_fields_backup_restore_local() {
     let (mut router, _temp_dir) = create_test_router();
+    unlock_vault(&mut router, "test_password");
 
     assert_rpc_error(
         &router.handle(&RpcRequest::new(

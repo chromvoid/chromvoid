@@ -73,6 +73,7 @@ export abstract class FileItemBase extends ReatomLitElement {
 
   protected readonly model = new FileItemModel()
   protected touchDropBinding?: TouchDragDropBinding
+  private disposeTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor() {
     super()
@@ -219,14 +220,29 @@ export abstract class FileItemBase extends ReatomLitElement {
 
   connectedCallback() {
     super.connectedCallback()
+    if (this.disposeTimer) {
+      clearTimeout(this.disposeTimer)
+      this.disposeTimer = null
+    }
     this.setupTouchDragDrop()
+    if (this.item) {
+      this.model.setThumbnailTarget(this.item, this.viewMode)
+    }
   }
 
   disconnectedCallback() {
     super.disconnectedCallback()
     this.touchDropBinding?.destroy()
     this.touchDropBinding = undefined
-    this.model.dispose()
+    if (this.disposeTimer) {
+      clearTimeout(this.disposeTimer)
+    }
+    this.disposeTimer = setTimeout(() => {
+      this.disposeTimer = null
+      if (!this.isConnected) {
+        this.model.dispose()
+      }
+    }, 0)
   }
 
   protected abstract renderItem(data: FileItemRenderData): unknown

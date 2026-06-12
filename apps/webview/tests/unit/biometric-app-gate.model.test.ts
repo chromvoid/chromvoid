@@ -293,7 +293,7 @@ describe('BiometricAppGateModel', () => {
     expect(model.phase()).toBe('passed')
   })
 
-  it('falls back to normal flow on internal biometric bridge error', async () => {
+  it('blocks on internal biometric bridge error', async () => {
     const {connected} = initTauriContext()
     const pushNotification = vi.fn()
     clearAppContext()
@@ -351,11 +351,94 @@ describe('BiometricAppGateModel', () => {
     connected.set(true)
     await flushAsyncWork()
 
-    expect(model.phase()).toBe('disabled')
-    expect(model.shouldBlockSurface()).toBe(false)
-    expect(pushNotification).toHaveBeenCalledWith(
-      'warning',
-      'Biometric app gate is unavailable for this attempt. Continuing without it.',
-    )
+    expect(model.phase()).toBe('blocked')
+    expect(model.lastErrorCode()).toBe('BIOMETRIC_INTERNAL')
+    expect(model.shouldBlockSurface()).toBe(true)
+    expect(pushNotification).not.toHaveBeenCalled()
+  })
+
+  it('blocks on unavailable biometric result after the gate is enabled', async () => {
+    const {connected} = initTauriContext()
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+      supports_biometric: true,
+    })
+
+    tauriInvoke.mockImplementation(async (command: string) => {
+      if (command === 'get_session_settings') {
+        return {
+          ok: true,
+          result: {
+            auto_lock_timeout_secs: 300,
+            lock_on_sleep: true,
+            lock_on_mobile_background: false,
+            require_biometric_app_gate: true,
+            auto_mount_after_unlock: false,
+            keep_screen_awake_when_unlocked: false,
+          },
+        }
+      }
+
+      if (command === 'mobile_biometric_auth') {
+        return {
+          ok: false,
+          error: 'No biometric hardware',
+          code: 'BIOMETRIC_UNAVAILABLE',
+        }
+      }
+
+      throw new Error(`Unexpected command: ${command}`)
+    })
+
+    model = new BiometricAppGateModel()
+    model.connect()
+    connected.set(true)
+    await flushAsyncWork()
+
+    expect(model.phase()).toBe('blocked')
+    expect(model.lastErrorCode()).toBe('BIOMETRIC_UNAVAILABLE')
+    expect(model.shouldBlockSurface()).toBe(true)
+  })
+
+  it('blocks when native biometric invoke throws', async () => {
+    const {connected} = initTauriContext()
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+      supports_biometric: true,
+    })
+
+    tauriInvoke.mockImplementation(async (command: string) => {
+      if (command === 'get_session_settings') {
+        return {
+          ok: true,
+          result: {
+            auto_lock_timeout_secs: 300,
+            lock_on_sleep: true,
+            lock_on_mobile_background: false,
+            require_biometric_app_gate: true,
+            auto_mount_after_unlock: false,
+            keep_screen_awake_when_unlocked: false,
+          },
+        }
+      }
+
+      if (command === 'mobile_biometric_auth') {
+        throw new Error('native bridge failed')
+      }
+
+      throw new Error(`Unexpected command: ${command}`)
+    })
+
+    model = new BiometricAppGateModel()
+    model.connect()
+    connected.set(true)
+    await flushAsyncWork()
+
+    expect(model.phase()).toBe('blocked')
+    expect(model.lastErrorCode()).toBe('BIOMETRIC_INTERNAL')
+    expect(model.lastErrorMessage()).toBe('native bridge failed')
+    expect(model.shouldBlockSurface()).toBe(true)
   })
 })

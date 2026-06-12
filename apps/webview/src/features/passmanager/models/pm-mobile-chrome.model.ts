@@ -9,6 +9,7 @@ import {
 } from '@project/passmanager/select'
 import {sortStorage} from '@project/passmanager/sort-storage'
 import {dialogService} from 'root/shared/services/dialog-service'
+import {toast} from 'root/shared/services/toast-manager'
 import {PMEntryModel} from '../components/card/entry/entry.model'
 import {PMGroupModel} from '../components/group/group/group.model'
 import {
@@ -29,9 +30,7 @@ import {
 } from './pm-root.adapter'
 import {pmModel} from '../password-manager.model'
 import {pmDeleteMotionModel} from './pm-delete-motion.model'
-import {pmEntryMoveModel} from './pm-entry-move-model'
 import {pmMobileSelectionModel} from './pm-mobile-selection.model'
-import {openPassmanagerMoveDialog} from '../service/passmanager-move-dialog'
 
 const ALLOWED_QUICK_FILTERS: QuickFilter[] = ['recent', 'otp', 'favorites', 'ssh', 'card']
 
@@ -128,13 +127,8 @@ class PMMobileChromeModel {
     const isReadOnly = ctx.readOnly
 
     if (ctx.kind === 'passwords-selection') {
-      const canActOnSingleSelection = !isReadOnly && ctx.selectedCount === 1
-      const canMoveSelection = !isReadOnly && ctx.selectedCount >= 1
-
       return [
         {id: 'pm-selection-done', icon: 'check-lg', label: i18n('button:done' as any)},
-        {id: 'pm-selection-edit', icon: 'pencil-square', label: i18n('button:edit'), disabled: !canActOnSingleSelection},
-        {id: 'pm-selection-move', icon: 'folder-symlink', label: i18n('button:move'), disabled: !canMoveSelection},
         {id: 'pm-selection-delete', icon: 'trash', label: i18n('button:remove'), disabled: isReadOnly || ctx.selectedCount < 1},
       ]
     }
@@ -284,14 +278,6 @@ class PMMobileChromeModel {
       case 'pm-selection-done':
         if (!isSelectionContext) return false
         pmMobileSelectionModel.exit()
-        return true
-      case 'pm-selection-edit':
-        if (!isSelectionContext || isReadOnly || commandContext.selectedCount !== 1) return false
-        this.editSingleSelection()
-        return true
-      case 'pm-selection-move':
-        if (!isSelectionContext || isReadOnly || commandContext.selectedCount < 1) return false
-        void this.moveSelection()
         return true
       case 'pm-selection-delete':
         if (!isSelectionContext || isReadOnly || commandContext.selectedCount < 1) return false
@@ -486,56 +472,6 @@ class PMMobileChromeModel {
     quickFilters.set([...activeFilters, filter])
   }
 
-  private editSingleSelection(): void {
-    const selection = this.getSingleSelectedItem()
-    if (!selection) return
-
-    pmMobileSelectionModel.exit()
-    pmModel.openItem(selection)
-
-    if (selection instanceof Entry) {
-      pmEntryEditorModel.openSurface(selection.id, selection.entryType === 'payment_card' ? 'payment-card' : 'entry')
-      return
-    }
-
-    this.groupActionsModel.enterEditMode()
-  }
-
-  private async moveSingleSelection(): Promise<void> {
-    const selection = this.getSingleSelectedItem()
-    if (!selection) return
-
-    if (selection instanceof Entry) {
-      await this.entryActionsModel.moveEntryCard(selection)
-      return
-    }
-
-    await this.groupActionsModel.moveGroup(selection)
-  }
-
-  private async moveSelection(): Promise<void> {
-    if (pmMobileSelectionModel.selectedCount() === 1) {
-      await this.moveSingleSelection()
-      return
-    }
-
-    const {entries, groups} = this.resolveSelectedItems()
-    if (!entries.length && !groups.length) return
-
-    const disabledIds = pmEntryMoveModel.getDisabledSelectionTargetIds(entries, groups)
-    const firstAllowedTarget = pmEntryMoveModel.listTargets().find((target) => !disabledIds.includes(target.id))
-
-    await openPassmanagerMoveDialog({
-      disabledIds,
-      onConfirm: async (targetId) => {
-        const moved = await pmEntryMoveModel.moveSelection(entries, groups, targetId)
-        return moved
-      },
-      selectedId: firstAllowedTarget?.id ?? '',
-      useMobilePicker: this.shouldUseMobileMovePicker(),
-    })
-  }
-
   private async deleteSelection(): Promise<void> {
     const {entries, groups} = this.resolveSelectedItems()
     if (!entries.length && !groups.length) return
@@ -559,20 +495,13 @@ class PMMobileChromeModel {
         await wrap(Promise.resolve(entry.remove({silent: true})))
       }
       await this.deleteGroups(groups)
-    } catch (error) {
+    } catch {
       pmDeleteMotionModel.clearPending(pendingItems.map((item) => item.id))
-      throw error
+      toast.error(i18n('notify:remove:error'))
+      return
     }
 
     pmMobileSelectionModel.exit()
-  }
-
-  private getSingleSelectedItem(): Entry | Group | null {
-    const itemId = pmMobileSelectionModel.singleSelectionId()
-    if (!itemId) return null
-
-    const item = getPassmanagerRoot()?.getCardByID?.(itemId)
-    return item instanceof Entry || item instanceof Group ? item : null
   }
 
   private resolveSelectedItems(): {entries: Entry[]; groups: Group[]} {
@@ -646,23 +575,34 @@ class PMMobileChromeModel {
 
     await wrap(Promise.all(nestedEntries.flatMap((entry) => entry.cleanOTPs())))
 
-    if ('entries' in root && root.entries && typeof root.entries.set === 'function') {
-      root.entries.set(rootEntries.filter((item) => !(item instanceof Group && groupsToRemove.has(item))))
+    const previousShowElement =
+      typeof (root as {showElement?: unknown}).showElement === 'function'
+        ? (root as {showElement: () => unknown}).showElement()
+        : undefined
+    const entriesSignal =
+      'entries' in root && root.entries && typeof root.entries.set === 'function' ? root.entries : null
+    const nextEntries = rootEntries.filter((item) => !(item instanceof Group && groupsToRemove.has(item)))
+
+    if (entriesSignal) {
+      entriesSignal.set(nextEntries)
     }
     root.updatedTs?.set?.(Date.now())
-    if (typeof root.save === 'function') {
-      await wrap(root.save())
+    try {
+      if (typeof root.save === 'function') {
+        await wrap(root.save())
+      }
+    } catch (error) {
+      if (entriesSignal) {
+        entriesSignal.set(rootEntries)
+      }
+      if (previousShowElement !== undefined) {
+        root.showElement?.set?.(previousShowElement)
+      }
+      throw error
     }
     root.showElement?.set?.(root)
   }
 
-  private shouldUseMobileMovePicker(): boolean {
-    try {
-      return window.matchMedia('(max-width: 720px)').matches
-    } catch {
-      return false
-    }
-  }
 }
 
 export const pmMobileChromeModel = new PMMobileChromeModel()

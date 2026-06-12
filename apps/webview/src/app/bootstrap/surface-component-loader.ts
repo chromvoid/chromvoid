@@ -127,6 +127,7 @@ function ensureFilesSurfaceComponents(): Promise<void> {
 function ensureNotesSurfaceComponents(): Promise<void> {
   return once('surface:notes', async () => {
     const module = await import('root/features/file-manager/components/notes-quick-view')
+    module.NotesQuickViewControls.define()
     module.NotesQuickView.define()
     module.NotesQuickViewMobile.define()
   })

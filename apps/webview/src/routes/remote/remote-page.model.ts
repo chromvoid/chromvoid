@@ -12,39 +12,29 @@ import type {
   CoreMode,
   ModeSwitchResult,
   NetworkPairedPeer,
-  PairedDeviceInfo,
   RemoteStatus,
   SyncSnapshot,
   SyncStatusEvent,
-  UsbDevice,
   WriterLockInfo,
 } from './remote.model'
 import {
-  connectUsbDevice as connectUsbRemoteDevice,
   defaultSyncSnapshot,
   deriveRemoteStatusWithLock,
-  disconnectUsbDevice as disconnectUsbRemoteDevice,
   formatSyncProgress,
-  getConnectionState,
   getConnectionStatusCategory,
   getModeInfo,
   getWriterLockToastMessage,
   isRemoteMode,
-  listPairedDevices,
   onConnectionStatus,
   onModeChanged,
   onModeSwitching,
   onSyncStatus,
-  pairUsbDevice,
-  scanUsbDevices,
   switchMode,
   syncPhaseToState,
 } from './remote.model'
 import {RemoteHostsFlowModel} from './remote-hosts-flow.model'
 
 export class RemotePageModel {
-  readonly devices = atom<UsbDevice[]>([], 'remote.page.devices')
-  readonly pairedDevices = atom<PairedDeviceInfo[]>([], 'remote.page.pairedDevices')
   readonly connectionState = atom<ConnectionState>('disconnected', 'remote.page.connectionState')
   readonly remoteStatus = atom<RemoteStatus>(
     {
@@ -55,8 +45,6 @@ export class RemotePageModel {
     },
     'remote.page.remoteStatus',
   )
-  readonly scanning = atom(false, 'remote.page.scanning')
-  readonly acting = atom(false, 'remote.page.acting')
 
   readonly currentMode = atom<CoreMode>('local', 'remote.page.currentMode')
   readonly transportType = atom<string | null>(null, 'remote.page.transportType')
@@ -80,8 +68,7 @@ export class RemotePageModel {
   connect(): void {
     if (this.connected) return
     this.connected = true
-    this.guidanceCompletionUnsubscribe = guidanceCompletionBridge.bindRemotePairedDevices(this.pairedDevices)
-    void this.loadData()
+    this.guidanceCompletionUnsubscribe = guidanceCompletionBridge.bindRemotePairedDevices(this.remoteHosts.peers)
     this.remoteHosts.connect()
     if (!this.isMobileRuntime()) {
       void this.loadModeData()
@@ -96,23 +83,10 @@ export class RemotePageModel {
     this.connected = false
     this.guidanceCompletionUnsubscribe?.()
     this.guidanceCompletionUnsubscribe = undefined
-    this.scanning.set(false)
-    this.acting.set(false)
     this.modeSwitching.set(false)
     this.clearLockPoll()
     this.teardownModeListeners()
     this.remoteHosts.disconnect()
-  }
-
-  async loadData(): Promise<void> {
-    try {
-      const [connState, paired] = await wrap(Promise.all([getConnectionState(), listPairedDevices()]))
-      if (!this.connected) return
-      this.updateConnectionState(connState)
-      this.pairedDevices.set(paired)
-    } catch (e) {
-      console.warn('[remote] loadData failed', e)
-    }
   }
 
   async loadModeData(): Promise<void> {
@@ -129,7 +103,7 @@ export class RemotePageModel {
   }
 
   switchToLocal = (): void => {
-    if (this.modeSwitching() || this.acting()) return
+    if (this.modeSwitching()) return
     this.modeSwitching.set(true)
     this.modeError.set(null)
     void switchMode('local').catch((e) => {
@@ -166,64 +140,6 @@ export class RemotePageModel {
 
   goBack = (): void => {
     navigationModel.goBack()
-  }
-
-  scan = async (): Promise<void> => {
-    this.scanning.set(true)
-    try {
-      const found = await wrap(scanUsbDevices())
-      if (!this.connected) return
-      this.devices.set(found)
-    } catch (e) {
-      console.warn('[remote] scan failed', e)
-    } finally {
-      this.scanning.set(false)
-    }
-  }
-
-  pair = async (dev: UsbDevice): Promise<void> => {
-    if (this.acting()) return
-    if (!dev.serial_number) return
-
-    this.acting.set(true)
-    try {
-      const label = dev.display_name?.trim() || dev.serial_number
-      await wrap(pairUsbDevice({port_path: dev.port_path, serial_number: dev.serial_number, label}))
-      await this.refreshAll()
-    } catch (e) {
-      console.warn('[remote] pair failed', e)
-    } finally {
-      this.acting.set(false)
-    }
-  }
-
-  connectDevice = async (dev: UsbDevice): Promise<void> => {
-    if (this.acting()) return
-    if (!dev.serial_number) return
-
-    this.acting.set(true)
-    try {
-      await wrap(connectUsbRemoteDevice({port_path: dev.port_path, serial_number: dev.serial_number}))
-      await this.refreshAll()
-    } catch (e) {
-      console.warn('[remote] connect failed', e)
-    } finally {
-      this.acting.set(false)
-    }
-  }
-
-  disconnectDevice = async (): Promise<void> => {
-    if (this.acting()) return
-
-    this.acting.set(true)
-    try {
-      await wrap(disconnectUsbRemoteDevice())
-      await this.refreshAll()
-    } catch (e) {
-      console.warn('[remote] disconnect failed', e)
-    } finally {
-      this.acting.set(false)
-    }
   }
 
   syncRemoteHostsPanel(): void {
@@ -296,50 +212,6 @@ export class RemotePageModel {
     void this.remoteHosts.disconnectTransport()
   }
 
-  readonly formatDate = (ms: number): string => {
-    return new Date(ms).toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'})
-  }
-
-  readonly formatRelativeTime = (ms: number): string => {
-    const diff = Date.now() - ms
-    if (diff < 60_000) return i18n('time:just-now')
-    if (diff < 3_600_000) return i18n('time:minutes-ago', {value: Math.floor(diff / 60_000)})
-    if (diff < 86_400_000) return i18n('time:hours-ago', {value: Math.floor(diff / 3_600_000)})
-    return this.formatDate(ms)
-  }
-
-  readonly getConnectionBadgeClass = (s: ConnectionState): string => {
-    switch (s) {
-      case 'ready':
-        return 'success'
-      case 'connecting':
-      case 'syncing':
-        return 'warning'
-      case 'error':
-      case 'locked':
-        return 'danger'
-      default:
-        return ''
-    }
-  }
-
-  readonly getConnectionLabel = (s: ConnectionState): string => {
-    switch (s) {
-      case 'disconnected':
-        return i18n('status:disconnected')
-      case 'connecting':
-        return i18n('status:connecting')
-      case 'syncing':
-        return i18n('status:syncing')
-      case 'ready':
-        return i18n('status:ready')
-      case 'locked':
-        return i18n('status:locked')
-      case 'error':
-        return i18n('status:error')
-    }
-  }
-
   readonly getModeBadgeClass = (mode: CoreMode): string => {
     if (mode === 'switching') return 'switching'
     if (isRemoteMode(mode)) {
@@ -356,10 +228,6 @@ export class RemotePageModel {
       }
     }
     return ''
-  }
-
-  private async refreshAll(): Promise<void> {
-    await wrap(Promise.all([this.loadData(), this.scan()]))
   }
 
   private setupModeListeners(): void {
@@ -441,9 +309,9 @@ export class RemotePageModel {
 
   private async pollLockState(): Promise<void> {
     try {
-      const connState = await wrap(getConnectionState())
+      const modeInfo = await wrap(getModeInfo())
       if (!this.connected) return
-      this.updateConnectionState(connState)
+      this.updateConnectionState(modeInfo.connection_state)
     } catch (e) {
       console.warn('[remote] lock poll failed', e)
     }

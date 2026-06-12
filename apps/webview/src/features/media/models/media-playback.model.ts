@@ -874,10 +874,10 @@ class MediaPlaybackModel implements MediaStreamOwner {
 
     const nextIndex = clampTrackIndex(tracks, index)
     if (this.playbackIssue() && nextIndex !== this.currentIndex()) {
-      await this.startAudioSession(tracks, nextIndex, {
+      await wrap(this.startAudioSession(tracks, nextIndex, {
         autoplay: this.playbackIntent() === 'play',
         showFullPlayer: this.fullPlayerOpen(),
-      })
+      }))
       return
     }
 
@@ -910,10 +910,10 @@ class MediaPlaybackModel implements MediaStreamOwner {
           error: error instanceof Error ? error.name : typeof error,
           commandTimedOut: isAndroidMedia3CommandTimeoutError(error),
         })
-        await this.startAudioSession(tracks, nextIndex, {
+        await wrap(this.startAudioSession(tracks, nextIndex, {
           autoplay: this.playbackIntent() === 'play',
           showFullPlayer: this.fullPlayerOpen(),
-        })
+        }))
         return
       }
 

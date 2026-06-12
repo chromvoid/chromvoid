@@ -132,6 +132,27 @@ export class CatalogMirror implements CatalogMirrorApi {
     this.idsByPath.delete(path)
   }
 
+  private updateSubtreePath(node: ClientCatalogNode, nextPath: string): void {
+    const oldPath = node.path
+    const path = normalizePath(nextPath)
+
+    this.idsByPath.delete(oldPath)
+    ;(node as unknown as {path: string}).path = path
+    this.idsByPath.set(path, node.nodeId)
+
+    const childIds = this.childrenByPath.get(oldPath)
+    if (!childIds) return
+
+    this.childrenByPath.delete(oldPath)
+    this.childrenByPath.set(path, childIds)
+
+    for (const childId of childIds) {
+      const child = this.byId.get(childId)
+      if (!child) continue
+      this.updateSubtreePath(child, joinPath(path, child.name))
+    }
+  }
+
   applyManifest(manifest: CatalogSyncManifestResponse): void {
     this.withTransaction(() => {
       this.byId.clear()
@@ -279,10 +300,8 @@ export class CatalogMirror implements CatalogMirrorApi {
         const newParentPath = newParentId ? this.getPath(newParentId) : '/'
         const nextName = newName ?? node.name
         const newPath = normalizePath(joinPath(newParentPath, nextName))
-        this.idsByPath.delete(node.path)
         ;(node as unknown as {name: string}).name = nextName
-        ;(node as unknown as {path: string}).path = newPath
-        this.idsByPath.set((node as unknown as {path: string}).path, node.nodeId)
+        this.updateSubtreePath(node, newPath)
         const oldChildren = this.childrenByPath.get(oldParentPath) ?? []
         this.childrenByPath.set(
           oldParentPath,
@@ -302,10 +321,8 @@ export class CatalogMirror implements CatalogMirrorApi {
         if (!node) break
         const parent = node.parentPath ?? '/'
         const newPath = normalizePath(joinPath(parent, newName))
-        this.idsByPath.delete(node.path)
         ;(node as unknown as {name: string}).name = newName
-        ;(node as unknown as {path: string}).path = newPath
-        this.idsByPath.set(newPath, node.nodeId)
+        this.updateSubtreePath(node, newPath)
         this.invalidateFolder(parent)
         this.emit()
         break

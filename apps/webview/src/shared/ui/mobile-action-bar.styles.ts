@@ -1,5 +1,7 @@
 import {css, type CSSResult} from 'lit'
 
+import {notificationIndicatorStyles} from './notification-indicator.styles'
+
 /**
  * Shared toolbar-button styles for mobile action bar.
  *
@@ -10,6 +12,8 @@ import {css, type CSSResult} from 'lit'
  * so these styles belong in the **consumer**, not inside the bar component.
  */
 export const mobileActionBarButtonStyles: CSSResult = css`
+  ${notificationIndicatorStyles}
+
   /* ===== Toolbar button base ===== */
   .tb-btn {
     --tb-size: 36px;
@@ -40,19 +44,8 @@ export const mobileActionBarButtonStyles: CSSResult = css`
 
   .tb-btn.has-badge {
     position: relative;
-  }
-
-  .tb-btn.has-badge::after {
-    content: '';
-    position: absolute;
-    inset-inline-end: 4px;
-    inset-block-start: 4px;
-    inline-size: 7px;
-    block-size: 7px;
-    border-radius: 50%;
-    background: var(--cv-color-accent, #ff7a00);
-    border: 1.5px solid var(--cv-color-surface-2);
-    pointer-events: none;
+    --cv-notification-dot-size: 7px;
+    --cv-notification-dot-radius: 50%;
   }
 
   .tb-btn:not(cv-menu-button):hover::part(base) {

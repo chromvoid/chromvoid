@@ -24,7 +24,19 @@ impl RpcRouter {
         }
     }
 
+    /// Local backup exposes the entire encrypted store plus the master
+    /// salt/verifier (offline-bruteforce material). It must only be reachable by
+    /// an authenticated caller, i.e. after the vault is unlocked.
+    fn require_unlocked_for_backup(&self) -> BackupResult<()> {
+        if self.is_unlocked() {
+            Ok(())
+        } else {
+            Err(BackupCommandError::vault_required())
+        }
+    }
+
     fn backup_local_start(&mut self) -> BackupResult<serde_json::Value> {
+        self.require_unlocked_for_backup()?;
         self.expire_backup_local_if_idle();
         if self.backup_local_is_active() {
             return Err(BackupCommandError::backup_already_in_progress());
@@ -69,6 +81,7 @@ impl RpcRouter {
         &mut self,
         data: &serde_json::Value,
     ) -> BackupResult<serde_json::Value> {
+        self.require_unlocked_for_backup()?;
         let backup_id = required_str(data, "backup_id")?;
         let chunk_index = required_u64(data, "chunk_index")?;
 
@@ -126,6 +139,7 @@ impl RpcRouter {
         &mut self,
         data: &serde_json::Value,
     ) -> BackupResult<serde_json::Value> {
+        self.require_unlocked_for_backup()?;
         let backup_id = required_str(data, "backup_id")?;
 
         self.expire_backup_local_if_idle();
@@ -158,6 +172,7 @@ impl RpcRouter {
         &mut self,
         data: &serde_json::Value,
     ) -> BackupResult<RpcOutputStream> {
+        self.require_unlocked_for_backup()?;
         let backup_id = required_str(data, "backup_id")?;
 
         self.expire_backup_local_if_idle();
@@ -195,6 +210,7 @@ impl RpcRouter {
         &mut self,
         data: &serde_json::Value,
     ) -> BackupResult<serde_json::Value> {
+        self.require_unlocked_for_backup()?;
         let backup_id = required_str(data, "backup_id")?;
 
         self.expire_backup_local_if_idle();

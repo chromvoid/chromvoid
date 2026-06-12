@@ -72,6 +72,20 @@ describe('PMGroup breadcrumb navigation', () => {
     await settle(element)
 
     const header = element.shadowRoot?.querySelector('pm-workspace-header') as HTMLElement | null
+    const breadcrumbItems = Array.from(header?.shadowRoot?.querySelectorAll('cv-breadcrumb-item') ?? [])
+    expect(breadcrumbItems.map((item) => item.textContent?.trim() ?? '')).toEqual([
+      'Root',
+      'Work',
+      'Security',
+      'Secrets',
+    ])
+    expect(breadcrumbItems.map((item) => item.hasAttribute('current'))).toEqual([
+      false,
+      false,
+      false,
+      true,
+    ])
+
     const securityItem = header?.shadowRoot?.querySelectorAll('cv-breadcrumb-item')[2] as HTMLElement | undefined
     const securityLink = securityItem?.shadowRoot?.querySelector('[part="link"]') as HTMLAnchorElement | null
 

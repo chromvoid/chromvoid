@@ -11,6 +11,7 @@ pub(crate) enum StorageArtifact {
     MasterVerify,
     MasterVerifyRekeyTemp,
     RekeyTransaction,
+    RekeyTransactionV2,
     MasterRekeyTransaction,
     RestoreTransaction,
 }
@@ -51,6 +52,7 @@ impl StorageArtifact {
             StorageArtifact::MasterVerify => "master.verify",
             StorageArtifact::MasterVerifyRekeyTemp => ".master.verify.master-rekey.tmp",
             StorageArtifact::RekeyTransaction => "rekey.transaction.json",
+            StorageArtifact::RekeyTransactionV2 => "rekey.transaction.bin",
             StorageArtifact::MasterRekeyTransaction => "master.rekey.transaction.json",
             StorageArtifact::RestoreTransaction => "restore.transaction.json",
         }

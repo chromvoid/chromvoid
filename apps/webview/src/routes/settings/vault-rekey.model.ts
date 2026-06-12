@@ -155,7 +155,7 @@ class VaultRekeyModel {
     })
 
     try {
-      await this.startProgressListener()
+      await wrap(this.startProgressListener())
       const result = await wrap(
         tauriInvoke<RpcResult<VaultRekeyResult>>('vault_rekey', {
           currentPassword: this.currentPassword(),

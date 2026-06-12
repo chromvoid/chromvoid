@@ -40,6 +40,10 @@ impl AntiReplay {
     }
 
     pub fn check(&mut self, message_id: u64) -> Result<(), &'static str> {
+        if message_id == 0 {
+            return Err("invalid message_id");
+        }
+
         // Allow repeated message_id during an active stream.
         if let Some(stream_id) = self.active_stream_id {
             if message_id == stream_id {

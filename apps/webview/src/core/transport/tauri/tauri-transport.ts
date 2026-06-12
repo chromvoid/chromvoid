@@ -1,8 +1,10 @@
-import {atom} from '@reatom/core'
+import {atom, wrap} from '@reatom/core'
 
 import type {
   AndroidAudioCommand,
   AndroidAudioCommandResult,
+  HostPathSaveTargetOptions,
+  HostPathTokenGrant,
   AndroidAudioPlayerEvent,
   ImagePhotoMetadata,
   MediaStreamErrorEvent,
@@ -47,6 +49,8 @@ import {
   downloadFileViaTauri,
   imageMetadataViaTauri,
   openExternalViaTauri,
+  pickDownloadTargetViaTauri,
+  pickUploadFilesViaTauri,
   prepareMediaStreamViaTauri,
   preparePreviewFileViaTauri,
   previewImageViaTauri,
@@ -60,7 +64,6 @@ import {
   cancelSharedFilesViaTauri,
   sendAndroidAudioCommandViaTauri,
   sendNativeAudioCommandViaTauri,
-  statPathViaTauri,
   startNativeOtpQrScanViaTauri,
   thumbnailImageViaTauri,
   startAndroidVideoViaTauri,
@@ -89,15 +92,20 @@ function isRpcCommandResult<T extends RpcCmdName>(
 
 type HandlerSet = Set<TransportEventHandler>
 
+const PASSMANAGER_READ_COMMAND_SUFFIXES = [
+  ':read',
+  ':list',
+  ':export',
+  ':generate',
+  ':subscribe',
+  ':unsubscribe',
+  ':get',
+] as const
+
 function isPassmanagerMutatingCommand(command: string): boolean {
   return (
     command.startsWith('passmanager:') &&
-    !command.endsWith(':read') &&
-    !command.endsWith(':list') &&
-    !command.endsWith(':export') &&
-    !command.endsWith(':generate') &&
-    !command.endsWith(':subscribe') &&
-    !command.endsWith(':unsubscribe')
+    !PASSMANAGER_READ_COMMAND_SUFFIXES.some((suffix) => command.endsWith(suffix))
   )
 }
 
@@ -150,7 +158,7 @@ export class TauriTransport implements TransportLike {
     console.info('[dashboard][tauri] connect(): start')
     this.connecting.set(true)
 
-    void (async () => {
+    void wrap((async () => {
       try {
         const hasGlobalTauri = typeof (globalThis as {__TAURI__?: unknown}).__TAURI__ === 'object'
         const hasTauriInternals =
@@ -280,7 +288,7 @@ export class TauriTransport implements TransportLike {
       } finally {
         this.connecting.set(false)
       }
-    })()
+    })())
   }
 
   disconnect(): void {
@@ -455,13 +463,13 @@ export class TauriTransport implements TransportLike {
     return uploadFileViaTauri(target, file, opts)
   }
 
-  async statPath(path: string): Promise<{name: string; size: number}> {
-    return statPathViaTauri(path)
+  async pickUploadFiles(): Promise<HostPathTokenGrant[]> {
+    return pickUploadFilesViaTauri()
   }
 
   async uploadFilePath(
     target: number | {parentPath?: string; name: string},
-    path: string,
+    pathToken: string,
     opts?: {
       uploadId?: string
       chunkSize?: number
@@ -469,7 +477,7 @@ export class TauriTransport implements TransportLike {
       onProgress?: (c: number, t: number, p: number) => void
     },
   ): Promise<{nodeId: number}> {
-    return uploadFilePathViaTauri(target, path, opts)
+    return uploadFilePathViaTauri(target, pathToken, opts)
   }
 
   async uploadNativeFiles(
@@ -626,16 +634,20 @@ export class TauriTransport implements TransportLike {
     return warmupAndroidAudioViaTauri()
   }
 
+  async pickDownloadTarget(options: HostPathSaveTargetOptions): Promise<HostPathTokenGrant | null> {
+    return pickDownloadTargetViaTauri(options)
+  }
+
   async downloadFilePath(
     nodeId: number,
-    targetPath: string,
+    targetPathToken: string,
     opts?: {
       downloadId?: string
       totalBytes?: number
       onProgress?: (writtenBytes: number, totalBytes: number, percent: number) => void
     },
   ): Promise<{bytes_written: number; name: string; mime_type: string}> {
-    return downloadFilePathViaTauri(nodeId, targetPath, opts)
+    return downloadFilePathViaTauri(nodeId, targetPathToken, opts)
   }
 
   async openExternal(

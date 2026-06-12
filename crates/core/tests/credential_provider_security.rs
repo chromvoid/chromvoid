@@ -229,14 +229,12 @@ fn test_record_use_cannot_bootstrap_allowlist() {
     ));
     assert_rpc_error(&record_use, "ACCESS_DENIED");
 
-    let provider_session = provider_open_session(&mut router);
     let denied_secret = get_secret(&mut router, &provider_session);
     assert_rpc_error(&denied_secret, "ACCESS_DENIED");
 
     let listed = provider_list(&mut router);
     assert_rpc_ok(&listed);
 
-    let provider_session = provider_open_session(&mut router);
     let allowed_secret = get_secret(&mut router, &provider_session);
     assert_rpc_ok(&allowed_secret);
 }

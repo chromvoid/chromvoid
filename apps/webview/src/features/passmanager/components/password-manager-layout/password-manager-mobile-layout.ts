@@ -7,11 +7,18 @@ import {i18n} from '@project/passmanager/i18n'
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import {MobileActionBar} from 'root/shared/ui/mobile-action-bar'
 import {mobileActionBarButtonStyles} from 'root/shared/ui/mobile-action-bar.styles'
-import {hostContainStyles, pageFadeInStyles, pageTransitionStyles} from 'root/shared/ui/shared-styles'
+import {MobileSurfaceLayout} from 'root/shared/ui/mobile-surface-layout'
+import {mobileSurfaceLayoutFlexFillStyles} from 'root/shared/ui/mobile-surface-layout.styles'
+import {
+  hostContainStyles,
+  pageFadeInStyles,
+  pageTransitionStyles,
+} from 'root/shared/ui/shared-styles'
 import {pmComponentLoaderModel} from '../../models/pm-component-loader.model'
 import {pmMobileChromeModel} from '../../models/pm-mobile-chrome.model'
 import {pmSharedStyles} from '../../styles/shared'
 import {PMMobileSortGroupSheet} from '../list/mobile-sort-group-sheet'
+import {PMMobileTagFilterSheet} from '../list/mobile-tag-filter-sheet'
 import {PMOtpQuickViewMobile} from '../otp-quick-view'
 import {PMLayoutBase, type SearchElement} from './password-manager-layout-base'
 import {passwordManagerMobileLayoutModel} from './password-manager-mobile-layout.model'
@@ -25,8 +32,10 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
       customElements.define(this.elementName, this as unknown as CustomElementConstructor)
     }
     MobileActionBar.define()
+    MobileSurfaceLayout.define()
     PMOtpQuickViewMobile.define()
     PMMobileSortGroupSheet.define()
+    PMMobileTagFilterSheet.define()
   }
 
   static styles = [
@@ -36,41 +45,40 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
     hostContainStyles,
     passwordManagerLayoutStyles,
     mobileActionBarButtonStyles,
+    mobileSurfaceLayoutFlexFillStyles,
     css`
       .wrapper {
         display: flex;
         flex-direction: column;
         block-size: 100%;
         min-block-size: 0;
+        overflow: hidden;
       }
 
-      .content {
-        flex: 1;
-        min-block-size: 0;
-        overflow: auto;
-      }
-
-      .content .card {
-        padding: var(--app-surface-gutter-mobile);
-        padding-bottom: 0px;
+      .pm-content .card {
+        padding: var(--app-mobile-surface-gutter-block-start)
+          var(--app-mobile-surface-gutter-inline)
+          var(--app-mobile-surface-gutter-block-end);
       }
 
       /* Lets pm-entry-mobile own its internal content scroller and footer. */
-      .content pm-entry-mobile.card {
+      .pm-content pm-entry-mobile.card {
         contain: none;
         overflow: hidden;
       }
 
-      .content pm-entry-create-mobile.card {
+      .pm-content pm-entry-create-mobile.card {
         padding: 0;
         overflow: hidden;
       }
 
-      .content pm-group-mobile.card {
+      .pm-content pm-group-mobile.card {
+        padding: var(--app-mobile-surface-gutter-block-start) 0
+          var(--app-mobile-surface-gutter-block-end);
         overflow: hidden;
       }
 
-      .content pm-otp-quick-view-mobile.card {
+      .pm-content pm-otp-quick-view-mobile.card {
         overflow: hidden;
       }
 
@@ -168,7 +176,7 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
 
     return html`
       <div class="wrapper" data-selection-state=${selectionStateKey}>
-        <div class="content scrollable">
+        <mobile-surface-layout variant="flush" scroll="owned">
           <div
             class="pm-content"
             data-motion-kind=${motion.kind}
@@ -178,8 +186,9 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
           >
             ${this.renderMain()}
           </div>
-        </div>
+        </mobile-surface-layout>
         <pm-mobile-sort-group-sheet></pm-mobile-sort-group-sheet>
+        <pm-mobile-tag-filter-sheet></pm-mobile-tag-filter-sheet>
         <slot name="buttons"></slot>
       </div>
     `

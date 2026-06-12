@@ -1,9 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, MutexGuard};
-#[cfg(any(desktop, test))]
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tauri::async_runtime::JoinHandle;
 use tauri::http::header::{
@@ -37,6 +35,7 @@ const PREPARED_PREVIEW_PROTOCOL_RUNTIME_POISONED: &str =
 #[cfg(any(desktop, test))]
 const PREPARED_PREVIEW_PROTOCOL_SHUTDOWN_TIMED_OUT: &str =
     "Prepared preview protocol runtime shutdown timed out";
+const PREPARED_PREVIEW_BUILD_LOCK_IDLE_TTL: Duration = Duration::from_secs(10 * 60);
 
 type PreparedPreviewSessionCache = HashMap<PreparedPreviewCacheKey, PreparedPreviewCacheEntry>;
 
@@ -97,8 +96,13 @@ struct PreparedPreviewRuntimeCache {
 
 pub(crate) struct PreparedPreviewRuntimeState {
     cache: Mutex<PreparedPreviewRuntimeCache>,
-    build_locks: Mutex<HashMap<PreparedPreviewCacheKey, Arc<Mutex<()>>>>,
+    build_locks: Mutex<HashMap<PreparedPreviewCacheKey, PreparedPreviewBuildLockEntry>>,
     protocol_lifecycle: Arc<PreparedPreviewProtocolLifecycle>,
+}
+
+struct PreparedPreviewBuildLockEntry {
+    lock: Arc<Mutex<()>>,
+    last_used: Instant,
 }
 
 #[derive(Default)]
@@ -262,10 +266,55 @@ impl PreparedPreviewRuntimeState {
                 Some("INTERNAL".to_string()),
             )
         })?;
-        Ok(locks
-            .entry(key.clone())
-            .or_insert_with(|| Arc::new(Mutex::new(())))
-            .clone())
+        let now = Instant::now();
+        prune_prepared_preview_build_locks_locked(&mut locks, now);
+        if let Some(entry) = locks.get_mut(key) {
+            entry.last_used = now;
+            return Ok(entry.lock.clone());
+        }
+        let lock = Arc::new(Mutex::new(()));
+        locks.insert(
+            key.clone(),
+            PreparedPreviewBuildLockEntry {
+                lock: lock.clone(),
+                last_used: now,
+            },
+        );
+        Ok(lock)
+    }
+
+    #[cfg(test)]
+    fn build_lock_count_for_tests(&self) -> usize {
+        self.build_locks
+            .lock()
+            .map(|locks| locks.len())
+            .unwrap_or_default()
+    }
+
+    #[cfg(test)]
+    fn force_build_lock_idle_for_tests(&self, key: &PreparedPreviewCacheKey) {
+        let Ok(mut locks) = self.build_locks.lock() else {
+            return;
+        };
+        if let Some(entry) = locks.get_mut(key) {
+            entry.last_used = Instant::now()
+                .checked_sub(PREPARED_PREVIEW_BUILD_LOCK_IDLE_TTL + Duration::from_secs(1))
+                .unwrap_or_else(Instant::now);
+        }
+    }
+
+    #[cfg(test)]
+    fn prune_build_locks_for_tests(&self) -> Result<usize, CatalogDownloadError> {
+        let mut locks = self.build_locks.lock().map_err(|_| {
+            (
+                "Prepared preview build lock registry poisoned".to_string(),
+                Some("INTERNAL".to_string()),
+            )
+        })?;
+        Ok(prune_prepared_preview_build_locks_locked(
+            &mut locks,
+            Instant::now(),
+        ))
     }
 
     fn retain_cache_hit(
@@ -482,6 +531,21 @@ impl PreparedPreviewRuntimeState {
         locks.clear();
         Ok(())
     }
+}
+
+fn prune_prepared_preview_build_locks_locked(
+    locks: &mut HashMap<PreparedPreviewCacheKey, PreparedPreviewBuildLockEntry>,
+    now: Instant,
+) -> usize {
+    let before = locks.len();
+    locks.retain(|_, entry| {
+        Arc::strong_count(&entry.lock) > 1
+            || now
+                .checked_duration_since(entry.last_used)
+                .unwrap_or_default()
+                < PREPARED_PREVIEW_BUILD_LOCK_IDLE_TTL
+    });
+    before.saturating_sub(locks.len())
 }
 
 fn prune_finished_protocol_tasks(tasks: &mut Vec<JoinHandle<()>>) {
@@ -1516,6 +1580,33 @@ mod tests {
 
         assert!(Arc::ptr_eq(&first_lock, &first_lock_again));
         assert!(!Arc::ptr_eq(&first_lock, &second_lock));
+    }
+
+    #[test]
+    fn runtime_prunes_idle_unshared_build_locks() {
+        let key = test_cache_key();
+        let runtime = PreparedPreviewRuntimeState::new();
+        let first_lock = runtime
+            .build_lock(&key)
+            .expect("build lock should be created");
+
+        runtime.force_build_lock_idle_for_tests(&key);
+        assert_eq!(
+            runtime
+                .prune_build_locks_for_tests()
+                .expect("in-use build lock prune should succeed"),
+            0
+        );
+        assert_eq!(runtime.build_lock_count_for_tests(), 1);
+
+        drop(first_lock);
+        assert_eq!(
+            runtime
+                .prune_build_locks_for_tests()
+                .expect("idle build lock prune should succeed"),
+            1
+        );
+        assert_eq!(runtime.build_lock_count_for_tests(), 0);
     }
 
     #[tokio::test]
