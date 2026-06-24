@@ -67,6 +67,30 @@ fn mobile_permission_set_allows_mode_commands() {
 }
 
 #[test]
+fn desktop_permission_set_allows_mobile_usb_commands() {
+    let desktop = set_block("desktop");
+    assert!(
+        !desktop.is_empty(),
+        "desktop permission set not found in permissions/app.toml"
+    );
+
+    for permission in [
+        "allow-mobile-usb-scan",
+        "allow-mobile-usb-pair",
+        "allow-mobile-usb-connect",
+        "allow-mobile-usb-disconnect",
+        "allow-mobile-usb-status",
+        "allow-mobile-usb-list-paired",
+        "allow-mobile-usb-remove-paired",
+    ] {
+        assert!(
+            desktop.contains(permission),
+            "desktop set must include {permission}"
+        );
+    }
+}
+
+#[test]
 fn mobile_permission_set_allows_license_activation_commands() {
     let mobile = set_block("mobile");
     assert!(

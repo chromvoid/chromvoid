@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use super::helpers::now_ms;
 use super::models::IosPresenceResolution;
-use super::noise_handshake::handshake_ik_over_transport;
+use crate::remote_data_plane::handshake_ik_over_transport;
 
 pub(super) async fn connect_paired_ios_peer(
     app: &tauri::AppHandle,

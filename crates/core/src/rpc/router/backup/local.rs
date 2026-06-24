@@ -24,19 +24,19 @@ impl RpcRouter {
         }
     }
 
-    /// Local backup exposes the entire encrypted store plus the master
-    /// salt/verifier (offline-bruteforce material). It must only be reachable by
-    /// an authenticated caller, i.e. after the vault is unlocked.
-    fn require_unlocked_for_backup(&self) -> BackupResult<()> {
-        if self.is_unlocked() {
-            Ok(())
-        } else {
-            Err(BackupCommandError::vault_required())
+    /// Local backup exposes the entire encrypted store plus master-password
+    /// verification material. It is authorized by a transient master password,
+    /// not by an unlocked vault session.
+    fn require_master_password_for_backup(&self) -> BackupResult<()> {
+        if self.master_key.is_none() {
+            return Err(BackupCommandError::master_password_required());
         }
+        self.derive_backup_key_v2()?;
+        Ok(())
     }
 
     fn backup_local_start(&mut self) -> BackupResult<serde_json::Value> {
-        self.require_unlocked_for_backup()?;
+        self.require_master_password_for_backup()?;
         self.expire_backup_local_if_idle();
         if self.backup_local_is_active() {
             return Err(BackupCommandError::backup_already_in_progress());
@@ -81,7 +81,7 @@ impl RpcRouter {
         &mut self,
         data: &serde_json::Value,
     ) -> BackupResult<serde_json::Value> {
-        self.require_unlocked_for_backup()?;
+        self.require_master_password_for_backup()?;
         let backup_id = required_str(data, "backup_id")?;
         let chunk_index = required_u64(data, "chunk_index")?;
 
@@ -139,7 +139,7 @@ impl RpcRouter {
         &mut self,
         data: &serde_json::Value,
     ) -> BackupResult<serde_json::Value> {
-        self.require_unlocked_for_backup()?;
+        self.require_master_password_for_backup()?;
         let backup_id = required_str(data, "backup_id")?;
 
         self.expire_backup_local_if_idle();
@@ -172,7 +172,7 @@ impl RpcRouter {
         &mut self,
         data: &serde_json::Value,
     ) -> BackupResult<RpcOutputStream> {
-        self.require_unlocked_for_backup()?;
+        self.require_master_password_for_backup()?;
         let backup_id = required_str(data, "backup_id")?;
 
         self.expire_backup_local_if_idle();
@@ -210,7 +210,7 @@ impl RpcRouter {
         &mut self,
         data: &serde_json::Value,
     ) -> BackupResult<serde_json::Value> {
-        self.require_unlocked_for_backup()?;
+        self.require_master_password_for_backup()?;
         let backup_id = required_str(data, "backup_id")?;
 
         self.expire_backup_local_if_idle();
@@ -291,5 +291,80 @@ impl RpcRouter {
             "backup_id": active_id,
             "cancelled": true,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    use crate::crypto::keystore::InMemoryKeystore;
+    use crate::rpc::types::{RpcRequest, RpcResponse};
+    use crate::rpc::RpcRouter;
+    use crate::storage::Storage;
+
+    fn router_with_master_password(master_password: &str) -> (TempDir, RpcRouter) {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let storage = Storage::new(temp_dir.path()).expect("storage");
+        let router = RpcRouter::new(storage).with_keystore(Arc::new(InMemoryKeystore::new()));
+        router
+            .ensure_master_setup(master_password)
+            .expect("master setup");
+        (temp_dir, router.with_master_key(master_password))
+    }
+
+    #[test]
+    fn local_backup_start_accepts_master_password_without_unlocked_vault() {
+        let (_temp_dir, mut router) = router_with_master_password("secret");
+        assert!(!router.is_unlocked());
+
+        let response = router.handle(&RpcRequest::new("backup:local:start", json!({})));
+
+        match response {
+            RpcResponse::Success { result, .. } => {
+                let backup_id = result
+                    .get("backup_id")
+                    .and_then(|value| value.as_str())
+                    .expect("backup_id");
+                assert!(backup_id.starts_with("backup-"));
+            }
+            RpcResponse::Error { error, .. } => panic!("unexpected backup error: {error}"),
+        }
+    }
+
+    #[test]
+    fn local_backup_start_requires_transient_master_password_not_unlocked_vault() {
+        let (_temp_dir, mut router) = router_with_master_password("secret");
+        router.set_master_key(None);
+
+        let response = router.handle(&RpcRequest::new("backup:local:start", json!({})));
+
+        match response {
+            RpcResponse::Error { error, code, .. } => {
+                assert_eq!(error, "Master password required");
+                assert_eq!(code.as_deref(), Some("EMPTY_PAYLOAD"));
+            }
+            RpcResponse::Success { .. } => panic!("backup unexpectedly started"),
+        }
+    }
+
+    #[test]
+    fn local_backup_start_rejects_wrong_master_password_before_session_start() {
+        let (_temp_dir, mut router) = router_with_master_password("secret");
+        router.set_master_key(Some("wrong".to_string()));
+
+        let response = router.handle(&RpcRequest::new("backup:local:start", json!({})));
+
+        match response {
+            RpcResponse::Error { error, code, .. } => {
+                assert_eq!(error, "Invalid master password");
+                assert_eq!(code.as_deref(), Some("INVALID_MASTER_PASSWORD"));
+                assert!(!router.backup_local_is_active());
+            }
+            RpcResponse::Success { .. } => panic!("backup unexpectedly started"),
+        }
     }
 }

@@ -61,6 +61,22 @@ fn connection_state_is_copy() {
     assert_eq!(state, copied);
 }
 
+#[test]
+fn remote_host_mobile_usb_serializes_tagged_host() {
+    let host = RemoteHost::MobileUsb {
+        host_id: "host-1".to_string(),
+        label: Some("Pixel Host".to_string()),
+        platform: "android".to_string(),
+    };
+
+    let json = serde_json::to_value(&host).expect("serialize host");
+
+    assert_eq!(json["type"], "mobile_usb");
+    assert_eq!(json["host_id"], "host-1");
+    assert_eq!(json["label"], "Pixel Host");
+    assert_eq!(json["platform"], "android");
+}
+
 #[cfg(desktop)]
 #[test]
 fn remote_media_cancel_try_send_requires_split_feature() {

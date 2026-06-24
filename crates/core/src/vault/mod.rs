@@ -11,6 +11,9 @@ mod loading;
 mod rekey;
 mod session;
 
+pub use catalog_persistence::{
+    CatalogRepairDiagnosis, CatalogRepairIssue, CatalogRepairOutcomeSummary, CatalogRepairStatus,
+};
 pub(crate) use decrypted_chunk_cache::{DecryptedChunkCache, DecryptedChunkCacheKey};
 pub use rekey::{VaultRekeyProgress, VaultRekeyRequest, VaultRekeyResult};
-pub use session::{Vault, VaultSession};
+pub use session::{Vault, VaultSession, VaultUnlockOutcome};

@@ -75,17 +75,7 @@ export abstract class PMGroupCreateBase extends ReatomLitElement {
     const placeholder = options.placeholder ?? i18n('group:name:placeholder')
 
     return html`
-      <cv-input
-        type="text"
-        size="small"
-        name="name"
-        autocomplete="card-title"
-        maxlength=${GROUP_CREATE_NAME_MAX_LENGTH}
-        ?autofocus=${this.shouldAutofocusNameField()}
-        placeholder=${placeholder}
-        .value=${this.model.name()}
-        @cv-input=${this.onNameInput}
-      >
+      <cv-field ?required=${options.required}>
         <span slot="label" class="field-label">
           <span class="field-label-text">
             ${label}${options.required
@@ -96,7 +86,19 @@ export abstract class PMGroupCreateBase extends ReatomLitElement {
             ? html`<span class="field-counter" aria-live="polite">${options.counterLabel}</span>`
             : nothing}
         </span>
-      </cv-input>
+        <cv-input
+          type="text"
+          size="small"
+          name="name"
+          autocomplete="card-title"
+          maxlength=${GROUP_CREATE_NAME_MAX_LENGTH}
+          ?autofocus=${this.shouldAutofocusNameField()}
+          placeholder=${placeholder}
+          .value=${this.model.name()}
+          ?required=${options.required}
+          @cv-input=${this.onNameInput}
+        ></cv-input>
+      </cv-field>
     `
   }
 
@@ -105,22 +107,23 @@ export abstract class PMGroupCreateBase extends ReatomLitElement {
     const placeholder = options.placeholder ?? i18n('group:description:placeholder')
 
     return html`
-      <cv-textarea
-        name="description"
-        size="small"
-        rows="3"
-        maxlength=${GROUP_CREATE_DESCRIPTION_MAX_LENGTH}
-        placeholder=${placeholder}
-        .value=${this.model.description()}
-        @cv-input=${this.onDescriptionInput}
-      >
+      <cv-field>
         <span slot="label" class="field-label">
           <span class="field-label-text">${label}</span>
           ${options.counterLabel
             ? html`<span class="field-counter" aria-live="polite">${options.counterLabel}</span>`
             : nothing}
         </span>
-      </cv-textarea>
+        <cv-textarea
+          name="description"
+          size="small"
+          rows="3"
+          maxlength=${GROUP_CREATE_DESCRIPTION_MAX_LENGTH}
+          placeholder=${placeholder}
+          .value=${this.model.description()}
+          @cv-input=${this.onDescriptionInput}
+        ></cv-textarea>
+      </cv-field>
     `
   }
 

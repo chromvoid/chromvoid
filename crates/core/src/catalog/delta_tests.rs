@@ -15,6 +15,12 @@ fn create_test_tree() -> CatalogNode {
     root
 }
 
+fn replay_reason(mut root: CatalogNode, delta: DeltaEntry) -> CatalogReplayReason {
+    apply_delta(&mut root, &delta)
+        .expect_err("delta should fail")
+        .reason
+}
+
 #[test]
 fn test_delta_entry_create() {
     let node = CatalogNode::new_file(10, "test.txt".to_string(), 50, None);
@@ -86,7 +92,9 @@ fn test_apply_delta_create() {
     let new_file = CatalogNode::new_file(10, "new.txt".to_string(), 50, None);
     let delta = DeltaEntry::create(1, "/docs", new_file);
 
-    assert!(apply_delta(&mut root, &delta));
+    assert!(apply_delta(&mut root, &delta)
+        .expect("delta applies")
+        .is_applied());
 
     let docs = root.find_child("docs").unwrap();
     assert!(docs.find_child("new.txt").is_some());
@@ -101,7 +109,9 @@ fn test_apply_delta_update() {
     };
     let delta = DeltaEntry::update(1, "/docs/readme.txt", fields);
 
-    assert!(apply_delta(&mut root, &delta));
+    assert!(apply_delta(&mut root, &delta)
+        .expect("delta applies")
+        .is_applied());
 
     let docs = root.find_child("docs").unwrap();
     let readme = docs.find_child("readme.txt").unwrap();
@@ -123,7 +133,9 @@ fn test_apply_delta_sets_media_info() {
     };
     let delta = DeltaEntry::update(1, "/docs/readme.txt", fields);
 
-    assert!(apply_delta(&mut root, &delta));
+    assert!(apply_delta(&mut root, &delta)
+        .expect("delta applies")
+        .is_applied());
 
     let docs = root.find_child("docs").unwrap();
     let readme = docs.find_child("readme.txt").unwrap();
@@ -148,7 +160,9 @@ fn test_apply_delta_clears_media_info() {
     };
     let delta = DeltaEntry::update(1, "/docs/readme.txt", fields);
 
-    assert!(apply_delta(&mut root, &delta));
+    assert!(apply_delta(&mut root, &delta)
+        .expect("delta applies")
+        .is_applied());
 
     let docs = root.find_child("docs").unwrap();
     let readme = docs.find_child("readme.txt").unwrap();
@@ -174,7 +188,9 @@ fn test_apply_delta_preserves_media_info_when_absent() {
     };
     let delta = DeltaEntry::update(1, "/docs/readme.txt", fields);
 
-    assert!(apply_delta(&mut root, &delta));
+    assert!(apply_delta(&mut root, &delta)
+        .expect("delta applies")
+        .is_applied());
 
     let docs = root.find_child("docs").unwrap();
     let readme = docs.find_child("readme.txt").unwrap();
@@ -228,7 +244,9 @@ fn test_apply_delta_delete() {
     let mut root = create_test_tree();
     let delta = DeltaEntry::delete(1, "/docs/readme.txt");
 
-    assert!(apply_delta(&mut root, &delta));
+    assert!(apply_delta(&mut root, &delta)
+        .expect("delta applies")
+        .is_applied());
 
     let docs = root.find_child("docs").unwrap();
     assert!(docs.find_child("readme.txt").is_none());
@@ -239,7 +257,9 @@ fn test_apply_delta_move() {
     let mut root = create_test_tree();
     let delta = DeltaEntry::move_node(1, "/docs/readme.txt", "/images", None);
 
-    assert!(apply_delta(&mut root, &delta));
+    assert!(apply_delta(&mut root, &delta)
+        .expect("delta applies")
+        .is_applied());
 
     let docs = root.find_child("docs").unwrap();
     assert!(docs.find_child("readme.txt").is_none());
@@ -258,7 +278,9 @@ fn test_apply_delta_move_with_rename() {
         Some("moved.txt".to_string()),
     );
 
-    assert!(apply_delta(&mut root, &delta));
+    assert!(apply_delta(&mut root, &delta)
+        .expect("delta applies")
+        .is_applied());
 
     let images = root.find_child("images").unwrap();
     assert!(images.find_child("moved.txt").is_some());
@@ -313,6 +335,129 @@ fn test_apply_deltas_missing_target_rolls_back_prior_changes() {
 }
 
 #[test]
+fn test_apply_delta_reports_missing_source() {
+    let delta = DeltaEntry::update(1, "/docs/missing.txt", PartialNode::default());
+
+    assert_eq!(
+        replay_reason(create_test_tree(), delta),
+        CatalogReplayReason::MissingSource
+    );
+}
+
+#[test]
+fn test_apply_delta_reports_missing_target_parent() {
+    let delta = DeltaEntry::move_node(1, "/docs/readme.txt", "/missing", None);
+
+    assert_eq!(
+        replay_reason(create_test_tree(), delta),
+        CatalogReplayReason::MissingTargetParent
+    );
+}
+
+#[test]
+fn test_apply_delta_reports_node_id_mismatch() {
+    let delta = DeltaEntry::update(1, "/docs/readme.txt", PartialNode::default()).with_node_id(999);
+
+    assert_eq!(
+        replay_reason(create_test_tree(), delta),
+        CatalogReplayReason::NodeIdMismatch
+    );
+}
+
+#[test]
+fn test_apply_delta_reports_name_collision() {
+    let delta = DeltaEntry::create(
+        1,
+        "/docs",
+        CatalogNode::new_file(10, "readme.txt".to_string(), 50, None),
+    );
+
+    assert_eq!(
+        replay_reason(create_test_tree(), delta),
+        CatalogReplayReason::NameCollision
+    );
+}
+
+#[test]
+fn test_apply_delta_reports_invalid_parent() {
+    let delta = DeltaEntry::create(
+        1,
+        "/docs/readme.txt",
+        CatalogNode::new_file(10, "nested.txt".to_string(), 50, None),
+    );
+
+    assert_eq!(
+        replay_reason(create_test_tree(), delta),
+        CatalogReplayReason::InvalidParent
+    );
+}
+
+#[test]
+fn test_apply_delta_reports_malformed_path() {
+    let delta = DeltaEntry::delete(1, "readme.txt");
+
+    assert_eq!(
+        replay_reason(create_test_tree(), delta),
+        CatalogReplayReason::MalformedPath
+    );
+}
+
+#[test]
+fn test_apply_delta_idempotent_delete_requires_node_id() {
+    let mut root = create_test_tree();
+    let delta = DeltaEntry::delete(1, "/docs/missing.txt").with_node_id(99);
+
+    let outcome = apply_delta(&mut root, &delta).expect("node id absence is lossless");
+    assert!(outcome.is_already_applied());
+}
+
+#[test]
+fn test_apply_delta_path_only_delete_missing_source_is_unsafe() {
+    let delta = DeltaEntry::delete(1, "/docs/missing.txt");
+
+    assert_eq!(
+        replay_reason(create_test_tree(), delta),
+        CatalogReplayReason::MissingSource
+    );
+}
+
+#[test]
+fn test_apply_delta_idempotent_move_requires_destination_node_id_match() {
+    let mut root = create_test_tree();
+    {
+        let docs = root.find_child_mut("docs").unwrap();
+        docs.children_mut()
+            .unwrap()
+            .retain(|child| child.name != "readme.txt");
+    }
+    let images = root.find_child_mut("images").unwrap();
+    images.add_child(CatalogNode::new_file(
+        2,
+        "readme.txt".to_string(),
+        100,
+        None,
+    ));
+
+    let delta = DeltaEntry::move_node(1, "/docs/readme.txt", "/images", None).with_node_id(2);
+
+    let outcome = apply_delta(&mut root, &delta).expect("destination proves idempotent move");
+    assert!(outcome.is_already_applied());
+}
+
+#[test]
+fn test_apply_delta_idempotent_create_requires_same_node_id_and_name() {
+    let mut root = create_test_tree();
+    let delta = DeltaEntry::create(
+        1,
+        "/docs",
+        CatalogNode::new_file(2, "readme.txt".to_string(), 100, None),
+    );
+
+    let outcome = apply_delta(&mut root, &delta).expect("existing node proves idempotent create");
+    assert!(outcome.is_already_applied());
+}
+
+#[test]
 fn test_find_node_mut_root() {
     let mut root = create_test_tree();
 
@@ -344,7 +489,7 @@ fn test_apply_delta_move_missing_target_keeps_node_in_old_parent() {
     let delta = DeltaEntry::move_node(1, "/docs/readme.txt", "/nonexistent", None);
 
     // The delta cannot be applied...
-    assert!(!apply_delta(&mut root, &delta));
+    assert!(apply_delta(&mut root, &delta).is_err());
 
     // ...but the node must NOT be dropped: it stays in its old parent.
     let docs = root.find_child("docs").unwrap();
@@ -361,7 +506,7 @@ fn test_apply_delta_move_with_rename_missing_target_restores_original_name() {
         Some("moved.txt".to_string()),
     );
 
-    assert!(!apply_delta(&mut root, &delta));
+    assert!(apply_delta(&mut root, &delta).is_err());
 
     let docs = root.find_child("docs").unwrap();
     assert!(docs.find_child("readme.txt").is_some());

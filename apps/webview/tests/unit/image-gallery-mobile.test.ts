@@ -6,6 +6,7 @@ import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/r
 import {ImageGalleryMobile} from '../../src/features/media/components/image-gallery-mobile/image-gallery-mobile'
 import {MobileThumbnailStripFollowController} from '../../src/features/media/components/image-gallery-mobile/image-gallery-mobile-thumbnail-strip-scroll-controller'
 import {ImageGalleryMobileTrack} from '../../src/features/media/components/image-gallery-mobile/image-gallery-mobile-track'
+import type {CVImageViewer} from '@chromvoid/uikit/components/cv-image-viewer'
 import type {
   MobileGalleryBackAction,
   MobileGalleryTrackSlot,
@@ -129,6 +130,10 @@ async function flush(element: ImageGalleryMobile) {
   await element.updateComplete
   await Promise.resolve()
 
+  const viewer = element.shadowRoot?.querySelector<CVImageViewer>('cv-image-viewer')
+  await viewer?.updateComplete
+  await Promise.resolve()
+
   const trackHost = element.shadowRoot?.querySelector<HTMLElement & {updateComplete?: Promise<unknown>}>(
     'image-gallery-mobile-track',
   )
@@ -242,12 +247,22 @@ function getThumbnailStripHost(element: ImageGalleryMobile) {
   return stripHost
 }
 
+function getViewer(element: ImageGalleryMobile) {
+  const viewer = element.shadowRoot?.querySelector('cv-image-viewer') as CVImageViewer | null
+  expect(viewer).not.toBeNull()
+  return viewer!
+}
+
+function queryViewer<T extends Element = Element>(element: ImageGalleryMobile, selector: string) {
+  return getViewer(element).shadowRoot?.querySelector<T>(selector) ?? null
+}
+
 function settle(element: ImageGalleryMobile) {
   getTrack(element)?.dispatchEvent(new Event('transitionend'))
 }
 
-async function clickHeaderMenuAction(element: ImageGalleryMobile, action: string) {
-  const item = element.shadowRoot?.querySelector<HTMLElement>(`cv-menu-button cv-menu-item[value="${action}"]`)
+async function clickViewerAction(element: ImageGalleryMobile, action: string) {
+  const item = queryViewer<HTMLElement>(element, `[data-action="${action}"]`)
   expect(item).not.toBeNull()
 
   item?.click()
@@ -325,7 +340,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
     })
 
     const withoutSave = await mountGallery()
-    expect(withoutSave.shadowRoot?.querySelector('cv-menu-item[value="save-to-gallery"]')).toBeNull()
+    expect(queryViewer(withoutSave, '[data-action="save-to-gallery"]')).toBeNull()
 
     withoutSave.remove()
 
@@ -336,29 +351,66 @@ describe('image-gallery-mobile fast swipe queue', () => {
     })
 
     const withSave = await mountGallery()
-    expect(withSave.shadowRoot?.querySelector('cv-menu-item[value="save-to-gallery"]')).not.toBeNull()
+    expect(queryViewer(withSave, '[data-action="save-to-gallery"]')).not.toBeNull()
   })
 
-  it('keeps mobile header info and overflow action order stable', async () => {
+  it('keeps mobile viewer info and overflow action order stable', async () => {
     const element = await mountGallery()
 
     expect(
-      [...(element.shadowRoot?.querySelectorAll<HTMLElement>('.header-actions [data-action]') ?? [])].map(
+      [...(getViewer(element).shadowRoot?.querySelectorAll<HTMLElement>('[data-action]') ?? [])].map(
         (button) => button.dataset['action'],
       ),
-    ).toEqual(['info'])
+    ).toEqual(['download', 'open-external', 'info', 'save-to-gallery', 'share', 'delete'])
 
     expect(
-      [...(element.shadowRoot?.querySelectorAll<HTMLElement>('cv-menu-button cv-menu-item') ?? [])].map(
-        (item) => item.getAttribute('value'),
-      ),
-    ).toEqual(['download', 'open-external', 'save-to-gallery', 'share', 'delete'])
+      [
+        ...(getViewer(element).shadowRoot?.querySelectorAll<HTMLElement>('cv-menu-button cv-menu-item') ??
+          []),
+      ].map((item) => item.getAttribute('value')),
+    ).toEqual(['save-to-gallery', 'share', 'delete'])
 
-    const deleteAction = element.shadowRoot?.querySelector<HTMLElement>(
-      'cv-menu-button cv-menu-item[value="delete"]',
-    )
+    const deleteAction = queryViewer<HTMLElement>(element, 'cv-menu-button cv-menu-item[value="delete"]')
     expect(deleteAction).not.toBeNull()
-    expect(deleteAction?.classList.contains('danger')).toBe(true)
+    expect(deleteAction?.getAttribute('data-dangerous')).toBe('true')
+  })
+
+  it('uses viewer input events for direct mobile navigation', async () => {
+    const element = await mountGallery()
+    const navigates: Array<{index: number; direction: string}> = []
+    element.addEventListener('navigate', ((event: CustomEvent<{index: number; direction: string}>) => {
+      navigates.push(event.detail)
+    }) as EventListener)
+
+    getViewer(element).dispatchEvent(
+      new CustomEvent('cv-input', {
+        detail: {index: 2, itemId: 3, direction: 'forward', source: 'control'},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    await flush(element)
+
+    expect(element.model.navigate).toHaveBeenCalledWith(2, {syncThumbnailCenter: false})
+    expect(navigates).toEqual([{index: 2, direction: 'forward'}])
+  })
+
+  it('does not emit duplicate mobile navigation from committed viewer changes', async () => {
+    const element = await mountGallery()
+    const navigate = vi.fn()
+    element.addEventListener('navigate', navigate)
+
+    getViewer(element).dispatchEvent(
+      new CustomEvent('cv-change', {
+        detail: {index: 2, itemId: 3, direction: 'forward', source: 'programmatic'},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    await flush(element)
+
+    expect(element.model.navigate).not.toHaveBeenCalled()
+    expect(navigate).not.toHaveBeenCalled()
   })
 
   it('sets up an already-open mobile gallery exactly once', async () => {
@@ -415,8 +467,8 @@ describe('image-gallery-mobile fast swipe queue', () => {
 
     const element = await mountGallery()
 
-    expect(element.shadowRoot?.querySelector('cv-menu-item[value="share"]')).not.toBeNull()
-    ;(element.shadowRoot?.querySelector('[data-action="info"]') as HTMLButtonElement | null)?.click()
+    expect(queryViewer(element, '[data-action="share"]')).not.toBeNull()
+    ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
     await flush(element)
 
     expect(element.shadowRoot?.querySelector('.info-sheet-content [data-action]')).toBeNull()
@@ -425,18 +477,15 @@ describe('image-gallery-mobile fast swipe queue', () => {
   it('shows pending share state in the mobile overflow menu', async () => {
     const element = await mountGallery({sharePending: true})
 
-    const menuShare = element.shadowRoot?.querySelector<HTMLElementTagNameMap['cv-menu-item']>(
-      'cv-menu-item[value="share"]',
-    )
+    const menuShare = queryViewer<HTMLElementTagNameMap['cv-menu-item']>(element, '[data-action="share"]')
     expect(menuShare).not.toBeNull()
     expect(menuShare?.disabled).toBe(true)
     expect(menuShare?.querySelector('cv-spinner')).not.toBeNull()
-    expect(element.shadowRoot?.querySelector('.share-pending-overlay')).not.toBeNull()
-
-    ;(element.shadowRoot?.querySelector('[data-action="info"]') as HTMLButtonElement | null)?.click()
+    expect(queryViewer(element, '[part="busy-overlay"]')).not.toBeNull()
+    ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
     await flush(element)
 
-    expect(element.shadowRoot?.textContent).toContain('Preparing file...')
+    expect(getViewer(element).shadowRoot?.textContent).toContain('Preparing file...')
   })
 
   it('renders thumbnail previews for small galleries without side peeks or dots', async () => {
@@ -603,9 +652,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
     expect(syncFromProps).toHaveBeenCalled()
     expect(syncImages).toHaveBeenCalledWith(IMAGES, 1)
     expect(fillSlots).toHaveBeenCalled()
-    expect(fillSlots.mock.invocationCallOrder[0]).toBeGreaterThan(
-      syncImages.mock.invocationCallOrder[0] ?? 0,
-    )
+    expect(fillSlots.mock.invocationCallOrder[0]).toBeGreaterThan(syncImages.mock.invocationCallOrder[0] ?? 0)
   })
 
   it('keeps a consistent image shell structure when the next image becomes active', async () => {
@@ -999,8 +1046,8 @@ describe('image-gallery-mobile fast swipe queue', () => {
     swipeLeft(element)
     settle(element)
     await flush(element)
-    await clickHeaderMenuAction(element, 'save-to-gallery')
-    await clickHeaderMenuAction(element, 'share')
+    await clickViewerAction(element, 'save-to-gallery')
+    await clickViewerAction(element, 'share')
 
     expect(actions).toEqual([
       {action: 'save-to-gallery', fileId: 2},
@@ -1014,20 +1061,20 @@ describe('image-gallery-mobile fast swipe queue', () => {
     element.addEventListener('action', ((event: CustomEvent<{action: string; fileId: number}>) => {
       actions.push(event.detail)
     }) as EventListener)
-    ;(element.shadowRoot?.querySelector('[data-action="info"]') as HTMLButtonElement | null)?.click()
+    ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
     await flush(element)
     expect(element.infoSheetOpen).toBe(true)
     expect(element.infoSheetDetent).toBe('middle')
-    await clickHeaderMenuAction(element, 'download')
+    await clickViewerAction(element, 'download')
     expect(actions).toEqual([{action: 'download', fileId: 2}])
     expect(element.infoSheetOpen).toBe(false)
-    ;(element.shadowRoot?.querySelector('[data-action="info"]') as HTMLButtonElement | null)?.click()
+    ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
     await flush(element)
-    await clickHeaderMenuAction(element, 'open-external')
+    await clickViewerAction(element, 'open-external')
     expect(element.infoSheetOpen).toBe(false)
-    ;(element.shadowRoot?.querySelector('[data-action="info"]') as HTMLButtonElement | null)?.click()
+    ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
     await flush(element)
-    await clickHeaderMenuAction(element, 'delete')
+    await clickViewerAction(element, 'delete')
 
     expect(actions).toEqual([
       {action: 'download', fileId: 2},
@@ -1042,8 +1089,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
     const goBackFromUi = vi.spyOn(navigationModel, 'goBackFromUi').mockReturnValue(true)
     const close = vi.fn()
     element.addEventListener('close', close)
-
-    ;(element.shadowRoot?.querySelector('[data-action="info"]') as HTMLButtonElement | null)?.click()
+    ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
     await flush(element)
     expect(element.infoSheetOpen).toBe(true)
 
@@ -1073,20 +1119,30 @@ describe('image-gallery-mobile fast swipe queue', () => {
 
   it('closes the info sheet only when the sheet surface reports open=false', async () => {
     const element = await mountGallery()
-    ;(element.shadowRoot?.querySelector('[data-action="info"]') as HTMLButtonElement | null)?.click()
+    ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
     await flush(element)
     expect(element.infoSheetDetent).toBe('middle')
 
     const sheet = element.shadowRoot?.querySelector('cv-bottom-sheet') as HTMLElement | null
     expect(sheet).not.toBeNull()
 
-    sheet?.dispatchEvent(new CustomEvent('cv-change', {detail: {value: 'metadata'}, bubbles: true, composed: true}))
+    sheet?.dispatchEvent(
+      new CustomEvent('cv-change', {
+        detail: {value: 'metadata'},
+        bubbles: true,
+        composed: true,
+      }),
+    )
     await flush(element)
     expect(element.infoSheetOpen).toBe(true)
     expect(element.infoSheetDetent).toBe('middle')
 
     sheet?.dispatchEvent(
-      new CustomEvent('cv-change', {detail: {open: true, detent: 'expanded'}, bubbles: true, composed: true}),
+      new CustomEvent('cv-change', {
+        detail: {open: true, detent: 'expanded'},
+        bubbles: true,
+        composed: true,
+      }),
     )
     await flush(element)
     expect(element.infoSheetOpen).toBe(true)
@@ -1113,7 +1169,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
       ],
     })
 
-    ;(element.shadowRoot?.querySelector('[data-action="info"]') as HTMLButtonElement | null)?.click()
+    ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
     await flush(element)
     element.mobileModel.state.photoMetadata.set({
       width: 4000,
@@ -1212,7 +1268,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
       ],
     })
 
-    ;(element.shadowRoot?.querySelector('[data-action="info"]') as HTMLButtonElement | null)?.click()
+    ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
 
     await vi.waitFor(() => {
       expect(imageMetadata).toHaveBeenCalledWith(10, {
@@ -1254,7 +1310,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
       ],
     })
 
-    ;(element.shadowRoot?.querySelector('[data-action="info"]') as HTMLButtonElement | null)?.click()
+    ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
     await flush(element)
     element.mobileModel.state.photoMetadata.set({
       gpsDiagnostic: {
@@ -1285,7 +1341,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
   it('renders photo metadata loading and empty states without a toast-style error', async () => {
     const element = await mountGallery()
 
-    ;(element.shadowRoot?.querySelector('[data-action="info"]') as HTMLButtonElement | null)?.click()
+    ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
     await flush(element)
 
     element.mobileModel.state.photoMetadata.set(null)
@@ -1294,7 +1350,9 @@ describe('image-gallery-mobile fast swipe queue', () => {
     element.requestUpdate()
     await flush(element)
 
-    expect(element.shadowRoot?.querySelector('.info-sheet-content')?.textContent).toContain('Loading photo metadata...')
+    expect(element.shadowRoot?.querySelector('.info-sheet-content')?.textContent).toContain(
+      'Loading photo metadata...',
+    )
 
     element.mobileModel.state.photoMetadataLoading.set(false)
     element.mobileModel.state.photoMetadataError.set('Unsupported image')
@@ -1752,7 +1810,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
     const element = await mountGallery({currentIndex: 1})
     const trackHost = getTrackHost(element)
 
-    ;(element.shadowRoot?.querySelector('[data-action="info"]') as HTMLButtonElement | null)?.click()
+    ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
     await flush(element)
 
     expect(getTrackHost(element)).toBe(trackHost)

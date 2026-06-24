@@ -1,18 +1,20 @@
-import {css, nothing} from 'lit'
-import {html} from '@chromvoid/uikit/reatom-lit'
+import { css, nothing } from "lit";
+import { html } from "@chromvoid/uikit/reatom-lit";
+import { CVOperationQueue } from "@chromvoid/uikit/components/cv-operation-queue";
 
-import {i18n} from 'root/i18n'
-import {hostContentContainStyles, sharedStyles} from 'root/shared/ui/shared-styles'
+import { i18n } from "root/i18n";
+import { hostContentContainStyles, sharedStyles } from "root/shared/ui/shared-styles";
 
-import {formatFileSize} from './upload-progress.model'
-import {UploadProgressBase} from './upload-progress.base'
+import { formatFileSize } from "./upload-progress.model";
+import { UploadProgressBase } from "./upload-progress.base";
 
-import './upload-task-item'
+import "./upload-task-item";
 
 export class UploadProgressDesktop extends UploadProgressBase {
   static define() {
-    if (!customElements.get('upload-progress-desktop')) {
-      customElements.define('upload-progress-desktop', this)
+    CVOperationQueue.define();
+    if (!customElements.get("upload-progress-desktop")) {
+      customElements.define("upload-progress-desktop", this);
     }
   }
 
@@ -26,14 +28,25 @@ export class UploadProgressDesktop extends UploadProgressBase {
       }
 
       .upload-panel {
+        display: block;
         background: var(--cv-color-surface);
         border-radius: var(--cv-radius-2);
         box-shadow: var(--cv-shadow-2);
         border: 1px solid var(--cv-color-border);
         overflow: hidden;
+        --cv-operation-queue-padding: 0;
+        --cv-operation-queue-border: 0;
+        --cv-operation-queue-radius: 0;
+        --cv-operation-queue-background: transparent;
+        --cv-operation-queue-shadow: 0 0 0 transparent;
+        --cv-operation-queue-busy-line-opacity: 0;
       }
 
-      .panel-header {
+      cv-operation-queue.upload-panel::part(base) {
+        gap: 0;
+      }
+
+      cv-operation-queue.upload-panel::part(header) {
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -49,11 +62,20 @@ export class UploadProgressDesktop extends UploadProgressBase {
         }
       }
 
+      cv-operation-queue.upload-panel::part(body) {
+        min-block-size: 0;
+      }
+
+      cv-operation-queue.upload-panel::part(footer) {
+        display: none;
+      }
+
       .header-title {
         display: flex;
         align-items: center;
         gap: 8px;
         font-weight: 600;
+        cursor: pointer;
       }
 
       .header-spinner {
@@ -144,55 +166,63 @@ export class UploadProgressDesktop extends UploadProgressBase {
         color: var(--cv-color-text-muted);
       }
     `,
-  ]
+  ];
 
-  private onClearClick = (e: Event) => {
-    e.stopPropagation()
-    this.model.clearCompleted()
+  private onClearClick(e: Event) {
+    e.stopPropagation();
+    this.model.clearCompleted();
   }
 
   render() {
-    const m = this.model
-    if (!m) return nothing
+    const m = this.model;
+    if (!m) return nothing;
 
-    const tasks = m.tasks()
-    const stats = m.stats()
-    const primaryStats = m.primaryStats()
-    const displayedProgress = m.primaryDisplay.progress()
-    const displayedLoadedBytes = m.primaryDisplay.loadedBytes()
-    const minimized = m.minimized()
+    const tasks = m.tasks();
+    const stats = m.stats();
+    const primaryStats = m.primaryStats();
+    const summary = m.hudSummary();
+    const displayedProgress = m.primaryDisplay.progress();
+    const displayedLoadedBytes = m.primaryDisplay.loadedBytes();
+    const minimized = m.minimized();
+    const queueTone = summary.tone === "active" ? "info" : summary.tone;
 
     return html`
-      <div class="upload-panel">
-        <div class="panel-header" @click=${m.toggleMinimize}>
-          <div class="header-title">
+      <cv-operation-queue
+        class="upload-panel"
+        .label=${i18n("file-manager:transfers", { total: String(stats.total) })}
+        .busy=${m.hasActiveTransfers()}
+        .tone=${queueTone}
+      >
+          <div slot="summary" class="header-title" @click=${m.toggleMinimize}>
             <cv-icon name=${m.headerIcon()}></cv-icon>
-            <span>${i18n('file-manager:transfers', {total: String(stats.total)})}</span>
-            ${m.hasActiveTransfers()
-              ? html`<cv-spinner
+            <span>${i18n("file-manager:transfers", { total: String(stats.total) })}</span>
+            ${
+              m.hasActiveTransfers()
+                ? html`<cv-spinner
                   class="header-spinner"
-                  label=${i18n('file-manager:transfers-progress')}
+                  label=${i18n("file-manager:transfers-progress")}
                 ></cv-spinner>`
-              : ''}
+                : ""
+            }
           </div>
-          <div class="header-controls">
+          <div slot="actions" class="header-controls">
             <cv-button unstyled
               class="header-btn"
               @click=${this.onClearClick}
-              title=${i18n('button:clear-completed')}
+              title=${i18n("button:clear-completed")}
             >
               <cv-icon name="trash"></cv-icon>
             </cv-button>
             <cv-button unstyled
               class="header-btn"
-              title=${i18n(minimized ? ('button:expand') : ('button:collapse'))}
+              @click=${m.toggleMinimize}
+              title=${i18n(minimized ? "button:expand" : "button:collapse")}
             >
-              <cv-icon name=${minimized ? 'chevron-up' : 'chevron-down'}></cv-icon>
+              <cv-icon name=${minimized ? "chevron-up" : "chevron-down"}></cv-icon>
             </cv-button>
           </div>
-        </div>
 
-        <div class="collapsible-wrapper ${minimized ? 'collapsed' : ''}">
+        <div class="collapsible-wrapper ${minimized ? "collapsed" : ""}">
           <div class="collapsible-content">
             <div class="tasks-container">
               ${tasks.map((task) => html`<upload-task-item .task=${task}></upload-task-item>`)}
@@ -202,12 +232,12 @@ export class UploadProgressDesktop extends UploadProgressBase {
               <div class="overall-stats">
                 <div class="overall-progress-info">
                   <span
-                    >${i18n('file-manager:overall-progress', {
+                    >${i18n("file-manager:overall-progress", {
                       progress: String(Math.round(displayedProgress)),
                     })}</span
                   >
                   <span
-                    >${i18n('file-manager:completed-of-total', {
+                    >${i18n("file-manager:completed-of-total", {
                       completed: String(primaryStats.completed),
                       total: String(primaryStats.total),
                     })}</span
@@ -218,7 +248,7 @@ export class UploadProgressDesktop extends UploadProgressBase {
                   tone="upload"
                   value=${displayedProgress}
                   ?indeterminate=${primaryStats.uploading > 0 && primaryStats.totalBytes <= 0}
-                  aria-label=${i18n('file-manager:transfers-progress')}
+                  aria-label=${i18n("file-manager:transfers-progress")}
                 ></cv-progress>
                 <div class="overall-size-info">
                   ${formatFileSize(displayedLoadedBytes)} / ${formatFileSize(primaryStats.totalBytes)}
@@ -227,9 +257,9 @@ export class UploadProgressDesktop extends UploadProgressBase {
             </div>
           </div>
         </div>
-      </div>
-    `
+      </cv-operation-queue>
+    `;
   }
 }
 
-UploadProgressDesktop.define()
+UploadProgressDesktop.define();

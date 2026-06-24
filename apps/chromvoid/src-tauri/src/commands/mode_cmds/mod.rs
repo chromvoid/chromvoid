@@ -2,7 +2,6 @@ mod commands;
 mod helpers;
 mod ios_connect;
 mod models;
-mod noise_handshake;
 #[cfg(test)]
 mod tests;
 

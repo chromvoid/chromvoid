@@ -53,6 +53,16 @@ pub enum RpcCommand {
     #[serde(rename = "vault:unlock")]
     VaultUnlock { password: String },
 
+    #[serde(rename = "vault:repair:diagnose")]
+    VaultRepairDiagnose { password: String },
+
+    #[serde(rename = "vault:repair:apply")]
+    VaultRepairApply {
+        password: String,
+        repair_id: String,
+        allow_lossy: bool,
+    },
+
     #[serde(rename = "vault:lock")]
     VaultLock {},
 

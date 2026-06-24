@@ -120,4 +120,70 @@ describe('remoteSessionModel', () => {
 
     resetSpy.mockRestore()
   })
+
+  it('tracks mobile USB remote host sessions by host_id', async () => {
+    const remoteSessionState = atom<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive')
+    const remoteSessionPeerId = atom<string | null>(null)
+
+    initAppContext(
+      createMockAppContext({
+        store: {
+          remoteSessionState,
+          remoteSessionPeerId,
+          setRemoteSessionWaiting: (peerId: string | null) => {
+            remoteSessionPeerId.set(peerId)
+            remoteSessionState.set('waiting_host_unlock')
+          },
+          setRemoteSessionReady: (peerId: string | null) => {
+            remoteSessionPeerId.set(peerId)
+            remoteSessionState.set('ready')
+          },
+          resetRemoteSession: () => {
+            remoteSessionPeerId.set(null)
+            remoteSessionState.set('inactive')
+          },
+          handleRemoteHostLocked: vi.fn(),
+        } as never,
+      }),
+    )
+
+    tauriInvoke.mockImplementation(async (command: string) => {
+      if (command === 'mode_status') {
+        return {
+          mode: {
+            remote: {
+              host: {
+                type: 'mobile_usb',
+                host_id: 'usb-host-1',
+                label: 'Pixel Host',
+                platform: 'android',
+              },
+            },
+          },
+          connection_state: 'ready',
+          transport_type: 'usb_mobile',
+        }
+      }
+
+      if (command === 'rpc_dispatch') {
+        return {
+          ok: true,
+          result: {
+            command: 'vault:status',
+            result: {
+              is_unlocked: false,
+              session_started_at: null,
+            },
+          },
+        }
+      }
+
+      throw new Error(`unexpected command: ${command}`)
+    })
+
+    await remoteSessionModel.connect()
+
+    expect(remoteSessionState()).toBe('waiting_host_unlock')
+    expect(remoteSessionPeerId()).toBe('usb-host-1')
+  })
 })

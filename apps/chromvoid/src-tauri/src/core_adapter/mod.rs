@@ -7,6 +7,8 @@ mod windows;
 
 pub use local::LocalCoreAdapter;
 #[cfg(desktop)]
+pub(crate) use remote::parse_capability_features;
+#[cfg(desktop)]
 pub use remote::RemoteCoreAdapter;
 pub use types::ConnectionState;
 #[cfg(any(desktop, test))]

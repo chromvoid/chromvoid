@@ -151,6 +151,11 @@ export class RemotePageModel {
       return
     }
 
+    if (requestedPanel === 'usb-mobile' && this.remoteHosts.view() !== 'usb-mobile') {
+      this.remoteHosts.openUsbMobile()
+      return
+    }
+
     if (requestedPanel === 'hosts' && this.remoteHosts.view() !== 'hosts') {
       this.remoteHosts.showHosts()
     }
@@ -159,6 +164,11 @@ export class RemotePageModel {
   openPairIos = (): void => {
     navigationModel.navigateToRemotePanel('pair-ios')
     this.remoteHosts.openPairIos()
+  }
+
+  openUsbMobile = (): void => {
+    navigationModel.navigateToRemotePanel('usb-mobile')
+    this.remoteHosts.openUsbMobile({scan: true})
   }
 
   backToHosts = (): void => {

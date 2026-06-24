@@ -2,7 +2,6 @@ import {css} from 'lit'
 import {animationStyles, spinIndicatorStyles} from 'root/shared/ui/shared-styles'
 
 export const imageGalleryMobileStyles = [
-  animationStyles,
   css`
     :host {
       display: block;
@@ -14,18 +13,6 @@ export const imageGalleryMobileStyles = [
       --image-gallery-mobile-image-transition: transform 0.18s ease-out;
     }
 
-    .overlay {
-      position: fixed;
-      inset: 0;
-      z-index: 1000;
-      background: var(--cv-alpha-black-95);
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      animation: fadeIn 0.2s ease-out;
-    }
-
-    .header,
     .footer {
       position: relative;
       z-index: 3;
@@ -34,137 +21,33 @@ export const imageGalleryMobileStyles = [
         transform 0.18s ease;
     }
 
-    .header.hidden,
     .footer.hidden {
       opacity: 0;
       pointer-events: none;
-    }
-
-    .header.hidden {
-      transform: translateY(-8px);
-    }
-
-    .footer.hidden {
       transform: translateY(8px);
     }
 
-    .header {
-      display: grid;
-      grid-template-columns: 44px minmax(0, 1fr) auto;
-      align-items: center;
-      gap: var(--app-spacing-2);
-      isolation: isolate;
-      padding: var(--app-spacing-3);
-      padding-top: max(var(--app-spacing-3), var(--safe-area-top, 0px));
-      padding-left: max(var(--app-spacing-3), env(safe-area-inset-left));
-      padding-right: max(var(--app-spacing-3), env(safe-area-inset-right));
-      color: white;
-    }
-
-    .header::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      z-index: 0;
-      pointer-events: none;
-      background: linear-gradient(
-        180deg,
-        var(--cv-alpha-black-65) 0%,
-        var(--cv-alpha-black-35) 68%,
-        transparent 100%
-      );
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-    }
-
-    .header > * {
-      position: relative;
-      z-index: 1;
-    }
-
-    .header-copy {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-      min-width: 0;
-      overflow: hidden;
-      padding-inline: var(--app-spacing-1);
-      text-align: center;
-    }
-
-    .title {
-      display: inline-flex;
-      align-items: baseline;
-      max-inline-size: 100%;
-      min-inline-size: 0;
-      font-size: var(--cv-font-size-base);
-      font-weight: var(--cv-font-weight-semibold);
-      line-height: 1.2;
-      color: white;
-    }
-
-    .title-stem {
-      min-inline-size: 0;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .title-extension {
-      flex: 0 0 auto;
-      white-space: nowrap;
-    }
-
-    .counter {
-      color: var(--cv-alpha-white-70);
-      font-size: var(--cv-font-size-xs);
-      font-weight: var(--cv-font-weight-medium);
-      line-height: 1;
-    }
-
-    .header-actions {
-      display: inline-flex;
-      align-items: center;
-      justify-self: end;
-      gap: 2px;
-      padding: 2px;
-      border: 1px solid var(--cv-alpha-white-8);
-      border-radius: var(--cv-radius-2);
-      background: var(--cv-alpha-black-25);
-      box-shadow: inset 0 1px 0 var(--cv-alpha-white-6);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-    }
-
-    .close-button,
-    .header-action-button,
-    .header-menu-button,
     .sheet-close-button,
-    .thumb-button {
-      border: none;
+    .sheet-close-button::part(base) {
       cursor: pointer;
       -webkit-tap-highlight-color: transparent;
     }
 
-    .close-button,
-    .header-action-button,
     .sheet-close-button {
+      border: none;
       inline-size: 44px;
       block-size: 44px;
       min-inline-size: 44px;
       min-block-size: 44px;
       flex: 0 0 44px;
       border-radius: var(--cv-radius-s);
-      color: white;
+      color: var(--image-gallery-sheet-text);
       display: flex;
       align-items: center;
       justify-content: center;
+      background: var(--cv-alpha-white-15);
     }
 
-    .close-button::part(base),
-    .header-action-button::part(base),
     .sheet-close-button::part(base) {
       inline-size: 100%;
       block-size: 100%;
@@ -172,114 +55,11 @@ export const imageGalleryMobileStyles = [
       min-block-size: 0;
     }
 
-    .close-button {
-      justify-self: start;
-      border: 1px solid var(--cv-alpha-white-10);
-      background: var(--cv-alpha-black-35);
-      box-shadow: inset 0 1px 0 var(--cv-alpha-white-8);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      transition:
-        background 0.16s ease,
-        border-color 0.16s ease,
-        transform 0.16s ease;
-    }
-
-    .header-action-button {
-      background: transparent;
-      transition:
-        background 0.16s ease,
-        color 0.16s ease;
-    }
-
-    .sheet-close-button {
-      background: var(--cv-alpha-white-15);
-    }
-
-    .close-button:hover,
-    .header-action-button:hover {
-      background: var(--cv-alpha-white-10);
-    }
-
-    .close-button:active,
-    .header-action-button:active {
-      transform: translateY(1px);
-    }
-
-    .close-button::part(base):focus-visible,
-    .header-action-button::part(base):focus-visible {
-      outline: 2px solid var(--cv-color-primary);
-      outline-offset: 2px;
-    }
-
-    .header-menu-button {
-      --cv-menu-button-min-height: 44px;
-      --cv-menu-button-icon-overflow-menu-offset: 6px;
-      --cv-menu-button-icon-overflow-menu-min-inline-size: 220px;
-      --cv-menu-button-menu-z-index: 1005;
-      inline-size: 44px;
-      block-size: 44px;
-      min-inline-size: 44px;
-      min-block-size: 44px;
-      flex: 0 0 44px;
-      color: white;
-      transition: color 0.16s ease;
-    }
-
-    .header-menu-button::part(trigger) {
-      inline-size: 44px;
-      block-size: 44px;
-      min-inline-size: 44px;
-      min-block-size: 44px;
-      padding: 0;
-      border: none;
-      border-radius: var(--cv-radius-s);
-      background: transparent;
-      color: white;
-      transition: background 0.16s ease;
-    }
-
-    .header-menu-button::part(trigger):hover,
-    .header-menu-button::part(trigger):active {
-      background: var(--cv-alpha-white-10);
-    }
-
-    .header-menu-button::part(trigger):focus-visible {
-      outline: 2px solid var(--cv-color-primary);
-      outline-offset: 2px;
-    }
-
-    .header-menu-button::part(label),
-    .header-menu-button::part(dropdown-icon) {
-      display: none;
-    }
-
-    .header-menu-button::part(menu) {
-      border: 1px solid var(--cv-color-border-muted);
-      border-radius: var(--cv-radius-3);
-      background: var(--cv-color-surface-elevated);
-      box-shadow: 0 18px 48px var(--cv-alpha-black-45);
-    }
-
-    .header-menu-trigger {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .header-menu-item.danger::part(base),
-    .header-menu-item.danger cv-icon {
-      color: var(--cv-color-danger);
-    }
-
-    .header-action-button:disabled {
-      opacity: 0.78;
-      cursor: default;
-    }
-
     .main {
       position: relative;
-      flex: 1;
+      inline-size: 100%;
+      block-size: 100%;
+      min-block-size: 0;
       overflow: hidden;
       touch-action: none;
     }
@@ -448,11 +228,7 @@ export const imageGalleryMobileStyles = [
     .sheet-summary-tile.primary {
       border-color: var(--cv-color-primary-border);
       background:
-        linear-gradient(
-          180deg,
-          var(--cv-color-primary-surface),
-          transparent
-        ),
+        linear-gradient(180deg, var(--cv-color-primary-surface), transparent),
         var(--image-gallery-sheet-surface-soft);
     }
 

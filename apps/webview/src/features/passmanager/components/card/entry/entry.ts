@@ -352,17 +352,18 @@ export class PMEntry extends PMEntryBase {
         ${data.canEditFields && data.isEditingEntry
           ? html`
               <div class="field-editor">
-                <cv-input
-                  class="inline-field-input"
-                  name="inline-username"
-                  data-inline-field="username"
-                  .value=${this.model.inlineUsername()}
-                  @cv-input=${this.handleInlineEditInput}
-                  @keydown=${this.handleInlineEditorKeyDown}
-                  size="small"
-                >
+                <cv-field>
                   <span slot="label">${i18n('username')}</span>
-                </cv-input>
+                  <cv-input
+                    class="inline-field-input"
+                    name="inline-username"
+                    data-inline-field="username"
+                    .value=${this.model.inlineUsername()}
+                    @cv-input=${this.handleInlineEditInput}
+                    @keydown=${this.handleInlineEditorKeyDown}
+                    size="small"
+                  ></cv-input>
+                </cv-field>
               </div>
             `
           : html`
@@ -390,19 +391,20 @@ export class PMEntry extends PMEntryBase {
           ? html`
               <div class="field-editor">
                 <div class="password-inline-stack">
-                  <cv-input
-                    class="inline-field-input"
-                    type="password"
-                    password-toggle
-                    name="inline-password"
-                    data-inline-field="password"
-                    .value=${this.model.inlinePassword()}
-                    @cv-input=${this.handleInlineEditInput}
-                    @keydown=${this.handleInlineEditorKeyDown}
-                    size="small"
-                  >
+                  <cv-field>
                     <span slot="label">${i18n('password')}</span>
-                  </cv-input>
+                    <cv-input
+                      class="inline-field-input"
+                      type="password"
+                      password-toggle
+                      name="inline-password"
+                      data-inline-field="password"
+                      .value=${this.model.inlinePassword()}
+                      @cv-input=${this.handleInlineEditInput}
+                      @keydown=${this.handleInlineEditorKeyDown}
+                      size="small"
+                    ></cv-input>
+                  </cv-field>
                   <div class="password-inline-tools">
                     <cv-button unstyled
                       class="generator-toggle-button"
@@ -472,19 +474,21 @@ export class PMEntry extends PMEntryBase {
         ${data.canEditWebsite && data.isEditingEntry
           ? html`
               <div class="field-editor">
-                <cv-input
-                  class="inline-field-input"
-                  name="inline-website"
-                  data-inline-field="website"
-                  .value=${this.model.inlineWebsite()}
-                  @cv-input=${this.handleInlineEditInput}
-                  @keydown=${this.handleInlineEditorKeyDown}
-                  ?data-has-error=${!!inlineError}
-                  size="small"
-                >
+                <cv-field ?invalid=${Boolean(inlineError)}>
                   <span slot="label">${i18n('website:title')}</span>
-                  ${inlineError ? html`<div slot="help-text" class="error-text">${inlineError}</div>` : nothing}
-                </cv-input>
+                  <cv-input
+                    class="inline-field-input"
+                    name="inline-website"
+                    data-inline-field="website"
+                    .value=${this.model.inlineWebsite()}
+                    @cv-input=${this.handleInlineEditInput}
+                    @keydown=${this.handleInlineEditorKeyDown}
+                    ?data-has-error=${!!inlineError}
+                    ?invalid=${Boolean(inlineError)}
+                    size="small"
+                  ></cv-input>
+                  ${inlineError ? html`<div slot="error" class="error-text">${inlineError}</div>` : nothing}
+                </cv-field>
               </div>
             `
           : html`
@@ -587,18 +591,20 @@ export class PMEntry extends PMEntryBase {
     return html`
       <div class="note-inline-editor">
         <form class="note-inline-form" @submit=${this.handleNoteSubmit}>
-          <cv-textarea
-            class="note-inline-input"
-            name="inline-note"
-            .value=${this.model.noteDraft()}
-            rows="6"
-            size="small"
-            enter-behavior="submit"
-            @cv-input=${this.handleNoteInput}
-            @keydown=${this.handleSectionSnippetKeyDown}
-          >
-            ${noteError ? html`<div slot="help-text" class="error-text">${noteError}</div>` : nothing}
-          </cv-textarea>
+          <cv-field ?invalid=${Boolean(noteError)}>
+            <cv-textarea
+              class="note-inline-input"
+              name="inline-note"
+              .value=${this.model.noteDraft()}
+              rows="6"
+              size="small"
+              enter-behavior="submit"
+              ?invalid=${Boolean(noteError)}
+              @cv-input=${this.handleNoteInput}
+              @keydown=${this.handleSectionSnippetKeyDown}
+            ></cv-textarea>
+            ${noteError ? html`<div slot="error" class="error-text">${noteError}</div>` : nothing}
+          </cv-field>
           ${renderSectionSnippetButtons({
             onCancel: () => this.model.closeSectionSnippet(),
             onSave: () => this.handleSaveNote(),
@@ -630,21 +636,23 @@ export class PMEntry extends PMEntryBase {
           .removable=${false}
           @pm-entry-otp-remove=${this.handleOtpRemove}
         ></pm-entry-otp-item>
-        <cv-input
-          class="otp-label-input"
-          name=${`otp-label-${otp.id}`}
-          data-otp-id=${otp.id}
-          data-otp-label-input=${otp.id}
-          .value=${this.model.getOtpLabelDraft(otp)}
-          autocomplete="off"
-          size="small"
-          ?data-has-error=${!!labelError}
-          @cv-input=${this.handleOtpLabelInput}
-          @keydown=${this.handleInlineEditorKeyDown}
-        >
+        <cv-field ?invalid=${Boolean(labelError)}>
           <span slot="label">${i18n('otp:label')}</span>
-          ${labelError ? html`<div slot="help-text" class="error-text">${labelError}</div>` : nothing}
-        </cv-input>
+          <cv-input
+            class="otp-label-input"
+            name=${`otp-label-${otp.id}`}
+            data-otp-id=${otp.id}
+            data-otp-label-input=${otp.id}
+            .value=${this.model.getOtpLabelDraft(otp)}
+            autocomplete="off"
+            size="small"
+            ?data-has-error=${!!labelError}
+            ?invalid=${Boolean(labelError)}
+            @cv-input=${this.handleOtpLabelInput}
+            @keydown=${this.handleInlineEditorKeyDown}
+          ></cv-input>
+          ${labelError ? html`<div slot="error" class="error-text">${labelError}</div>` : nothing}
+        </cv-field>
       </div>
     `
   }

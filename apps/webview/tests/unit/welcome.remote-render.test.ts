@@ -2,6 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {atom} from '@reatom/core'
 
+import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 import {WelcomeSetupSection} from '../../src/routes/welcome/sections/steps'
 import {WelcomeSetupModel} from '../../src/routes/welcome/welcome.model'
@@ -37,6 +38,7 @@ describe('welcome remote panels', () => {
 
   afterEach(() => {
     document.body.innerHTML = ''
+    resetRuntimeCapabilities()
     clearAppContext()
   })
 
@@ -69,6 +71,18 @@ describe('welcome remote panels', () => {
     const pairButton = buttons.find((button) => button.textContent?.includes('Pair'))
     pairButton?.dispatchEvent(new MouseEvent('click', {bubbles: true}))
     expect(openPairSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders the USB mobile flow inside welcome remote connect', async () => {
+    setRuntimeCapabilities({desktop: true, supports_mobile_usb_remote: true})
+    const model = new WelcomeSetupModel()
+    model.setupStep.set('remote-connect')
+    model.remote.view.set('usb-mobile')
+
+    const section = await mountSection(model)
+
+    expect(section.shadowRoot?.querySelector('[data-usb-flow-state="idle"]')).not.toBeNull()
+    expect(section.shadowRoot?.querySelector('[data-usb-entry="desktop"]')).toBeNull()
   })
 
   it('uses the shared remote pair panel for welcome pairing flow', async () => {

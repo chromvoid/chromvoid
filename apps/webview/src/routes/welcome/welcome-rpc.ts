@@ -13,6 +13,38 @@ export interface PasswordStrengthFeedback {
   }
 }
 
+export interface CatalogRepairIssue {
+  shard_id: string
+  snapshot_seq: number
+  base_version: number
+  last_delta_seq: number
+  safe_through_seq: number
+  failure: {
+    seq: number
+    path: string
+    node_id?: number | null
+    op: string
+    reason: string
+  }
+}
+
+export interface VaultRepairDiagnosisResponse {
+  repair_id?: string | null
+  status: 'clean' | 'lossless_repaired' | 'lossy_required'
+  issues: CatalogRepairIssue[]
+  lossy_requires_confirm: boolean
+}
+
+export interface VaultRepairApplyResponse {
+  unlocked: boolean
+  repair: {
+    repair_id: string
+    status: 'clean' | 'lossy_required'
+    issues: CatalogRepairIssue[]
+    lossy_applied: boolean
+  }
+}
+
 function isOk<T>(res: RpcResult<T>): res is RpcOk<T> {
   return typeof res === 'object' && res !== null && 'ok' in res && (res as {ok: unknown}).ok === true
 }
@@ -37,6 +69,12 @@ export function mapVaultUnlockError(code: string | null | undefined, fallback: s
       return 'Storage format not supported. Please update the application.'
     case 'VAULT_ALREADY_UNLOCKED':
       return 'Vault is already open.'
+    case 'CATALOG_REPAIR_REQUIRED':
+      return 'Vault catalog needs repair.'
+    case 'CATALOG_REPAIR_UNSAFE':
+      return 'Vault catalog repair needs confirmation.'
+    case 'CATALOG_REPAIR_STALE':
+      return 'Vault catalog repair state changed. Try unlocking again.'
     default:
       return fallback
   }

@@ -168,37 +168,40 @@ export class WelcomeMasterRekeyForm extends ReatomLitElement {
       <form class="master-rekey-form" @submit=${this.handleSubmit}>
         <p class="master-rekey-note">${i18n('changepwd:backup-note')}</p>
 
-        <cv-input
-          class="current-password-input"
-          type="password"
-          password-toggle
-          autocomplete="current-password"
-          .value=${state.currentPassword}
-          @cv-input=${this.handleCurrentInput}
-        >
+        <cv-field>
           <span slot="label">${i18n('changepwd:old:title')}</span>
-        </cv-input>
+          <cv-input
+            class="current-password-input"
+            type="password"
+            password-toggle
+            autocomplete="current-password"
+            .value=${state.currentPassword}
+            @cv-input=${this.handleCurrentInput}
+          ></cv-input>
+        </cv-field>
 
-        <cv-input
-          type="password"
-          password-toggle
-          autocomplete="new-password"
-          .value=${state.newMasterPassword}
-          @cv-input=${this.handleNewPasswordInput}
-        >
+        <cv-field>
           <span slot="label">${i18n('changepwd:new:title')}</span>
-        </cv-input>
+          <cv-input
+            type="password"
+            password-toggle
+            autocomplete="new-password"
+            .value=${state.newMasterPassword}
+            @cv-input=${this.handleNewPasswordInput}
+          ></cv-input>
+        </cv-field>
 
-        <cv-input
-          type="password"
-          password-toggle
-          autocomplete="new-password"
-          enterkeyhint="done"
-          .value=${state.confirmPassword}
-          @cv-input=${this.handleConfirmInput}
-        >
+        <cv-field>
           <span slot="label">${i18n('changepwd:confirm:title')}</span>
-        </cv-input>
+          <cv-input
+            type="password"
+            password-toggle
+            autocomplete="new-password"
+            enterkeyhint="done"
+            .value=${state.confirmPassword}
+            @cv-input=${this.handleConfirmInput}
+          ></cv-input>
+        </cv-field>
 
         ${state.error ? html`<div class="master-rekey-error">${state.error}</div>` : nothing}
 

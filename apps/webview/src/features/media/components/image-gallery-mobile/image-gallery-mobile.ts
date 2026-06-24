@@ -1,7 +1,13 @@
 import {nothing} from 'lit'
 import {CVBottomSheet} from '@chromvoid/uikit/components/cv-bottom-sheet'
-import {CVMenuButton, type CVMenuButtonInputEvent} from '@chromvoid/uikit/components/cv-menu-button'
-import {CVMenuItem} from '@chromvoid/uikit/components/cv-menu-item'
+import {
+  CVImageViewer,
+  type CVImageViewerActionEvent,
+  type CVImageViewerCloseEvent,
+  type CVImageViewerImageErrorEvent,
+  type CVImageViewerInputEvent,
+  type CVImageViewerPrimeEvent,
+} from '@chromvoid/uikit/components/cv-image-viewer'
 import {html} from '@chromvoid/uikit/reatom-lit'
 import {i18n} from 'root/i18n'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
@@ -18,17 +24,18 @@ import {ImageGalleryMobileTrack} from './image-gallery-mobile-track'
 import {MobileTrackAnimationController} from './image-gallery-mobile-track-animation-controller'
 import {MobileGalleryTrackCoordinator} from './image-gallery-mobile-track-coordinator'
 import {
+  mapGalleryActionsToViewerActions,
+  mapGalleryImagesToViewerItems,
+} from '../image-gallery-v2/image-gallery-uikit-adapter'
+import {getImageViewerActionButtons} from '../image-gallery-v2/image-gallery-actions'
+import {
   MOBILE_GALLERY_DOUBLE_TAP_MS,
   MOBILE_GALLERY_LONG_PRESS_MS,
   ImageGalleryMobileModel,
   type GalleryRect,
   type GalleryTouchPoint,
 } from './image-gallery-mobile.model'
-import {
-  renderMobileGalleryFooter,
-  renderMobileGalleryHeader,
-  renderMobileGalleryInfoSheet,
-} from './image-gallery-mobile-render'
+import {renderMobileGalleryFooter, renderMobileGalleryInfoSheet} from './image-gallery-mobile-render'
 import {imageGalleryMobileStyles} from './image-gallery-mobile.styles'
 import type {
   MobileGalleryImageMeta,
@@ -41,8 +48,7 @@ let imageGalleryMobileDebugSeq = 0
 export class ImageGalleryMobile extends ImageGalleryBase {
   static define() {
     CVBottomSheet.define()
-    CVMenuButton.define()
-    CVMenuItem.define()
+    CVImageViewer.define()
     ImageGalleryMobileTrack.define()
     ImageGalleryMobileThumbnailStrip.define()
 
@@ -302,46 +308,12 @@ export class ImageGalleryMobile extends ImageGalleryBase {
     }
   }
 
-  private handleCloseClick() {
-    this.close('control')
-  }
-
   private handleAction(action: ImageViewerAction) {
     const currentImage = this.currentImage
     if (!currentImage) return
 
     this.emitAction(action, currentImage.id)
     this.mobileModel.closeInfoSheet()
-  }
-
-  private handleHeaderInfoClick() {
-    this.mobileModel.showChrome()
-    this.mobileModel.openInfoSheet(this.currentImage)
-  }
-
-  private resetHeaderMenuSelection(menu: CVMenuButton) {
-    menu.value = ''
-    for (const item of menu.querySelectorAll<HTMLElementTagNameMap['cv-menu-item']>('cv-menu-item')) {
-      item.selected = false
-      item.active = false
-    }
-  }
-
-  private handleHeaderMenuInput(event: CVMenuButtonInputEvent) {
-    const action = event.detail.value
-    if (!action) return
-
-    const menu = event.currentTarget as CVMenuButton
-    if (event.detail.open) {
-      this.resetHeaderMenuSelection(menu)
-      return
-    }
-
-    menu.open = false
-    this.resetHeaderMenuSelection(menu)
-    if (this.isViewerAction(action)) {
-      this.handleAction(action)
-    }
   }
 
   private isViewerAction(action: string | undefined): action is ImageViewerAction {
@@ -540,6 +512,74 @@ export class ImageGalleryMobile extends ImageGalleryBase {
     this.mobileModel.fillEmptyTrackSlotsIfIdle()
   }
 
+  private handleViewerClose(_event: CVImageViewerCloseEvent) {
+    this.close('control')
+  }
+
+  private handleViewerInput(event: CVImageViewerInputEvent) {
+    if (event.detail.index === this.displayIndex) {
+      return
+    }
+
+    this.handleThumbnailClick(event.detail.index)
+  }
+
+  private handleViewerAction(event: CVImageViewerActionEvent) {
+    const action = event.detail.value
+
+    if (action === 'info') {
+      this.mobileModel.showChrome()
+      this.mobileModel.openInfoSheet(this.currentImage)
+      return
+    }
+
+    if (this.isViewerAction(action)) {
+      this.handleAction(action)
+    }
+  }
+
+  private handleViewerImageError(event: CVImageViewerImageErrorEvent) {
+    const imageId = Number(event.detail.itemId)
+    const normalizedImageId = Number.isFinite(imageId) ? imageId : null
+    this.model.handleImageRenderError(normalizedImageId, event.detail.sourceUrl)
+    this.mobileModel.handleImageRenderError(normalizedImageId)
+    this.mobileModel.fillEmptyTrackSlotsIfIdle()
+  }
+
+  private handleViewerPrime(event: CVImageViewerPrimeEvent) {
+    this.model.primeImage(event.detail.index)
+  }
+
+  private getViewerItems() {
+    return mapGalleryImagesToViewerItems({
+      images: this.images,
+      model: this.model,
+      getMeta: (image, index, total) => [
+        i18n('media:image-position' as any, {
+          current: String(index + 1),
+          total: String(total),
+        }),
+        ...(image.mimeType ? [image.mimeType] : []),
+      ],
+    })
+  }
+
+  private getViewerActions(showSaveToGallery: boolean, showShare: boolean) {
+    const busyLabel = i18n('file-manager:preparing-file' as any)
+
+    return mapGalleryActionsToViewerActions({
+      actions: getImageViewerActionButtons({
+        showSaveToGallery,
+        showShare,
+        includeInfo: true,
+        includeDelete: true,
+      }),
+      translate: (labelKey) => i18n(labelKey as any),
+      sharePending: this.sharePending,
+      busyLabel,
+    })
+  }
+
   private renderTrack() {
     return html`
       <image-gallery-mobile-track
@@ -550,25 +590,8 @@ export class ImageGalleryMobile extends ImageGalleryBase {
     `
   }
 
-  private renderSharePendingOverlay() {
-    if (!this.sharePending) return nothing
-    const label = i18n('file-manager:preparing-file' as any)
-
-    return html`
-      <div class="share-pending-overlay" role="status" aria-live="polite">
-        <div class="share-pending-status">
-          <cv-spinner size="s" label=${label}></cv-spinner>
-          <span>${label}</span>
-        </div>
-      </div>
-    `
-  }
-
   private getRenderActions(): MobileGalleryRenderActions {
     return {
-      onClose: this.handleCloseClick,
-      onHeaderInfo: this.handleHeaderInfoClick,
-      onHeaderMenuInput: this.handleHeaderMenuInput,
       onSheetClose: this.handleSheetClose,
       onExternalUrlClick: this.handleExternalUrlClick,
       onInfoSheetSurfaceChange: this.handleInfoSheetSurfaceChange,
@@ -584,28 +607,27 @@ export class ImageGalleryMobile extends ImageGalleryBase {
     const showShare = canShareFiles()
     const actions = this.getRenderActions()
     const images = this.images as MobileGalleryImageMeta[]
+    const busyLabel = i18n('file-manager:preparing-file' as any)
 
     return html`
-      <div
-        class="overlay"
-        role="dialog"
-        aria-modal="true"
-        aria-label=${currentImage?.name || i18n('media:image-viewer' as any)}
+      <cv-image-viewer
+        .open=${this.open}
+        .items=${this.getViewerItems()}
+        .currentIndex=${this.displayIndex}
+        .actions=${this.getViewerActions(showSaveToGallery, showShare)}
+        .busy=${this.sharePending}
+        .busyLabel=${busyLabel}
+        .chromeVisible=${this.chromeVisible}
+        .layout=${'mobile'}
+        .showThumbnails=${false}
+        @cv-close=${this.handleViewerClose}
+        @cv-input=${this.handleViewerInput}
+        @cv-action=${this.handleViewerAction}
+        @cv-image-error=${this.handleViewerImageError}
+        @cv-prime=${this.handleViewerPrime}
       >
-        ${renderMobileGalleryHeader(
-          {
-            currentImage,
-            imageCount: this.images.length,
-            displayIndex: this.displayIndex,
-            chromeVisible: this.chromeVisible,
-            showSaveToGallery,
-            showShare,
-            sharePending: this.sharePending,
-          },
-          actions,
-        )}
-
         <div
+          slot="viewport"
           class="main"
           aria-busy=${String(this.sharePending)}
           @touchstart=${this.handleTouchStart}
@@ -614,10 +636,9 @@ export class ImageGalleryMobile extends ImageGalleryBase {
           @touchcancel=${this.handleTouchCancel}
         >
           <div class="viewport">${this.renderTrack()}</div>
-          ${this.renderSharePendingOverlay()}
         </div>
 
-        <div class="footer ${this.chromeVisible ? '' : 'hidden'}">
+        <div slot="footer" class="footer ${this.chromeVisible ? '' : 'hidden'}">
           ${renderMobileGalleryFooter({
             footerMode: this.mobileModel.computed.footerMode(),
             images,
@@ -626,19 +647,21 @@ export class ImageGalleryMobile extends ImageGalleryBase {
             actions,
           })}
         </div>
-        ${renderMobileGalleryInfoSheet(
-          {
-            currentImage,
-            open: this.infoSheetOpen,
-            detent: this.infoSheetDetent,
-            photoMetadata: this.mobileModel.state.photoMetadata(),
-            photoMetadataLoading: this.mobileModel.state.photoMetadataLoading(),
-            photoMetadataError: this.mobileModel.state.photoMetadataError(),
-            gpsAvailability: this.mobileModel.state.photoMetadataGpsAvailability(),
-          },
-          actions,
-        )}
-      </div>
+        <div slot="overlay">
+          ${renderMobileGalleryInfoSheet(
+            {
+              currentImage,
+              open: this.infoSheetOpen,
+              detent: this.infoSheetDetent,
+              photoMetadata: this.mobileModel.state.photoMetadata(),
+              photoMetadataLoading: this.mobileModel.state.photoMetadataLoading(),
+              photoMetadataError: this.mobileModel.state.photoMetadataError(),
+              gpsAvailability: this.mobileModel.state.photoMetadataGpsAvailability(),
+            },
+            actions,
+          )}
+        </div>
+      </cv-image-viewer>
     `
   }
 

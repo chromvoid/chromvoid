@@ -8,15 +8,46 @@ import {fileURLToPath} from 'node:url'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.resolve(scriptDir, '..')
-const forwardedArgs = process.argv.slice(2)
 const androidPackageFormats = new Set(['--apk', '--aab'])
-const requestedPackageFlags = [
-  ...new Set(forwardedArgs.filter((arg) => androidPackageFormats.has(arg))),
-]
-const packageBuildFlags = requestedPackageFlags.length > 0 ? requestedPackageFlags : ['--apk']
-const forwardedTauriArgs = forwardedArgs.filter((arg) => !androidPackageFormats.has(arg))
-const buildApk = packageBuildFlags.includes('--apk')
-const buildAab = packageBuildFlags.includes('--aab')
+const signingProfiles = new Set(['upload', 'sideload'])
+const androidTargets = {
+  arm64: {
+    abi: 'arm64-v8a',
+    arch: 'arm64',
+    cargoEnv: 'AARCH64_LINUX_ANDROID',
+    ccEnv: 'aarch64_linux_android',
+    clang: 'aarch64-linux-android28-clang',
+    tauriTarget: 'aarch64',
+  },
+  arm: {
+    abi: 'armeabi-v7a',
+    arch: 'arm',
+    cargoEnv: 'ARMV7_LINUX_ANDROIDEABI',
+    ccEnv: 'armv7_linux_androideabi',
+    clang: 'armv7a-linux-androideabi28-clang',
+    tauriTarget: 'armv7',
+  },
+  x86: {
+    abi: 'x86',
+    arch: 'x86',
+    cargoEnv: 'I686_LINUX_ANDROID',
+    ccEnv: 'i686_linux_android',
+    clang: 'i686-linux-android28-clang',
+    tauriTarget: 'i686',
+  },
+  x86_64: {
+    abi: 'x86_64',
+    arch: 'x86_64',
+    cargoEnv: 'X86_64_LINUX_ANDROID',
+    ccEnv: 'x86_64_linux_android',
+    clang: 'x86_64-linux-android28-clang',
+    tauriTarget: 'x86_64',
+  },
+}
+const abiProfiles = {
+  arm64: ['arm64'],
+  universal: ['arm64', 'arm', 'x86', 'x86_64'],
+}
 const licensePublicKeyEnv = 'CHROMVOID_LICENSE_PUBLIC_KEY_ED25519_2026_01'
 const licensePublicKeyFile = path.join(appRoot, 'src-tauri', 'gen', 'android', '.license-public-key')
 const localTauriBinary = path.join(
@@ -31,6 +62,115 @@ function fail(message) {
   console.error(`[tauri-android-release] ${message}`)
   process.exit(1)
 }
+
+function printUsage() {
+  console.log(`Usage: node ./scripts/run-tauri-android-release-build.mjs [--apk|--aab] [--signing-profile upload|sideload] [--abi-profile arm64|universal] [tauri build options]
+
+Defaults:
+  APK builds use --signing-profile sideload --abi-profile universal.
+  AAB builds use --signing-profile upload --abi-profile arm64.
+
+Options:
+  --apk                         Build a standalone APK.
+  --aab                         Build an Android App Bundle.
+  --signing-profile <profile>   upload or sideload.
+  --abi-profile <profile>       arm64 or universal.`)
+}
+
+function parseArgs(argv) {
+  const requestedPackageFlags = []
+  const forwardedTauriArgs = []
+  let abiProfile = null
+  let signingProfile = null
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]
+    const readValue = () => {
+      const value = argv[index + 1]
+      if (!value || value.startsWith('--')) {
+        fail(`Missing value for ${arg}`)
+      }
+      index += 1
+      return value
+    }
+
+    if (androidPackageFormats.has(arg)) {
+      if (!requestedPackageFlags.includes(arg)) {
+        requestedPackageFlags.push(arg)
+      }
+      continue
+    }
+
+    if (arg === '--help' || arg === '-h') {
+      printUsage()
+      process.exit(0)
+    }
+
+    if (arg === '--abi-profile') {
+      abiProfile = readValue()
+      continue
+    }
+    if (arg.startsWith('--abi-profile=')) {
+      abiProfile = arg.slice('--abi-profile='.length)
+      continue
+    }
+
+    if (arg === '--signing-profile') {
+      signingProfile = readValue()
+      continue
+    }
+    if (arg.startsWith('--signing-profile=')) {
+      signingProfile = arg.slice('--signing-profile='.length)
+      continue
+    }
+
+    if (arg === '--target' || arg === '-t' || arg.startsWith('--target=')) {
+      fail('Use --abi-profile arm64|universal instead of passing Tauri --target directly.')
+    }
+
+    forwardedTauriArgs.push(arg)
+  }
+
+  const packageBuildFlags = requestedPackageFlags.length > 0 ? requestedPackageFlags : ['--apk']
+  const buildApk = packageBuildFlags.includes('--apk')
+  const buildAab = packageBuildFlags.includes('--aab')
+
+  if (buildApk && buildAab) {
+    fail('Build release APK and AAB in separate runs so sideload and Play signing profiles stay separate.')
+  }
+
+  const resolvedSigningProfile = signingProfile ?? (buildApk ? 'sideload' : 'upload')
+  const resolvedAbiProfile = abiProfile ?? (buildApk ? 'universal' : 'arm64')
+
+  if (!signingProfiles.has(resolvedSigningProfile)) {
+    fail('--signing-profile must be upload or sideload')
+  }
+  if (!Object.hasOwn(abiProfiles, resolvedAbiProfile)) {
+    fail('--abi-profile must be arm64 or universal')
+  }
+
+  return {
+    abiProfile: resolvedAbiProfile,
+    buildAab,
+    buildApk,
+    forwardedTauriArgs,
+    packageBuildFlags,
+    selectedTargetKeys: abiProfiles[resolvedAbiProfile],
+    signingProfile: resolvedSigningProfile,
+  }
+}
+
+const buildOptions = parseArgs(process.argv.slice(2))
+const {
+  abiProfile,
+  buildAab,
+  buildApk,
+  forwardedTauriArgs,
+  packageBuildFlags,
+  selectedTargetKeys,
+  signingProfile,
+} = buildOptions
+const selectedTargets = selectedTargetKeys.map((targetKey) => androidTargets[targetKey])
 
 function resolveAndroidHome() {
   const candidates = [
@@ -417,23 +557,25 @@ function ndkHostTag() {
   }
 }
 
-function androidToolchainEnv(ndkHome) {
+function androidToolchainEnv(ndkHome, targets) {
   const toolchainBin = path.join(ndkHome, 'toolchains', 'llvm', 'prebuilt', ndkHostTag(), 'bin')
-  const linker = path.join(toolchainBin, executableName('aarch64-linux-android28-clang'))
   const ar = path.join(toolchainBin, executableName('llvm-ar'))
-  if (!fs.existsSync(linker)) {
-    throw new Error(`Android linker not found at ${linker}`)
-  }
   if (!fs.existsSync(ar)) {
     throw new Error(`Android llvm-ar not found at ${ar}`)
   }
 
-  return {
-    CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: linker,
-    CARGO_TARGET_AARCH64_LINUX_ANDROID_AR: ar,
-    CC_aarch64_linux_android: linker,
-    AR_aarch64_linux_android: ar,
+  const env = {}
+  for (const target of targets) {
+    const linker = path.join(toolchainBin, executableName(target.clang))
+    if (!fs.existsSync(linker)) {
+      throw new Error(`Android linker not found at ${linker}`)
+    }
+    env[`CARGO_TARGET_${target.cargoEnv}_LINKER`] = linker
+    env[`CARGO_TARGET_${target.cargoEnv}_AR`] = ar
+    env[`CC_${target.ccEnv}`] = linker
+    env[`AR_${target.ccEnv}`] = ar
   }
+  return env
 }
 
 const androidHome = resolveAndroidHome()
@@ -449,12 +591,13 @@ const childEnv = {
   NDK_HOME: ndkHome,
   RUSTFLAGS:
     process.env.RUSTFLAGS || '-Clink-arg=-landroid -Clink-arg=-llog -Clink-arg=-lOpenSLES',
-  ORG_GRADLE_PROJECT_abiList: process.env.ORG_GRADLE_PROJECT_abiList || 'arm64-v8a',
-  ORG_GRADLE_PROJECT_archList: process.env.ORG_GRADLE_PROJECT_archList || 'arm64',
-  ORG_GRADLE_PROJECT_targetList: process.env.ORG_GRADLE_PROJECT_targetList || 'aarch64',
+  ORG_GRADLE_PROJECT_abiList: selectedTargets.map((target) => target.abi).join(','),
+  ORG_GRADLE_PROJECT_archList: selectedTargets.map((target) => target.arch).join(','),
+  ORG_GRADLE_PROJECT_targetList: selectedTargets.map((target) => target.tauriTarget).join(','),
+  ORG_GRADLE_PROJECT_chromvoidAndroidSigningProfile: signingProfile,
   ORG_GRADLE_PROJECT_chromvoidSkipFreshTauriPrebuild: 'true',
   [licensePublicKeyEnv]: licensePublicKey,
-  ...androidToolchainEnv(ndkHome),
+  ...androidToolchainEnv(ndkHome, selectedTargets),
 }
 if (javaHome) {
   childEnv.JAVA_HOME = javaHome
@@ -464,6 +607,10 @@ if (rustBin) {
   console.log(`[tauri-android-release] using Rust toolchain bin: ${rustBin}`)
 }
 console.log(`[tauri-android-release] using readelf: ${readelfPath}`)
+console.log(`[tauri-android-release] signing profile: ${signingProfile}`)
+console.log(
+  `[tauri-android-release] ABI profile: ${abiProfile} (${selectedTargets.map((target) => target.abi).join(',')})`,
+)
 childEnv.PATH = [
   javaHome && path.join(javaHome, 'bin'),
   rustBin,
@@ -475,7 +622,7 @@ const args = [
   'build',
   ...packageBuildFlags,
   '--target',
-  'aarch64',
+  ...selectedTargets.map((target) => target.tauriTarget),
   '--features',
   'android',
   '--ci',

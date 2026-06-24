@@ -43,7 +43,9 @@ function isSurfaceId(value: string | null): value is SurfaceId | 'network-pair' 
 }
 
 function decodeRemotePanel(url: URL): RemotePanel {
-  return url.searchParams.get('panel') === 'pair-ios' ? 'pair-ios' : 'hosts'
+  const panel = url.searchParams.get('panel')
+  if (panel === 'pair-ios' || panel === 'usb-mobile') return panel
+  return 'hosts'
 }
 
 function decodePassmanagerRoute(url: URL): PassmanagerRoute {

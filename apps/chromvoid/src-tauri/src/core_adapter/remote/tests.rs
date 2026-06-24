@@ -6,6 +6,7 @@ mod tests {
     };
     use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
     use chromvoid_core::rpc::RpcReply;
+    use chromvoid_protocol::{TransportMetrics, TransportType};
     use tokio::sync::mpsc;
 
     #[test]
@@ -29,6 +30,31 @@ mod tests {
         let adapter = RemoteCoreAdapter::from_remote_sender(host, tx);
         drop(rx);
         assert_eq!(adapter.connection_state(), ConnectionState::Disconnected);
+    }
+
+    #[test]
+    fn from_remote_sender_can_store_transport_metrics() {
+        let (tx, _rx) = mpsc::channel::<crate::remote_data_plane::RemoteIoRequest>(1);
+        let host = RemoteHost::MobileUsb {
+            host_id: "host-1".to_string(),
+            label: Some("Pixel".to_string()),
+            platform: "android".to_string(),
+        };
+        let adapter = RemoteCoreAdapter::from_remote_sender_with_metrics(
+            host,
+            tx,
+            Some(TransportMetrics {
+                transport_type: Some(TransportType::UsbMobile),
+                ..TransportMetrics::default()
+            }),
+        );
+
+        assert_eq!(
+            adapter
+                .transport_metrics()
+                .and_then(|metrics| metrics.transport_type),
+            Some(TransportType::UsbMobile)
+        );
     }
 
     #[test]
@@ -150,5 +176,40 @@ mod tests {
 
         assert!(!lock_response.is_ok());
         assert!(adapter.is_unlocked());
+    }
+
+    #[test]
+    fn vault_status_updates_remote_adapter_unlock_state() {
+        let (tx, mut rx) = mpsc::channel::<crate::remote_data_plane::RemoteIoRequest>(2);
+        let host = RemoteHost::TauriRemoteWss {
+            peer_id: "test-peer".to_string(),
+        };
+        let mut adapter = RemoteCoreAdapter::from_remote_sender(host, tx);
+
+        let worker = std::thread::spawn(move || {
+            let unlocked = rx.blocking_recv().expect("unlocked status request");
+            assert_eq!(unlocked.request.command, "vault:status");
+            let _ = unlocked.reply_tx.send(RpcReply::Json(RpcResponse::success(
+                serde_json::json!({"is_unlocked": true, "session_started_at": 1}),
+            )));
+
+            let locked = rx.blocking_recv().expect("locked status request");
+            assert_eq!(locked.request.command, "vault:status");
+            let _ = locked.reply_tx.send(RpcReply::Json(RpcResponse::success(
+                serde_json::json!({"is_unlocked": false, "session_started_at": null}),
+            )));
+        });
+
+        let unlocked_response =
+            adapter.handle(&RpcRequest::new("vault:status", serde_json::json!({})));
+        assert!(unlocked_response.is_ok());
+        assert!(adapter.is_unlocked());
+
+        let locked_response =
+            adapter.handle(&RpcRequest::new("vault:status", serde_json::json!({})));
+        worker.join().expect("worker join");
+
+        assert!(locked_response.is_ok());
+        assert!(!adapter.is_unlocked());
     }
 }

@@ -1236,41 +1236,44 @@ export class PMEntryCreateMobile extends PMEntryCreateBase {
             <span class="avatar-edit-badge"><cv-icon name="pencil"></cv-icon></span>
           </div>
           <div class="field-cell">
-            <cv-input
-              id="entry-create-title"
-              class="title-input"
-              type="text"
-              size="large"
-              name="title"
-              required
-              autocomplete="card-title"
-              placeholder=${i18n('title:placeholder')}
-              .value=${this.model.title()}
-              @cv-input=${this.onTitleInput}
-              ?invalid=${Boolean(titleError)}
-            >
-              ${titleError ? html`<span slot="help-text" class="field-error">${titleError}</span>` : nothing}
-            </cv-input>
+            <cv-field ?invalid=${Boolean(titleError)} required>
+              <cv-input
+                id="entry-create-title"
+                class="title-input"
+                type="text"
+                size="large"
+                name="title"
+                required
+                autocomplete="card-title"
+                placeholder=${i18n('title:placeholder')}
+                .value=${this.model.title()}
+                @cv-input=${this.onTitleInput}
+                ?invalid=${Boolean(titleError)}
+              ></cv-input>
+              ${titleError ? html`<span slot="error" class="field-error">${titleError}</span>` : nothing}
+            </cv-field>
           </div>
         </div>
         ${entryType === 'login'
           ? html`
               <div class="field-cell">
-                <cv-input
-                  id="urls"
-                  type="text"
-                  size="large"
-                  name="urls"
-                  autocomplete="url"
-                  placeholder=${i18n('website:placeholder')}
-                  .value=${this.model.website()}
-                  @cv-input=${this.onUrlsInput}
-                  ?invalid=${Boolean(websiteError)}
-                >
+                <cv-field ?invalid=${Boolean(websiteError)}>
                   <span slot="label">${i18n('website:title')}</span>
-                  <cv-icon slot="prefix" class="field-icon" name="globe"></cv-icon>
-                  ${websiteError ? html`<span slot="help-text" class="field-error">${websiteError}</span>` : nothing}
-                </cv-input>
+                  <cv-input
+                    id="urls"
+                    type="text"
+                    size="large"
+                    name="urls"
+                    autocomplete="url"
+                    placeholder=${i18n('website:placeholder')}
+                    .value=${this.model.website()}
+                    @cv-input=${this.onUrlsInput}
+                    ?invalid=${Boolean(websiteError)}
+                  >
+                    <cv-icon slot="prefix" class="field-icon" name="globe"></cv-icon>
+                  </cv-input>
+                  ${websiteError ? html`<span slot="error" class="field-error">${websiteError}</span>` : nothing}
+                </cv-field>
               </div>
             `
           : nothing}
@@ -1341,49 +1344,53 @@ export class PMEntryCreateMobile extends PMEntryCreateBase {
         <div class="section">
         <div class="credentials-grid">
           <div class="field-cell">
-            <cv-input
-              type="text"
-              size="large"
-              name="username"
-              autocomplete="username"
-              placeholder=${i18n('username:placeholder')}
-              .value=${this.model.username()}
-              @cv-input=${this.onUsernameInput}
-              ?invalid=${Boolean(usernameError)}
-            >
+            <cv-field ?invalid=${Boolean(usernameError)}>
               <span slot="label">${i18n('username')}</span>
-              <cv-icon slot="prefix" class="field-icon" name="person-circle"></cv-icon>
-              ${usernameError ? html`<span slot="help-text" class="field-error">${usernameError}</span>` : nothing}
-            </cv-input>
+              <cv-input
+                type="text"
+                size="large"
+                name="username"
+                autocomplete="username"
+                placeholder=${i18n('username:placeholder')}
+                .value=${this.model.username()}
+                @cv-input=${this.onUsernameInput}
+                ?invalid=${Boolean(usernameError)}
+              >
+                <cv-icon slot="prefix" class="field-icon" name="person-circle"></cv-icon>
+              </cv-input>
+              ${usernameError ? html`<span slot="error" class="field-error">${usernameError}</span>` : nothing}
+            </cv-field>
           </div>
           <div class="field-cell password-cell">
-            <cv-input
-              id="password"
-              type="password"
-              size="large"
-              name="password"
-              autocomplete="password"
-              placeholder=${i18n('password:placeholder')}
-              password-toggle
-              .value=${this.model.password()}
-              @cv-input=${this.onPasswordInput}
-              ?editing=${this.model.isEditingPassword()}
-              ?invalid=${Boolean(passwordError)}
-            >
+            <cv-field ?invalid=${Boolean(passwordError)}>
               <span slot="label">${i18n('password')}</span>
-              <cv-icon slot="prefix" class="field-icon" name="lock"></cv-icon>
-              <span class="generate-divider" slot="suffix" aria-hidden="true"></span>
-              <cv-button unstyled
-                class="generate-btn"
-                slot="suffix"
-                @click=${this.generate}
-                type="button"
-                title=${i18n('button:generate')}
+              <cv-input
+                id="password"
+                type="password"
+                size="large"
+                name="password"
+                autocomplete="password"
+                placeholder=${i18n('password:placeholder')}
+                password-toggle
+                .value=${this.model.password()}
+                @cv-input=${this.onPasswordInput}
+                ?editing=${this.model.isEditingPassword()}
+                ?invalid=${Boolean(passwordError)}
               >
-                <cv-icon name="arrow-repeat"></cv-icon>
-              </cv-button>
-              ${passwordError ? html`<span slot="help-text" class="field-error">${passwordError}</span>` : nothing}
-            </cv-input>
+                <cv-icon slot="prefix" class="field-icon" name="lock"></cv-icon>
+                <span class="generate-divider" slot="suffix" aria-hidden="true"></span>
+                <cv-button unstyled
+                  class="generate-btn"
+                  slot="suffix"
+                  @click=${this.generate}
+                  type="button"
+                  title=${i18n('button:generate')}
+                >
+                  <cv-icon name="arrow-repeat"></cv-icon>
+                </cv-button>
+              </cv-input>
+              ${passwordError ? html`<span slot="error" class="field-error">${passwordError}</span>` : nothing}
+            </cv-field>
             ${this.renderStrengthBar()}
           </div>
         </div>

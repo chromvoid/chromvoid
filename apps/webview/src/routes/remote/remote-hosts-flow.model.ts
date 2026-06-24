@@ -7,6 +7,7 @@ import {getAppContext} from 'root/shared/services/app-context'
 import {dialogService} from 'root/shared/services/dialog'
 
 import {remoteSessionModel} from './remote-session.model'
+import {RemoteUsbFlowModel} from './remote-usb-flow.model'
 import {
   getModeStatus,
   isRemoteMode,
@@ -77,8 +78,9 @@ type RemoteHostsCallbacks = {
   onTransportLost?: () => void
 }
 
-export type RemoteHostsFlowView = 'hosts' | 'pair-ios' | 'wait'
+export type RemoteHostsFlowView = 'hosts' | 'pair-ios' | 'wait' | 'usb-mobile'
 export type RemoteHostsPairPhase = 'idle' | 'starting' | 'waiting' | 'connecting' | 'success' | 'failed'
+export type MobileHostTransportKind = 'wss_relay' | 'usb_mobile'
 
 export class RemoteHostsFlowModel {
   readonly view = atom<RemoteHostsFlowView>('hosts')
@@ -96,15 +98,26 @@ export class RemoteHostsFlowModel {
   readonly pinInput = atom('')
   readonly deviceLabel = atom('')
   readonly hostStatus = atom<MobileHostStatus | null>(null)
+  readonly usb = new RemoteUsbFlowModel()
 
   readonly isMobileHostRuntime = computed<boolean>(() => {
     const caps = getRuntimeCapabilities()
     return caps.mobile && caps.supports_network_remote
   })
+  readonly isMobileUsbRemoteRuntime = computed<boolean>(() => {
+    const caps = getRuntimeCapabilities()
+    return caps.desktop && caps.supports_mobile_usb_remote
+  })
   readonly hostPlatform = computed<string>(() => {
     const platform = this.hostStatus()?.platform?.trim()
     if (platform) return platform
     return getRuntimeCapabilities().platform === 'android' ? 'android' : 'ios'
+  })
+  readonly mobileHostTransports = computed<MobileHostTransportKind[]>(() => {
+    if (!this.isMobileHostRuntime()) return []
+    return this.hostPlatform() === 'android'
+      ? (['wss_relay', 'usb_mobile'] satisfies MobileHostTransportKind[])
+      : (['wss_relay'] satisfies MobileHostTransportKind[])
   })
   readonly transportConnected = computed<boolean>(() => this.transportConnectedPeerId() !== null)
   readonly connectedPeer = computed<NetworkPairedPeer | null>(() => {
@@ -192,6 +205,18 @@ export class RemoteHostsFlowModel {
     if (this.isMobileHostRuntime()) {
       void this.refreshHostStatus()
     }
+  }
+
+  openUsbMobile(options: {scan?: boolean} = {}): void {
+    if (!this.isMobileUsbRemoteRuntime()) return
+    this.errorText.set(null)
+    this.pausePeerPolling()
+    this.view.set('usb-mobile')
+    const refresh = this.usb.refreshStatus()
+    if (!options.scan) return
+    void refresh.then((ok) => {
+      if (ok) void this.usb.scanAndConnectSingleHost(() => this.view() === 'usb-mobile')
+    })
   }
 
   async closePairIos(): Promise<void> {
@@ -635,7 +660,7 @@ export class RemoteHostsFlowModel {
   private resolveRemotePeerId(modeInfo: ModeInfo | null): string | null {
     if (!modeInfo || !isRemoteMode(modeInfo.mode)) return null
     const host = modeInfo.mode.remote.host as RemoteHost
-    return host.type === 'tauri_remote_wss' ? host.peer_id : null
+    return host.type === 'tauri_remote_wss' ? host.peer_id : host.host_id
   }
 
   private resolveModeRemotePeerId(modeInfo: ModeInfo | null): string | null {

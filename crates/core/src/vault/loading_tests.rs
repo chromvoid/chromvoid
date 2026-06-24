@@ -3,12 +3,16 @@ use super::*;
 use crate::catalog::{
     serialize_catalog, CatalogNode, LoadStrategy, Shard, ShardMeta, MAX_DELTA_SIZE,
 };
+use crate::crypto::keystore::InMemoryKeystore;
 use crate::crypto::{
     catalog_chunk_name, catalog_commit_chunk_name, decrypt, delta_chunk_name, encrypt,
     root_index_chunk_name, shard_chunk_name, shard_snapshot_chunk_name,
 };
 use crate::error::Error;
 use crate::storage::test_util::{fault_injecting_storage, FaultRule, StorageOperation};
+use crate::vault::catalog_persistence::{
+    CatalogRepairPolicy, CatalogRepairService, CatalogRepairStatus,
+};
 use tempfile::TempDir;
 
 fn setup() -> (TempDir, Storage, [u8; KEY_SIZE]) {
@@ -107,6 +111,126 @@ fn catalog_has_path(catalog: &CatalogManager, path: &str) -> bool {
     catalog.find_by_path(path).is_some()
 }
 
+fn write_corrupt_move_delta_catalog(
+    storage: &Storage,
+    key: &[u8; KEY_SIZE],
+) -> (String, String, String) {
+    let shard_id = "docs";
+    let mut shard = Shard::new(shard_id, CatalogNode::new_dir(1, shard_id.to_string()));
+    shard.version = 418;
+    shard.base_version = 418;
+    assert!(shard.root.add_child(CatalogNode::new_file(
+        2,
+        "Банк_amd_.txt".to_string(),
+        12,
+        None,
+    )));
+
+    let mut root_index = RootIndex::new();
+    let mut meta = ShardMeta::new(shard_id, LoadStrategy::Lazy);
+    meta.base_version = 418;
+    meta.version = 419;
+    meta.last_delta_seq = 419;
+    meta.has_deltas = true;
+    meta.delta_count = 1;
+    meta.snapshot_seq = 0;
+    meta.update_stats(shard.node_count(), shard.size());
+    root_index.root_version = 419;
+    root_index.upsert_shard(meta);
+
+    let root_name = root_index_chunk_name(key, 0);
+    write_encrypted_chunk(storage, key, &root_name, &root_index);
+    let snapshot_name = shard_snapshot_chunk_name(key, shard_id, 0);
+    write_encrypted_chunk(storage, key, &snapshot_name, &shard);
+    let delta = DeltaEntry::move_node(419, "/Банк_amd_.txt", "/missing", None).with_node_id(2);
+    let delta_name = delta_chunk_name(key, shard_id, 419);
+    write_encrypted_chunk(storage, key, &delta_name, &delta);
+
+    (shard_id.to_string(), snapshot_name, delta_name)
+}
+
+fn write_lossless_delta_catalog(
+    storage: &Storage,
+    key: &[u8; KEY_SIZE],
+    mut shard: Shard,
+    delta: DeltaEntry,
+) -> (String, String, String) {
+    let shard_id = shard.shard_id.clone();
+    shard.version = 1;
+    shard.base_version = 1;
+
+    let mut root_index = RootIndex::new();
+    let mut meta = ShardMeta::new(shard_id.clone(), LoadStrategy::Lazy);
+    meta.base_version = 1;
+    meta.version = 2;
+    meta.last_delta_seq = 2;
+    meta.has_deltas = true;
+    meta.delta_count = 1;
+    meta.snapshot_seq = 0;
+    meta.update_stats(shard.node_count(), shard.size());
+    root_index.root_version = 2;
+    root_index.upsert_shard(meta);
+
+    let root_name = root_index_chunk_name(key, 0);
+    write_encrypted_chunk(storage, key, &root_name, &root_index);
+    let snapshot_name = shard_snapshot_chunk_name(key, &shard_id, 0);
+    write_encrypted_chunk(storage, key, &snapshot_name, &shard);
+    let delta_name = delta_chunk_name(key, &shard_id, 2);
+    write_encrypted_chunk(storage, key, &delta_name, &delta);
+
+    (shard_id, snapshot_name, delta_name)
+}
+
+fn assert_lossless_repair<F>(case_name: &str, shard: Shard, delta: DeltaEntry, assert_loaded: F)
+where
+    F: FnOnce(&Shard),
+{
+    let (_d, storage, key) = setup();
+    let (shard_id, old_snapshot_name, delta_name) =
+        write_lossless_delta_catalog(&storage, &key, shard, delta);
+
+    let outcome = CatalogRepairService::new(&storage, &key)
+        .repair_lossless()
+        .expect("lossless repair")
+        .unwrap_or_else(|| panic!("{case_name}: expected lossless repair"));
+
+    assert_eq!(outcome.status, CatalogRepairStatus::LosslessRepaired);
+    assert!(!outcome.lossy_applied);
+    assert!(outcome.issues.is_empty());
+    assert!(
+        storage
+            .chunk_exists(&old_snapshot_name)
+            .expect("old snapshot exists"),
+        "{case_name}: old snapshot must be preserved"
+    );
+    assert!(
+        storage.chunk_exists(&delta_name).expect("old delta exists"),
+        "{case_name}: old delta must be preserved"
+    );
+
+    let root_index = Vault::read_root_index_from_storage(&storage, &key)
+        .expect("root index")
+        .expect("root index exists");
+    let meta = root_index.get_shard(&shard_id).expect("shard meta");
+    assert!(!meta.has_deltas, "{case_name}: deltas should be compacted");
+    assert_eq!(meta.base_version, 2);
+    assert_eq!(meta.last_delta_seq, 2);
+    assert_eq!(meta.snapshot_seq, 1);
+
+    let loaded = Vault::load_shard_from_storage(&storage, &key, &shard_id)
+        .expect("load shard")
+        .expect("repaired shard");
+    assert_loaded(&loaded);
+
+    assert!(
+        CatalogRepairService::new(&storage, &key)
+            .repair_lossless()
+            .expect("second repair")
+            .is_none(),
+        "{case_name}: lossless repair must be idempotent"
+    );
+}
+
 #[test]
 fn try_load_sharded_catalog_none_when_root_index_missing() {
     let (_d, storage, key) = setup();
@@ -177,6 +301,195 @@ fn try_load_sharded_catalog_errors_when_delta_replay_fails() {
     let result = Vault::try_load_sharded_catalog(&storage, &key);
 
     assert!(result.is_err(), "failed delta replay must not be masked");
+}
+
+#[test]
+fn catalog_repair_diagnoses_and_applies_confirmed_lossy_delta_replay_failure() {
+    let (_d, storage, key) = setup();
+    let (shard_id, old_snapshot_name, delta_name) =
+        write_corrupt_move_delta_catalog(&storage, &key);
+
+    let service = CatalogRepairService::new(&storage, &key);
+    let diagnosis = service.diagnose().expect("diagnose");
+
+    assert_eq!(diagnosis.status, CatalogRepairStatus::LossyRequired);
+    assert!(diagnosis.lossy_requires_confirm);
+    let repair_id = diagnosis.repair_id.clone().expect("repair id");
+    let issue = diagnosis.issues.first().expect("issue");
+    assert_eq!(issue.shard_id, shard_id);
+    assert_eq!(issue.safe_through_seq, 418);
+    assert_eq!(issue.failure.seq, 419);
+    assert_eq!(issue.failure.path, "/Банк_amd_.txt");
+    assert_eq!(
+        issue.failure.reason,
+        crate::catalog::CatalogReplayReason::MissingTargetParent
+    );
+
+    let lossless_error = service
+        .apply(&repair_id, CatalogRepairPolicy::LosslessOnly)
+        .expect_err("lossy repair needs confirmation");
+    assert!(matches!(lossless_error, Error::CatalogRepairUnsafe(_)));
+
+    let outcome = service
+        .apply(&repair_id, CatalogRepairPolicy::AllowLossyConfirmed)
+        .expect("confirmed repair");
+    assert!(outcome.lossy_applied);
+    assert!(
+        storage
+            .chunk_exists(&old_snapshot_name)
+            .expect("old snapshot"),
+        "repair must preserve old snapshot chunks"
+    );
+    assert!(
+        storage.chunk_exists(&delta_name).expect("old delta"),
+        "repair must preserve old delta chunks"
+    );
+
+    let repaired = Vault::load_shard_from_storage(&storage, &key, &shard_id)
+        .expect("load shard")
+        .expect("repaired shard");
+    assert_eq!(repaired.version, 418);
+    assert_eq!(repaired.base_version, 418);
+    assert!(repaired.root.find_child("Банк_amd_.txt").is_some());
+
+    let stale_error = service
+        .apply(&repair_id, CatalogRepairPolicy::AllowLossyConfirmed)
+        .expect_err("old repair id must be stale");
+    assert!(matches!(stale_error, Error::CatalogRepairStale));
+}
+
+#[test]
+fn catalog_repair_compacts_lossless_idempotent_deltas() {
+    let mut create_shard = Shard::new("docs", CatalogNode::new_dir(1, "docs".to_string()));
+    assert!(create_shard.root.add_child(CatalogNode::new_file(
+        2,
+        "readme.txt".to_string(),
+        12,
+        None,
+    )));
+    assert_lossless_repair(
+        "idempotent create",
+        create_shard,
+        DeltaEntry::create(
+            2,
+            "/",
+            CatalogNode::new_file(2, "readme.txt".to_string(), 12, None),
+        ),
+        |loaded| {
+            assert!(loaded.root.find_child("readme.txt").is_some());
+        },
+    );
+
+    let delete_shard = Shard::new("docs", CatalogNode::new_dir(1, "docs".to_string()));
+    assert_lossless_repair(
+        "idempotent delete",
+        delete_shard,
+        DeltaEntry::delete(2, "/readme.txt").with_node_id(2),
+        |loaded| {
+            assert!(loaded.root.find_child("readme.txt").is_none());
+        },
+    );
+
+    let mut move_shard = Shard::new("docs", CatalogNode::new_dir(1, "docs".to_string()));
+    let mut archive = CatalogNode::new_dir(3, "archive".to_string());
+    assert!(archive.add_child(CatalogNode::new_file(2, "readme.txt".to_string(), 12, None,)));
+    assert!(move_shard.root.add_child(archive));
+    assert_lossless_repair(
+        "idempotent move",
+        move_shard,
+        DeltaEntry::move_node(2, "/readme.txt", "/archive", None).with_node_id(2),
+        |loaded| {
+            let archive = loaded.root.find_child("archive").expect("archive");
+            assert!(archive.find_child("readme.txt").is_some());
+        },
+    );
+}
+
+#[test]
+fn unlock_auto_repairs_lossless_catalog_delta_chain() {
+    let dir = TempDir::new().expect("temp dir");
+    let storage = Storage::new(dir.path()).expect("storage");
+    let keystore = InMemoryKeystore::new();
+    let first_unlock = Vault::unlock_with_keystore_outcome(&storage, "password", Some(&keystore))
+        .expect("initial unlock");
+    let key = *first_unlock.session.vault_key();
+    drop(first_unlock);
+
+    let mut shard = Shard::new("docs", CatalogNode::new_dir(1, "docs".to_string()));
+    assert!(shard
+        .root
+        .add_child(CatalogNode::new_file(2, "readme.txt".to_string(), 12, None,)));
+    write_lossless_delta_catalog(
+        &storage,
+        &key,
+        shard,
+        DeltaEntry::create(
+            2,
+            "/",
+            CatalogNode::new_file(2, "readme.txt".to_string(), 12, None),
+        ),
+    );
+
+    let outcome = Vault::unlock_with_keystore_outcome(&storage, "password", Some(&keystore))
+        .expect("unlock with auto repair");
+
+    let repair = outcome.repair.expect("repair summary");
+    assert_eq!(repair.status, CatalogRepairStatus::LosslessRepaired);
+    assert!(!repair.lossy_applied);
+    assert!(outcome
+        .session
+        .catalog()
+        .find_by_path("/docs/readme.txt")
+        .is_some());
+
+    let root_index = Vault::read_root_index_from_storage(&storage, &key)
+        .expect("root index")
+        .expect("root index exists");
+    let meta = root_index.get_shard("docs").expect("docs meta");
+    assert!(!meta.has_deltas);
+    assert_eq!(meta.base_version, 2);
+}
+
+#[test]
+fn save_catalog_falls_back_to_snapshot_when_pending_delta_chain_would_not_replay() {
+    let (_d, storage, key) = setup();
+    let catalog = catalog_with_docs_child("readme.txt", 12);
+    write_sharded_catalog(&storage, &key, &catalog);
+
+    let mut pending = HashMap::from([(
+        "docs".to_string(),
+        vec![DeltaEntry::move_node(0, "/readme.txt", "/missing", None).with_node_id(2)],
+    )]);
+    let mut persisted = Vec::new();
+
+    Vault::save_catalog(&storage, &key, &catalog, &mut pending, &mut persisted)
+        .expect("save should fall back to snapshot");
+
+    assert!(pending.values().all(Vec::is_empty));
+    assert!(
+        persisted.is_empty(),
+        "fallback snapshot must not report a persisted delta"
+    );
+    assert!(
+        !storage
+            .chunk_exists(&delta_chunk_name(&key, "docs", 1))
+            .expect("delta chunk probe"),
+        "unreplayable pending delta must not be written"
+    );
+
+    let root_index = Vault::read_root_index_from_storage(&storage, &key)
+        .expect("root index")
+        .expect("root index exists");
+    let meta = root_index.get_shard("docs").expect("docs shard");
+    assert!(!meta.has_deltas);
+    assert_eq!(meta.delta_count, 0);
+    assert_eq!(meta.version, 1);
+    assert_eq!(meta.base_version, 1);
+
+    let loaded = Vault::load_shard_from_storage(&storage, &key, "docs")
+        .expect("load shard")
+        .expect("docs shard");
+    assert!(loaded.root.find_child("readme.txt").is_some());
 }
 
 #[test]

@@ -20,8 +20,13 @@ const generatedAndroidTauriConfigPath = path.join(
   'tauri.conf.json',
 )
 const generatedAndroidAssetsRoot = path.dirname(generatedAndroidTauriConfigPath)
+const baseTauriConfigPath = path.join(appRoot, 'src-tauri', 'tauri.conf.json')
+const androidTauriConfigPath = path.join(appRoot, 'src-tauri', 'tauri.android.conf.json')
 const devTauriConfigPath = path.join(appRoot, 'src-tauri', 'tauri.dev.conf.json')
-const forwardedArgs = process.argv.slice(2)
+const rawForwardedArgs = process.argv.slice(2)
+const liveDevArg = '--live-dev'
+const forwardedArgs = rawForwardedArgs.filter((arg) => arg !== liveDevArg)
+const liveDevMode = isEnabled(process.env.CHROMVOID_ANDROID_LIVE_DEV) || rawForwardedArgs.includes(liveDevArg)
 const devServerPort = 4400
 const defaultAdbTunnelPort = '15037'
 const releaseLaunchIntent = 'Starting: Intent { cmp=com.chromvoid.app/.MainActivity }'
@@ -62,6 +67,23 @@ function isPlainObject(value) {
 
 function mergeConfigOverlay(target, overlay) {
   for (const [key, value] of Object.entries(overlay)) {
+    if (
+      Array.isArray(value)
+      && Array.isArray(target[key])
+      && value.every(isPlainObject)
+      && target[key].every(isPlainObject)
+    ) {
+      target[key] = target[key].map((item, index) => {
+        const overlayItem = value[index]
+        return isPlainObject(overlayItem)
+          ? mergeConfigOverlay({...item}, overlayItem)
+          : item
+      })
+      if (value.length > target[key].length) {
+        target[key].push(...value.slice(target[key].length))
+      }
+      continue
+    }
     if (isPlainObject(value) && isPlainObject(target[key])) {
       mergeConfigOverlay(target[key], value)
       continue
@@ -79,7 +101,44 @@ function readJsonFile(filePath) {
   }
 }
 
-function applyGeneratedAndroidDevConfig() {
+function writeGeneratedAndroidConfig(nextConfig, successMessage) {
+  const current = fs.readFileSync(generatedAndroidTauriConfigPath, 'utf8')
+  const next = `${JSON.stringify(nextConfig, null, 2)}\n`
+  if (current === next) {
+    log(`${successMessage} already applied`)
+    return
+  }
+
+  fs.writeFileSync(generatedAndroidTauriConfigPath, next)
+  log(successMessage)
+}
+
+function applyGeneratedAndroidProductionConfig() {
+  if (!fs.existsSync(generatedAndroidTauriConfigPath)) {
+    throw new Error(
+      `generated Android Tauri config not found at ${generatedAndroidTauriConfigPath}; run bun run android:init first`,
+    )
+  }
+  if (!fs.existsSync(baseTauriConfigPath)) {
+    throw new Error(`base Tauri config not found at ${baseTauriConfigPath}`)
+  }
+  if (!fs.existsSync(androidTauriConfigPath)) {
+    throw new Error(`Android Tauri config not found at ${androidTauriConfigPath}`)
+  }
+
+  const generatedConfig = readJsonFile(generatedAndroidTauriConfigPath)
+  const baseConfig = readJsonFile(baseTauriConfigPath)
+  const androidConfig = readJsonFile(androidTauriConfigPath)
+  const nextConfig = mergeConfigOverlay(mergeConfigOverlay(generatedConfig, baseConfig), androidConfig)
+  nextConfig.build ??= {}
+  nextConfig.build.devUrl = null
+  nextConfig.build.frontendDist = '../../webview/dist'
+  nextConfig.build.features = ['android']
+
+  writeGeneratedAndroidConfig(nextConfig, 'applied production Tauri config to generated Android assets')
+}
+
+function applyGeneratedAndroidLiveDevConfig() {
   if (!fs.existsSync(generatedAndroidTauriConfigPath)) {
     throw new Error(
       `generated Android Tauri config not found at ${generatedAndroidTauriConfigPath}; run bun run android:init first`,
@@ -96,15 +155,7 @@ function applyGeneratedAndroidDevConfig() {
   nextConfig.build.devUrl = null
   nextConfig.build.frontendDist = '../../webview/dist'
 
-  const current = fs.readFileSync(generatedAndroidTauriConfigPath, 'utf8')
-  const next = `${JSON.stringify(nextConfig, null, 2)}\n`
-  if (current === next) {
-    log('generated Android Tauri config already uses dev overlay')
-    return
-  }
-
-  fs.writeFileSync(generatedAndroidTauriConfigPath, next)
-  log('applied dev Tauri config overlay to generated Android assets')
+  writeGeneratedAndroidConfig(nextConfig, 'applied live-dev Tauri config overlay to generated Android assets')
 }
 
 function applyRemoteAdbTunnelEnv(env) {
@@ -728,7 +779,7 @@ const childEnv = {
   ANDROID_HOME: androidHome,
   ANDROID_SDK_ROOT: androidHome,
   ORG_GRADLE_PROJECT_chromvoidSkipFreshTauriPrebuild: skipFreshTauriPrebuild,
-  ORG_GRADLE_PROJECT_chromvoidProductionWebviewDev: 'true',
+  ORG_GRADLE_PROJECT_chromvoidProductionWebviewDebug: liveDevMode ? 'false' : 'true',
 }
 applyGradleJavaHome(childEnv)
 applyRemoteAdbTunnelEnv(childEnv)
@@ -752,15 +803,27 @@ if (devices.length === 0) {
   selectedArchs = configureAndroidGradleTargets(adb, devices, childEnv)
 }
 
-if (devices.length > 0 && forwardedArgs.length === 0) {
+if (!liveDevMode) {
+  if (forwardedArgs.length > 0) {
+    throw new Error(
+      `bun run android now installs a production WebView debug package and does not forward arguments to Tauri dev. ` +
+        `Use bun run android:dev -- ${forwardedArgs.join(' ')} for live-server Android development.`,
+    )
+  }
+  applyGeneratedAndroidProductionConfig()
+  if (devices.length === 0) {
+    throw new Error('No connected Android devices detected; bun run android does not start a live dev server. Connect a device or use bun run android:dev.')
+  }
+
   runForcedWebviewBuild(childEnv)
   syncAndroidWebviewDistAssets()
-  applyGeneratedAndroidDevConfig()
   removeStaleAndroidRustArtifacts(selectedArchs)
   removeStaleDebugApks(selectedArchs)
   runGradleDebugInstall(childEnv, selectedArchs, devices, adb)
   process.exit(maybeRelaunchDebugApp(adb, devices, childEnv) ? 0 : 1)
 }
+
+applyGeneratedAndroidLiveDevConfig()
 
 const hasExplicitHostArg =
   forwardedArgs.includes('--host')

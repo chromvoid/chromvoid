@@ -401,19 +401,20 @@ export class PMMobileTagFilterSheet extends ReatomLitElement {
     return html`
       <div class="sheet-body">
         <form id=${formId} class="tag-form" @submit=${onSubmit}>
-          <cv-input
-            id="pm-tag-form-input"
-            type="text"
-            size="large"
-            autocomplete="off"
-            .value=${draft}
-            ?disabled=${!canMutate || saving}
-            ?invalid=${Boolean(error)}
-            @cv-input=${this.handleDraftInput}
-          >
+          <cv-field ?disabled=${!canMutate || saving} ?invalid=${Boolean(error)}>
             <span slot="label">${i18n('tags:name_label' as never)}</span>
-            ${error ? html`<span slot="help-text" class="field-error">${error}</span>` : nothing}
-          </cv-input>
+            <cv-input
+              id="pm-tag-form-input"
+              type="text"
+              size="large"
+              autocomplete="off"
+              .value=${draft}
+              ?disabled=${!canMutate || saving}
+              ?invalid=${Boolean(error)}
+              @cv-input=${this.handleDraftInput}
+            ></cv-input>
+            ${error ? html`<span slot="error" class="field-error">${error}</span>` : nothing}
+          </cv-field>
         </form>
       </div>
 

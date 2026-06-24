@@ -11,6 +11,7 @@ use crate::network::signaling::SIGNALING_CLIENT_CLOSE_GRACE;
 const NEXT_ACCEPT_READY_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const RETRY_DELAY_OTHER_BASE_MS: u64 = 500;
 const RETRY_DELAY_OTHER_CAP_MS: u64 = 5_000;
+const RETRY_DELAY_PRE_MSG1_IDLE_MS: u64 = 100;
 const RETRY_DELAY_PRE_HANDSHAKE_BASE_MS: u64 = 1_000;
 const RETRY_DELAY_PRE_HANDSHAKE_CAP_MS: u64 = 10_000;
 const RETRY_DELAY_RATE_LIMIT_BASE_MS: u64 = 5_000;
@@ -100,9 +101,16 @@ impl RetryBackoffState {
                     ),
                 )
             }
-            AcceptErrorClass::RoomFull
-            | AcceptErrorClass::RoomExpired
-            | AcceptErrorClass::PreMsg1Closed => {
+            AcceptErrorClass::PreMsg1Closed => {
+                self.pre_handshake_failures += 1;
+                self.rate_limit_failures = 0;
+                self.other_failures = 0;
+                (
+                    self.pre_handshake_failures,
+                    Duration::from_millis(RETRY_DELAY_PRE_MSG1_IDLE_MS),
+                )
+            }
+            AcceptErrorClass::RoomFull | AcceptErrorClass::RoomExpired => {
                 self.pre_handshake_failures += 1;
                 self.rate_limit_failures = 0;
                 self.other_failures = 0;

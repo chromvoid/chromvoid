@@ -1,6 +1,11 @@
 import {getRuntimeCapabilities} from '../../core/runtime/runtime-capabilities'
 import {syncPasswordInputDialogKeyboardOffset} from '../../shared/services/mobile-dialog-keyboard-stabilization'
 import {
+  MOBILE_KEYBOARD_EXPANDED_ATTR,
+  VISUAL_VIEWPORT_SHRUNK_ATTR,
+  setMobileKeyboardOccluding,
+} from './mobile-keyboard/keyboard-occlusion.model'
+import {
   ANDROID_NATIVE_KEYBOARD_INSETS_ATTR,
   applyMobileKeyboardCssOffsets,
   IOS_NATIVE_KEYBOARD_INSETS_ATTR,
@@ -9,8 +14,6 @@ import {
   NATIVE_SAFE_AREA_BOTTOM_ATTR,
 } from './mobile-keyboard-insets'
 
-const VISUAL_VIEWPORT_SHRUNK_ATTR = 'data-visual-viewport-shrunken'
-const NATIVE_KEYBOARD_EXPANDED_ATTR = 'data-mobile-keyboard-expanded'
 const MIN_KEYBOARD_BOTTOM_INSET = 72
 const KEYBOARD_BOTTOM_INSET_VIEWPORT_RATIO = 0.08
 const ANDROID_SAFE_AREA_BOTTOM_FALLBACK = 16
@@ -171,7 +174,7 @@ export const setupMobileVisualViewportSync = () => {
 
     const rootClientHeight = root.clientHeight
     const windowInnerHeight = window.innerHeight
-    const preferRootHeight = root.hasAttribute(NATIVE_KEYBOARD_EXPANDED_ATTR)
+    const preferRootHeight = root.hasAttribute(MOBILE_KEYBOARD_EXPANDED_ATTR)
     const layoutViewportHeight = getVisualViewportLayoutHeight({
       rootClientHeight,
       windowInnerHeight,
@@ -238,7 +241,9 @@ export const setupMobileVisualViewportSync = () => {
     }
     applyMobileKeyboardCssOffsets(root, effectiveKeyboardInset, cssOffsetSource, cssViewportMode)
     root.style.setProperty('--safe-area-bottom-fallback', `${resolvedSafeAreaInset}px`)
-    root.toggleAttribute(VISUAL_VIEWPORT_SHRUNK_ATTR, effectiveKeyboardInset > 0)
+    const visualViewportShrunken = effectiveKeyboardInset > 0
+    root.toggleAttribute(VISUAL_VIEWPORT_SHRUNK_ATTR, visualViewportShrunken)
+    setMobileKeyboardOccluding(root.hasAttribute(MOBILE_KEYBOARD_EXPANDED_ATTR) || visualViewportShrunken)
     if (!preferNativeKeyboardInset) {
       syncPasswordInputDialogKeyboardOffset(effectiveKeyboardInset, {
         phase: 'settled',

@@ -9,6 +9,8 @@ pub(crate) mod vault;
 #[cfg(desktop)]
 pub(crate) mod gateway_cmds;
 #[cfg(desktop)]
+pub(crate) mod mobile_usb_cmds;
+#[cfg(desktop)]
 pub(crate) mod mode_cmds;
 pub(crate) mod network_cmds;
 #[cfg(desktop)]

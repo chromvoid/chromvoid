@@ -27,7 +27,10 @@ internal class ConnectionNotificationFactory(
         )
     }
 
-    fun build(deviceName: String): Notification {
+    fun build(
+        deviceName: String,
+        disconnectAction: String = ConnectionForegroundService.ACTION_DISCONNECT,
+    ): Notification {
         val launchIntent =
             Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -42,7 +45,7 @@ internal class ConnectionNotificationFactory(
 
         val disconnectIntent =
             Intent(context, ConnectionForegroundService::class.java).apply {
-                action = ConnectionForegroundService.ACTION_DISCONNECT
+                action = disconnectAction
             }
         val disconnectPendingIntent =
             PendingIntent.getService(

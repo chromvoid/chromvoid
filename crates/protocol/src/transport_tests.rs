@@ -9,6 +9,7 @@ fn transport_type_display() {
     );
     assert_eq!(TransportType::WssRelay.to_string(), "WSS Relay");
     assert_eq!(TransportType::TcpStealth.to_string(), "TCP Stealth");
+    assert_eq!(TransportType::UsbMobile.to_string(), "USB Mobile");
 }
 
 #[test]
@@ -18,6 +19,7 @@ fn transport_type_serde_roundtrip() {
         TransportType::WebRtcDataChannel,
         TransportType::WssRelay,
         TransportType::TcpStealth,
+        TransportType::UsbMobile,
     ];
     for tt in types {
         let json = serde_json::to_string(&tt).unwrap();
@@ -43,6 +45,10 @@ fn transport_type_serializes_snake_case() {
     assert_eq!(
         serde_json::to_string(&TransportType::TcpStealth).unwrap(),
         "\"tcp_stealth\""
+    );
+    assert_eq!(
+        serde_json::to_string(&TransportType::UsbMobile).unwrap(),
+        "\"usb_mobile\""
     );
 }
 

@@ -775,18 +775,20 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
 
     return html`
       <div slot="support" class="group-inline-edit-stack">
-        <cv-textarea
-          class="group-inline-description-input"
-          name="description"
-          size="small"
-          rows="3"
-          .value=${this.model.editedDescription()}
-          placeholder=${i18n('group:description:placeholder')}
-          @cv-input=${this.onGroupDescriptionInput}
-        >
+        <cv-field ?invalid=${Boolean(error)}>
           <span slot="label">${i18n('group:description')}</span>
-          ${error ? html`<div slot="help-text" class="error-text">${error}</div>` : nothing}
-        </cv-textarea>
+          <cv-textarea
+            class="group-inline-description-input"
+            name="description"
+            size="small"
+            rows="3"
+            .value=${this.model.editedDescription()}
+            placeholder=${i18n('group:description:placeholder')}
+            ?invalid=${Boolean(error)}
+            @cv-input=${this.onGroupDescriptionInput}
+          ></cv-textarea>
+          ${error ? html`<div slot="error" class="error-text">${error}</div>` : nothing}
+        </cv-field>
         <div class="group-inline-edit-actions">
           <cv-button unstyled class="inline-edit-cancel" type="button" @click=${this.onEditCancel}>
             ${i18n('button:cancel')}

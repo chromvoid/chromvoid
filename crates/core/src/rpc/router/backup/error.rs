@@ -47,12 +47,12 @@ impl BackupCommandError {
         Self::new("Backup too large", Some(ErrorCode::BackupTooLarge))
     }
 
-    pub(in crate::rpc::router::backup) fn node_not_found(message: impl Into<String>) -> Self {
-        Self::new(message, Some(ErrorCode::NodeNotFound))
+    pub(in crate::rpc::router::backup) fn master_password_required() -> Self {
+        Self::new("Master password required", Some(ErrorCode::EmptyPayload))
     }
 
-    pub(in crate::rpc::router::backup) fn vault_required() -> Self {
-        Self::new("Vault not unlocked", Some(ErrorCode::VaultRequired))
+    pub(in crate::rpc::router::backup) fn node_not_found(message: impl Into<String>) -> Self {
+        Self::new(message, Some(ErrorCode::NodeNotFound))
     }
 
     pub(in crate::rpc::router::backup) fn internal(message: impl Into<String>) -> Self {

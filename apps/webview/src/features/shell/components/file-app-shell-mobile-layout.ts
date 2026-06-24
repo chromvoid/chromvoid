@@ -1,9 +1,11 @@
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {cvAnyBottomSheetOpen} from '@chromvoid/uikit/components/cv-bottom-sheet'
 import {CVDrawer, type CVDrawerEventDetail} from '@chromvoid/uikit/components/cv-drawer'
 
 import {css, nothing} from 'lit'
 
 import {tryGetAppContext} from 'root/shared/services/app-context'
+import {mobileKeyboardOccluding} from 'root/app/bootstrap/mobile-keyboard/keyboard-occlusion.model'
 import {MobileBottomActionFooter} from 'root/shared/ui/mobile-bottom-action-footer'
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 import {EdgeSwipeBack} from 'root/utils/edge-swipe-back'
@@ -412,7 +414,11 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
   }
 
   protected render() {
-    const mediaMiniVisible = mediaPlaybackModel.miniControlsVisible()
+    const mediaMiniVisible =
+      mediaPlaybackModel.miniControlsVisible() &&
+      !mediaPlaybackModel.fullPlayerOpen() &&
+      !cvAnyBottomSheetOpen() &&
+      !mobileKeyboardOccluding()
     const hideTabBar = false
 
     return html`

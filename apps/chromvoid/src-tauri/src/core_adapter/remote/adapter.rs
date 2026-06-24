@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 use chromvoid_core::rpc::{RpcInputStream, RpcReply};
+use chromvoid_protocol::TransportMetrics;
 use serde_json::Value;
 use tokio::sync::mpsc;
 use zeroize::Zeroize;
@@ -17,6 +18,7 @@ pub struct RemoteCoreAdapter {
     sender: IoSender,
     unlocked: bool,
     features: Arc<Mutex<Vec<String>>>,
+    transport_metrics: Option<TransportMetrics>,
 }
 
 impl RemoteCoreAdapter {
@@ -25,11 +27,20 @@ impl RemoteCoreAdapter {
         host: RemoteHost,
         req_tx: mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>,
     ) -> Self {
+        Self::from_remote_sender_with_metrics(host, req_tx, None)
+    }
+
+    pub fn from_remote_sender_with_metrics(
+        host: RemoteHost,
+        req_tx: mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>,
+        transport_metrics: Option<TransportMetrics>,
+    ) -> Self {
         Self {
             host,
             sender: IoSender::new(req_tx),
             unlocked: false,
             features: Arc::new(Mutex::new(Vec::new())),
+            transport_metrics,
         }
     }
 
@@ -48,6 +59,15 @@ impl RemoteCoreAdapter {
     /// Check if the underlying transport channel is still open.
     pub fn is_transport_active(&self) -> bool {
         !self.sender.is_closed()
+    }
+
+    pub fn transport_metrics(&self) -> Option<&TransportMetrics> {
+        self.transport_metrics.as_ref()
+    }
+
+    pub(crate) fn apply_startup_state(&mut self, features: Vec<String>, unlocked: bool) {
+        self.remote_client_handle().replace_features(features);
+        self.unlocked = unlocked;
     }
 
     pub fn probe_capabilities(&mut self) {
@@ -93,12 +113,21 @@ impl RemoteCoreAdapter {
             "vault:lock" if resp.is_ok() => {
                 self.unlocked = false;
             }
+            "vault:status" => {
+                if let Some(is_unlocked) = resp
+                    .result()
+                    .and_then(|result| result.get("is_unlocked"))
+                    .and_then(|value| value.as_bool())
+                {
+                    self.unlocked = is_unlocked;
+                }
+            }
             _ => {}
         }
     }
 }
 
-fn parse_capability_features(response: &RpcResponse) -> Vec<String> {
+pub(crate) fn parse_capability_features(response: &RpcResponse) -> Vec<String> {
     let Some(result) = response.result() else {
         return Vec::new();
     };

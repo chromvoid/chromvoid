@@ -333,14 +333,15 @@ export class PMEntrySshGenerator extends ReatomLitElement {
               </div>
             `}
 
-        <cv-input
-          size="small"
-          .value=${this.commentValue()}
-          placeholder=${i18n('ssh:comment:placeholder')}
-          @cv-input=${this.handleCommentInput}
-        >
+        <cv-field>
           <span slot="label">${i18n('ssh:comment')}</span>
-        </cv-input>
+          <cv-input
+            size="small"
+            .value=${this.commentValue()}
+            placeholder=${i18n('ssh:comment:placeholder')}
+            @cv-input=${this.handleCommentInput}
+          ></cv-input>
+        </cv-field>
 
         ${this.renderResult()}
         ${hideGenerate && !this.showCancel

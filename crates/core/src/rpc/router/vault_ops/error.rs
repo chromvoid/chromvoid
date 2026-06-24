@@ -64,6 +64,9 @@ impl VaultOpsError {
             Error::StoragePepperRequired => Some(ErrorCode::StoragePepperRequired),
             Error::StoragePepperInvalid(_) => Some(ErrorCode::StoragePepperInvalid),
             Error::UnsupportedStorageVersion(_) => Some(ErrorCode::StorageVersionNotSupported),
+            Error::CatalogRepairRequired(_) => Some(ErrorCode::CatalogRepairRequired),
+            Error::CatalogRepairUnsafe(_) => Some(ErrorCode::CatalogRepairUnsafe),
+            Error::CatalogRepairStale => Some(ErrorCode::CatalogRepairStale),
             _ => Some(ErrorCode::InternalError),
         };
         Self::new(error.to_string(), code)

@@ -13,9 +13,15 @@
 //! via `pairing::confirm_pairing` semantics rather than hard-rejected.
 
 mod accept;
+mod direct_transport;
 mod listener;
 mod rpc_loop;
 mod state;
+
+#[cfg(any(target_os = "android", test))]
+pub(crate) use direct_transport::accept_direct_transport_until_closed;
+#[cfg(any(target_os = "android", test))]
+pub(crate) use direct_transport::{DirectTransportStopReason, DirectTransportTimelineContext};
 
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -189,33 +195,13 @@ pub async fn start_listening(
         None
     };
 
-    let generation = runtime.begin_listener_task()?;
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
     // Transition to Listening and store metadata.
     let relay_owned = relay_url.to_string();
     let room_owned = room_id.to_string();
-    let status = runtime.with_acceptor(|a| {
-        if let Some(tx) = a.shutdown_tx.take() {
-            let _ = tx.send(());
-        }
-        for (_id, pc) in a.peer_connections.iter_mut() {
-            pc.conn_mgr.disconnect();
-            if let Some(tx) = pc.shutdown_tx.take() {
-                let _ = tx.send(());
-            }
-            if let Some(handle) = pc.task_handle.take() {
-                handle.abort();
-            }
-        }
-        a.state = AcceptorState::Listening;
-        a.relay_url = Some(relay_owned.clone());
-        a.room_id = Some(room_owned.clone());
-        a.connected_peers.clear();
-        a.peer_connections.clear();
-        a.shutdown_tx = Some(shutdown_tx);
-        a.status()
-    })?;
+    let (generation, status) =
+        runtime.begin_listener_session(relay_owned.clone(), room_owned.clone(), shutdown_tx)?;
 
     let storage_root = storage_root.to_path_buf();
     let listener_runtime = runtime.clone();
@@ -462,6 +448,92 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn direct_transport_session_replaces_empty_listener() {
+        let runtime = fresh_runtime();
+        let generation = runtime.begin_listener_task().expect("begin listener");
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let dropped = Arc::new(AtomicBool::new(false));
+        let drop_flag = DropFlag(dropped.clone());
+        let handle = tokio::spawn(async move {
+            let _drop_flag = drop_flag;
+            let _ = shutdown_rx.await;
+        });
+        runtime
+            .with_acceptor(|a| {
+                a.state = AcceptorState::Listening;
+                a.relay_url = Some("wss://relay.test".to_string());
+                a.room_id = Some("room-wss".to_string());
+                a.shutdown_tx = Some(shutdown_tx);
+            })
+            .expect("seed listener");
+        runtime
+            .store_listener_task(generation, handle)
+            .expect("store listener");
+
+        let direct_generation = runtime
+            .begin_direct_transport_session("android-usb:device-1".to_string())
+            .expect("direct transport should replace empty listener");
+
+        assert!(!runtime.is_generation_current(generation));
+        assert!(runtime.is_generation_current(direct_generation));
+        let status = runtime
+            .with_acceptor(|acceptor| acceptor.status())
+            .expect("status");
+        assert_eq!(status.state, AcceptorState::Listening);
+        assert!(status.relay_url.is_none());
+        assert_eq!(status.room_id.as_deref(), Some("android-usb:device-1"));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(dropped.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn direct_transport_session_does_not_replace_connected_peer() {
+        let runtime = fresh_runtime();
+        runtime
+            .with_acceptor(|a| {
+                a.state = AcceptorState::Connected;
+                a.connected_peers.push(ConnectedPeer {
+                    peer_id: "desktop-1".to_string(),
+                    label: "Desktop".to_string(),
+                    connected_at_ms: now_ms(),
+                    transport_type: "wss".to_string(),
+                });
+            })
+            .expect("seed peer");
+
+        let error = runtime
+            .begin_direct_transport_session("android-usb:device-1".to_string())
+            .expect_err("connected peer should not be replaced");
+
+        assert!(error.contains("Connected"));
+    }
+
+    #[test]
+    fn listener_session_does_not_replace_active_direct_session() {
+        let runtime = fresh_runtime();
+        let direct_generation = runtime
+            .begin_direct_transport_session("android-usb:device-1".to_string())
+            .expect("direct transport session");
+        let (shutdown_tx, _shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+
+        let error = runtime
+            .begin_listener_session(
+                "wss://relay.test".to_string(),
+                "room-wss".to_string(),
+                shutdown_tx,
+            )
+            .expect_err("listener resume should not replace direct session");
+
+        assert!(error.contains("Listening"));
+        assert!(runtime.is_generation_current(direct_generation));
+        let status = runtime
+            .with_acceptor(|acceptor| acceptor.status())
+            .expect("status");
+        assert_eq!(status.relay_url, None);
+        assert_eq!(status.room_id.as_deref(), Some("android-usb:device-1"));
+    }
+
+    #[tokio::test]
     async fn cancel_all_tasks_aborts_listener_and_peer_handles() {
         let runtime = fresh_runtime();
         let generation = runtime.begin_listener_task().expect("begin listener");
@@ -686,12 +758,26 @@ mod tests {
     }
 
     #[test]
-    fn pre_handshake_backoff_grows_and_caps() {
+    fn pre_msg1_idle_retry_stays_near_continuous() {
+        let mut state = RetryBackoffState::default();
+        let delays = (0..3)
+            .map(|_| {
+                state
+                    .register_failure(AcceptErrorClass::PreMsg1Closed)
+                    .1
+                    .as_millis() as u64
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(delays, vec![100, 100, 100]);
+    }
+
+    #[test]
+    fn pre_handshake_room_backoff_grows_and_caps() {
         let mut state = RetryBackoffState::default();
         let delays = (0..5)
             .map(|_| {
                 state
-                    .register_failure(AcceptErrorClass::PreMsg1Closed)
+                    .register_failure(AcceptErrorClass::RoomFull)
                     .1
                     .as_millis() as u64
             })
@@ -722,7 +808,7 @@ mod tests {
 
         let (failure_count, delay, _) = state.register_failure(AcceptErrorClass::PreMsg1Closed);
         assert_eq!(failure_count, 1);
-        assert_eq!(delay.as_millis(), 1_000);
+        assert_eq!(delay.as_millis(), 100);
     }
 
     #[test]
@@ -741,17 +827,13 @@ mod tests {
     fn new_backoff_bucket_promotes_log_level_to_warn() {
         let mut state = RetryBackoffState::default();
 
-        let (_, _, should_warn_first) = state.register_failure(AcceptErrorClass::PreMsg1Closed);
-        let (_, _, should_warn_second_bucket) =
-            state.register_failure(AcceptErrorClass::PreMsg1Closed);
-        let (_, _, should_warn_third_bucket) =
-            state.register_failure(AcceptErrorClass::PreMsg1Closed);
-        let (_, _, should_warn_fourth_bucket) =
-            state.register_failure(AcceptErrorClass::PreMsg1Closed);
-        let (_, _, should_warn_cap_bucket) =
-            state.register_failure(AcceptErrorClass::PreMsg1Closed);
+        let (_, _, should_warn_first) = state.register_failure(AcceptErrorClass::RoomFull);
+        let (_, _, should_warn_second_bucket) = state.register_failure(AcceptErrorClass::RoomFull);
+        let (_, _, should_warn_third_bucket) = state.register_failure(AcceptErrorClass::RoomFull);
+        let (_, _, should_warn_fourth_bucket) = state.register_failure(AcceptErrorClass::RoomFull);
+        let (_, _, should_warn_cap_bucket) = state.register_failure(AcceptErrorClass::RoomFull);
         let (_, _, should_warn_repeat_cap_bucket) =
-            state.register_failure(AcceptErrorClass::PreMsg1Closed);
+            state.register_failure(AcceptErrorClass::RoomFull);
 
         assert!(should_warn_first);
         assert!(should_warn_second_bucket);

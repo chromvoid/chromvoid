@@ -71,7 +71,7 @@ pub(crate) async fn backup_local_create(
 }
 
 fn backup_local_create_inner(
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<impl tauri::Runtime>,
     adapter: Arc<Mutex<Box<dyn CoreAdapter>>>,
     master_password: String,
     target: BackupTarget,
@@ -88,6 +88,11 @@ fn backup_local_create_inner(
             code: Some("CANCELLED".to_string()),
         };
     }
+
+    let _master_key_guard = match BackupMasterKeyGuard::install(&adapter, master_password) {
+        Ok(guard) => guard,
+        Err(error) => return backup_internal_error(error),
+    };
 
     let start_response = {
         let mut adapter = lock_or_rpc_err!(adapter, "Adapter");
@@ -181,13 +186,10 @@ fn backup_local_create_inner(
     let metadata_started_at = std::time::Instant::now();
     let metadata_response = {
         let mut adapter = lock_or_rpc_err!(adapter, "Adapter");
-        adapter.set_master_key(Some(master_password));
-        let response = adapter.handle(&RpcRequest::new(
+        adapter.handle(&RpcRequest::new(
             "backup:local:getMetadata".to_string(),
             serde_json::json!({"backup_id": backup_id.clone()}),
-        ));
-        adapter.set_master_key(None);
-        response
+        ))
     };
 
     let (meta_b64, master_salt_b64, master_verify_b64) = match metadata_response {
@@ -652,9 +654,52 @@ fn backup_internal_error(error: impl Into<String>) -> RpcResult<BackupLocalCreat
     }
 }
 
+struct BackupMasterKeyGuard {
+    adapter: Arc<Mutex<Box<dyn CoreAdapter>>>,
+}
+
+impl BackupMasterKeyGuard {
+    fn install(
+        adapter: &Arc<Mutex<Box<dyn CoreAdapter>>>,
+        master_password: String,
+    ) -> Result<Self, String> {
+        let mut adapter_guard = adapter
+            .lock()
+            .map_err(|_| "Adapter mutex poisoned".to_string())?;
+        adapter_guard.set_master_key(Some(master_password));
+        Ok(Self {
+            adapter: adapter.clone(),
+        })
+    }
+}
+
+impl Drop for BackupMasterKeyGuard {
+    fn drop(&mut self) {
+        match self.adapter.lock() {
+            Ok(mut adapter) => adapter.set_master_key(None),
+            Err(_) => {
+                tracing::warn!("backup_local_create: adapter mutex poisoned while clearing master key")
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_os = "android"))]
+    use std::io::Cursor;
+    #[cfg(not(target_os = "android"))]
+    use std::sync::{Arc, Mutex};
+    #[cfg(not(target_os = "android"))]
+    use std::sync::atomic::AtomicBool;
+
+    #[cfg(not(target_os = "android"))]
+    use chromvoid_core::rpc::stream::{RpcOutputStream, RpcStreamMeta};
+    #[cfg(not(target_os = "android"))]
+    use chromvoid_core::rpc::{RpcInputStream, RpcReply};
     use serde_json::json;
+    #[cfg(not(target_os = "android"))]
+    use tempfile::TempDir;
 
     use super::*;
 
@@ -735,5 +780,154 @@ mod tests {
             .expect_err("invalid base64");
 
         assert_eq!(error, "Invalid backup master_verify");
+    }
+
+    #[cfg(not(target_os = "android"))]
+    #[test]
+    fn backup_local_create_sets_master_key_before_start_and_clears_it_afterwards() {
+        let app = tauri::test::mock_app();
+        let target_dir = TempDir::new().expect("backup target");
+        let shared = Arc::new(Mutex::new(ScriptedBackupAdapterState::default()));
+        let adapter: Arc<Mutex<Box<dyn CoreAdapter>>> = Arc::new(Mutex::new(Box::new(
+            ScriptedBackupAdapter {
+                shared: shared.clone(),
+            },
+        )));
+
+        let result = backup_local_create_inner(
+            app.handle().clone(),
+            adapter,
+            "test-master-password".to_string(),
+            BackupTarget::Path(target_dir.path().to_path_buf()),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(crate::mobile::android::AndroidSafPickerRuntimeState::new()),
+        );
+
+        match result {
+            RpcResult::Success { result, .. } => {
+                assert_eq!(result.backup_id, "backup-1");
+                assert!(std::path::Path::new(&result.backup_dir).exists());
+            }
+            RpcResult::Error { error, code, .. } => {
+                panic!("backup unexpectedly failed: {error} ({code:?})")
+            }
+        }
+
+        let state = shared.lock().expect("adapter state");
+        assert!(state.start_saw_master_key);
+        assert_eq!(state.master_key, None);
+        assert_eq!(
+            state.commands,
+            vec![
+                "backup:local:start",
+                "backup:local:getMetadata",
+                "backup:local:getChunkManifest",
+                "backup:local:downloadPack",
+                "backup:local:finish",
+            ]
+        );
+    }
+
+    #[cfg(not(target_os = "android"))]
+    #[derive(Default)]
+    struct ScriptedBackupAdapterState {
+        master_key: Option<String>,
+        start_saw_master_key: bool,
+        commands: Vec<String>,
+    }
+
+    #[cfg(not(target_os = "android"))]
+    struct ScriptedBackupAdapter {
+        shared: Arc<Mutex<ScriptedBackupAdapterState>>,
+    }
+
+    #[cfg(not(target_os = "android"))]
+    impl CoreAdapter for ScriptedBackupAdapter {
+        fn mode(&self) -> crate::core_adapter::CoreMode {
+            crate::core_adapter::CoreMode::Local
+        }
+
+        fn is_unlocked(&self) -> bool {
+            false
+        }
+
+        fn handle(&mut self, req: &RpcRequest) -> RpcResponse {
+            let mut state = self.shared.lock().expect("adapter state");
+            state.commands.push(req.command.clone());
+
+            match req.command.as_str() {
+                "backup:local:start" => {
+                    state.start_saw_master_key =
+                        state.master_key.as_deref() == Some("test-master-password");
+                    if !state.start_saw_master_key {
+                        return RpcResponse::error("Master password required", Some("EMPTY_PAYLOAD"));
+                    }
+                    RpcResponse::success(json!({
+                        "backup_id": "backup-1",
+                        "estimated_size": 4,
+                        "chunk_count": 1,
+                    }))
+                }
+                "backup:local:getMetadata" => RpcResponse::success(json!({
+                    "metadata": "bWV0YQ==",
+                    "master_salt": "c2FsdA==",
+                    "master_verify": "dmVyaWZ5",
+                })),
+                "backup:local:getChunkManifest" => RpcResponse::success(json!({
+                    "manifest": {
+                        "v": 2,
+                        "chunk_count": 1,
+                        "total_size": 4,
+                        "chunks": [{"name": "chunk-1", "size": 4}],
+                    },
+                })),
+                "backup:local:finish" => RpcResponse::success(json!({
+                    "backup_id": "backup-1",
+                    "created_at": 1,
+                })),
+                "backup:local:cancel" => RpcResponse::success(json!({
+                    "backup_id": "backup-1",
+                    "cancelled": true,
+                })),
+                other => RpcResponse::error(format!("unexpected command: {other}"), Some("TEST")),
+            }
+        }
+
+        fn handle_with_stream(
+            &mut self,
+            req: &RpcRequest,
+            _stream: Option<RpcInputStream>,
+        ) -> RpcReply {
+            let mut state = self.shared.lock().expect("adapter state");
+            state.commands.push(req.command.clone());
+
+            match req.command.as_str() {
+                "backup:local:downloadPack" => RpcReply::Stream(RpcOutputStream {
+                    meta: RpcStreamMeta {
+                        name: BACKUP_PACK_FILE_NAME.to_string(),
+                        mime_type: "application/octet-stream".to_string(),
+                        size: 4,
+                        chunk_size: 4,
+                    },
+                    reader: Box::new(Cursor::new(b"pack".to_vec())),
+                }),
+                other => RpcReply::Json(RpcResponse::error(
+                    format!("unexpected stream command: {other}"),
+                    Some("TEST"),
+                )),
+            }
+        }
+
+        fn save(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn take_events(&mut self) -> Vec<serde_json::Value> {
+            Vec::new()
+        }
+
+        fn set_master_key(&mut self, key: Option<String>) {
+            self.shared.lock().expect("adapter state").master_key = key;
+        }
     }
 }

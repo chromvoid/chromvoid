@@ -21,8 +21,8 @@ pub use node::{CatalogMediaInfo, CatalogMediaKind, CatalogNode};
 pub use serialize::{deserialize_catalog, serialize_catalog};
 
 pub use delta::{
-    apply_delta, apply_deltas, DeltaEntry, DeltaLog, DeltaOp, PartialNode, MAX_DELTAS,
-    MAX_DELTA_SIZE,
+    apply_delta, apply_deltas, CatalogDeltaReplayFailure, CatalogReplayReason, DeltaApplyOutcome,
+    DeltaEntry, DeltaLog, DeltaOp, PartialNode, MAX_DELTAS, MAX_DELTA_SIZE,
 };
 pub use shard::{LoadStrategy, RootIndex, Shard, ShardMeta};
 pub use sharded::{

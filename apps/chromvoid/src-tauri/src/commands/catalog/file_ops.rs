@@ -1,8 +1,10 @@
+#[cfg(any(desktop, test))]
 use std::path::PathBuf;
 
 use serde_json::Value;
 
 use crate::app_state::AppState;
+#[cfg(desktop)]
 use crate::catalog_blocking_io::CatalogBlockingIoError;
 #[cfg(desktop)]
 use crate::host_path_capability::HostPathPurpose;
@@ -91,6 +93,7 @@ fn file_stat_blocking(path: PathBuf) -> RpcResult<Value> {
     }))
 }
 
+#[cfg(any(desktop, test))]
 fn write_text_file_blocking(path: PathBuf, content: String) -> RpcResult<Value> {
     if let Err(e) = crate::helpers::storage::write_bytes_atomic(&path, content.as_bytes()) {
         return rpc_err(format!("Failed to write file: {e}"), Some("IO".to_string()));
@@ -99,6 +102,7 @@ fn write_text_file_blocking(path: PathBuf, content: String) -> RpcResult<Value> 
     rpc_ok(serde_json::json!({}))
 }
 
+#[cfg(desktop)]
 fn catalog_file_ops_blocking_err(
     error: CatalogBlockingIoError,
     task_label: &'static str,

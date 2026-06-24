@@ -70,6 +70,7 @@ impl MobileAcceptorRuntimeState {
         Ok(f(inner))
     }
 
+    #[cfg(test)]
     pub(in crate::network::mobile_acceptor) fn begin_listener_task(&self) -> Result<u64, String> {
         let mut guard = self
             .inner
@@ -80,6 +81,77 @@ impl MobileAcceptorRuntimeState {
         if let Some(handle) = inner.listener_task.take() {
             handle.abort();
         }
+        Ok(generation)
+    }
+
+    pub(in crate::network::mobile_acceptor) fn begin_listener_session(
+        &self,
+        relay_url: String,
+        room_id: String,
+        shutdown_tx: tokio::sync::oneshot::Sender<()>,
+    ) -> Result<(u64, AcceptorStatus), String> {
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| "Mobile acceptor mutex poisoned".to_string())?;
+        let inner = guard.get_or_insert_with(AcceptorInner::new);
+        if matches!(
+            inner.state,
+            AcceptorState::Listening | AcceptorState::Handshaking | AcceptorState::Connected
+        ) {
+            return Err(format!("acceptor already in {:?} state", inner.state));
+        }
+
+        let generation = self.acceptor_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        if let Some(tx) = inner.shutdown_tx.take() {
+            let _ = tx.send(());
+        }
+        if let Some(handle) = inner.listener_task.take() {
+            handle.abort();
+        }
+        for (_id, pc) in inner.peer_connections.iter_mut() {
+            pc.conn_mgr.disconnect();
+            if let Some(tx) = pc.shutdown_tx.take() {
+                let _ = tx.send(());
+            }
+            if let Some(handle) = pc.task_handle.take() {
+                handle.abort();
+            }
+        }
+        inner.state = AcceptorState::Listening;
+        inner.relay_url = Some(relay_url);
+        inner.room_id = Some(room_id);
+        inner.connected_peers.clear();
+        inner.peer_connections.clear();
+        inner.shutdown_tx = Some(shutdown_tx);
+        Ok((generation, inner.status()))
+    }
+
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub(in crate::network::mobile_acceptor) fn begin_direct_transport_session(
+        &self,
+        label: String,
+    ) -> Result<u64, String> {
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| "Mobile acceptor mutex poisoned".to_string())?;
+        let inner = guard.get_or_insert_with(AcceptorInner::new);
+        if inner.state == AcceptorState::Connected || !inner.connected_peers.is_empty() {
+            return Err(format!("acceptor already in {:?} state", inner.state));
+        }
+        let generation = self.acceptor_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        if let Some(tx) = inner.shutdown_tx.take() {
+            let _ = tx.send(());
+        }
+        if let Some(handle) = inner.listener_task.take() {
+            handle.abort();
+        }
+        inner.state = AcceptorState::Listening;
+        inner.relay_url = None;
+        inner.room_id = Some(label);
+        inner.connected_peers.clear();
+        inner.peer_connections.clear();
         Ok(generation)
     }
 

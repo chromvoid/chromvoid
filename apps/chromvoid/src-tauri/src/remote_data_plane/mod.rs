@@ -4,10 +4,12 @@
 //! and periodic heartbeats over a `RemoteTransport`.
 
 mod frames;
+mod handshake;
 mod io_loop;
 mod models;
 
 pub use frames::{recv_decrypted_frame, send_encrypted_frame};
+pub use handshake::{handshake_ik_over_transport, handshake_xx_over_transport};
 pub use models::{RemoteIoEvent, RemoteIoRequest, RemoteIoTaskConfig};
 
 use tokio::sync::mpsc;

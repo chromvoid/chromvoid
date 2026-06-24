@@ -112,18 +112,19 @@ export function renderInlinePasswordGeneratorPanel(
 
   return html`
     <div class="password-generator-panel">
-      <cv-input
-        class="generator-length-input"
-        type="number"
-        min="4"
-        max="128"
-        step="1"
-        .value=${String(model.inlinePasswordGenLength())}
-        @cv-input=${onLengthInput}
-        size="small"
-      >
+      <cv-field>
         <span slot="label">${i18n('password:length')}</span>
-      </cv-input>
+        <cv-input
+          class="generator-length-input"
+          type="number"
+          min="4"
+          max="128"
+          step="1"
+          .value=${String(model.inlinePasswordGenLength())}
+          @cv-input=${onLengthInput}
+          size="small"
+        ></cv-input>
+      </cv-field>
       <div class="generator-options" role="group" aria-label=${i18n('password:generator_settings')}>
         ${renderInlinePasswordCharsetButton('lowercase', 'a-z', model.inlinePasswordGenLowercase(), () =>
           model.toggleInlinePasswordCharset('lowercase'))}

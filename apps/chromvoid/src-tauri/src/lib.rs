@@ -10,6 +10,7 @@ mod core_adapter;
 pub mod gateway;
 mod ios_keep_awake;
 mod mobile;
+pub mod mobile_usb;
 pub mod network;
 pub mod remote_data_plane;
 mod session_settings;
@@ -72,6 +73,8 @@ pub use commands::sync_cmds::{
 #[cfg(desktop)]
 pub use core_adapter::{ConnectionState, ModeTransition, RemoteCoreAdapter, RemoteHost};
 pub use core_adapter::{CoreAdapter, CoreMode, LocalCoreAdapter};
+#[cfg(desktop)]
+pub use core_adapter::{RemoteCancelGroup, RemoteRpcPriority};
 #[cfg(any(test, debug_assertions))]
 pub use mobile::android::{AndroidAutofillAdapter, AutofillContext};
 #[cfg(any(test, debug_assertions))]
@@ -147,6 +150,11 @@ use commands::gateway_cmds::{
 #[cfg(desktop)]
 use commands::host_path::{
     host_path_pick_download_target, host_path_pick_text_file_target, host_path_pick_upload_files,
+};
+#[cfg(desktop)]
+use commands::mobile_usb_cmds::{
+    mobile_usb_connect, mobile_usb_disconnect, mobile_usb_list_paired, mobile_usb_pair,
+    mobile_usb_remove_paired, mobile_usb_scan, mobile_usb_status,
 };
 #[cfg(desktop)]
 use commands::mode_cmds::{mode_get, mode_status, mode_switch};
@@ -407,6 +415,13 @@ pub fn run() {
         mode_get,
         mode_switch,
         mode_status,
+        mobile_usb_scan,
+        mobile_usb_pair,
+        mobile_usb_connect,
+        mobile_usb_disconnect,
+        mobile_usb_status,
+        mobile_usb_list_paired,
+        mobile_usb_remove_paired,
         mobile_acceptor_start,
         mobile_acceptor_stop,
         mobile_acceptor_status,

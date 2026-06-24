@@ -1,7 +1,7 @@
 use crate::catalog::RootIndex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use crate::catalog::{CatalogManager, DeltaEntry, Shard, MAX_DELTAS};
+use crate::catalog::{apply_deltas, CatalogManager, DeltaEntry, Shard, ShardMeta, MAX_DELTAS};
 use crate::crypto::shard_snapshot_chunk_name;
 use crate::crypto::{decrypt, delta_chunk_name, encrypt, root_index_chunk_name};
 use crate::error::{Error, Result};
@@ -74,6 +74,7 @@ impl<'a> CatalogSaveService<'a> {
         root_index.shards = new_shards;
 
         let mut new_chunks = Vec::new();
+        let mut snapshot_rewritten_shards = HashSet::new();
         for shard in &shards {
             let mut needs_write;
             let mut root_id_changed = false;
@@ -137,6 +138,38 @@ impl<'a> CatalogSaveService<'a> {
             let enc = encrypt(&plain, self.vault_key, snapshot_name.as_bytes())?;
             new_chunks.push(snapshot_name.clone());
             self.storage.write_chunk_atomic(&snapshot_name, &enc)?;
+            snapshot_rewritten_shards.insert(base.shard_id.clone());
+        }
+
+        for deltas in pending_deltas.values() {
+            for delta in deltas {
+                let delta_plain = serde_json::to_vec(delta)?;
+                if delta_plain.len() > crate::catalog::MAX_DELTA_SIZE {
+                    return Err(Error::InvalidDataFormat("delta too large".to_string()));
+                }
+            }
+        }
+
+        let mut snapshot_fallback_shards = HashSet::new();
+        for (shard_id, deltas) in pending_deltas.iter() {
+            if deltas.is_empty() || snapshot_rewritten_shards.contains(shard_id) {
+                continue;
+            }
+            let Some(meta) = root_index.get_shard(shard_id) else {
+                continue;
+            };
+            let Some(intended_shard) = shards.iter().find(|shard| shard.shard_id == *shard_id)
+            else {
+                continue;
+            };
+            let assigned_deltas = assign_delta_sequences(deltas, meta.version.saturating_add(1));
+            if self.pending_delta_chain_needs_snapshot_fallback(
+                meta,
+                &assigned_deltas,
+                intended_shard,
+            )? {
+                snapshot_fallback_shards.insert(shard_id.clone());
+            }
         }
 
         let mut delta_shards: Vec<String> = pending_deltas.keys().cloned().collect();
@@ -155,6 +188,36 @@ impl<'a> CatalogSaveService<'a> {
                 Some(d) if !d.is_empty() => d,
                 _ => continue,
             };
+
+            if snapshot_rewritten_shards.contains(&shard_id) {
+                deltas.clear();
+                continue;
+            }
+
+            if snapshot_fallback_shards.contains(&shard_id) {
+                let Some(shard) = shards.iter().find(|shard| shard.shard_id == shard_id) else {
+                    deltas.clear();
+                    continue;
+                };
+                let old_meta = previous_root_index
+                    .as_ref()
+                    .and_then(|index| index.shards.get(&shard_id));
+                let pending_count = deltas.len() as u64;
+                let new_version = root_index
+                    .get_shard(&shard_id)
+                    .map(|meta| meta.version.saturating_add(pending_count))
+                    .unwrap_or(pending_count);
+                self.write_full_snapshot_for_shard(
+                    &mut root_index,
+                    shard,
+                    old_meta,
+                    new_version,
+                    &mut old_chunks,
+                    &mut new_chunks,
+                )?;
+                deltas.clear();
+                continue;
+            }
 
             let Some(meta) = root_index.get_shard_mut(&shard_id) else {
                 deltas.clear();
@@ -209,6 +272,93 @@ impl<'a> CatalogSaveService<'a> {
             root_version: root_index.root_version,
             shard_count: root_index.shards.len(),
         })
+    }
+
+    fn pending_delta_chain_needs_snapshot_fallback(
+        &self,
+        meta: &ShardMeta,
+        assigned_deltas: &[DeltaEntry],
+        intended_shard: &Shard,
+    ) -> Result<bool> {
+        let mut replayed = self.read_shard_snapshot(meta)?;
+        if meta.has_deltas {
+            let persisted_deltas = self.read_persisted_deltas(meta)?;
+            apply_deltas(&mut replayed.root, &persisted_deltas)?;
+        }
+
+        match apply_deltas(&mut replayed.root, assigned_deltas) {
+            Ok(_) => Ok(!catalog_nodes_replay_equivalent(
+                &replayed.root,
+                &intended_shard.root,
+            )),
+            Err(Error::CatalogDeltaReplayFailed(_)) => Ok(true),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn read_shard_snapshot(&self, meta: &ShardMeta) -> Result<Shard> {
+        let snapshot_name =
+            shard_snapshot_chunk_name(self.vault_key, &meta.shard_id, meta.snapshot_seq);
+        let encrypted = self.storage.read_chunk(&snapshot_name)?;
+        let plaintext = decrypt(&encrypted, self.vault_key, snapshot_name.as_bytes())?;
+        Ok(serde_json::from_slice(&plaintext)?)
+    }
+
+    fn read_persisted_deltas(&self, meta: &ShardMeta) -> Result<Vec<DeltaEntry>> {
+        if !meta.has_deltas {
+            return Ok(Vec::new());
+        }
+        let from = meta.base_version.saturating_add(1);
+        let to = meta.last_delta_seq;
+        if from > to {
+            return Ok(Vec::new());
+        }
+        let mut deltas = Vec::new();
+        for seq in from..=to {
+            let delta_name = delta_chunk_name(self.vault_key, &meta.shard_id, seq);
+            let encrypted = self.storage.read_chunk(&delta_name)?;
+            let plaintext = decrypt(&encrypted, self.vault_key, delta_name.as_bytes())?;
+            let delta = serde_json::from_slice(&plaintext)?;
+            deltas.push(delta);
+        }
+        Ok(deltas)
+    }
+
+    fn write_full_snapshot_for_shard(
+        &self,
+        root_index: &mut RootIndex,
+        shard: &Shard,
+        old_meta: Option<&ShardMeta>,
+        new_version: u64,
+        old_chunks: &mut Vec<String>,
+        new_chunks: &mut Vec<String>,
+    ) -> Result<()> {
+        let Some(meta) = root_index.get_shard_mut(&shard.shard_id) else {
+            return Ok(());
+        };
+        if let Some(old_meta) = old_meta {
+            old_chunks.extend(chunks_for_meta(self.vault_key, old_meta));
+            meta.snapshot_seq = old_meta.snapshot_seq.saturating_add(1);
+        } else {
+            meta.snapshot_seq = 0;
+        }
+        meta.version = new_version;
+        meta.base_version = new_version;
+        meta.has_deltas = false;
+        meta.delta_count = 0;
+        meta.last_delta_seq = new_version;
+        meta.update_stats(shard.node_count(), shard.size());
+
+        let mut snapshot = shard.clone();
+        snapshot.version = new_version;
+        snapshot.base_version = new_version;
+        let snapshot_name =
+            shard_snapshot_chunk_name(self.vault_key, &snapshot.shard_id, meta.snapshot_seq);
+        let plain = serde_json::to_vec(&snapshot)?;
+        let enc = encrypt(&plain, self.vault_key, snapshot_name.as_bytes())?;
+        self.storage.write_chunk_atomic(&snapshot_name, &enc)?;
+        new_chunks.push(snapshot_name);
+        Ok(())
     }
 
     pub(in crate::vault) fn rewrite_sharded_catalog_from_catalog(
@@ -298,6 +448,19 @@ fn persistence_shards(catalog: &CatalogManager) -> Vec<Shard> {
     shards
 }
 
+fn assign_delta_sequences(deltas: &[DeltaEntry], first_seq: u64) -> Vec<DeltaEntry> {
+    let mut next_seq = first_seq;
+    deltas
+        .iter()
+        .cloned()
+        .map(|mut delta| {
+            delta.seq = next_seq;
+            next_seq = next_seq.saturating_add(1);
+            delta
+        })
+        .collect()
+}
+
 fn max_catalog_node_id(node: &crate::catalog::CatalogNode) -> u64 {
     node.children().iter().fold(node.node_id, |max_id, child| {
         max_id.max(max_catalog_node_id(child))
@@ -314,4 +477,37 @@ fn shard_snapshot_needs_rewrite(existing: &Shard, current: &Shard) -> bool {
     }
 
     existing.root.node_type != current.root.node_type || existing.root.name != current.root.name
+}
+
+fn catalog_nodes_replay_equivalent(
+    replayed: &crate::catalog::CatalogNode,
+    intended: &crate::catalog::CatalogNode,
+) -> bool {
+    if replayed.node_id != intended.node_id
+        || replayed.node_type != intended.node_type
+        || replayed.name != intended.name
+        || replayed.size != intended.size
+        || replayed.chunk_size != intended.chunk_size
+        || replayed.mime_type != intended.mime_type
+        || replayed.media_info != intended.media_info
+        || replayed.media_inspected_revision != intended.media_inspected_revision
+        || replayed.source_revision != intended.source_revision
+        || replayed.link_to != intended.link_to
+    {
+        return false;
+    }
+
+    if replayed.is_file()
+        && (replayed.birthtime != intended.birthtime || replayed.modtime != intended.modtime)
+    {
+        return false;
+    }
+
+    let replayed_children = replayed.children();
+    let intended_children = intended.children();
+    replayed_children.len() == intended_children.len()
+        && replayed_children
+            .iter()
+            .zip(intended_children)
+            .all(|(replayed, intended)| catalog_nodes_replay_equivalent(replayed, intended))
 }

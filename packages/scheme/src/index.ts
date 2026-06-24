@@ -43,5 +43,5 @@ export type {
 export {success, error, isSuccess, isError} from './rpc-helpers'
 export type {RpcResult} from './rpc-helpers'
 
-// === Device state (from OrangePI/chromvoidfs API) ===
+// === Device state (from chromvoidfs API) ===
 export type {FullChromVoidState} from './device-state'

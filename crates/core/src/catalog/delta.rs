@@ -214,153 +214,448 @@ impl DeltaLog {
     }
 }
 
-pub fn apply_delta(root: &mut CatalogNode, delta: &DeltaEntry) -> bool {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+#[serde(rename_all = "snake_case")]
+pub enum CatalogReplayReason {
+    MissingSource,
+    MissingTargetParent,
+    NodeIdMismatch,
+    NameCollision,
+    InvalidParent,
+    MalformedPath,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+pub struct CatalogDeltaReplayFailure {
+    #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
+    pub seq: u64,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts-bindings", ts(type = "number | null"))]
+    pub node_id: Option<u64>,
+    pub op: String,
+    pub reason: CatalogReplayReason,
+}
+
+impl CatalogDeltaReplayFailure {
+    fn new(delta: &DeltaEntry, reason: CatalogReplayReason) -> Self {
+        Self {
+            seq: delta.seq,
+            path: delta.path.clone(),
+            node_id: delta.node_id,
+            op: delta_op_name(&delta.op).to_string(),
+            reason,
+        }
+    }
+}
+
+impl fmt::Display for CatalogDeltaReplayFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "catalog delta replay failed (seq={} path={} op={} reason={:?})",
+            self.seq, self.path, self.op, self.reason
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeltaApplyOutcome {
+    Applied,
+    AlreadyApplied,
+}
+
+impl DeltaApplyOutcome {
+    pub fn is_applied(self) -> bool {
+        matches!(self, Self::Applied | Self::AlreadyApplied)
+    }
+
+    pub fn is_already_applied(self) -> bool {
+        matches!(self, Self::AlreadyApplied)
+    }
+}
+
+pub fn apply_delta(
+    root: &mut CatalogNode,
+    delta: &DeltaEntry,
+) -> Result<DeltaApplyOutcome, CatalogDeltaReplayFailure> {
     match &delta.op {
         DeltaOp::Create { node } => {
-            if let Some(parent) = find_node_mut(root, &delta.path) {
-                if parent.is_dir() {
-                    if parent
-                        .children()
-                        .iter()
-                        .any(|child| child.node_id == node.node_id && child.name == node.name)
-                    {
-                        return true;
-                    }
-                    parent.add_child(node.clone());
-                    return true;
-                }
+            let Some(parent) = find_node_mut(root, &delta.path) else {
+                return Err(CatalogDeltaReplayFailure::new(
+                    delta,
+                    CatalogReplayReason::MissingTargetParent,
+                ));
+            };
+            if !parent.is_dir() {
+                return Err(CatalogDeltaReplayFailure::new(
+                    delta,
+                    CatalogReplayReason::InvalidParent,
+                ));
             }
-            false
+            if parent
+                .children()
+                .iter()
+                .any(|child| child.node_id == node.node_id && child.name == node.name)
+            {
+                return Ok(DeltaApplyOutcome::AlreadyApplied);
+            }
+            if parent
+                .children()
+                .iter()
+                .any(|child| child.name == node.name)
+            {
+                return Err(CatalogDeltaReplayFailure::new(
+                    delta,
+                    CatalogReplayReason::NameCollision,
+                ));
+            }
+            if parent
+                .children()
+                .iter()
+                .any(|child| child.node_id == node.node_id)
+            {
+                return Err(CatalogDeltaReplayFailure::new(
+                    delta,
+                    CatalogReplayReason::NodeIdMismatch,
+                ));
+            }
+            if parent.add_child(node.clone()) {
+                Ok(DeltaApplyOutcome::Applied)
+            } else {
+                Err(CatalogDeltaReplayFailure::new(
+                    delta,
+                    CatalogReplayReason::InvalidParent,
+                ))
+            }
         }
         DeltaOp::Update { fields } => {
-            if let Some(node) = find_node_mut(root, &delta.path) {
-                if delta
-                    .node_id
-                    .map(|node_id| node.node_id != node_id)
-                    .unwrap_or(false)
-                {
-                    return false;
-                }
-                if let Some(ref name) = fields.name {
-                    node.name = name.clone();
-                }
-                if let Some(size) = fields.size {
-                    node.size = size;
-                }
-                if let Some(ref mime_type) = fields.mime_type {
-                    node.mime_type = Some(mime_type.clone());
-                }
-                if let Some(media_info) = &fields.media_info {
-                    node.media_info = media_info.clone();
-                }
-                if let Some(media_inspected_revision) = fields.media_inspected_revision {
-                    node.media_inspected_revision = media_inspected_revision;
-                }
-                if let Some(modtime) = fields.modtime {
-                    node.modtime = modtime;
-                }
-                if let Some(source_revision) = fields.source_revision {
-                    node.source_revision = source_revision;
-                }
-                return true;
+            if delta.path.is_empty() {
+                return Err(CatalogDeltaReplayFailure::new(
+                    delta,
+                    CatalogReplayReason::MalformedPath,
+                ));
             }
-            false
+            let Some(node) = find_node_mut(root, &delta.path) else {
+                return Err(CatalogDeltaReplayFailure::new(
+                    delta,
+                    CatalogReplayReason::MissingSource,
+                ));
+            };
+            if delta
+                .node_id
+                .map(|node_id| node.node_id != node_id)
+                .unwrap_or(false)
+            {
+                return Err(CatalogDeltaReplayFailure::new(
+                    delta,
+                    CatalogReplayReason::NodeIdMismatch,
+                ));
+            }
+            if let Some(ref name) = fields.name {
+                node.name = name.clone();
+            }
+            if let Some(size) = fields.size {
+                node.size = size;
+            }
+            if let Some(ref mime_type) = fields.mime_type {
+                node.mime_type = Some(mime_type.clone());
+            }
+            if let Some(media_info) = &fields.media_info {
+                node.media_info = media_info.clone();
+            }
+            if let Some(media_inspected_revision) = fields.media_inspected_revision {
+                node.media_inspected_revision = media_inspected_revision;
+            }
+            if let Some(modtime) = fields.modtime {
+                node.modtime = modtime;
+            }
+            if let Some(source_revision) = fields.source_revision {
+                node.source_revision = source_revision;
+            }
+            Ok(DeltaApplyOutcome::Applied)
         }
         DeltaOp::Delete => {
-            let parts: Vec<&str> = delta.path.rsplitn(2, '/').collect();
-            if parts.len() == 2 {
-                let (name, parent_path) = (parts[0], parts[1]);
-                let parent_path = if parent_path.is_empty() {
-                    "/"
-                } else {
-                    parent_path
-                };
-                if let Some(parent) = find_node_mut(root, parent_path) {
-                    if let Some(children) = parent.children_mut() {
-                        let original_len = children.len();
-                        children.retain(|child| {
-                            if child.name != name {
-                                return true;
-                            }
-                            delta
-                                .node_id
-                                .map(|node_id| child.node_id != node_id)
-                                .unwrap_or(false)
-                        });
-                        return children.len() < original_len;
+            let Some((parent_path, name)) = split_parent_name(&delta.path) else {
+                return Err(CatalogDeltaReplayFailure::new(
+                    delta,
+                    CatalogReplayReason::MalformedPath,
+                ));
+            };
+            match remove_child_by_name(root, parent_path, name, delta)? {
+                DeleteApplyState::Removed => Ok(DeltaApplyOutcome::Applied),
+                DeleteApplyState::MissingParent => {
+                    if is_absent_node_id(root, delta.node_id) {
+                        return Ok(DeltaApplyOutcome::AlreadyApplied);
                     }
+                    Err(CatalogDeltaReplayFailure::new(
+                        delta,
+                        CatalogReplayReason::MissingTargetParent,
+                    ))
+                }
+                DeleteApplyState::MissingChild => {
+                    if is_absent_node_id(root, delta.node_id) {
+                        return Ok(DeltaApplyOutcome::AlreadyApplied);
+                    }
+                    Err(CatalogDeltaReplayFailure::new(
+                        delta,
+                        CatalogReplayReason::MissingSource,
+                    ))
                 }
             }
-            false
         }
         DeltaOp::Move {
             new_parent,
             new_name,
         } => {
-            let parts: Vec<&str> = delta.path.rsplitn(2, '/').collect();
-            if parts.len() != 2 {
-                return false;
-            }
-            let (name, old_parent_path) = (parts[0], parts[1]);
-            let old_parent_path = if old_parent_path.is_empty() {
-                "/"
-            } else {
-                old_parent_path
+            let Some((old_parent_path, name)) = split_parent_name(&delta.path) else {
+                return Err(CatalogDeltaReplayFailure::new(
+                    delta,
+                    CatalogReplayReason::MalformedPath,
+                ));
+            };
+            let target_name = new_name.as_deref().unwrap_or(name);
+
+            let node_to_move = match detach_child_by_name(root, old_parent_path, name, delta)? {
+                Some(node) => node,
+                None => {
+                    if destination_has_node(root, new_parent, target_name, delta.node_id) {
+                        return Ok(DeltaApplyOutcome::AlreadyApplied);
+                    }
+                    return Err(CatalogDeltaReplayFailure::new(
+                        delta,
+                        CatalogReplayReason::MissingSource,
+                    ));
+                }
             };
 
-            let target_name = new_name.as_deref().unwrap_or(name);
-            let mut node_to_move: Option<CatalogNode> = None;
-            if let Some(old_parent) = find_node_mut(root, old_parent_path) {
-                if let Some(children) = old_parent.children_mut() {
-                    if let Some(pos) = children.iter().position(|c| c.name == name) {
-                        node_to_move = Some(children.remove(pos));
-                    }
-                }
+            let mut node = node_to_move;
+            if let Some(ref new_n) = new_name {
+                node.name = new_n.clone();
             }
 
-            if let Some(mut node) = node_to_move {
-                if let Some(ref new_n) = new_name {
-                    node.name = new_n.clone();
-                }
-                if let Some(new_parent_node) = find_node_mut(root, new_parent) {
-                    return new_parent_node.add_child(node);
-                }
-                // Target parent is missing: re-attach the node to its original
-                // parent instead of dropping the (possibly whole) subtree.
-                // Restore the original name first so the node is unchanged.
-                if new_name.is_some() {
-                    node.name = name.to_string();
-                }
-                if let Some(old_parent) = find_node_mut(root, old_parent_path) {
-                    old_parent.add_child(node);
-                }
-                return false;
-            } else if let Some(new_parent_node) = find_node_mut(root, new_parent) {
-                return new_parent_node.children().iter().any(|child| {
-                    child.name == target_name
-                        && delta
-                            .node_id
-                            .map(|node_id| child.node_id == node_id)
-                            .unwrap_or(true)
-                });
+            let Some(new_parent_node) = find_node_mut(root, new_parent) else {
+                restore_detached_node(root, old_parent_path, name, node, new_name.is_some());
+                return Err(CatalogDeltaReplayFailure::new(
+                    delta,
+                    CatalogReplayReason::MissingTargetParent,
+                ));
+            };
+            if !new_parent_node.is_dir() {
+                restore_detached_node(root, old_parent_path, name, node, new_name.is_some());
+                return Err(CatalogDeltaReplayFailure::new(
+                    delta,
+                    CatalogReplayReason::InvalidParent,
+                ));
             }
-            false
+            if new_parent_node
+                .children()
+                .iter()
+                .any(|child| child.name == node.name)
+            {
+                restore_detached_node(root, old_parent_path, name, node, new_name.is_some());
+                return Err(CatalogDeltaReplayFailure::new(
+                    delta,
+                    CatalogReplayReason::NameCollision,
+                ));
+            }
+            if new_parent_node.add_child(node) {
+                Ok(DeltaApplyOutcome::Applied)
+            } else {
+                Err(CatalogDeltaReplayFailure::new(
+                    delta,
+                    CatalogReplayReason::InvalidParent,
+                ))
+            }
         }
     }
+}
+
+enum DeleteApplyState {
+    Removed,
+    MissingParent,
+    MissingChild,
+}
+
+fn remove_child_by_name(
+    root: &mut CatalogNode,
+    parent_path: &str,
+    name: &str,
+    delta: &DeltaEntry,
+) -> Result<DeleteApplyState, CatalogDeltaReplayFailure> {
+    let Some(parent) = find_node_mut(root, parent_path) else {
+        return Ok(DeleteApplyState::MissingParent);
+    };
+    if !parent.is_dir() {
+        return Err(CatalogDeltaReplayFailure::new(
+            delta,
+            CatalogReplayReason::InvalidParent,
+        ));
+    }
+    let Some(children) = parent.children_mut() else {
+        return Err(CatalogDeltaReplayFailure::new(
+            delta,
+            CatalogReplayReason::InvalidParent,
+        ));
+    };
+    let Some(pos) = children.iter().position(|child| child.name == name) else {
+        return Ok(DeleteApplyState::MissingChild);
+    };
+    if delta
+        .node_id
+        .map(|node_id| children[pos].node_id != node_id)
+        .unwrap_or(false)
+    {
+        return Err(CatalogDeltaReplayFailure::new(
+            delta,
+            CatalogReplayReason::NodeIdMismatch,
+        ));
+    }
+    children.remove(pos);
+    parent.touch();
+    Ok(DeleteApplyState::Removed)
+}
+
+fn detach_child_by_name(
+    root: &mut CatalogNode,
+    parent_path: &str,
+    name: &str,
+    delta: &DeltaEntry,
+) -> Result<Option<CatalogNode>, CatalogDeltaReplayFailure> {
+    let Some(old_parent) = find_node_mut(root, parent_path) else {
+        return Ok(None);
+    };
+    if !old_parent.is_dir() {
+        return Err(CatalogDeltaReplayFailure::new(
+            delta,
+            CatalogReplayReason::InvalidParent,
+        ));
+    }
+    let Some(children) = old_parent.children_mut() else {
+        return Err(CatalogDeltaReplayFailure::new(
+            delta,
+            CatalogReplayReason::InvalidParent,
+        ));
+    };
+    let Some(pos) = children.iter().position(|child| child.name == name) else {
+        return Ok(None);
+    };
+    if delta
+        .node_id
+        .map(|node_id| children[pos].node_id != node_id)
+        .unwrap_or(false)
+    {
+        return Err(CatalogDeltaReplayFailure::new(
+            delta,
+            CatalogReplayReason::NodeIdMismatch,
+        ));
+    }
+    Ok(Some(children.remove(pos)))
+}
+
+fn destination_has_node(
+    root: &CatalogNode,
+    parent_path: &str,
+    name: &str,
+    node_id: Option<u64>,
+) -> bool {
+    let Some(node_id) = node_id else {
+        return false;
+    };
+    find_node(root, parent_path)
+        .and_then(|parent| parent.find_child(name))
+        .map(|child| child.node_id == node_id)
+        .unwrap_or(false)
+}
+
+fn restore_detached_node(
+    root: &mut CatalogNode,
+    old_parent_path: &str,
+    original_name: &str,
+    mut node: CatalogNode,
+    renamed: bool,
+) {
+    if renamed {
+        node.name = original_name.to_string();
+    }
+    if let Some(old_parent) = find_node_mut(root, old_parent_path) {
+        old_parent.add_child(node);
+    }
+}
+
+fn split_parent_name(path: &str) -> Option<(&str, &str)> {
+    let (parent_path, name) = path.rsplit_once('/')?;
+    if name.is_empty() {
+        return None;
+    }
+    let parent_path = if parent_path.is_empty() {
+        "/"
+    } else {
+        parent_path
+    };
+    Some((parent_path, name))
+}
+
+fn delta_op_name(op: &DeltaOp) -> &'static str {
+    match op {
+        DeltaOp::Create { .. } => "create",
+        DeltaOp::Update { .. } => "update",
+        DeltaOp::Delete => "delete",
+        DeltaOp::Move { .. } => "move",
+    }
+}
+
+fn find_node<'a>(root: &'a CatalogNode, path: &str) -> Option<&'a CatalogNode> {
+    if path == "/" || path.is_empty() {
+        return Some(root);
+    }
+
+    let path = path.trim_start_matches('/');
+    let parts: Vec<&str> = path.split('/').collect();
+
+    let mut current = root;
+    for part in parts {
+        current = current.find_child(part)?;
+    }
+    Some(current)
+}
+
+fn find_node_by_id(root: &CatalogNode, node_id: u64) -> Option<&CatalogNode> {
+    if root.node_id == node_id {
+        return Some(root);
+    }
+    for child in root.children() {
+        if let Some(found) = find_node_by_id(child, node_id) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn is_absent_node_id(root: &CatalogNode, node_id: Option<u64>) -> bool {
+    node_id
+        .map(|node_id| find_node_by_id(root, node_id).is_none())
+        .unwrap_or(false)
 }
 
 pub fn apply_deltas(root: &mut CatalogNode, deltas: &[DeltaEntry]) -> crate::error::Result<u32> {
     let original_root = root.clone();
     let mut applied = 0;
     for delta in deltas {
-        if apply_delta(root, delta) {
-            applied += 1;
-        } else {
-            *root = original_root;
-            return Err(crate::error::Error::InvalidDataFormat(format!(
-                "catalog delta replay failed (seq={} path={})",
-                delta.seq, delta.path
-            )));
+        match apply_delta(root, delta) {
+            Ok(outcome) => {
+                if outcome.is_applied() {
+                    applied += 1;
+                }
+            }
+            Err(failure) => {
+                *root = original_root;
+                return Err(crate::error::Error::CatalogDeltaReplayFailed(failure));
+            }
         }
     }
     Ok(applied)

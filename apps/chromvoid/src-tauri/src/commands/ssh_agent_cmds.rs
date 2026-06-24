@@ -288,10 +288,14 @@ mod tests {
         let tempdir = tempfile::tempdir().expect("tempdir");
         let app = tauri::test::mock_app();
 
-        app.manage(AppState {
-            adapter: Arc::new(Mutex::new(Box::new(TestAdapter {
+        let adapter: Arc<Mutex<Box<dyn CoreAdapter>>> =
+            Arc::new(Mutex::new(Box::new(TestAdapter {
                 shared: adapter_shared,
-            }) as Box<dyn CoreAdapter>)),
+            }) as Box<dyn CoreAdapter>));
+        let remote_io_runtime = Arc::new(crate::remote_io_runtime::RemoteIoRuntimeState::new());
+
+        app.manage(AppState {
+            adapter: adapter.clone(),
             core_rpc_dispatcher: crate::core_rpc_dispatcher::CoreRpcDispatcher::try_new()
                 .expect("core RPC dispatcher"),
             sync_runtime: Arc::new(crate::commands::sync_cmds::SyncRuntimeState::new()),
@@ -322,7 +326,15 @@ mod tests {
             network_pairing_runtime: Arc::new(
                 crate::network::pairing::NetworkPairingRuntimeState::new(),
             ),
-            remote_io_runtime: Arc::new(crate::remote_io_runtime::RemoteIoRuntimeState::new()),
+            remote_io_runtime: remote_io_runtime.clone(),
+            mobile_usb_runtime: Arc::new(crate::mobile_usb::MobileUsbController::new(
+                Arc::new(crate::mobile_usb::UnsupportedMobileUsbBridge),
+                Arc::new(crate::mobile_usb::JsonMobileUsbPairingStore::new(
+                    tempdir.path().join("storage"),
+                )),
+                Arc::new(crate::mobile_usb::KeyringMobileUsbSecretStore::default()),
+                Arc::new(NoopMobileUsbSessionStarter),
+            )),
             mode_transition_coordinator: Arc::new(
                 crate::mode_transition_coordinator::ModeTransitionCoordinator::new(),
             ),
@@ -367,6 +379,22 @@ mod tests {
         });
 
         (tempdir, app)
+    }
+
+    struct NoopMobileUsbSessionStarter;
+
+    #[async_trait::async_trait]
+    impl crate::mobile_usb::MobileUsbSessionStarter for NoopMobileUsbSessionStarter {
+        async fn start_session(
+            &self,
+            _request: crate::mobile_usb::MobileUsbStartSessionRequest,
+        ) -> Result<crate::mobile_usb::MobileUsbSessionHandle, crate::mobile_usb::MobileUsbError>
+        {
+            Ok(crate::mobile_usb::MobileUsbSessionHandle {
+                session_id: "test-session".to_string(),
+                host_unlocked: false,
+            })
+        }
     }
 
     #[test]

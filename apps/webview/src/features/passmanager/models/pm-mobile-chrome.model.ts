@@ -575,10 +575,7 @@ class PMMobileChromeModel {
 
     await wrap(Promise.all(nestedEntries.flatMap((entry) => entry.cleanOTPs())))
 
-    const previousShowElement =
-      typeof (root as {showElement?: unknown}).showElement === 'function'
-        ? (root as {showElement: () => unknown}).showElement()
-        : undefined
+    const previousShowElement = root.showElement?.() as PMRootShowElement
     const entriesSignal =
       'entries' in root && root.entries && typeof root.entries.set === 'function' ? root.entries : null
     const nextEntries = rootEntries.filter((item) => !(item instanceof Group && groupsToRemove.has(item)))

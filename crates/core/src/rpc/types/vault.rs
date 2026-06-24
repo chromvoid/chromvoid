@@ -2,6 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::vault::{
+    CatalogRepairDiagnosis, CatalogRepairIssue, CatalogRepairOutcomeSummary, CatalogRepairStatus,
+};
+
 #[cfg(feature = "ts-bindings")]
 use ts_rs::TS;
 
@@ -14,6 +18,44 @@ pub struct VaultStatusResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts-bindings", ts(type = "number | null"))]
     pub session_started_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+pub struct VaultUnlockResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repair: Option<CatalogRepairOutcomeSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+pub struct VaultRepairDiagnosisResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repair_id: Option<String>,
+    pub status: CatalogRepairStatus,
+    pub issues: Vec<CatalogRepairIssue>,
+    pub lossy_requires_confirm: bool,
+}
+
+impl From<CatalogRepairDiagnosis> for VaultRepairDiagnosisResponse {
+    fn from(diagnosis: CatalogRepairDiagnosis) -> Self {
+        Self {
+            repair_id: diagnosis.repair_id,
+            status: diagnosis.status,
+            issues: diagnosis.issues,
+            lossy_requires_confirm: diagnosis.lossy_requires_confirm,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+pub struct VaultRepairApplyResponse {
+    pub unlocked: bool,
+    pub repair: CatalogRepairOutcomeSummary,
 }
 
 /// master:setup response

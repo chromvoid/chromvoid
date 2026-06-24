@@ -1,6 +1,13 @@
-import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {afterEach, describe, expect, it, vi} from 'vitest'
 
+import {CVBottomSheet} from '@chromvoid/uikit/components/cv-bottom-sheet'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
+import {applyMobileKeyboardInsetsPayload} from '../../src/app/bootstrap/mobile-keyboard-insets'
+import {
+  MOBILE_KEYBOARD_EXPANDED_ATTR,
+  VISUAL_VIEWPORT_SHRUNK_ATTR,
+  setMobileKeyboardOccluding,
+} from '../../src/app/bootstrap/mobile-keyboard/keyboard-occlusion.model'
 import {resolveLayoutMode} from '../../src/app/layout/layout-mode'
 import type {LayoutMode} from '../../src/app/layout/layout-mode'
 import {navigationModel} from '../../src/app/navigation/navigation.model'
@@ -19,6 +26,15 @@ function createTouchEvent(type: string, touches: Array<{clientX: number; clientY
 describe('file-app-shell layout selection', () => {
   afterEach(async () => {
     document.body.innerHTML = ''
+    document.documentElement.removeAttribute(MOBILE_KEYBOARD_EXPANDED_ATTR)
+    document.documentElement.removeAttribute(VISUAL_VIEWPORT_SHRUNK_ATTR)
+    document.documentElement.style.removeProperty('--native-keyboard-bottom-inset')
+    document.documentElement.style.removeProperty('--visual-viewport-bottom-inset')
+    document.documentElement.style.removeProperty('--mobile-keyboard-bottom-inset')
+    document.documentElement.style.removeProperty('--mobile-keyboard-scroll-action-offset')
+    document.documentElement.style.removeProperty('--mobile-keyboard-scroll-clearance')
+    document.documentElement.style.removeProperty('--mobile-keyboard-overlay-offset')
+    setMobileKeyboardOccluding(false)
     await mediaPlaybackModel.stopSession()
     navigationModel.disconnect()
     clearAppContext()
@@ -59,6 +75,7 @@ describe('file-app-shell layout selection', () => {
 
   function defineMobileShellForRender() {
     FileAppShellMobileLayout.define()
+    CVBottomSheet.define()
   }
 
   function seedAudioSession() {
@@ -208,6 +225,52 @@ describe('file-app-shell layout selection', () => {
       await element.updateComplete
 
       expect(element.shadowRoot?.querySelector('.mobile-media-mini media-mini-player')).not.toBeNull()
+      expect(element.shadowRoot?.querySelector('main.content--media-mini')).not.toBeNull()
+    })
+
+    it('does not render mobile mini player mode while another bottom sheet is open', async () => {
+      setupContext('mobile')
+      defineMobileShellForRender()
+      seedAudioSession()
+
+      const element = document.createElement('file-app-shell-mobile-layout') as FileAppShellMobileLayout
+      document.body.append(element)
+      await element.updateComplete
+
+      expect(element.shadowRoot?.querySelector('.mobile-media-mini media-mini-player')).not.toBeNull()
+      expect(element.shadowRoot?.querySelector('main.content--media-mini')).not.toBeNull()
+
+      const sheet = document.createElement('cv-bottom-sheet') as CVBottomSheet
+      sheet.open = true
+      document.body.append(sheet)
+      await sheet.updateComplete
+      await element.updateComplete
+
+      expect(element.shadowRoot?.querySelector('.mobile-media-mini')).toBeNull()
+      expect(element.shadowRoot?.querySelector('main.content--media-mini')).toBeNull()
+    })
+
+    it('does not render mobile mini player mode while the mobile keyboard is open', async () => {
+      setupContext('mobile')
+      defineMobileShellForRender()
+      seedAudioSession()
+
+      const element = document.createElement('file-app-shell-mobile-layout') as FileAppShellMobileLayout
+      document.body.append(element)
+      await element.updateComplete
+
+      expect(element.shadowRoot?.querySelector('.mobile-media-mini media-mini-player')).not.toBeNull()
+      expect(element.shadowRoot?.querySelector('main.content--media-mini')).not.toBeNull()
+
+      applyMobileKeyboardInsetsPayload(document.documentElement, {
+        visible: true,
+        bottomInset: 286,
+      })
+      await Promise.resolve()
+      await element.updateComplete
+
+      expect(element.shadowRoot?.querySelector('.mobile-media-mini')).toBeNull()
+      expect(element.shadowRoot?.querySelector('main.content--media-mini')).toBeNull()
     })
 
     it('renders the navigation rail inside the standard UIKit drawer', async () => {

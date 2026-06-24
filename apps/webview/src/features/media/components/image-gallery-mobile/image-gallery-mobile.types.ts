@@ -1,5 +1,4 @@
 import type {ImagePhotoMetadata} from 'root/core/transport/transport'
-import type {CVMenuButtonInputEvent} from '@chromvoid/uikit/components/cv-menu-button'
 
 export type MobileGalleryInfoSheetDetent = 'collapsed' | 'middle' | 'expanded'
 
@@ -20,16 +19,6 @@ export type MobileGalleryImageMeta = {
   lastModified?: number
 }
 
-export type MobileGalleryHeaderRenderState = {
-  currentImage?: MobileGalleryImageMeta
-  imageCount: number
-  displayIndex: number
-  chromeVisible: boolean
-  showSaveToGallery: boolean
-  showShare: boolean
-  sharePending: boolean
-}
-
 export type MobileGalleryInfoSheetRenderState = {
   currentImage?: MobileGalleryImageMeta
   open: boolean
@@ -41,9 +30,6 @@ export type MobileGalleryInfoSheetRenderState = {
 }
 
 export type MobileGalleryRenderActions = {
-  onClose: (event: Event) => void
-  onHeaderInfo: (event: Event) => void
-  onHeaderMenuInput: (event: CVMenuButtonInputEvent) => void
   onSheetClose: (event: Event) => void
   onExternalUrlClick: (event: MouseEvent) => void
   onInfoSheetSurfaceChange: (

@@ -6,7 +6,9 @@ use super::frames::{
 use super::models::{RemoteIoEvent, RemoteIoRequest, RemoteIoTaskConfig};
 use chromvoid_core::rpc::types::RpcResponse;
 use chromvoid_core::rpc::{RpcOutputStream, RpcReply, RpcStreamMeta};
-use chromvoid_protocol::{frame_continuation, AntiReplay, FrameType, FLAG_HAS_CONTINUATION};
+use chromvoid_protocol::{
+    frame_continuation, AntiReplay, FrameType, TransportType, FLAG_HAS_CONTINUATION,
+};
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -128,11 +130,31 @@ pub(super) async fn io_loop(
     req_rx: &mut mpsc::Receiver<RemoteIoRequest>,
     evt_tx: &mpsc::Sender<RemoteIoEvent>,
 ) -> Result<(), String> {
+    io_loop_with_heartbeat_interval(config, req_rx, evt_tx, Duration::from_secs(30)).await
+}
+
+async fn io_loop_with_heartbeat_interval(
+    config: RemoteIoTaskConfig,
+    req_rx: &mut mpsc::Receiver<RemoteIoRequest>,
+    evt_tx: &mpsc::Sender<RemoteIoEvent>,
+    heartbeat_interval_duration: Duration,
+) -> Result<(), String> {
     let mut transport = config.transport;
     let mut noise = config.noise_transport;
+    let transport_type = transport.transport_type();
+    let heartbeat_enabled = remote_heartbeat_enabled(transport_type);
+    if !heartbeat_enabled {
+        tracing::info!(
+            "remote_rpc: heartbeat disabled transport_type={:?}",
+            transport_type
+        );
+    }
     let mut anti_replay = AntiReplay::new();
     let mut next_msg_id: u64 = rand::random::<u64>() | 1;
-    let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(30));
+    let mut heartbeat_interval = tokio::time::interval(heartbeat_interval_duration);
+    // Tokio intervals tick immediately once; avoid both USB peers writing a heartbeat
+    // before either side has returned to its read branch after the handshake.
+    heartbeat_interval.tick().await;
     let mut queues = RequestQueues::default();
     let mut pending_json: HashMap<u64, PendingJson> = HashMap::new();
     let mut media_inspection_cancel_epoch: u64 = 0;
@@ -315,7 +337,7 @@ pub(super) async fn io_loop(
                 queues.push(io_req);
             }
 
-            _ = heartbeat_interval.tick() => {
+            _ = heartbeat_interval.tick(), if heartbeat_enabled => {
                 let msg_id = next_msg_id;
                 next_msg_id = next_msg_id.wrapping_add(1);
 
@@ -345,6 +367,8 @@ pub(super) async fn io_loop(
                             error: "Failed to parse response".to_string(),
                             code: Some("PARSE_ERROR".to_string()),
                         });
+                    let should_disconnect_after_remote_lock =
+                        pending.command == "vault:lock" && response.is_ok();
                     tracing::info!(
                         "remote_rpc: recv_json command={} message_id={} pending_json={}",
                         pending.command,
@@ -352,6 +376,9 @@ pub(super) async fn io_loop(
                         pending_json.len()
                     );
                     let _ = pending.reply_tx.send(RpcReply::Json(response));
+                    if should_disconnect_after_remote_lock {
+                        return Err("remote vault lock requested disconnect".to_string());
+                    }
                 }
             }
 
@@ -379,6 +406,10 @@ pub(super) async fn io_loop(
             }
         }
     }
+}
+
+fn remote_heartbeat_enabled(transport_type: TransportType) -> bool {
+    !matches!(transport_type, TransportType::UsbMobile)
 }
 
 #[cfg(test)]
@@ -593,6 +624,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn remote_lock_success_stops_data_plane_and_emits_disconnect() {
+        let (client_noise, host_noise) = noise_pair();
+        let transport = ScriptedTransport::new(host_noise, Script::LockSuccess);
+        let crate::remote_data_plane::RemoteIoTaskHandle {
+            req_tx,
+            mut evt_rx,
+            task_handle,
+        } = crate::remote_data_plane::spawn_remote_io_task(
+            crate::remote_data_plane::RemoteIoTaskConfig {
+                transport: Box::new(transport),
+                noise_transport: client_noise,
+            },
+        );
+
+        let (reply_tx, reply_rx) = oneshot::channel();
+        req_tx
+            .send(crate::remote_data_plane::RemoteIoRequest {
+                request: RpcRequest::new("vault:lock", serde_json::json!({})),
+                stream: None,
+                reply_tx,
+                priority: RemoteRpcPriority::High,
+                cancel_group: None,
+            })
+            .await
+            .expect("lock request queued");
+
+        let reply = tokio::time::timeout(Duration::from_secs(1), reply_rx)
+            .await
+            .expect("lock reply timeout")
+            .expect("lock reply channel");
+        let RpcReply::Json(response) = reply else {
+            panic!("expected json reply");
+        };
+        assert!(response.is_ok());
+
+        let event = tokio::time::timeout(Duration::from_secs(1), evt_rx.recv())
+            .await
+            .expect("disconnect timeout")
+            .expect("event channel");
+        task_handle.abort();
+
+        let crate::remote_data_plane::RemoteIoEvent::Disconnected { reason } = event else {
+            panic!("expected disconnect event");
+        };
+        assert!(reason.contains("remote vault lock requested disconnect"));
+    }
+
+    #[tokio::test]
     async fn shared_frame_helper_sends_heartbeat_over_fake_transport() {
         let (mut client_noise, host_noise) = noise_pair();
         let sent_frames = Arc::new(Mutex::new(Vec::new()));
@@ -608,6 +687,107 @@ mod tests {
             .unwrap()
             .iter()
             .any(|frame| frame.frame_type == FrameType::Heartbeat));
+    }
+
+    #[tokio::test]
+    async fn remote_io_task_does_not_send_heartbeat_immediately_after_start() {
+        let (client_noise, host_noise) = noise_pair();
+        let sent_frames = Arc::new(Mutex::new(Vec::new()));
+        let transport =
+            ScriptedTransport::with_sent_frames(host_noise, Script::Idle, sent_frames.clone());
+        let crate::remote_data_plane::RemoteIoTaskHandle {
+            req_tx: _req_tx,
+            evt_rx: _evt_rx,
+            task_handle,
+        } = crate::remote_data_plane::spawn_remote_io_task(
+            crate::remote_data_plane::RemoteIoTaskConfig {
+                transport: Box::new(transport),
+                noise_transport: client_noise,
+            },
+        );
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        task_handle.abort();
+
+        assert!(
+            sent_frames.lock().unwrap().is_empty(),
+            "heartbeat must not be the first post-handshake write"
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_io_task_sends_periodic_heartbeat_for_network_transport() {
+        let (client_noise, host_noise) = noise_pair();
+        let sent_frames = Arc::new(Mutex::new(Vec::new()));
+        let transport =
+            ScriptedTransport::with_sent_frames(host_noise, Script::Idle, sent_frames.clone());
+        let (req_tx, mut req_rx) = mpsc::channel::<RemoteIoRequest>(1);
+        let (evt_tx, _evt_rx) = mpsc::channel::<RemoteIoEvent>(1);
+        drop(req_tx);
+        let task = tokio::spawn(async move {
+            io_loop_with_heartbeat_interval(
+                RemoteIoTaskConfig {
+                    transport: Box::new(transport),
+                    noise_transport: client_noise,
+                },
+                &mut req_rx,
+                &evt_tx,
+                Duration::from_millis(10),
+            )
+            .await
+        });
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if sent_frames
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|frame| frame.frame_type == FrameType::Heartbeat)
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("network heartbeat timeout");
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn remote_io_task_suppresses_periodic_heartbeat_for_usb_mobile() {
+        let (client_noise, host_noise) = noise_pair();
+        let sent_frames = Arc::new(Mutex::new(Vec::new()));
+        let transport = ScriptedTransport::with_transport_type(
+            host_noise,
+            Script::Idle,
+            sent_frames.clone(),
+            TransportType::UsbMobile,
+        );
+        let (req_tx, mut req_rx) = mpsc::channel::<RemoteIoRequest>(1);
+        let (evt_tx, _evt_rx) = mpsc::channel::<RemoteIoEvent>(1);
+        drop(req_tx);
+        let task = tokio::spawn(async move {
+            io_loop_with_heartbeat_interval(
+                RemoteIoTaskConfig {
+                    transport: Box::new(transport),
+                    noise_transport: client_noise,
+                },
+                &mut req_rx,
+                &evt_tx,
+                Duration::from_millis(10),
+            )
+            .await
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        task.abort();
+
+        assert!(
+            sent_frames.lock().unwrap().is_empty(),
+            "USB Mobile desktop side must not send idle heartbeats over AOA"
+        );
     }
 
     #[tokio::test]
@@ -640,9 +820,11 @@ mod tests {
     enum Script {
         EchoJson,
         PushThenJson,
+        LockSuccess,
         UploadAck,
         StreamResponseAfterUpload,
         ClosedOnRecv,
+        Idle,
     }
 
     struct ScriptedTransport {
@@ -651,6 +833,7 @@ mod tests {
         inbound_rx: mpsc::UnboundedReceiver<Vec<u8>>,
         sent_frames: Arc<Mutex<Vec<Frame>>>,
         script: Script,
+        transport_type: TransportType,
         active_upload_message_id: Option<u64>,
         uploaded: Vec<u8>,
     }
@@ -665,6 +848,15 @@ mod tests {
             script: Script,
             sent_frames: Arc<Mutex<Vec<Frame>>>,
         ) -> Self {
+            Self::with_transport_type(host_noise, script, sent_frames, TransportType::WssRelay)
+        }
+
+        fn with_transport_type(
+            host_noise: NoiseTransport,
+            script: Script,
+            sent_frames: Arc<Mutex<Vec<Frame>>>,
+            transport_type: TransportType,
+        ) -> Self {
             let (inbound_tx, inbound_rx) = mpsc::unbounded_channel();
             Self {
                 host_noise,
@@ -672,6 +864,7 @@ mod tests {
                 inbound_rx,
                 sent_frames,
                 script,
+                transport_type,
                 active_upload_message_id: None,
                 uploaded: Vec::new(),
             }
@@ -721,6 +914,10 @@ mod tests {
                         RpcResponse::success(serde_json::json!({ "ok": true })),
                     )
                 }
+                Script::LockSuccess => self.enqueue_json_response(
+                    frame.message_id,
+                    RpcResponse::success(serde_json::Value::Null),
+                ),
                 Script::UploadAck | Script::StreamResponseAfterUpload => {
                     if !frame.has_continuation() {
                         return self.enqueue_json_response(
@@ -731,7 +928,7 @@ mod tests {
                     self.active_upload_message_id = Some(frame.message_id);
                     Ok(())
                 }
-                Script::ClosedOnRecv => Ok(()),
+                Script::ClosedOnRecv | Script::Idle => Ok(()),
             }
         }
 
@@ -773,7 +970,11 @@ mod tests {
                         false,
                     ))
                 }
-                Script::EchoJson | Script::PushThenJson | Script::ClosedOnRecv => Ok(()),
+                Script::EchoJson
+                | Script::PushThenJson
+                | Script::LockSuccess
+                | Script::ClosedOnRecv => Ok(()),
+                Script::Idle => Ok(()),
             }
         }
     }
@@ -812,7 +1013,7 @@ mod tests {
         }
 
         fn transport_type(&self) -> TransportType {
-            TransportType::WssRelay
+            self.transport_type
         }
     }
 

@@ -18,6 +18,7 @@ pub enum TransportType {
     WebRtcDataChannel,
     WssRelay,
     TcpStealth,
+    UsbMobile,
 }
 
 impl fmt::Display for TransportType {
@@ -27,6 +28,7 @@ impl fmt::Display for TransportType {
             Self::WebRtcDataChannel => write!(f, "WebRTC DataChannel"),
             Self::WssRelay => write!(f, "WSS Relay"),
             Self::TcpStealth => write!(f, "TCP Stealth"),
+            Self::UsbMobile => write!(f, "USB Mobile"),
         }
     }
 }

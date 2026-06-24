@@ -285,6 +285,14 @@ function getManualChunk(id: string): string | undefined {
     return 'vendor-reatom'
   }
 
+  if (normalized.includes('/apps/webview/src/i18n/')) {
+    return 'app-i18n'
+  }
+
+  if (normalized.includes('/packages/passmanager/src/i18n/')) {
+    return 'passmanager-i18n'
+  }
+
   if (
     normalized.includes('/node_modules/lit') ||
     normalized.includes('/node_modules/@lit/') ||
@@ -419,8 +427,14 @@ export default defineConfig(({command}) => {
           find: /^@project\/passmanager\/notify$/,
           replacement: join(workspaceRoot, 'packages/passmanager/src/service/notify.ts'),
         },
+        {
+          find: /^@project\/passmanager\/dialog$/,
+          replacement: join(workspaceRoot, 'packages/passmanager/src/service/dialog.ts'),
+        },
         {find: /^@chromvoid\/scheme$/, replacement: join(workspaceRoot, 'packages/scheme/src/index.ts')},
         {find: /^@chromvoid\/scheme\/(.+)$/, replacement: join(workspaceRoot, 'packages/scheme/src/$1')},
+        {find: /^@chromvoid\/headless-ui$/, replacement: join(workspaceRoot, 'packages/headless-ui/src/index.ts')},
+        {find: /^@chromvoid\/headless-ui\/(.+)$/, replacement: join(workspaceRoot, 'packages/headless-ui/src/$1')},
         {find: /^@chromvoid\/uikit$/, replacement: join(workspaceRoot, 'packages/uikit/src/index.ts')},
         {find: /^@chromvoid\/uikit\/(.+)$/, replacement: join(workspaceRoot, 'packages/uikit/src/$1')},
         {find: /^@chromvoid\/ui$/, replacement: join(workspaceRoot, 'packages/ui/src/index.ts')},

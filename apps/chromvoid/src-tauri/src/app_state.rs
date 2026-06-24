@@ -33,6 +33,8 @@ pub(crate) struct AppState {
     #[cfg(desktop)]
     pub(crate) remote_io_runtime: Arc<crate::remote_io_runtime::RemoteIoRuntimeState>,
     #[cfg(desktop)]
+    pub(crate) mobile_usb_runtime: Arc<crate::mobile_usb::MobileUsbController>,
+    #[cfg(desktop)]
     pub(crate) mode_transition_coordinator:
         Arc<crate::mode_transition_coordinator::ModeTransitionCoordinator>,
     pub(crate) mobile_acceptor_runtime:

@@ -4,6 +4,7 @@ mod gallery_save;
 mod image_metadata;
 mod jni;
 mod media_session;
+mod mobile_usb_accessory;
 mod native_upload;
 mod open_external;
 mod otp_qr_scan;
@@ -177,6 +178,10 @@ pub fn open_file_with_system(
 
 pub fn open_url_with_system(url: &str) -> Result<(), String> {
     open_external::open_url_with_system(url)
+}
+
+pub fn notify_mobile_usb_accessory_session_ended(session_id: &str, reason_code: &str) {
+    mobile_usb_accessory::notify_session_ended(session_id, reason_code);
 }
 
 pub fn share_files_with_system(items: &[(&std::path::Path, Option<&str>)]) -> Result<(), String> {

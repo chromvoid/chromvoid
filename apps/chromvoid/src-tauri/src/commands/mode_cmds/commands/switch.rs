@@ -16,14 +16,20 @@ use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 use super::super::helpers::{drain_in_flight_rpcs, generate_room_id, now_ms};
 use super::super::ios_connect::connect_paired_ios_peer;
 use super::super::models::ModeSwitchResult;
-use super::super::noise_handshake::handshake_ik_over_transport;
+use crate::remote_data_plane::handshake_ik_over_transport;
 
 /// Duration to wait for in-flight RPCs to drain before fail-fast (5 seconds).
 const DRAIN_TIMEOUT_SECS: u64 = 5;
+const ANDROID_MOBILE_HOST_HANDSHAKE_TIMEOUT_SECS: u64 = 10;
 
 enum RemoteModePeer {
     Ios(crate::network::PairedIosPeer),
+    AndroidMobileHost(crate::network::PairedPeer),
     Legacy(crate::network::PairedPeer),
+}
+
+fn is_android_mobile_host_peer(peer: &crate::network::PairedPeer) -> bool {
+    peer.platform == "android"
 }
 
 async fn load_remote_mode_peer(
@@ -41,11 +47,16 @@ async fn load_remote_mode_peer(
 
             let legacy_path = storage_root.join("paired_network_peers.json");
             let legacy = crate::network::PairedPeerStore::load(&legacy_path);
-            legacy
+            let peer = legacy
                 .get(&peer_id)
                 .cloned()
-                .map(RemoteModePeer::Legacy)
-                .ok_or_else(|| format!("Peer '{}' is not paired", peer_id))
+                .ok_or_else(|| format!("Peer '{}' is not paired", peer_id))?;
+
+            if is_android_mobile_host_peer(&peer) {
+                Ok(RemoteModePeer::AndroidMobileHost(peer))
+            } else {
+                Ok(RemoteModePeer::Legacy(peer))
+            }
         })
         .await
     {
@@ -54,6 +65,112 @@ async fn load_remote_mode_peer(
             error,
             "Mode switch paired peer lookup",
         )),
+    }
+}
+
+async fn connect_paired_android_mobile_host_peer(
+    app: &tauri::AppHandle,
+    peer: &crate::network::PairedPeer,
+) -> Result<
+    (
+        Box<dyn chromvoid_protocol::RemoteTransport>,
+        chromvoid_protocol::NoiseTransport,
+    ),
+    String,
+> {
+    if peer.relay_url.is_empty() {
+        return Err("Paired Android host has no relay URL".to_string());
+    }
+
+    info!(
+        "mode_switch: Android mobile host connect start peer_id={} relay_url={}",
+        peer.peer_id, peer.relay_url
+    );
+    let presence = crate::network::fetch_host_presence(&peer.relay_url, &peer.peer_id)
+        .await
+        .map_err(|error| format!("Android mobile host presence fetch failed: {error}"))?;
+
+    if presence.expires_at_ms <= now_ms() {
+        return Err("Android mobile host is offline (presence expired)".to_string());
+    }
+    if presence.status != "ready" {
+        return Err(format!(
+            "Android mobile host is not ready (status={})",
+            presence.status
+        ));
+    }
+    if presence.room_id.is_empty() {
+        return Err("Android mobile host presence has no room ID".to_string());
+    }
+
+    let relay_url = if presence.relay_url.is_empty() {
+        peer.relay_url.clone()
+    } else {
+        presence.relay_url.clone()
+    };
+
+    info!(
+        "mode_switch: Android mobile host presence resolved peer_id={} room_id={} status={} expires_at_ms={}",
+        peer.peer_id, presence.room_id, presence.status, presence.expires_at_ms
+    );
+    let _ = app.emit(
+        "connection:status",
+        serde_json::json!({
+            "phase": "connecting_transport",
+            "peer_id": &peer.peer_id,
+            "relay_url": &relay_url,
+            "room_id": &presence.room_id,
+            "presence_source": "android_presence",
+        }),
+    );
+
+    let transport = Box::new(
+        crate::network::wss_transport::WssTransport::connect_with_context(
+            &relay_url,
+            &presence.room_id,
+            "desktop_android_mobile_host_connect",
+        )
+        .await?,
+    ) as Box<dyn chromvoid_protocol::RemoteTransport>;
+
+    let _ = app.emit(
+        "connection:status",
+        serde_json::json!({ "phase": "noise_handshake", "peer_id": &peer.peer_id }),
+    );
+    let client_privkey =
+        hex::decode(&peer.client_privkey_hex).map_err(|e| format!("Bad privkey hex: {}", e))?;
+
+    info!(
+        "mode_switch: Android mobile host noise IK start peer_id={} room_id={}",
+        peer.peer_id, presence.room_id
+    );
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(ANDROID_MOBILE_HOST_HANDSHAKE_TIMEOUT_SECS),
+        handshake_ik_over_transport(transport, &client_privkey, &peer.peer_pubkey),
+    )
+    .await
+    {
+        Ok(Ok(result)) => {
+            info!(
+                "mode_switch: Android mobile host noise IK success peer_id={} room_id={}",
+                peer.peer_id, presence.room_id
+            );
+            Ok(result)
+        }
+        Ok(Err(error)) => {
+            warn!(
+                "mode_switch: Android mobile host noise IK failed peer_id={} room_id={} error={}",
+                peer.peer_id, presence.room_id, error
+            );
+            Err(error)
+        }
+        Err(_) => {
+            warn!(
+                "mode_switch: Android mobile host noise IK timed out peer_id={} room_id={} timeout_secs={}",
+                peer.peer_id, presence.room_id, ANDROID_MOBILE_HOST_HANDSHAKE_TIMEOUT_SECS
+            );
+            Err("Timed out waiting for Android mobile host handshake".to_string())
+        }
     }
 }
 
@@ -273,6 +390,13 @@ pub(crate) async fn mode_switch(
                             &peer,
                         )
                         .await?
+                    }
+                    RemoteModePeer::AndroidMobileHost(peer) => {
+                        let _ = app.emit(
+                            "connection:status",
+                            serde_json::json!({ "phase": "resolving_android_presence", "peer_id": &peer_id }),
+                        );
+                        connect_paired_android_mobile_host_peer(&app, &peer).await?
                     }
                     RemoteModePeer::Legacy(peer) => {
                         let relay_url = peer.relay_url.clone();
@@ -536,6 +660,82 @@ fn rpc_response_error(resp: &RpcResponse) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_paired_peer(peer_id: &str, platform: &str) -> crate::network::PairedPeer {
+        crate::network::PairedPeer {
+            peer_id: peer_id.to_string(),
+            label: "ChromVoid Android".to_string(),
+            relay_url: "wss://relay.example.test".to_string(),
+            peer_pubkey: vec![1; 32],
+            client_pubkey: vec![2; 32],
+            client_privkey_hex: "03".repeat(32),
+            last_seen: 10,
+            paired_at: 5,
+            platform: platform.to_string(),
+        }
+    }
+
+    fn save_legacy_peer(storage_root: &std::path::Path, peer: crate::network::PairedPeer) {
+        let path = storage_root.join("paired_network_peers.json");
+        let mut store = crate::network::PairedPeerStore::load(&path);
+        store.upsert(peer);
+        store.save().expect("save legacy peer");
+    }
+
+    #[test]
+    fn android_mobile_host_detection_is_platform_scoped() {
+        let android = sample_paired_peer("android-peer", "android");
+        let network = sample_paired_peer("network-peer", "network");
+
+        assert!(is_android_mobile_host_peer(&android));
+        assert!(!is_android_mobile_host_peer(&network));
+    }
+
+    #[tokio::test]
+    async fn load_remote_mode_peer_routes_android_legacy_peer_to_presence_flow() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        save_legacy_peer(dir.path(), sample_paired_peer("android-peer", "android"));
+
+        let peer = load_remote_mode_peer(
+            Arc::new(CatalogBlockingIoRuntimeState::new()),
+            dir.path().to_path_buf(),
+            "android-peer".to_string(),
+        )
+        .await
+        .expect("android peer loads");
+
+        match peer {
+            RemoteModePeer::AndroidMobileHost(peer) => {
+                assert_eq!(peer.peer_id, "android-peer");
+            }
+            RemoteModePeer::Ios(_) | RemoteModePeer::Legacy(_) => {
+                panic!("android peer should use Android mobile host connect flow");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn load_remote_mode_peer_keeps_non_android_legacy_peer_on_fallback_flow() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        save_legacy_peer(dir.path(), sample_paired_peer("network-peer", "network"));
+
+        let peer = load_remote_mode_peer(
+            Arc::new(CatalogBlockingIoRuntimeState::new()),
+            dir.path().to_path_buf(),
+            "network-peer".to_string(),
+        )
+        .await
+        .expect("network peer loads");
+
+        match peer {
+            RemoteModePeer::Legacy(peer) => {
+                assert_eq!(peer.peer_id, "network-peer");
+            }
+            RemoteModePeer::Ios(_) | RemoteModePeer::AndroidMobileHost(_) => {
+                panic!("non-android peer should stay on legacy fallback flow");
+            }
+        }
+    }
 
     #[test]
     fn mode_switch_peer_store_blocking_err_maps_shutdown() {

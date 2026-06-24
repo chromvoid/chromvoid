@@ -12,10 +12,19 @@ use crate::crypto::{derive_vault_key_v2, StoragePepper};
 use crate::error::{Error, Result};
 use crate::storage::Storage;
 use crate::types::KEY_SIZE;
+use crate::vault::catalog_persistence::{
+    CatalogRepairDiagnosis, CatalogRepairOutcomeSummary, CatalogRepairPolicy, CatalogRepairService,
+    CatalogRepairStatus,
+};
 use crate::vault::DecryptedChunkCache;
 
 /// Vault operations
 pub struct Vault;
+
+pub struct VaultUnlockOutcome {
+    pub session: VaultSession,
+    pub repair: Option<CatalogRepairOutcomeSummary>,
+}
 
 impl Vault {
     /// Unlock a vault with the given password
@@ -33,6 +42,103 @@ impl Vault {
         password: &str,
         keystore: Option<&dyn Keystore>,
     ) -> Result<VaultSession> {
+        Self::unlock_with_keystore_outcome(storage, password, keystore)
+            .map(|outcome| outcome.session)
+    }
+
+    pub fn unlock_with_keystore_outcome(
+        storage: &Storage,
+        password: &str,
+        keystore: Option<&dyn Keystore>,
+    ) -> Result<VaultUnlockOutcome> {
+        let vault_key = Self::derive_unlock_key(storage, password, keystore)?;
+        super::rekey::recover_rekey_marker_for_key(storage, &vault_key)?;
+
+        let repair_service = CatalogRepairService::new(storage, &vault_key);
+        let mut repair = None;
+        let catalog = match Self::load_catalog_for_unlock(storage, &vault_key) {
+            Ok(catalog) => match repair_service.repair_lossless()? {
+                Some(outcome) => {
+                    repair = Some(outcome);
+                    Self::load_catalog_for_unlock(storage, &vault_key)?
+                }
+                None => catalog,
+            },
+            Err(Error::CatalogDeltaReplayFailed(_)) => {
+                let diagnosis = repair_service.diagnose()?;
+                match diagnosis.status {
+                    CatalogRepairStatus::Clean | CatalogRepairStatus::LosslessRepaired => {
+                        Self::load_catalog_for_unlock(storage, &vault_key)?
+                    }
+                    CatalogRepairStatus::LossyRequired => {
+                        let repair_id =
+                            diagnosis.repair_id.unwrap_or_else(|| "unknown".to_string());
+                        return Err(Error::CatalogRepairRequired(repair_id));
+                    }
+                }
+            }
+            Err(error) => return Err(error),
+        };
+
+        Ok(VaultUnlockOutcome {
+            session: VaultSession {
+                vault_key,
+                catalog,
+                unlocked_at: Instant::now(),
+                dirty: false,
+                pending_deltas: HashMap::new(),
+                decrypted_chunk_cache: Arc::new(DecryptedChunkCache::new_default()),
+            },
+            repair,
+        })
+    }
+
+    pub fn diagnose_catalog_repair_with_keystore(
+        storage: &Storage,
+        password: &str,
+        keystore: Option<&dyn Keystore>,
+    ) -> Result<CatalogRepairDiagnosis> {
+        let vault_key = Self::derive_unlock_key(storage, password, keystore)?;
+        super::rekey::recover_rekey_marker_for_key(storage, &vault_key)?;
+        CatalogRepairService::new(storage, &vault_key).diagnose()
+    }
+
+    pub fn apply_catalog_repair_with_keystore(
+        storage: &Storage,
+        password: &str,
+        keystore: Option<&dyn Keystore>,
+        repair_id: &str,
+        allow_lossy: bool,
+    ) -> Result<VaultUnlockOutcome> {
+        let vault_key = Self::derive_unlock_key(storage, password, keystore)?;
+        super::rekey::recover_rekey_marker_for_key(storage, &vault_key)?;
+
+        let policy = if allow_lossy {
+            CatalogRepairPolicy::AllowLossyConfirmed
+        } else {
+            CatalogRepairPolicy::LosslessOnly
+        };
+        let repair = CatalogRepairService::new(storage, &vault_key).apply(repair_id, policy)?;
+        let catalog = Self::load_catalog_for_unlock(storage, &vault_key)?;
+
+        Ok(VaultUnlockOutcome {
+            session: VaultSession {
+                vault_key,
+                catalog,
+                unlocked_at: Instant::now(),
+                dirty: false,
+                pending_deltas: HashMap::new(),
+                decrypted_chunk_cache: Arc::new(DecryptedChunkCache::new_default()),
+            },
+            repair: Some(repair),
+        })
+    }
+
+    fn derive_unlock_key(
+        storage: &Storage,
+        password: &str,
+        keystore: Option<&dyn Keystore>,
+    ) -> Result<Zeroizing<[u8; KEY_SIZE]>> {
         let salt = storage.get_or_create_salt()?;
 
         let format_v = storage.format_version()?;
@@ -68,17 +174,7 @@ impl Vault {
         };
 
         let vault_key = derive_vault_key_v2(password, &salt, &pepper)?;
-        super::rekey::recover_rekey_marker_for_key(storage, &vault_key)?;
-        let catalog = Self::load_catalog_for_unlock(storage, &vault_key)?;
-
-        Ok(VaultSession {
-            vault_key,
-            catalog,
-            unlocked_at: Instant::now(),
-            dirty: false,
-            pending_deltas: HashMap::new(),
-            decrypted_chunk_cache: Arc::new(DecryptedChunkCache::new_default()),
-        })
+        Ok(vault_key)
     }
 }
 

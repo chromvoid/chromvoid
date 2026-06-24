@@ -19,7 +19,7 @@ import org.gradle.process.ExecOperations
 const val LICENSE_PUBLIC_KEY_ENV = "CHROMVOID_LICENSE_PUBLIC_KEY_ED25519_2026_01"
 const val LICENSE_PUBLIC_KEY_FILE = ".license-public-key"
 const val SKIP_FRESH_TAURI_PREBUILD_PROPERTY = "chromvoidSkipFreshTauriPrebuild"
-const val PRODUCTION_WEBVIEW_DEV_PROPERTY = "chromvoidProductionWebviewDev"
+const val PRODUCTION_WEBVIEW_DEBUG_PROPERTY = "chromvoidProductionWebviewDebug"
 
 abstract class BuildTask @Inject constructor(
     private val execOperations: ExecOperations,
@@ -36,8 +36,8 @@ abstract class BuildTask @Inject constructor(
     val licensePublicKey: String
         get() = readLicensePublicKey()
     @get:Input
-    val productionWebviewDev: Boolean
-        get() = shouldUseProductionWebviewDev()
+    val productionWebviewDebug: Boolean
+        get() = shouldUseProductionWebviewDebug()
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
     val rustInputFiles: FileCollection
@@ -87,7 +87,7 @@ abstract class BuildTask @Inject constructor(
             requireLicensePublicKeyForRelease()
         }
 
-        if (shouldUseProductionWebviewDev()) {
+        if (shouldUseProductionWebviewDebug()) {
             fallbackCargoBuild()
             return
         }
@@ -252,8 +252,8 @@ abstract class BuildTask @Inject constructor(
         return project.findProperty(SKIP_FRESH_TAURI_PREBUILD_PROPERTY)?.toString() == "true"
     }
 
-    private fun shouldUseProductionWebviewDev(): Boolean {
-        return release != true && project.findProperty(PRODUCTION_WEBVIEW_DEV_PROPERTY)?.toString() == "true"
+    private fun shouldUseProductionWebviewDebug(): Boolean {
+        return release != true && project.findProperty(PRODUCTION_WEBVIEW_DEBUG_PROPERTY)?.toString() == "true"
     }
 
     private fun isOutputFreshFromTauriPrebuild(): Boolean {
@@ -374,7 +374,7 @@ abstract class BuildTask @Inject constructor(
         val toolchain = resolveToolchain(ndkHome, spec)
 
         val cargoFeatures = mutableListOf("android")
-        if (release || shouldUseProductionWebviewDev()) {
+        if (release || shouldUseProductionWebviewDebug()) {
             cargoFeatures += "tauri/custom-protocol"
         }
         val cargoFeaturesArg = cargoFeatures.joinToString(",")

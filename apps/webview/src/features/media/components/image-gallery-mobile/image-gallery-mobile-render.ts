@@ -2,140 +2,15 @@ import {nothing} from 'lit'
 import {html} from '@chromvoid/uikit/reatom-lit'
 import {i18n} from 'root/i18n'
 import type {ImagePhotoGpsMetadata, ImagePhotoMetadata} from 'root/core/transport/transport'
-import {getImageViewerActionButtons} from '../image-gallery-v2/image-gallery-actions'
 import type {ImageGalleryViewerModel} from '../image-gallery-v2/gallery-viewer.model'
 import {formatDate, formatDateString, formatDecimal, formatSizeWithBytes} from './image-gallery-mobile-format'
 import type {ImageGalleryMobileModel, MobileGalleryFooterMode} from './image-gallery-mobile.model'
 import type {
-  MobileGalleryHeaderRenderState,
   MobileGalleryGpsAvailability,
   MobileGalleryImageMeta,
   MobileGalleryInfoSheetRenderState,
   MobileGalleryRenderActions,
 } from './image-gallery-mobile.types'
-
-const HEADER_FILENAME_EXTENSION_MAX_LENGTH = 12
-
-function getHeaderFileNameParts(name: string | undefined): {stem: string; extension: string} {
-  const fileName = name ?? ''
-  const dotIndex = fileName.lastIndexOf('.')
-
-  if (dotIndex <= 0 || dotIndex === fileName.length - 1) {
-    return {stem: fileName, extension: ''}
-  }
-
-  const extension = fileName.slice(dotIndex)
-  if (extension.length > HEADER_FILENAME_EXTENSION_MAX_LENGTH) {
-    return {stem: fileName, extension: ''}
-  }
-
-  return {stem: fileName.slice(0, dotIndex), extension}
-}
-
-function renderHeaderTitle(name: string | undefined) {
-  const fileName = name ?? ''
-  const {stem, extension} = getHeaderFileNameParts(fileName)
-
-  return html`
-    <div class="title" title=${fileName} aria-label=${fileName}>
-      <span class="title-stem">${stem}</span>
-      ${extension ? html`<span class="title-extension">${extension}</span>` : nothing}
-    </div>
-  `
-}
-
-function renderHeaderCounter(displayIndex: number, imageCount: number) {
-  const values = {
-    current: String(displayIndex + 1),
-    total: String(imageCount),
-  }
-
-  return html`
-    <span class="counter" aria-label=${i18n('media:image-position' as any, values)}>
-      ${i18n('media:image-position-compact' as any, values)}
-    </span>
-  `
-}
-
-export function renderMobileGalleryHeader(
-  state: MobileGalleryHeaderRenderState,
-  actions: MobileGalleryRenderActions,
-) {
-  const {
-    currentImage,
-    imageCount,
-    displayIndex,
-    chromeVisible,
-    showSaveToGallery,
-    showShare,
-    sharePending,
-  } = state
-  const menuActions = getImageViewerActionButtons({
-    showSaveToGallery,
-    showShare,
-    includeInfo: false,
-    includeDelete: true,
-  })
-  const infoLabel = i18n('details:title' as any)
-  const moreLabel = i18n('file-manager:more' as any)
-
-  return html`
-    <div class="header ${chromeVisible ? '' : 'hidden'}">
-      <cv-button
-        unstyled
-        class="close-button"
-        @click=${actions.onClose}
-        aria-label=${i18n('button:close' as any)}
-      >
-        <cv-icon name="x" size="m"></cv-icon>
-      </cv-button>
-      <div class="header-copy">
-        ${renderHeaderTitle(currentImage?.name)}
-        ${imageCount > 1 ? renderHeaderCounter(displayIndex, imageCount) : nothing}
-      </div>
-      <div class="header-actions">
-        <cv-button
-          unstyled
-          class="header-action-button"
-          data-action="info"
-          @click=${actions.onHeaderInfo}
-          aria-label=${infoLabel}
-        >
-          <cv-icon name="info" size="m"></cv-icon>
-        </cv-button>
-        <cv-menu-button
-          class="header-menu-button"
-          variant="ghost"
-          preset="icon-overflow"
-          aria-label=${moreLabel}
-          @cv-input=${actions.onHeaderMenuInput}
-        >
-          <span slot="prefix" class="header-menu-trigger">
-            <cv-icon name="three-dots" size="m"></cv-icon>
-          </span>
-          ${menuActions.map(({action, icon, labelKey, dangerous}) => {
-            const pending = action === 'share' && sharePending
-            const label = pending ? i18n('file-manager:preparing-file' as any) : i18n(labelKey as any)
-
-            return html`
-              <cv-menu-item
-                slot="menu"
-                value=${action}
-                class="header-menu-item ${dangerous ? 'danger' : ''}"
-                ?disabled=${pending}
-              >
-                ${pending
-                  ? html`<cv-spinner slot="prefix" size="xs" label=${label}></cv-spinner>`
-                  : html`<cv-icon slot="prefix" name=${icon} size="s"></cv-icon>`}
-                ${label}
-              </cv-menu-item>
-            `
-          })}
-        </cv-menu-button>
-      </div>
-    </div>
-  `
-}
 
 function renderDetailRow(labelKey: string, value: unknown, className = '') {
   const text = formatDetailValue(value)
@@ -304,8 +179,7 @@ function renderPhotoMetadataState(
 
   if (
     state.photoMetadataError ||
-    (!hasPhotoMetadata(state.photoMetadata) &&
-      state.gpsAvailability === 'gps-unavailable-unknown')
+    (!hasPhotoMetadata(state.photoMetadata) && state.gpsAvailability === 'gps-unavailable-unknown')
   ) {
     return html`<div class="sheet-state">${i18n('details:metadata-unavailable' as any)}</div>`
   }

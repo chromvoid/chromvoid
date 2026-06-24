@@ -1,78 +1,84 @@
-import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import { html, ReatomLitElement } from "@chromvoid/uikit/reatom-lit";
+import { CVShortcut } from "@chromvoid/uikit/components/cv-shortcut";
 
-import {css, nothing} from 'lit'
+import { css, nothing } from "lit";
 
-import {getLang, i18n} from 'root/i18n'
-import {sharedStyles} from 'root/shared/ui/shared-styles'
-import {atom} from '@reatom/core'
-import {ImagePreview} from 'root/features/media/components/image-preview'
-import {AudioArtworkPreview} from 'root/features/media/components/audio-artwork-preview'
-import {VideoPreview} from 'root/features/media/components/video-preview'
-import {canShareFiles} from 'root/shared/services/share'
-import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
-import {getOpenActionPresentation, isAudioFile, resolveFileFormat} from 'root/utils/file-format-registry'
-import {keyboardShortcutsModel} from 'root/shared/keyboard'
-import type {FileMediaInfo} from 'root/core/catalog/media-info'
+import { getLang, i18n } from "root/i18n";
+import { sharedStyles } from "root/shared/ui/shared-styles";
+import { atom } from "@reatom/core";
+import { ImagePreview } from "root/features/media/components/image-preview";
+import { AudioArtworkPreview } from "root/features/media/components/audio-artwork-preview";
+import { VideoPreview } from "root/features/media/components/video-preview";
+import { canShareFiles } from "root/shared/services/share";
+import { getRuntimeCapabilities } from "root/core/runtime/runtime-capabilities";
+import {
+  getOpenActionPresentation,
+  isAudioFile,
+  resolveFileFormat,
+} from "root/utils/file-format-registry";
+import { keyboardShortcutsModel } from "root/shared/keyboard";
+import type { FileMediaInfo } from "root/core/catalog/media-info";
 
 type FileDetails = {
-  mode: 'single'
-  id: number
-  name: string
-  isDir: boolean
-  size?: number
-  path: string
-  lastModified?: number
-  sourceRevision?: number
-  mimeType?: string
-  mediaInfo?: FileMediaInfo | null
-}
+  mode: "single";
+  id: number;
+  name: string;
+  isDir: boolean;
+  size?: number;
+  path: string;
+  lastModified?: number;
+  sourceRevision?: number;
+  mimeType?: string;
+  mediaInfo?: FileMediaInfo | null;
+};
 
 class FileDetailsPanelModel {
-  readonly imageDimensions = atom<{width: number; height: number} | null>(
+  readonly imageDimensions = atom<{ width: number; height: number } | null>(
     null,
-    'fileDetailsPanel.imageDimensions',
-  )
+    "fileDetailsPanel.imageDimensions",
+  );
 
   resetImageDimensions(): void {
-    this.imageDimensions.set(null)
+    this.imageDimensions.set(null);
   }
 
-  setImageDimensions(dimensions: {width: number; height: number}): void {
-    this.imageDimensions.set(dimensions)
+  setImageDimensions(dimensions: { width: number; height: number }): void {
+    this.imageDimensions.set(dimensions);
   }
 }
 
 export class FileDetailsPanel extends ReatomLitElement {
   static define() {
-    ImagePreview.define()
-    AudioArtworkPreview.define()
-    VideoPreview.define()
-    if (!customElements.get('file-details-panel')) {
-      customElements.define('file-details-panel', this as unknown as CustomElementConstructor)
+    ImagePreview.define();
+    AudioArtworkPreview.define();
+    VideoPreview.define();
+    CVShortcut.define();
+    if (!customElements.get("file-details-panel")) {
+      customElements.define("file-details-panel", this as unknown as CustomElementConstructor);
     }
   }
 
   static get properties() {
     return {
-      data: {type: Object},
-      externalOpenPending: {type: Boolean, attribute: 'external-open-pending'},
-    }
+      data: { type: Object },
+      externalOpenPending: { type: Boolean, attribute: "external-open-pending" },
+    };
   }
-  declare data: FileDetails | null
-  declare externalOpenPending: boolean
+  declare data: FileDetails | null;
+  declare externalOpenPending: boolean;
 
-  private readonly model = new FileDetailsPanelModel()
+  private readonly model = new FileDetailsPanelModel();
 
   constructor() {
-    super()
-    this.data = null
-    this.externalOpenPending = false
+    super();
+    this.data = null;
+    this.externalOpenPending = false;
   }
 
   updated(changedProperties: Map<string, unknown>) {
-    super.updated(changedProperties)
-    if (changedProperties.has('data')) {
-      this.model.resetImageDimensions()
+    super.updated(changedProperties);
+    if (changedProperties.has("data")) {
+      this.model.resetImageDimensions();
     }
   }
 
@@ -245,7 +251,7 @@ export class FileDetailsPanel extends ReatomLitElement {
           Menlo,
           Monaco,
           Consolas,
-          'Liberation Mono',
+          "Liberation Mono",
           monospace
         );
       }
@@ -313,47 +319,48 @@ export class FileDetailsPanel extends ReatomLitElement {
         }
       }
     `,
-  ]
+  ];
 
   protected render() {
-    const d = this.data
-    if (!d || d.mode !== 'single') return nothing
+    const d = this.data;
+    if (!d || d.mode !== "single") return nothing;
 
-    const format = resolveFileFormat(d)
-    const openPresentation = getOpenActionPresentation(format)
-    const ext = format.displayExtension
-    const fileType = i18n(format.fileTypeLabelKey)
-    const icon = format.icon
-    const showImagePreview = format.openBehavior.kind === 'gallery'
-    const showVideoPreview = format.openBehavior.kind === 'video'
-    const showAudioArtworkPreview = !d.isDir && isAudioFile(d.name, d.mimeType)
-    const isMobile = getRuntimeCapabilities().mobile
-    const platform = getRuntimeCapabilities().platform
+    const format = resolveFileFormat(d);
+    const openPresentation = getOpenActionPresentation(format);
+    const ext = format.displayExtension;
+    const fileType = i18n(format.fileTypeLabelKey);
+    const icon = format.icon;
+    const showImagePreview = format.openBehavior.kind === "gallery";
+    const showVideoPreview = format.openBehavior.kind === "video";
+    const showAudioArtworkPreview = !d.isDir && isAudioFile(d.name, d.mimeType);
+    const isMobile = getRuntimeCapabilities().mobile;
+    const platform = getRuntimeCapabilities().platform;
     const primaryOpenUsesSystem =
-      format.openBehavior.kind === 'preview' &&
-      format.openBehavior.mode === 'fallback' &&
-      (platform === 'macos' || platform === 'android')
-    const showShareButton = isMobile && canShareFiles()
+      format.openBehavior.kind === "preview" &&
+      format.openBehavior.mode === "fallback" &&
+      (platform === "macos" || platform === "android");
+    const showShareButton = isMobile && canShareFiles();
     const openButtonLabel =
       primaryOpenUsesSystem && this.externalOpenPending
-        ? i18n('file-manager:preparing-file')
-        : i18n(openPresentation.labelKey)
+        ? i18n("file-manager:preparing-file")
+        : i18n(openPresentation.labelKey);
     const externalOpenButtonLabel = this.externalOpenPending
-      ? i18n('file-manager:preparing-file')
-      : i18n('action:open-external')
-    const openExternalShortcutLabel = keyboardShortcutsModel.label('files.openExternal')
+      ? i18n("file-manager:preparing-file")
+      : i18n("action:open-external");
+    const openExternalShortcutLabel = keyboardShortcutsModel.label("files.openExternal");
 
     return html`
       <div class="panel-header">
-        <span class="panel-title">${i18n('details:title')}</span>
-        <cv-button unstyled class="close-btn" @click=${this.handleClose} aria-label=${i18n('button:close')}>
+        <span class="panel-title">${i18n("details:title")}</span>
+        <cv-button unstyled class="close-btn" @click=${this.handleClose} aria-label=${i18n("button:close")}>
           <cv-icon name="x" size="s"></cv-icon>
         </cv-button>
       </div>
 
       <div class="preview-area">
-        ${showImagePreview
-          ? html`
+        ${
+          showImagePreview
+            ? html`
               <image-preview
                 .fileId=${d.id}
                 .fileName=${d.name}
@@ -364,8 +371,8 @@ export class FileDetailsPanel extends ReatomLitElement {
                 @dblclick=${this.handleImageDoubleClick}
               ></image-preview>
             `
-          : showVideoPreview
-            ? html`
+            : showVideoPreview
+              ? html`
                 <video-preview
                   .fileId=${d.id}
                   .fileName=${d.name}
@@ -376,8 +383,8 @@ export class FileDetailsPanel extends ReatomLitElement {
                   @open-video=${this.handleVideoOpen}
                 ></video-preview>
               `
-            : showAudioArtworkPreview
-              ? html`
+              : showAudioArtworkPreview
+                ? html`
                   <audio-artwork-preview
                     class="details-audio-artwork"
                     .fileId=${d.id}
@@ -390,17 +397,18 @@ export class FileDetailsPanel extends ReatomLitElement {
                     .fallbackIcon=${icon}
                   ></audio-artwork-preview>
                 `
-            : html`
+                : html`
                 <div class="preview-icon">
                   <cv-icon name=${icon}></cv-icon>
                 </div>
-              `}
+              `
+        }
       </div>
 
       <div class="file-info">
         <div class="file-name">${d.name}</div>
         <div class="file-meta">
-          ${ext ? html`<span class="file-type-badge">${ext}</span>` : ''}
+          ${ext ? html`<span class="file-type-badge">${ext}</span>` : ""}
           <span>${fileType}</span>
           <span>•</span>
           <span>${this.formatSize(d.size)}</span>
@@ -408,166 +416,186 @@ export class FileDetailsPanel extends ReatomLitElement {
       </div>
 
       <div class="actions-section">
-        <div class="section-label">${i18n('details:actions')}</div>
+        <div class="section-label">${i18n("details:actions")}</div>
         <div class="actions-grid">
           <cv-button unstyled
             class="action-btn"
             ?disabled=${primaryOpenUsesSystem && this.externalOpenPending}
-            @click=${() => this.handleAction('open')}
+            @click=${() => this.handleAction("open")}
           >
-            ${primaryOpenUsesSystem && this.externalOpenPending
-              ? html`<cv-spinner slot="prefix" size="xs" label=${openButtonLabel}></cv-spinner>`
-              : html`<cv-icon slot="prefix" name=${openPresentation.icon} size="s"></cv-icon>`}
+            ${
+              primaryOpenUsesSystem && this.externalOpenPending
+                ? html`<cv-spinner slot="prefix" size="xs" label=${openButtonLabel}></cv-spinner>`
+                : html`<cv-icon slot="prefix" name=${openPresentation.icon} size="s"></cv-icon>`
+            }
             <span>${openButtonLabel}</span>
           </cv-button>
           <cv-button unstyled
             class="action-btn"
             ?disabled=${this.externalOpenPending}
-            @click=${() => this.handleAction('open-external')}
+            @click=${() => this.handleAction("open-external")}
           >
-            ${this.externalOpenPending
-              ? html`<cv-spinner slot="prefix" size="xs" label=${externalOpenButtonLabel}></cv-spinner>`
-              : html`<cv-icon slot="prefix" name="box-arrow-up-right" size="s"></cv-icon>`}
+            ${
+              this.externalOpenPending
+                ? html`<cv-spinner slot="prefix" size="xs" label=${externalOpenButtonLabel}></cv-spinner>`
+                : html`
+                    <cv-icon slot="prefix" name="box-arrow-up-right" size="s"></cv-icon>
+                  `
+            }
             <span class="action-label">${externalOpenButtonLabel}</span>
-            ${openExternalShortcutLabel
-              ? html`<span slot="suffix" class="action-shortcut">${openExternalShortcutLabel}</span>`
-              : nothing}
+            ${
+              openExternalShortcutLabel
+                ? html`<cv-shortcut
+                  slot="suffix"
+                  class="action-shortcut"
+                  .label=${openExternalShortcutLabel}
+                ></cv-shortcut>`
+                : nothing
+            }
           </cv-button>
-          <cv-button unstyled class="action-btn" @click=${() => this.handleAction('download')}>
+          <cv-button unstyled class="action-btn" @click=${() => this.handleAction("download")}>
             <cv-icon slot="prefix" name="download" size="s"></cv-icon>
-            <span>${i18n('action:download')}</span>
+            <span>${i18n("action:download")}</span>
           </cv-button>
-          <cv-button unstyled class="action-btn" @click=${() => this.handleAction('rename')}>
+          <cv-button unstyled class="action-btn" @click=${() => this.handleAction("rename")}>
             <cv-icon slot="prefix" name="pencil" size="s"></cv-icon>
-            <span>${i18n('action:rename')}</span>
+            <span>${i18n("action:rename")}</span>
           </cv-button>
           <cv-button unstyled class="action-btn" @click=${this.handleMoveAction}>
             <cv-icon slot="prefix" name="folder-symlink" size="s"></cv-icon>
-            <span>${i18n('file-manager:move:action')}</span>
+            <span>${i18n("file-manager:move:action")}</span>
           </cv-button>
-          <cv-button unstyled class="action-btn" @click=${() => this.handleAction('copy')}>
+          <cv-button unstyled class="action-btn" @click=${() => this.handleAction("copy")}>
             <cv-icon slot="prefix" name="copy" size="s"></cv-icon>
-            <span>${i18n('action:copy')}</span>
+            <span>${i18n("action:copy")}</span>
           </cv-button>
-          <cv-button unstyled class="action-btn danger" @click=${() => this.handleAction('delete')}>
+          <cv-button unstyled class="action-btn danger" @click=${() => this.handleAction("delete")}>
             <cv-icon slot="prefix" name="trash" size="s"></cv-icon>
-            <span>${i18n('action:delete')}</span>
+            <span>${i18n("action:delete")}</span>
           </cv-button>
-          ${showShareButton
-            ? html`
-                <cv-button unstyled class="action-btn" @click=${() => this.handleAction('share')}>
+          ${
+            showShareButton
+              ? html`
+                <cv-button unstyled class="action-btn" @click=${() => this.handleAction("share")}>
                   <cv-icon slot="prefix" name="share-2" size="s"></cv-icon>
-                  <span>${i18n('action:share')}</span>
+                  <span>${i18n("action:share")}</span>
                 </cv-button>
               `
-            : nothing}
+              : nothing
+          }
         </div>
       </div>
 
       <div class="details-section">
-        <div class="section-label">${i18n('details:metadata')}</div>
+        <div class="section-label">${i18n("details:metadata")}</div>
         <div class="details-list">
           <div class="detail-row">
-            <span class="detail-label">${i18n('details:path')}</span>
+            <span class="detail-label">${i18n("details:path")}</span>
             <span class="detail-value">${d.path}</span>
           </div>
-          ${d.lastModified
-            ? html`
+          ${
+            d.lastModified
+              ? html`
                 <div class="detail-row">
-                  <span class="detail-label">${i18n('details:modified')}</span>
+                  <span class="detail-label">${i18n("details:modified")}</span>
                   <span class="detail-value">${this.formatDate(d.lastModified)}</span>
                 </div>
               `
-            : ''}
-          ${typeof d.size === 'number'
-            ? html`
+              : ""
+          }
+          ${
+            typeof d.size === "number"
+              ? html`
                 <div class="detail-row">
-                  <span class="detail-label">${i18n('details:size')}</span>
+                  <span class="detail-label">${i18n("details:size")}</span>
                   <span class="detail-value"
                     >${this.formatSize(d.size)} (${d.size.toLocaleString(getLang())}
-                    ${i18n('details:bytes')})</span
+                    ${i18n("details:bytes")})</span
                   >
                 </div>
               `
-            : ''}
-          ${this.model.imageDimensions()
-            ? html`
+              : ""
+          }
+          ${
+            this.model.imageDimensions()
+              ? html`
                 <div class="detail-row">
-                  <span class="detail-label">${i18n('details:dimensions')}</span>
+                  <span class="detail-label">${i18n("details:dimensions")}</span>
                   <span class="detail-value"
                     >${this.model.imageDimensions()!.width} × ${this.model.imageDimensions()!.height}</span
                   >
                 </div>
               `
-            : ''}
+              : ""
+          }
         </div>
       </div>
-    `
+    `;
   }
 
   private handleClose() {
-    this.dispatchEvent(new CustomEvent('close', {bubbles: true, composed: true}))
+    this.dispatchEvent(new CustomEvent("close", { bubbles: true, composed: true }));
   }
 
   private handleAction(action: string) {
-    const fileId = this.data?.id
-    if (!fileId) return
+    const fileId = this.data?.id;
+    if (!fileId) return;
     this.dispatchEvent(
-      new CustomEvent('action', {
-        detail: {action, fileId},
+      new CustomEvent("action", {
+        detail: { action, fileId },
         bubbles: true,
         composed: true,
       }),
-    )
+    );
   }
 
   private handleMoveAction() {
-    this.handleAction('move')
+    this.handleAction("move");
   }
 
-  private handleDimensionsLoaded(e: CustomEvent<{width: number; height: number}>) {
-    this.model.setImageDimensions(e.detail)
+  private handleDimensionsLoaded(e: CustomEvent<{ width: number; height: number }>) {
+    this.model.setImageDimensions(e.detail);
   }
 
   private handleImageDoubleClick() {
-    const fileId = this.data?.id
-    if (!fileId) return
+    const fileId = this.data?.id;
+    if (!fileId) return;
     this.dispatchEvent(
-      new CustomEvent('open-gallery', {
-        detail: {fileId},
+      new CustomEvent("open-gallery", {
+        detail: { fileId },
         bubbles: true,
         composed: true,
       }),
-    )
+    );
   }
 
   private handleVideoOpen() {
-    const d = this.data
-    if (!d) return
+    const d = this.data;
+    if (!d) return;
     this.dispatchEvent(
-      new CustomEvent('open-video', {
-        detail: {fileId: d.id, fileName: d.name},
+      new CustomEvent("open-video", {
+        detail: { fileId: d.id, fileName: d.name },
         bubbles: true,
         composed: true,
       }),
-    )
+    );
   }
 
   private formatSize(bytes?: number): string {
-    if (!bytes || bytes <= 0) return '—'
-    const sizes = ['B', 'KB', 'MB', 'GB']
-    const i = Math.floor(Math.log(bytes) / Math.log(1024))
-    return Math.round((bytes / Math.pow(1024, i)) * 100) / 100 + ' ' + sizes[i]
+    if (!bytes || bytes <= 0) return "—";
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return Math.round((bytes / Math.pow(1024, i)) * 100) / 100 + " " + sizes[i];
   }
 
   private formatDate(timestamp?: number): string {
-    if (!timestamp) return '—'
+    if (!timestamp) return "—";
     return new Date(timestamp).toLocaleDateString(getLang(), {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   }
 }

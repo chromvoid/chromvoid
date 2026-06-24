@@ -365,31 +365,33 @@ export class PMEntrySshCreate extends ReatomLitElement {
         <cv-icon class="ssh-key-hero-chevron" name="chevron-right" aria-hidden="true"></cv-icon>
       </button>
 
-      <cv-input
-        id="ssh-name-input"
-        .value=${this.model.state.name()}
-        autocomplete="off"
-        size="large"
-        placeholder=${i18n('ssh:name:placeholder')}
-        ?invalid=${Boolean(this.model.state.nameError() && !this.model.state.name().trim())}
-        @cv-input=${this.onNameInput}
-      >
+      <cv-field ?invalid=${Boolean(this.model.state.nameError() && !this.model.state.name().trim())}>
         <span slot="label">${i18n('ssh:name')}</span>
+        <cv-input
+          id="ssh-name-input"
+          .value=${this.model.state.name()}
+          autocomplete="off"
+          size="large"
+          placeholder=${i18n('ssh:name:placeholder')}
+          ?invalid=${Boolean(this.model.state.nameError() && !this.model.state.name().trim())}
+          @cv-input=${this.onNameInput}
+        ></cv-input>
         ${this.model.state.nameError() && !this.model.state.name().trim()
-          ? html`<div slot="help-text" class="ssh-helper ssh-error">${this.model.state.nameError()}</div>`
+          ? html`<div slot="error" class="ssh-helper ssh-error">${this.model.state.nameError()}</div>`
           : nothing}
-      </cv-input>
+      </cv-field>
 
-      <cv-input
-        .value=${this.model.state.comment()}
-        autocomplete="off"
-        size="large"
-        placeholder=${i18n('ssh:comment:placeholder')}
-        @cv-input=${this.onCommentInput}
-      >
+      <cv-field>
         <span slot="label">${i18n('ssh:comment:public_key')}</span>
-        <div slot="help-text" class="ssh-helper">${i18n('ssh:comment:helper')}</div>
-      </cv-input>
+        <cv-input
+          .value=${this.model.state.comment()}
+          autocomplete="off"
+          size="large"
+          placeholder=${i18n('ssh:comment:placeholder')}
+          @cv-input=${this.onCommentInput}
+        ></cv-input>
+        <div slot="description" class="ssh-helper">${i18n('ssh:comment:helper')}</div>
+      </cv-field>
 
       <cv-disclosure
         class="ssh-advanced"

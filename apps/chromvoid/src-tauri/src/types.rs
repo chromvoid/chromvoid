@@ -140,6 +140,7 @@ pub(crate) struct RuntimeCapabilities {
     pub(crate) supports_volume: bool,
     pub(crate) supports_gateway: bool,
     pub(crate) supports_network_remote: bool,
+    pub(crate) supports_mobile_usb_remote: bool,
     pub(crate) supports_biometric: bool,
     pub(crate) supports_autofill: bool,
     pub(crate) supports_media_stream_protocol: bool,
@@ -390,6 +391,7 @@ pub(crate) fn runtime_capabilities_for_current_target() -> RuntimeCapabilities {
         supports_volume: cfg!(desktop),
         supports_gateway: cfg!(desktop),
         supports_network_remote: cfg!(desktop) || cfg!(mobile),
+        supports_mobile_usb_remote: mobile_usb_remote_enabled_for_target(),
         // Availability for the mobile biometric app gate only.
         supports_biometric: mobile::biometric_bridge_available(),
         supports_autofill: mobile::autofill_extension_ready()
@@ -437,6 +439,10 @@ pub(crate) fn runtime_capabilities_for_current_target() -> RuntimeCapabilities {
         supports_storage_root_selection: cfg!(desktop),
         supports_android_saf_backup_restore,
     }
+}
+
+fn mobile_usb_remote_enabled_for_target() -> bool {
+    cfg!(desktop)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -589,6 +595,14 @@ mod runtime_capabilities_tests {
 
         assert_eq!(
             runtime_capabilities_for_current_target().supports_media_stream_protocol,
+            cfg!(desktop),
+        );
+    }
+
+    #[test]
+    fn mobile_usb_remote_capability_defaults_to_desktop_targets() {
+        assert_eq!(
+            runtime_capabilities_for_current_target().supports_mobile_usb_remote,
             cfg!(desktop),
         );
     }

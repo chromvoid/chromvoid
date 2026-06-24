@@ -9,13 +9,23 @@ pub(super) async fn drain_in_flight_rpcs(timeout_secs: u64) -> bool {
 }
 
 pub(super) fn transport_type_label(metrics: &chromvoid_protocol::TransportMetrics) -> String {
-    if metrics.webrtc_attempted {
-        "webrtc".to_string()
-    } else if metrics.wss_attempted {
-        "wss".to_string()
-    } else {
-        "unknown".to_string()
+    if let Some(transport_type) = metrics.transport_type {
+        return match transport_type {
+            chromvoid_protocol::TransportType::WebRtcDataChannel => "webrtc".to_string(),
+            chromvoid_protocol::TransportType::WssRelay => "wss".to_string(),
+            chromvoid_protocol::TransportType::QuicMasque => "quic_masque".to_string(),
+            chromvoid_protocol::TransportType::TcpStealth => "tcp_stealth".to_string(),
+            chromvoid_protocol::TransportType::UsbMobile => "usb_mobile".to_string(),
+        };
     }
+
+    if metrics.webrtc_attempted {
+        return "webrtc".to_string();
+    }
+    if metrics.wss_attempted {
+        return "wss".to_string();
+    }
+    "unknown".to_string()
 }
 
 pub(super) fn now_ms() -> u64 {

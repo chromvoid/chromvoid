@@ -141,15 +141,7 @@ export class PMEntryOTPCreate extends ReatomLitElement {
       <div class="otp-create" data-layout="default">
         <slot><h3>${i18n('otp')}</h3></slot>
 
-        <cv-input
-          class="secret-input"
-          .value=${state.secretInput()}
-          autocomplete="off"
-          size="small"
-          type="password"
-          placeholder=${i18n('otp:secretKey')}
-          @cv-input=${this.onSecretInput}
-        >
+        <cv-field ?invalid=${Boolean(state.secretError())}>
           <span class="secret-label-row" slot="label">
             <span>${i18n('otp:secretKey')} *</span>
             ${canScanQr
@@ -168,23 +160,33 @@ export class PMEntryOTPCreate extends ReatomLitElement {
                 `
               : nothing}
           </span>
-          ${state.secretError()
-            ? html`<div slot="help-text">${state.secretError()}</div>`
-            : nothing}
-        </cv-input>
+          <cv-input
+            class="secret-input"
+            .value=${state.secretInput()}
+            autocomplete="off"
+            size="small"
+            type="password"
+            placeholder=${i18n('otp:secretKey')}
+            ?invalid=${Boolean(state.secretError())}
+            @cv-input=${this.onSecretInput}
+          ></cv-input>
+          ${state.secretError() ? html`<div slot="error">${state.secretError()}</div>` : nothing}
+        </cv-field>
         ${this.renderQrScanError(qrScannerError)}
 
-        <cv-input
-          .value=${state.label()}
-          autocomplete="off"
-          placeholder=${i18n('otp:label.placeholder')}
-          size="small"
-          class="short-hide"
-          @cv-input=${this.onLabelInput}
-        >
+        <cv-field ?invalid=${Boolean(state.labelError())}>
           <h4 slot="label">${i18n('otp:label')}</h4>
-          ${state.labelError() ? html`<div slot="help-text">${state.labelError()}</div>` : nothing}
-        </cv-input>
+          <cv-input
+            .value=${state.label()}
+            autocomplete="off"
+            placeholder=${i18n('otp:label.placeholder')}
+            size="small"
+            class="short-hide"
+            ?invalid=${Boolean(state.labelError())}
+            @cv-input=${this.onLabelInput}
+          ></cv-input>
+          ${state.labelError() ? html`<div slot="error">${state.labelError()}</div>` : nothing}
+        </cv-field>
 
         ${this.renderOtpTypeField(state.otpType())}
         ${this.renderPresetField(state.preset())}
@@ -246,45 +248,49 @@ export class PMEntryOTPCreate extends ReatomLitElement {
           : nothing}
         ${this.renderQrScanError(qrScannerError)}
 
-        <cv-input
-          id="otp-secret-input"
-          class="secret-input"
-          .value=${state.secretInput()}
-          autocomplete="off"
-          size="large"
-          type="password"
-          placeholder=${i18n('otp:secret:placeholder')}
-          password-toggle
-          clearable
-          ?invalid=${secretValidation.status === 'error'}
-          @cv-input=${this.onSecretInput}
-          @cv-clear=${this.onSecretClear}
-        >
+        <cv-field ?invalid=${secretValidation.status === 'error'}>
           <span slot="label">${i18n('otp:secretKey')} *</span>
-          <button
-            slot="suffix"
-            class="secret-paste-button"
-            type="button"
-            aria-label=${i18n('otp:secret:paste')}
-            title=${i18n('otp:secret:paste')}
-            @click=${this.onSecretPasteClick}
+          <cv-input
+            id="otp-secret-input"
+            class="secret-input"
+            .value=${state.secretInput()}
+            autocomplete="off"
+            size="large"
+            type="password"
+            placeholder=${i18n('otp:secret:placeholder')}
+            password-toggle
+            clearable
+            ?invalid=${secretValidation.status === 'error'}
+            @cv-input=${this.onSecretInput}
+            @cv-clear=${this.onSecretClear}
           >
-            <cv-icon name="copy" aria-hidden="true"></cv-icon>
-          </button>
+            <button
+              slot="suffix"
+              class="secret-paste-button"
+              type="button"
+              aria-label=${i18n('otp:secret:paste')}
+              title=${i18n('otp:secret:paste')}
+              @click=${this.onSecretPasteClick}
+            >
+              <cv-icon name="copy" aria-hidden="true"></cv-icon>
+            </button>
+          </cv-input>
           ${this.renderSecretHelp(secretValidation)}
-        </cv-input>
+        </cv-field>
 
-        <cv-input
-          class="display-name-input"
-          .value=${state.label()}
-          autocomplete="off"
-          placeholder=${i18n('otp:label.placeholder')}
-          size="large"
-          @cv-input=${this.onLabelInput}
-        >
+        <cv-field ?invalid=${Boolean(state.labelError())}>
           <span slot="label">${i18n('otp:display_as')}</span>
-          ${state.labelError() ? html`<div slot="help-text">${state.labelError()}</div>` : nothing}
-        </cv-input>
+          <cv-input
+            class="display-name-input"
+            .value=${state.label()}
+            autocomplete="off"
+            placeholder=${i18n('otp:label.placeholder')}
+            size="large"
+            ?invalid=${Boolean(state.labelError())}
+            @cv-input=${this.onLabelInput}
+          ></cv-input>
+          ${state.labelError() ? html`<div slot="error">${state.labelError()}</div>` : nothing}
+        </cv-field>
 
         ${preview ? this.renderPreview(preview) : nothing}
 
@@ -324,19 +330,19 @@ export class PMEntryOTPCreate extends ReatomLitElement {
 
   private renderSecretHelp(validation: PMEntryOtpSecretValidation): TemplateResult | typeof nothing {
     if (validation.status === 'error') {
-      return html`<div slot="help-text" class="otp-helper otp-helper-error">${validation.message}</div>`
+      return html`<div slot="error" class="otp-helper otp-helper-error">${validation.message}</div>`
     }
 
     if (validation.status === 'valid') {
       return html`
-        <div slot="help-text" class="otp-helper otp-helper-valid">
+        <div slot="description" class="otp-helper otp-helper-valid">
           <cv-icon name="check" aria-hidden="true"></cv-icon>
           <span>${validation.message}</span>
         </div>
       `
     }
 
-    return html`<div slot="help-text" class="otp-helper">${i18n('otp:secret:helper')}</div>`
+    return html`<div slot="description" class="otp-helper">${i18n('otp:secret:helper')}</div>`
   }
 
   private renderPreview(preview: PMEntryOtpPreview): TemplateResult {
@@ -391,48 +397,54 @@ export class PMEntryOTPCreate extends ReatomLitElement {
 
   private renderCounterField(value: number, error: string): TemplateResult {
     return html`
-      <cv-number
-        .value=${value}
-        placeholder=${i18n('otp:counter:placeholder')}
-        size="small"
-        min="0"
-        @cv-change=${this.onCounterInput}
-      >
+      <cv-field ?invalid=${Boolean(error)}>
         <h4 slot="label">${i18n('otp:counter')}</h4>
-        ${error ? html`<div slot="help-text">${error}</div>` : nothing}
-      </cv-number>
+        <cv-number
+          .value=${value}
+          placeholder=${i18n('otp:counter:placeholder')}
+          size="small"
+          min="0"
+          ?invalid=${Boolean(error)}
+          @cv-change=${this.onCounterInput}
+        ></cv-number>
+        ${error ? html`<div slot="error">${error}</div>` : nothing}
+      </cv-field>
     `
   }
 
   private renderPeriodField(value: number, error: string): TemplateResult {
     return html`
-      <cv-number
-        .value=${value}
-        placeholder=${i18n('otp:period.placeholder')}
-        size="small"
-        min="10"
-        max="120"
-        @cv-change=${this.onPeriodInput}
-      >
+      <cv-field ?invalid=${Boolean(error)}>
         <h4 slot="label">${i18n('otp:period')}</h4>
-        ${error ? html`<div slot="help-text">${error}</div>` : nothing}
-      </cv-number>
+        <cv-number
+          .value=${value}
+          placeholder=${i18n('otp:period.placeholder')}
+          size="small"
+          min="10"
+          max="120"
+          ?invalid=${Boolean(error)}
+          @cv-change=${this.onPeriodInput}
+        ></cv-number>
+        ${error ? html`<div slot="error">${error}</div>` : nothing}
+      </cv-field>
     `
   }
 
   private renderDigitsField(value: number, error: string): TemplateResult {
     return html`
-      <cv-number
-        .value=${value}
-        placeholder=${i18n('otp:digits.placeholder')}
-        size="small"
-        min="4"
-        max="10"
-        @cv-change=${this.onDigitsInput}
-      >
+      <cv-field ?invalid=${Boolean(error)}>
         <h4 slot="label">${i18n('otp:digits')}</h4>
-        ${error ? html`<div slot="help-text">${error}</div>` : nothing}
-      </cv-number>
+        <cv-number
+          .value=${value}
+          placeholder=${i18n('otp:digits.placeholder')}
+          size="small"
+          min="4"
+          max="10"
+          ?invalid=${Boolean(error)}
+          @cv-change=${this.onDigitsInput}
+        ></cv-number>
+        ${error ? html`<div slot="error">${error}</div>` : nothing}
+      </cv-field>
     `
   }
 

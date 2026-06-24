@@ -40,15 +40,22 @@ fn jni_start_service(device_name: &str) -> Result<(), String> {
         env.call_static_method(
             class,
             "start",
-            "(Landroid/content/Context;Ljava/lang/String;)V",
+            "(Landroid/content/Context;Ljava/lang/String;)Z",
             &[
                 JValue::Object(&context),
                 JValue::Object(&JObject::from(j_device_name)),
             ],
         )
-        .map_err(|e| format!("call start: {e}"))?;
-
-        Ok(())
+        .map_err(|e| format!("call start: {e}"))?
+        .z()
+        .map_err(|e| format!("start return type: {e}"))
+        .and_then(|started| {
+            if started {
+                Ok(())
+            } else {
+                Err("connection foreground service rejected start".to_string())
+            }
+        })
     })
 }
 

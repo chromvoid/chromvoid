@@ -905,6 +905,7 @@ mod tests {
             supports_volume: true,
             supports_gateway: true,
             supports_network_remote: true,
+            supports_mobile_usb_remote: false,
             supports_biometric: true,
             supports_autofill: true,
             supports_media_stream_protocol: true,

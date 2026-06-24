@@ -250,6 +250,9 @@ pub async fn connect_with_fallback_with_options(
                     .await
                     .map(|transport| Box::new(transport) as Box<dyn RemoteTransport>)
             }
+            TransportType::UsbMobile => {
+                Err("usb_mobile is not a network fallback transport".to_string())
+            }
         };
 
         match attempt_result {

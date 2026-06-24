@@ -42,7 +42,9 @@ export function deriveRemoteStatus(state: ConnectionState): RemoteStatus {
  * Remote host identity discriminated by transport type.
  * Mirrors Rust `RemoteHost` enum with serde `rename_all = snake_case, tag = type`.
  */
-export type RemoteHost = {type: 'tauri_remote_wss'; peer_id: string}
+export type RemoteHost =
+  | {type: 'tauri_remote_wss'; peer_id: string}
+  | {type: 'mobile_usb'; host_id: string; label?: string | null; platform: string}
 
 /**
  * Core operating mode. Mirrors Rust `CoreMode` enum.
@@ -102,6 +104,111 @@ export interface NetworkPairedPeer {
   presence_expires_at_ms: number | null
 }
 
+export type MobileUsbPlatform = 'android' | 'ios'
+export type MobileUsbBridgeKind = 'android_aoa' | 'ios_external_accessory'
+export type MobileUsbSessionState =
+  | 'locked_shell'
+  | 'transport_select'
+  | 'idle_usb_mobile'
+  | 'scanning_usb_mobile'
+  | 'pairing_usb_mobile'
+  | 'connecting_usb_mobile'
+  | 'transport_ready_host_locked'
+  | 'remote_dashboard_open'
+  | 'disconnected'
+  | 'error'
+
+export type MobileUsbErrorCode =
+  | 'ERR_USB_MOBILE_UNSUPPORTED_PLATFORM'
+  | 'ERR_USB_MOBILE_IOS_MFI_REQUIRED'
+  | 'ERR_USB_MOBILE_BUSY'
+  | 'ERR_USB_MOBILE_INVALID_STATE'
+  | 'ERR_USB_MOBILE_BRIDGE_UNAVAILABLE'
+  | 'ERR_USB_MOBILE_NO_ACCESSORY'
+  | 'ERR_USB_MOBILE_PERMISSION_DENIED'
+  | 'ERR_USB_MOBILE_AMBIGUOUS_DISCOVERY'
+  | 'ERR_USB_MOBILE_NOT_PAIRED'
+  | 'ERR_USB_MOBILE_PAIRING_DUPLICATE'
+  | 'ERR_USB_MOBILE_HANDSHAKE_FAILED'
+  | 'ERR_USB_MOBILE_STALE_PAIRING'
+  | 'ERR_USB_MOBILE_SECRET_STORE_UNAVAILABLE'
+  | 'ERR_USB_MOBILE_SECRET_REF_INVALID'
+  | 'ERR_USB_MOBILE_PAIR_COMMIT_FAILED'
+  | 'ERR_USB_MOBILE_RECORD_LAYER_FAILED'
+  | 'ERR_USB_MOBILE_CABLE_DISCONNECTED'
+  | 'ERR_USB_MOBILE_HOST_LOCKED'
+  | 'ERR_USB_MOBILE_UNLOCK_NOT_AUTHENTICATED'
+  | 'ERR_USB_MOBILE_WRITER_LOCKED'
+
+export type MobileUsbRecoveryAction =
+  | 'hide_usb_entry'
+  | 'manual_retry'
+  | 'retry_scan'
+  | 'retry_permission'
+  | 'wait_in_flight'
+  | 'keep_current_flow'
+  | 'list_paired'
+  | 'pair_host'
+  | 'connect_existing'
+  | 'remove_and_repair'
+  | 'disconnect_before_retry'
+  | 'wait_for_host_unlock'
+  | 'ignore_stale_unlock'
+  | 'continue_read_only'
+
+export interface UsbHint {
+  manufacturer?: string | null
+  model?: string | null
+  serial_number?: string | null
+  protocol_id?: string | null
+}
+
+export interface MobileUsbPairRequest {
+  platform: MobileUsbPlatform
+  bridge_kind: MobileUsbBridgeKind
+  usb_hint: UsbHint
+  label?: string | null
+}
+
+export interface MobileUsbScanResult {
+  platform: MobileUsbPlatform
+  bridge_kind: MobileUsbBridgeKind
+  usb_hint: UsbHint
+  label?: string | null
+}
+
+export type MobileUsbScanClassification =
+  | 'unpaired'
+  | 'ambiguous'
+  | {paired: {host_id: string}}
+  | {broken_local_state: {host_id: string}}
+
+export interface MobileUsbScannedHost {
+  scan: MobileUsbScanResult
+  classification: MobileUsbScanClassification
+}
+
+export interface MobileUsbHostView {
+  host_id: string
+  label: string
+  platform: MobileUsbPlatform
+  bridge_kind: MobileUsbBridgeKind
+  pairing_state: 'paired' | 'broken_local_state'
+  last_seen: number | null
+}
+
+export interface MobileUsbStatus {
+  transport_family: 'usb_mobile'
+  available_transports: Array<'usb_mobile'>
+  selected_transport: 'usb_mobile' | null
+  session_state: MobileUsbSessionState
+  fallback_allowed: false
+  active_host: MobileUsbHostView | null
+  paired_hosts: MobileUsbHostView[]
+  in_flight: 'scan' | 'pair' | 'connect' | null
+  error_code: MobileUsbErrorCode | null
+}
+
 // ---------------------------------------------------------------------------
 // Mode invoke wrappers
 // ---------------------------------------------------------------------------
@@ -126,6 +233,34 @@ export async function listNetworkPairedPeers(): Promise<NetworkPairedPeer[]> {
 
 export async function removeNetworkPairedPeer(peerId: string): Promise<void> {
   await tauriInvoke('network_remove_paired_peer', {peerId})
+}
+
+export async function mobileUsbScan(): Promise<MobileUsbScannedHost[]> {
+  return tauriInvoke('mobile_usb_scan')
+}
+
+export async function mobileUsbPair(request: MobileUsbPairRequest): Promise<MobileUsbStatus> {
+  return tauriInvoke('mobile_usb_pair', {request})
+}
+
+export async function mobileUsbConnect(hostId: string): Promise<MobileUsbStatus> {
+  return tauriInvoke('mobile_usb_connect', {hostId})
+}
+
+export async function mobileUsbDisconnect(): Promise<MobileUsbStatus> {
+  return tauriInvoke('mobile_usb_disconnect')
+}
+
+export async function mobileUsbStatus(): Promise<MobileUsbStatus> {
+  return tauriInvoke('mobile_usb_status')
+}
+
+export async function mobileUsbListPaired(): Promise<MobileUsbHostView[]> {
+  return tauriInvoke('mobile_usb_list_paired')
+}
+
+export async function mobileUsbRemovePaired(hostId: string): Promise<MobileUsbHostView[]> {
+  return tauriInvoke('mobile_usb_remove_paired', {hostId})
 }
 
 // ---------------------------------------------------------------------------
@@ -167,7 +302,8 @@ export function getModeLabel(mode: CoreMode): string {
 /** Extract peer/device name from CoreMode when in Remote. */
 export function getConnectedPeerName(mode: CoreMode): string | null {
   if (!isRemoteMode(mode)) return null
-  return mode.remote.host.peer_id
+  const host = mode.remote.host
+  return host.type === 'tauri_remote_wss' ? host.peer_id : (host.label ?? host.host_id)
 }
 
 /** Map ConnectionState to a semantic status category for badge styling. */

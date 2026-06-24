@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mobile-host-start"
+description = "Enables the mobile_host_start command without any pre-configured scope."
+commands.allow = ["mobile_host_start"]
+
+[[permission]]
+identifier = "deny-mobile-host-start"
+description = "Denies the mobile_host_start command without any pre-configured scope."
+commands.deny = ["mobile_host_start"]

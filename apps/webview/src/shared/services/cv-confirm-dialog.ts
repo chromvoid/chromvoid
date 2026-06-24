@@ -115,10 +115,6 @@ export class CvConfirmDialog extends ReatomLitElement {
         --cv-dialog-width: var(--cv-dialog-width-xl);
       }
 
-      cv-dialog::part(trigger) {
-        display: none;
-      }
-
       cv-dialog::part(content) {
         gap: 0;
         padding: 0;

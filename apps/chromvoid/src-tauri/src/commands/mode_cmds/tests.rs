@@ -103,6 +103,16 @@ mod tests {
     }
 
     #[test]
+    fn transport_type_label_uses_selected_transport_type() {
+        let mut metrics = chromvoid_protocol::TransportMetrics::default();
+        metrics.transport_type = Some(chromvoid_protocol::TransportType::UsbMobile);
+        metrics.webrtc_attempted = true;
+        metrics.wss_attempted = true;
+
+        assert_eq!(transport_type_label(&metrics), "usb_mobile");
+    }
+
+    #[test]
     fn now_ms_returns_reasonable_value() {
         let ms = now_ms();
         // Should be after 2020-01-01 in milliseconds

@@ -5,26 +5,29 @@ mod request;
 
 use base64::{engine::general_purpose, Engine as _};
 
-use crate::rpc::types::{RpcResponse, VaultRekeyResponse};
+use crate::rpc::types::{
+    RpcResponse, VaultRekeyResponse, VaultRepairApplyResponse, VaultRepairDiagnosisResponse,
+    VaultUnlockResponse,
+};
 use crate::vault::{Vault, VaultRekeyProgress, VaultRekeyRequest};
 
 use super::state::{EraseTokenState, RpcRouter};
 use error::{VaultOpsError, VaultOpsResult};
 use request::{
     AdminEraseRequest, EraseExecuteRequest, MasterSetupRequest, VaultRekeyRpcRequest,
-    VaultUnlockRequest,
+    VaultRepairApplyRequest, VaultRepairDiagnoseRequest, VaultUnlockRequest,
 };
 
 impl RpcRouter {
     /// Handle vault:unlock command
     pub(super) fn handle_vault_unlock(&mut self, data: &serde_json::Value) -> RpcResponse {
         match self.vault_unlock(data) {
-            Ok(()) => RpcResponse::success(serde_json::Value::Null),
+            Ok(response) => RpcResponse::success(response),
             Err(error) => error.into_rpc_response(),
         }
     }
 
-    fn vault_unlock(&mut self, data: &serde_json::Value) -> VaultOpsResult<()> {
+    fn vault_unlock(&mut self, data: &serde_json::Value) -> VaultOpsResult<VaultUnlockResponse> {
         if self.session.is_some() {
             return Err(VaultOpsError::already_unlocked());
         }
@@ -33,13 +36,79 @@ impl RpcRouter {
         let request = VaultUnlockRequest::parse(data)?;
 
         let keystore = self.keystore.as_ref().map(|k| k.as_ref());
-        let session = Vault::unlock_with_keystore(&self.storage, request.password, keystore)
-            .map_err(VaultOpsError::from_unlock_error)?;
-        self.session = Some(session);
+        let outcome =
+            Vault::unlock_with_keystore_outcome(&self.storage, request.password, keystore)
+                .map_err(VaultOpsError::from_unlock_error)?;
+        self.session = Some(outcome.session);
         self.recover_after_vault_unlock()?;
         self.derivative_index_state.invalidate();
         self.credential_provider_runtime.clear_all();
-        Ok(())
+        Ok(VaultUnlockResponse {
+            repair: outcome.repair,
+        })
+    }
+
+    pub(super) fn handle_vault_repair_diagnose(&mut self, data: &serde_json::Value) -> RpcResponse {
+        match self.vault_repair_diagnose(data) {
+            Ok(response) => RpcResponse::success(response),
+            Err(error) => error.into_rpc_response(),
+        }
+    }
+
+    fn vault_repair_diagnose(
+        &mut self,
+        data: &serde_json::Value,
+    ) -> VaultOpsResult<VaultRepairDiagnosisResponse> {
+        if self.session.is_some() {
+            return Err(VaultOpsError::already_unlocked());
+        }
+
+        let request = VaultRepairDiagnoseRequest::parse(data)?;
+        let keystore = self.keystore.as_ref().map(|k| k.as_ref());
+        let diagnosis =
+            Vault::diagnose_catalog_repair_with_keystore(&self.storage, request.password, keystore)
+                .map_err(VaultOpsError::from_unlock_error)?;
+        Ok(VaultRepairDiagnosisResponse::from(diagnosis))
+    }
+
+    pub(super) fn handle_vault_repair_apply(&mut self, data: &serde_json::Value) -> RpcResponse {
+        match self.vault_repair_apply(data) {
+            Ok(response) => RpcResponse::success(response),
+            Err(error) => error.into_rpc_response(),
+        }
+    }
+
+    fn vault_repair_apply(
+        &mut self,
+        data: &serde_json::Value,
+    ) -> VaultOpsResult<VaultRepairApplyResponse> {
+        if self.session.is_some() {
+            return Err(VaultOpsError::already_unlocked());
+        }
+        self.derivative_index_state.invalidate();
+
+        let request = VaultRepairApplyRequest::parse(data)?;
+        let keystore = self.keystore.as_ref().map(|k| k.as_ref());
+        let outcome = Vault::apply_catalog_repair_with_keystore(
+            &self.storage,
+            request.password,
+            keystore,
+            request.repair_id,
+            request.allow_lossy,
+        )
+        .map_err(VaultOpsError::from_unlock_error)?;
+        let repair = outcome.repair.ok_or_else(|| {
+            VaultOpsError::internal("repair apply completed without repair summary")
+        })?;
+
+        self.session = Some(outcome.session);
+        self.recover_after_vault_unlock()?;
+        self.derivative_index_state.invalidate();
+        self.credential_provider_runtime.clear_all();
+        Ok(VaultRepairApplyResponse {
+            unlocked: true,
+            repair,
+        })
     }
 
     /// Handle vault:lock command

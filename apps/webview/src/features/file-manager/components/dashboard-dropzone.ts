@@ -1,34 +1,36 @@
-import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import { html, ReatomLitElement } from "@chromvoid/uikit/reatom-lit";
+import { CVDropzone } from "@chromvoid/uikit/components/cv-dropzone";
 
-import {css, nothing} from 'lit'
+import { css } from "lit";
 
-import {i18n} from 'root/i18n'
-import {sharedStyles} from 'root/shared/ui/shared-styles'
+import { i18n } from "root/i18n";
+import { sharedStyles } from "root/shared/ui/shared-styles";
 
 export class DashboardDropzone extends ReatomLitElement {
   static define() {
-    if (!customElements.get('dashboard-dropzone')) {
-      customElements.define('dashboard-dropzone', this)
+    CVDropzone.define();
+    if (!customElements.get("dashboard-dropzone")) {
+      customElements.define("dashboard-dropzone", this);
     }
   }
 
   static get properties() {
     return {
-      active: {type: Boolean},
-      message: {type: String},
-      loading: {type: Boolean},
-    }
+      active: { type: Boolean },
+      message: { type: String },
+      loading: { type: Boolean },
+    };
   }
 
-  declare active: boolean
-  declare message: string
-  declare loading: boolean
+  declare active: boolean;
+  declare message: string;
+  declare loading: boolean;
 
   constructor() {
-    super()
-    this.active = false
-    this.message = ''
-    this.loading = false
+    super();
+    this.active = false;
+    this.message = "";
+    this.loading = false;
   }
 
   static styles = [
@@ -42,87 +44,64 @@ export class DashboardDropzone extends ReatomLitElement {
         min-block-size: 0;
       }
 
-      .drop-zone {
-        position: relative;
+      cv-dropzone {
         block-size: 100%;
         display: flex;
         flex-direction: column;
+      }
 
-        .drop-overlay {
-          position: absolute;
-          inset: 0;
-          background: var(--cv-color-primary-subtle);
-          border: 3px dashed var(--cv-color-primary);
-          border-radius: var(--cv-radius-3);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: var(--cv-color-primary);
-          font-weight: 600;
-          font-size: 1.2em;
-          opacity: 0;
-          pointer-events: none;
-          transition:
-            opacity var(--cv-duration-fast) var(--cv-easing-standard),
-            transform var(--cv-duration-fast) var(--cv-easing-standard);
-          z-index: 1000;
-          backdrop-filter: blur(4px);
-          -webkit-backdrop-filter: blur(4px);
+      cv-dropzone::part(base),
+      cv-dropzone::part(content) {
+        block-size: 100%;
+        display: flex;
+        flex-direction: column;
+      }
 
-          &.visible {
-            opacity: 1;
-          }
-        }
+      cv-dropzone::part(overlay) {
+        z-index: 1000;
+        font-size: 1.2em;
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+      }
 
-        .loading-overlay {
-          position: absolute;
-          inset: 0;
-          background: var(--cv-color-surface-2);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 999;
-        }
+      cv-dropzone::part(loading-overlay) {
+        z-index: 999;
       }
 
       /* dropZonePulse: removed — infinite animation hurt responsiveness */
 
       /*Touch devices - improved visualization*/
       @media (hover: none) and (pointer: coarse) {
-        .drop-zone {
-          .drop-overlay {
-            border-width: 4px;
-            font-size: 1.4em;
-            padding-block: var(--app-spacing-4);
-
-            &.visible {
-              transform: scale(1.05);
-            }
-          }
+        cv-dropzone::part(overlay) {
+          border-width: 4px;
+          font-size: 1.4em;
+          padding-block: var(--app-spacing-4);
         }
       }
 
       /*Responsive sizes for overlay*/
       @media (max-width: 768px) {
-        .drop-zone {
-          .drop-overlay {
-            font-size: 1.1em;
-            padding: var(--app-spacing-3);
-          }
+        cv-dropzone::part(overlay) {
+          font-size: 1.1em;
+          padding: var(--app-spacing-3);
         }
       }
     `,
-  ]
+  ];
 
   render() {
+    const message = this.message || i18n("file-manager:drop-files-here" as any);
+    const loadingLabel = i18n("loading" as any);
+
     return html`
-      <div class="drop-zone">
+      <cv-dropzone
+        .active=${this.active}
+        .loading=${this.loading}
+        .message=${message}
+        .loadingLabel=${loadingLabel}
+      >
         <slot></slot>
-        <div class="drop-overlay ${this.active ? 'visible' : ''}">
-          ${this.message || i18n('file-manager:drop-files-here' as any)}
-        </div>
-        ${this.loading ? html`<div class="loading-overlay">${i18n('loading' as any)}</div>` : nothing}
-      </div>
-    `
+      </cv-dropzone>
+    `;
   }
 }

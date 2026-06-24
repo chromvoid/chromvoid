@@ -69,6 +69,8 @@ export default defineConfig({
       },
       {find: /^@chromvoid\/scheme$/, replacement: resolve(__dirname, '../../packages/scheme/src/index.ts')},
       {find: /^@chromvoid\/scheme\/(.+)$/, replacement: resolve(__dirname, '../../packages/scheme/src/$1')},
+      {find: /^@chromvoid\/headless-ui$/, replacement: resolve(__dirname, '../../packages/headless-ui/src/index.ts')},
+      {find: /^@chromvoid\/headless-ui\/(.+)$/, replacement: resolve(__dirname, '../../packages/headless-ui/src/$1')},
       {find: /^@chromvoid\/uikit$/, replacement: resolve(__dirname, '../../packages/uikit/src/index.ts')},
       {find: /^@chromvoid\/uikit\/(.+)$/, replacement: resolve(__dirname, '../../packages/uikit/src/$1')},
       {find: /^@reatom\/core$/, replacement: reatomCoreEntry},

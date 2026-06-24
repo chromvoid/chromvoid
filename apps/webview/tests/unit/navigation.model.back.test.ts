@@ -145,6 +145,17 @@ describe('NavigationModel back behavior', () => {
     expect(navigationModel.remotePanel()).toBe('hosts')
   })
 
+  it('falls back from the remote USB panel to remote hosts before leaving the remote surface', () => {
+    navigationModel.navigateToRemotePanel('usb-mobile', 'replace')
+
+    expect(navigationModel.currentSurface()).toBe('remote')
+    expect(navigationModel.remotePanel()).toBe('usb-mobile')
+
+    expect(navigationModel.goBack()).toBe(true)
+    expect(navigationModel.currentSurface()).toBe('remote')
+    expect(navigationModel.remotePanel()).toBe('hosts')
+  })
+
   it('keeps transient surfaces active when their back handler consumes the event', () => {
     navigationModel.navigateToSurface('remote-storage')
     const handled = vi.fn(() => true)

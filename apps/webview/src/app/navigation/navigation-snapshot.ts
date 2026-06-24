@@ -263,7 +263,7 @@ export function buildFallbackSnapshot(
     }
   }
 
-  if (snapshot.surface === 'remote' && snapshot.remote?.panel === 'pair-ios') {
+  if (snapshot.surface === 'remote' && snapshot.remote?.panel && snapshot.remote.panel !== 'hosts') {
     return normalizeSnapshot({
       surface: 'remote',
       remote: {panel: 'hosts'},
@@ -350,7 +350,7 @@ export function buildHierarchyFallbackSnapshot(snapshot: NavigationSnapshot): Na
     }
   }
 
-  if (snapshot.surface === 'remote' && snapshot.remote?.panel === 'pair-ios') {
+  if (snapshot.surface === 'remote' && snapshot.remote?.panel && snapshot.remote.panel !== 'hosts') {
     return normalizeSnapshot({
       surface: 'remote',
       remote: {panel: 'hosts'},

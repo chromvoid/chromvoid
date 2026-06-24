@@ -16,6 +16,7 @@ import {CVDrawer} from '@chromvoid/uikit/components/cv-drawer'
 import {CVGuidanceAnchor} from '@chromvoid/uikit/components/cv-guidance-anchor'
 import {CVGuidancePanel} from '@chromvoid/uikit/components/cv-guidance-panel'
 import {CVIcon, registerIconCollection, setIconBasePath} from '@chromvoid/uikit/components/cv-icon'
+import {CVImageViewer} from '@chromvoid/uikit/components/cv-image-viewer'
 import {CVInput} from '@chromvoid/uikit/components/cv-input'
 import {CVMenuButton} from '@chromvoid/uikit/components/cv-menu-button'
 import {CVMenuItem} from '@chromvoid/uikit/components/cv-menu-item'
@@ -76,6 +77,7 @@ CVDrawer.define()
 CVGuidanceAnchor.define()
 CVGuidancePanel.define()
 CVIcon.define()
+CVImageViewer.define()
 CVInput.define()
 CVMenuItem.define()
 CVMenuButton.define()
@@ -190,9 +192,11 @@ function scheduleNonCritical(task: () => void, delayMs = 0) {
   const enqueue = () => {
     const run = () => {
       if ('requestIdleCallback' in globalThis) {
-        ;(globalThis as typeof globalThis & {
-          requestIdleCallback?: (callback: () => void, options?: {timeout: number}) => number
-        }).requestIdleCallback?.(() => task(), {timeout: 2_000})
+        ;(
+          globalThis as typeof globalThis & {
+            requestIdleCallback?: (callback: () => void, options?: {timeout: number}) => number
+          }
+        ).requestIdleCallback?.(() => task(), {timeout: 2_000})
         return
       }
       window.setTimeout(task, 0)

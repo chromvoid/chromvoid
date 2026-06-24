@@ -80,10 +80,6 @@ export const pmIconPickerBaseStyles = css`
     display: inline-block;
   }
 
-  :is(cv-dialog, cv-bottom-sheet)::part(trigger) {
-    display: none;
-  }
-
   :is(cv-dialog, cv-bottom-sheet)::part(content) {
     max-width: min(400px, calc(100vw - var(--cv-space-4)));
     overflow: hidden;

@@ -242,6 +242,22 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         .map_err(|e| boxed_error(format!("core_rpc_dispatcher: {e}")))?;
 
     // ── AppState ──────────────────────────────────────────────────────
+    #[cfg(desktop)]
+    let remote_io_runtime = Arc::new(crate::remote_io_runtime::RemoteIoRuntimeState::new());
+    #[cfg(desktop)]
+    let mobile_usb_runtime = Arc::new(crate::mobile_usb::MobileUsbController::new(
+        create_mobile_usb_bridge(),
+        Arc::new(crate::mobile_usb::JsonMobileUsbPairingStore::new(
+            storage_root.clone(),
+        )),
+        Arc::new(crate::mobile_usb::KeyringMobileUsbSecretStore::default()),
+        Arc::new(crate::mobile_usb::TauriMobileUsbSessionStarter::new(
+            app_handle.clone(),
+            adapter_arc.clone(),
+            remote_io_runtime.clone(),
+        )),
+    ));
+
     app.manage(AppState {
         adapter: adapter_arc,
         core_rpc_dispatcher,
@@ -276,7 +292,9 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         #[cfg(desktop)]
         network_pairing_runtime: Arc::new(crate::network::pairing::NetworkPairingRuntimeState::new()),
         #[cfg(desktop)]
-        remote_io_runtime: Arc::new(crate::remote_io_runtime::RemoteIoRuntimeState::new()),
+        remote_io_runtime,
+        #[cfg(desktop)]
+        mobile_usb_runtime,
         #[cfg(desktop)]
         mode_transition_coordinator: Arc::new(
             crate::mode_transition_coordinator::ModeTransitionCoordinator::new(),
@@ -343,6 +361,11 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         let android_host_runtime = state.android_host_runtime.clone();
         let mobile_acceptor_runtime = state.mobile_acceptor_runtime.clone();
         let adapter = state.adapter.clone();
+        crate::mobile::android::configure_usb_accessory_host_starter(
+            mobile_acceptor_runtime.clone(),
+            Some(adapter.clone()),
+            storage_root.clone(),
+        );
         crate::network::mobile_host::schedule_android_host_mode_resume(
             task_lifecycle.clone(),
             android_host_runtime,
@@ -490,9 +513,64 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
+#[cfg(desktop)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MobileUsbBridgeSelection {
+    Unsupported,
+    AndroidAoa,
+}
+
+#[cfg(desktop)]
+fn mobile_usb_bridge_selection() -> MobileUsbBridgeSelection {
+    mobile_usb_bridge_selection_for_capability(
+        crate::types::runtime_capabilities_for_current_target().supports_mobile_usb_remote,
+    )
+}
+
+#[cfg(desktop)]
+fn mobile_usb_bridge_selection_for_capability(
+    supports_mobile_usb_remote: bool,
+) -> MobileUsbBridgeSelection {
+    if !supports_mobile_usb_remote {
+        return MobileUsbBridgeSelection::Unsupported;
+    }
+
+    if cfg!(any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows"
+    )) {
+        MobileUsbBridgeSelection::AndroidAoa
+    } else {
+        MobileUsbBridgeSelection::Unsupported
+    }
+}
+
+#[cfg(desktop)]
+fn create_mobile_usb_bridge() -> Arc<dyn crate::mobile_usb::MobileUsbBridge> {
+    match mobile_usb_bridge_selection() {
+        MobileUsbBridgeSelection::Unsupported => {
+            Arc::new(crate::mobile_usb::UnsupportedMobileUsbBridge)
+        }
+        MobileUsbBridgeSelection::AndroidAoa => {
+            #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+            {
+                Arc::new(crate::mobile_usb::AndroidAoaMobileUsbBridge::new())
+            }
+            #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+            {
+                Arc::new(crate::mobile_usb::UnsupportedMobileUsbBridge)
+            }
+        }
+    }
+}
+
 #[cfg(all(test, desktop))]
 mod tests {
-    use super::should_refresh_ssh_agent_from_catalog_event;
+    use super::{
+        mobile_usb_bridge_selection_for_capability, should_refresh_ssh_agent_from_catalog_event,
+        MobileUsbBridgeSelection,
+    };
 
     #[test]
     fn ssh_agent_hot_reload_filters_non_passmanager_shards() {
@@ -527,5 +605,24 @@ mod tests {
                 ]
             })
         ));
+    }
+
+    #[test]
+    fn mobile_usb_setup_bridge_selection_follows_runtime_gate() {
+        assert_eq!(
+            mobile_usb_bridge_selection_for_capability(false),
+            MobileUsbBridgeSelection::Unsupported
+        );
+
+        let expected = if cfg!(any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows"
+        )) {
+            MobileUsbBridgeSelection::AndroidAoa
+        } else {
+            MobileUsbBridgeSelection::Unsupported
+        };
+        assert_eq!(mobile_usb_bridge_selection_for_capability(true), expected);
     }
 }

@@ -130,6 +130,8 @@ impl RpcRouter {
 
             // Vault commands
             "vault:unlock" => self.handle_vault_unlock(&request.data),
+            "vault:repair:diagnose" => self.handle_vault_repair_diagnose(&request.data),
+            "vault:repair:apply" => self.handle_vault_repair_apply(&request.data),
             "vault:lock" => self.handle_vault_lock(),
             "vault:status" => handle_vault_status(self.session.as_ref()),
             "vault:rekey" => self.handle_vault_rekey(&request.data, &|| false, &mut |_| {}),

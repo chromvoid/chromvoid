@@ -9,6 +9,15 @@ use tracing::warn;
 
 const REMOTE_IO_RUNTIME_POISONED: &str = "Remote IO runtime mutex poisoned";
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RemoteIoRuntimeEvent {
+    Disconnected { reason: String },
+}
+
+pub(crate) trait RemoteIoRuntimeEventSink: Send + Sync {
+    fn on_remote_io_event(&self, event: RemoteIoRuntimeEvent);
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RemoteIoStopReason {
     Replaced,
@@ -74,6 +83,15 @@ impl RemoteIoRuntimeState {
         app: tauri::AppHandle,
         config: crate::remote_data_plane::RemoteIoTaskConfig,
     ) -> Result<mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>, String> {
+        self.start_remote_session_with_event_sink(app, config, None)
+    }
+
+    pub(crate) fn start_remote_session_with_event_sink(
+        self: &Arc<Self>,
+        app: tauri::AppHandle,
+        config: crate::remote_data_plane::RemoteIoTaskConfig,
+        event_sink: Option<Arc<dyn RemoteIoRuntimeEventSink>>,
+    ) -> Result<mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>, String> {
         let crate::remote_data_plane::RemoteIoTaskHandle {
             req_tx,
             evt_rx,
@@ -83,7 +101,7 @@ impl RemoteIoRuntimeState {
         let generation = self.next_active_generation();
         let event_runtime = self.clone();
         let event_task = tokio::spawn(async move {
-            run_remote_event_pump(event_runtime, app, generation, evt_rx).await;
+            run_remote_event_pump(event_runtime, app, generation, evt_rx, event_sink).await;
         });
 
         let session = ActiveRemoteIoSession {
@@ -163,7 +181,7 @@ impl RemoteIoRuntimeState {
                 return Err(PublishActiveError {
                     error: REMOTE_IO_RUNTIME_POISONED.to_string(),
                     session,
-                })
+                });
             }
         };
         Ok(inner.active.replace(session))
@@ -258,11 +276,12 @@ fn abort_session_for_join(
     handles
 }
 
-async fn run_remote_event_pump(
+async fn run_remote_event_pump<R: tauri::Runtime>(
     runtime: Arc<RemoteIoRuntimeState>,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     generation: u64,
     mut evt_rx: mpsc::Receiver<crate::remote_data_plane::RemoteIoEvent>,
+    event_sink: Option<Arc<dyn RemoteIoRuntimeEventSink>>,
 ) {
     while let Some(event) = evt_rx.recv().await {
         if !runtime.is_generation_current(generation) {
@@ -285,6 +304,11 @@ async fn run_remote_event_pump(
                 }
             }
             crate::remote_data_plane::RemoteIoEvent::Disconnected { reason } => {
+                if let Some(sink) = event_sink.as_ref() {
+                    sink.on_remote_io_event(RemoteIoRuntimeEvent::Disconnected {
+                        reason: reason.clone(),
+                    });
+                }
                 warn!("remote_io: remote data-plane task disconnected: {reason}");
             }
             _ => {}
@@ -296,6 +320,20 @@ async fn run_remote_event_pump(
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct RecordingRuntimeEventSink {
+        tx: Mutex<Option<tokio::sync::oneshot::Sender<RemoteIoRuntimeEvent>>>,
+    }
+
+    impl RemoteIoRuntimeEventSink for RecordingRuntimeEventSink {
+        fn on_remote_io_event(&self, event: RemoteIoRuntimeEvent) {
+            if let Ok(mut tx) = self.tx.lock() {
+                if let Some(tx) = tx.take() {
+                    let _ = tx.send(event);
+                }
+            }
+        }
+    }
 
     struct DropFlag(Arc<AtomicBool>);
 
@@ -374,5 +412,46 @@ mod tests {
 
         assert_eq!(runtime.active_generation_for_test(), None);
         assert!(event_dropped.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn event_pump_forwards_current_disconnect_to_session_sink() {
+        let app = tauri::test::mock_app();
+        let runtime = Arc::new(RemoteIoRuntimeState::new());
+        let generation = runtime.next_active_generation();
+        let (evt_tx, evt_rx) = mpsc::channel(1);
+        let (sink_tx, sink_rx) = tokio::sync::oneshot::channel();
+        let sink = Arc::new(RecordingRuntimeEventSink {
+            tx: Mutex::new(Some(sink_tx)),
+        });
+
+        let pump = tokio::spawn(run_remote_event_pump(
+            runtime,
+            app.handle().clone(),
+            generation,
+            evt_rx,
+            Some(sink),
+        ));
+
+        evt_tx
+            .send(crate::remote_data_plane::RemoteIoEvent::Disconnected {
+                reason: "transport closed".to_string(),
+            })
+            .await
+            .expect("send disconnect");
+
+        let event = tokio::time::timeout(Duration::from_secs(1), sink_rx)
+            .await
+            .expect("sink event timeout")
+            .expect("sink event");
+        assert_eq!(
+            event,
+            RemoteIoRuntimeEvent::Disconnected {
+                reason: "transport closed".to_string(),
+            }
+        );
+
+        drop(evt_tx);
+        pump.await.expect("event pump join");
     }
 }

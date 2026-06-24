@@ -14,7 +14,7 @@ export const SURFACE_IDS = [
 
 export type SurfaceId = (typeof SURFACE_IDS)[number]
 
-export type RemotePanel = 'hosts' | 'pair-ios'
+export type RemotePanel = 'hosts' | 'pair-ios' | 'usb-mobile'
 
 export type PassmanagerRoute =
   | {kind: 'root'}

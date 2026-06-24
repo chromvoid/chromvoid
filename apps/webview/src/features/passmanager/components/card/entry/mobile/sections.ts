@@ -25,18 +25,20 @@ export function renderWebsiteSection(context: PMEntryMobileRenderContext) {
             <span>${i18n('website')}</span>
           </div>
         </div>
-        <cv-input
-          class="inline-field-input"
-          name="inline-website"
-          data-inline-field="website"
-          .value=${model.inlineWebsite()}
-          @cv-input=${ui.handleInlineEditInput}
-          @keydown=${ui.handleInlineEditorKeyDown}
-          size="small"
-          ?data-has-error=${!!inlineError}
-        >
+        <cv-field ?invalid=${Boolean(inlineError)}>
           <span slot="label">${i18n('website:title')}</span>
-        </cv-input>
+          <cv-input
+            class="inline-field-input"
+            name="inline-website"
+            data-inline-field="website"
+            .value=${model.inlineWebsite()}
+            @cv-input=${ui.handleInlineEditInput}
+            @keydown=${ui.handleInlineEditorKeyDown}
+            size="small"
+            ?data-has-error=${!!inlineError}
+            ?invalid=${Boolean(inlineError)}
+          ></cv-input>
+        </cv-field>
       </section>
     `
   }
@@ -189,21 +191,23 @@ function renderOtpLabelEditor(
         .removable=${false}
         @pm-entry-otp-remove=${ui.handleOtpRemove}
       ></pm-entry-otp-item>
-      <cv-input
-        class="otp-label-input"
-        name=${`otp-label-${otp.id}`}
-        data-otp-id=${otp.id}
-        data-otp-label-input=${otp.id}
-        .value=${model.getOtpLabelDraft(otp)}
-        autocomplete="off"
-        size="small"
-        ?data-has-error=${!!labelError}
-        @cv-input=${ui.handleOtpLabelInput}
-        @keydown=${ui.handleInlineEditorKeyDown}
-      >
+      <cv-field ?invalid=${Boolean(labelError)}>
         <span slot="label">${i18n('otp:label')}</span>
-        ${labelError ? html`<div slot="help-text" class="error-text">${labelError}</div>` : nothing}
-      </cv-input>
+        <cv-input
+          class="otp-label-input"
+          name=${`otp-label-${otp.id}`}
+          data-otp-id=${otp.id}
+          data-otp-label-input=${otp.id}
+          .value=${model.getOtpLabelDraft(otp)}
+          autocomplete="off"
+          size="small"
+          ?data-has-error=${!!labelError}
+          ?invalid=${Boolean(labelError)}
+          @cv-input=${ui.handleOtpLabelInput}
+          @keydown=${ui.handleInlineEditorKeyDown}
+        ></cv-input>
+        ${labelError ? html`<div slot="error" class="error-text">${labelError}</div>` : nothing}
+      </cv-field>
     </div>
   `
 }
@@ -397,18 +401,20 @@ export function renderInlineNoteEditor(context: PMEntryMobileRenderContext) {
   return html`
     <div class="note-inline-editor">
       <form class="note-inline-form" @submit=${ui.handleNoteSubmit}>
-        <cv-textarea
-          class="note-inline-input"
-          name="inline-note"
-          .value=${model.noteDraft()}
-          rows="4"
-          size="small"
-          enter-behavior="submit"
-          @cv-input=${ui.handleNoteInput}
-          @keydown=${ui.handleNoteEditorKeyDown}
-        >
-          ${noteError ? html`<div slot="help-text" class="error-text">${noteError}</div>` : nothing}
-        </cv-textarea>
+        <cv-field ?invalid=${Boolean(noteError)}>
+          <cv-textarea
+            class="note-inline-input"
+            name="inline-note"
+            .value=${model.noteDraft()}
+            rows="4"
+            size="small"
+            enter-behavior="submit"
+            ?invalid=${Boolean(noteError)}
+            @cv-input=${ui.handleNoteInput}
+            @keydown=${ui.handleNoteEditorKeyDown}
+          ></cv-textarea>
+          ${noteError ? html`<div slot="error" class="error-text">${noteError}</div>` : nothing}
+        </cv-field>
         ${renderNoteSubmitButtons({onCancel: () => model.closeSectionSnippet(), saving: model.noteSaving()})}
       </form>
     </div>

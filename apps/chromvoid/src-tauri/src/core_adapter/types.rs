@@ -24,7 +24,14 @@ pub enum CoreMode {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum RemoteHost {
-    TauriRemoteWss { peer_id: String },
+    TauriRemoteWss {
+        peer_id: String,
+    },
+    MobileUsb {
+        host_id: String,
+        label: Option<String>,
+        platform: String,
+    },
 }
 
 /// ADR-004 section 2.3: Connection state machine for Remote mode.

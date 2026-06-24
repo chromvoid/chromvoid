@@ -16,13 +16,14 @@ use super::{
     CredentialProviderSessionResponse, CredentialProviderStatusResponse, CredentialSecret,
     DerivativeStatsResponse, ListShardsResponse, LoadShardResponse, MasterRekeyResponse,
     NodeCreatedResponse, SourceMetadataResponse, SyncShardResponse, UploadResponse,
-    VaultPasskeyDeleteResponse, VaultPasskeysListResponse, VaultRekeyResponse, VaultStatusResponse,
-    WalletAccountsDeriveResponse, WalletAccountsListResponse, WalletAddressesDeriveResponse,
-    WalletBackupExportResponse, WalletBalanceGetResponse, WalletHdCreateResponse,
-    WalletHdGenerateMnemonicResponse, WalletImportCreateResponse, WalletListResponse,
-    WalletStatusResponse, WalletTransactionCancelResponse, WalletTransactionConfirmResponse,
-    WalletTransactionPrepareResponse, WalletTransactionsListResponse,
-    WalletTransactionsRefreshResponse,
+    VaultPasskeyDeleteResponse, VaultPasskeysListResponse, VaultRekeyResponse,
+    VaultRepairApplyResponse, VaultRepairDiagnosisResponse, VaultStatusResponse,
+    VaultUnlockResponse, WalletAccountsDeriveResponse, WalletAccountsListResponse,
+    WalletAddressesDeriveResponse, WalletBackupExportResponse, WalletBalanceGetResponse,
+    WalletHdCreateResponse, WalletHdGenerateMnemonicResponse, WalletImportCreateResponse,
+    WalletListResponse, WalletStatusResponse, WalletTransactionCancelResponse,
+    WalletTransactionConfirmResponse, WalletTransactionPrepareResponse,
+    WalletTransactionsListResponse, WalletTransactionsRefreshResponse,
 };
 
 /// Response for each command (discriminated union)
@@ -56,7 +57,13 @@ pub enum RpcCommandResult {
     LicenseStatus(EntitlementSnapshot),
 
     #[serde(rename = "vault:unlock")]
-    VaultUnlock {},
+    VaultUnlock(VaultUnlockResponse),
+
+    #[serde(rename = "vault:repair:diagnose")]
+    VaultRepairDiagnose(VaultRepairDiagnosisResponse),
+
+    #[serde(rename = "vault:repair:apply")]
+    VaultRepairApply(VaultRepairApplyResponse),
 
     #[serde(rename = "vault:lock")]
     VaultLock {},

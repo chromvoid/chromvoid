@@ -18,6 +18,10 @@ import {
   setupAndroidKeyboardInsetsEventListener,
   setupIOSKeyboardInsetsEventListener,
 } from 'root/app/bootstrap/mobile-keyboard-insets'
+import {
+  mobileKeyboardOccluding,
+  setMobileKeyboardOccluding,
+} from 'root/app/bootstrap/mobile-keyboard/keyboard-occlusion.model'
 
 const tauriInvoke = vi.fn()
 const tauriListen = vi.fn()
@@ -71,6 +75,7 @@ describe('mobile keyboard visibility payload', () => {
     document.documentElement.style.removeProperty('--mobile-keyboard-scroll-action-offset')
     document.documentElement.style.removeProperty('--mobile-keyboard-scroll-clearance')
     document.documentElement.style.removeProperty('--mobile-keyboard-overlay-offset')
+    setMobileKeyboardOccluding(false)
   })
 
   it('stores a real native keyboard inset when the keyboard is visible', () => {
@@ -80,6 +85,7 @@ describe('mobile keyboard visibility payload', () => {
     })
 
     expect(document.documentElement.hasAttribute('data-mobile-keyboard-expanded')).toBe(true)
+    expect(mobileKeyboardOccluding()).toBe(true)
   })
 
   it('applies android native progress insets exactly during IME animation', () => {
@@ -135,6 +141,7 @@ describe('mobile keyboard visibility payload', () => {
     cleanup()
 
     expect(document.documentElement.hasAttribute('data-mobile-keyboard-expanded')).toBe(false)
+    expect(mobileKeyboardOccluding()).toBe(false)
     expect(document.documentElement.hasAttribute(NATIVE_KEYBOARD_INSETS_ATTR)).toBe(false)
     expect(document.documentElement.hasAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(false)
     expect(document.documentElement.hasAttribute(NATIVE_SAFE_AREA_BOTTOM_ATTR)).toBe(true)

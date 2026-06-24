@@ -86,6 +86,7 @@ export async function tauriInvoke<T>(
     console.warn('[dashboard][tauri] invoke failed', {
       cmd,
       argKeys: args ? Object.keys(args) : [],
+      error: e instanceof Error ? e.message : String(e),
     })
     throw e
   }

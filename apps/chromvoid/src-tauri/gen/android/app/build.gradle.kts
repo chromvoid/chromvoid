@@ -14,7 +14,21 @@ val tauriProperties = Properties().apply {
     }
 }
 
-val releaseKeystorePropertiesFile = rootProject.file("keystore.properties")
+val releaseSigningProfile =
+    (findProperty("chromvoidAndroidSigningProfile") as? String)?.trim()?.ifEmpty { "upload" } ?: "upload"
+val releaseKeystorePropertiesFile = when (releaseSigningProfile) {
+    "upload" -> rootProject.file("keystore.properties")
+    "sideload" -> rootProject.file("sideload-keystore.properties")
+    else -> error(
+        "Unsupported Android release signing profile \"$releaseSigningProfile\". " +
+            "Use chromvoidAndroidSigningProfile=upload or chromvoidAndroidSigningProfile=sideload.",
+    )
+}
+val releaseKeystorePropertiesExampleFile = when (releaseSigningProfile) {
+    "upload" -> "keystore.properties.example"
+    "sideload" -> "sideload-keystore.properties.example"
+    else -> "keystore.properties.example"
+}
 val releaseKeystoreProperties = Properties().apply {
     if (releaseKeystorePropertiesFile.exists()) {
         releaseKeystorePropertiesFile.inputStream().use { load(it) }
@@ -32,7 +46,7 @@ fun requireReleaseKeystoreProperty(name: String): String {
     if (value.isEmpty()) {
         error(
             "Missing \"$name\" in ${releaseKeystorePropertiesFile.path}. " +
-                "Copy keystore.properties.example and fill password, keyAlias, and storeFile.",
+                "Copy $releaseKeystorePropertiesExampleFile and fill password, keyAlias, and storeFile.",
         )
     }
     return value
@@ -53,8 +67,9 @@ fun resolveReleaseStoreFile(): java.io.File {
 
 if (releaseTasksRequested && !releaseKeystorePropertiesFile.exists()) {
     error(
-        "Missing Android release signing config at ${releaseKeystorePropertiesFile.path}. " +
-            "Copy keystore.properties.example and point storeFile to your local .jks keystore.",
+        "Missing Android release signing config for profile \"$releaseSigningProfile\" " +
+            "at ${releaseKeystorePropertiesFile.path}. " +
+            "Copy $releaseKeystorePropertiesExampleFile and point storeFile to your local .jks keystore.",
     )
 }
 

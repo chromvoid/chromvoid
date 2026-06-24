@@ -117,10 +117,6 @@ export class CvInputDialog extends ReatomLitElement {
         --cv-dialog-width: var(--cv-dialog-width-xl);
       }
 
-      :is(cv-dialog, cv-bottom-sheet)::part(trigger) {
-        display: none;
-      }
-
       :is(cv-dialog, cv-bottom-sheet)::part(content) {
         gap: 0;
         padding: 0;
@@ -567,21 +563,23 @@ export class CvInputDialog extends ReatomLitElement {
     return html`
       <span slot="title">${opts.title || i18n('dialogs:input-title' as any)}</span>
       <div class="dialog-body">
-        <cv-input
-          placeholder=${opts.placeholder || ''}
-          .value=${value}
-          type=${opts.type || 'text'}
-          .passwordToggle=${opts.type === 'password'}
-          ?required=${opts.required}
-          maxlength=${maxLength || 255}
-          @cv-input=${this.handleInput}
-          @keydown=${this.handleKeydown}
-        >
+        <cv-field ?invalid=${Boolean(error)} ?required=${opts.required}>
           ${opts.label ? html`<span slot="label">${opts.label}</span>` : ''}
-        </cv-input>
+          <cv-input
+            placeholder=${opts.placeholder || ''}
+            .value=${value}
+            type=${opts.type || 'text'}
+            .passwordToggle=${opts.type === 'password'}
+            ?required=${opts.required}
+            ?invalid=${Boolean(error)}
+            maxlength=${maxLength || 255}
+            @cv-input=${this.handleInput}
+            @keydown=${this.handleKeydown}
+          ></cv-input>
+          ${opts.helpText && !error ? html`<div slot="description" class="help-text">${opts.helpText}</div>` : ''}
+          ${error ? html`<div slot="error" class="error-text">${error}</div>` : ''}
+        </cv-field>
 
-        ${opts.helpText && !error ? html`<div class="help-text">${opts.helpText}</div>` : ''}
-        ${error ? html`<div class="error-text">${error}</div>` : ''}
         ${maxLength
           ? html`
               <div class="character-count ${isNearLimit ? 'warning' : ''} ${isOverLimit ? 'error' : ''}">

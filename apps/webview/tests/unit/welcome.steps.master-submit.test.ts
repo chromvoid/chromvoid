@@ -7,6 +7,7 @@ import {clearAppContext, createMockAppContext, initAppContext} from '../../src/s
 import {dialogService} from '../../src/shared/services/dialog'
 import {WelcomeSetupSection} from '../../src/routes/welcome/sections/steps'
 import {WelcomeSetupModel} from '../../src/routes/welcome/welcome.model'
+import {RpcError} from '../../src/routes/welcome/welcome-rpc'
 
 const welcomeRpcMocks = vi.hoisted(() => ({
   estimatePasswordStrength: vi.fn(),
@@ -168,6 +169,109 @@ describe('welcome create-master submit', () => {
     expect(pushNotification).not.toHaveBeenCalled()
     expect(model.setupInProgress()).toBe(false)
     expect(model.shared.busy()).toBe(false)
+  })
+
+  it('diagnoses and applies confirmed catalog repair during unlock', async () => {
+    vi.spyOn(dialogService, 'showInputDialog').mockResolvedValue('vault-password')
+    const confirmSpy = vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(true)
+    welcomeRpcMocks.tauriRpc.mockImplementation(async (command: string) => {
+      if (command === 'vault:unlock') {
+        throw new RpcError('repair required', 'CATALOG_REPAIR_REQUIRED')
+      }
+      if (command === 'vault:repair:diagnose') {
+        return {
+          repair_id: 'repair-1',
+          status: 'lossy_required',
+          lossy_requires_confirm: true,
+          issues: [
+            {
+              shard_id: 'docs',
+              snapshot_seq: 0,
+              base_version: 418,
+              last_delta_seq: 419,
+              safe_through_seq: 418,
+              failure: {
+                seq: 419,
+                path: '/Банк_amd_.txt',
+                node_id: 2,
+                op: 'move',
+                reason: 'missing_target_parent',
+              },
+            },
+          ],
+        }
+      }
+      if (command === 'vault:repair:apply') {
+        return {
+          unlocked: true,
+          repair: {
+            repair_id: 'repair-1',
+            status: 'lossy_required',
+            issues: [],
+            lossy_applied: true,
+          },
+        }
+      }
+      return undefined
+    })
+
+    await model.onUnlock()
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(welcomeRpcMocks.tauriRpc).toHaveBeenCalledWith('vault:repair:diagnose', {
+      password: 'vault-password',
+    })
+    expect(welcomeRpcMocks.tauriRpc).toHaveBeenCalledWith('vault:repair:apply', {
+      password: 'vault-password',
+      repair_id: 'repair-1',
+      allow_lossy: true,
+    })
+    expect(stateUpdate).toHaveBeenCalledWith({StorageOpened: true})
+  })
+
+  it('does not apply lossy catalog repair when the user cancels confirmation', async () => {
+    vi.spyOn(dialogService, 'showInputDialog').mockResolvedValue('vault-password')
+    vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(false)
+    welcomeRpcMocks.tauriRpc.mockImplementation(async (command: string) => {
+      if (command === 'vault:unlock') {
+        throw new RpcError('repair required', 'CATALOG_REPAIR_REQUIRED')
+      }
+      if (command === 'vault:repair:diagnose') {
+        return {
+          repair_id: 'repair-1',
+          status: 'lossy_required',
+          lossy_requires_confirm: true,
+          issues: [],
+        }
+      }
+      return undefined
+    })
+
+    await model.onUnlock()
+
+    expect(welcomeRpcMocks.tauriRpc).not.toHaveBeenCalledWith(
+      'vault:repair:apply',
+      expect.anything(),
+    )
+    expect(stateUpdate).not.toHaveBeenCalledWith({StorageOpened: true})
+  })
+
+  it('maps catalog repair diagnose failures into unlock errors', async () => {
+    vi.spyOn(dialogService, 'showInputDialog').mockResolvedValue('vault-password')
+    welcomeRpcMocks.tauriRpc.mockImplementation(async (command: string) => {
+      if (command === 'vault:unlock') {
+        throw new RpcError('repair required', 'CATALOG_REPAIR_REQUIRED')
+      }
+      if (command === 'vault:repair:diagnose') {
+        throw new RpcError('stale repair', 'CATALOG_REPAIR_STALE')
+      }
+      return undefined
+    })
+
+    await model.onUnlock()
+
+    expect(model.shared.errorText()).toBe('Vault catalog repair state changed. Try unlocking again.')
+    expect(stateUpdate).not.toHaveBeenCalledWith({StorageOpened: true})
   })
 
   it('ignores stale password strength completions', async () => {

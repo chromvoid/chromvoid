@@ -1,6 +1,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use std::path::PathBuf;
+
 use chromvoid_core::catalog::CatalogMediaInfo;
 use chromvoid_core::media_inspector::MediaInspectionError;
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse, PROTOCOL_VERSION};
@@ -10,12 +12,17 @@ use chromvoid_core::rpc::{
 };
 use chromvoid_protocol::{
     frame_continuation, frame_from_heartbeat, Frame, FrameType, NoiseTransport, RemoteTransport,
-    FLAG_HAS_CONTINUATION,
+    TransportType, FLAG_HAS_CONTINUATION,
 };
 use tokio::task::JoinSet;
 use tracing::{info, warn};
 
 use crate::core_adapter::{CoreAdapter, LocalCoreAdapter};
+use crate::mobile_usb::{
+    mobile_usb_hex_encode, send_mobile_usb_pairing_hello, MobileUsbPairingHello,
+};
+use crate::network::paired_peers::PairedPeer;
+use crate::network::{LocalDeviceIdentityStore, PairedPeerStore};
 use crate::remote_data_plane::{recv_decrypted_frame, send_encrypted_frame};
 use crate::rpc_transport_protocol::{
     append_full_upload_stream_chunk, parse_upload_stream_metadata, upload_stream_chunk_data,
@@ -24,6 +31,11 @@ use crate::rpc_transport_protocol::{
 const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 const HOST_MEDIA_INSPECTION_SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(1);
 const STREAM_CHUNK_SIZE: usize = 1024 * 1024;
+
+enum HostLoopInput {
+    Frame(Frame),
+    UsbPairingHello,
+}
 
 fn frame_from_rpc_response(message_id: u64, resp: &RpcResponse) -> Frame {
     let payload = crate::rpc_transport_protocol::json_payload_or_empty_object(
@@ -108,6 +120,12 @@ enum HostRpcAdapter {
 
 type SharedHostRpcAdapter = Arc<Mutex<HostRpcAdapter>>;
 
+struct LazyHostRpcAdapter {
+    adapter: Option<SharedHostRpcAdapter>,
+    seed_adapter: Option<Arc<Mutex<Box<dyn CoreAdapter>>>>,
+    storage_root: PathBuf,
+}
+
 struct HostMediaInspectionResult {
     message_id: u64,
     epoch: u64,
@@ -134,6 +152,33 @@ fn media_inspection_success(
         }
     }
     RpcResponse::success(result)
+}
+
+impl LazyHostRpcAdapter {
+    fn new(seed_adapter: Option<Arc<Mutex<Box<dyn CoreAdapter>>>>, storage_root: PathBuf) -> Self {
+        Self {
+            adapter: None,
+            seed_adapter,
+            storage_root,
+        }
+    }
+
+    async fn get(&mut self) -> Result<SharedHostRpcAdapter, String> {
+        if let Some(adapter) = &self.adapter {
+            return Ok(adapter.clone());
+        }
+
+        let seed_adapter = self.seed_adapter.take();
+        let storage_root = self.storage_root.clone();
+        let loaded = tauri::async_runtime::spawn_blocking(move || {
+            HostRpcAdapter::load(seed_adapter, storage_root)
+        })
+        .await
+        .map_err(|error| format!("mobile acceptor host adapter load task failed: {error}"))??;
+        let adapter = Arc::new(Mutex::new(loaded));
+        self.adapter = Some(adapter.clone());
+        Ok(adapter)
+    }
 }
 
 impl HostRpcAdapter {
@@ -244,7 +289,7 @@ impl HostRpcAdapter {
 }
 
 async fn run_host_adapter_task<T, F>(
-    adapter: &SharedHostRpcAdapter,
+    adapter: &mut LazyHostRpcAdapter,
     label: &'static str,
     task: F,
 ) -> Result<T, String>
@@ -252,6 +297,7 @@ where
     T: Send + 'static,
     F: FnOnce(&mut HostRpcAdapter) -> Result<T, String> + Send + 'static,
 {
+    let adapter = adapter.get().await?;
     let adapter = adapter.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let mut adapter = adapter
@@ -263,17 +309,193 @@ where
     .map_err(|error| format!("{label} task failed: {error}"))?
 }
 
+async fn recv_host_loop_input(
+    transport: &mut dyn RemoteTransport,
+    noise: &mut NoiseTransport,
+    transport_type: TransportType,
+    storage_root: &std::path::Path,
+    peer_id: &str,
+) -> Result<HostLoopInput, String> {
+    let bytes = transport
+        .recv()
+        .await
+        .map_err(|error| format!("recv: {error}"))?;
+    let encrypted_len = bytes.len();
+    let decrypted = match noise.decrypt(&bytes) {
+        Ok(decrypted) => decrypted,
+        Err(error) => {
+            if matches!(transport_type, TransportType::UsbMobile) {
+                warn!(
+                    transport_type = ?transport_type,
+                    encrypted_len,
+                    error = %error,
+                    "remote_frame: usb decrypt failed"
+                );
+            }
+            return Err(format!("decrypt: {error}"));
+        }
+    };
+
+    match Frame::decode(&decrypted) {
+        Ok(frame) => {
+            log_host_usb_frame("recv", transport_type, &frame, encrypted_len);
+            Ok(HostLoopInput::Frame(frame))
+        }
+        Err(frame_error) if matches!(transport_type, TransportType::UsbMobile) => {
+            let hello = serde_json::from_slice::<MobileUsbPairingHello>(&decrypted)
+                .map_err(|_| format!("decode: {frame_error}"))?;
+            handle_usb_pairing_hello(transport, noise, storage_root, peer_id, hello).await?;
+            Ok(HostLoopInput::UsbPairingHello)
+        }
+        Err(frame_error) => Err(format!("decode: {frame_error}")),
+    }
+}
+
+async fn handle_usb_pairing_hello(
+    transport: &mut dyn RemoteTransport,
+    noise: &mut NoiseTransport,
+    storage_root: &std::path::Path,
+    peer_id: &str,
+    hello: MobileUsbPairingHello,
+) -> Result<(), String> {
+    let remote_pubkey = noise.remote_pubkey().to_vec();
+    let remote_pubkey_hex = mobile_usb_hex_encode(&remote_pubkey);
+    if hello.peer_pubkey_hex != remote_pubkey_hex {
+        return Err("USB pairing hello pubkey mismatch in host RPC loop".to_string());
+    }
+
+    let storage_root = storage_root.to_path_buf();
+    let identity_root = storage_root.clone();
+    let local_identity = tauri::async_runtime::spawn_blocking(move || {
+        let mut store =
+            LocalDeviceIdentityStore::load(&identity_root.join("network_local_identity.json"));
+        store.get_or_create("ChromVoid Host")
+    })
+    .await
+    .map_err(|error| format!("USB pairing identity load task failed: {error}"))??;
+
+    let local_pubkey = hex::decode(&local_identity.static_pubkey_hex)
+        .map_err(|error| format!("USB pairing local pubkey decode failed: {error}"))?;
+    persist_usb_pairing_from_host_loop(
+        storage_root.join("paired_network_peers.json"),
+        PairedPeer {
+            peer_id: hello.peer_id.clone(),
+            label: hello.peer_label.clone(),
+            relay_url: "usb://android-aoa".to_string(),
+            peer_pubkey: remote_pubkey,
+            client_pubkey: local_pubkey,
+            client_privkey_hex: local_identity.static_privkey_hex.clone(),
+            last_seen: now_secs(),
+            paired_at: now_secs(),
+            platform: hello.platform,
+        },
+    )
+    .await?;
+
+    send_mobile_usb_pairing_hello(
+        transport,
+        noise,
+        &MobileUsbPairingHello {
+            peer_id: local_identity.device_id,
+            peer_label: local_identity.device_label,
+            peer_pubkey_hex: local_identity.static_pubkey_hex,
+            platform: "android".to_string(),
+        },
+    )
+    .await?;
+    info!(
+        "mobile_acceptor: accepted USB pairing preflight peer_id={}",
+        peer_id
+    );
+    Ok(())
+}
+
+async fn persist_usb_pairing_from_host_loop(
+    store_path: PathBuf,
+    peer: PairedPeer,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut store = PairedPeerStore::load(&store_path);
+        store.upsert(peer);
+        store.save()
+    })
+    .await
+    .map_err(|error| format!("USB host-loop pairing persistence task failed: {error}"))?
+}
+
+fn log_host_usb_frame(
+    direction: &'static str,
+    transport_type: TransportType,
+    frame: &Frame,
+    encrypted_len: usize,
+) {
+    if matches!(transport_type, TransportType::UsbMobile) {
+        info!(
+            direction,
+            transport_type = ?transport_type,
+            frame_type = ?frame.frame_type,
+            message_id = frame.message_id,
+            flags = frame.flags,
+            payload_len = frame.payload.len(),
+            encrypted_len,
+            "remote_frame: usb encrypted frame"
+        );
+    }
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
+}
+
 pub(super) async fn run_host_rpc_loop(
+    adapter: Option<Arc<Mutex<Box<dyn CoreAdapter>>>>,
+    transport: Box<dyn RemoteTransport>,
+    noise: NoiseTransport,
+    transport_type: TransportType,
+    storage_root: std::path::PathBuf,
+    peer_id: String,
+    shutdown_rx: tokio::sync::oneshot::Receiver<()>,
+) -> Result<(), String> {
+    run_host_rpc_loop_with_heartbeat_interval(
+        adapter,
+        transport,
+        noise,
+        transport_type,
+        storage_root,
+        peer_id,
+        shutdown_rx,
+        HEARTBEAT_INTERVAL,
+    )
+    .await
+}
+
+async fn run_host_rpc_loop_with_heartbeat_interval(
     adapter: Option<Arc<Mutex<Box<dyn CoreAdapter>>>>,
     mut transport: Box<dyn RemoteTransport>,
     mut noise: NoiseTransport,
+    transport_type: TransportType,
     storage_root: std::path::PathBuf,
     peer_id: String,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
+    heartbeat_interval_duration: std::time::Duration,
 ) -> Result<(), String> {
-    let adapter = Arc::new(Mutex::new(HostRpcAdapter::load(adapter, storage_root)?));
+    let pairing_storage_root = storage_root.clone();
+    let mut adapter = LazyHostRpcAdapter::new(adapter, storage_root);
     let mut anti_replay = chromvoid_protocol::AntiReplay::new();
-    let mut heartbeat_interval = tokio::time::interval(HEARTBEAT_INTERVAL);
+    let host_heartbeat_enabled = host_heartbeat_enabled(transport_type);
+    if !host_heartbeat_enabled {
+        info!(
+            "mobile_acceptor: host heartbeat disabled transport_type={:?} peer_id={}",
+            transport_type, peer_id
+        );
+    }
+    let mut heartbeat_interval = tokio::time::interval(heartbeat_interval_duration);
+    // Tokio intervals tick immediately once; USB direct transports need the
+    // post-handshake loop to be ready to read before periodic heartbeats begin.
+    heartbeat_interval.tick().await;
     let mut server_msg_id = rand::random::<u64>() | 1;
     let media_inspection_epoch = Arc::new(AtomicU64::new(0));
     let (media_job_tx, mut media_job_rx) =
@@ -301,7 +523,7 @@ pub(super) async fn run_host_rpc_loop(
                 }
             }
 
-            _ = heartbeat_interval.tick() => {
+            _ = heartbeat_interval.tick(), if host_heartbeat_enabled => {
                 let heartbeat = frame_from_heartbeat(server_msg_id, PROTOCOL_VERSION);
                 server_msg_id = server_msg_id.wrapping_add(1).max(1);
                 send_encrypted_frame(transport.as_mut(), &mut noise, heartbeat).await?;
@@ -335,7 +557,7 @@ pub(super) async fn run_host_rpc_loop(
                             let commit_snapshot = job.snapshot.clone();
                             let commit_media_info = media_info.clone();
                             match run_host_adapter_task(
-                                &adapter,
+                                &mut adapter,
                                 "mobile acceptor media inspect commit",
                                 move |adapter| {
                                     adapter.commit_catalog_media_inspect(
@@ -361,7 +583,7 @@ pub(super) async fn run_host_rpc_loop(
                                         serde_json::json!({"node_id": job.snapshot.node_id}),
                                     );
                                     run_host_adapter_task(
-                                        &adapter,
+                                        &mut adapter,
                                         "mobile acceptor media inspect fallback",
                                         move |adapter| adapter.handle(&fallback_req),
                                     )
@@ -401,8 +623,17 @@ pub(super) async fn run_host_rpc_loop(
                 ).await?;
             }
 
-            frame = recv_decrypted_frame(transport.as_mut(), &mut noise) => {
-                let frame = frame?;
+            input = recv_host_loop_input(
+                transport.as_mut(),
+                &mut noise,
+                transport_type,
+                &pairing_storage_root,
+                &peer_id,
+            ) => {
+                let frame = match input? {
+                    HostLoopInput::Frame(frame) => frame,
+                    HostLoopInput::UsbPairingHello => continue,
+                };
                 match frame.frame_type {
                     FrameType::Heartbeat => continue,
                     FrameType::Error => return Err("peer sent error frame".to_string()),
@@ -456,10 +687,23 @@ pub(super) async fn run_host_rpc_loop(
                         .fetch_add(1, Ordering::SeqCst)
                         .saturating_add(1);
                     info!(
-                        "perf:media_inspection event=cancel host=true reason=vault_lock epoch={} peer_id={}",
+                        "perf:media_inspection event=cancel host=true reason=remote_vault_lock_disconnect epoch={} peer_id={}",
                         epoch,
                         peer_id
                     );
+                    shutdown_host_media_jobs(&peer_id, &mut media_jobs).await;
+                    let response = RpcResponse::success(serde_json::Value::Null);
+                    send_encrypted_frame(
+                        transport.as_mut(),
+                        &mut noise,
+                        frame_from_rpc_response(frame.message_id, &response),
+                    ).await?;
+                    info!(
+                        "mobile_acceptor: remote vault lock requested disconnect peer_id={}",
+                        peer_id
+                    );
+                    let _ = transport.close().await;
+                    return Ok(());
                 }
 
                 if req.command == "catalog:media:inspect" && !frame.has_continuation() {
@@ -481,7 +725,7 @@ pub(super) async fn run_host_rpc_loop(
                     };
                     let snapshot_start = std::time::Instant::now();
                     match run_host_adapter_task(
-                        &adapter,
+                        &mut adapter,
                         "mobile acceptor media inspect snapshot",
                         move |adapter| adapter.snapshot_catalog_media_inspect(node_id),
                     )
@@ -611,7 +855,7 @@ pub(super) async fn run_host_rpc_loop(
 
                         let full_upload_req = req.clone();
                         let response = match run_host_adapter_task(
-                            &adapter,
+                            &mut adapter,
                             "mobile acceptor full upload stream",
                             move |adapter| {
                                 adapter.handle_with_stream(
@@ -707,7 +951,7 @@ pub(super) async fn run_host_rpc_loop(
 
                         let chunk_payload = chunk_frame.payload.clone();
                         match run_host_adapter_task(
-                            &adapter,
+                            &mut adapter,
                             "mobile acceptor upload stream chunk",
                             move |adapter| {
                                 adapter.handle_with_stream(
@@ -768,7 +1012,7 @@ pub(super) async fn run_host_rpc_loop(
                 if is_download_stream_command(&req.command) {
                     let download_req = req.clone();
                     match run_host_adapter_task(
-                        &adapter,
+                        &mut adapter,
                         "mobile acceptor download stream",
                         move |adapter| adapter.handle_with_stream(&download_req, None),
                     )
@@ -856,7 +1100,7 @@ pub(super) async fn run_host_rpc_loop(
 
                 let generic_req = req.clone();
                 let resp = run_host_adapter_task(
-                    &adapter,
+                    &mut adapter,
                     "mobile acceptor host rpc",
                     move |adapter| adapter.handle(&generic_req),
                 )
@@ -871,9 +1115,16 @@ pub(super) async fn run_host_rpc_loop(
     }
 }
 
+fn host_heartbeat_enabled(transport_type: TransportType) -> bool {
+    !matches!(transport_type, TransportType::UsbMobile)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+    use chromvoid_protocol::{TransportError, TransportType, MAX_HANDSHAKE_MSG, NOISE_PARAMS_XX};
+    use snow::Builder;
 
     struct FailingReader;
 
@@ -902,5 +1153,260 @@ mod tests {
         assert!(is_full_upload_stream_command("catalog:derivative:write"));
         assert!(!is_full_upload_stream_command("catalog:upload"));
         assert!(!is_full_upload_stream_command("catalog:secret:write"));
+    }
+
+    #[tokio::test]
+    async fn host_rpc_loop_does_not_send_heartbeat_immediately_after_start() {
+        let (client_noise, host_noise) = noise_pair();
+        let sent_frames = Arc::new(Mutex::new(Vec::new()));
+        let transport = RecordingIdleTransport::new(client_noise, sent_frames.clone());
+        let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let task = tokio::spawn(run_host_rpc_loop(
+            None,
+            Box::new(transport),
+            host_noise,
+            TransportType::WebRtcDataChannel,
+            temp.path().to_path_buf(),
+            "peer-heartbeat-test".to_string(),
+            shutdown_rx,
+        ));
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        task.abort();
+
+        assert!(
+            sent_frames.lock().unwrap().is_empty(),
+            "heartbeat must not be the first post-handshake host write"
+        );
+    }
+
+    #[tokio::test]
+    async fn host_rpc_loop_sends_periodic_heartbeat_for_network_transport() {
+        let (client_noise, host_noise) = noise_pair();
+        let sent_frames = Arc::new(Mutex::new(Vec::new()));
+        let transport = RecordingIdleTransport::new(client_noise, sent_frames.clone());
+        let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let task = tokio::spawn(run_host_rpc_loop_with_heartbeat_interval(
+            None,
+            Box::new(transport),
+            host_noise,
+            TransportType::WebRtcDataChannel,
+            temp.path().to_path_buf(),
+            "peer-network-heartbeat-test".to_string(),
+            shutdown_rx,
+            std::time::Duration::from_millis(10),
+        ));
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if sent_frames
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|frame| frame.frame_type == FrameType::Heartbeat)
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("network heartbeat timeout");
+        task.abort();
+
+        assert!(
+            sent_frames
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|frame| frame.frame_type == FrameType::Heartbeat),
+            "network host transports should keep their periodic heartbeat"
+        );
+    }
+
+    #[tokio::test]
+    async fn host_rpc_loop_suppresses_periodic_heartbeat_for_usb_mobile() {
+        let (client_noise, host_noise) = noise_pair();
+        let sent_frames = Arc::new(Mutex::new(Vec::new()));
+        let transport = RecordingIdleTransport::new(client_noise, sent_frames.clone());
+        let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let task = tokio::spawn(run_host_rpc_loop_with_heartbeat_interval(
+            None,
+            Box::new(transport),
+            host_noise,
+            TransportType::UsbMobile,
+            temp.path().to_path_buf(),
+            "peer-usb-heartbeat-test".to_string(),
+            shutdown_rx,
+            std::time::Duration::from_millis(10),
+        ));
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        task.abort();
+
+        assert!(
+            sent_frames.lock().unwrap().is_empty(),
+            "USB Mobile host side must stay in read mode instead of colliding with desktop heartbeat writes"
+        );
+    }
+
+    #[tokio::test]
+    async fn usb_host_rpc_loop_enters_recv_before_adapter_load() {
+        let (client_noise, host_noise) = noise_pair();
+        let (recv_started_tx, recv_started_rx) = tokio::sync::oneshot::channel();
+        let transport = RecvSignalTransport::new(client_noise, recv_started_tx);
+        let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let broken_storage_root = temp.path().join("not-a-directory");
+        std::fs::write(&broken_storage_root, b"file").expect("broken storage marker");
+        let task = tokio::spawn(run_host_rpc_loop(
+            None,
+            Box::new(transport),
+            host_noise,
+            TransportType::UsbMobile,
+            broken_storage_root,
+            "peer-usb-lazy-adapter-test".to_string(),
+            shutdown_rx,
+        ));
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), recv_started_rx)
+            .await
+            .expect("USB host loop should enter recv before adapter load")
+            .expect("recv signal should be delivered");
+        task.abort();
+    }
+
+    struct RecordingIdleTransport {
+        peer_noise: NoiseTransport,
+        _inbound_tx: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+        inbound_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+        sent_frames: Arc<Mutex<Vec<Frame>>>,
+    }
+
+    impl RecordingIdleTransport {
+        fn new(peer_noise: NoiseTransport, sent_frames: Arc<Mutex<Vec<Frame>>>) -> Self {
+            let (_inbound_tx, inbound_rx) = tokio::sync::mpsc::unbounded_channel();
+            Self {
+                peer_noise,
+                _inbound_tx,
+                inbound_rx,
+                sent_frames,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl RemoteTransport for RecordingIdleTransport {
+        async fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
+            let decrypted = self
+                .peer_noise
+                .decrypt(data)
+                .map_err(|e| TransportError::Io(format!("test decrypt: {e}")))?;
+            let frame = Frame::decode(&decrypted)
+                .map_err(|e| TransportError::Io(format!("test frame decode: {e}")))?;
+            self.sent_frames.lock().unwrap().push(frame);
+            Ok(())
+        }
+
+        async fn recv(&mut self) -> Result<Vec<u8>, TransportError> {
+            self.inbound_rx.recv().await.ok_or(TransportError::Closed)
+        }
+
+        async fn close(&mut self) -> Result<(), TransportError> {
+            Ok(())
+        }
+
+        fn transport_type(&self) -> TransportType {
+            TransportType::UsbMobile
+        }
+    }
+
+    struct RecvSignalTransport {
+        peer_noise: NoiseTransport,
+        recv_started: Option<tokio::sync::oneshot::Sender<()>>,
+    }
+
+    impl RecvSignalTransport {
+        fn new(peer_noise: NoiseTransport, recv_started: tokio::sync::oneshot::Sender<()>) -> Self {
+            Self {
+                peer_noise,
+                recv_started: Some(recv_started),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl RemoteTransport for RecvSignalTransport {
+        async fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
+            let _ = self
+                .peer_noise
+                .decrypt(data)
+                .map_err(|e| TransportError::Io(format!("test decrypt: {e}")))?;
+            Ok(())
+        }
+
+        async fn recv(&mut self) -> Result<Vec<u8>, TransportError> {
+            if let Some(recv_started) = self.recv_started.take() {
+                let _ = recv_started.send(());
+            }
+            std::future::pending::<Result<Vec<u8>, TransportError>>().await
+        }
+
+        async fn close(&mut self) -> Result<(), TransportError> {
+            Ok(())
+        }
+
+        fn transport_type(&self) -> TransportType {
+            TransportType::UsbMobile
+        }
+    }
+
+    fn noise_pair() -> (NoiseTransport, NoiseTransport) {
+        let params: snow::params::NoiseParams = NOISE_PARAMS_XX.parse().unwrap();
+        let kp_i = Builder::new(params.clone()).generate_keypair().unwrap();
+        let kp_r = Builder::new(params.clone()).generate_keypair().unwrap();
+
+        let mut initiator = Builder::new(params.clone())
+            .local_private_key(&kp_i.private)
+            .unwrap()
+            .build_initiator()
+            .unwrap();
+        let mut responder = Builder::new(params.clone())
+            .local_private_key(&kp_r.private)
+            .unwrap()
+            .build_responder()
+            .unwrap();
+
+        let mut buf = vec![0u8; MAX_HANDSHAKE_MSG];
+
+        let len = initiator.write_message(&[], &mut buf).unwrap();
+        let msg1 = buf[..len].to_vec();
+
+        responder.read_message(&msg1, &mut buf).unwrap();
+        let len = responder.write_message(&[], &mut buf).unwrap();
+        let msg2 = buf[..len].to_vec();
+
+        initiator.read_message(&msg2, &mut buf).unwrap();
+        let len = initiator.write_message(&[], &mut buf).unwrap();
+        let msg3 = buf[..len].to_vec();
+
+        responder.read_message(&msg3, &mut buf).unwrap();
+
+        let remote_pub_i = initiator
+            .get_remote_static()
+            .expect("initiator remote key")
+            .to_vec();
+        let remote_pub_r = responder
+            .get_remote_static()
+            .expect("responder remote key")
+            .to_vec();
+
+        (
+            NoiseTransport::new(initiator.into_transport_mode().unwrap(), remote_pub_i),
+            NoiseTransport::new(responder.into_transport_mode().unwrap(), remote_pub_r),
+        )
     }
 }

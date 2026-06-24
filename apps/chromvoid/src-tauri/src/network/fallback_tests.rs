@@ -15,6 +15,36 @@ fn fallback_chain_is_deterministic() {
 }
 
 #[test]
+fn usb_mobile_is_not_a_network_fallback_transport() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cache_path = dir.path().join("network_transport_cache.json");
+    let context = NetworkContext {
+        ssid: Some("usb-cache-corruption".to_string()),
+        cellular_carrier: None,
+    };
+
+    {
+        let mut cache = LastKnownGoodTransportCache::load(&cache_path);
+        cache.set(&context, TransportType::UsbMobile);
+        cache.save().expect("save cache");
+    }
+
+    let loaded = LastKnownGoodTransportCache::load(&cache_path);
+    let chain = attempt_chain_for_context(&Some(loaded), &context);
+
+    assert_eq!(
+        chain,
+        vec![
+            TransportType::WebRtcDataChannel,
+            TransportType::WssRelay,
+            TransportType::QuicMasque,
+            TransportType::TcpStealth,
+        ]
+    );
+    assert!(!chain.contains(&TransportType::UsbMobile));
+}
+
+#[test]
 fn cached_transport_reorders_first_attempt() {
     let dir = tempfile::tempdir().expect("tempdir");
     let cache_path = dir.path().join("network_transport_cache.json");

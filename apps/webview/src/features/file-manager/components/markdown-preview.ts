@@ -116,7 +116,6 @@ export class MarkdownPreview extends ReatomLitElement {
         block-size: 100%;
         min-block-size: 0;
         color: var(--cv-color-text);
-        --markdown-editor-keyboard-clearance: var(--mobile-keyboard-scroll-clearance, 0px);
       }
 
       .markdown-preview {
@@ -256,7 +255,6 @@ export class MarkdownPreview extends ReatomLitElement {
         min-block-size: 0;
         display: grid;
         overflow: hidden;
-        padding-block-end: var(--markdown-editor-keyboard-clearance);
       }
 
       .rendered-markdown,
@@ -751,10 +749,8 @@ export class MarkdownPreview extends ReatomLitElement {
             calc(var(--app-spacing-2) + 1.6em);
           font-size: var(--cv-font-size-base);
           line-height: 1.6;
-          scroll-padding-block-end: max(
-            var(--markdown-editor-keyboard-clearance),
-            calc(var(--app-spacing-2) + 1.6em)
-          );
+          scroll-padding-block-end: calc(var(--app-spacing-2) + 1.6em);
+          
         }
 
         .stale-actions {

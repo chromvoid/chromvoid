@@ -13,10 +13,21 @@ mod password_save;
 mod provider_status;
 mod runtime;
 mod saf_picker;
+mod usb_accessory_runtime;
 
 #[cfg(test)]
 mod tests;
 
+#[cfg(any(target_os = "android", test))]
+use std::path::PathBuf;
+#[cfg(any(target_os = "android", test))]
+use std::sync::{Arc, Mutex};
+
+#[cfg(any(target_os = "android", test))]
+use chromvoid_protocol::TransportType;
+
+#[cfg(any(target_os = "android", test))]
+use crate::core_adapter::CoreAdapter;
 use crate::mobile::BiometricAuthError;
 
 pub(crate) use audio_session_registry::{AndroidAudioSessionRegistry, AndroidAudioSessionTrack};
@@ -37,6 +48,13 @@ pub(crate) use runtime::{shared_provider_runtime, AndroidProviderRuntimeState};
 pub(crate) use saf_picker::AndroidSafPickerRuntimeState;
 #[cfg(target_os = "android")]
 pub(crate) use saf_picker::AndroidSafTree;
+#[cfg(target_os = "android")]
+pub(crate) use usb_accessory_runtime::shared_android_usb_accessory_runtime;
+#[cfg(any(target_os = "android", test))]
+pub(crate) use usb_accessory_runtime::{
+    AndroidMobileUsbAccessoryIdentity, AndroidMobileUsbAccessoryRuntimeState,
+    AndroidMobileUsbHostStopReason,
+};
 #[cfg(not(target_os = "android"))]
 mod native_stub {
     use crate::mobile::BiometricAuthError;
@@ -223,6 +241,95 @@ pub async fn authenticate_with_biometric(
 
 pub(crate) fn register_app_handle(app: tauri::AppHandle) {
     runtime::register_app_handle(app)
+}
+
+#[cfg(target_os = "android")]
+pub(crate) fn configure_usb_accessory_host_starter(
+    mobile_acceptor_runtime: Arc<crate::network::mobile_acceptor::MobileAcceptorRuntimeState>,
+    adapter: Option<Arc<Mutex<Box<dyn CoreAdapter>>>>,
+    storage_root: PathBuf,
+) {
+    configure_usb_accessory_host_starter_for_runtime(
+        shared_android_usb_accessory_runtime(),
+        mobile_acceptor_runtime,
+        adapter,
+        storage_root,
+    );
+}
+
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn configure_usb_accessory_host_starter_for_runtime(
+    accessory_runtime: Arc<AndroidMobileUsbAccessoryRuntimeState>,
+    mobile_acceptor_runtime: Arc<crate::network::mobile_acceptor::MobileAcceptorRuntimeState>,
+    adapter: Option<Arc<Mutex<Box<dyn CoreAdapter>>>>,
+    storage_root: PathBuf,
+) {
+    accessory_runtime.set_host_starter(Arc::new(move |start| {
+        let mobile_acceptor_runtime = mobile_acceptor_runtime.clone();
+        let adapter = adapter.clone();
+        let storage_root = storage_root.clone();
+        Box::pin(async move {
+            let label = android_usb_accessory_host_label(&start.identity);
+            let session_id = start.session_id.clone();
+            tracing::debug!(
+                "mobile_usb_android: accepting accessory host session_id={} label={}",
+                session_id,
+                label
+            );
+            crate::network::mobile_acceptor::accept_direct_transport_until_closed(
+                mobile_acceptor_runtime,
+                adapter,
+                &storage_root,
+                start.transport,
+                TransportType::UsbMobile,
+                label,
+                start.shutdown,
+                crate::network::mobile_acceptor::DirectTransportTimelineContext::android_usb(
+                    session_id.clone(),
+                ),
+            )
+            .await
+            .map(|outcome| {
+                let stop_reason = match outcome.stop_reason {
+                    crate::network::mobile_acceptor::DirectTransportStopReason::Shutdown => {
+                        AndroidMobileUsbHostStopReason::Shutdown
+                    }
+                    crate::network::mobile_acceptor::DirectTransportStopReason::TransportClosed => {
+                        AndroidMobileUsbHostStopReason::TransportClosed
+                    }
+                    crate::network::mobile_acceptor::DirectTransportStopReason::Error => {
+                        AndroidMobileUsbHostStopReason::Error
+                    }
+                };
+                tracing::info!(
+                    session_id = %session_id,
+                    peer_id = %crate::mobile_usb::observability::redacted_identifier(Some(outcome.peer_id.as_str())),
+                    transport_type = ?outcome.transport_type,
+                    stop_reason = stop_reason.as_str(),
+                    duration_ms = outcome.duration_ms,
+                    "mobile_usb_android: direct transport session ended"
+                );
+                stop_reason
+            })
+        })
+    }));
+}
+
+#[cfg(any(target_os = "android", test))]
+fn android_usb_accessory_host_label(identity: &AndroidMobileUsbAccessoryIdentity) -> String {
+    identity
+        .serial
+        .as_deref()
+        .filter(|serial| !serial.trim().is_empty())
+        .map(|serial| format!("android-usb:{serial}"))
+        .or_else(|| {
+            identity
+                .model
+                .as_deref()
+                .filter(|model| !model.trim().is_empty())
+                .map(|model| format!("android-usb:{model}"))
+        })
+        .unwrap_or_else(|| "android-usb:unknown".to_string())
 }
 
 #[cfg(test)]

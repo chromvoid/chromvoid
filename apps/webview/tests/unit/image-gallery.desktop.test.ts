@@ -3,10 +3,18 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {ImageGallery} from '../../src/features/media/components/image-gallery-v2/image-gallery-desktop'
 import type {ImageGalleryViewerModel} from '../../src/features/media/components/image-gallery-v2/gallery-viewer.model'
+import type {CVImageViewer} from '@chromvoid/uikit/components/cv-image-viewer'
 
 const IMAGES = [
   {id: 1, name: 'one.jpg', path: '/one.jpg', size: 12, lastModified: 111, mimeType: 'image/jpeg'},
-  {id: 2, name: 'two.heic', path: '/two.heic', size: 24, lastModified: 222, mimeType: 'image/heic'},
+  {
+    id: 2,
+    name: 'two.heic',
+    path: '/two.heic',
+    size: 24,
+    lastModified: 222,
+    mimeType: 'image/heic',
+  },
 ]
 
 const originalNavigatorShare = navigator.share
@@ -36,6 +44,16 @@ async function mountGallery(options?: {currentIndex?: number; sharePending?: boo
   document.body.append(element)
   await element.updateComplete
   return element
+}
+
+function getViewer(element: ImageGallery) {
+  const viewer = element.shadowRoot?.querySelector('cv-image-viewer') as CVImageViewer | null
+  expect(viewer).not.toBeNull()
+  return viewer!
+}
+
+function queryViewer<T extends Element = Element>(element: ImageGallery, selector: string) {
+  return getViewer(element).shadowRoot?.querySelector<T>(selector) ?? null
 }
 
 describe('image-gallery desktop actions', () => {
@@ -125,23 +143,47 @@ describe('image-gallery desktop actions', () => {
     expect(focus).toHaveBeenCalledTimes(1)
   })
 
-  it('traps Tab in composed focus order through shadow-root buttons', async () => {
+  it('renders the desktop overlay through cv-image-viewer', async () => {
     const element = await mountGallery()
-    const first = document.createElement('button')
-    const shadowHost = document.createElement('div')
-    const shadow = shadowHost.attachShadow({mode: 'open'})
-    const inner = document.createElement('button')
-    const last = document.createElement('button')
-    const focusLast = vi.spyOn(last, 'focus')
-    shadow.append(inner)
-    element.shadowRoot?.append(first, shadowHost, last)
-    inner.focus()
 
-    const event = new KeyboardEvent('keydown', {key: 'Tab', bubbles: true, cancelable: true})
-    document.dispatchEvent(event)
+    const viewer = getViewer(element)
+    expect(viewer.open).toBe(true)
+    expect(viewer.layout).toBe('desktop')
+    expect(queryViewer(element, '[part="base"]')?.hasAttribute('role')).toBe(false)
+  })
 
-    expect(event.defaultPrevented).toBe(true)
-    expect(focusLast).toHaveBeenCalledTimes(1)
+  it('emits desktop route navigation from viewer input events', async () => {
+    const element = await mountGallery()
+    const navigates: Array<{index: number; direction: string}> = []
+    element.addEventListener('navigate', ((event: CustomEvent<{index: number; direction: string}>) => {
+      navigates.push(event.detail)
+    }) as EventListener)
+
+    getViewer(element).dispatchEvent(
+      new CustomEvent('cv-input', {
+        detail: {index: 1, itemId: 2, direction: 'forward', source: 'control'},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+
+    expect(navigates).toEqual([{index: 1, direction: 'forward'}])
+  })
+
+  it('does not emit duplicate desktop navigation from committed viewer changes', async () => {
+    const element = await mountGallery()
+    const navigate = vi.fn()
+    element.addEventListener('navigate', navigate)
+
+    getViewer(element).dispatchEvent(
+      new CustomEvent('cv-change', {
+        detail: {index: 1, itemId: 2, direction: 'forward', source: 'programmatic'},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+
+    expect(navigate).not.toHaveBeenCalled()
   })
 
   it('renders desktop viewer actions, keeps info local, and emits file actions for the current image', async () => {
@@ -152,11 +194,9 @@ describe('image-gallery desktop actions', () => {
     }) as EventListener)
 
     for (const action of ['download', 'open-external', 'save-to-gallery', 'share']) {
-      ;(
-        element.shadowRoot?.querySelector(`[data-action="${action}"]`) as HTMLButtonElement | null
-      )?.click()
+      ;(queryViewer<HTMLElement>(element, `[data-action="${action}"]`) as HTMLElement | null)?.click()
     }
-    ;(element.shadowRoot?.querySelector('[data-action="info"]') as HTMLButtonElement | null)?.click()
+    ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
     await element.updateComplete
 
     expect(actions).toEqual([
@@ -186,21 +226,21 @@ describe('image-gallery desktop actions', () => {
 
     const element = await mountGallery()
 
-    expect(element.shadowRoot?.querySelector('[data-action="download"]')).not.toBeNull()
-    expect(element.shadowRoot?.querySelector('[data-action="open-external"]')).not.toBeNull()
-    expect(element.shadowRoot?.querySelector('[data-action="info"]')).not.toBeNull()
-    expect(element.shadowRoot?.querySelector('[data-action="save-to-gallery"]')).toBeNull()
-    expect(element.shadowRoot?.querySelector('[data-action="share"]')).toBeNull()
+    expect(queryViewer(element, '[data-action="download"]')).not.toBeNull()
+    expect(queryViewer(element, '[data-action="open-external"]')).not.toBeNull()
+    expect(queryViewer(element, '[data-action="info"]')).not.toBeNull()
+    expect(queryViewer(element, '[data-action="save-to-gallery"]')).toBeNull()
+    expect(queryViewer(element, '[data-action="share"]')).toBeNull()
   })
 
   it('shows a pending share affordance for the current desktop image', async () => {
     const element = await mountGallery({currentIndex: 1, sharePending: true})
 
-    const shareButton = element.shadowRoot?.querySelector<HTMLButtonElement>('[data-action="share"]')
+    const shareButton = queryViewer<HTMLElement>(element, '[data-action="share"]')
     expect(shareButton).not.toBeNull()
-    expect(shareButton?.disabled).toBe(true)
+    expect((shareButton as HTMLElementTagNameMap['cv-menu-item'])?.disabled).toBe(true)
     expect(shareButton?.querySelector('cv-spinner')).not.toBeNull()
-    expect(element.shadowRoot?.querySelector('.share-pending-overlay')).not.toBeNull()
-    expect(element.shadowRoot?.textContent).toContain('Preparing file...')
+    expect(queryViewer(element, '[part="busy-overlay"]')).not.toBeNull()
+    expect(getViewer(element).shadowRoot?.textContent).toContain('Preparing file...')
   })
 })

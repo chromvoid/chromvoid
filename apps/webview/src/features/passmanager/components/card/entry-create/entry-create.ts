@@ -515,76 +515,81 @@ export class PMEntryCreateDesktop extends PMEntryCreateBase {
         </div>
         <div class="card-grid">
           <div class="field-cell">
-            <cv-input
-              type="text"
-              size="small"
-              name="cardholderName"
-              .value=${this.model.cardholderName()}
-              @cv-input=${this.onCardholderInput}
-              ?invalid=${Boolean(cardholderNameError)}
-            >
+            <cv-field ?invalid=${Boolean(cardholderNameError)}>
               <span slot="label">${i18n('payment-card:cardholder')}</span>
+              <cv-input
+                type="text"
+                size="small"
+                name="cardholderName"
+                .value=${this.model.cardholderName()}
+                @cv-input=${this.onCardholderInput}
+                ?invalid=${Boolean(cardholderNameError)}
+              ></cv-input>
               ${cardholderNameError
-                ? html`<span slot="help-text" class="field-error">${cardholderNameError}</span>`
+                ? html`<span slot="error" class="field-error">${cardholderNameError}</span>`
                 : nothing}
-            </cv-input>
+            </cv-field>
           </div>
           <div class="field-cell">
-            <cv-input
-              type="text"
-              size="small"
-              name="cardNumber"
-              .value=${this.model.cardNumber()}
-              @cv-input=${this.onCardNumberInput}
-              ?invalid=${Boolean(cardNumberError)}
-            >
+            <cv-field ?invalid=${Boolean(cardNumberError)}>
               <span slot="label">${i18n('payment-card:number')}</span>
-              ${cardNumberError ? html`<span slot="help-text" class="field-error">${cardNumberError}</span>` : nothing}
-            </cv-input>
+              <cv-input
+                type="text"
+                size="small"
+                name="cardNumber"
+                .value=${this.model.cardNumber()}
+                @cv-input=${this.onCardNumberInput}
+                ?invalid=${Boolean(cardNumberError)}
+              ></cv-input>
+              ${cardNumberError ? html`<span slot="error" class="field-error">${cardNumberError}</span>` : nothing}
+            </cv-field>
           </div>
           <div class="field-cell">
-            <cv-input
-              type="text"
-              size="small"
-              name="cardExpMonth"
-              .value=${this.model.cardExpMonth()}
-              @cv-input=${this.onCardExpMonthInput}
-              ?invalid=${Boolean(cardExpMonthError)}
-            >
+            <cv-field ?invalid=${Boolean(cardExpMonthError)}>
               <span slot="label">${i18n('payment-card:exp-month')}</span>
+              <cv-input
+                type="text"
+                size="small"
+                name="cardExpMonth"
+                .value=${this.model.cardExpMonth()}
+                @cv-input=${this.onCardExpMonthInput}
+                ?invalid=${Boolean(cardExpMonthError)}
+              ></cv-input>
               ${cardExpMonthError
-                ? html`<span slot="help-text" class="field-error">${cardExpMonthError}</span>`
+                ? html`<span slot="error" class="field-error">${cardExpMonthError}</span>`
                 : nothing}
-            </cv-input>
+            </cv-field>
           </div>
           <div class="field-cell">
-            <cv-input
-              type="text"
-              size="small"
-              name="cardExpYear"
-              placeholder="YY"
-              maxlength=${2}
-              autocomplete="cc-exp-year"
-              .value=${this.model.cardExpYear()}
-              @cv-input=${this.onCardExpYearInput}
-              ?invalid=${Boolean(cardExpYearError)}
-            >
+            <cv-field ?invalid=${Boolean(cardExpYearError)}>
               <span slot="label">${i18n('payment-card:exp-year')}</span>
+              <cv-input
+                type="text"
+                size="small"
+                name="cardExpYear"
+                placeholder="YY"
+                maxlength=${2}
+                autocomplete="cc-exp-year"
+                .value=${this.model.cardExpYear()}
+                @cv-input=${this.onCardExpYearInput}
+                ?invalid=${Boolean(cardExpYearError)}
+              ></cv-input>
               ${cardExpYearError
-                ? html`<span slot="help-text" class="field-error">${cardExpYearError}</span>`
+                ? html`<span slot="error" class="field-error">${cardExpYearError}</span>`
                 : nothing}
-            </cv-input>
+            </cv-field>
           </div>
           <div class="field-cell">
-            <cv-input
-              type="text"
-              size="small"
-              name="cardCvv"
-              .value=${this.model.cardCvv()}
-              @cv-input=${this.onCardCvvInput}
-            >
+            <cv-field>
               <span slot="label">CVV</span>
-            </cv-input>
+              <cv-input
+                type="text"
+                size="small"
+                name="cardCvv"
+                .value=${this.model.cardCvv()}
+                @cv-input=${this.onCardCvvInput}
+              ></cv-input>
+            </cv-field>
           </div>
         </div>
       </div>
@@ -614,41 +619,44 @@ export class PMEntryCreateDesktop extends PMEntryCreateBase {
               <span class="avatar-edit-badge"><cv-icon name="pencil"></cv-icon></span>
             </div>
             <div class="field-cell">
-              <cv-input
-                id="entry-create-title"
-                class="title-input"
-                type="text"
-                size="small"
-                name="title"
-                required
-                autocomplete="card-title"
-                placeholder=${i18n('title:placeholder')}
-                .value=${this.model.title()}
-                @cv-input=${this.onTitleInput}
-                ?invalid=${Boolean(titleError)}
-              >
-                ${titleError ? html`<span slot="help-text" class="field-error">${titleError}</span>` : nothing}
-              </cv-input>
+              <cv-field ?invalid=${Boolean(titleError)} required>
+                <cv-input
+                  id="entry-create-title"
+                  class="title-input"
+                  type="text"
+                  size="small"
+                  name="title"
+                  required
+                  autocomplete="card-title"
+                  placeholder=${i18n('title:placeholder')}
+                  .value=${this.model.title()}
+                  @cv-input=${this.onTitleInput}
+                  ?invalid=${Boolean(titleError)}
+                ></cv-input>
+                ${titleError ? html`<span slot="error" class="field-error">${titleError}</span>` : nothing}
+              </cv-field>
             </div>
           </div>
           ${entryType === 'login'
             ? html`
                 <div class="field-cell">
-                  <cv-input
-                    id="urls"
-                    type="text"
-                    size="small"
-                    name="urls"
-                    autocomplete="url"
-                    placeholder=${i18n('website:placeholder')}
-                    .value=${this.model.website()}
-                    @cv-input=${this.onUrlsInput}
-                    ?invalid=${Boolean(websiteError)}
-                  >
+                  <cv-field ?invalid=${Boolean(websiteError)}>
                     <span slot="label">${i18n('website:title')}</span>
-                    <cv-icon slot="prefix" class="field-icon" name="globe"></cv-icon>
-                    ${websiteError ? html`<span slot="help-text" class="field-error">${websiteError}</span>` : nothing}
-                  </cv-input>
+                    <cv-input
+                      id="urls"
+                      type="text"
+                      size="small"
+                      name="urls"
+                      autocomplete="url"
+                      placeholder=${i18n('website:placeholder')}
+                      .value=${this.model.website()}
+                      @cv-input=${this.onUrlsInput}
+                      ?invalid=${Boolean(websiteError)}
+                    >
+                      <cv-icon slot="prefix" class="field-icon" name="globe"></cv-icon>
+                    </cv-input>
+                    ${websiteError ? html`<span slot="error" class="field-error">${websiteError}</span>` : nothing}
+                  </cv-field>
                 </div>
               `
             : nothing}
@@ -669,20 +677,22 @@ export class PMEntryCreateDesktop extends PMEntryCreateBase {
         </div>
         <div class="credentials-desktop-grid">
           <div class="field-cell">
-            <cv-input
-              type="text"
-              size="small"
-              name="username"
-              autocomplete="username"
-              placeholder=${i18n('username:placeholder')}
-              .value=${this.model.username()}
-              @cv-input=${this.onUsernameInput}
-              ?invalid=${Boolean(usernameError)}
-            >
+            <cv-field ?invalid=${Boolean(usernameError)}>
               <span slot="label">${i18n('username')}</span>
-              <cv-icon slot="prefix" class="field-icon" name="person-circle"></cv-icon>
-              ${usernameError ? html`<span slot="help-text" class="field-error">${usernameError}</span>` : nothing}
-            </cv-input>
+              <cv-input
+                type="text"
+                size="small"
+                name="username"
+                autocomplete="username"
+                placeholder=${i18n('username:placeholder')}
+                .value=${this.model.username()}
+                @cv-input=${this.onUsernameInput}
+                ?invalid=${Boolean(usernameError)}
+              >
+                <cv-icon slot="prefix" class="field-icon" name="person-circle"></cv-icon>
+              </cv-input>
+              ${usernameError ? html`<span slot="error" class="field-error">${usernameError}</span>` : nothing}
+            </cv-field>
           </div>
           <div class="field-cell password-row">
             <div class="password-action-bar">
@@ -698,23 +708,25 @@ export class PMEntryCreateDesktop extends PMEntryCreateBase {
                 <span>${i18n('button:generate')}</span>
               </cv-button>
             </div>
-            <cv-input
-              id="password"
-              type="password"
-              size="small"
-              name="password"
-              autocomplete="password"
-              placeholder=${i18n('password:placeholder')}
-              password-toggle
-              .value=${this.model.password()}
-              @cv-input=${this.onPasswordInput}
-              ?editing=${this.model.isEditingPassword()}
-              ?invalid=${Boolean(passwordError)}
-            >
+            <cv-field ?invalid=${Boolean(passwordError)}>
               <span slot="label">${i18n('password')}</span>
-              <cv-icon slot="prefix" class="field-icon" name="lock"></cv-icon>
-              ${passwordError ? html`<span slot="help-text" class="field-error">${passwordError}</span>` : nothing}
-            </cv-input>
+              <cv-input
+                id="password"
+                type="password"
+                size="small"
+                name="password"
+                autocomplete="password"
+                placeholder=${i18n('password:placeholder')}
+                password-toggle
+                .value=${this.model.password()}
+                @cv-input=${this.onPasswordInput}
+                ?editing=${this.model.isEditingPassword()}
+                ?invalid=${Boolean(passwordError)}
+              >
+                <cv-icon slot="prefix" class="field-icon" name="lock"></cv-icon>
+              </cv-input>
+              ${passwordError ? html`<span slot="error" class="field-error">${passwordError}</span>` : nothing}
+            </cv-field>
             ${this.renderStrengthBar()}
           </div>
         </div>
@@ -735,16 +747,17 @@ export class PMEntryCreateDesktop extends PMEntryCreateBase {
         </div>
         <div class="details-grid">
           <div class="field-cell note-cell">
-            <cv-textarea
-              size="small"
-              name="note"
-              placeholder=${i18n('note:placeholder')}
-              rows="4"
-              .value=${this.model.note()}
-              @cv-input=${this.onNoteInput}
-            >
+            <cv-field>
               <span slot="label">${i18n('note:title')}</span>
-            </cv-textarea>
+              <cv-textarea
+                size="small"
+                name="note"
+                placeholder=${i18n('note:placeholder')}
+                rows="4"
+                .value=${this.model.note()}
+                @cv-input=${this.onNoteInput}
+              ></cv-textarea>
+            </cv-field>
           </div>
         </div>
       </div>

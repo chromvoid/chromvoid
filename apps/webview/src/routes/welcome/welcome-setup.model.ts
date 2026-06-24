@@ -18,6 +18,8 @@ import {
   RpcError,
   mapVaultUnlockError,
   tauriRpc,
+  type VaultRepairApplyResponse,
+  type VaultRepairDiagnosisResponse,
   type PasswordStrengthFeedback,
 } from './welcome-rpc'
 import type {NetworkPairedPeer} from '../remote/remote.model'
@@ -242,15 +244,30 @@ export class WelcomeSetupModel {
       writeAndroidUnlockDebug('welcome', 'onUnlock:vault:unlock start')
       await wrap(tauriRpc('vault:unlock', {password: pwd}))
       writeAndroidUnlockDebug('welcome', 'onUnlock:vault:unlock success')
-      getAppContext().state.update({StorageOpened: true})
-      writeAndroidUnlockDebug('welcome', 'onUnlock:state updated', {
-        storageOpened: true,
-      })
+      this.markStorageOpened()
     } catch (error) {
       console.error(error)
       writeAndroidUnlockDebug('welcome', 'onUnlock:error', {
         code: error instanceof RpcError ? error.code : null,
       })
+      if (error instanceof RpcError && error.code === 'CATALOG_REPAIR_REQUIRED') {
+        try {
+          const repaired = await this.tryRepairAndUnlock(pwd)
+          if (repaired) {
+            this.markStorageOpened()
+            return
+          }
+          return
+        } catch (repairError) {
+          console.error(repairError)
+          const errorMessage =
+            repairError instanceof RpcError
+              ? mapVaultUnlockError(repairError.code, i18n('welcome:unable-access-vault'))
+              : i18n('welcome:unable-access-vault')
+          this.shared.setBusy(false, errorMessage)
+          return
+        }
+      }
       const errorMessage =
         error instanceof RpcError
           ? mapVaultUnlockError(error.code, i18n('welcome:unable-access-vault'))
@@ -258,8 +275,69 @@ export class WelcomeSetupModel {
       this.shared.setBusy(false, errorMessage)
     } finally {
       this.setupInProgress.set(false)
-      this.shared.setBusy(false)
+      this.shared.setBusy(false, this.shared.errorText())
     }
+  }
+
+  private async tryRepairAndUnlock(password: string): Promise<boolean> {
+    writeAndroidUnlockDebug('welcome', 'onUnlock:repair diagnose start')
+    const diagnosis = await wrap(
+      tauriRpc<VaultRepairDiagnosisResponse>('vault:repair:diagnose', {password}),
+    )
+    writeAndroidUnlockDebug('welcome', 'onUnlock:repair diagnose done', {
+      status: diagnosis.status,
+      issues: diagnosis.issues.length,
+    })
+
+    if (!diagnosis.repair_id) {
+      throw new RpcError('Catalog repair state changed', 'CATALOG_REPAIR_STALE')
+    }
+
+    const allowLossy = diagnosis.lossy_requires_confirm
+    if (allowLossy) {
+      const confirmed = await wrap(
+        dialogService.showConfirmDialog({
+          title: i18n('welcome:catalog-repair-title'),
+          message: this.catalogRepairMessage(diagnosis),
+          confirmText: i18n('welcome:catalog-repair-confirm'),
+          confirmVariant: 'danger',
+        }),
+      )
+      if (!confirmed) {
+        writeAndroidUnlockDebug('welcome', 'onUnlock:repair cancelled')
+        return false
+      }
+    }
+
+    writeAndroidUnlockDebug('welcome', 'onUnlock:repair apply start')
+    const response = await wrap(
+      tauriRpc<VaultRepairApplyResponse>('vault:repair:apply', {
+        password,
+        repair_id: diagnosis.repair_id,
+        allow_lossy: allowLossy,
+      }),
+    )
+    writeAndroidUnlockDebug('welcome', 'onUnlock:repair apply done', {
+      unlocked: response.unlocked,
+    })
+    return response.unlocked
+  }
+
+  private catalogRepairMessage(diagnosis: VaultRepairDiagnosisResponse): string {
+    const issue = diagnosis.issues[0]
+    if (!issue) return i18n('welcome:catalog-repair-message')
+    return i18n('welcome:catalog-repair-message-with-seq', {
+      seq: String(issue.failure.seq),
+      path: issue.failure.path,
+      safeSeq: String(issue.safe_through_seq),
+    })
+  }
+
+  private markStorageOpened(): void {
+    getAppContext().state.update({StorageOpened: true})
+    writeAndroidUnlockDebug('welcome', 'onUnlock:state updated', {
+      storageOpened: true,
+    })
   }
 
   onSelectLocalMode = () => {
@@ -294,12 +372,24 @@ export class WelcomeSetupModel {
     this.setupStep.set('remote-pair')
   }
 
+  onOpenRemoteUsb = (): void => {
+    this.shared.clearError()
+    this.remote.openUsbMobile({scan: true})
+    this.setupStep.set('remote-connect')
+  }
+
   onBackFromRemoteConnect = () => {
     void this.backFromRemoteConnect()
   }
 
   onBackFromRemotePair = () => {
     void this.backFromRemotePair()
+  }
+
+  onBackFromRemoteUsb = (): void => {
+    this.shared.clearError()
+    this.remote.showHosts()
+    this.setupStep.set('remote-connect')
   }
 
   onBackFromRemoteWait = () => {

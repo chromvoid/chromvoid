@@ -1,5 +1,4 @@
 import {ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
-import {getDeepActiveElement, lockGalleryBodyScroll} from './image-gallery-document-effects'
 import {ImageGalleryViewerModel} from './gallery-viewer.model'
 import type {GalleryCloseReason, GalleryImage, ImageViewerAction} from './gallery.types'
 
@@ -28,9 +27,7 @@ export class ImageGalleryBase extends ReatomLitElement {
   declare sharePending: boolean
 
   protected model = new ImageGalleryViewerModel()
-  protected previousFocus: HTMLElement | null = null
   private gallerySetupActive = false
-  private releaseBodyScrollLock: (() => void) | null = null
 
   constructor() {
     super()
@@ -79,8 +76,6 @@ export class ImageGalleryBase extends ReatomLitElement {
       return false
     }
 
-    this.previousFocus = this.capturePreviousFocus()
-    this.releaseBodyScrollLock = lockGalleryBodyScroll()
     this.model.open(this.images, this.currentIndex)
     this.gallerySetupActive = true
     this.afterGallerySetup()
@@ -93,27 +88,9 @@ export class ImageGalleryBase extends ReatomLitElement {
     }
 
     this.beforeGalleryTeardown()
-    this.releaseBodyScrollLock?.()
-    this.releaseBodyScrollLock = null
     this.model.close()
-    this.restorePreviousFocus(this.previousFocus)
-    this.previousFocus = null
     this.gallerySetupActive = false
     return true
-  }
-
-  protected capturePreviousFocus(): HTMLElement | null {
-    return getDeepActiveElement()
-  }
-
-  protected restorePreviousFocus(element: HTMLElement | null): void {
-    if (!element || typeof element.focus !== 'function') {
-      return
-    }
-
-    try {
-      element.focus()
-    } catch {}
   }
 
   protected afterGallerySetup() {}

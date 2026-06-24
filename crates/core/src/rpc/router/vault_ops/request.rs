@@ -14,6 +14,37 @@ impl<'a> VaultUnlockRequest<'a> {
     }
 }
 
+pub(super) struct VaultRepairDiagnoseRequest<'a> {
+    pub(super) password: &'a str,
+}
+
+impl<'a> VaultRepairDiagnoseRequest<'a> {
+    pub(super) fn parse(data: &'a Value) -> VaultOpsResult<Self> {
+        Ok(Self {
+            password: required_str(data, "password")?,
+        })
+    }
+}
+
+pub(super) struct VaultRepairApplyRequest<'a> {
+    pub(super) password: &'a str,
+    pub(super) repair_id: &'a str,
+    pub(super) allow_lossy: bool,
+}
+
+impl<'a> VaultRepairApplyRequest<'a> {
+    pub(super) fn parse(data: &'a Value) -> VaultOpsResult<Self> {
+        Ok(Self {
+            password: required_str(data, "password")?,
+            repair_id: required_str(data, "repair_id")?,
+            allow_lossy: data
+                .get("allow_lossy")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false),
+        })
+    }
+}
+
 pub(super) struct VaultRekeyRpcRequest<'a> {
     pub(super) current_password: &'a str,
     pub(super) new_password: &'a str,

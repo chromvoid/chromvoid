@@ -31,7 +31,9 @@ async function tauriRpc<T = unknown>(command: string, data: Record<string, unkno
 }
 
 function resolveRemotePeerId(host: RemoteHost): string | null {
-  return host.type === 'tauri_remote_wss' ? host.peer_id : null
+  if (host.type === 'tauri_remote_wss') return host.peer_id
+  if (host.type === 'mobile_usb') return host.host_id
+  return null
 }
 
 class RemoteSessionModel {

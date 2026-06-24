@@ -1,8 +1,10 @@
 package com.chromvoid.app
 
 import android.annotation.SuppressLint
+import android.app.ComponentCaller
 import android.content.Intent
 import android.graphics.drawable.ColorDrawable
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
@@ -16,6 +18,7 @@ import com.chromvoid.app.main.AndroidKeyboardInsetsBridge
 import com.chromvoid.app.main.MainActivityCoordinator
 import com.chromvoid.app.main.StartupSplashController
 import com.chromvoid.app.nativebridge.AndroidShareImportNativeShell
+import com.chromvoid.app.nativebridge.MobileUsbAccessoryForegroundRuntime
 import com.chromvoid.app.nativebridge.NativeUploadNativeShell
 import com.chromvoid.app.nativebridge.SafBackupNativeShell
 import kotlin.math.roundToInt
@@ -26,6 +29,7 @@ class MainActivity : TauriActivity() {
     private val androidShareBridge = AndroidShareBridge()
     private val keyboardInsetsBridge = AndroidKeyboardInsetsBridge()
     private var webView: WebView? = null
+    private var suppressLegacyNewIntentHandling = false
     private lateinit var startupSplashController: StartupSplashController
     private lateinit var coordinator: MainActivityCoordinator
     private val mediaLocationPermissionLauncher =
@@ -59,6 +63,7 @@ class MainActivity : TauriActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         val launchIntent = Intent(intent)
         logStartup("activity.onCreate.begin", "savedState=${savedInstanceState != null}")
+        MobileUsbAccessoryForegroundRuntime.handleIntent(applicationContext, launchIntent)
         window.setBackgroundDrawable(ColorDrawable(StartupSplashController.BACKGROUND_COLOR))
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -84,7 +89,7 @@ class MainActivity : TauriActivity() {
                 bridgeGateway = graph.bridgeGateway,
                 passwordSaveRequestStore = graph.passwordSaveRequestStore,
                 passwordSaveReviewController = graph.passwordSaveReviewController,
-            )
+        )
         coordinator.consumePasswordSavePayload(launchIntent)
         onBackPressedDispatcher.addCallback(this, appBackCallback)
         logStartup("activity.onCreate.end")
@@ -113,6 +118,7 @@ class MainActivity : TauriActivity() {
     override fun onResume() {
         super.onResume()
         logStartup("activity.onResume")
+        MobileUsbAccessoryForegroundRuntime.handleCurrentAccessory(applicationContext)
         coordinator.dispatchPendingPasswordSaveToWebView(webView)
         AndroidShareImportNativeShell.dispatchPending(webView)
     }
@@ -120,10 +126,24 @@ class MainActivity : TauriActivity() {
     override fun onNewIntent(intent: Intent) {
         val incomingIntent = Intent(intent)
         super.onNewIntent(incomingIntent)
-        setIntent(incomingIntent)
-        coordinator.consumePasswordSavePayload(incomingIntent)
-        coordinator.dispatchPendingPasswordSaveToWebView(webView)
-        AndroidShareImportNativeShell.dispatchPending(webView)
+        if (!suppressLegacyNewIntentHandling) {
+            handleIncomingIntent(incomingIntent)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent, caller: ComponentCaller) {
+        val incomingIntent = Intent(intent)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            suppressLegacyNewIntentHandling = true
+            try {
+                super.onNewIntent(incomingIntent, caller)
+            } finally {
+                suppressLegacyNewIntentHandling = false
+            }
+            handleIncomingIntent(incomingIntent)
+        } else {
+            super.onNewIntent(incomingIntent, caller)
+        }
     }
 
     override fun onDestroy() {
@@ -145,6 +165,14 @@ class MainActivity : TauriActivity() {
         val elapsedMs = SystemClock.uptimeMillis() - startupTimelineStartedAtMs
         val suffix = if (detail.isNullOrBlank()) "" else " | $detail"
         Log.d(STARTUP_LOG_TAG, "t+${elapsedMs}ms $label$suffix")
+    }
+
+    private fun handleIncomingIntent(incomingIntent: Intent) {
+        setIntent(incomingIntent)
+        coordinator.consumePasswordSavePayload(incomingIntent)
+        MobileUsbAccessoryForegroundRuntime.handleIntent(applicationContext, incomingIntent)
+        coordinator.dispatchPendingPasswordSaveToWebView(webView)
+        AndroidShareImportNativeShell.dispatchPending(webView)
     }
 
     private inner class StartupSplashBridge {

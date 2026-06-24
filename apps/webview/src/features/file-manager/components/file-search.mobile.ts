@@ -128,10 +128,6 @@ export class FileSearchMobile extends FileSearchBase {
       position: fixed;
     }
 
-    cv-bottom-sheet::part(trigger) {
-      display: none;
-    }
-
     cv-bottom-sheet::part(body) {
       padding: 16px 20px;
       padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));

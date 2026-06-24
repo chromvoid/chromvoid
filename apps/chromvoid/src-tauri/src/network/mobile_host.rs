@@ -656,10 +656,7 @@ pub async fn resume_android_host_mode_if_enabled(
 
     let status = android_status(&runtime, &acceptor_runtime)?;
     let acceptor = mobile_acceptor::get_status(&acceptor_runtime)?;
-    let acceptor_active = matches!(
-        acceptor.state,
-        mobile_acceptor::AcceptorState::Listening | mobile_acceptor::AcceptorState::Connected
-    ) && acceptor.relay_url.as_deref() == Some(relay_url);
+    let acceptor_active = android_acceptor_active_for_relay(&acceptor, relay_url);
 
     if acceptor_active && has_effective_ready_presence(status.presence.as_ref()) {
         return Ok(Some(status));
@@ -669,6 +666,15 @@ pub async fn resume_android_host_mode_if_enabled(
         return publish_android_presence_inner(runtime, acceptor_runtime, relay_url, storage_root)
             .await
             .map(Some);
+    }
+
+    if should_skip_android_host_resume_for_busy_acceptor(&acceptor, relay_url) {
+        info!(
+            "mobile_host: skipping android host mode resume while mobile acceptor is busy state={:?} relay_url={:?}",
+            acceptor.state,
+            acceptor.relay_url
+        );
+        return Ok(Some(status));
     }
 
     let room_id = generate_room_id_for("android_resume_host_mode");
@@ -684,6 +690,31 @@ pub async fn resume_android_host_mode_if_enabled(
     publish_android_presence_inner(runtime, acceptor_runtime, relay_url, storage_root)
         .await
         .map(Some)
+}
+
+fn android_acceptor_active_for_relay(
+    acceptor: &mobile_acceptor::AcceptorStatus,
+    relay_url: &str,
+) -> bool {
+    matches!(
+        acceptor.state,
+        mobile_acceptor::AcceptorState::Listening
+            | mobile_acceptor::AcceptorState::Handshaking
+            | mobile_acceptor::AcceptorState::Connected
+    ) && acceptor.relay_url.as_deref() == Some(relay_url)
+}
+
+fn should_skip_android_host_resume_for_busy_acceptor(
+    acceptor: &mobile_acceptor::AcceptorStatus,
+    relay_url: &str,
+) -> bool {
+    let acceptor_busy = matches!(
+        acceptor.state,
+        mobile_acceptor::AcceptorState::Listening
+            | mobile_acceptor::AcceptorState::Handshaking
+            | mobile_acceptor::AcceptorState::Connected
+    );
+    acceptor_busy && !android_acceptor_active_for_relay(acceptor, relay_url)
 }
 
 #[cfg(target_os = "android")]
@@ -1220,6 +1251,40 @@ mod tests {
             .responder_task
             .has_task_for_test("Android host responder mutex poisoned")
             .expect("responder task status"));
+    }
+
+    #[test]
+    fn android_host_resume_skips_busy_direct_acceptor() {
+        let acceptor = mobile_acceptor::AcceptorStatus {
+            state: mobile_acceptor::AcceptorState::Listening,
+            connected_peers: Vec::new(),
+            relay_url: None,
+            room_id: Some("android-usb:device-1".to_string()),
+        };
+
+        assert!(should_skip_android_host_resume_for_busy_acceptor(
+            &acceptor,
+            "wss://relay.test",
+        ));
+    }
+
+    #[test]
+    fn android_host_resume_keeps_matching_relay_acceptor_active() {
+        let acceptor = mobile_acceptor::AcceptorStatus {
+            state: mobile_acceptor::AcceptorState::Listening,
+            connected_peers: Vec::new(),
+            relay_url: Some("wss://relay.test".to_string()),
+            room_id: Some("room-wss".to_string()),
+        };
+
+        assert!(android_acceptor_active_for_relay(
+            &acceptor,
+            "wss://relay.test",
+        ));
+        assert!(!should_skip_android_host_resume_for_busy_acceptor(
+            &acceptor,
+            "wss://relay.test",
+        ));
     }
 
     #[test]

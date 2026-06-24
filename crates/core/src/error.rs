@@ -1,5 +1,6 @@
 //! Error types for ChromVoid Core
 
+use crate::catalog::CatalogDeltaReplayFailure;
 use thiserror::Error;
 
 #[cfg(feature = "ts-bindings")]
@@ -20,6 +21,9 @@ pub enum Error {
 
     #[error("Invalid data format: {0}")]
     InvalidDataFormat(String),
+
+    #[error("Invalid data format: {0}")]
+    CatalogDeltaReplayFailed(CatalogDeltaReplayFailure),
 
     // Keystore / portable pepper (ADR-010 / ADR-012)
     #[error("Keystore unavailable: {0}")]
@@ -67,6 +71,15 @@ pub enum Error {
     #[error("Vault not unlocked")]
     VaultNotUnlocked,
 
+    #[error("Catalog repair required: {0}")]
+    CatalogRepairRequired(String),
+
+    #[error("Catalog repair unsafe: {0}")]
+    CatalogRepairUnsafe(String),
+
+    #[error("Catalog repair diagnosis is stale")]
+    CatalogRepairStale,
+
     #[error("Vault already unlocked")]
     VaultAlreadyUnlocked,
 
@@ -112,6 +125,9 @@ pub enum ErrorCode {
     VaultRequired,
     VaultAlreadyUnlocked,
     VaultNotUnlocked,
+    CatalogRepairRequired,
+    CatalogRepairUnsafe,
+    CatalogRepairStale,
     RekeyAlreadyInProgress,
     RekeyInvalidCurrentPassword,
     RekeyPasswordPolicy,
@@ -221,6 +237,9 @@ impl ErrorCode {
             Self::VaultRequired => "VAULT_REQUIRED",
             Self::VaultAlreadyUnlocked => "VAULT_ALREADY_UNLOCKED",
             Self::VaultNotUnlocked => "VAULT_NOT_UNLOCKED",
+            Self::CatalogRepairRequired => "CATALOG_REPAIR_REQUIRED",
+            Self::CatalogRepairUnsafe => "CATALOG_REPAIR_UNSAFE",
+            Self::CatalogRepairStale => "CATALOG_REPAIR_STALE",
             Self::RekeyAlreadyInProgress => "REKEY_ALREADY_IN_PROGRESS",
             Self::RekeyInvalidCurrentPassword => "REKEY_INVALID_CURRENT_PASSWORD",
             Self::RekeyPasswordPolicy => "REKEY_PASSWORD_POLICY",

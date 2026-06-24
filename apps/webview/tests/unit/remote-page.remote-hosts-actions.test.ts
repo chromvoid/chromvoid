@@ -1,5 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
+import {atom} from '@reatom/core'
 import {navigationModel} from '../../src/app/navigation/navigation.model'
 import {RemotePageModel} from '../../src/routes/remote/remote-page.model'
 import type {NetworkPairedPeer} from '../../src/routes/remote/remote.model'
@@ -11,6 +12,7 @@ describe('RemotePage remote hosts side effects', () => {
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
     navigationModel.disconnect()
   })
 
@@ -27,9 +29,37 @@ describe('RemotePage remote hosts side effects', () => {
     expect(model.remoteHosts.openPairIos).toHaveBeenCalledTimes(1)
     expect(navigateSpy).toHaveBeenCalledWith('pair-ios')
 
+    model.remoteHosts.openUsbMobile = vi.fn()
+    model.openUsbMobile()
+    expect(model.remoteHosts.openUsbMobile).toHaveBeenCalledTimes(1)
+    expect(model.remoteHosts.openUsbMobile).toHaveBeenCalledWith({scan: true})
+    expect(navigateSpy).toHaveBeenCalledWith('usb-mobile')
+
     model.backToHosts()
     expect(model.remoteHosts.closePairIos).toHaveBeenCalledTimes(1)
     expect(navigateSpy).toHaveBeenCalledWith('hosts', 'replace')
+  })
+
+  it('keeps usb-mobile panel selected during RemotePage sync', () => {
+    const model = new RemotePageModel() as any
+    const view = atom<'hosts' | 'pair-ios' | 'wait' | 'usb-mobile'>('hosts')
+    model.remoteHosts = {
+      view,
+      openPairIos: vi.fn(() => view.set('pair-ios')),
+      openUsbMobile: vi.fn(() => view.set('usb-mobile')),
+      showHosts: vi.fn(() => view.set('hosts')),
+    }
+
+    navigationModel.snapshot.set({
+      surface: 'remote',
+      remote: {panel: 'usb-mobile'},
+      overlay: {kind: 'none'},
+    })
+    model.syncRemoteHostsPanel()
+
+    expect(model.remoteHosts.openUsbMobile).toHaveBeenCalledTimes(1)
+    expect(model.remoteHosts.showHosts).not.toHaveBeenCalled()
+    expect(view()).toBe('usb-mobile')
   })
 
   it('still emits a success toast after removing a paired host', async () => {

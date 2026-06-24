@@ -1,4 +1,9 @@
 import {syncPasswordInputDialogKeyboardOffset} from '../../shared/services/mobile-dialog-keyboard-stabilization'
+import {
+  MOBILE_KEYBOARD_EXPANDED_ATTR,
+  VISUAL_VIEWPORT_SHRUNK_ATTR,
+  setMobileKeyboardOccluding,
+} from './mobile-keyboard/keyboard-occlusion.model'
 
 export const ANDROID_KEYBOARD_INSETS_EVENT = 'chromvoid:android-keyboard-insets-changed'
 export const IOS_KEYBOARD_INSETS_EVENT = 'chromvoid:ios-keyboard-insets-changed'
@@ -114,8 +119,8 @@ export const applyMobileKeyboardInsetsPayload = (
   const usesNativeResize = usesIOSNativeInsets && viewportMode === 'native-resize'
   const keyboardVisible = payload.visible || bottomInset > 0
 
-
-  root.toggleAttribute('data-mobile-keyboard-expanded', keyboardVisible)
+  root.toggleAttribute(MOBILE_KEYBOARD_EXPANDED_ATTR, keyboardVisible)
+  setMobileKeyboardOccluding(keyboardVisible || root.hasAttribute(VISUAL_VIEWPORT_SHRUNK_ATTR))
   root.toggleAttribute(NATIVE_KEYBOARD_INSETS_ATTR, usesNativeKeyboardInsets && keyboardVisible)
   root.toggleAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR, usesAndroidNativeInsets && keyboardVisible)
   root.toggleAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR, usesIOSNativeInsets && keyboardVisible)

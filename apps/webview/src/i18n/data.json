@@ -4468,9 +4468,269 @@
     "en": "Pair Mobile Host",
     "ru": "Сопрячь mobile-хост"
   },
+  "remote:usb-mobile-title": {
+    "en": "USB Mobile",
+    "ru": "USB Mobile"
+  },
+  "remote:usb-mobile-desc": {
+    "en": "Connect to a paired mobile host over USB/AOA only.",
+    "ru": "Подключение к сопряженному mobile-хосту только через USB/AOA."
+  },
+  "remote:usb-mobile-entry-title": {
+    "en": "Connect via USB",
+    "ru": "Подключиться через USB"
+  },
+  "remote:usb-mobile-entry-desc": {
+    "en": "Use USB/AOA with one Android mobile host. Connect the phone by cable, grant the Android USB prompt, then scan here.",
+    "ru": "Используйте USB/AOA с одним Android mobile-хостом. Подключите телефон кабелем, подтвердите Android USB-разрешение и запустите сканирование здесь."
+  },
+  "remote:usb-mobile-entry-action": {
+    "en": "Connect via USB",
+    "ru": "Подключиться через USB"
+  },
+  "remote:usb-mobile-status": {
+    "en": "USB status",
+    "ru": "Статус USB"
+  },
+  "remote:transport-available": {
+    "en": "Available transport",
+    "ru": "Доступный транспорт"
+  },
+  "remote:transport-usb-mobile": {
+    "en": "USB Mobile",
+    "ru": "USB Mobile"
+  },
+  "remote:transport-android-aoa": {
+    "en": "Android AOA",
+    "ru": "Android AOA"
+  },
+  "remote:transport-ios-external-accessory": {
+    "en": "iOS External Accessory",
+    "ru": "iOS External Accessory"
+  },
+  "remote:transport-wss-relay": {
+    "en": "WSS Relay",
+    "ru": "WSS Relay"
+  },
+  "remote:transport-network-fallback": {
+    "en": "Network fallback",
+    "ru": "Network fallback"
+  },
+  "remote:transport-none": {
+    "en": "None",
+    "ru": "Нет"
+  },
+  "remote:network-fallback-enabled": {
+    "en": "Network fallback enabled",
+    "ru": "Network fallback включен"
+  },
+  "remote:network-fallback-disabled": {
+    "en": "No network fallback",
+    "ru": "Без network fallback"
+  },
+  "remote:usb-mobile-device": {
+    "en": "USB device",
+    "ru": "USB-устройство"
+  },
+  "remote:usb-mobile-scan": {
+    "en": "Scan USB",
+    "ru": "Сканировать USB"
+  },
+  "remote:usb-mobile-session": {
+    "en": "Session",
+    "ru": "Сессия"
+  },
+  "remote:usb-mobile-active-host": {
+    "en": "Active host",
+    "ru": "Активный хост"
+  },
+  "remote:usb-mobile-paired-hosts": {
+    "en": "Paired hosts",
+    "ru": "Сопряжённые хосты"
+  },
+  "remote:usb-mobile-scan-results": {
+    "en": "Scan results",
+    "ru": "Результаты сканирования"
+  },
+  "remote:usb-mobile-busy": {
+    "en": "USB operation in progress",
+    "ru": "USB-операция выполняется"
+  },
+  "remote:usb-mobile-busy-refresh": {
+    "en": "Refreshing USB status",
+    "ru": "Обновляем USB-статус"
+  },
+  "remote:usb-mobile-busy-scan": {
+    "en": "Scanning USB devices",
+    "ru": "Сканируем USB-устройства"
+  },
+  "remote:usb-mobile-busy-load-paired": {
+    "en": "Loading paired USB hosts",
+    "ru": "Загружаем сопряжённые USB-хосты"
+  },
+  "remote:usb-mobile-busy-pair": {
+    "en": "Pairing over USB",
+    "ru": "Сопрягаем по USB"
+  },
+  "remote:usb-mobile-busy-connect": {
+    "en": "Connecting over USB",
+    "ru": "Подключаемся по USB"
+  },
+  "remote:usb-mobile-busy-disconnect": {
+    "en": "Disconnecting USB session",
+    "ru": "Отключаем USB-сессию"
+  },
+  "remote:usb-mobile-busy-remove": {
+    "en": "Removing USB pairing",
+    "ru": "Удаляем USB-сопряжение"
+  },
+  "remote:usb-mobile-error-code": {
+    "en": "USB error: ${code}",
+    "ru": "Ошибка USB: ${code}"
+  },
+  "remote:usb-mobile-pair": {
+    "en": "Pair",
+    "ru": "Сопрячь"
+  },
+  "remote:usb-mobile-pair-device": {
+    "en": "Pair ${label}",
+    "ru": "Сопрячь ${label}"
+  },
+  "remote:usb-mobile-connect-host": {
+    "en": "Connect ${label}",
+    "ru": "Подключить ${label}"
+  },
+  "remote:usb-mobile-remove-host": {
+    "en": "Remove ${label}",
+    "ru": "Удалить ${label}"
+  },
+  "remote:usb-mobile-list-paired": {
+    "en": "List paired",
+    "ru": "Показать сопряжённые"
+  },
+  "remote:usb-mobile-dismiss-error": {
+    "en": "Dismiss error",
+    "ru": "Скрыть ошибку"
+  },
+  "remote:usb-mobile-state-unsupported": {
+    "en": "Unsupported",
+    "ru": "Не поддерживается"
+  },
+  "remote:usb-mobile-state-idle": {
+    "en": "Idle",
+    "ru": "Ожидание"
+  },
+  "remote:usb-mobile-state-scanning": {
+    "en": "Scanning",
+    "ru": "Сканирование"
+  },
+  "remote:usb-mobile-state-unpaired": {
+    "en": "Unpaired device found",
+    "ru": "Найдено несопряжённое устройство"
+  },
+  "remote:usb-mobile-state-paired": {
+    "en": "Paired host available",
+    "ru": "Сопряжённый хост доступен"
+  },
+  "remote:usb-mobile-state-pairing": {
+    "en": "Pairing",
+    "ru": "Сопряжение"
+  },
+  "remote:usb-mobile-state-connecting": {
+    "en": "Connecting",
+    "ru": "Подключение"
+  },
+  "remote:usb-mobile-state-waiting-host-unlock": {
+    "en": "Waiting for host unlock",
+    "ru": "Ожидание разблокировки хоста"
+  },
+  "remote:usb-mobile-state-recovery": {
+    "en": "Recovery needed",
+    "ru": "Требуется восстановление"
+  },
+  "remote:usb-mobile-classification-unpaired": {
+    "en": "Unpaired",
+    "ru": "Не сопряжено"
+  },
+  "remote:usb-mobile-classification-paired": {
+    "en": "Paired",
+    "ru": "Сопряжено"
+  },
+  "remote:usb-mobile-classification-broken": {
+    "en": "Broken local state",
+    "ru": "Повреждено локальное состояние"
+  },
+  "remote:usb-mobile-classification-ambiguous": {
+    "en": "Ambiguous discovery",
+    "ru": "Неоднозначное обнаружение"
+  },
+  "remote:usb-mobile-recovery-hide": {
+    "en": "USB entry should stay hidden",
+    "ru": "USB-вход должен оставаться скрытым"
+  },
+  "remote:usb-mobile-recovery-retry": {
+    "en": "Retry the current USB action",
+    "ru": "Повторите текущее USB-действие"
+  },
+  "remote:usb-mobile-recovery-scan": {
+    "en": "Scan again after reconnecting or granting permission",
+    "ru": "Повторите сканирование после переподключения или выдачи разрешения"
+  },
+  "remote:usb-mobile-recovery-wait": {
+    "en": "Wait for the current operation",
+    "ru": "Дождитесь текущей операции"
+  },
+  "remote:usb-mobile-recovery-list-paired": {
+    "en": "List paired hosts before choosing an action",
+    "ru": "Покажите сопряжённые хосты перед выбором действия"
+  },
+  "remote:usb-mobile-recovery-pair": {
+    "en": "Pair this host first",
+    "ru": "Сначала сопрягите этот хост"
+  },
+  "remote:usb-mobile-recovery-connect": {
+    "en": "Connect the existing paired host",
+    "ru": "Подключите существующий сопряжённый хост"
+  },
+  "remote:usb-mobile-recovery-remove": {
+    "en": "Remove the stale local record and pair again",
+    "ru": "Удалите устаревшую локальную запись и сопрягите снова"
+  },
+  "remote:usb-mobile-recovery-disconnect": {
+    "en": "Disconnect before retrying",
+    "ru": "Отключитесь перед повтором"
+  },
+  "remote:usb-mobile-recovery-unlock": {
+    "en": "Unlock the mobile host",
+    "ru": "Разблокируйте mobile-хост"
+  },
+  "remote:usb-mobile-recovery-ignore": {
+    "en": "Ignore the stale unlock event",
+    "ru": "Игнорируйте устаревшее событие разблокировки"
+  },
+  "remote:usb-mobile-recovery-read-only": {
+    "en": "Continue read-only until the writer lock clears",
+    "ru": "Продолжайте чтение до освобождения writer lock"
+  },
   "remote:mobile-host-title": {
     "en": "${platform} Remote Host",
     "ru": "Удалённый хост ${platform}"
+  },
+  "remote:mobile-host-usb-title": {
+    "en": "USB Mobile Host",
+    "ru": "USB Mobile Host"
+  },
+  "remote:mobile-host-usb-desc": {
+    "en": "USB/AOA is ready on this Android device. Connect the cable, grant the USB prompt, then pair from the desktop USB Mobile flow.",
+    "ru": "USB/AOA готово на этом Android-устройстве. Подключите кабель, подтвердите запрос USB-разрешения и выполните сопряжение в USB Mobile на компьютере."
+  },
+  "remote:mobile-host-usb-waiting": {
+    "en": "Waiting for USB accessory",
+    "ru": "Ожидание USB-аксессуара"
+  },
+  "remote:mobile-host-usb-connected": {
+    "en": "USB connected",
+    "ru": "USB подключён"
   },
   "remote:platform-android": {
     "en": "Android",
@@ -5935,6 +6195,22 @@
   "welcome:unable-access-vault": {
     "en": "Unable to access vault",
     "ru": "Не удалось получить доступ к хранилищу"
+  },
+  "welcome:catalog-repair-title": {
+    "en": "Repair Vault Catalog",
+    "ru": "Восстановление каталога хранилища"
+  },
+  "welcome:catalog-repair-message": {
+    "en": "ChromVoid can repair the vault catalog and then open the vault. Older encrypted chunks will be preserved.",
+    "ru": "ChromVoid может восстановить каталог хранилища и затем открыть его. Старые зашифрованные chunks будут сохранены."
+  },
+  "welcome:catalog-repair-message-with-seq": {
+    "en": "ChromVoid can repair the vault catalog by keeping changes through seq ${safeSeq} and skipping the failing change at seq ${seq} (${path}). Older encrypted chunks will be preserved.",
+    "ru": "ChromVoid может восстановить каталог хранилища, сохранив изменения до seq ${safeSeq} и пропустив сбойное изменение seq ${seq} (${path}). Старые зашифрованные chunks будут сохранены."
+  },
+  "welcome:catalog-repair-confirm": {
+    "en": "Repair and Open",
+    "ru": "Восстановить и открыть"
   },
   "welcome:restore-cancel-request-failed": {
     "en": "Failed to request restore cancellation",

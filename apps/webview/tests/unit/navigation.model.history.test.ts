@@ -216,6 +216,18 @@ describe('NavigationModel history sync', () => {
     expect(pairUrl).toContain('surface=remote')
     expect(pairUrl).toContain('panel=pair-ios')
     expect(pairUrl).not.toContain('surface=network-pair')
+
+    const usbUrl = encodeNavigationSnapshotToUrl(
+      {
+        surface: 'remote',
+        remote: {panel: 'usb-mobile'},
+        overlay: {kind: 'none'},
+      },
+      window.location.href,
+    )
+
+    expect(usbUrl).toContain('surface=remote')
+    expect(usbUrl).toContain('panel=usb-mobile')
   })
 
   it('restores the previously opened passwords row after durable route back', () => {

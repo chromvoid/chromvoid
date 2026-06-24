@@ -97,17 +97,18 @@ export function renderMobileUsernameField(context: PMEntryMobileRenderContext) {
       ${data.canEditFields && data.isEditingEntry
         ? html`
             <div class="field-content inline-editor">
-              <cv-input
-                class="inline-field-input"
-                name="inline-username"
-                data-inline-field="username"
-                .value=${model.inlineUsername()}
-                @cv-input=${ui.handleInlineEditInput}
-                @keydown=${ui.handleInlineEditorKeyDown}
-                size="small"
-              >
+              <cv-field>
                 <span slot="label">${i18n('username')}</span>
-              </cv-input>
+                <cv-input
+                  class="inline-field-input"
+                  name="inline-username"
+                  data-inline-field="username"
+                  .value=${model.inlineUsername()}
+                  @cv-input=${ui.handleInlineEditInput}
+                  @keydown=${ui.handleInlineEditorKeyDown}
+                  size="small"
+                ></cv-input>
+              </cv-field>
             </div>
           `
         : html`
@@ -156,19 +157,20 @@ export function renderMobilePasswordField(context: PMEntryMobileRenderContext) {
         ? html`
             <div class="field-content inline-editor">
               <div class="password-inline-stack">
-                <cv-input
-                  class="inline-field-input"
-                  type="password"
-                  password-toggle
-                  name="inline-password"
-                  data-inline-field="password"
-                  .value=${model.inlinePassword()}
-                  @cv-input=${ui.handleInlineEditInput}
-                  @keydown=${ui.handleInlineEditorKeyDown}
-                  size="small"
-                >
+                <cv-field>
                   <span slot="label">${i18n('password')}</span>
-                </cv-input>
+                  <cv-input
+                    class="inline-field-input"
+                    type="password"
+                    password-toggle
+                    name="inline-password"
+                    data-inline-field="password"
+                    .value=${model.inlinePassword()}
+                    @cv-input=${ui.handleInlineEditInput}
+                    @keydown=${ui.handleInlineEditorKeyDown}
+                    size="small"
+                  ></cv-input>
+                </cv-field>
                 <div class="password-inline-tools">
                   <cv-button unstyled
                     class="generator-toggle-button"

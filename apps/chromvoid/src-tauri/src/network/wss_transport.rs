@@ -47,6 +47,8 @@ pub struct WssTransport {
             tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
         >,
     >,
+    context: String,
+    room_id: String,
 }
 
 impl WssTransport {
@@ -99,33 +101,81 @@ impl WssTransport {
             "WSS relay transport connected: context={} room_id={} url={}",
             context, room_id, url
         );
-        Ok(Self { tx, rx })
+        Ok(Self {
+            tx,
+            rx,
+            context: context.to_string(),
+            room_id: room_id.to_string(),
+        })
     }
 }
 
 #[async_trait]
 impl RemoteTransport for WssTransport {
     async fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
-        self.tx
-            .send(Message::Binary(data.to_vec().into()))
-            .await
-            .map_err(|e| TransportError::Io(format!("WSS send: {}", e)))
+        info!(
+            "WSS relay transport send:start context={} room_id={} len={}",
+            self.context,
+            self.room_id,
+            data.len()
+        );
+        match self.tx.send(Message::Binary(data.to_vec().into())).await {
+            Ok(()) => {
+                info!(
+                    "WSS relay transport send:done context={} room_id={} len={}",
+                    self.context,
+                    self.room_id,
+                    data.len()
+                );
+                Ok(())
+            }
+            Err(e) => {
+                warn!(
+                    "WSS relay transport send:failed context={} room_id={} len={} error={}",
+                    self.context,
+                    self.room_id,
+                    data.len(),
+                    e
+                );
+                Err(TransportError::Io(format!("WSS send: {}", e)))
+            }
+        }
     }
 
     async fn recv(&mut self) -> Result<Vec<u8>, TransportError> {
         loop {
             match self.rx.next().await {
-                Some(Ok(Message::Binary(data))) => return Ok(data.to_vec()),
+                Some(Ok(Message::Binary(data))) => {
+                    info!(
+                        "WSS relay transport recv:binary context={} room_id={} len={}",
+                        self.context,
+                        self.room_id,
+                        data.len()
+                    );
+                    return Ok(data.to_vec());
+                }
                 Some(Ok(Message::Close(close_frame))) => {
+                    warn!(
+                        "WSS relay transport recv:close context={} room_id={}",
+                        self.context, self.room_id
+                    );
                     return Err(TransportError::Io(close_frame_error(close_frame)));
                 }
                 None => {
+                    warn!(
+                        "WSS relay transport recv:closed context={} room_id={}",
+                        self.context, self.room_id
+                    );
                     return Err(TransportError::Io(
                         "wss peer disconnected without close frame".to_string(),
                     ));
                 }
                 Some(Ok(_)) => continue, // skip text/ping/pong
                 Some(Err(e)) => {
+                    warn!(
+                        "WSS relay transport recv:failed context={} room_id={} error={}",
+                        self.context, self.room_id, e
+                    );
                     return Err(TransportError::Io(format!("WSS recv: {}", e)));
                 }
             }
@@ -133,6 +183,10 @@ impl RemoteTransport for WssTransport {
     }
 
     async fn close(&mut self) -> Result<(), TransportError> {
+        info!(
+            "WSS relay transport close:start context={} room_id={}",
+            self.context, self.room_id
+        );
         self.tx
             .send(Message::Close(None))
             .await

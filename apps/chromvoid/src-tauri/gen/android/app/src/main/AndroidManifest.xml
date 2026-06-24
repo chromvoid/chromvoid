@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
@@ -10,6 +11,7 @@
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.usb.accessory" android:required="false" />
 
     <application
         android:icon="@mipmap/ic_launcher"
@@ -30,6 +32,16 @@
                 <!-- AndroidTV support -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED" />
+                <action android:name="android.hardware.usb.action.USB_ACCESSORY_HANDSHAKE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED"
+                android:resource="@xml/mobile_usb_accessory_filter" />
+            <meta-data
+                android:name="android.hardware.usb.action.USB_ACCESSORY_HANDSHAKE"
+                android:resource="@xml/mobile_usb_accessory_filter" />
         </activity>
 
         <activity
@@ -64,7 +76,27 @@
 
         <service
             android:name=".ConnectionForegroundService"
+            android:foregroundServiceType="connectedDevice"
             android:exported="false" />
+
+        <receiver
+            android:name=".MobileUsbAccessoryReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.chromvoid.app.action.USB_ACCESSORY_PERMISSION" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".MobileUsbAccessorySystemReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.chromvoid.app.action.USB_ACCESSORY_DEBUG_HANDSHAKE" />
+                <action android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED" />
+                <action android:name="android.hardware.usb.action.USB_ACCESSORY_HANDSHAKE" />
+                <action android:name="android.hardware.usb.action.USB_ACCESSORY_DETACHED" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".MediaPlaybackForegroundService"

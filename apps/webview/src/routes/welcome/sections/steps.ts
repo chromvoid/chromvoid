@@ -4,7 +4,7 @@ import {i18n} from 'root/i18n'
 
 import {remoteHostsFlowStyles} from 'root/routes/remote/remote-hosts-flow.styles'
 import {
-  renderRemoteHostsPanel,
+  renderRemoteHostsFlowPanel,
   renderRemotePairPanel,
   renderRemoteWaitPanel,
 } from 'root/routes/remote/remote-hosts-flow.render'
@@ -338,17 +338,23 @@ export class WelcomeSetupSection extends ReatomLitElement {
     const isDesktopRemoteSupported = this.model.isDesktopRemoteSupported()
 
     if (setupStep === 'remote-connect') {
-      return renderRemoteHostsPanel({
+      return renderRemoteHostsFlowPanel({
         model: this.model.remote,
         actions: {
           onOpenPairIos: this.model.onOpenRemotePair,
+          onOpenUsbMobile: this.model.onOpenRemoteUsb,
           onConnectPeer: this.model.onConnectRemotePeer,
           onRemovePeer: this.model.onRemoveRemotePeer,
+          onBackToHosts: this.model.onBackFromRemoteUsb,
         },
         ui: {
           hostsBackLink: {
             label: isNeedInit ? i18n('welcome:back-mode-selection') : i18n('welcome:back-unlock-screen'),
             onBack: this.model.onBackFromRemoteConnect,
+          },
+          pairBackLink: {
+            label: i18n('welcome:back-remote-hosts'),
+            onBack: this.model.onBackFromRemoteUsb,
           },
         },
       })

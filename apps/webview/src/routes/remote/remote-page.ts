@@ -75,6 +75,7 @@ export class RemotePage extends ReatomLitElement {
       remoteHostsActions: {
         onRefreshPeers: model.refreshRemotePeers,
         onOpenPairIos: model.openPairIos,
+        onOpenUsbMobile: model.openUsbMobile,
         onBackToHosts: model.backToHosts,
         onConnectPeer: model.connectRemotePeer,
         onRemovePeer: model.removeRemotePeer,

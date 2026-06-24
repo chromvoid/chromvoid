@@ -1,5 +1,5 @@
 /**
- * Device state types (OrangePI/ChromVoid hardware)
+ * Device state types (ChromVoid hardware)
  *
  * These types describe the physical device state from chromvoidfs API.
  * NOT part of Rust core — maintained as TypeScript-only.
