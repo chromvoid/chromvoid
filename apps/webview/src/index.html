@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html loading>
+<html lang="en" dir="ltr" loading>
 
 <head>
   <meta charset="UTF-8" />
@@ -9,18 +9,19 @@
   />
   <meta http-equiv="X-UA-Compatible" content="ie=edge" />
   <meta http-equiv="Pragma" content="no-cache" />
-  <link rel="icon" href="./assets/favicon.png" type="image/png">
+  <link rel="icon" href="./assets/chromvoid-icon.svg" type="image/svg">
   <meta http-equiv="Cache-control" content="no-cache, no-store, must-revalidate" />
 
   <title>ChromVoid - Your Data - Your Rules!</title>
   <meta name="description" content="Most private file storage">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost; media-src 'self' blob: asset: chromvoid-media: http://asset.localhost; font-src 'self' data:; connect-src 'self' data: ipc: http://ipc.localhost http://chromvoid.local ws://localhost:4400 ws://127.0.0.1:4400 ws://localhost:4410 ws://127.0.0.1:4410 ws://*:4410; worker-src 'self' blob:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob: asset: chromvoid-preview: http://asset.localhost; media-src 'self' blob: asset: chromvoid-preview: chromvoid-media: http://asset.localhost http://127.0.0.1:*; font-src 'self' data:; connect-src 'self' data: ipc: http://ipc.localhost http://chromvoid.local http://127.0.0.1:* ws://localhost:4400 ws://127.0.0.1:4400 ws://localhost:4410 ws://127.0.0.1:4410 ws://*:4410; worker-src 'self' blob:;">
+  <script src="./assets/bootstrap/document-locale.js"></script>
   <style>
     html[loading],
     html[loading] body {
       min-height: 100%;
       margin: 0;
-      background: var(--cv-color-splash-bg, black);
+      background: var(--splash-screen-background, black);
     }
 
     html[loading] body {
@@ -41,7 +42,7 @@
       <img
         class="splash-logo__image"
         data-splash-logo-image
-        src="./assets/icon.png"
+        src="./assets/chromvoid-icon.svg"
         alt=""
         decoding="sync"
         fetchpriority="high"

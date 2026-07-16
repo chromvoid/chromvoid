@@ -112,6 +112,22 @@ impl PrivyFilesystem {
             flags,
             "FUSE rename: resolved parent paths"
         );
+
+        // Restore branch: Finder moves entries out of its visible Trash path.
+        let reply = match self.rename_restore_from_trash(
+            parent,
+            newparent,
+            newname_str,
+            node_id,
+            &src_parent_path,
+            &dest_parent_path,
+            flags,
+            reply,
+        ) {
+            Some(r) => r,
+            None => return,
+        };
+
         // Trash branch.
         let reply = match self.rename_trash(
             parent,

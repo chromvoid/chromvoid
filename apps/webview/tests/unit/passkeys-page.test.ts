@@ -3,11 +3,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {setLang as setAppLang} from '../../src/i18n'
 import {PasskeysPage} from '../../src/routes/passkeys/passkeys-page'
-import {
-  groupAndroidPasskeys,
-  passkeysPageModel,
-  type AndroidPasskeySummary,
-} from '../../src/routes/passkeys/passkeys.model'
+import {groupPasskeys, passkeysPageModel, type PasskeySummary} from '../../src/routes/passkeys/passkeys.model'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 import {dialogService} from '../../src/shared/services/dialog'
 
@@ -27,28 +23,27 @@ function ensureDefined() {
   defined = true
 }
 
-function enableAndroidTauriRuntime() {
+function enablePasskeysTauriRuntime(platform: 'android' | 'ios' | 'macos' = 'android') {
+  const mobile = platform !== 'macos'
   vi.stubGlobal('__TAURI_INTERNALS__', {invoke: vi.fn()})
   setRuntimeCapabilities({
-    platform: 'android',
-    mobile: true,
+    platform,
+    desktop: !mobile,
+    mobile,
     supports_autofill: true,
     supports_credential_provider_passkeys_lite: true,
   })
 }
 
 function resetPasskeysState() {
-  passkeysPageModel.androidPasskeys.set([])
-  passkeysPageModel.androidPasskeysLoading.set(false)
-  passkeysPageModel.androidPasskeysError.set(null)
-  passkeysPageModel.androidPasskeyDeletingCredentialId.set(null)
-  passkeysPageModel.androidPasskeyExpandedGroupKeys.set(new Set<string>())
+  passkeysPageModel.passkeys.set([])
+  passkeysPageModel.passkeysLoading.set(false)
+  passkeysPageModel.passkeysError.set(null)
+  passkeysPageModel.passkeyDeletingCredentialId.set(null)
+  passkeysPageModel.passkeyExpandedGroupKeys.set(new Set<string>())
 }
 
-function passkey(
-  credentialIdB64Url: string,
-  params: Partial<AndroidPasskeySummary> = {},
-): AndroidPasskeySummary {
+function passkey(credentialIdB64Url: string, params: Partial<PasskeySummary> = {}): PasskeySummary {
   return {
     credentialIdB64Url,
     rpId: 'github.com',
@@ -97,7 +92,7 @@ describe('Provider passkeys page', () => {
   })
 
   it('groups duplicate vault passkeys by rp and account label with newest credential first', () => {
-    const groups = groupAndroidPasskeys([
+    const groups = groupPasskeys([
       passkey('stale', {
         userName: 'kaifat',
         userDisplayName: 'Kaifat',
@@ -118,7 +113,7 @@ describe('Provider passkeys page', () => {
   })
 
   it('keeps different accounts on the same relying party in separate groups', () => {
-    const groups = groupAndroidPasskeys([
+    const groups = groupPasskeys([
       passkey('alice', {userName: 'alice', userDisplayName: 'Alice'}),
       passkey('bob', {userName: 'bob', userDisplayName: 'Bob'}),
     ])
@@ -128,7 +123,7 @@ describe('Provider passkeys page', () => {
   })
 
   it('does not merge blank account labels across credentials', () => {
-    const groups = groupAndroidPasskeys([
+    const groups = groupPasskeys([
       passkey('blank-a', {userName: '', userDisplayName: ''}),
       passkey('blank-b', {userName: '', userDisplayName: ''}),
     ])
@@ -138,47 +133,54 @@ describe('Provider passkeys page', () => {
   })
 
   it('loads provider passkeys only when passkeys-lite runtime is available', async () => {
-    enableAndroidTauriRuntime()
+    enablePasskeysTauriRuntime()
     tauriInvoke.mockResolvedValue({
       ok: true,
       result: {passkeys: [passkey('cred-1')]},
     })
 
-    await passkeysPageModel.refreshAndroidPasskeys()
+    await passkeysPageModel.refreshPasskeys()
 
-    expect(passkeysPageModel.androidPasskeys()).toHaveLength(1)
-    expect(passkeysPageModel.androidPasskeys()[0]?.credentialIdB64Url).toBe('cred-1')
+    expect(passkeysPageModel.passkeys()).toHaveLength(1)
+    expect(passkeysPageModel.passkeys()[0]?.credentialIdB64Url).toBe('cred-1')
     expect(tauriInvoke).toHaveBeenCalledWith('credential_provider_passkeys_list')
 
     tauriInvoke.mockClear()
     vi.unstubAllGlobals()
     setRuntimeCapabilities({platform: 'ios', mobile: true, supports_autofill: true})
-    await passkeysPageModel.refreshAndroidPasskeys()
+    await passkeysPageModel.refreshPasskeys()
 
-    expect(passkeysPageModel.androidPasskeys()).toEqual([])
+    expect(passkeysPageModel.passkeys()).toEqual([])
     expect(tauriInvoke).not.toHaveBeenCalled()
 
     tauriInvoke.mockResolvedValue({
       ok: true,
       result: {passkeys: [passkey('ios-cred-1')]},
     })
-    vi.stubGlobal('__TAURI_INTERNALS__', {invoke: vi.fn()})
-    setRuntimeCapabilities({
-      platform: 'ios',
-      mobile: true,
-      supports_autofill: true,
-      supports_credential_provider_passkeys_lite: true,
+    enablePasskeysTauriRuntime('ios')
+
+    await passkeysPageModel.refreshPasskeys()
+
+    expect(passkeysPageModel.passkeys()[0]?.credentialIdB64Url).toBe('ios-cred-1')
+    expect(tauriInvoke).toHaveBeenCalledWith('credential_provider_passkeys_list')
+  })
+
+  it('loads provider passkeys on supported macOS desktop runtimes', async () => {
+    enablePasskeysTauriRuntime('macos')
+    tauriInvoke.mockResolvedValue({
+      ok: true,
+      result: {passkeys: [passkey('macos-cred-1')]},
     })
 
-    await passkeysPageModel.refreshAndroidPasskeys()
+    await passkeysPageModel.refreshPasskeys()
 
-    expect(passkeysPageModel.androidPasskeys()[0]?.credentialIdB64Url).toBe('ios-cred-1')
+    expect(passkeysPageModel.passkeys()[0]?.credentialIdB64Url).toBe('macos-cred-1')
     expect(tauriInvoke).toHaveBeenCalledWith('credential_provider_passkeys_list')
   })
 
   it('ignores stale passkey list refresh completions', async () => {
-    enableAndroidTauriRuntime()
-    const firstRefresh = deferred<{ok: true; result: {passkeys: AndroidPasskeySummary[]}}>()
+    enablePasskeysTauriRuntime()
+    const firstRefresh = deferred<{ok: true; result: {passkeys: PasskeySummary[]}}>()
     let listCalls = 0
     tauriInvoke.mockImplementation((cmd: string) => {
       if (cmd === 'unlock_debug_log') return Promise.resolve({ok: true, result: null})
@@ -191,26 +193,22 @@ describe('Provider passkeys page', () => {
       throw new Error(`Unexpected command: ${cmd}`)
     })
 
-    const first = passkeysPageModel.refreshAndroidPasskeys()
-    expect(passkeysPageModel.androidPasskeysLoading()).toBe(true)
+    const first = passkeysPageModel.refreshPasskeys()
+    expect(passkeysPageModel.passkeysLoading()).toBe(true)
 
-    await passkeysPageModel.refreshAndroidPasskeys({showLoading: false})
-    expect(passkeysPageModel.androidPasskeys().map((item) => item.credentialIdB64Url)).toEqual([
-      'fresh',
-    ])
+    await passkeysPageModel.refreshPasskeys({showLoading: false})
+    expect(passkeysPageModel.passkeys().map((item) => item.credentialIdB64Url)).toEqual(['fresh'])
 
     firstRefresh.resolve({ok: true, result: {passkeys: [passkey('stale')]}})
     await first
 
-    expect(passkeysPageModel.androidPasskeys().map((item) => item.credentialIdB64Url)).toEqual([
-      'fresh',
-    ])
-    expect(passkeysPageModel.androidPasskeysLoading()).toBe(false)
+    expect(passkeysPageModel.passkeys().map((item) => item.credentialIdB64Url)).toEqual(['fresh'])
+    expect(passkeysPageModel.passkeysLoading()).toBe(false)
   })
 
   it('deletes a confirmed vault-backed passkey and refreshes the list', async () => {
-    enableAndroidTauriRuntime()
-    passkeysPageModel.androidPasskeys.set([passkey('cred-1')])
+    enablePasskeysTauriRuntime()
+    passkeysPageModel.passkeys.set([passkey('cred-1')])
     vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(true)
     tauriInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'credential_provider_passkey_delete') return {ok: true, result: {deleted: true}}
@@ -232,19 +230,20 @@ describe('Provider passkeys page', () => {
       credentialId: 'cred-1',
     })
     expect(tauriInvoke).toHaveBeenCalledWith('credential_provider_passkeys_list')
-    expect(passkeysPageModel.androidPasskeys()).toEqual([])
+    expect(passkeysPageModel.passkeys()).toEqual([])
   })
 
   it('deletes a vault duplicate with the vault delete contract', async () => {
-    enableAndroidTauriRuntime()
-    passkeysPageModel.androidPasskeys.set([
+    enablePasskeysTauriRuntime()
+    passkeysPageModel.passkeys.set([
       passkey('stale', {createdAtEpochMs: 10}),
       passkey('fresh', {createdAtEpochMs: 20}),
     ])
     vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(true)
     tauriInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'credential_provider_passkey_delete') return {ok: true, result: {deleted: true}}
-      if (cmd === 'credential_provider_passkeys_list') return {ok: true, result: {passkeys: [passkey('fresh')]}}
+      if (cmd === 'credential_provider_passkeys_list')
+        return {ok: true, result: {passkeys: [passkey('fresh')]}}
       throw new Error(`Unexpected command: ${cmd}`)
     })
 
@@ -256,12 +255,12 @@ describe('Provider passkeys page', () => {
     expect(tauriInvoke).toHaveBeenCalledWith('credential_provider_passkey_delete', {
       credentialId: 'stale',
     })
-    expect(passkeysPageModel.androidPasskeys().map((item) => item.credentialIdB64Url)).toEqual(['fresh'])
+    expect(passkeysPageModel.passkeys().map((item) => item.credentialIdB64Url)).toEqual(['fresh'])
   })
 
   it('keeps passkeys visible when vault delete fails', async () => {
-    enableAndroidTauriRuntime()
-    passkeysPageModel.androidPasskeys.set([passkey('cred-1')])
+    enablePasskeysTauriRuntime()
+    passkeysPageModel.passkeys.set([passkey('cred-1')])
     vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(true)
     tauriInvoke.mockResolvedValue({
       ok: false,
@@ -271,18 +270,18 @@ describe('Provider passkeys page', () => {
 
     await passkeysPageModel.deletePasskey('cred-1')
 
-    expect(passkeysPageModel.androidPasskeys()).toHaveLength(1)
-    expect(passkeysPageModel.androidPasskeysError()).toBe('Core delete failed')
+    expect(passkeysPageModel.passkeys()).toHaveLength(1)
+    expect(passkeysPageModel.passkeysError()).toBe('Core delete failed')
     expect(tauriInvoke).toHaveBeenCalledWith('credential_provider_passkey_delete', {
       credentialId: 'cred-1',
     })
   })
 
-  it('renders grouped Android passkeys and reveals duplicates', async () => {
+  it('renders grouped vault passkeys and reveals duplicates', async () => {
     ensureDefined()
-    enableAndroidTauriRuntime()
+    enablePasskeysTauriRuntime()
     vi.spyOn(passkeysPageModel, 'load').mockResolvedValue()
-    passkeysPageModel.androidPasskeys.set([
+    passkeysPageModel.passkeys.set([
       passkey('stale-credential-id-000001', {
         createdAtEpochMs: 10,
         lastUsedEpochMs: 1_000,
@@ -294,12 +293,10 @@ describe('Provider passkeys page', () => {
     ])
 
     const page = document.createElement('passkeys-page') as PasskeysPage
-    page.hideBackLink = true
     document.body.appendChild(page)
     await waitForPasskeysPage(page)
 
     let text = (page.shadowRoot?.textContent ?? '').replace(/\s+/g, ' ')
-    expect(text).toContain('Passkeys')
     expect(text).toContain('What is a passkey?')
     expect(text).toContain('public/private key pair')
     expect(text).toContain('Vault-backed passkeys')
@@ -307,6 +304,7 @@ describe('Provider passkeys page', () => {
     expect(text).toContain('kaifat')
     expect(text).toContain('github.com')
     expect(text).toContain('1 duplicate credentials')
+    expect(text).toContain('Deleting a vault passkey')
     expect(text).not.toContain('Credential stale-cr...000001')
 
     const toggle = [...(page.shadowRoot?.querySelectorAll('cv-button') ?? [])].find((button) =>
@@ -323,12 +321,11 @@ describe('Provider passkeys page', () => {
 
   it('renders no-passkeys state through the shared empty state component', async () => {
     ensureDefined()
-    enableAndroidTauriRuntime()
+    enablePasskeysTauriRuntime()
     vi.spyOn(passkeysPageModel, 'load').mockResolvedValue()
-    passkeysPageModel.androidPasskeys.set([])
+    passkeysPageModel.passkeys.set([])
 
     const page = document.createElement('passkeys-page') as PasskeysPage
-    page.hideBackLink = true
     document.body.appendChild(page)
     await waitForPasskeysPage(page)
 
@@ -337,10 +334,16 @@ describe('Provider passkeys page', () => {
 
     expect(emptyState?.getAttribute('icon')).toBe('octicons:passkey-fill')
     expect(emptyState?.hasAttribute('icon-fill')).toBe(true)
-    expect(emptyState?.getAttribute('headline')).toBe('No vault-backed passkeys are stored.')
+    expect(emptyState?.getAttribute('headline')).toBe('No passkeys yet')
+    expect(emptyState?.getAttribute('description')).toContain(
+      'Start passkey creation from a supported website or app',
+    )
+    expect(emptyState?.getAttribute('description')).toContain(
+      'choose ChromVoid in the system Credential Provider interface',
+    )
     expect(page.shadowRoot?.querySelector('cv-guidance-anchor[anchor-id="passkeys.manage"]')).not.toBeNull()
     expect(text).toContain('What is a passkey?')
-    expect(text).toContain('Deleting a vault passkey')
+    expect(text).not.toContain('Deleting a vault passkey')
   })
 
   it('does not invoke native passkey commands without Tauri runtime', async () => {
@@ -350,25 +353,22 @@ describe('Provider passkeys page', () => {
       mobile: true,
       supports_autofill: true,
     })
-    passkeysPageModel.androidPasskeys.set([passkey('cred-1')])
+    passkeysPageModel.passkeys.set([passkey('cred-1')])
 
     const page = document.createElement('passkeys-page') as PasskeysPage
-    page.hideBackLink = true
     document.body.appendChild(page)
     await waitForPasskeysPage(page)
 
     const text = page.shadowRoot?.textContent ?? ''
-    expect(text).toContain('Passkeys')
-    expect(text).toContain('available in the Android app')
+    expect(text).toContain('supported Credential Provider runtimes')
     expect(page.shadowRoot?.querySelector('cv-empty-state')).toBeNull()
     expect(tauriInvoke).not.toHaveBeenCalled()
   })
 
-  it('hides only the local header when rendered with an external toolbar', async () => {
+  it('renders page content without a local header', async () => {
     ensureDefined()
 
     const page = document.createElement('passkeys-page') as PasskeysPage
-    page.externalToolbar = true
     document.body.append(page)
     await waitForPasskeysPage(page)
 

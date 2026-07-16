@@ -91,12 +91,19 @@ export class VideoPreview extends ReatomLitElement {
     })
   }
 
-  private handleVideoElementReady() {
-    this.model.handleVideoElementReady()
+  private handleVideoElementReady(event?: Event) {
+    const video = event?.currentTarget instanceof HTMLVideoElement ? event.currentTarget : undefined
+    this.model.handleVideoElementReady(video)
   }
 
-  private handleVideoElementError() {
-    this.model.handleVideoElementError()
+  private handleVideoElementError(event?: Event) {
+    const video = event?.currentTarget instanceof HTMLVideoElement ? event.currentTarget : undefined
+    this.model.handleVideoElementError(video)
+  }
+
+  private handleVideoPlaybackEvent(event: Event) {
+    if (!(event.currentTarget instanceof HTMLVideoElement)) return
+    this.model.handleVideoPlaybackEvent(event.currentTarget)
   }
 
   private handleRetry() {
@@ -153,6 +160,11 @@ export class VideoPreview extends ReatomLitElement {
                   @loadedmetadata=${this.handleVideoElementReady}
                   @canplay=${this.handleVideoElementReady}
                   @error=${this.handleVideoElementError}
+                  @progress=${this.handleVideoPlaybackEvent}
+                  @timeupdate=${this.handleVideoPlaybackEvent}
+                  @seeking=${this.handleVideoPlaybackEvent}
+                  @seeked=${this.handleVideoPlaybackEvent}
+                  @playing=${this.handleVideoPlaybackEvent}
                   @click=${this.handleClick}
                 ></video>
               `

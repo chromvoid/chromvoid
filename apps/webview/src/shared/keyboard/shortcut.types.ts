@@ -8,7 +8,6 @@ export type KeyboardShortcutPlatform =
   | 'unknown'
 
 export type KeyboardShortcutId =
-  | 'app.commandPalette.open'
   | 'app.vault.lock'
   | 'nav.files'
   | 'nav.passwords'

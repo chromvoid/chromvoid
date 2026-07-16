@@ -1,4 +1,4 @@
-import {atom} from '@reatom/core'
+import {atom, wrap} from '@reatom/core'
 
 const DEFAULT_ANIMATION_MS = 280
 const COMPLETION_ANIMATION_MS = 120
@@ -130,10 +130,7 @@ export class AnimatedTransferValueModel {
     const eased = easeOutCubic(ratio)
 
     this.progress.set(
-      Math.min(
-        this.targetProgress,
-        this.startProgress + (this.targetProgress - this.startProgress) * eased,
-      ),
+      Math.min(this.targetProgress, this.startProgress + (this.targetProgress - this.startProgress) * eased),
     )
     this.loadedBytes.set(
       Math.min(
@@ -153,11 +150,14 @@ export class AnimatedTransferValueModel {
 
   private scheduleFrame(): void {
     if (typeof requestAnimationFrame === 'function') {
-      this.rafId = requestAnimationFrame(this.step)
+      this.rafId = requestAnimationFrame(wrap((timestamp) => this.step(timestamp)))
       return
     }
 
-    this.timeoutId = setTimeout(() => this.step(nowMs()), 16)
+    this.timeoutId = setTimeout(
+      wrap(() => this.step(nowMs())),
+      16,
+    )
   }
 
   private cancelFrame(): void {

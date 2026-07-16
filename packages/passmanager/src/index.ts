@@ -39,6 +39,9 @@ export type {
   ManagerSaver,
   OTPOptions,
   OTPGetParams,
+  OTPPreviewParams,
+  OTPPreviewResult,
+  OTPSaveSettings,
   UrlMatch,
   UrlRule,
   PassManagerRootV2,
@@ -51,9 +54,20 @@ export type {
   PassManagerRootV3OTP,
   PassManagerRootV3Encoding,
   PassManagerRootV3FolderMeta,
+  PassManagerRootV4,
+  PassManagerSshKey,
+  SshKeygenParams,
+  SshKeygenResult,
   PassManagerSaveEntryMetaPayload,
 } from './service/types'
-export type {CredentialTagKey, CredentialTagLabel, CredentialTagOption} from './service/tags'
+export type {
+  CredentialTagCatalogMeta,
+  CredentialTagColorId,
+  CredentialTagKey,
+  CredentialTagLabel,
+  CredentialTagMeta,
+  CredentialTagOption,
+} from './service/tags'
 export type {IEntry, SshKeyEntry, SshKeyType} from './service/types'
 export type {Algorithm, Encoding, OTPType, IEntryExternal} from './service/types'
 export type {IGroup} from './service/root'
@@ -65,6 +79,7 @@ export {DEFAULT_OPTIONS} from './service/entry'
 export {OTP} from './service/otp'
 export {
   parseOtpAuthUri,
+  type OtpAuthUriMetadata,
   type OtpAuthUriParseErrorCode,
   type OtpAuthUriParseResult,
 } from './service/otp-auth-uri'

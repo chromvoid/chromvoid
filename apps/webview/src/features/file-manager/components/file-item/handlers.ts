@@ -1,5 +1,6 @@
 import type {FileItemData, ViewMode} from 'root/shared/contracts/file-manager'
 import {getAppContext} from 'root/shared/services/app-context'
+import {hasTouchFirstPointer} from 'root/utils/input-capabilities'
 
 import {getFileManagerModel} from '../../file-manager.model'
 import {FileItemModel, type SwipeFinishResult} from '../../models/file-item.model'
@@ -19,9 +20,6 @@ type EmitFileItemEvent = <T>(type: FileItemEventType, detail: T, options?: boole
 export interface TouchDragDropBinding {
   destroy: () => void
 }
-
-const isTouchDevice = (): boolean =>
-  typeof window !== 'undefined' && !!window.matchMedia?.('(hover: none) and (pointer: coarse)')?.matches
 
 export const emitItemClick = (
   model: FileItemModel,
@@ -164,7 +162,7 @@ export const setupTouchDragDrop = (params: {
   model: FileItemModel
   onTouchDragStateChange?: (value: boolean) => void
 }) => {
-  if (!isTouchDevice()) return undefined
+  if (!hasTouchFirstPointer()) return undefined
   if (!params.dragHandle) return undefined
 
   let pointerId: number | null = null
@@ -233,7 +231,7 @@ export const applySwipeMoveVisual = (shadowRoot: ShadowRoot | null, offset: numb
   swipeContainer.classList.toggle('swipe-left', offset < 0)
   fileItem.classList.add('swiping')
   fileItem.classList.remove('snap-back')
-  fileItem.style.setProperty('--file-item-swipe-offset', `${offset}px`)
+  fileItem.style.setProperty('--_file-item-swipe-offset', `${offset}px`)
   const progress = Math.min(1, Math.abs(offset) / FileItemModel.SWIPE_ACTION_WIDTH)
   fileItem.style.opacity = String(1 - progress * 0.12)
 }
@@ -251,17 +249,17 @@ export const applySwipeFinishVisual = (
   fileItem.style.opacity = '1'
 
   if (finish.state === 'open-left') {
-    fileItem.style.setProperty('--file-item-swipe-offset', `-${FileItemModel.SWIPE_ACTION_WIDTH}px`)
+    fileItem.style.setProperty('--_file-item-swipe-offset', `-${FileItemModel.SWIPE_ACTION_WIDTH}px`)
     swipeContainer?.classList.add('swipe-left')
     swipeContainer?.classList.remove('swipe-right')
     swipeContainer?.classList.add('swipe-active')
   } else if (finish.state === 'open-right') {
-    fileItem.style.setProperty('--file-item-swipe-offset', `${FileItemModel.SWIPE_ACTION_WIDTH}px`)
+    fileItem.style.setProperty('--_file-item-swipe-offset', `${FileItemModel.SWIPE_ACTION_WIDTH}px`)
     swipeContainer?.classList.add('swipe-right')
     swipeContainer?.classList.remove('swipe-left')
     swipeContainer?.classList.add('swipe-active')
   } else {
-    fileItem.style.setProperty('--file-item-swipe-offset', '0px')
+    fileItem.style.setProperty('--_file-item-swipe-offset', '0px')
     swipeContainer?.classList.remove('swipe-active', 'swipe-left', 'swipe-right')
   }
 
@@ -282,7 +280,7 @@ export const applySwipeCloseVisual = (shadowRoot: ShadowRoot | null) => {
   fileItem.classList.remove('swiping')
   fileItem.classList.add('snap-back')
   fileItem.style.opacity = '1'
-  fileItem.style.setProperty('--file-item-swipe-offset', '0px')
+  fileItem.style.setProperty('--_file-item-swipe-offset', '0px')
   swipeContainer?.classList.remove('swipe-active', 'swipe-left', 'swipe-right')
 
   fileItem.addEventListener(

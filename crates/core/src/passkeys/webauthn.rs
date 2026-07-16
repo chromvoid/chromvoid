@@ -50,21 +50,28 @@ pub(super) fn registration_authenticator_data(
     rp_id: &str,
     credential_id: &[u8],
     public_key_cose: &[u8],
+    user_verified: bool,
 ) -> Vec<u8> {
     let rp_id_hash = Sha256::digest(rp_id.as_bytes());
+    let uv_flag = if user_verified { FLAG_UV } else { 0 };
     authenticator_data(
         &rp_id_hash,
-        FLAG_UP | FLAG_UV | FLAG_BE | FLAG_BS | FLAG_AT,
+        FLAG_UP | uv_flag | FLAG_BE | FLAG_BS | FLAG_AT,
         0,
         Some((credential_id, public_key_cose)),
     )
 }
 
-pub(super) fn assertion_authenticator_data(rp_id: &str, sign_count: u64) -> Vec<u8> {
+pub(super) fn assertion_authenticator_data(
+    rp_id: &str,
+    sign_count: u64,
+    user_verified: bool,
+) -> Vec<u8> {
     let rp_id_hash = Sha256::digest(rp_id.as_bytes());
+    let uv_flag = if user_verified { FLAG_UV } else { 0 };
     authenticator_data(
         &rp_id_hash,
-        FLAG_UP | FLAG_UV | FLAG_BE | FLAG_BS,
+        FLAG_UP | uv_flag | FLAG_BE | FLAG_BS,
         sign_count,
         None,
     )

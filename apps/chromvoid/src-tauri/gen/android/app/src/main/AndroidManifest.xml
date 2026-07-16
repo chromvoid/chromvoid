@@ -17,6 +17,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:name=".ChromVoidApplication"
+        android:supportsRtl="true"
         android:theme="@style/Theme.chromvoid"
         android:usesCleartextTraffic="${usesCleartextTraffic}">
         <activity
@@ -86,6 +87,10 @@
                 <action android:name="com.chromvoid.app.action.USB_ACCESSORY_PERMISSION" />
             </intent-filter>
         </receiver>
+
+        <receiver
+            android:name=".MobileUsbApprovalActionReceiver"
+            android:exported="false" />
 
         <receiver
             android:name=".MobileUsbAccessorySystemReceiver"

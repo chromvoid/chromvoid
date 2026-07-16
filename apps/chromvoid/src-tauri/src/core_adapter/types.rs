@@ -1,7 +1,8 @@
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 use chromvoid_core::rpc::{
     CatalogDerivativeWriteRequest, CatalogDerivativeWriteResult, CatalogDerivativeWriteSnapshot,
-    CatalogMediaInspectSnapshot,
+    CatalogMediaInspectSnapshot, WalletBalanceExecution, WalletBalanceSnapshot,
+    WalletHistoryExecution, WalletHistorySnapshot,
 };
 use chromvoid_core::rpc::{RpcInputStream, RpcReply};
 use chromvoid_core::vault::{VaultRekeyProgress, VaultRekeyRequest};
@@ -9,9 +10,8 @@ use chromvoid_protocol::TransportMetrics;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(desktop)]
-use std::sync::{Arc, Mutex};
-#[cfg(desktop)]
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -34,6 +34,12 @@ pub enum RemoteHost {
     },
 }
 
+impl CoreMode {
+    pub(crate) fn is_remote(&self) -> bool {
+        matches!(self, CoreMode::Remote { .. })
+    }
+}
+
 /// ADR-004 section 2.3: Connection state machine for Remote mode.
 /// disconnected → connecting → syncing → ready/locked
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,6 +56,7 @@ pub enum ConnectionState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemoteRpcPriority {
     High,
+    Media,
     Normal,
     Low,
 }
@@ -78,12 +85,15 @@ impl RemoteJsonSender {
 #[derive(Clone)]
 pub struct RemoteJsonClientHandle {
     sender: RemoteJsonSender,
-    features: Arc<Mutex<Vec<String>>>,
+    features: crate::remote_data_plane::RemotePeerFeatures,
 }
 
 #[cfg(desktop)]
 impl RemoteJsonClientHandle {
-    pub(crate) fn new(sender: RemoteJsonSender, features: Arc<Mutex<Vec<String>>>) -> Self {
+    pub(crate) fn new(
+        sender: RemoteJsonSender,
+        features: crate::remote_data_plane::RemotePeerFeatures,
+    ) -> Self {
         Self { sender, features }
     }
 
@@ -92,26 +102,15 @@ impl RemoteJsonClientHandle {
     }
 
     pub(crate) fn features(&self) -> Vec<String> {
-        match self.features.lock() {
-            Ok(features) => features.clone(),
-            Err(_) => {
-                tracing::warn!("remote_json_client: features mutex poisoned");
-                Vec::new()
-            }
-        }
+        self.features.snapshot()
     }
 
     pub(crate) fn has_feature(&self, feature: &str) -> bool {
-        self.features()
-            .iter()
-            .any(|candidate| candidate.as_str() == feature)
+        self.features.contains(feature)
     }
 
     pub(crate) fn replace_features(&self, next: Vec<String>) {
-        match self.features.lock() {
-            Ok(mut features) => *features = next,
-            Err(_) => tracing::warn!("remote_json_client: features mutex poisoned"),
-        }
+        self.features.replace(next);
     }
 
     pub(crate) fn send_json_blocking(
@@ -206,6 +205,41 @@ pub struct ModeTransition {
     pub drain_deadline_ms: u64,
 }
 
+/// Result of [`CoreAdapter::begin_with_stream`]: either the reply is already
+/// available (local/synchronous adapters do the work inline) or the request
+/// has been enqueued to a remote I/O task and the reply is still in flight.
+///
+/// `Pending` lets callers release the app-wide adapter mutex before blocking
+/// on the reply, so a slow remote round trip (e.g. a media range read) does
+/// not serialize every other RPC behind it.
+pub enum DeferredReply {
+    /// The adapter produced the reply inline; semantics identical to
+    /// `handle_with_stream`.
+    Immediate(RpcReply),
+    /// The request was handed to the remote I/O task in order; the reply
+    /// arrives on this channel and can be awaited without the adapter lock.
+    Pending(oneshot::Receiver<RpcReply>),
+}
+
+impl DeferredReply {
+    /// Block until the reply is available. Callers should drop the adapter
+    /// lock before calling this so other RPCs can proceed while the reply is
+    /// in flight.
+    pub fn wait(self) -> RpcReply {
+        match self {
+            DeferredReply::Immediate(reply) => reply,
+            DeferredReply::Pending(receiver) => match receiver.blocking_recv() {
+                Ok(reply) => reply,
+                Err(_) => RpcReply::Json(RpcResponse::Error {
+                    ok: false,
+                    error: "Remote reply channel closed".to_string(),
+                    code: Some("DISCONNECTED".to_string()),
+                }),
+            },
+        }
+    }
+}
+
 pub trait CoreAdapter: Send + Sync {
     fn mode(&self) -> CoreMode;
 
@@ -222,6 +256,16 @@ pub trait CoreAdapter: Send + Sync {
         Vec::new()
     }
 
+    fn transport_session_generation(&self) -> Option<u64> {
+        None
+    }
+
+    fn mobile_usb_session_requires_approval(&self) -> bool {
+        false
+    }
+
+    fn mark_mobile_usb_session_approved(&mut self) {}
+
     #[cfg(desktop)]
     fn remote_json_client(&self) -> Option<RemoteJsonClientHandle> {
         None
@@ -229,7 +273,24 @@ pub trait CoreAdapter: Send + Sync {
 
     fn is_unlocked(&self) -> bool;
 
+    fn mark_remote_locked(&mut self) {}
+
     fn handle(&mut self, req: &RpcRequest) -> RpcResponse;
+
+    /// Local-only secret resolution boundary used immediately before the
+    /// desktop process supervisor spawns an approved preset. Remote adapters
+    /// intentionally return `None`; there is no serialized RPC equivalent.
+    #[cfg(desktop)]
+    fn resolve_env_runtime_for_spawn(
+        &mut self,
+        _request: chromvoid_core::env_runtime::PrivateSpawnResolutionRequestV1,
+    ) -> Option<
+        chromvoid_core::env_runtime::EnvRuntimeResult<
+            chromvoid_core::env_runtime::ResolvedEnvLeaseV1,
+        >,
+    > {
+        None
+    }
 
     fn rekey_vault(
         &mut self,
@@ -271,7 +332,47 @@ pub trait CoreAdapter: Send + Sync {
         None
     }
 
+    fn snapshot_wallet_balance(
+        &mut self,
+        _data: &Value,
+    ) -> Option<Result<Option<WalletBalanceSnapshot>, RpcResponse>> {
+        None
+    }
+
+    fn commit_wallet_balance(&mut self, _execution: WalletBalanceExecution) -> Option<RpcResponse> {
+        None
+    }
+
+    fn snapshot_wallet_history(
+        &mut self,
+        _data: &Value,
+    ) -> Option<Result<WalletHistorySnapshot, RpcResponse>> {
+        None
+    }
+
+    fn commit_wallet_history(&mut self, _execution: WalletHistoryExecution) -> Option<RpcResponse> {
+        None
+    }
+
     fn handle_with_stream(&mut self, req: &RpcRequest, stream: Option<RpcInputStream>) -> RpcReply;
+
+    /// Two-phase variant of `handle_with_stream`: enqueue the request while
+    /// the caller holds the adapter lock, then wait for the reply after
+    /// releasing it via [`DeferredReply::wait`].
+    ///
+    /// The default implementation performs the work inline and returns
+    /// `DeferredReply::Immediate`, so synchronous adapters keep their exact
+    /// `handle_with_stream` semantics. Remote adapters may return
+    /// `DeferredReply::Pending` once the request has been handed to the I/O
+    /// task; request ordering is fixed at enqueue time (i.e. by the order in
+    /// which callers acquire the adapter lock).
+    fn begin_with_stream(
+        &mut self,
+        req: &RpcRequest,
+        stream: Option<RpcInputStream>,
+    ) -> DeferredReply {
+        DeferredReply::Immediate(self.handle_with_stream(req, stream))
+    }
 
     fn save(&mut self) -> Result<(), String>;
 

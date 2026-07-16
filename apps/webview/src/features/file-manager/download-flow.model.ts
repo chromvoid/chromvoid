@@ -18,6 +18,7 @@ type ExternalOpenProgressUpdate = {
 }
 
 export const OPEN_EXTERNAL_HUD_DELAY_MS = 150
+export const SAVE_TO_GALLERY_SUCCESS_TOAST_DURATION_MS = 8000
 
 export class FileDownloadFlow {
   readonly externalOpenTaskByNodeId = atom<Record<number, string>>({})
@@ -57,12 +58,29 @@ export class FileDownloadFlow {
     return this.shareTaskByNodeId()[nodeId] !== undefined
   }
 
+  private getNativeSharePendingPaintPromise(): Promise<void> | null {
+    if (!getRuntimeCapabilities().supports_native_share) return null
+
+    return new Promise<void>((resolve) => {
+      if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+        setTimeout(resolve, 0)
+        return
+      }
+
+      window.requestAnimationFrame(() => resolve())
+    })
+  }
+
   async handleShare(item: FileItemData): Promise<void> {
     if (item.isDir) return
     if (this.isSharePending(item.id)) return
 
     const shareTaskId = this.setShareTask([item.id])
     try {
+      const pendingPaint = this.getNativeSharePendingPaintPromise()
+      if (pendingPaint) {
+        await pendingPaint
+      }
       await wrap(
         shareFiles([
           {
@@ -89,6 +107,10 @@ export class FileDownloadFlow {
 
     const shareTaskId = this.setShareTask([item.fileId])
     try {
+      const pendingPaint = this.getNativeSharePendingPaintPromise()
+      if (pendingPaint) {
+        await pendingPaint
+      }
       await wrap(shareFiles([item]))
     } finally {
       this.clearShareTask([item.fileId], shareTaskId)
@@ -110,6 +132,10 @@ export class FileDownloadFlow {
     const shareIds = shareItems.map((item) => item.fileId)
     const shareTaskId = this.setShareTask(shareIds)
     try {
+      const pendingPaint = this.getNativeSharePendingPaintPromise()
+      if (pendingPaint) {
+        await pendingPaint
+      }
       await wrap(shareFiles(shareItems))
     } finally {
       this.clearShareTask(shareIds, shareTaskId)
@@ -119,19 +145,29 @@ export class FileDownloadFlow {
   async handleSaveToGallery(item: FileItemData): Promise<void> {
     if (item.isDir) return
     const caps = getRuntimeCapabilities()
-    if (caps.platform !== 'android') return
+    if (!caps.supports_photo_library_save) return
     if (resolveFileFormat(item).openBehavior.kind !== 'gallery') return
 
-    const dismissSaving = toast.loading(i18n('file-manager:saving-to-gallery', {name: item.name}), undefined, {
-      position: 'bottom-center',
-    })
+    const dismissSaving = toast.loading(
+      i18n('file-manager:saving-to-gallery', {name: item.name}),
+      undefined,
+      {
+        position: 'bottom-center',
+      },
+    )
 
     try {
       await wrap(saveImageToGallery(item.id, item.name, item.mimeType))
       dismissSaving()
-      const message = i18n('file-manager:saved-to-gallery', {name: item.name})
+      const message =
+        caps.platform === 'android'
+          ? i18n('file-manager:saved-to-gallery-android', {name: item.name})
+          : i18n('file-manager:saved-to-gallery', {name: item.name})
       this.notify('success', message)
-      toast.success(message, undefined, {position: 'bottom-center'})
+      toast.success(message, undefined, {
+        position: 'bottom-center',
+        duration: SAVE_TO_GALLERY_SUCCESS_TOAST_DURATION_MS,
+      })
     } catch (error) {
       dismissSaving()
       const message = i18n('file-manager:save-to-gallery-failed', {
@@ -163,17 +199,20 @@ export class FileDownloadFlow {
     let latestProgress: ExternalOpenProgressUpdate | null = null
     this.setExternalOpenTask(item.id, pendingTaskId)
 
-    let hudTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-      hudTimer = null
-      if (this.externalOpenTaskByNodeId()[item.id] !== pendingTaskId) return
+    let hudTimer: ReturnType<typeof setTimeout> | null = setTimeout(
+      wrap(() => {
+        hudTimer = null
+        if (this.externalOpenTaskByNodeId()[item.id] !== pendingTaskId) return
 
-      const created = store.createOpenExternalTask(item.name, totalBytes)
-      taskId = created.id
-      if (!this.replaceExternalOpenTask(item.id, pendingTaskId, taskId)) return
-      if (latestProgress) {
-        this.updateTransferTaskFromExternalCallback(taskId, latestProgress)
-      }
-    }, OPEN_EXTERNAL_HUD_DELAY_MS)
+        const created = store.createOpenExternalTask(item.name, totalBytes)
+        taskId = created.id
+        if (!this.replaceExternalOpenTask(item.id, pendingTaskId, taskId)) return
+        if (latestProgress) {
+          this.updateTransferTaskFromExternalCallback(taskId, latestProgress)
+        }
+      }),
+      OPEN_EXTERNAL_HUD_DELAY_MS,
+    )
 
     const cancelPendingHud = () => {
       if (hudTimer === null) return
@@ -260,10 +299,7 @@ export class FileDownloadFlow {
               lastUiUpdate = now
 
               const totalSafe = total > 0 ? total : totalBytes
-              const loaded = Math.min(
-                Math.max(0, writtenBytes),
-                totalSafe > 0 ? totalSafe : writtenBytes,
-              )
+              const loaded = Math.min(Math.max(0, writtenBytes), totalSafe > 0 ? totalSafe : writtenBytes)
               const elapsed = Math.max(0.001, (Date.now() - startTime) / 1000)
               const speed = loaded / elapsed
               const eta = totalSafe > 0 ? (totalSafe - loaded) / Math.max(1, speed) : 0
@@ -296,10 +332,7 @@ export class FileDownloadFlow {
           store.updateUploadTask(taskId, {status: 'done'})
         }
 
-        this.notify(
-          'success',
-          i18n('file-manager:saved', {name: item.name, path: target.name}),
-        )
+        this.notify('success', i18n('file-manager:saved', {name: item.name, path: target.name}))
         return
       }
 

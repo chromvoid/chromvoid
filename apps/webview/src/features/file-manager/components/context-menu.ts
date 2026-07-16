@@ -42,10 +42,22 @@ export class ContextMenu extends ReatomLitElement {
 
       cv-context-menu {
         --cv-context-menu-z-index: 10000;
-        --cv-context-menu-min-inline-size: 200px;
-        --cv-context-menu-padding: 8px 0;
+        --cv-context-menu-min-inline-size: 216px;
+        --cv-context-menu-padding: 4px;
         --cv-context-menu-border-radius: var(--cv-radius-2);
         --cv-context-menu-gap: 0;
+      }
+
+      .menu-label {
+        max-inline-size: 208px;
+        overflow: hidden;
+        padding: 8px 10px 7px;
+        border-block-end: 1px solid var(--cv-color-border-muted);
+        color: var(--cv-color-text-muted);
+        font-size: var(--cv-font-size-xs);
+        font-weight: var(--cv-font-weight-medium);
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       cv-menu-item::part(base) {
@@ -181,9 +193,9 @@ export class ContextMenu extends ReatomLitElement {
     return active instanceof HTMLElement ? active : null;
   }
 
-  show(x: number, y: number, items: ContextMenuItem[]) {
+  show(x: number, y: number, items: ContextMenuItem[], label = "") {
     this.previousFocus = this.getDeepActiveElement();
-    this.model.show(x, y, items);
+    this.model.show(x, y, items, label);
 
     void this.updateComplete.then(() => {
       if (!this.model.visible()) return;
@@ -228,14 +240,19 @@ export class ContextMenu extends ReatomLitElement {
 
   render() {
     const items = this.model.items();
+    const label = this.model.label();
+    const accessibleLabel = label
+      ? i18n("context-menu:file-actions" as any, { name: label })
+      : i18n("context-menu:title" as any);
 
     return html`
       <cv-context-menu
         close-on-scroll
-        aria-label=${i18n("context-menu:title" as any)}
+        aria-label=${accessibleLabel}
         @cv-input=${this.handleContextMenuInput}
         @cv-change=${this.handleContextMenuChange}
       >
+        ${label ? html`<div class="menu-label" role="presentation" title=${label}>${label}</div>` : nothing}
         ${items.map((item) => {
           if (item.separator) {
             return html`

@@ -30,7 +30,7 @@ export interface CatalogRepairIssue {
 
 export interface VaultRepairDiagnosisResponse {
   repair_id?: string | null
-  status: 'clean' | 'lossless_repaired' | 'lossy_required'
+  status: 'clean' | 'lossless_required' | 'lossless_repaired' | 'lossy_required'
   issues: CatalogRepairIssue[]
   lossy_requires_confirm: boolean
 }
@@ -39,7 +39,7 @@ export interface VaultRepairApplyResponse {
   unlocked: boolean
   repair: {
     repair_id: string
-    status: 'clean' | 'lossy_required'
+    status: 'clean' | 'lossless_repaired' | 'lossy_required'
     issues: CatalogRepairIssue[]
     lossy_applied: boolean
   }

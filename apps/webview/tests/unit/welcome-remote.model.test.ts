@@ -5,6 +5,10 @@ import {atom} from '@reatom/core'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 import {WelcomeRemoteModel} from '../../src/routes/welcome/welcome-remote.model'
 import {remoteSessionModel} from '../../src/routes/remote/remote-session.model'
+import {
+  resetRuntimeCapabilities,
+  setRuntimeCapabilities,
+} from '../../src/core/runtime/runtime-capabilities'
 
 const tauriInvoke = vi.fn()
 
@@ -20,6 +24,7 @@ describe('WelcomeRemoteModel', () => {
     tauriInvoke.mockReset()
     vi.useRealTimers()
     navigationModel.disconnect()
+    setRuntimeCapabilities({platform: 'macos', desktop: true, mobile: false})
     clearAppContext()
   })
 
@@ -27,6 +32,7 @@ describe('WelcomeRemoteModel', () => {
     vi.useRealTimers()
     remoteSessionModel.disconnect()
     navigationModel.disconnect()
+    resetRuntimeCapabilities()
     clearAppContext()
   })
 
@@ -57,6 +63,9 @@ describe('WelcomeRemoteModel', () => {
 
     initAppContext(
       createMockAppContext({
+        ws: {
+          connected: atom(true),
+        } as never,
         store: {
           remoteSessionState,
           remoteSessionPeerId,
@@ -188,6 +197,9 @@ describe('WelcomeRemoteModel', () => {
 
     initAppContext(
       createMockAppContext({
+        ws: {
+          connected: atom(true),
+        } as never,
         store: {
           remoteSessionState,
           remoteSessionPeerId,

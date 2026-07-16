@@ -1,5 +1,5 @@
 import {createAfterRenderScheduler, html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
-import {nothing, type TemplateResult} from 'lit'
+import type {nothing, TemplateResult} from 'lit'
 
 import {i18n} from '@project/passmanager/i18n'
 import type {CVInputInputEvent} from '@chromvoid/uikit/components/cv-input'
@@ -12,10 +12,6 @@ import {
 } from 'root/features/passmanager/models/android-password-save-prefill'
 import {pmCredentialTagsModel} from 'root/features/passmanager/models/pm-credential-tags.model'
 import {isPassmanagerReadOnlyOrMissing} from 'root/features/passmanager/models/pm-root.adapter'
-import type {
-  PMEntrySshCommentInputEvent,
-  PMEntrySshKeyTypeChangeEvent,
-} from '../entry-ssh/entry-ssh-generator'
 import {
   getSelectedTagIdsFromEvent,
   type PMEntryTagsComboboxType,
@@ -23,7 +19,6 @@ import {
 } from '../entry-tags/entry-tags-editor'
 import {
   PMEntryCreateModel,
-  type PMEntryCreatePaymentCardField,
   type PMEntryCreateValidationField,
 } from './entry-create.model'
 
@@ -93,19 +88,6 @@ export abstract class PMEntryCreateBase extends ReatomLitElement {
     this.model.setCardCvv(e.detail.value)
   }
 
-  protected onPaymentCardFaceInput(event: Event): void {
-    const field = (event.currentTarget as HTMLElement | null)?.dataset['paymentCardField'] as
-      | PMEntryCreatePaymentCardField
-      | undefined
-    if (!field) return
-
-    const target = event.target as (HTMLInputElement & {value?: string}) | null
-    const detailValue = (event as CustomEvent<{value?: string}>).detail?.value
-    const value = typeof detailValue === 'string' ? detailValue : (target?.value ?? '')
-
-    this.model.setPaymentCardField(field, value)
-  }
-
   protected onIconChange(event: CustomEvent<{iconRef: string | undefined}>): void {
     this.model.setIconRef(event.detail.iconRef)
   }
@@ -117,14 +99,6 @@ export abstract class PMEntryCreateBase extends ReatomLitElement {
   protected onManageTags(event: Event): void {
     event.preventDefault()
     pmCredentialTagsModel.openManageSheet()
-  }
-
-  protected onSshKeyTypeChange(event: PMEntrySshKeyTypeChangeEvent): void {
-    this.model.setSshKeyType(event.detail.keyType)
-  }
-
-  protected onSshGenCommentInput(event: PMEntrySshCommentInputEvent): void {
-    this.model.setSshComment(event.detail.value)
   }
 
   protected async onSubmit(e: Event) {
@@ -182,20 +156,36 @@ export abstract class PMEntryCreateBase extends ReatomLitElement {
     this.model.generatePassword()
   }
 
-  protected onSshSwitchChange(e: CVSwitchChangeEvent) {
-    this.model.setUseSsh(e.detail.checked)
+  protected onTitleBlur() {
+    this.model.markFieldTouched('title')
   }
 
-  protected onUseNoteChange(e: CVSwitchChangeEvent) {
-    this.model.setUseNote(e.detail.checked)
+  protected onUsernameBlur() {
+    this.model.markFieldTouched('username')
   }
 
-  protected onGenerateSsh() {
-    this.model.requestSshGeneration()
+  protected onPasswordBlur() {
+    this.model.markFieldTouched('password')
   }
 
-  protected onSshGenerateRequest(): void {
-    this.onGenerateSsh()
+  protected onUrlsBlur() {
+    this.model.markFieldTouched('urls')
+  }
+
+  protected onCardholderBlur() {
+    this.model.markFieldTouched('cardholderName')
+  }
+
+  protected onCardNumberBlur() {
+    this.model.markFieldTouched('cardNumber')
+  }
+
+  protected onCardExpMonthBlur() {
+    this.model.markFieldTouched('cardExpMonth')
+  }
+
+  protected onCardExpYearBlur() {
+    this.model.markFieldTouched('cardExpYear')
   }
 
   protected getTagsEditorMaxTagsVisible(): number {
@@ -262,7 +252,15 @@ export abstract class PMEntryCreateBase extends ReatomLitElement {
 
   protected prepareInitialViewport(): void {}
 
+  protected scheduleAfterRender(callback: () => void): void {
+    this.afterRenderScheduler.schedule(callback)
+  }
+
   private focusValidationField(field: PMEntryCreateValidationField): void {
+    if (field === 'targetGroup') {
+      this.model.openLocationSheet()
+      return
+    }
     if (field === 'title') {
       this.focusTitleInput()
       return
@@ -329,8 +327,6 @@ export abstract class PMEntryCreateBase extends ReatomLitElement {
       <form @submit=${this.onSubmit}>
         <cv-switch size="small" @cv-change=${this.changeSwitch} ?checked=${this.model.useOtp()}></cv-switch>
         ${this.model.useOtp() ? html`<pm-entry-otp-create short .model=${this.model.otp}></pm-entry-otp-create>` : null}
-        <cv-switch size="small" @cv-change=${this.onSshSwitchChange} ?checked=${this.model.useSsh()}></cv-switch>
-        ${this.model.showSshGenerator() ? html`<pm-entry-ssh-generator></pm-entry-ssh-generator>` : null}
       </form>
     `
   }

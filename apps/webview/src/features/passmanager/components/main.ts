@@ -4,6 +4,7 @@ import {css} from 'lit'
 
 import {CVIcon} from '@chromvoid/uikit/components/cv-icon'
 import {CVSpinner} from '@chromvoid/uikit/components/cv-spinner'
+import {CvEmptyState} from 'root/shared/ui/empty-state'
 
 import type {ManagerSaver} from '@project/passmanager/types'
 import {getAppContext} from 'root/shared/services/app-context'
@@ -21,15 +22,17 @@ import {SortControls} from './list/sort-controls'
 import {PasswordManagerDesktopLayout, PasswordManagerMobileLayout} from './password-manager-layout'
 import {PMAvatarIcon} from './pm-avatar-icon'
 import {PMOtpQuickView, PMOtpQuickViewMobile} from './otp-quick-view'
+import {PMSshKeysView, PMSshKeysViewMobile} from './ssh-keys-view'
 
 export class PasswordManagerElement extends ReatomLitElement {
   static define(managerSaver: ManagerSaver) {
-    pmModel.managerSaver = managerSaver
+    pmModel.configure(managerSaver)
     if (!customElements.get('password-manager')) {
       customElements.define('password-manager', this)
     }
     CVIcon.define()
     CVSpinner.define()
+    CvEmptyState.define()
     PMGroup.define()
     PMGroupMobile.define()
     PMGroupListItemMobile.define()
@@ -46,6 +49,8 @@ export class PasswordManagerElement extends ReatomLitElement {
     PMAvatarIcon.define()
     PMOtpQuickView.define()
     PMOtpQuickViewMobile.define()
+    PMSshKeysView.define()
+    PMSshKeysViewMobile.define()
     PasswordManagerMobileLayout.define()
     PasswordManagerDesktopLayout.define()
   }
@@ -65,14 +70,9 @@ export class PasswordManagerElement extends ReatomLitElement {
     `,
   ]
 
-  connectedCallback(): void {
-    super.connectedCallback()
-    pmModel.init()
-  }
-
   disconnectedCallback(): void {
     super.disconnectedCallback()
-    pmModel.cleanup()
+    pmModel.deactivateSurface()
   }
 
   protected render() {
@@ -112,5 +112,7 @@ declare global {
     'pm-search-mobile': PMSearchMobile
     'pm-otp-quick-view': PMOtpQuickView
     'pm-otp-quick-view-mobile': PMOtpQuickViewMobile
+    'pm-ssh-keys-view': PMSshKeysView
+    'pm-ssh-keys-view-mobile': PMSshKeysViewMobile
   }
 }

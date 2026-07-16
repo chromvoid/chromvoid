@@ -42,11 +42,11 @@ export class MobileGalleryDynamicStyleController {
     }
     this.lastStyleKey = styleKey
 
-    this.deps.host.style.setProperty('--image-gallery-mobile-image-transition', styles.imageTransition)
-    this.deps.host.style.setProperty('--image-gallery-mobile-image-translate-x', styles.imageTranslateX)
-    this.deps.host.style.setProperty('--image-gallery-mobile-image-translate-y', styles.imageTranslateY)
-    this.deps.host.style.setProperty('--image-gallery-mobile-image-scale', styles.imageScale)
-    this.deps.host.style.setProperty('--image-gallery-mobile-viewport-translate-y', styles.viewportTranslateY)
-    this.deps.host.style.setProperty('--image-gallery-mobile-viewport-opacity', styles.viewportOpacity)
+    this.deps.host.style.setProperty('--_media-image-gallery-mobile-image-transition', styles.imageTransition)
+    this.deps.host.style.setProperty('--_media-image-gallery-mobile-image-translate-inline', styles.imageTranslateX)
+    this.deps.host.style.setProperty('--_media-image-gallery-mobile-image-translate-block', styles.imageTranslateY)
+    this.deps.host.style.setProperty('--_media-image-gallery-mobile-image-scale', styles.imageScale)
+    this.deps.host.style.setProperty('--_media-image-gallery-mobile-viewport-translate-block', styles.viewportTranslateY)
+    this.deps.host.style.setProperty('--_media-image-gallery-mobile-viewport-opacity', styles.viewportOpacity)
   }
 }

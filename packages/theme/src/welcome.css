@@ -1,0 +1,69 @@
+:root,
+[data-theme='dark'],
+[theme='dark'],
+cv-theme-provider,
+cv-theme-provider[theme='dark'],
+cv-theme-provider[mode='dark'] {
+  --welcome-lockscreen-background: hwb(200 2.7% 96.1%);
+  --welcome-lockscreen-surface: hwb(196 4.7% 92.5%);
+  --welcome-lockscreen-input-background: hwb(195 3.9% 93.3%);
+  --welcome-lockscreen-foreground: hwb(190 91.8% 5.9%);
+  --welcome-lockscreen-foreground-strong: hwb(190 94.5% 3.1%);
+  --welcome-lockscreen-foreground-muted: hwb(193 54.1% 39.6%);
+  --welcome-lockscreen-foreground-subtle: hwb(193 31% 62.4%);
+  --welcome-lockscreen-border-faint: hwb(0 100% 0% / 0.07);
+  --welcome-lockscreen-border-muted: hwb(0 100% 0% / 0.1);
+  --welcome-lockscreen-border-strong: hwb(191 62.4% 28% / 0.4);
+  --welcome-lockscreen-on-primary: hwb(173 1.6% 86.7%);
+  --welcome-lockscreen-primary-ring: hwb(186 0% 0% / 0.13);
+  --welcome-lockscreen-primary-shadow: hwb(186 0% 0% / 0.22);
+  --welcome-lockscreen-accent-glow: hwb(186 0% 0% / 0.055);
+  --welcome-lockscreen-background-gradient:
+    radial-gradient(118% 70% at 50% 16%, var(--welcome-lockscreen-accent-glow), transparent 58%),
+    var(--welcome-lockscreen-background);
+  --welcome-lockscreen-orb-gradient: radial-gradient(
+    circle,
+    var(--cv-color-primary-surface-strong) 0%,
+    transparent 66%
+  );
+}
+
+[data-theme='light'],
+[theme='light'],
+cv-theme-provider[theme='light'],
+cv-theme-provider[mode='light'] {
+  --welcome-lockscreen-background: var(--cv-color-bg);
+  --welcome-lockscreen-surface: var(--cv-color-surface);
+  --welcome-lockscreen-input-background: var(--cv-color-surface-2);
+  --welcome-lockscreen-foreground: var(--cv-color-text);
+  --welcome-lockscreen-foreground-strong: var(--cv-color-text-strong);
+  --welcome-lockscreen-foreground-muted: var(--cv-color-text-muted);
+  --welcome-lockscreen-foreground-subtle: var(--cv-color-text-subtle);
+  --welcome-lockscreen-border-faint: var(--cv-color-border-faint);
+  --welcome-lockscreen-border-muted: var(--cv-color-border-soft);
+  --welcome-lockscreen-border-strong: var(--cv-color-border-strong);
+  --welcome-lockscreen-on-primary: var(--cv-color-on-primary);
+  --welcome-lockscreen-primary-ring: var(--cv-color-primary-ring);
+  --welcome-lockscreen-primary-shadow: var(--cv-color-primary-ring);
+  --welcome-lockscreen-accent-glow: var(--cv-color-primary-surface);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]):not([theme]),
+  cv-theme-provider[mode='system'] {
+    --welcome-lockscreen-background: var(--cv-color-bg);
+    --welcome-lockscreen-surface: var(--cv-color-surface);
+    --welcome-lockscreen-input-background: var(--cv-color-surface-2);
+    --welcome-lockscreen-foreground: var(--cv-color-text);
+    --welcome-lockscreen-foreground-strong: var(--cv-color-text-strong);
+    --welcome-lockscreen-foreground-muted: var(--cv-color-text-muted);
+    --welcome-lockscreen-foreground-subtle: var(--cv-color-text-subtle);
+    --welcome-lockscreen-border-faint: var(--cv-color-border-faint);
+    --welcome-lockscreen-border-muted: var(--cv-color-border-soft);
+    --welcome-lockscreen-border-strong: var(--cv-color-border-strong);
+    --welcome-lockscreen-on-primary: var(--cv-color-on-primary);
+    --welcome-lockscreen-primary-ring: var(--cv-color-primary-ring);
+    --welcome-lockscreen-primary-shadow: var(--cv-color-primary-ring);
+    --welcome-lockscreen-accent-glow: var(--cv-color-primary-surface);
+  }
+}

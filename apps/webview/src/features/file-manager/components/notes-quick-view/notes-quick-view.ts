@@ -2,7 +2,7 @@ import {css, nothing} from 'lit'
 import {html} from '@chromvoid/uikit/reatom-lit'
 
 import {CvEmptyState} from 'root/shared/ui/empty-state'
-import {NotesQuickViewBase} from './notes-quick-view-base'
+import {defineNotesQuickViewUikitControls, NotesQuickViewBase} from './notes-quick-view-base'
 import {notesQuickViewStyles} from './notes-quick-view.styles'
 
 export class NotesQuickView extends NotesQuickViewBase {
@@ -26,6 +26,7 @@ export class NotesQuickView extends NotesQuickViewBase {
   ]
 
   static define() {
+    defineNotesQuickViewUikitControls()
     CvEmptyState.define()
     if (!customElements.get('notes-quick-view')) {
       customElements.define('notes-quick-view', this)
@@ -39,7 +40,10 @@ export class NotesQuickView extends NotesQuickViewBase {
 
   render() {
     return html`
-      <section class="quick-view" data-layout="desktop">
+      <section
+        class=${this.externalToolbar ? 'quick-view quick-view--external-toolbar' : 'quick-view'}
+        data-layout="desktop"
+      >
         ${this.externalToolbar ? nothing : this.renderHeader()}
         ${this.renderContent()}
       </section>

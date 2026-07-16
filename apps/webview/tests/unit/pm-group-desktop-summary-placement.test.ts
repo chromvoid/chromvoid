@@ -49,7 +49,7 @@ describe('PMGroup desktop summary placement', () => {
     window.passmanager = originalPassmanager
   })
 
-  it('renders desktop content without a local group metrics rail', async () => {
+  it('renders the local group metrics rail after the desktop content', async () => {
     const parent = createGroup('desktop-summary-parent', 'Desktop Summary')
     const child = createGroup('desktop-summary-child', 'Desktop Summary/Child')
     const root = createPassmanagerRoot(parent, [parent, child])
@@ -68,11 +68,12 @@ describe('PMGroup desktop summary placement', () => {
 
     expect(contentShell).not.toBeNull()
     expect(header).not.toBeNull()
-    expect(summaryRail).toBeNull()
+    expect(summaryRail).not.toBeNull()
     expect(header?.querySelector('pm-summary-rail.group-metrics-strip')).toBeNull()
     expect(
       header?.shadowRoot?.querySelector('.workspace-header')?.getAttribute('data-density'),
     ).toBe('compact')
-    expect(contentShell?.nextElementSibling).toBeNull()
+    expect(contentShell?.nextElementSibling).toBe(summaryRail)
+    expect(summaryRail?.nextElementSibling).toBeNull()
   })
 })

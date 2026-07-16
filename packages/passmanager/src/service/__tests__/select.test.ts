@@ -202,13 +202,16 @@ describe('createEntryFilterMatcher()', () => {
 
   it('matches ssh filter only for entries with ssh keys', () => {
     const root = new ManagerRoot(createMockSaver())
-    const sshEntry = new Entry(root, makeEntryData({id: 'ssh-entry', sshKeys: [{id: 'key-1', type: 'ed25519', fingerprint: 'fp'}]}))
+    root.sshKeys.set([
+      {id: 'key-1', type: 'ed25519', fingerprint: 'fp', sourceEntryId: 'ssh-entry'},
+      {id: 'key-2', type: 'ed25519', fingerprint: 'fp', sourceEntryId: 'card-with-ssh-metadata'},
+    ])
+    const sshEntry = new Entry(root, makeEntryData({id: 'ssh-entry'}))
     const plainEntry = new Entry(root, makeEntryData({id: 'plain-entry'}))
     const cardEntry = new Entry(
       root,
       makePaymentCardEntryData({
         id: 'card-with-ssh-metadata',
-        sshKeys: [{id: 'key-2', type: 'ed25519', fingerprint: 'fp'}],
       }),
     )
     const matches = createEntryFilterMatcher('', ['ssh'])
@@ -238,14 +241,16 @@ describe('createEntryFilterMatcher()', () => {
     expect(matches(plainEntry)).toBe(false)
   })
 
-  it('requires every selected tag filter to match', () => {
+  it('matches when any selected tag filter matches', () => {
     const root = new ManagerRoot(createMockSaver())
     const oneTag = new Entry(root, makeEntryData({id: 'one-tag', tags: ['Work']}))
     const twoTags = new Entry(root, makeEntryData({id: 'two-tags', tags: ['Work', 'Rotate']}))
+    const otherTag = new Entry(root, makeEntryData({id: 'other-tag', tags: ['Personal']}))
     const matches = createEntryFilterMatcher('', [], Date.now(), ['work', 'rotate'])
 
-    expect(matches(oneTag)).toBe(false)
+    expect(matches(oneTag)).toBe(true)
     expect(matches(twoTags)).toBe(true)
+    expect(matches(otherTag)).toBe(false)
   })
 
   it('composes tag filters with quick filters', () => {

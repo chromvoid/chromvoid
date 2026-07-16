@@ -1,4 +1,4 @@
-use crate::catalog::{CatalogMediaInfo, CatalogMediaKind};
+use crate::catalog::{CatalogMediaInfo, CatalogMediaKind, CatalogMediaStreamingMetadata};
 
 use super::{
     MediaByteReader, MediaInspectionError, MAX_ISO_BMFF_BOX_DEPTH, MAX_ISO_BMFF_BOX_HEADER_SCAN,
@@ -24,6 +24,9 @@ pub(super) fn inspect_iso_bmff<R: MediaByteReader>(
             audio_tracks: stats.audio_tracks,
             video_tracks: stats.video_tracks,
             playback_mime_type: Some("video/mp4".to_string()),
+            codec_string: None,
+            mse_fragmented: scanner.has_moof.then_some(true),
+            streaming_metadata: streaming_metadata(&scanner),
         }));
     }
 
@@ -33,6 +36,9 @@ pub(super) fn inspect_iso_bmff<R: MediaByteReader>(
             audio_tracks: stats.audio_tracks,
             video_tracks: 0,
             playback_mime_type: Some("audio/mp4".to_string()),
+            codec_string: None,
+            mse_fragmented: scanner.has_moof.then_some(true),
+            streaming_metadata: streaming_metadata(&scanner),
         }));
     }
 
@@ -65,6 +71,9 @@ fn scan_boxes<R: MediaByteReader>(
 
         match &header.kind {
             b"moov" => {
+                if scanner.moov_offset.is_none() {
+                    scanner.moov_offset = Some(offset);
+                }
                 let payload_size = header.payload_size();
                 if payload_size > MAX_ISO_BMFF_BOX_HEADER_SCAN {
                     return Err(MediaInspectionError::ReadLimitExceeded);
@@ -77,6 +86,9 @@ fn scan_boxes<R: MediaByteReader>(
                     stats,
                     scanner,
                 )?;
+            }
+            b"moof" => {
+                scanner.has_moof = true;
             }
             b"trak" | b"mdia" => {
                 scan_boxes(
@@ -91,7 +103,11 @@ fn scan_boxes<R: MediaByteReader>(
             b"hdlr" => {
                 scan_handler(reader, &header, stats)?;
             }
-            b"mdat" => {}
+            b"mdat" => {
+                if scanner.first_mdat_offset.is_none() {
+                    scanner.first_mdat_offset = Some(offset);
+                }
+            }
             _ => {}
         }
 
@@ -102,6 +118,29 @@ fn scan_boxes<R: MediaByteReader>(
     }
 
     Ok(())
+}
+
+fn streaming_metadata(scanner: &ScannerState) -> Option<CatalogMediaStreamingMetadata> {
+    let moov_at_start = scanner.moov_offset.map(|moov_offset| {
+        scanner
+            .first_mdat_offset
+            .map(|mdat_offset| moov_offset < mdat_offset)
+            .unwrap_or(true)
+    });
+    if moov_at_start.is_none() && !scanner.has_moof {
+        return None;
+    }
+
+    Some(CatalogMediaStreamingMetadata {
+        duration_ms: None,
+        bitrate_bps: None,
+        width: None,
+        height: None,
+        fps_millis: None,
+        moov_at_start,
+        init_segment: None,
+        media_segments: None,
+    })
 }
 
 fn read_box_header<R: MediaByteReader>(
@@ -196,6 +235,9 @@ struct TrackStats {
 #[derive(Default)]
 struct ScannerState {
     header_bytes: u64,
+    moov_offset: Option<u64>,
+    first_mdat_offset: Option<u64>,
+    has_moof: bool,
 }
 
 impl ScannerState {

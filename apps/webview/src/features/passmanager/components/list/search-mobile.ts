@@ -1,9 +1,7 @@
-import {css, nothing, type TemplateResult} from 'lit'
+import {css, type TemplateResult} from 'lit'
 import {html} from '@chromvoid/uikit/reatom-lit'
 
 import {i18n} from '@project/passmanager/i18n'
-import type {CredentialTagOption} from '@project/passmanager/tags'
-import {pmCredentialTagsModel} from '../../models/pm-credential-tags.model'
 import {pmMobileChromeModel} from '../../models/pm-mobile-chrome.model'
 import {PMSearchBase, searchBaseStyles} from './search-base'
 
@@ -108,94 +106,6 @@ export class PMSearchMobile extends PMSearchBase {
         display: none;
       }
 
-      .tag-filter-row {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        min-inline-size: 0;
-        max-inline-size: 100%;
-        padding-block-start: 6px;
-        overflow-x: auto;
-        scrollbar-width: none;
-        -webkit-overflow-scrolling: touch;
-      }
-
-      .tag-filter-row::-webkit-scrollbar {
-        display: none;
-      }
-
-      .tag-chip {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 5px;
-        flex: 0 0 auto;
-        min-block-size: 34px;
-        max-inline-size: min(180px, 58vw);
-        padding: 0 11px;
-        border: 1px solid var(--cv-color-border-soft);
-        border-radius: var(--cv-radius-2);
-        background: var(--cv-color-surface-secondary-glass);
-        color: var(--cv-color-text);
-        font: inherit;
-        font-size: 14px;
-        font-weight: var(--cv-font-weight-medium);
-        line-height: 1;
-        white-space: nowrap;
-        box-shadow:
-          inset 0 1px 0 var(--cv-alpha-white-4),
-          0 1px 2px var(--cv-alpha-black-10);
-        cursor: pointer;
-        -webkit-tap-highlight-color: transparent;
-      }
-
-      .tag-chip:focus-visible {
-        outline: 2px solid var(--cv-color-primary);
-        outline-offset: 2px;
-      }
-
-      .tag-chip:active {
-        transform: scale(0.97);
-      }
-
-      .tag-chip.active {
-        border-color: var(--cv-color-primary-border-strong);
-        background: var(--cv-color-primary-surface);
-        color: var(--cv-color-primary);
-        box-shadow:
-          inset 0 0 0 1px var(--cv-color-primary-ring),
-          0 1px 8px var(--cv-color-primary-subtle);
-      }
-
-      .tag-chip.manage {
-        border-color: var(--cv-color-primary-border);
-        color: var(--cv-color-primary);
-      }
-
-      .tag-chip.manage cv-icon,
-      .tag-chip__remove {
-        inline-size: 14px;
-        block-size: 14px;
-      }
-
-      .tag-chip__label,
-      .tag-chip__meta {
-        min-inline-size: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .tag-chip__meta,
-      .tag-chip__remove {
-        color: var(--cv-color-text-muted);
-      }
-
-      .tag-chip.active .tag-chip__meta,
-      .tag-chip.active .tag-chip__remove {
-        color: currentColor;
-        opacity: 0.86;
-      }
-
       @container (width < 360px) {
         cv-input {
           --cv-input-search-mobile-height: 40px;
@@ -207,17 +117,6 @@ export class PMSearchMobile extends PMSearchBase {
           flex-basis: 40px;
           inline-size: 40px;
           block-size: 40px;
-        }
-
-        .tag-filter-row {
-          gap: 6px;
-          padding-block-start: 5px;
-        }
-
-        .tag-chip {
-          min-block-size: 32px;
-          padding-inline: 10px;
-          font-size: 13px;
         }
       }
     `,
@@ -235,42 +134,8 @@ export class PMSearchMobile extends PMSearchBase {
     return 'search-mobile'
   }
 
-  private handleClearTagFilters(): void {
-    pmCredentialTagsModel.clearSelectedTags()
-  }
-
   private handleOpenSortGroup(): void {
     pmMobileChromeModel.openSortGroupSheet()
-  }
-
-  private handleTagFilterClick(event: Event): void {
-    const key = (event.currentTarget as HTMLElement | null)?.dataset['tagKey']
-    if (key) {
-      pmCredentialTagsModel.toggleTagKey(key)
-    }
-  }
-
-  private renderTagFilterChip(option: CredentialTagOption, selected: boolean): TemplateResult {
-    const ariaLabel = selected
-      ? i18n('tags:remove_filter' as never, {tag: option.label})
-      : i18n('tags:add_filter' as never, {tag: option.label})
-
-    return html`
-      <button
-        class="tag-chip ${selected ? 'active' : ''}"
-        type="button"
-        data-tag-key=${option.key}
-        aria-pressed=${String(selected)}
-        aria-label=${ariaLabel}
-        @click=${this.handleTagFilterClick}
-      >
-        <span class="tag-chip__label">${option.label}</span>
-        <span class="tag-chip__meta">· ${option.count}</span>
-        ${selected
-          ? html`<cv-icon class="tag-chip__remove" name="x-lg" aria-hidden="true"></cv-icon>`
-          : nothing}
-      </button>
-    `
   }
 
   private renderSortGroupButton(): TemplateResult {
@@ -291,35 +156,6 @@ export class PMSearchMobile extends PMSearchBase {
     `
   }
 
-  private renderMobileTagFilters(): TemplateResult {
-    const options = pmCredentialTagsModel.availableTags()
-    const selectedKeys = new Set(pmCredentialTagsModel.effectiveSelectedTagKeys())
-    const hasSelectedTags = selectedKeys.size > 0
-
-    return html`
-      <div class="tag-filter-row" aria-label=${i18n('tags:title')}>
-        <button
-          class="tag-chip ${hasSelectedTags ? '' : 'active'}"
-          type="button"
-          aria-pressed=${String(!hasSelectedTags)}
-          @click=${this.handleClearTagFilters}
-        >
-          ${i18n('tags:all' as never)}
-        </button>
-        ${options.map((option) => this.renderTagFilterChip(option, selectedKeys.has(option.key)))}
-        <button
-          class="tag-chip manage"
-          type="button"
-          aria-label=${i18n('tags:manage_open' as never)}
-          @click=${this.handleOpenTagManage}
-        >
-          <cv-icon name="sliders" aria-hidden="true"></cv-icon>
-          <span>${i18n('tags:manage_short' as never)}</span>
-        </button>
-      </div>
-    `
-  }
-
   override render() {
     const {className, isInvalid, isSearched} = this.getSearchState()
 
@@ -328,7 +164,6 @@ export class PMSearchMobile extends PMSearchBase {
         ${this.renderSortGroupButton()}
         ${this.renderSearchInput(className, isInvalid, isSearched)}
       </div>
-      ${this.renderMobileTagFilters()}
     `
   }
 }

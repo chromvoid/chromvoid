@@ -17,6 +17,7 @@ import {PMEntryModel} from '../../src/features/passmanager/components/card/entry
 import {PMGroupModel} from '../../src/features/passmanager/components/group/group'
 import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/components/list/sort-controls'
 import {PasswordManagerMobileLayout} from '../../src/features/passmanager/components/password-manager-layout/password-manager-mobile-layout'
+import {pmSshKeysViewModel} from '../../src/features/passmanager/components/ssh-keys-view/ssh-keys-view.model'
 import {pmEntryEditorModel} from '../../src/features/passmanager/models/pm-entry-editor.model'
 import {pmMobileChromeModel} from '../../src/features/passmanager/models/pm-mobile-chrome.model'
 import {pmModel} from '../../src/features/passmanager/password-manager.model'
@@ -227,6 +228,7 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
     sortDirection.set('asc')
     groupBy.set('none')
     pmMobileChromeModel.closeSortGroupSheet()
+    pmSshKeysViewModel.closeCreate()
     localStorage.clear()
     vi.restoreAllMocks()
   })
@@ -276,31 +278,26 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
     document.body.appendChild(layout)
     await layout.updateComplete
 
-    expect(pmMobileChromeModel.getToolbarContext().showCommand).toBe(false)
     expect(pmMobileChromeModel.getCommandContext().kind).toBe('passwords-list')
 
     pm.showElement.set(createEntryForStateCheck())
     await Promise.resolve()
     await layout.updateComplete
-    expect(pmMobileChromeModel.getToolbarContext().showCommand).toBe(false)
     expect(pmMobileChromeModel.getCommandContext().kind).toBe('passwords-entry')
 
     pm.showElement.set('createEntry')
     await Promise.resolve()
     await layout.updateComplete
-    expect(pmMobileChromeModel.getToolbarContext().showCommand).toBe(false)
     expect(pmMobileChromeModel.getCommandContext().kind).toBe('none')
 
     pm.showElement.set('createGroup')
     await Promise.resolve()
     await layout.updateComplete
-    expect(pmMobileChromeModel.getToolbarContext().showCommand).toBe(false)
     expect(pmMobileChromeModel.getCommandContext().kind).toBe('none')
 
     pm.showElement.set('importDialog')
     await Promise.resolve()
     await layout.updateComplete
-    expect(pmMobileChromeModel.getToolbarContext().showCommand).toBe(false)
     expect(pmMobileChromeModel.getCommandContext().kind).toBe('none')
   })
 
@@ -338,16 +335,15 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
 
     expect(pmMobileChromeModel.getToolbarContext()).toEqual({
       title: 'Credentials',
+      subtitle: 'Logins, cards & secrets',
       canGoBack: false,
       backDisabled: false,
-      showCommand: false,
       maxVisible: 3,
     })
 
     pm.showElement.set(group)
     await Promise.resolve()
     await layout.updateComplete
-    expect(pmMobileChromeModel.getToolbarContext().showCommand).toBe(false)
     expect(pmMobileChromeModel.getToolbarContext().canGoBack).toBe(true)
 
     const entry = createEntryWithParent(group, 'Context Entry')
@@ -358,7 +354,6 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
       title: 'Context Entry',
       canGoBack: true,
       backDisabled: false,
-      showCommand: false,
       maxVisible: 3,
       overflowFromIndex: 2,
     })
@@ -368,7 +363,6 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
     await layout.updateComplete
     expect(pmMobileChromeModel.getToolbarContext().title).toBe('Context Entry')
     expect(pmMobileChromeModel.getToolbarContext().canGoBack).toBe(true)
-    expect(pmMobileChromeModel.getToolbarContext().showCommand).toBe(false)
 
     pmEntryEditorModel.closeSurface(entry.id)
     pm.showElement.set('createEntry')
@@ -378,7 +372,6 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
       title: 'Create entry',
       canGoBack: true,
       backDisabled: false,
-      showCommand: false,
       maxVisible: 3,
     })
   })
@@ -407,6 +400,23 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
       'pm-entry-delete',
       'pm-entry-move',
     ])
+  })
+
+  it('exposes and executes SSH key creation from the mobile FAB', async () => {
+    ensureMobileLayoutDefined()
+    originalPassmanager = (window as any).passmanager
+    const pm = createPassmanager('sshView')
+    ;(window as any).passmanager = pm
+
+    const layout = document.createElement('password-manager-mobile-layout') as PasswordManagerMobileLayout
+    document.body.appendChild(layout)
+    await layout.updateComplete
+
+    expect(pmMobileChromeModel.getToolbarActions()).toEqual([
+      {id: 'pm-create-ssh-key', icon: 'key', label: 'Add SSH Key', disabled: false},
+    ])
+    expect(pmMobileChromeModel.executeCommand('pm-create-ssh-key')).toBe(true)
+    expect(pmSshKeysViewModel.createOpen()).toBe(true)
   })
 
   it('provides command context and active filters state', async () => {
@@ -488,6 +498,7 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
     expect(pmMobileChromeModel.executeCommand('pm-import')).toBe(false)
     expect(pmMobileChromeModel.executeCommand('pm-clean')).toBe(false)
     expect(pmMobileChromeModel.executeCommand('pm-otp-view')).toBe(false)
+    expect(pmMobileChromeModel.executeCommand('pm-ssh-view')).toBe(false)
 
     expect(onCreateEntrySpy).toHaveBeenCalledTimes(1)
     expect(onCreateGroupSpy).toHaveBeenCalledTimes(1)

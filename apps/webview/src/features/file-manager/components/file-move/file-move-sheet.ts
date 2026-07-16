@@ -32,9 +32,10 @@ export class FileMoveSheet extends ReatomLitElement {
     }
 
     cv-bottom-sheet {
-      --cv-bottom-sheet-safe-top: var(--safe-area-top, env(safe-area-inset-top, 0px));
+      --cv-bottom-sheet-safe-top: var(--app-runtime-safe-area-block-start, env(safe-area-inset-top, 0px));
       --cv-bottom-sheet-expanded-height: 100dvh;
       --cv-bottom-sheet-middle-height: min(72dvh, 560px);
+      --cv-bottom-sheet-header-padding: 0 var(--cv-space-5) var(--cv-space-2);
     }
 
     cv-bottom-sheet::part(content) {
@@ -42,10 +43,6 @@ export class FileMoveSheet extends ReatomLitElement {
       block-size: min(var(--cv-bottom-sheet-max-height), calc(100dvh - var(--cv-bottom-sheet-safe-top)));
       overflow: hidden;
       background: var(--cv-color-surface);
-    }
-
-    cv-bottom-sheet::part(header) {
-      padding: var(--cv-space-5) var(--cv-space-5) var(--cv-space-2);
     }
 
     cv-bottom-sheet::part(title) {

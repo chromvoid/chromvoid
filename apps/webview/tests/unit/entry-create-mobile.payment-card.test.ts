@@ -1,7 +1,8 @@
+import {CVButton, CVInput, CVRadio, CVRadioGroup, CVTextarea} from '@chromvoid/uikit'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
-import {CVButton, CVInput, CVTextarea} from '@chromvoid/uikit'
 import {PMEntryCreateMobile} from '../../src/features/passmanager/components/card/entry-create/entry-create-mobile'
+import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
 import {MobileBottomActionFooter} from '../../src/shared/ui/mobile-bottom-action-footer'
 
 const settle = async (component: PMEntryCreateMobile) => {
@@ -10,17 +11,26 @@ const settle = async (component: PMEntryCreateMobile) => {
   await component.updateComplete
 }
 
-const inputNative = async (component: PMEntryCreateMobile, name: string, value: string) => {
-  const input = component.shadowRoot?.querySelector<HTMLInputElement>(`input[name="${name}"]`)
-  expect(input).not.toBeNull()
-
-  input!.value = value
-  input!.dispatchEvent(new Event('input', {bubbles: true, composed: true}))
-  await settle(component)
+function installRoot(overrides: Record<string, unknown> = {}) {
+  const root = {
+    id: 'root',
+    name: 'Vault',
+    entriesList: vi.fn(() => []),
+    getEntry: vi.fn(() => undefined),
+    getGroup: vi.fn(() => undefined),
+    setShowElement: vi.fn(),
+    showElement: vi.fn(() => 'createEntry'),
+    isReadOnly: vi.fn(() => false),
+    ...overrides,
+  }
+  setPassmanagerRoot(root as never)
+  return root
 }
 
 const inputCv = async (component: PMEntryCreateMobile, name: string, value: string) => {
-  component.shadowRoot?.querySelector(`cv-input[name="${name}"]`)?.dispatchEvent(
+  const input = component.shadowRoot?.querySelector(`cv-input[name="${name}"]`)
+  expect(input).not.toBeNull()
+  input?.dispatchEvent(
     new CustomEvent('cv-input', {
       detail: {value},
       bubbles: true,
@@ -30,27 +40,18 @@ const inputCv = async (component: PMEntryCreateMobile, name: string, value: stri
   await settle(component)
 }
 
-const stylesToText = (styles: unknown): string => {
-  if (Array.isArray(styles)) {
-    return styles.map(stylesToText).join('\n')
-  }
-  if (styles && typeof styles === 'object' && 'cssText' in styles) {
-    return String((styles as {cssText: string}).cssText)
-  }
-  return String(styles ?? '')
+function setPaymentCardType(component: PMEntryCreateMobile): void {
+  ;(component as PMEntryCreateMobile & {model: {setEntryType(type: 'payment_card'): void}}).model.setEntryType(
+    'payment_card',
+  )
 }
 
 describe('PMEntryCreateMobile payment-card layout', () => {
-  let previousPassmanager: typeof window.passmanager
-
   beforeEach(() => {
-    previousPassmanager = window.passmanager
-    window.passmanager = {
-      isReadOnly: vi.fn(() => false),
-      showElement: () => null,
-    } as unknown as typeof window.passmanager
-
+    installRoot()
     CVInput.define()
+    CVRadio.define()
+    CVRadioGroup.define()
     CVTextarea.define()
     CVButton.define()
     MobileBottomActionFooter.define()
@@ -64,7 +65,7 @@ describe('PMEntryCreateMobile payment-card layout', () => {
 
   afterEach(() => {
     document.body.innerHTML = ''
-    window.passmanager = previousPassmanager
+    setPassmanagerRoot(undefined)
     vi.restoreAllMocks()
   })
 
@@ -81,65 +82,55 @@ describe('PMEntryCreateMobile payment-card layout', () => {
 
     expect(footer).not.toBeNull()
     expect(scroll).not.toBeNull()
-    expect(footer?.tagName.toLowerCase()).toBe('mobile-bottom-action-footer')
     expect(footer?.hasAttribute('flow')).toBe(true)
     expect(footer?.shadowRoot?.querySelector('[part="row"]')).not.toBeNull()
     expect(scroll?.contains(footer)).toBe(false)
-    expect(submit).not.toBeNull()
     expect(footer?.contains(submit)).toBe(true)
   })
 
-  it('renders mobile payment-card fields inside the card face and submits the draft', async () => {
+  it('renders compact ordinary card fields and submits typed PAN/CVV secrets', async () => {
     const entry = {
       flushPendingPersistence: vi.fn(async () => {}),
       saveCardPan: vi.fn(async () => true),
       saveCardCvv: vi.fn(async () => true),
     }
     const createEntry = vi.fn(() => entry)
-    window.passmanager = {
-      createEntry,
-      isReadOnly: vi.fn(() => false),
-      showElement: () => null,
-    } as unknown as typeof window.passmanager
+    installRoot({createEntry})
 
     const component = document.createElement('pm-entry-create-mobile') as PMEntryCreateMobile
     document.body.append(component)
     await settle(component)
-
-    const paymentCardTab = component.shadowRoot?.querySelectorAll('.entry-type-option')[1] as HTMLElement | undefined
-    expect(paymentCardTab).not.toBeUndefined()
-    paymentCardTab!.click()
+    setPaymentCardType(component)
     await settle(component)
 
-    expect(component.shadowRoot?.querySelector('.payment-card-face')).not.toBeNull()
-    expect(component.shadowRoot?.querySelector('input[name="payment-card-title"]')).toBeNull()
-    expect(component.shadowRoot?.querySelector('input[name="payment-card-cardholder"]')).not.toBeNull()
-    expect(component.shadowRoot?.querySelector('input[name="payment-card-number"]')).not.toBeNull()
-    expect(component.shadowRoot?.querySelector('input[name="payment-card-exp-month"]')).not.toBeNull()
-    const expYearInput = component.shadowRoot?.querySelector<HTMLInputElement>('input[name="payment-card-exp-year"]')
-    expect(expYearInput).not.toBeNull()
-    expect(expYearInput?.placeholder).toBe('YY')
-    expect(expYearInput?.getAttribute('maxlength')).toBe('2')
-    expect(component.shadowRoot?.querySelector('input[name="payment-card-cvv"]')).not.toBeNull()
-    expect(component.shadowRoot?.querySelector('cv-input[name="cardholderName"]')).toBeNull()
-    expect(component.shadowRoot?.querySelector('cv-input[name="cardNumber"]')).toBeNull()
-    expect(component.shadowRoot?.querySelector('cv-input[name="cardExpMonth"]')).toBeNull()
-    expect(component.shadowRoot?.querySelector('cv-input[name="cardExpYear"]')).toBeNull()
-    expect(component.shadowRoot?.querySelector('cv-input[name="cardCvv"]')).toBeNull()
+    expect(component.shadowRoot?.querySelector('.payment-card-face')).toBeNull()
+    expect(component.shadowRoot?.querySelector('.form-heading-title')?.textContent).toContain('Create card')
+    expect(component.shadowRoot?.querySelector('.form-heading-subtitle')?.textContent).toContain(
+      'Save payment details',
+    )
+    expect(component.shadowRoot?.querySelector('cv-input[name="title"]')).not.toBeNull()
+    expect(component.shadowRoot?.querySelector('cv-input[name="cardholderName"]')).not.toBeNull()
+    const cardNumber = component.shadowRoot?.querySelector('cv-input[name="cardNumber"]') as CVInput | null
+    expect(cardNumber?.type).toBe('password')
+    expect(cardNumber?.hasAttribute('password-toggle')).toBe(true)
+    expect(component.shadowRoot?.querySelector('cv-input[name="cardExpMonth"]')).not.toBeNull()
+    const expYear = component.shadowRoot?.querySelector('cv-input[name="cardExpYear"]') as CVInput | null
+    expect(expYear?.placeholder).toBe('YY')
+    expect(expYear?.maxlength).toBe(2)
+    const cvv = component.shadowRoot?.querySelector('cv-input[name="cardCvv"]') as CVInput | null
+    expect(cvv?.type).toBe('password')
+    expect(cvv?.hasAttribute('password-toggle')).toBe(true)
 
     await inputCv(component, 'title', 'Team Visa')
-    expect(component.shadowRoot?.querySelector('.payment-card-issuer')?.textContent?.trim()).toBe('Team Visa')
+    await inputCv(component, 'cardholderName', 'Alice Doe')
+    await inputCv(component, 'cardNumber', '4111 1111 1111 1111')
+    await inputCv(component, 'cardExpMonth', '12')
+    await inputCv(component, 'cardExpYear', '31')
+    await inputCv(component, 'cardCvv', '123')
 
-    await inputNative(component, 'payment-card-cardholder', 'Alice Doe')
-    await inputNative(component, 'payment-card-number', '4111 1111 1111 1111')
-    await inputNative(component, 'payment-card-exp-month', '12')
-    await inputNative(component, 'payment-card-exp-year', '31')
-    await inputNative(component, 'payment-card-cvv', '123')
-
-    const form = component.shadowRoot?.querySelector('form') as HTMLFormElement | null
-    expect(form).not.toBeNull()
-    form!.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))
-    await Promise.resolve()
+    component.shadowRoot
+      ?.querySelector('form')
+      ?.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))
     await Promise.resolve()
     await settle(component)
 
@@ -162,53 +153,35 @@ describe('PMEntryCreateMobile payment-card layout', () => {
     expect(entry.saveCardCvv).toHaveBeenCalledWith('123')
   })
 
-  it('keeps create enabled for incomplete card data and marks the failing card-face field', async () => {
+  it('keeps Create enabled and exposes all submit errors while focusing the first one', async () => {
     const createEntry = vi.fn()
-    window.passmanager = {
-      createEntry,
-      isReadOnly: vi.fn(() => false),
-      showElement: () => null,
-    } as unknown as typeof window.passmanager
-
+    installRoot({createEntry})
     const component = document.createElement('pm-entry-create-mobile') as PMEntryCreateMobile
     document.body.append(component)
     await settle(component)
-
-    const paymentCardTab = component.shadowRoot?.querySelectorAll('.entry-type-option')[1] as HTMLElement | undefined
-    expect(paymentCardTab).not.toBeUndefined()
-    paymentCardTab!.click()
-    await settle(component)
-
+    setPaymentCardType(component)
     await inputCv(component, 'title', 'Team Visa')
 
     const submitButton = component.shadowRoot?.querySelector('.create-footer cv-button') as CVButton | null
     expect(submitButton?.disabled).toBe(false)
-
-    const initialCardholderInput = component.shadowRoot?.querySelector<HTMLInputElement>(
-      'input[name="payment-card-cardholder"]',
-    )
-    expect(initialCardholderInput).not.toBeNull()
     const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus')
-    const submitSpy = vi.spyOn((component as any).model, 'submit')
 
-    const form = component.shadowRoot?.querySelector('form') as HTMLFormElement | null
-    form?.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))
-    await Promise.resolve()
+    component.shadowRoot
+      ?.querySelector('form')
+      ?.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))
     await Promise.resolve()
     await settle(component)
 
-    expect(submitSpy).toHaveBeenCalled()
-    await expect(submitSpy.mock.results[0]?.value).resolves.toEqual(
-      expect.objectContaining({ok: false, reason: 'invalid_payment_card', field: 'cardholderName'}),
-    )
-    expect(focusSpy).toHaveBeenCalled()
-    const cardholderInput = component.shadowRoot?.querySelector<HTMLInputElement>('input[name="payment-card-cardholder"]')
-    expect(cardholderInput).not.toBeNull()
-    expect(cardholderInput?.getAttribute('aria-invalid')).toBe('true')
-    expect(cardholderInput?.classList.contains('is-invalid')).toBe(true)
-
-    const error = component.shadowRoot?.querySelector('.payment-card-create-error')
-    expect(error?.textContent?.trim()).not.toBe('')
+    const cardholder = component.shadowRoot?.querySelector('cv-input[name="cardholderName"]') as CVInput | null
+    const cardNumber = component.shadowRoot?.querySelector('cv-input[name="cardNumber"]') as CVInput | null
+    const month = component.shadowRoot?.querySelector('cv-input[name="cardExpMonth"]') as CVInput | null
+    const year = component.shadowRoot?.querySelector('cv-input[name="cardExpYear"]') as CVInput | null
+    expect(cardholder?.invalid).toBe(true)
+    expect(cardNumber?.invalid).toBe(true)
+    expect(month?.invalid).toBe(true)
+    expect(year?.invalid).toBe(true)
+    expect(component.shadowRoot?.querySelectorAll('.field-error').length).toBeGreaterThanOrEqual(4)
+    await vi.waitFor(() => expect(focusSpy).toHaveBeenCalled())
     expect(createEntry).not.toHaveBeenCalled()
   })
 })

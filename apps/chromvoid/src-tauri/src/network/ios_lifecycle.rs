@@ -317,6 +317,15 @@ pub fn attempt_foreground_reconnect(app: tauri::AppHandle, storage_root: std::pa
                     }
                 }
                 _ = async move {
+                    // A live direct USB session must not be preempted by the
+                    // network listener restart; USB attach itself brings the app
+                    // to the foreground, so this path races every USB connect.
+                    if acceptor_runtime.has_active_direct_transport_session() {
+                        info!(
+                            "ios_lifecycle: skipping acceptor restart during active direct transport session"
+                        );
+                        return;
+                    }
                     // Stop stale acceptor state (WebSocket is dead after background).
                     info!("ios_lifecycle: stopping stale acceptor before foreground reconnect");
                     let _ = mobile_acceptor::stop_listening(&acceptor_runtime);

@@ -1,4 +1,5 @@
 import {markStartupTimeline} from './app/bootstrap/startup-timeline'
+import {markStartupSplashActive, markStartupSplashReleased} from './app/bootstrap/startup-splash'
 import './app/debug/webmcp-debug'
 import './setup/reatom-logging'
 
@@ -53,6 +54,7 @@ markStartupTimeline('web.index.module-start', {
   loading: document.documentElement.hasAttribute('loading'),
   readyState: document.readyState,
 })
+configureLitCspNonce()
 startStartupSplash()
 
 // Setting up paths to Lucide icons
@@ -102,7 +104,6 @@ CVTooltip.define()
 ChromVoidApp.define()
 markStartupTimeline('web.index.custom-elements-defined', {initialSurface})
 
-loadVendoredFonts(deferNonCriticalStartup)
 cleanupLegacyImageServiceWorker()
 markStartupTimeline('web.index.bootstrap-complete', {deferNonCriticalStartup})
 
@@ -124,6 +125,27 @@ window.addEventListener('load', () => {
     }
   }
 })
+
+function configureLitCspNonce() {
+  const nonce = readStyleNonce()
+  if (!nonce) return
+  ;(globalThis as typeof globalThis & {litNonce?: string}).litNonce = nonce
+}
+
+function readStyleNonce(): string | null {
+  const nonceElement = document.querySelector<HTMLStyleElement | HTMLScriptElement>(
+    'style[nonce], script[nonce]',
+  )
+  const elementNonce = nonceElement?.nonce || nonceElement?.getAttribute('nonce')
+  if (elementNonce) return elementNonce
+
+  const csp = document.querySelector<HTMLMetaElement>('meta[http-equiv="Content-Security-Policy"]')?.content
+  if (!csp) return null
+
+  const styleDirective = /(?:^|;)\s*style-src\b([^;]*)/i.exec(csp)
+  const nonceMatch = /'nonce-([^']+)'/i.exec(styleDirective?.[1] ?? '')
+  return nonceMatch?.[1] ?? null
+}
 
 function cleanupLegacyImageServiceWorker() {
   const legacyCacheNames = [
@@ -161,31 +183,6 @@ function cleanupLegacyImageServiceWorker() {
       console.warn('[SW] legacy cache cleanup failed:', error)
     })
   }
-}
-
-function loadVendoredFonts(deferLoad: boolean) {
-  const id = 'chromvoid-vendored-fonts'
-  if (document.getElementById(id)) {
-    return
-  }
-
-  const attach = () => {
-    if (document.getElementById(id)) {
-      return
-    }
-    const link = document.createElement('link')
-    link.id = id
-    link.rel = 'stylesheet'
-    link.href = new URL(/* @vite-ignore */ './assets/fonts.vendored.css', import.meta.url).toString()
-    document.head.append(link)
-  }
-
-  if (deferLoad) {
-    scheduleNonCritical(attach, 750)
-    return
-  }
-
-  attach()
 }
 
 function scheduleNonCritical(task: () => void, delayMs = 0) {
@@ -227,6 +224,7 @@ function startStartupSplash() {
   markStartupTimeline('web.splash.import-start', {
     watchdogMs: SPLASH_IMPORT_WATCHDOG_MS,
   })
+  markStartupSplashActive(hasNativeSplashBridge() ? 'native-bridge' : 'web')
   const watchdogId = window.setTimeout(() => releaseSplashLoadingFallback(), SPLASH_IMPORT_WATCHDOG_MS)
   void import('./app/splash/SplashLogo')
     .then(({startSplashLogo}) => {
@@ -260,7 +258,11 @@ function notifyNativeStartupSplashReady() {
     console.warn('[splash] native splash bridge failed:', error)
   }
 
-  void notifyTauriStartupSplashReady()
+  void notifyTauriStartupSplashReady().finally(() => markStartupSplashReleased())
+}
+
+function hasNativeSplashBridge(): boolean {
+  return typeof window.ChromVoidSplash?.domReady === 'function'
 }
 
 async function notifyTauriStartupSplashReady(): Promise<void> {

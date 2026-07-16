@@ -71,6 +71,7 @@ impl From<BlobIoError> for DomainReadError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum DomainReadScope {
+    EnvRuntime,
     Passmanager,
     Passkeys,
     Wallet,
@@ -79,6 +80,7 @@ pub(super) enum DomainReadScope {
 impl DomainReadScope {
     fn root(self) -> &'static str {
         match self {
+            Self::EnvRuntime => "/.cv-env-runtime",
             Self::Passmanager => "/.passmanager",
             Self::Passkeys => "/.passkeys",
             Self::Wallet => "/.wallet",
@@ -148,6 +150,9 @@ mod tests {
         assert!(!DomainReadScope::Passmanager.contains_path("/.passmanager2"));
         assert!(!DomainReadScope::Passmanager.contains_path("/docs/.passmanager"));
         assert!(!DomainReadScope::Passmanager.contains_path("/.wallet/a"));
+        assert!(DomainReadScope::EnvRuntime.contains_path("/.cv-env-runtime"));
+        assert!(DomainReadScope::EnvRuntime.contains_path("/.cv-env-runtime/values/a.json"));
+        assert!(!DomainReadScope::EnvRuntime.contains_path("/.cv-env-runtime-other"));
     }
 
     #[test]

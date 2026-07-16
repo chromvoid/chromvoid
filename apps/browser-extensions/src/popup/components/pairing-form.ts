@@ -1,11 +1,26 @@
-import {css} from 'lit'
 import {ReatomLitElement, html} from '@chromvoid/uikit/reatom-lit'
+import {css, nothing, type PropertyValues} from 'lit'
 
 import {i18n} from '../i18n'
-import {store} from '../store'
 
 export class ExtPairingForm extends ReatomLitElement {
   static elementName = 'ext-pairing-form'
+
+  static get properties() {
+    return {
+      pin: {type: String},
+      pinError: {type: String, attribute: 'pin-error'},
+      backendError: {type: String, attribute: 'backend-error'},
+      pending: {type: Boolean},
+      focusRequest: {type: Number, attribute: 'focus-request'},
+    }
+  }
+
+  declare pin: string
+  declare pinError?: string
+  declare backendError?: string
+  declare pending: boolean
+  declare focusRequest: number
 
   static define() {
     if (!customElements.get(this.elementName)) {
@@ -18,87 +33,133 @@ export class ExtPairingForm extends ReatomLitElement {
       display: block;
     }
 
-    .state-panel {
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      gap: 10px;
-      min-height: 212px;
-      padding: 16px;
-      border: 1px dashed rgb(148 163 184 / 24%);
-      border-radius: 14px;
-      text-align: center;
-      color: rgb(226 232 240 / 94%);
+    form {
+      display: grid;
+      gap: var(--cv-space-3);
     }
 
-    .pairing-section {
-      display: flex;
-      flex-direction: column;
-      align-items: stretch;
-      gap: 12px;
-      width: 100%;
-      max-width: 330px;
+    label {
+      color: var(--cv-color-text-muted);
+      font-size: 11px;
+      font-weight: 700;
     }
 
-    .pairing-hint {
-      font-size: 12px;
-      color: rgb(191 219 254 / 92%);
-      text-align: center;
-    }
-
-    .pairing-actions {
+    .control {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
-      align-items: center;
-      gap: 8px;
+      gap: var(--cv-space-2);
     }
 
-    cv-input {
-      --cv-input-background: rgb(2 6 23 / 65%);
-      --cv-input-border-color: rgb(148 163 184 / 38%);
-      --cv-input-color: rgb(226 232 240);
-      --cv-input-placeholder-color: rgb(148 163 184 / 85%);
+    input,
+    button {
+      min-block-size: 42px;
+      border-radius: var(--cv-radius-sm);
+      font: inherit;
+    }
+
+    input {
+      min-inline-size: 0;
+      padding-inline: var(--cv-space-3);
+      border: 1px solid var(--cv-color-border-muted);
+      background: var(--cv-color-surface-2);
+      color: var(--cv-color-text);
+      letter-spacing: 0.18em;
+    }
+
+    input[aria-invalid='true'] {
+      border-color: var(--cv-color-danger-border-strong);
+    }
+
+    input:focus-visible,
+    button:focus-visible {
+      outline: 2px solid var(--cv-color-focus);
+      outline-offset: 2px;
+    }
+
+    button {
+      padding-inline: var(--cv-space-4);
+      border: 1px solid var(--cv-color-primary-border);
+      background: var(--cv-color-primary-surface-strong);
+      color: var(--cv-color-text-strong);
+      font-weight: 750;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      cursor: wait;
+      opacity: 0.6;
+    }
+
+    .error {
+      margin: 0;
+      color: var(--cv-color-danger-text);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    .backend-error {
+      padding: var(--cv-space-3);
+      border: 1px solid var(--cv-color-danger-border);
+      border-radius: var(--cv-radius-sm);
+      background: var(--cv-color-danger-surface);
+    }
+
+    @media (max-width: 360px) {
+      .control {
+        grid-template-columns: 1fr;
+      }
     }
   `
 
-  private handleKeydown(event: KeyboardEvent) {
-    if (event.key !== 'Enter') {
-      return
+  protected override updated(changedProperties: PropertyValues<this>) {
+    super.updated(changedProperties)
+    if (changedProperties.has('focusRequest') && this.pinError) {
+      this.renderRoot.querySelector<HTMLInputElement>('#pairing-pin')?.focus()
     }
-
-    event.preventDefault()
-    this.handlePair()
   }
 
-  private handlePair() {
-    const input = this.renderRoot.querySelector<HTMLElement & {value?: string}>('cv-input')
-    if (!input) {
-      return
-    }
-
+  private handleInput(event: Event) {
+    const input = event.currentTarget as HTMLInputElement
     this.dispatchEvent(
-      new CustomEvent('ext-pair', {detail: {pin: input.value ?? ''}, bubbles: true, composed: true}),
+      new CustomEvent('pairing-pin-input', {
+        detail: {pin: input.value},
+        bubbles: true,
+        composed: true,
+      }),
     )
   }
 
-  protected override render() {
-    const error = store.error()
-    const inProgress = store.pairingInProgress()
+  private handleSubmit(event: SubmitEvent) {
+    event.preventDefault()
+    this.dispatchEvent(new CustomEvent('pairing-submit', {bubbles: true, composed: true}))
+  }
 
+  protected override render() {
     return html`
-      <div class="state-panel">
-        <div>${error}</div>
-        <div class="pairing-section">
-          <div class="pairing-hint">${i18n('pairing.hint')}</div>
-          <div class="pairing-actions">
-            <cv-input size="small" placeholder="123456" @keydown=${this.handleKeydown}></cv-input>
-            <cv-button size="small" @click=${this.handlePair} ?disabled=${inProgress}
-              >${inProgress ? i18n('pairing.progress') : i18n('pairing.action')}</cv-button
-            >
-          </div>
+      <form @submit=${this.handleSubmit} novalidate>
+        <label for="pairing-pin">${i18n('pairing.pinLabel')}</label>
+        <div class="control">
+          <input
+            id="pairing-pin"
+            name="pairing-pin"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            maxlength="6"
+            required
+            .value=${this.pin ?? ''}
+            aria-invalid=${this.pinError ? 'true' : nothing}
+            aria-describedby=${this.pinError ? 'pairing-pin-error' : nothing}
+            @input=${this.handleInput}
+          />
+          <button type="submit" ?disabled=${this.pending}>
+            ${this.pending ? i18n('pairing.progress') : i18n('pairing.action')}
+          </button>
         </div>
-      </div>
+        ${this.pinError ? html`<p class="error" id="pairing-pin-error">${this.pinError}</p>` : null}
+        ${this.backendError
+          ? html`<p class="error backend-error" role="alert">${this.backendError}</p>`
+          : null}
+      </form>
     `
   }
 }

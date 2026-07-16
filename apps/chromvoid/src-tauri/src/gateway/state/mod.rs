@@ -6,10 +6,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub use config::{
     GatewayConfig, PairingSession, GATEWAY_PAIRING_LOCKOUT_MS, GATEWAY_PAIRING_MAX_ATTEMPTS,
 };
+pub(crate) use gateway_state::GatewayConfigSaveSnapshot;
 pub use gateway_state::GatewayState;
 
 // Re-export helper functions used by other gateway files.
-pub use super::types::{AccessDuration, CapabilityPolicy, GrantStore, PairedExtension};
+pub use super::types::{
+    AccessDuration, CapabilityPolicy, GatewayActorKind, GrantStore, PairedAgent, PairedExtension,
+};
 
 pub fn now_ms() -> u64 {
     SystemTime::now()

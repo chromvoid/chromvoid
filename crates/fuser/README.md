@@ -61,10 +61,14 @@ sudo apt-get install libfuse-dev pkg-config
 sudo yum install fuse-devel pkgconfig
 ```
 
-### macOS (untested)
+### macOS
 
-Install [FUSE for macOS], which can be obtained from their website or installed using the Homebrew or Nix package managers. macOS version 10.9 or later is required. If you are using a Mac with Apple Silicon, you must also [enable support for third party kernel extensions][enable kext].
+The default build has no compile-time dependency on macFUSE. At runtime it uses the
+`mount_macfuse` helper from a user-installed [macFUSE][FUSE for macOS] distribution when mounting a filesystem.
+On Apple Silicon, users may also need to [enable support for third party kernel extensions][enable kext].
 
+The optional `libfuse2` feature keeps the legacy linked-library implementation. That feature
+requires macFUSE development files and `pkg-config` at build time.
 
 #### To install using Homebrew
 

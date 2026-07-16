@@ -132,12 +132,18 @@ impl RpcRouter {
                 .map_err(|e| VaultOpsError::internal(e.to_string()))?;
             self.session = None;
             self.derivative_index_state.invalidate();
+            self.wallet_auth_runtime.spend_authorizations.clear();
+            self.wallet_mnemonic_drafts.clear();
 
             // Push event (ADR-004 attachments): emitted when push pipeline is enabled.
             self.event_queue.push_vault_locked("manual");
         }
         self.credential_provider_runtime.clear_all();
         self.clear_vault_export();
+        if self.session.is_none() {
+            self.wallet_auth_runtime.spend_authorizations.clear();
+            self.wallet_mnemonic_drafts.clear();
+        }
         Ok(())
     }
 
@@ -182,6 +188,8 @@ impl RpcRouter {
             )
             .map_err(VaultOpsError::from_rekey_error)?;
         self.credential_provider_runtime.clear_all();
+        self.wallet_auth_runtime.spend_authorizations.clear();
+        self.wallet_mnemonic_drafts.clear();
         self.clear_vault_export();
         Ok(VaultRekeyResponse {
             migrated_chunks: result.migrated_chunks,
@@ -269,6 +277,8 @@ impl RpcRouter {
         self.verify_master_password(request.master_password)?;
 
         self.session = None;
+        self.wallet_auth_runtime.spend_authorizations.clear();
+        self.wallet_mnemonic_drafts.clear();
         self.clear_backup_local_session();
         self.clear_restore_local_session();
         self.clear_vault_export();
@@ -332,6 +342,8 @@ impl RpcRouter {
         self.verify_master_password(request.master_password)?;
 
         self.session = None;
+        self.wallet_auth_runtime.spend_authorizations.clear();
+        self.wallet_mnemonic_drafts.clear();
 
         if let Err(e) = self.storage.erase_all() {
             return Err(VaultOpsError::internal(format!(

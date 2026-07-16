@@ -6,7 +6,6 @@ import {CVTextarea, type CVTextareaInputEvent} from '@chromvoid/uikit/components
 import {Entry, OTP} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
 import {holdMobileKeyboard} from 'root/app/bootstrap/mobile-keyboard'
-import {pmCredentialTagsModel} from '../../../models/pm-credential-tags.model'
 import {isPassmanagerReadOnlyOrMissing} from '../../../models/pm-root.adapter'
 
 import {PMAvatarIcon} from '../../pm-avatar-icon'
@@ -43,10 +42,7 @@ import {
 import type {PMEntrySecretResource} from './entry-session.model'
 import {entryMobileStyles, paymentCardFaceMobileStyles} from './styles'
 import {PMEntryOTPCreate, PMEntryOTPCreateSheet} from '../entry-otp-create'
-import {getSelectedTagIdsFromEvent} from '../entry-tags/entry-tags-editor'
 import {pmEntryTagsStyles} from '../entry-tags/entry-tags.styles'
-import {PMEntrySshCreateSheet} from '../entry-ssh/entry-ssh-create-sheet'
-import {PMEntrySshKey} from '../entry-ssh/entry-ssh-key'
 import {PMEntryOTPItem} from '../pm-entry-otp-item'
 
 export class PMEntryMobile extends PMEntryBase {
@@ -66,8 +62,6 @@ export class PMEntryMobile extends PMEntryBase {
       PMEntryOTPCreateSheet.define()
       PMEntryOTPItem.define()
       PMIconPickerMobile.define()
-      PMEntrySshCreateSheet.define()
-      PMEntrySshKey.define()
       PMAvatarIcon.define()
     }
   }
@@ -341,11 +335,6 @@ export class PMEntryMobile extends PMEntryBase {
     this.model.beginOtpSnippet(this.entry)
   }
 
-  private handleAddMissingSshInEntryView() {
-    if (!(this.entry instanceof Entry)) return
-    this.model.openSshGenerator(this.entry)
-  }
-
   private handleNoteSubmit(event: Event) {
     event.preventDefault()
     this.handleSaveNote()
@@ -387,18 +376,9 @@ export class PMEntryMobile extends PMEntryBase {
     void this.model.savePaymentCardEdit(this.entry)
   }
 
-  private handleTagSelect(event: Event) {
-    this.model.setTagDraftFromKeys(getSelectedTagIdsFromEvent(event))
-  }
-
-  private handleManageTags(event: Event) {
-    event.preventDefault()
-    pmCredentialTagsModel.openManageSheet()
-  }
-
-  private handleSaveTags() {
+  private handleStartTagEdit() {
     if (!(this.entry instanceof Entry)) return
-    void this.model.saveTagEdit(this.entry)
+    this.model.startTagEdit(this.entry)
   }
 
   private handleToggleCardCvv() {
@@ -442,35 +422,6 @@ export class PMEntryMobile extends PMEntryBase {
     void this.model.removeOtp(otp)
   }
 
-  private handleGenerateSshKeyRequest(_event?: Event) {
-    if (!(this.entry instanceof Entry)) return
-    void this.model.generateSshKey(this.entry)
-  }
-
-  private handleSshSheetClose() {
-    this.model.cancelSshGenerator()
-  }
-
-  private handleSshSheetPrimary() {
-    const result = this.model.sshResult()
-    if (result && !result.pending) {
-      void this.model.copyGeneratedSshPublicKey()
-      return
-    }
-
-    this.handleGenerateSshKeyRequest()
-  }
-
-  private handleSshSheetDone() {
-    this.model.closeSectionSnippet()
-  }
-
-  private async handleSshKeyRemove(event: CustomEvent<{keyId: string}>) {
-    if (!(this.entry instanceof Entry)) return
-
-    await this.model.removeSshKey(this.entry, event.detail.keyId)
-  }
-
   private createRenderContext(card: Entry): PMEntryMobileRenderContext {
     const data = this.model.contracts.getEntryData(card) as PMEntryEditData
     const ui: PMEntryMobileUIAdapter = {
@@ -482,7 +433,6 @@ export class PMEntryMobile extends PMEntryBase {
       handleCancelEntryEdit: () => this.handleCancelEntryEdit(),
       handleSaveEntryEdit: () => this.handleSaveEntryEdit(),
       handleAddMissingOtpInEntryView: () => this.handleAddMissingOtpInEntryView(),
-      handleAddMissingSshInEntryView: () => this.handleAddMissingSshInEntryView(),
       handleHeaderAvatarAction: () => this.handleHeaderAvatarAction(),
       handleInlineIconChange: (event) => this.handleInlineIconChange(event),
       handleInlineEditInput: (event) => this.handleInlineEditInput(event),
@@ -507,15 +457,11 @@ export class PMEntryMobile extends PMEntryBase {
       handlePaymentCardInput: (event) => this.handlePaymentCardInput(event),
       handleSavePaymentCard: () => this.handleSavePaymentCard(),
       handleToggleCardCvv: () => this.handleToggleCardCvv(),
-      handleTagSelect: (event) => this.handleTagSelect(event),
-      handleManageTags: (event) => this.handleManageTags(event),
-      handleSaveTags: () => this.handleSaveTags(),
+      handleStartTagEdit: () => this.handleStartTagEdit(),
       handleOtpSave: () => this.handleOtpSave(),
       handleOtpRemove: (event) => this.handleOtpRemove(event),
       handleOtpLabelInput: (event) => this.handleOtpLabelInput(event),
       handleSectionSnippetKeyDown: (event) => this.handleSectionSnippetKeyDown(event),
-      handleGenerateSshKeyRequest: (event) => this.handleGenerateSshKeyRequest(event),
-      handleSshKeyRemove: (event) => this.handleSshKeyRemove(event),
     }
 
     return {
@@ -612,7 +558,7 @@ export class PMEntryMobile extends PMEntryBase {
     const context = this.createRenderContext(card)
     this.currentRenderContext = context
 
-    this.style.setProperty('--entry-avatar-bg', context.data.avatarBg)
+    this.style.setProperty('--pm-entry-avatar-background', context.data.avatarBg)
 
     return html`
       <div class="entry-shell">
@@ -657,24 +603,6 @@ export class PMEntryMobile extends PMEntryBase {
           @pm-entry-otp-create-sheet-close=${this.handleOtpSheetClose}
           @pm-entry-otp-create-sheet-primary=${this.handleOtpSave}
         ></pm-entry-otp-create-sheet>
-        <pm-entry-ssh-create-sheet
-          .model=${this.model.sshDraft}
-          .open=${this.model.sectionSnippet() === 'ssh' && this.model.sshGeneratorOpen()}
-          .saving=${this.model.sshGenerating()}
-          .title=${this.model.sshResult() && !this.model.sshResult()?.pending
-            ? i18n('ssh:result:title')
-            : i18n('ssh:add')}
-          .description=${this.model.sshResult() && !this.model.sshResult()?.pending
-            ? i18n('ssh:result:description')
-            : i18n('ssh:sheet:description:entry', {title: context.data.title})}
-          .primaryLabel=${this.model.sshResult() && !this.model.sshResult()?.pending
-            ? i18n('ssh:copy_public_key')
-            : i18n('ssh:generate')}
-          .doneLabel=${i18n('button:done')}
-          @pm-entry-ssh-create-sheet-close=${this.handleSshSheetClose}
-          @pm-entry-ssh-create-sheet-primary=${this.handleSshSheetPrimary}
-          @pm-entry-ssh-create-sheet-done=${this.handleSshSheetDone}
-        ></pm-entry-ssh-create-sheet>
       </div>
     `
   }

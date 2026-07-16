@@ -4,7 +4,14 @@
 In the current integration, this is comparable to using SAVE KEY and ManagerSaver.
 The UI should depend on this port instead of a low-level API.
 */
-import type {PassManagerSaveEntryMetaPayload, PassManagerSecretSlot} from '../service/types'
+import type {
+  PassManagerSaveEntryMetaPayload,
+  PassManagerSecretSlot,
+  PassManagerSshKey,
+  SshKeygenParams,
+  SshKeygenResult,
+} from '../service/types'
+import type {CredentialSecurityAuditArtifactV1} from '../service/security-audit'
 
 export interface PasswordsRepository {
   /**Save the root JSON PassManager*/
@@ -34,6 +41,14 @@ export interface PasswordsRepository {
   }>
   gcIcons?(): Promise<{deleted: number}>
   setGroupMeta?(path: string, meta: {iconRef?: string | null; description?: string | null}): Promise<boolean>
+  readCredentialSecurityAudit?(): Promise<CredentialSecurityAuditArtifactV1 | undefined>
+  saveCredentialSecurityAudit?(artifact: CredentialSecurityAuditArtifactV1): Promise<boolean>
+
+  listSshKeys(): Promise<PassManagerSshKey[]>
+  updateSshKey(key: PassManagerSshKey): Promise<boolean>
+  removeSshKey(keyId: string): Promise<boolean>
+  readSshPublicKey(keyId: string): Promise<string | undefined>
+  generateSshKey(params: SshKeygenParams): Promise<SshKeygenResult>
 
   /**Reading/writing of typed entry secrets*/
   readEntrySecret(entryId: string, slot: PassManagerSecretSlot): Promise<string | undefined>

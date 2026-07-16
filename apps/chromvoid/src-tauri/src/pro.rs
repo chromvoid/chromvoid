@@ -5,10 +5,13 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use chromvoid_core::license::{
     feature_set_from_snapshot, BuildPolicy, EntitlementSnapshot, SignedCert,
     PRO_FEATURE_BROWSER_EXTENSION, PRO_FEATURE_CREDENTIAL_PROVIDER, PRO_FEATURE_CRYPTO_WALLET,
-    PRO_FEATURE_EMERGENCY_ACCESS, PRO_FEATURE_MOUNTED_VAULT, PRO_FEATURE_REMOTE,
-    PRO_FEATURE_SSH_AGENT,
+    PRO_FEATURE_EMERGENCY_ACCESS, PRO_FEATURE_ENV_RUNTIME, PRO_FEATURE_MOUNTED_VAULT,
+    PRO_FEATURE_REMOTE, PRO_FEATURE_SSH_AGENT,
 };
-use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
+use chromvoid_core::rpc::types::{
+    CoreCapabilitiesResponse, RpcRequest, RpcResponse, CORE_FEATURE_WALLET_CORE_TON_V1,
+    CORE_FEATURE_WALLET_DOMAIN_BASE_V1,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -38,6 +41,12 @@ pub(crate) struct ModuleAccessState {
 struct ProRolloutConfig {
     global_enabled: bool,
     disabled_features: BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct ModuleRuntimeSupport {
+    crypto_wallet: bool,
+    env_runtime_local: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -115,8 +124,7 @@ pub(crate) fn guard_pro_feature_for_adapter(
     feature_key: &str,
     caps: &RuntimeCapabilities,
 ) -> Result<(), RpcResult<Value>> {
-    let entitlement = entitlement_snapshot_for_adapter(adapter);
-    let access = resolve_module_access(feature_key, caps, entitlement.as_ref());
+    let access = resolve_for_adapter(adapter, feature_key, caps);
     if access.status == ModuleAccessStatus::Enabled {
         return Ok(());
     }
@@ -131,13 +139,25 @@ pub(crate) fn resolve_for_adapter(
     feature_key: &str,
     caps: &RuntimeCapabilities,
 ) -> ModuleAccessState {
+    let support = module_runtime_support_for_adapter(adapter);
+    if feature_key == PRO_FEATURE_ENV_RUNTIME && !support.env_runtime_local {
+        return denied(
+            feature_key,
+            ModuleAccessStatus::Unsupported,
+            "REMOTE_CORE_UNSUPPORTED",
+        );
+    }
     let entitlement = entitlement_snapshot_for_adapter(adapter);
-    resolve_module_access(feature_key, caps, entitlement.as_ref())
+    resolve_module_access(feature_key, caps, entitlement.as_ref(), &support)
 }
 
 pub(crate) fn entitlement_snapshot_for_adapter(
     adapter: &mut dyn CoreAdapter,
 ) -> Option<EntitlementSnapshot> {
+    if adapter.mobile_usb_session_requires_approval() {
+        return None;
+    }
+
     let response = adapter.handle(&RpcRequest::new("license:status", Value::Null));
     let mut snapshot = match response {
         RpcResponse::Success { result, .. } => {
@@ -211,12 +231,19 @@ where
     }
 }
 
-pub(crate) fn resolve_module_access(
+fn resolve_module_access(
     feature_key: &str,
     caps: &RuntimeCapabilities,
     entitlement: Option<&EntitlementSnapshot>,
+    support: &ModuleRuntimeSupport,
 ) -> ModuleAccessState {
-    resolve_module_access_with_rollout(feature_key, caps, entitlement, &ProRolloutConfig::current())
+    resolve_module_access_with_rollout(
+        feature_key,
+        caps,
+        entitlement,
+        &ProRolloutConfig::current(),
+        support,
+    )
 }
 
 fn resolve_module_access_with_rollout(
@@ -224,8 +251,19 @@ fn resolve_module_access_with_rollout(
     caps: &RuntimeCapabilities,
     entitlement: Option<&EntitlementSnapshot>,
     rollout: &ProRolloutConfig,
+    support: &ModuleRuntimeSupport,
 ) -> ModuleAccessState {
-    if !is_feature_supported(feature_key, caps) {
+    if feature_key == PRO_FEATURE_ENV_RUNTIME
+        && cfg!(all(desktop, target_os = "macos"))
+        && !support.env_runtime_local
+    {
+        return denied(
+            feature_key,
+            ModuleAccessStatus::Unsupported,
+            "REMOTE_CORE_UNSUPPORTED",
+        );
+    }
+    if !is_feature_supported(feature_key, caps, support) {
         return denied(
             feature_key,
             ModuleAccessStatus::Unsupported,
@@ -535,19 +573,39 @@ pub(crate) async fn license_current_seat_deactivate(
 
 #[tauri::command]
 pub(crate) async fn module_access_snapshot(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> TauriRpcResult<Vec<ModuleAccessState>> {
     let caps = crate::types::runtime_capabilities_for_current_target();
-    let entitlement = match entitlement_snapshot_for_state(&state, "Module access snapshot").await {
-        Ok(entitlement) => entitlement,
-        Err(error) => return Ok(module_access_error(error)),
+    let access = match run_pro_rpc_adapter_task(
+        &state,
+        "Module access snapshot",
+        "ENTITLEMENT_UNAVAILABLE",
+        move |adapter| {
+            let entitlement = entitlement_snapshot_for_adapter(adapter);
+            let support = module_runtime_support_for_adapter(adapter);
+            Ok(all_pro_feature_keys()
+                .iter()
+                .map(|feature| {
+                    resolve_module_access(feature, &caps, entitlement.as_ref(), &support)
+                })
+                .collect::<Vec<_>>())
+        },
+    )
+    .await
+    {
+        Ok(access) => access,
+        Err(error) => {
+            crate::credential_provider_bridge::on_identity_policy_status(&app, false);
+            return Ok(module_access_error(error));
+        }
     };
-    Ok(rpc_ok(
-        all_pro_feature_keys()
-            .iter()
-            .map(|feature| resolve_module_access(feature, &caps, entitlement.as_ref()))
-            .collect(),
-    ))
+    let credential_provider_enabled = access.iter().any(|item| {
+        item.feature_key == PRO_FEATURE_CREDENTIAL_PROVIDER
+            && item.status == ModuleAccessStatus::Enabled
+    });
+    crate::credential_provider_bridge::on_identity_policy_status(&app, credential_provider_enabled);
+    Ok(rpc_ok(access))
 }
 
 #[tauri::command]
@@ -579,6 +637,7 @@ fn all_pro_feature_keys() -> &'static [&'static str] {
         PRO_FEATURE_EMERGENCY_ACCESS,
         PRO_FEATURE_BROWSER_EXTENSION,
         PRO_FEATURE_MOUNTED_VAULT,
+        PRO_FEATURE_ENV_RUNTIME,
     ]
 }
 
@@ -587,17 +646,24 @@ impl ProRolloutConfig {
         let global_enabled = std::env::var("CHROMVOID_PRO_ROLLOUT_ENABLED")
             .map(|value| !(value == "0" || value.eq_ignore_ascii_case("false")))
             .unwrap_or(true);
-        let disabled_features = std::env::var("CHROMVOID_PRO_DISABLED_FEATURES")
-            .ok()
-            .map(|value| {
-                value
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(ToOwned::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default();
+        let mut disabled_features: BTreeSet<String> =
+            std::env::var("CHROMVOID_PRO_DISABLED_FEATURES")
+                .ok()
+                .map(|value| {
+                    value
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(ToOwned::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+        let env_runtime_enabled = std::env::var("CHROMVOID_ENV_RUNTIME_V1_ENABLED")
+            .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        if !env_runtime_enabled {
+            disabled_features.insert(PRO_FEATURE_ENV_RUNTIME.to_string());
+        }
         Self {
             global_enabled,
             disabled_features,
@@ -605,16 +671,51 @@ impl ProRolloutConfig {
     }
 }
 
-fn is_feature_supported(feature_key: &str, caps: &RuntimeCapabilities) -> bool {
+fn is_feature_supported(
+    feature_key: &str,
+    caps: &RuntimeCapabilities,
+    support: &ModuleRuntimeSupport,
+) -> bool {
     match feature_key {
         PRO_FEATURE_REMOTE => caps.supports_network_remote,
         PRO_FEATURE_CREDENTIAL_PROVIDER => caps.supports_autofill,
         PRO_FEATURE_SSH_AGENT => cfg!(desktop),
         PRO_FEATURE_BROWSER_EXTENSION => caps.supports_gateway,
         PRO_FEATURE_MOUNTED_VAULT => caps.supports_volume,
-        PRO_FEATURE_CRYPTO_WALLET | PRO_FEATURE_EMERGENCY_ACCESS => false,
+        PRO_FEATURE_ENV_RUNTIME => cfg!(all(desktop, target_os = "macos")),
+        PRO_FEATURE_CRYPTO_WALLET => support.crypto_wallet,
+        PRO_FEATURE_EMERGENCY_ACCESS => false,
         _ => false,
     }
+}
+
+fn module_runtime_support_for_adapter(adapter: &mut dyn CoreAdapter) -> ModuleRuntimeSupport {
+    if adapter.mobile_usb_session_requires_approval() {
+        return ModuleRuntimeSupport::default();
+    }
+
+    ModuleRuntimeSupport {
+        crypto_wallet: adapter_supports_crypto_wallet(adapter),
+        env_runtime_local: adapter.mode() == CoreMode::Local,
+    }
+}
+
+fn adapter_supports_crypto_wallet(adapter: &mut dyn CoreAdapter) -> bool {
+    let response = adapter.handle(&RpcRequest::new("core:capabilities", Value::Null));
+    let RpcResponse::Success { result, .. } = response else {
+        return false;
+    };
+    let Ok(capabilities) = serde_json::from_value::<CoreCapabilitiesResponse>(result) else {
+        return false;
+    };
+    capabilities
+        .features
+        .iter()
+        .any(|feature| feature == CORE_FEATURE_WALLET_DOMAIN_BASE_V1)
+        && capabilities
+            .features
+            .iter()
+            .any(|feature| feature == CORE_FEATURE_WALLET_CORE_TON_V1)
 }
 
 fn enabled(feature_key: &str) -> ModuleAccessState {
@@ -894,6 +995,17 @@ mod tests {
         }
     }
 
+    fn default_support() -> ModuleRuntimeSupport {
+        ModuleRuntimeSupport::default()
+    }
+
+    fn wallet_support() -> ModuleRuntimeSupport {
+        ModuleRuntimeSupport {
+            crypto_wallet: true,
+            ..ModuleRuntimeSupport::default()
+        }
+    }
+
     fn supported_caps() -> RuntimeCapabilities {
         RuntimeCapabilities {
             platform: "test".to_string(),
@@ -909,6 +1021,10 @@ mod tests {
             supports_biometric: true,
             supports_autofill: true,
             supports_media_stream_protocol: true,
+            supports_media_http_stream: true,
+            supports_mse_video_playback: true,
+            supports_desktop_native_video_playback: false,
+            supports_mobile_native_video_playback: false,
             supports_native_audio_playback: false,
             supports_native_video_playback: false,
             supports_native_file_upload: false,
@@ -1040,6 +1156,7 @@ mod tests {
             &supported_caps(),
             Some(&entitlement),
             &rollout_enabled(),
+            &default_support(),
         );
 
         assert_eq!(access.status, ModuleAccessStatus::LockedPro);
@@ -1053,6 +1170,7 @@ mod tests {
             &supported_caps(),
             None,
             &rollout_enabled(),
+            &default_support(),
         );
 
         assert_eq!(access.status, ModuleAccessStatus::EntitlementUnavailable);
@@ -1075,6 +1193,7 @@ mod tests {
             &supported_caps(),
             Some(&entitlement),
             &rollout_enabled(),
+            &default_support(),
         );
 
         assert_eq!(access.status, ModuleAccessStatus::Enabled);
@@ -1089,8 +1208,125 @@ mod tests {
             &supported_caps(),
             Some(&entitlement),
             &rollout_enabled(),
+            &default_support(),
         );
 
         assert_ne!(locked.status, ModuleAccessStatus::Enabled);
+    }
+
+    #[test]
+    fn resolve_crypto_wallet_requires_core_wallet_support() {
+        let entitlement = snapshot(
+            true,
+            LicensePlan::Pro,
+            vec![PRO_FEATURE_CRYPTO_WALLET],
+            BuildPolicy::Enforce,
+        );
+        let access = resolve_module_access_with_rollout(
+            PRO_FEATURE_CRYPTO_WALLET,
+            &supported_caps(),
+            Some(&entitlement),
+            &rollout_enabled(),
+            &default_support(),
+        );
+
+        assert_eq!(access.status, ModuleAccessStatus::Unsupported);
+        assert_eq!(
+            access.denial_code.as_deref(),
+            Some("FEATURE_UNSUPPORTED_ON_PLATFORM")
+        );
+    }
+
+    #[test]
+    fn resolve_crypto_wallet_uses_entitlement_when_core_supports_wallet() {
+        let entitlement = snapshot(
+            true,
+            LicensePlan::Pro,
+            vec![PRO_FEATURE_CRYPTO_WALLET],
+            BuildPolicy::Enforce,
+        );
+        let access = resolve_module_access_with_rollout(
+            PRO_FEATURE_CRYPTO_WALLET,
+            &supported_caps(),
+            Some(&entitlement),
+            &rollout_enabled(),
+            &wallet_support(),
+        );
+
+        assert_eq!(access.status, ModuleAccessStatus::Enabled);
+        assert_eq!(access.denial_code, None);
+    }
+
+    struct SessionApprovalRequiredAdapter {
+        handled_commands: Vec<String>,
+    }
+
+    impl CoreAdapter for SessionApprovalRequiredAdapter {
+        fn mode(&self) -> CoreMode {
+            CoreMode::Local
+        }
+
+        fn mobile_usb_session_requires_approval(&self) -> bool {
+            true
+        }
+
+        fn is_unlocked(&self) -> bool {
+            false
+        }
+
+        fn handle(&mut self, req: &RpcRequest) -> RpcResponse {
+            self.handled_commands.push(req.command.clone());
+            RpcResponse::Error {
+                ok: false,
+                error: "unexpected call".to_string(),
+                code: Some("UNEXPECTED".to_string()),
+            }
+        }
+
+        fn handle_with_stream(
+            &mut self,
+            _req: &RpcRequest,
+            _stream: Option<chromvoid_core::rpc::RpcInputStream>,
+        ) -> chromvoid_core::rpc::RpcReply {
+            chromvoid_core::rpc::RpcReply::Json(RpcResponse::Error {
+                ok: false,
+                error: "unexpected call".to_string(),
+                code: Some("UNEXPECTED".to_string()),
+            })
+        }
+
+        fn save(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn take_events(&mut self) -> Vec<Value> {
+            Vec::new()
+        }
+
+        fn set_master_key(&mut self, _key: Option<String>) {}
+    }
+
+    #[test]
+    fn entitlement_snapshot_skips_mobile_usb_before_session_approval() {
+        let mut adapter = SessionApprovalRequiredAdapter {
+            handled_commands: Vec::new(),
+        };
+
+        let snapshot = entitlement_snapshot_for_adapter(&mut adapter);
+
+        assert!(snapshot.is_none());
+        assert!(adapter.handled_commands.is_empty());
+    }
+
+    #[test]
+    fn module_runtime_support_skips_mobile_usb_before_session_approval() {
+        let mut adapter = SessionApprovalRequiredAdapter {
+            handled_commands: Vec::new(),
+        };
+
+        let support = module_runtime_support_for_adapter(&mut adapter);
+
+        assert!(!support.crypto_wallet);
+        assert!(adapter.handled_commands.is_empty());
     }
 }

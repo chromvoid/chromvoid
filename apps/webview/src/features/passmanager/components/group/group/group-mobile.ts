@@ -1,20 +1,21 @@
 import {nothing, css} from 'lit'
 import {html} from '@chromvoid/uikit/reatom-lit'
 
-import {Entry, Group, type ManagerRoot} from '@project/passmanager/core'
+import {type Entry, type Group, type ManagerRoot} from '@project/passmanager/core'
 import {hostContainStyles, motionPrimitiveStyles} from 'root/shared/ui/shared-styles'
 import {CvEmptyState} from 'root/shared/ui/empty-state'
+import {WorkspaceDashboardHeader} from 'root/features/file-manager/components/workspace-dashboard-header'
 import {folderItemCSS, listItemsCSS, pmSharedStyles} from '../../../styles/shared'
 import {listGroupStyles} from '../../list/list-item-styles'
 import {PMWorkspaceHeader} from '../../card/pm-workspace-header'
 import {PMSummaryRail} from '../../summary-rail'
-import {PMSearchMobile} from '../../list/search-mobile'
+import {createCredentialsHeaderControlsModel} from '../../list/credentials-header-controls'
 import {getPassmanagerRoot} from '../../../models/pm-root.adapter'
 import {pmMobileDebug} from '../../../models/pm-mobile-debug'
 import {passwordManagerMobileLayoutModel} from '../../password-manager-layout/password-manager-mobile-layout.model'
 import {PMGroupBase} from './group-base'
 import {PMGroupListItemMobile} from './group-list-item-mobile'
-import type {PMGroupRow} from './group.model'
+import type {PMGroupPresentation, PMGroupRow} from './group.model'
 import {pmGroupCommonStyles} from './styles'
 
 export const pmGroupMobileStyles = css`
@@ -22,14 +23,8 @@ export const pmGroupMobileStyles = css`
     gap: var(--app-mobile-surface-gap);
     position: relative;
     min-block-size: 0;
-    --pm-mobile-group-inline-gutter: var(--app-mobile-surface-gutter-inline);
-    --pm-mobile-scroll-edge-block-size: 88px;
-    --pm-mobile-scroll-edge-soft-stop: 48px;
-    --pm-mobile-scroll-edge-subtle-stop: 22px;
-    --pm-scrollbar-safe-area-start: 0px;
-    --pm-scrollbar-safe-area-end: 0px;
     display: grid;
-    grid-template-rows: min-content auto min-content;
+    grid-template-rows: min-content minmax(0, 1fr) min-content;
   }
 
   .group-virtual-list {
@@ -45,20 +40,17 @@ export const pmGroupMobileStyles = css`
   }
 
   .pm-group-scroll-edge {
-    --cv-scroll-edge-block-size: var(--pm-mobile-scroll-edge-block-size);
-    --cv-scroll-edge-inline-start: 0px;
-    --cv-scroll-edge-inline-end: 0px;
-    --cv-scroll-edge-surface: var(--cv-color-bg);
-    --cv-scroll-edge-surface-fade: var(--cv-color-surface-glass-subtle);
-    --cv-scroll-edge-mask-block-size: var(--pm-mobile-scroll-edge-block-size);
-    --cv-scroll-edge-mask-soft-stop: var(--pm-mobile-scroll-edge-soft-stop);
-    --cv-scroll-edge-mask-subtle-stop: var(--pm-mobile-scroll-edge-subtle-stop);
+    --app-scroll-edge-block-size: var(--pm-mobile-group-scroll-edge-block-size);
+    --app-scroll-edge-inline-start: 0px;
+    --app-scroll-edge-inline-end: 0px;
+    --app-scroll-edge-surface: var(--cv-color-bg);
+    --app-scroll-edge-surface-fade: var(--cv-color-surface-glass-subtle);
     inline-size: 100%;
   }
 
   pm-card-header,
   pm-card-header-mobile {
-    inline-size: calc(100% - var(--pm-scrollbar-safe-area));
+    inline-size: 100%;
   }
 
   
@@ -78,10 +70,19 @@ export const pmGroupMobileStyles = css`
     padding: 2px 0;
   }
 
-  .mobile-search {
+  .mobile-credentials-header {
     inline-size: 100%;
     box-sizing: border-box;
     padding-inline: var(--pm-mobile-group-inline-gutter);
+  }
+
+  .mobile-credentials-header {
+    --app-dashboard-header-control-block-size: 40px;
+  }
+
+  .mobile-credentials-shell {
+    display: grid;
+    min-inline-size: 0;
   }
 
   .group-metrics-strip {
@@ -89,7 +90,8 @@ export const pmGroupMobileStyles = css`
     inline-size: 100%;
     max-inline-size: none;
     box-sizing: border-box;
-    padding-inline: var(--pm-mobile-group-inline-gutter);
+    padding: var(--cv-space-2) calc(var(--pm-mobile-group-inline-gutter) + var(--cv-space-4))
+      max(var(--cv-space-2), env(safe-area-inset-bottom, 0px));
     background: var(--cv-color-bg);
   }
 
@@ -113,9 +115,9 @@ export class PMGroupMobile extends PMGroupBase {
       customElements.define('pm-group-mobile', this)
     }
     PMWorkspaceHeader.define()
+    WorkspaceDashboardHeader.define()
     PMSummaryRail.define()
     PMGroupListItemMobile.define()
-    PMSearchMobile.define()
   }
 
   static styles = [
@@ -170,7 +172,7 @@ export class PMGroupMobile extends PMGroupBase {
           .selectionActive=${selectionState.selectionActive}
           .selectedInSelectionMode=${selectionState.selected}
           @pm-entry-row-focus=${() => this.setActiveItemById(item.id)}
-          @entry-delete=${this.handleEntryDelete}
+          @entry-delete=${(event: Event) => this.handleEntryDelete(event)}
           group
         ></pm-entry-list-item-mobile>
       </div>
@@ -315,9 +317,11 @@ export class PMGroupMobile extends PMGroupBase {
           .presentation=${this.model.getGroupRowPresentation(item)}
           .activeRow=${active}
           .rowTabIndex=${active ? 0 : -1}
+          .readOnly=${this.model.isReadOnly()}
           .selectionActive=${selectionState.selectionActive}
           .selectedInSelectionMode=${selectionState.selected}
           @pm-group-row-focus=${() => this.setActiveItemById(item.id)}
+          @group-delete=${(event: Event) => this.handleGroupDelete(event)}
           @click=${() => this.handleGroupRowClick(item)}
           @touchstart=${(event: TouchEvent) => this.handleGroupTouchStart(event, item)}
           @touchmove=${(event: TouchEvent) => this.handleGroupTouchMove(event)}
@@ -333,12 +337,27 @@ export class PMGroupMobile extends PMGroupBase {
     `
   }
 
-  private renderMobileSearch() {
-    return html`<pm-search-mobile class="mobile-search"></pm-search-mobile>`
+  private renderMobileWorkspaceHeader(summary: PMGroupPresentation) {
+    const controlsModel = createCredentialsHeaderControlsModel(() => summary)
+
+    return html`
+      <div class="mobile-credentials-shell">
+        <workspace-dashboard-header
+          class="mobile-credentials-header"
+          surface="passwords"
+          embedded
+          .controlsModel=${controlsModel}
+        ></workspace-dashboard-header>
+      </div>
+    `
   }
 
   protected override usesBlockStartScrollEdge(): boolean {
     return true
+  }
+
+  protected override getScrollEdgeTreatment(): 'shadow' {
+    return 'shadow'
   }
 
   protected override render() {
@@ -354,7 +373,7 @@ export class PMGroupMobile extends PMGroupBase {
       this.model.isEditMode() && !isRoot
         ? this.renderHeader(group as Group, summary, false)
         : nothing
-    const search = this.model.isEditMode() && !isRoot ? nothing : this.renderMobileSearch()
+    const search = this.model.isEditMode() && !isRoot ? nothing : this.renderMobileWorkspaceHeader(summary)
 
     return html`
       <div class="wrapper">

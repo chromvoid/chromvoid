@@ -167,6 +167,8 @@ final class ChromVoidIntegrationTests: XCTestCase {
         let sanitized = CredentialIPCBridge.sanitizeAdapterMetadataForTesting([
             "rp_id": "example.com",
             "password": "secret",
+            "code": "123456",
+            "one_time_code": "654321",
             "nested": [
                 "token": "sensitive",
                 "allowed": "value",
@@ -175,9 +177,53 @@ final class ChromVoidIntegrationTests: XCTestCase {
 
         XCTAssertEqual(sanitized?["rp_id"] as? String, "example.com")
         XCTAssertNil(sanitized?["password"])
+        XCTAssertNil(sanitized?["code"])
+        XCTAssertNil(sanitized?["one_time_code"])
         let nested = sanitized?["nested"] as? [String: Any]
         XCTAssertEqual(nested?["allowed"] as? String, "value")
         XCTAssertNil(nested?["token"])
+    }
+
+    func testGetSecretEnvelopeUsesSecretReferenceWithoutPlaintextFields() {
+        let envelope = CredentialIPCBridge.secretReferenceResponseForTesting()
+        let result = envelope["result"] as? [String: Any]
+
+        XCTAssertEqual(envelope["success"] as? Bool, true)
+        XCTAssertNotNil(result?["secret_ref"] as? String)
+        XCTAssertFalse(CredentialIPCBridge.containsForbiddenSecretFieldsForTesting(envelope))
+
+        let encoded = try? JSONSerialization.data(withJSONObject: envelope)
+        let json = encoded.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        XCTAssertFalse(json.contains("password"))
+        XCTAssertFalse(json.contains("otp"))
+    }
+
+    func testOneTimeCodeRecordIdentifierDecoderIsVersionedAndFailClosed() {
+        let decoded = CredentialIPCBridge.decodeOneTimeCodeRecordIdentifier(
+            "cv:otp:v1:Y3JlZDox:dG90cC8x"
+        )
+
+        XCTAssertEqual(decoded?.credentialID, "cred:1")
+        XCTAssertEqual(decoded?.otpID, "totp/1")
+        XCTAssertNil(CredentialIPCBridge.decodeOneTimeCodeRecordIdentifier("cv:otp:v2:YQ:Yg"))
+        XCTAssertNil(CredentialIPCBridge.decodeOneTimeCodeRecordIdentifier("cv:otp:v1::Yg"))
+        XCTAssertNil(CredentialIPCBridge.decodeOneTimeCodeRecordIdentifier("cv:otp:v1:not+url:Yg"))
+        let oversized = CredentialIPCBridge.base64URLEncode(Data(repeating: 7, count: 513))
+        XCTAssertNil(CredentialIPCBridge.decodeOneTimeCodeRecordIdentifier("cv:otp:v1:\(oversized):Yg"))
+    }
+
+    func testOneTimeCodeFreshnessUsesCoreDeadline() {
+        XCTAssertTrue(CredentialIPCBridge.oneTimeCodeResultIsFresh([
+            "code": "123456",
+            "valid_until_ms": NSNumber(value: 2_000),
+        ], nowMilliseconds: 1_999))
+        XCTAssertFalse(CredentialIPCBridge.oneTimeCodeResultIsFresh([
+            "code": "123456",
+            "valid_until_ms": NSNumber(value: 2_000),
+        ], nowMilliseconds: 2_000))
+        XCTAssertFalse(CredentialIPCBridge.oneTimeCodeResultIsFresh([
+            "valid_until_ms": NSNumber(value: 2_000),
+        ], nowMilliseconds: 1_999))
     }
 
     func testPasskeysLiteStatusPayloadMatchesRuntimeGate() {
@@ -208,10 +254,14 @@ final class ChromVoidIntegrationTests: XCTestCase {
 
         XCTAssertEqual(payload["platform"] as? String, "ios")
         XCTAssertNotNil(payload["platform_version_major"] as? Int)
+        XCTAssertEqual(payload["origin"] as? String, "https://example.com")
+        XCTAssertEqual(payload["clientDataHash"] as? String, CredentialIPCBridge.base64URLEncode(clientDataHash))
+        XCTAssertEqual(payload["userVerified"] as? Bool, true)
         XCTAssertEqual(rp?["id"] as? String, "example.com")
         XCTAssertEqual(user?["name"] as? String, "alice@example.com")
         XCTAssertEqual(user?["id"] as? String, CredentialIPCBridge.base64URLEncode(userHandle))
-        XCTAssertEqual(request?["clientDataHash"] as? String, CredentialIPCBridge.base64URLEncode(clientDataHash))
+        XCTAssertNil(request?["origin"])
+        XCTAssertNil(request?["clientDataHash"])
         XCTAssertEqual(params?.first?["alg"] as? Int, -7)
     }
 
@@ -229,8 +279,12 @@ final class ChromVoidIntegrationTests: XCTestCase {
 
         XCTAssertEqual(payload["platform"] as? String, "ios")
         XCTAssertEqual(payload["credentialIdB64Url"] as? String, CredentialIPCBridge.base64URLEncode(credentialID))
+        XCTAssertEqual(payload["origin"] as? String, "https://example.com")
+        XCTAssertEqual(payload["clientDataHash"] as? String, CredentialIPCBridge.base64URLEncode(clientDataHash))
+        XCTAssertEqual(payload["userVerified"] as? Bool, true)
         XCTAssertEqual(request?["rpId"] as? String, "example.com")
-        XCTAssertEqual(request?["clientDataHash"] as? String, CredentialIPCBridge.base64URLEncode(clientDataHash))
+        XCTAssertNil(request?["origin"])
+        XCTAssertNil(request?["clientDataHash"])
         XCTAssertEqual(allowedCredentials?.first?["id"] as? String, CredentialIPCBridge.base64URLEncode(credentialID))
     }
 }

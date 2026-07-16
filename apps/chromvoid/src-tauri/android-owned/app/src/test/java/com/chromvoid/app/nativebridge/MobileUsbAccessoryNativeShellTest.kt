@@ -31,8 +31,11 @@ class MobileUsbAccessoryNativeShellTest {
         assertEquals(MobileUsbAccessoryIntentContract.MANUFACTURER, started.identityJson.getString("manufacturer"))
         assertEquals(MobileUsbAccessoryIntentContract.MODEL, started.identityJson.getString("model"))
         assertEquals("serial-1", started.identityJson.getString("serial"))
-        handle.close()
-        assertEquals(listOf(started.sessionId), sink.stopped)
+        handle.close(MobileUsbAccessorySessionStopReason.ExplicitDisconnect)
+        assertEquals(
+            listOf(StoppedSession(started.sessionId, "explicit_disconnect")),
+            sink.stopped,
+        )
     }
 
     @Test
@@ -46,10 +49,10 @@ class MobileUsbAccessoryNativeShellTest {
         val handle = opener.open(chromVoidAccessory(), chromVoidIdentity())
         val sessionId = sink.started.single().sessionId
 
-        handle.close()
-        handle.close()
+        handle.close(MobileUsbAccessorySessionStopReason.AccessoryDetached)
+        handle.close(MobileUsbAccessorySessionStopReason.ExplicitDisconnect)
 
-        assertEquals(listOf(sessionId), sink.stopped)
+        assertEquals(listOf(StoppedSession(sessionId, "accessory_detached")), sink.stopped)
     }
 
     @Test
@@ -150,7 +153,7 @@ class MobileUsbAccessoryNativeShellTest {
         private val startResult: Boolean,
     ) : MobileUsbAccessoryNativeSink {
         val started = mutableListOf<StartedSession>()
-        val stopped = mutableListOf<String>()
+        val stopped = mutableListOf<StoppedSession>()
         var throwOnStart = false
 
         override fun startAccessorySession(
@@ -163,8 +166,11 @@ class MobileUsbAccessoryNativeShellTest {
             return startResult
         }
 
-        override fun stopAccessorySession(sessionId: String) {
-            stopped += sessionId
+        override fun stopAccessorySession(
+            sessionId: String,
+            reasonCode: String,
+        ) {
+            stopped += StoppedSession(sessionId, reasonCode)
         }
     }
 
@@ -172,6 +178,11 @@ class MobileUsbAccessoryNativeShellTest {
         val sessionId: String,
         val fd: Int,
         val identityJson: JSONObject,
+    )
+
+    private data class StoppedSession(
+        val sessionId: String,
+        val reasonCode: String,
     )
 
     private fun chromVoidIdentity(serial: String = "serial-1"): MobileUsbAccessoryIdentity =

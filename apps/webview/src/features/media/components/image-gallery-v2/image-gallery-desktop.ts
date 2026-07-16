@@ -44,7 +44,10 @@ export class ImageGallery extends ImageGalleryBase {
       .info-panel {
         position: fixed;
         z-index: 1;
-        inset-inline-end: max(var(--app-spacing-4), env(safe-area-inset-right, 0px));
+        inset-inline-end: max(
+          var(--app-spacing-4),
+          var(--app-runtime-safe-area-inline-end, 0px)
+        );
         inset-block-end: calc(max(var(--app-spacing-4), env(safe-area-inset-bottom, 0px)) + 84px);
         inline-size: min(360px, calc(100vw - 32px));
         display: grid;
@@ -123,8 +126,8 @@ export class ImageGallery extends ImageGalleryBase {
 
       @media (max-width: 768px) {
         .info-panel {
-          inset-inline: max(var(--app-spacing-3), env(safe-area-inset-left, 0px))
-            max(var(--app-spacing-3), env(safe-area-inset-right, 0px));
+          inset-inline: max(var(--app-spacing-3), var(--app-runtime-safe-area-inline-start, 0px))
+            max(var(--app-spacing-3), var(--app-runtime-safe-area-inline-end, 0px));
           inline-size: auto;
         }
       }
@@ -180,6 +183,7 @@ export class ImageGallery extends ImageGalleryBase {
 
     return mapGalleryActionsToViewerActions({
       actions: getImageViewerActionButtons({
+        showDownload: !showSaveToGallery,
         showSaveToGallery,
         showShare,
         includeInfo: true,

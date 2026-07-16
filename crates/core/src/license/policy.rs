@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use super::types::{
     BuildPolicy, EntitlementSnapshot, LicensePlan, PRO_FEATURE_BROWSER_EXTENSION,
     PRO_FEATURE_CREDENTIAL_PROVIDER, PRO_FEATURE_CRYPTO_WALLET, PRO_FEATURE_EMERGENCY_ACCESS,
-    PRO_FEATURE_MOUNTED_VAULT, PRO_FEATURE_REMOTE, PRO_FEATURE_SSH_AGENT,
+    PRO_FEATURE_ENV_RUNTIME, PRO_FEATURE_MOUNTED_VAULT, PRO_FEATURE_REMOTE, PRO_FEATURE_SSH_AGENT,
 };
 
 impl EntitlementSnapshot {
@@ -37,6 +37,7 @@ pub fn pro_feature_keys() -> Vec<String> {
         PRO_FEATURE_EMERGENCY_ACCESS,
         PRO_FEATURE_BROWSER_EXTENSION,
         PRO_FEATURE_MOUNTED_VAULT,
+        PRO_FEATURE_ENV_RUNTIME,
     ]
     .into_iter()
     .map(ToOwned::to_owned)

@@ -1,7 +1,8 @@
 import {expect, test} from 'vitest'
+import type {Page} from 'playwright'
 
 declare global {
-  var __E2E_PAGE__: import('playwright').Page | undefined
+  var __E2E_PAGE__: Page | undefined
 }
 
 test('S1: Start → file-manager', async () => {
@@ -18,6 +19,6 @@ test('S1: Start → file-manager', async () => {
   })
 
   // Check the main elements
-  expect(await page.$('status-bar')).toBeTruthy()
+  expect(await page.$('status-bar')).toBeNull()
   expect(await page.$('chromvoid-file-manager')).toBeTruthy()
 })

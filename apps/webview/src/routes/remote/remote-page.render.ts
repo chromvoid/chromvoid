@@ -1,6 +1,5 @@
 import {html, nothing, type TemplateResult} from 'lit'
 import {i18n} from 'root/i18n'
-import {renderRouteBackLink} from 'root/shared/ui/route-back-link'
 import {renderRouteCallout, type RouteCalloutVariant} from 'root/shared/ui/route-callout'
 import {
   renderRemoteHostsFlowPanel,
@@ -19,11 +18,8 @@ import type {RemoteHostsFlowModel} from './remote-hosts-flow.model'
 type RemoteCalloutVariant = RouteCalloutVariant
 
 export interface RemotePageRenderContext {
-  hideBackLink: boolean
-  externalToolbar: boolean
   connectionState: () => ConnectionState
   remoteStatus: () => RemoteStatus
-  onBack: () => void
   // Mode context
   currentMode: () => CoreMode
   transportType: () => string | null
@@ -130,7 +126,7 @@ export const renderModeCard = (ctx: RemotePageRenderContext): TemplateResult => 
                 ? html`
                     <div class="mode-info-row">
                       <span class="mode-info-label">${i18n('remote:connected-peer')}</span>
-                      <span class="mode-info-value">${peerName}</span>
+                      <span class="mode-info-value"><bdi dir="auto">${peerName}</bdi></span>
                     </div>
                   `
                 : nothing}
@@ -138,7 +134,7 @@ export const renderModeCard = (ctx: RemotePageRenderContext): TemplateResult => 
                 ? html`
                     <div class="mode-info-row">
                       <span class="mode-info-label">${i18n('remote:transport')}</span>
-                      <span class="badge">${transport.toUpperCase()}</span>
+                      <span class="badge" dir="ltr">${transport.toUpperCase()}</span>
                     </div>
                   `
                 : nothing}
@@ -365,20 +361,6 @@ export const renderUxStateHints = (ctx: RemotePageRenderContext): TemplateResult
 export const renderRemotePage = (ctx: RemotePageRenderContext): TemplateResult => {
   return html`
     <div class="page">
-      ${ctx.externalToolbar
-        ? nothing
-        : html`
-            <header class="header">
-              ${renderRouteBackLink({
-                hidden: ctx.hideBackLink,
-                label: i18n('navigation:files'),
-                onBack: ctx.onBack,
-              })}
-              <h1 class="title">${i18n('remote:title')}</h1>
-              <p class="subtitle">${i18n('remote:subtitle')}</p>
-            </header>
-          `}
-
       <div class="grid">
         ${renderModeCard(ctx)} ${renderSyncStatusBar(ctx)} ${renderWriterLockCard(ctx)}
         ${renderWriterAccessIndicator(ctx)} ${renderUxStateHints(ctx)}

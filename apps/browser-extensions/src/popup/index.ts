@@ -1,33 +1,15 @@
-import {CVBadge} from '@chromvoid/uikit/components/cv-badge'
-import {CVButton} from '@chromvoid/uikit/components/cv-button'
-import {CVCard} from '@chromvoid/uikit/components/cv-card'
-import {CVCopyButton} from '@chromvoid/uikit/components/cv-copy-button'
-import {CVInput} from '@chromvoid/uikit/components/cv-input'
-import {CVProgressRing} from '@chromvoid/uikit/components/cv-progress-ring'
-import {CVSelect} from '@chromvoid/uikit/components/cv-select'
-import {CVSelectOption} from '@chromvoid/uikit/components/cv-select-option'
-import {CVTooltip} from '@chromvoid/uikit/components/cv-tooltip'
-
-CVBadge.define()
-CVButton.define()
-CVCard.define()
-CVCopyButton.define()
-CVInput.define()
-CVProgressRing.define()
-CVSelect.define()
-CVSelectOption.define()
-CVTooltip.define()
-
-import {ExtStatusPanel} from './components/status-panel'
+import {CredentialDetail} from './components/credential-detail'
+import {CredentialRow} from './components/credential-row'
 import {ExtPairingForm} from './components/pairing-form'
-import {ExtRecordCard} from './components/record-card'
-import {ExtRecordCardView} from './components/record-card-view'
+import {RecoveryState} from './components/recovery-state'
 
-ExtStatusPanel.define()
+CredentialDetail.define()
+CredentialRow.define()
 ExtPairingForm.define()
-ExtRecordCard.define()
-ExtRecordCardView.define()
+RecoveryState.define()
 
 import {AppRoot} from './app'
+import {popupModel} from './popup.runtime'
 
+AppRoot.configure(popupModel)
 AppRoot.define()

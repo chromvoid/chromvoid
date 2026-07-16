@@ -19,6 +19,7 @@ const TASK_LIFECYCLE_SHUTDOWN_REQUESTED: &str = "Task lifecycle shutdown request
 pub(crate) enum ManagedTaskName {
     AutoLock,
     GatewayServer,
+    MediaHttpServer,
     ShutdownSignalListener,
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     AndroidHostModeResume,
@@ -40,6 +41,8 @@ pub(crate) enum EventTaskName {
     SshAgentCatalogRefresh,
     VaultAutoMountAfterUnlock,
     VaultSshAgentAutoStartAfterUnlock,
+    #[cfg_attr(not(any(target_os = "ios", target_os = "macos")), allow(dead_code))]
+    CredentialIdentitySyncAfterUnlock,
     #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
     IosPendingWakeOrHostResume,
     IosForegroundReconnect,
@@ -792,6 +795,14 @@ mod tests {
                 },
             )
             .expect("spawn SSH agent unlock event task");
+        runtime
+            .spawn_event_async(
+                EventTaskName::CredentialIdentitySyncAfterUnlock,
+                |_shutdown| async {
+                    std::future::pending::<()>().await;
+                },
+            )
+            .expect("spawn credential identity sync unlock event task");
 
         assert_eq!(
             runtime
@@ -803,6 +814,12 @@ mod tests {
             runtime
                 .event_task_count_for_test(EventTaskName::VaultSshAgentAutoStartAfterUnlock)
                 .expect("SSH agent event count"),
+            1
+        );
+        assert_eq!(
+            runtime
+                .event_task_count_for_test(EventTaskName::CredentialIdentitySyncAfterUnlock)
+                .expect("credential identity sync event count"),
             1
         );
 
@@ -820,6 +837,12 @@ mod tests {
             runtime
                 .event_task_count_for_test(EventTaskName::VaultSshAgentAutoStartAfterUnlock)
                 .expect("SSH agent event count"),
+            0
+        );
+        assert_eq!(
+            runtime
+                .event_task_count_for_test(EventTaskName::CredentialIdentitySyncAfterUnlock)
+                .expect("credential identity sync event count"),
             0
         );
     }

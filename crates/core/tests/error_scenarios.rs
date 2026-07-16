@@ -11,6 +11,7 @@ fn test_malformed_json_request() {
         v: 1,
         command: "ping".to_string(),
         data: serde_json::json!(null),
+        transport_features: None,
     };
     let response = router.handle(&request);
     assert_rpc_ok(&response);
@@ -34,6 +35,7 @@ fn test_unsupported_protocol_version() {
         v: 99,
         command: "ping".to_string(),
         data: serde_json::json!({}),
+        transport_features: None,
     };
     let response = router.handle(&request);
     assert!(!response.is_ok());

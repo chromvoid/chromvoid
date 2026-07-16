@@ -70,8 +70,35 @@ impl JsonMobileUsbPairingStore {
         Self { path: path.into() }
     }
 
-    fn read_records(&self) -> Vec<MobileUsbPairedHostRecord> {
-        crate::helpers::storage::read_json_or_default(&self.path, "mobile_usb: paired host store")
+    fn read_records(&self) -> Result<Vec<MobileUsbPairedHostRecord>, MobileUsbError> {
+        let bytes = match std::fs::read(&self.path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => {
+                return Err(MobileUsbError::new(
+                    MobileUsbErrorCode::PairingStoreCorrupt,
+                    format!("failed to read mobile USB pairing store: {error}"),
+                ));
+            }
+        };
+        let values = serde_json::from_slice::<Vec<serde_json::Value>>(&bytes).map_err(|error| {
+            MobileUsbError::new(
+                MobileUsbErrorCode::PairingStoreCorrupt,
+                format!("failed to parse mobile USB pairing store: {error}"),
+            )
+        })?;
+        let mut records = Vec::with_capacity(values.len());
+        for (index, value) in values.into_iter().enumerate() {
+            match serde_json::from_value::<MobileUsbPairedHostRecord>(value) {
+                Ok(record) => records.push(record),
+                Err(error) => tracing::warn!(
+                    index,
+                    error = %error,
+                    "mobile_usb: quarantined invalid paired host record"
+                ),
+            }
+        }
+        Ok(records)
     }
 
     fn write_records(&self, records: &[MobileUsbPairedHostRecord]) -> Result<(), MobileUsbError> {
@@ -86,18 +113,18 @@ impl JsonMobileUsbPairingStore {
 
 impl MobileUsbPairingStore for JsonMobileUsbPairingStore {
     fn list(&self) -> Result<Vec<MobileUsbPairedHostRecord>, MobileUsbError> {
-        Ok(self.read_records())
+        self.read_records()
     }
 
     fn get(&self, host_id: &HostId) -> Result<Option<MobileUsbPairedHostRecord>, MobileUsbError> {
         Ok(self
-            .read_records()
+            .read_records()?
             .into_iter()
             .find(|record| &record.host_id == host_id))
     }
 
     fn commit_pairing(&self, record: MobileUsbPairedHostRecord) -> Result<(), MobileUsbError> {
-        let mut records = self.read_records();
+        let mut records = self.read_records()?;
         if records.iter().any(|existing| {
             existing.host_id == record.host_id || existing.peer_pubkey == record.peer_pubkey
         }) {
@@ -115,7 +142,7 @@ impl MobileUsbPairingStore for JsonMobileUsbPairingStore {
         host_id: &HostId,
         last_seen: u64,
     ) -> Result<MobileUsbPairedHostRecord, MobileUsbError> {
-        let mut records = self.read_records();
+        let mut records = self.read_records()?;
         let Some(record) = records.iter_mut().find(|record| &record.host_id == host_id) else {
             return Err(MobileUsbError::new(
                 MobileUsbErrorCode::NotPaired,
@@ -133,7 +160,7 @@ impl MobileUsbPairingStore for JsonMobileUsbPairingStore {
         host_id: &HostId,
         confirmed_at: u64,
     ) -> Result<MobileUsbPairedHostRecord, MobileUsbError> {
-        let mut records = self.read_records();
+        let mut records = self.read_records()?;
         let Some(record) = records.iter_mut().find(|record| &record.host_id == host_id) else {
             return Err(MobileUsbError::new(
                 MobileUsbErrorCode::NotPaired,
@@ -148,7 +175,7 @@ impl MobileUsbPairingStore for JsonMobileUsbPairingStore {
     }
 
     fn remove(&self, host_id: &HostId) -> Result<(), MobileUsbError> {
-        let mut records = self.read_records();
+        let mut records = self.read_records()?;
         let original_len = records.len();
         records.retain(|record| &record.host_id != host_id);
         if records.len() != original_len {
@@ -170,7 +197,7 @@ pub fn classify_scan_result(
 
     match matches.as_slice() {
         [] => MobileUsbScanClassification::Unpaired,
-        [record] if !record.is_valid_for_auto_match() => {
+        [record] if !record.is_connectable_pairing() => {
             MobileUsbScanClassification::BrokenLocalState {
                 host_id: record.host_id.clone(),
             }

@@ -32,6 +32,7 @@ pub struct InodeEntry {
     pub parent_ino: u64,
     pub is_dir: bool,
     pub size: u64,
+    pub source_revision: u64,
     pub modified: Option<SystemTime>,
 }
 
@@ -52,6 +53,10 @@ impl InodeTable {
     }
 
     pub fn upsert(&self, entry: InodeEntry) {
+        if entry.catalog_node_id == 0 {
+            tracing::warn!("FUSE inode table refused non-root catalog node_id=0");
+            return;
+        }
         let ino = fuse_ino_from_catalog_node_id(entry.catalog_node_id);
         match self.entries.write() {
             Ok(mut map) => {
@@ -151,6 +156,7 @@ mod tests {
             parent_ino,
             is_dir,
             size: 0,
+            source_revision: 0,
             modified: None,
         }
     }
@@ -252,6 +258,15 @@ mod tests {
         table.upsert(entry(5, "docs", FUSE_ROOT_ID, true));
         table.remove(fuse_ino_from_catalog_node_id(5));
         table.retain_children(FUSE_ROOT_ID, &HashSet::new());
+    }
+
+    #[test]
+    fn inode_table_rejects_non_root_zero_catalog_id() {
+        let table = InodeTable::default();
+
+        table.upsert(entry(0, "bad", FUSE_ROOT_ID, true));
+
+        assert!(table.children(FUSE_ROOT_ID).is_empty());
     }
 
     #[test]

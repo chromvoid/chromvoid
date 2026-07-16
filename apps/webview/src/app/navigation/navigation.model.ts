@@ -9,6 +9,10 @@ import {decodeNavigationSnapshotFromUrl} from './navigation-url-codec'
 import {NavigationExternalSync} from './navigation-external-sync'
 import {NavigationHistoryRuntime} from './navigation-history-runtime'
 import {
+  deriveNavigationMotionPlan,
+  type NavigationMotionPlan,
+} from './navigation-motion.model'
+import {
   evaluateNavigationDocument,
   evaluateNavigationOverlay,
   type OverlayEvaluation,
@@ -23,8 +27,12 @@ import {
   snapshotsEqual,
 } from './navigation-snapshot'
 import type {
+  FilesDocumentRoute,
   HistoryMode,
+  NavigationApplyContext,
+  NavigationApplyResult,
   MarkdownDocumentRouteSource,
+  MarkdownDocumentViewMode,
   NavigationBlocker,
   NavigationBlockerIntent,
   NavigationIntentKind,
@@ -33,17 +41,34 @@ import type {
   ResolvedFilesDocumentState,
   RemotePanel,
   ResolvedOverlayState,
+  SettingsRoute,
   SurfaceId,
 } from './navigation.types'
 
+export type NavigationCommitPresenter = (request: {
+  plan: NavigationMotionPlan
+  next: NavigationSnapshot
+  signal: AbortSignal
+  commit: () => void
+}) => void | Promise<void>
+
 type SurfaceBackHandler = () => boolean
 type ResolvedAudioOverlay = Extract<ResolvedOverlayState, {kind: 'audio'}>
+type RememberedNotesDocumentRoute = {
+  path: string
+  document: FilesDocumentRoute
+}
 type OpenMarkdownDocumentOptions =
   | string
   | {
       parentPath?: string
       source?: MarkdownDocumentRouteSource
+      anchor?: string
+      viewMode?: MarkdownDocumentViewMode
     }
+type OpenFileOverlayOptions = {
+  parentPath?: string
+}
 
 const logger = defaultLogger
 
@@ -75,10 +100,25 @@ function replacePathFileName(path: string, fileName: string): string {
   return `${parentPath || ''}/${fileName}`
 }
 
+function getNotesOriginMarkdownDocumentRoute(
+  snapshot: NavigationSnapshot,
+): RememberedNotesDocumentRoute | null {
+  const document = snapshot.files?.document
+  if (snapshot.surface !== 'files' || document?.kind !== 'markdown' || document.originSurface !== 'notes') {
+    return null
+  }
+
+  return {
+    path: snapshot.files?.path || DEFAULT_FILES_PATH,
+    document,
+  }
+}
+
 class NavigationModel {
   readonly snapshot = atom<NavigationSnapshot>(DEFAULT_SNAPSHOT)
   readonly currentSurface = computed<SurfaceId>(() => this.snapshot().surface)
   readonly remotePanel = computed<RemotePanel>(() => this.snapshot().remote?.panel ?? 'hosts')
+  readonly settingsRoute = computed<SettingsRoute>(() => this.snapshot().settings ?? {kind: 'overview'})
   readonly filesPath = computed<string>(() => this.snapshot().files?.path || DEFAULT_FILES_PATH)
   readonly activeMobileTab = computed<'files' | 'notes' | 'passwords' | 'otp'>(() => {
     const snapshot = this.snapshot()
@@ -135,20 +175,25 @@ class NavigationModel {
 
   private connected = false
   private suppressExternalSync = 0
+  private commitPresenter?: {token: symbol; present: NavigationCommitPresenter}
+  private readonly pendingPresentations = new Set<Promise<void>>()
+  private activePresentationAbort: AbortController | null = null
   private approvedNavigationIntent: NavigationBlockerIntent | null = null
   private readonly navigationBlockers = new Set<NavigationBlocker>()
   private readonly surfaceBackHandlers = new Map<SurfaceId, SurfaceBackHandler>()
+  private rememberedNotesDocument: RememberedNotesDocumentRoute | null = null
   private readonly historyRuntime = new NavigationHistoryRuntime({
     logger,
     getSnapshot: () => this.snapshot(),
-    applySnapshot: (snapshot, historyMode, intentKind, resumeEffect) =>
-      this.applySnapshot(snapshot, historyMode, intentKind, resumeEffect),
+    applySnapshot: (snapshot, historyMode, intentKind, resumeEffect, context) =>
+      this.applySnapshot(snapshot, historyMode, intentKind, resumeEffect, context),
     consumeCurrentSurfaceBack: () => this.consumeCurrentSurfaceBack(),
   })
   private readonly externalSync = new NavigationExternalSync({
     logger,
     getSnapshot: () => this.snapshot(),
-    applySnapshot: (snapshot, historyMode) => this.applySnapshot(snapshot, historyMode),
+    applySnapshot: (snapshot, historyMode) =>
+      this.applySnapshot(snapshot, historyMode, 'surface-change', undefined, {motion: 'none'}),
     withSuppressedExternalSync: (fn) => this.withSuppressedExternalSync(fn),
     isExternalSyncSuppressed: () => this.suppressExternalSync > 0,
     incrementCatalogRevision: () => this.catalogRevision.set(this.catalogRevision() + 1),
@@ -172,7 +217,7 @@ class NavigationModel {
     this.historyRuntime.initializeFromWindow()
 
     const initial = decodeNavigationSnapshotFromUrl(window.location.href) ?? this.externalSync.readExternalSnapshot()
-    this.applySnapshot(initial, 'replace')
+    this.applySnapshot(initial, 'replace', 'surface-change', undefined, {motion: 'none'})
 
     this.externalSync.subscribeToExternalState()
     window.addEventListener('popstate', this.historyRuntime.handlePopState)
@@ -184,6 +229,9 @@ class NavigationModel {
     }
 
     this.connected = false
+    this.activePresentationAbort?.abort()
+    this.activePresentationAbort = null
+    this.rememberedNotesDocument = null
     window.removeEventListener('popstate', this.historyRuntime.handlePopState)
     this.historyRuntime.clearSession()
     this.externalSync.cleanupSubscriptions()
@@ -228,7 +276,29 @@ class NavigationModel {
       return
     }
 
+    if (surface === 'settings') {
+      this.applySnapshot(
+        {
+          surface,
+          settings: {kind: 'overview'},
+          overlay: DEFAULT_OVERLAY,
+        },
+        historyMode,
+        'surface-change',
+      )
+      return
+    }
+
     if (surface === 'notes') {
+      if (getNotesOriginMarkdownDocumentRoute(current)) {
+        return
+      }
+
+      if (this.rememberedNotesDocument) {
+        this.restoreRememberedNotesDocument(historyMode)
+        return
+      }
+
       this.applySnapshot(
         {
           surface,
@@ -277,13 +347,17 @@ class NavigationModel {
     historyMode: Exclude<HistoryMode, 'none'> = 'push',
     options?: OpenMarkdownDocumentOptions,
   ): void {
+    const current = this.snapshot()
     const parentPath = typeof options === 'string' ? options : options?.parentPath
     const source = typeof options === 'string' ? undefined : options?.source
-    const originSurface = this.currentSurface() === 'notes' ? 'notes' : undefined
+    const anchor = typeof options === 'string' ? undefined : options?.anchor ?? source?.anchor
+    const viewMode = typeof options === 'string' ? undefined : options?.viewMode
+    const originSurface =
+      current.surface === 'notes' || current.files?.document?.originSurface === 'notes' ? 'notes' : undefined
     const path =
       parentPath ??
-      (this.currentSurface() === 'files'
-        ? this.filesPath()
+      (current.surface === 'files'
+        ? current.files?.path || DEFAULT_FILES_PATH
         : this.externalSync.readExternalFilesPath(this.filesPath()))
     this.applySnapshot(
       {
@@ -294,7 +368,16 @@ class NavigationModel {
             kind: 'markdown',
             fileId,
             ...(originSurface ? {originSurface} : {}),
-            ...(source ? {source} : {}),
+            ...(viewMode === 'edit' ? {viewMode} : {}),
+            ...(source
+              ? {
+                  source: {
+                    ...source,
+                    ...(parentPath && !source.parentPath ? {parentPath} : {}),
+                    ...(anchor ? {anchor} : {}),
+                  },
+                }
+              : {}),
           },
         },
         overlay: DEFAULT_OVERLAY,
@@ -302,6 +385,36 @@ class NavigationModel {
       historyMode,
       'open-document',
     )
+  }
+
+  updateCurrentMarkdownDocumentViewMode(fileId: number, viewMode: MarkdownDocumentViewMode): boolean {
+    const current = this.snapshot()
+    const document = current.files?.document
+    if (current.surface !== 'files' || document?.kind !== 'markdown' || document.fileId !== fileId) {
+      return false
+    }
+
+    const nextViewMode = viewMode === 'edit' ? viewMode : undefined
+    if (document.viewMode === nextViewMode) {
+      return false
+    }
+
+    const {viewMode: _previousViewMode, ...documentWithoutViewMode} = document
+    this.applySnapshot(
+      {
+        ...current,
+        files: {
+          path: current.files?.path || DEFAULT_FILES_PATH,
+          document: {
+            ...documentWithoutViewMode,
+            ...(nextViewMode ? {viewMode: nextViewMode} : {}),
+          },
+        },
+      },
+      'replace',
+      'open-document',
+    )
+    return true
   }
 
   updateCurrentMarkdownDocumentFileName(fileId: number, fileName: string): boolean {
@@ -369,10 +482,16 @@ class NavigationModel {
     )
   }
 
-  openGallery(fileId: number, historyMode: Exclude<HistoryMode, 'none'> = 'replace'): void {
-    const path = this.currentSurface() === 'files'
-      ? this.filesPath()
-      : this.externalSync.readExternalFilesPath(this.filesPath())
+  openGallery(
+    fileId: number,
+    historyMode: Exclude<HistoryMode, 'none'> = 'replace',
+    options: OpenFileOverlayOptions = {},
+  ): void {
+    const path =
+      options.parentPath ??
+      (this.currentSurface() === 'files'
+        ? this.filesPath()
+        : this.externalSync.readExternalFilesPath(this.filesPath()))
     this.applySnapshot(
       {
         surface: 'files',
@@ -384,10 +503,16 @@ class NavigationModel {
     )
   }
 
-  openPreview(fileId: number, historyMode: Exclude<HistoryMode, 'none'> = 'replace'): void {
-    const path = this.currentSurface() === 'files'
-      ? this.filesPath()
-      : this.externalSync.readExternalFilesPath(this.filesPath())
+  openPreview(
+    fileId: number,
+    historyMode: Exclude<HistoryMode, 'none'> = 'replace',
+    options: OpenFileOverlayOptions = {},
+  ): void {
+    const path =
+      options.parentPath ??
+      (this.currentSurface() === 'files'
+        ? this.filesPath()
+        : this.externalSync.readExternalFilesPath(this.filesPath()))
     this.applySnapshot(
       {
         surface: 'files',
@@ -399,10 +524,16 @@ class NavigationModel {
     )
   }
 
-  openVideo(fileId: number, historyMode: Exclude<HistoryMode, 'none'> = 'replace'): void {
-    const path = this.currentSurface() === 'files'
-      ? this.filesPath()
-      : this.externalSync.readExternalFilesPath(this.filesPath())
+  openVideo(
+    fileId: number,
+    historyMode: Exclude<HistoryMode, 'none'> = 'replace',
+    options: OpenFileOverlayOptions = {},
+  ): void {
+    const path =
+      options.parentPath ??
+      (this.currentSurface() === 'files'
+        ? this.filesPath()
+        : this.externalSync.readExternalFilesPath(this.filesPath()))
     this.applySnapshot(
       {
         surface: 'files',
@@ -414,10 +545,16 @@ class NavigationModel {
     )
   }
 
-  openAudio(fileId: number, historyMode: Exclude<HistoryMode, 'none'> = 'replace'): void {
-    const path = this.currentSurface() === 'files'
-      ? this.filesPath()
-      : this.externalSync.readExternalFilesPath(this.filesPath())
+  openAudio(
+    fileId: number,
+    historyMode: Exclude<HistoryMode, 'none'> = 'replace',
+    options: OpenFileOverlayOptions = {},
+  ): void {
+    const path =
+      options.parentPath ??
+      (this.currentSurface() === 'files'
+        ? this.filesPath()
+        : this.externalSync.readExternalFilesPath(this.filesPath()))
     this.applySnapshot(
       {
         surface: 'files',
@@ -497,6 +634,21 @@ class NavigationModel {
     )
   }
 
+  navigateToSettingsRoute(
+    route: SettingsRoute,
+    historyMode: Exclude<HistoryMode, 'none'> = 'push',
+  ): void {
+    this.applySnapshot(
+      {
+        surface: 'settings',
+        settings: route,
+        overlay: DEFAULT_OVERLAY,
+      },
+      historyMode,
+      'surface-change',
+    )
+  }
+
   goBack(): boolean {
     if (this.consumeCurrentSurfaceBack()) {
       return true
@@ -536,7 +688,37 @@ class NavigationModel {
   }
 
   reset(): void {
+    this.rememberedNotesDocument = null
     this.historyRuntime.resetToSnapshot(DEFAULT_SNAPSHOT)
+  }
+
+  forgetDeletedFiles(fileIds: readonly number[]): void {
+    if (fileIds.length === 0) {
+      return
+    }
+
+    const deletedFileIds = new Set(fileIds)
+    if (this.rememberedNotesDocument && deletedFileIds.has(this.rememberedNotesDocument.document.fileId)) {
+      this.rememberedNotesDocument = null
+    }
+
+    const current = this.snapshot()
+    const document = current.files?.document
+    if (current.surface !== 'files' || !document || !deletedFileIds.has(document.fileId)) {
+      return
+    }
+
+    this.applySnapshot(
+      document.originSurface === 'notes'
+        ? {surface: 'notes', overlay: DEFAULT_OVERLAY}
+        : {
+            surface: 'files',
+            files: {path: current.files?.path || DEFAULT_FILES_PATH},
+            overlay: DEFAULT_OVERLAY,
+          },
+      'replace',
+      'close-document',
+    )
   }
 
   registerSurfaceBackHandler(surface: SurfaceId, handler: SurfaceBackHandler): () => void {
@@ -555,6 +737,20 @@ class NavigationModel {
     }
   }
 
+  registerCommitPresenter(present: NavigationCommitPresenter): () => void {
+    const token = Symbol('navigation-commit-presenter')
+    this.commitPresenter = {token, present}
+    return () => {
+      if (this.commitPresenter?.token === token) {
+        this.commitPresenter = undefined
+      }
+    }
+  }
+
+  async whenSettled(): Promise<void> {
+    await Promise.all([...this.pendingPresentations])
+  }
+
   syncFromExternal(historyMode: Exclude<HistoryMode, 'none'> = 'push'): void {
     this.externalSync.syncFromExternal(historyMode)
   }
@@ -564,7 +760,8 @@ class NavigationModel {
     historyMode: HistoryMode,
     intentKind: NavigationIntentKind = 'surface-change',
     resumeEffect?: () => void,
-  ): boolean {
+    context: NavigationApplyContext = {},
+  ): NavigationApplyResult {
     const next = normalizeSnapshot(snapshot)
     const current = this.snapshot()
     const intent: NavigationBlockerIntent = {
@@ -575,20 +772,99 @@ class NavigationModel {
     }
 
     if (this.consumeApprovedNavigationIntent(intent)) {
-      this.commitSnapshot(next, historyMode)
-      return true
+      return this.presentSnapshotCommit(current, next, historyMode, intentKind, context)
     }
 
     if (this.consumeNavigationBlocker(intent, resumeEffect)) {
-      return false
+      return {accepted: false, committed: Promise.resolve(), synchronous: true}
     }
 
-    this.commitSnapshot(next, historyMode)
-    return true
+    return this.presentSnapshotCommit(current, next, historyMode, intentKind, context)
   }
 
-  private commitSnapshot(next: NavigationSnapshot, historyMode: HistoryMode): void {
+  private presentSnapshotCommit(
+    current: NavigationSnapshot,
+    next: NavigationSnapshot,
+    historyMode: HistoryMode,
+    intentKind: NavigationIntentKind,
+    context: NavigationApplyContext,
+  ): NavigationApplyResult {
+    const plan = deriveNavigationMotionPlan(current, next, intentKind, context)
+    const presenter = plan.kind === 'none' ? undefined : this.commitPresenter?.present
+    this.activePresentationAbort?.abort()
+    this.activePresentationAbort = null
+
+    if (!presenter) {
+      this.commitSnapshot(next, historyMode, intentKind)
+      return {accepted: true, committed: Promise.resolve(), synchronous: true}
+    }
+
+    let attempted = false
+    let synchronous = false
+    let resolveCommit!: () => void
+    let rejectCommit!: (error: unknown) => void
+    const committed = new Promise<void>((resolve, reject) => {
+      resolveCommit = resolve
+      rejectCommit = reject
+    })
+    const presentationAbort = new AbortController()
+    this.activePresentationAbort = presentationAbort
+    const cancelUncommittedPresentation = () => {
+      if (attempted) return
+      attempted = true
+      resolveCommit()
+    }
+    presentationAbort.signal.addEventListener('abort', cancelUncommittedPresentation, {once: true})
+    const commit = () => {
+      if (attempted) return
+      attempted = true
+      try {
+        this.commitSnapshot(next, historyMode, intentKind)
+        synchronous = true
+        resolveCommit()
+      } catch (error) {
+        rejectCommit(error)
+        throw error
+      }
+    }
+
+    let presentation: Promise<void>
+    try {
+      presentation = Promise.resolve(
+        presenter({plan, next, signal: presentationAbort.signal, commit}),
+      )
+    } catch (error) {
+      presentation = Promise.reject(error)
+    }
+
+    const tracked = presentation
+      .then(() => {
+        if (!attempted) commit()
+      })
+      .catch((error) => {
+        if (presentationAbort.signal.aborted) return
+        logger.warn('[NavigationModel] navigation presentation failed; committing without motion', {error})
+        if (!attempted) commit()
+      })
+      .finally(() => {
+        presentationAbort.signal.removeEventListener('abort', cancelUncommittedPresentation)
+        if (this.activePresentationAbort === presentationAbort) {
+          this.activePresentationAbort = null
+        }
+        this.pendingPresentations.delete(tracked)
+      })
+    this.pendingPresentations.add(tracked)
+
+    return {accepted: true, committed, synchronous}
+  }
+
+  private commitSnapshot(
+    next: NavigationSnapshot,
+    historyMode: HistoryMode,
+    intentKind: NavigationIntentKind,
+  ): void {
     const previous = this.snapshot()
+    this.updateRememberedNotesDocument(previous, next, intentKind)
 
     this.withSuppressedExternalSync(() => {
       this.externalSync.applySnapshotToExternal(next)
@@ -596,6 +872,66 @@ class NavigationModel {
     })
 
     this.historyRuntime.syncHistory(next, previous, historyMode)
+  }
+
+  private restoreRememberedNotesDocument(
+    historyMode: Exclude<HistoryMode, 'none'>,
+  ): void {
+    const remembered = this.rememberedNotesDocument
+    if (!remembered) {
+      return
+    }
+
+    const notesSnapshot: NavigationSnapshot = {
+      surface: 'notes',
+      overlay: DEFAULT_OVERLAY,
+    }
+    const documentSnapshot: NavigationSnapshot = {
+      surface: 'files',
+      files: {
+        path: remembered.path,
+        document: remembered.document,
+      },
+      overlay: DEFAULT_OVERLAY,
+    }
+    const openDocumentAfterNotes = () => {
+      const notesResult = this.applySnapshot(notesSnapshot, historyMode, 'surface-change')
+      if (!notesResult.accepted) {
+        return
+      }
+      const openDocument = () => this.applySnapshot(documentSnapshot, 'push', 'open-document')
+      if (notesResult.synchronous) {
+        openDocument()
+      } else {
+        void notesResult.committed.then(openDocument)
+      }
+    }
+
+    const result = this.applySnapshot(notesSnapshot, historyMode, 'surface-change', openDocumentAfterNotes)
+    if (!result.accepted) return
+    const openDocument = () => this.applySnapshot(documentSnapshot, 'push', 'open-document')
+    if (result.synchronous) {
+      openDocument()
+    } else {
+      void result.committed.then(openDocument)
+    }
+  }
+
+  private updateRememberedNotesDocument(
+    previous: NavigationSnapshot,
+    next: NavigationSnapshot,
+    intentKind: NavigationIntentKind,
+  ): void {
+    const nextNotesDocument = getNotesOriginMarkdownDocumentRoute(next)
+    if (nextNotesDocument) {
+      this.rememberedNotesDocument = nextNotesDocument
+      return
+    }
+
+    const previousNotesDocument = getNotesOriginMarkdownDocumentRoute(previous)
+    if (previousNotesDocument && intentKind !== 'surface-change') {
+      this.rememberedNotesDocument = null
+    }
   }
 
   private consumeNavigationBlocker(
@@ -658,7 +994,13 @@ class NavigationModel {
     const evaluation = this.overlayEvaluation()
     const current = this.snapshot()
     if (evaluation.canonicalSnapshot) {
-      this.applySnapshot(evaluation.canonicalSnapshot, 'replace', 'open-document')
+      this.applySnapshot(
+        evaluation.canonicalSnapshot,
+        'replace',
+        'open-document',
+        undefined,
+        {motion: 'none'},
+      )
       return
     }
 
@@ -701,6 +1043,8 @@ class NavigationModel {
       },
       'replace',
       'close-document',
+      undefined,
+      {motion: 'none'},
     )
   }
 

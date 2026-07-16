@@ -1,5 +1,6 @@
 import AuthenticationServices
 import Foundation
+import Security
 
 // MARK: - Credential Identity Store Sync
 
@@ -103,13 +104,14 @@ final class CredentialIdentitySyncAdapter {
 /// 5. Core app posts Darwin notification `com.chromvoid.credential.response`
 /// 6. Extension receives notification, reads response, delivers credential to system
 enum CredentialIPCBridge {
-    static let appGroupID = "group.com.chromvoid.app.shared"
+    static let appGroupID = "group.com.chromvoid.app.shared.lhwc37d5kt"
     static let requestKey = "credential_provider.request"
     static let responseKey = "credential_provider.response"
     static let schemaVersion = 2
     static let passkeyCreateCommand = "credential_provider:passkey:create"
     static let passkeyGetCommand = "credential_provider:passkey:get"
     static let passkeyQueryCommand = "credential_provider:passkey:query"
+    static let oneTimeCodeCommand = "credential_provider:getOneTimeCode"
 
     // Darwin notification names for cross-process signaling
     static let requestNotification = "com.chromvoid.credential.request" as CFString
@@ -117,16 +119,18 @@ enum CredentialIPCBridge {
 
     // Timeout for waiting on a response from Core
     static let responseTimeoutSeconds: TimeInterval = 10.0
-    // Poll interval when waiting for response
-    static let pollIntervalSeconds: TimeInterval = 0.05
+    private static let secretKeychainService = "com.chromvoid.credential-provider.secret"
+    private static let secretKeychainAccessGroup = "com.chromvoid.app.shared"
 
     private static let forbiddenSecretFields: Set<String> = [
         "password",
+        "code",
+        "one_time_code",
         "secret",
         "otp",
         "token",
         "assertion",
-        "privateKey",
+        "privatekey",
         "private_key",
     ]
 
@@ -186,6 +190,7 @@ enum CredentialIPCBridge {
                     || lowered.contains("secret")
                     || lowered.contains("token")
                     || lowered.contains("otp")
+                    || lowered.contains("one_time_code")
                 {
                     continue
                 }
@@ -231,6 +236,65 @@ enum CredentialIPCBridge {
         passkeysLiteStatusPayload()
     }
 
+    static func secretReferenceResponseForTesting(
+        requestID: String = "req-42",
+        secretRef: String = "credential-provider-secret:req-42"
+    ) -> [String: Any] {
+        [
+            "request_id": requestID,
+            "success": true,
+            "result": [
+                "secret_ref": secretRef,
+            ],
+        ]
+    }
+
+    static func containsForbiddenSecretFieldsForTesting(_ value: Any) -> Bool {
+        containsForbiddenSecretFields(value)
+    }
+
+    static func decodeOneTimeCodeRecordIdentifier(_ value: String) -> (credentialID: String, otpID: String)? {
+        let prefix = "cv:otp:v1:"
+        guard value.hasPrefix(prefix) else { return nil }
+
+        let components = value.dropFirst(prefix.count).split(separator: ":", omittingEmptySubsequences: false)
+        guard components.count == 2 else { return nil }
+
+        let encodedCredentialID = String(components[0])
+        let encodedOtpID = String(components[1])
+        guard !encodedCredentialID.isEmpty,
+              !encodedOtpID.isEmpty,
+              encodedCredentialID.count <= 2_048,
+              encodedOtpID.count <= 2_048,
+              encodedCredentialID.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }),
+              encodedOtpID.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }),
+              let credentialData = base64URLDecode(encodedCredentialID),
+              let otpData = base64URLDecode(encodedOtpID),
+              !credentialData.isEmpty,
+              !otpData.isEmpty,
+              credentialData.count <= 512,
+              otpData.count <= 512,
+              let credentialID = String(data: credentialData, encoding: .utf8),
+              let otpID = String(data: otpData, encoding: .utf8),
+              !credentialID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !otpID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return nil
+        }
+
+        return (credentialID, otpID)
+    }
+
+    static func oneTimeCodeResultIsFresh(_ result: [String: Any], nowMilliseconds: Double) -> Bool {
+        guard let code = result["code"] as? String,
+              !code.isEmpty,
+              let validUntil = result["valid_until_ms"] as? NSNumber
+        else {
+            return false
+        }
+        return validUntil.doubleValue > nowMilliseconds
+    }
+
     static func passkeyRegistrationPayloadForTesting(
         relyingPartyIdentifier: String,
         userName: String,
@@ -273,6 +337,9 @@ enum CredentialIPCBridge {
         [
             "platform": platform,
             "platform_version_major": platformVersionMajor,
+            "origin": syntheticOrigin(for: relyingPartyIdentifier),
+            "clientDataHash": base64URLEncode(clientDataHash),
+            "userVerified": true,
             "request": [
                 "rp": [
                     "id": relyingPartyIdentifier,
@@ -284,7 +351,6 @@ enum CredentialIPCBridge {
                     "displayName": userName,
                 ],
                 "challenge": base64URLEncode(clientDataHash),
-                "origin": syntheticOrigin(for: relyingPartyIdentifier),
                 "pubKeyCredParams": supportedAlgorithms.map { algorithm in
                     [
                         "type": "public-key",
@@ -292,7 +358,6 @@ enum CredentialIPCBridge {
                     ]
                 },
                 "attestation": "none",
-                "clientDataHash": base64URLEncode(clientDataHash),
             ],
         ]
     }
@@ -301,22 +366,24 @@ enum CredentialIPCBridge {
         relyingPartyIdentifier: String,
         credentialID: Data?,
         clientDataHash: Data,
-        allowedCredentialIDs: [Data]
+        allowedCredentialIDs: [Data],
+        userVerified: Bool = true
     ) -> [String: Any] {
         var payload: [String: Any] = [
             "platform": platform,
             "platform_version_major": platformVersionMajor,
+            "origin": syntheticOrigin(for: relyingPartyIdentifier),
+            "clientDataHash": base64URLEncode(clientDataHash),
+            "userVerified": userVerified,
             "request": [
                 "rpId": relyingPartyIdentifier,
                 "challenge": base64URLEncode(clientDataHash),
-                "origin": syntheticOrigin(for: relyingPartyIdentifier),
                 "allowCredentials": allowedCredentialIDs.map { credentialID in
                     [
                         "type": "public-key",
                         "id": base64URLEncode(credentialID),
                     ]
                 },
-                "clientDataHash": base64URLEncode(clientDataHash),
             ],
         ]
 
@@ -384,7 +451,15 @@ enum CredentialIPCBridge {
         // Post Darwin notification to wake up Core
         postDarwinNotification(requestNotification)
 
-        // Poll for response with matching request_id (stored as JSON string by Rust)
+        let responseSemaphore = DispatchSemaphore(value: 0)
+        var observer: DarwinNotificationObserver? = observeResponses {
+            responseSemaphore.signal()
+        }
+        defer {
+            observer = nil
+        }
+
+        // Wait for response with matching request_id (stored as JSON string by Rust)
         let deadline = Date().addingTimeInterval(responseTimeoutSeconds)
         while Date() < deadline {
             defaults.synchronize()
@@ -397,9 +472,13 @@ enum CredentialIPCBridge {
                 // Clear consumed response
                 defaults.removeObject(forKey: responseKey)
                 defaults.synchronize()
-                return response
+                return resolveSecretReferenceIfNeeded(response)
             }
-            Thread.sleep(forTimeInterval: pollIntervalSeconds)
+            let remaining = max(0, deadline.timeIntervalSinceNow)
+            if remaining <= 0 {
+                break
+            }
+            _ = responseSemaphore.wait(timeout: .now() + remaining)
         }
 
         return nil
@@ -446,6 +525,129 @@ enum CredentialIPCBridge {
 
     static func isCredentialProviderReady() -> Bool {
         UserDefaults(suiteName: appGroupID) != nil
+    }
+
+    private static func resolveSecretReferenceIfNeeded(_ response: [String: Any]) -> [String: Any] {
+        guard response["success"] as? Bool == true,
+              let result = response["result"] as? [String: Any],
+              let secretRef = result["secret_ref"] as? String
+        else {
+            return response
+        }
+
+        guard let secret = readAndDeleteSecret(secretRef: secretRef) else {
+            return [
+                "request_id": response["request_id"] ?? "",
+                "success": false,
+                "error": "Credential secret is unavailable",
+                "error_code": "INTERNAL",
+            ]
+        }
+
+        var resolved = response
+        resolved["result"] = secret
+        return resolved
+    }
+
+    private static func readAndDeleteSecret(secretRef: String) -> [String: Any]? {
+        for accessGroup in keychainAccessGroupCandidates() {
+            guard let data = readSecretData(secretRef: secretRef, accessGroup: accessGroup) else {
+                continue
+            }
+            deleteSecret(secretRef: secretRef, accessGroup: accessGroup)
+            return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        }
+        return nil
+    }
+
+    private static func readSecretData(secretRef: String, accessGroup: String?) -> Data? {
+        var query = secretKeychainQuery(secretRef: secretRef, accessGroup: accessGroup)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess else {
+            return nil
+        }
+        return item as? Data
+    }
+
+    private static func deleteSecret(secretRef: String, accessGroup: String?) {
+        let query = secretKeychainQuery(secretRef: secretRef, accessGroup: accessGroup)
+        SecItemDelete(query as CFDictionary)
+    }
+
+    private static func secretKeychainQuery(secretRef: String, accessGroup: String?) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: secretKeychainService,
+            kSecAttrAccount as String: secretRef,
+            kSecAttrSynchronizable as String: false,
+        ]
+        if let accessGroup, !accessGroup.isEmpty {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+        return query
+    }
+
+    private static func keychainAccessGroupCandidates() -> [String?] {
+        var values: [String?] = []
+        if let entitlementGroup = entitlementKeychainAccessGroup() {
+            values.append(entitlementGroup)
+        }
+        values.append(secretKeychainAccessGroup)
+        values.append(nil)
+
+        var seen = Set<String>()
+        var out: [String?] = []
+        for value in values {
+            let key = value ?? "<default>"
+            if !seen.contains(key) {
+                seen.insert(key)
+                out.append(value)
+            }
+        }
+        return out
+    }
+
+    private static func entitlementKeychainAccessGroup() -> String? {
+        guard let task = SecTaskCreateFromSelf(nil),
+              let value = SecTaskCopyValueForEntitlement(task, "keychain-access-groups" as CFString, nil)
+        else {
+            return nil
+        }
+        let groups = value as? [String] ?? []
+        return groups.first { $0.hasSuffix(secretKeychainAccessGroup) }
+    }
+
+    private static func containsForbiddenSecretFields(_ value: Any) -> Bool {
+        if let map = value as? [String: Any] {
+            for (key, nested) in map {
+                let lowered = key.lowercased()
+                if lowered == "secret_ref" {
+                    continue
+                }
+                if forbiddenSecretFields.contains(lowered)
+                    || lowered.contains("password")
+                    || lowered.contains("secret")
+                    || lowered.contains("token")
+                    || lowered.contains("otp")
+                    || lowered.contains("one_time_code")
+                {
+                    return true
+                }
+                if containsForbiddenSecretFields(nested) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        if let list = value as? [Any] {
+            return list.contains(where: containsForbiddenSecretFields)
+        }
+
+        return false
     }
 
     // MARK: - Darwin Notifications

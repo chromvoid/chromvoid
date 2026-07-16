@@ -9,11 +9,79 @@ describe('markdown renderer', () => {
     const result = renderMarkdownSource('# Notes\n\nVisit https://example.com\n\n**bold**')
 
     expect(result.html).toContain('<h1')
+    expect(result.html).toContain('id="notes"')
+    expect(result.html).toContain('data-cv-heading-anchor="notes"')
     expect(result.html).toContain('data-source-line-start="0"')
     expect(result.html).toContain('data-source-line-end="1"')
     expect(result.html).toContain('>Notes</h1>')
     expect(result.html).toContain('<strong>bold</strong>')
     expect(result.html).toContain('<a href="https://example.com">')
+    expect(result.fileLinks).toEqual([])
+    expect(result.noteLinks).toEqual([])
+  })
+
+  it('renders wikilinks as sanitized note-link candidates', () => {
+    const result = renderMarkdownSource('See [[Sibling#Intro|Sibling intro]]')
+
+    expect(result.noteLinks).toEqual([
+      expect.objectContaining({
+        id: 'note-link-0',
+        syntax: 'wikilink',
+        targetPath: 'Sibling',
+        anchor: 'Intro',
+        label: 'Sibling intro',
+      }),
+    ])
+    expect(result.html).toContain('class="cv-markdown-note-link"')
+    expect(result.html).toContain('role="link"')
+    expect(result.html).toContain('tabindex="0"')
+    expect(result.html).toContain('data-cv-note-link-id="note-link-0"')
+    expect(result.html).toContain('data-cv-note-link-state="pending"')
+    expect(result.html).toContain('Sibling intro')
+  })
+
+  it('marks internal Markdown note links as app-owned candidates', () => {
+    const result = renderMarkdownSource('[Sibling](./Sibling.md#Intro) [Web](https://example.com)')
+
+    expect(result.noteLinks).toEqual([
+      expect.objectContaining({
+        id: 'note-link-0',
+        syntax: 'markdown',
+        targetPath: './Sibling.md',
+        anchor: 'Intro',
+        label: 'Sibling',
+      }),
+    ])
+    expect(result.html).toContain('<a href="./Sibling.md#Intro"')
+    expect(result.html).toContain('data-cv-note-link-id="note-link-0"')
+    expect(result.html).not.toContain('data-cv-note-link-id="note-link-1"')
+  })
+
+  it('marks absolute catalog file links as app-owned candidates', () => {
+    const result = renderMarkdownSource('[Guide](/Docs/Guide.pdf) [Note](./Note.md)')
+
+    expect(result.fileLinks).toEqual([
+      expect.objectContaining({
+        id: 'file-link-0',
+        targetPath: '/Docs/Guide.pdf',
+        label: 'Guide',
+      }),
+    ])
+    expect(result.noteLinks).toEqual([
+      expect.objectContaining({
+        id: 'note-link-0',
+        targetPath: './Note.md',
+      }),
+    ])
+    expect(result.html).toContain('data-cv-file-link-id="file-link-0"')
+    expect(result.html).toContain('data-cv-file-link-state="pending"')
+  })
+
+  it('uses deterministic duplicate heading anchors', () => {
+    const result = renderMarkdownSource('## Intro\n\n## Intro')
+
+    expect(result.html).toContain('<h2 id="intro"')
+    expect(result.html).toContain('<h2 id="intro-1"')
   })
 
   it('renders GitHub-flavored Markdown tables', () => {
@@ -34,6 +102,20 @@ describe('markdown renderer', () => {
     expect(result.html).toContain('<ul data-source-line-start="2" data-source-line-end="5">')
     expect(result.html).toContain('<table data-source-line-start="5" data-source-line-end="8">')
     expect(result.html).toContain('data-align="right"')
+  })
+
+  it('renders Markdown task list items as inert checkbox controls', () => {
+    const result = renderMarkdownSource('- [ ] Todo\n- [x] Done')
+
+    expect(result.html).toContain('class="cv-markdown-task-checkbox"')
+    expect(result.html).toContain('role="checkbox"')
+    expect(result.html).toContain('aria-checked="false"')
+    expect(result.html).toContain('aria-checked="true"')
+    expect(result.html).toContain('data-cv-task-line="0"')
+    expect(result.html).toContain('data-cv-task-line="1"')
+    expect(result.html).not.toContain('<input')
+    expect(result.html).not.toContain('[ ]')
+    expect(result.html).not.toContain('[x]')
   })
 
   it('does not render raw HTML from the source', () => {
@@ -91,6 +173,7 @@ describe('markdown renderer', () => {
       '[bad](javascript:alert(1)) [protocol](//example.com) [ok](https://example.com/docs)',
     )
 
+    expect(result.noteLinks).toEqual([])
     expect(result.html).not.toContain('href="javascript:')
     expect(result.html).not.toContain('href="//example.com"')
     expect(result.html).toContain('href="https://example.com/docs"')

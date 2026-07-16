@@ -2,10 +2,7 @@ import {atom} from '@reatom/core'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {navigationModel} from '../../src/app/navigation/navigation.model'
-import type {
-  CatalogNotesListItem,
-  CatalogNotesListResponse,
-} from '../../src/core/catalog/local-catalog/types'
+import type {CatalogNotesListItem, CatalogNotesListResponse} from '../../src/core/catalog/local-catalog/types'
 import {
   NotesQuickViewModel,
   type NotesQuickViewRow,
@@ -67,16 +64,18 @@ type CreateModelOptions = {
   response?: CatalogNotesListResponse
   listNotes?: () => Promise<CatalogNotesListResponse>
   wsConnected?: boolean
+  remoteSessionGeneration?: {
+    (): number | null
+    set(value: number | null): void
+    subscribe(listener: (value: number | null) => void): () => void
+  }
 }
 
 function createModel(options: CreateModelOptions = {}) {
   const catalog = new FakeCatalogSubscription()
   const syncing = atom(false)
   const connected = atom(Boolean(options.wsConnected ?? true))
-  const listNotes = vi.fn(
-    options.listNotes ??
-      (async () => options.response ?? notesResponse([])),
-  )
+  const listNotes = vi.fn(options.listNotes ?? (async () => options.response ?? notesResponse([])))
   const model = new NotesQuickViewModel({
     getContext: () =>
       ({
@@ -86,6 +85,11 @@ function createModel(options: CreateModelOptions = {}) {
           listNotes,
         },
         ws: {connected},
+        store: options.remoteSessionGeneration
+          ? {
+              remoteSessionGeneration: options.remoteSessionGeneration,
+            }
+          : undefined,
       }) as any,
   })
 
@@ -203,17 +207,14 @@ describe('NotesQuickViewModel', () => {
       mimeType: 'text/markdown',
     })
     expect(model.rows().find((row) => row.fileName === 'Plan.markdown')?.parentPath).toBe('/Docs/')
-    expect(model.summary()).toEqual({total: 4, visible: 4})
+    expect(model.summary()).toEqual({total: 4, visible: 4, label: '4 notes'})
 
     model.disconnect()
   })
 
   it('filters by note name and path and clears active filters', async () => {
     const {model} = createModel({
-      response: notesResponse([
-        note(1, 'Root.md', '/Root.md'),
-        note(3, 'Retro.md', '/Projects/Retro.md'),
-      ]),
+      response: notesResponse([note(1, 'Root.md', '/Root.md'), note(3, 'Retro.md', '/Projects/Retro.md')]),
     })
 
     model.connect()
@@ -230,13 +231,46 @@ describe('NotesQuickViewModel', () => {
         children: ['note:Retro.md'],
       },
     ])
-    expect(model.summary()).toEqual({total: 2, visible: 1})
+    expect(model.summary()).toEqual({total: 2, visible: 1, label: '1 of 2 notes'})
     expect(model.hasActiveFilters()).toBe(true)
 
     model.clearFilters()
 
     expect(rowNames(model.visibleRows())).toEqual(['Retro.md', 'Root.md'])
     expect(model.hasActiveFilters()).toBe(false)
+
+    model.disconnect()
+  })
+
+  it('derives preview and compact metadata data for note cards', async () => {
+    const {model} = createModel({
+      response: notesResponse([
+        note(9, 'Chunks.md', '/Vault/Chunks.md', {
+          heading: 'Encrypted chunks',
+          excerpt: 'Files are split into fixed-size chunks before they touch disk.',
+          preview_words: 87,
+          size: 242,
+        }),
+      ]),
+    })
+
+    model.connect()
+    await waitForRows(model, ['Chunks.md'])
+
+    const [view] = model.state.visibleRowViews()
+
+    expect(view).toMatchObject({
+      title: 'Chunks',
+      previewTitle: 'Encrypted chunks',
+      excerpt: 'Files are split into fixed-size chunks before they touch disk.',
+      excerptDirection: 'auto',
+    })
+    expect(view.metadataParts).toEqual(expect.arrayContaining(['242 B', '87 words']))
+    expect(view.metadataParts).not.toContain('/Vault/')
+    expect(view.metadataParts.indexOf('242 B')).toBeLessThan(view.metadataParts.indexOf('87 words'))
+    expect(view.compactMetadataParts).toContain('242 B')
+    expect(view.compactMetadataParts).not.toContain('/Vault/')
+    expect(view.compactMetadataParts).not.toContain('87 words')
 
     model.disconnect()
   })
@@ -251,6 +285,29 @@ describe('NotesQuickViewModel', () => {
     await waitForRows(model, ['Retro.md'])
     expect(listNotes).toHaveBeenCalledTimes(1)
     expect(model.isLoading()).toBe(false)
+
+    model.disconnect()
+  })
+
+  it('reloads notes when remote transport generation changes', async () => {
+    const remoteSessionGeneration = atom<number | null>(1)
+    const responses = [
+      Promise.resolve(notesResponse([note(1, 'First.md', '/First.md')])),
+      Promise.resolve(notesResponse([note(2, 'Second.md', '/Second.md')])),
+    ]
+    const {model, listNotes} = createModel({
+      remoteSessionGeneration,
+      listNotes: () => responses.shift() ?? Promise.resolve(notesResponse([])),
+    })
+
+    model.connect()
+    await waitForRows(model, ['First.md'])
+    expect(listNotes).toHaveBeenCalledTimes(1)
+
+    remoteSessionGeneration.set(2)
+
+    await waitForRows(model, ['Second.md'])
+    expect(listNotes).toHaveBeenCalledTimes(2)
 
     model.disconnect()
   })
@@ -316,7 +373,7 @@ describe('NotesQuickViewModel', () => {
     await waitFor(() => model.state.loadErrorKey() === 'notes:quick_view:error:load_failed')
 
     expect(rowNames(model.rows())).toEqual([])
-    expect(model.summary()).toEqual({total: 0, visible: 0})
+    expect(model.summary()).toEqual({total: 0, visible: 0, label: '0 notes'})
 
     model.actions.retryLoad()
 
@@ -443,7 +500,41 @@ describe('NotesQuickViewModel', () => {
 
     expect(model.hasCatalog()).toBe(false)
     expect(model.rows()).toEqual([])
-    expect(model.summary()).toEqual({total: 0, visible: 0})
+    expect(model.summary()).toEqual({total: 0, visible: 0, label: '0 notes'})
+
+    model.disconnect()
+  })
+
+  it('loads and opens notes after a transport reconnect', async () => {
+    const {model, connected, listNotes} = createModel({
+      wsConnected: false,
+      response: notesResponse([note(12, 'Recovered.md', '/Recovered.md')]),
+    })
+    const openMarkdownDocument = vi
+      .spyOn(navigationModel, 'openMarkdownDocument')
+      .mockImplementation(() => {})
+
+    model.connect()
+    await Promise.resolve()
+
+    expect(model.rows()).toEqual([])
+    expect(listNotes).not.toHaveBeenCalled()
+
+    connected.set(true)
+    await waitForRows(model, ['Recovered.md'])
+    model.openNoteById('12')
+
+    expect(listNotes).toHaveBeenCalledTimes(1)
+    expect(openMarkdownDocument).toHaveBeenCalledWith(12, 'push', {
+      source: {
+        path: '/Recovered.md',
+        parentPath: '/',
+        fileName: 'Recovered.md',
+        size: 100,
+        lastModified: 1_717_171_717,
+        sourceRevision: 8,
+      },
+    })
 
     model.disconnect()
   })
@@ -452,7 +543,9 @@ describe('NotesQuickViewModel', () => {
     const {model} = createModel({
       response: notesResponse([note(2, 'Retro.md', '/Projects/Retro.md')]),
     })
-    const openMarkdownDocument = vi.spyOn(navigationModel, 'openMarkdownDocument').mockImplementation(() => {})
+    const openMarkdownDocument = vi
+      .spyOn(navigationModel, 'openMarkdownDocument')
+      .mockImplementation(() => {})
 
     model.connect()
     await waitForRows(model, ['Retro.md'])
@@ -461,6 +554,7 @@ describe('NotesQuickViewModel', () => {
     expect(openMarkdownDocument).toHaveBeenCalledWith(2, 'push', {
       source: {
         path: '/Projects/Retro.md',
+        parentPath: '/Projects/',
         fileName: 'Retro.md',
         size: 100,
         lastModified: 1_717_171_717,
@@ -475,14 +569,26 @@ describe('NotesQuickViewModel', () => {
     const {model} = createModel({
       response: notesResponse([note(2, 'Retro.md', '/Projects/Retro.md')]),
     })
-    const openMarkdownDocument = vi.spyOn(navigationModel, 'openMarkdownDocument').mockImplementation(() => {})
+    const openMarkdownDocument = vi
+      .spyOn(navigationModel, 'openMarkdownDocument')
+      .mockImplementation(() => {})
 
     model.connect()
     await waitForRows(model, ['Retro.md'])
     model.setViewMode('hierarchy')
     model.openNoteById('2')
 
-    expect(openMarkdownDocument).toHaveBeenCalledWith(2, 'push', '/Projects/')
+    expect(openMarkdownDocument).toHaveBeenCalledWith(2, 'push', {
+      parentPath: '/Projects/',
+      source: {
+        path: '/Projects/Retro.md',
+        parentPath: '/Projects/',
+        fileName: 'Retro.md',
+        size: 100,
+        lastModified: 1_717_171_717,
+        sourceRevision: 8,
+      },
+    })
 
     model.disconnect()
   })

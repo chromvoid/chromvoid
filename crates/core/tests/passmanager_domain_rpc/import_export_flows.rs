@@ -90,6 +90,121 @@ fn test_passmanager_root_import_export_preserves_zero_use_tags() {
 }
 
 #[test]
+fn test_passmanager_root_import_export_preserves_tag_meta() {
+    let (mut router, _tmp) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "pw"));
+
+    let imported = router.handle(&RpcRequest::new(
+        "passmanager:root:import",
+        serde_json::json!({
+            "folders": [],
+            "tags": ["Zero Use", "Client A"],
+            "tagMeta": {
+                "zero-use": {"colorId": "cyan"},
+                "client-a": {"color_id": "pink"},
+                "stale": {"colorId": "amber"}
+            },
+            "entries": [
+                {
+                    "id": "entry-tag-meta",
+                    "title": "Tagged Entry",
+                    "tags": ["Client A"]
+                }
+            ]
+        }),
+    ));
+    assert_rpc_ok(&imported);
+
+    let exported = router.handle(&RpcRequest::new(
+        "passmanager:root:export",
+        serde_json::json!({}),
+    ));
+    assert_rpc_ok(&exported);
+
+    let meta = root_tag_meta(&exported);
+    assert_eq!(
+        meta.get("client-a")
+            .and_then(|value| value.get("colorId"))
+            .and_then(|value| value.as_str()),
+        Some("pink")
+    );
+    assert_eq!(
+        meta.get("zero-use")
+            .and_then(|value| value.get("colorId"))
+            .and_then(|value| value.as_str()),
+        Some("cyan")
+    );
+    assert!(
+        !meta.contains_key("stale"),
+        "tagMeta should be pruned to imported and assigned tags"
+    );
+}
+
+#[test]
+fn test_passmanager_tag_catalog_meta_merges_and_preserves_on_omitted_meta() {
+    let (mut router, _tmp) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "pw"));
+
+    let seeded = router.handle(&RpcRequest::new(
+        "passmanager:tags:setCatalog",
+        serde_json::json!({
+            "tags": ["Existing", "Removed"],
+            "tag_meta": {
+                "existing": {"colorId": "green"},
+                "removed": {"colorId": "orange"}
+            }
+        }),
+    ));
+    assert_rpc_ok(&seeded);
+
+    let imported = router.handle(&RpcRequest::new(
+        "passmanager:root:import",
+        serde_json::json!({
+            "folders": [],
+            "tags": ["Imported", "Existing"],
+            "tagMeta": {
+                "imported": {"colorId": "amber"},
+                "existing": {"colorId": "pink"}
+            },
+            "entries": []
+        }),
+    ));
+    assert_rpc_ok(&imported);
+
+    let pruned = router.handle(&RpcRequest::new(
+        "passmanager:tags:setCatalog",
+        serde_json::json!({
+            "tags": ["Existing", "Imported"]
+        }),
+    ));
+    assert_rpc_ok(&pruned);
+
+    let exported = router.handle(&RpcRequest::new(
+        "passmanager:root:export",
+        serde_json::json!({}),
+    ));
+    assert_rpc_ok(&exported);
+
+    let meta = root_tag_meta(&exported);
+    assert_eq!(
+        meta.get("existing")
+            .and_then(|value| value.get("colorId"))
+            .and_then(|value| value.as_str()),
+        Some("pink")
+    );
+    assert_eq!(
+        meta.get("imported")
+            .and_then(|value| value.get("colorId"))
+            .and_then(|value| value.as_str()),
+        Some("amber")
+    );
+    assert!(
+        !meta.contains_key("removed"),
+        "setCatalog without meta should preserve only retained keys"
+    );
+}
+
+#[test]
 fn test_passmanager_group_ensure_and_root_import_export_roundtrip() {
     let (mut router, _tmp) = create_test_router();
     assert_rpc_ok(&unlock_vault(&mut router, "pw"));

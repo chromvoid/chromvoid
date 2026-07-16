@@ -34,6 +34,7 @@ fn core_capabilities_reports_remote_media_features() {
     assert!(features.contains(&"remote_media_inspection_split_v1"));
     assert!(features.contains(&"remote_rpc_json_multiplex_v1"));
     assert!(features.contains(&"remote_rpc_priority_lock_v1"));
+    assert!(features.contains(&"remote_stream_control_v1"));
 }
 
 #[test]

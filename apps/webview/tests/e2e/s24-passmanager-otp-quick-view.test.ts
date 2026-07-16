@@ -2,8 +2,9 @@ import {expect, test} from 'vitest'
 
 import {clearMockPassmanagerState, writeMockPassmanagerState} from './utils'
 
+import type {Page} from 'playwright'
 declare global {
-  var __E2E_PAGE__: import('playwright').Page | undefined
+  var __E2E_PAGE__: Page | undefined
 }
 
 const BASE_URL = 'http://localhost:4400/index.html?layout=desktop'
@@ -27,11 +28,11 @@ type SeedOtpFixtureOptions = {
   extraTotpCount?: number
 }
 
-function getPage(): import('playwright').Page | undefined {
+function getPage(): Page | undefined {
   return globalThis.__E2E_PAGE__
 }
 
-async function openPasswords(page: import('playwright').Page, pm?: string): Promise<void> {
+async function openPasswords(page: Page, pm?: string): Promise<void> {
   const nextUrl = new URL(BASE_URL)
   nextUrl.searchParams.set('surface', 'passwords')
   if (pm) {
@@ -41,7 +42,7 @@ async function openPasswords(page: import('playwright').Page, pm?: string): Prom
   await waitForPasswordManager(page)
 }
 
-async function openPasswordsMobile(page: import('playwright').Page, pm?: string): Promise<void> {
+async function openPasswordsMobile(page: Page, pm?: string): Promise<void> {
   const nextUrl = new URL(BASE_URL)
   nextUrl.searchParams.set('layout', 'mobile')
   nextUrl.searchParams.set('surface', 'passwords')
@@ -53,7 +54,7 @@ async function openPasswordsMobile(page: import('playwright').Page, pm?: string)
   await waitForPasswordManager(page)
 }
 
-async function waitForPasswordManager(page: import('playwright').Page): Promise<void> {
+async function waitForPasswordManager(page: Page): Promise<void> {
   await page.waitForFunction(
     () => {
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -241,7 +242,7 @@ async function seedOtpFixture(options: SeedOtpFixtureOptions = {}): Promise<OtpQ
   return fixture
 }
 
-async function waitForQuickViewRows(page: import('playwright').Page, expectedCount: number): Promise<void> {
+async function waitForQuickViewRows(page: Page, expectedCount: number): Promise<void> {
   await page.waitForFunction(
     (count) => {
       const host = findQuickViewHost()
@@ -268,7 +269,7 @@ async function waitForQuickViewRows(page: import('playwright').Page, expectedCou
   )
 }
 
-async function quickViewSnapshot(page: import('playwright').Page) {
+async function quickViewSnapshot(page: Page) {
   return page.evaluate(() => {
     const host = deepFind(document, 'pm-otp-quick-view, pm-otp-quick-view-mobile') as HTMLElement | null
     const root = host?.shadowRoot
@@ -304,7 +305,7 @@ async function quickViewSnapshot(page: import('playwright').Page) {
   })
 }
 
-async function quickViewMobileRailSnapshot(page: import('playwright').Page) {
+async function quickViewMobileRailSnapshot(page: Page) {
   return page.evaluate(() => {
     const host = deepFind(document, 'pm-otp-quick-view-mobile') as HTMLElement | null
     const root = host?.shadowRoot
@@ -352,7 +353,7 @@ async function quickViewMobileRailSnapshot(page: import('playwright').Page) {
   })
 }
 
-async function scrollQuickViewMobileContentToBottom(page: import('playwright').Page): Promise<void> {
+async function scrollQuickViewMobileContentToBottom(page: Page): Promise<void> {
   await page.evaluate(async () => {
     const host = deepFind(document, 'pm-otp-quick-view-mobile') as HTMLElement | null
     const surfaceLayout = host?.shadowRoot?.querySelector('mobile-surface-layout') as HTMLElement | null
@@ -377,7 +378,7 @@ async function scrollQuickViewMobileContentToBottom(page: import('playwright').P
   })
 }
 
-async function openOtpQuickViewFromMobileTab(page: import('playwright').Page): Promise<void> {
+async function openOtpQuickViewFromMobileTab(page: Page): Promise<void> {
   await page.evaluate(() => {
     const tabBar = deepFind(document, 'mobile-tab-bar') as HTMLElement | null
     const tab = Array.from(tabBar?.shadowRoot?.querySelectorAll('cv-button.tab') ?? []).find(
@@ -402,7 +403,7 @@ async function openOtpQuickViewFromMobileTab(page: import('playwright').Page): P
   })
 }
 
-async function setQuickViewSearch(page: import('playwright').Page, value: string): Promise<void> {
+async function setQuickViewSearch(page: Page, value: string): Promise<void> {
   await page.evaluate((nextValue) => {
     const search = deepFind(document, 'pm-otp-quick-view-search') as HTMLElement | null
     const input = search?.shadowRoot?.querySelector('cv-input') as HTMLElement & {value?: string} | null
@@ -430,7 +431,7 @@ async function setQuickViewSearch(page: import('playwright').Page, value: string
   }, value)
 }
 
-async function clickFirstTotpCard(page: import('playwright').Page): Promise<void> {
+async function clickFirstTotpCard(page: Page): Promise<void> {
   await page.evaluate(() => {
     const host = deepFind(document, 'pm-otp-quick-view, pm-otp-quick-view-mobile') as HTMLElement | null
     const rows = Array.from(host?.shadowRoot?.querySelectorAll('.row') ?? [])
@@ -456,7 +457,7 @@ async function clickFirstTotpCard(page: import('playwright').Page): Promise<void
   })
 }
 
-async function waitForCopiedFeedback(page: import('playwright').Page): Promise<void> {
+async function waitForCopiedFeedback(page: Page): Promise<void> {
   await page.waitForFunction(
     () => {
       const host = deepFind(document, 'pm-otp-quick-view, pm-otp-quick-view-mobile') as HTMLElement | null
@@ -484,7 +485,7 @@ async function waitForCopiedFeedback(page: import('playwright').Page): Promise<v
   )
 }
 
-async function openEntryFromQuickView(page: import('playwright').Page, title: string): Promise<void> {
+async function openEntryFromQuickView(page: Page, title: string): Promise<void> {
   await page.evaluate((entryTitle) => {
     const host = deepFind(document, 'pm-otp-quick-view, pm-otp-quick-view-mobile') as HTMLElement | null
     const row = Array.from(host?.shadowRoot?.querySelectorAll('.row') ?? []).find((candidate) =>
@@ -508,7 +509,7 @@ async function openEntryFromQuickView(page: import('playwright').Page, title: st
   }, title)
 }
 
-async function waitForEntryRoute(page: import('playwright').Page, entry: FixtureEntry): Promise<void> {
+async function waitForEntryRoute(page: Page, entry: FixtureEntry): Promise<void> {
   await page.waitForFunction(
     ({entryId, title}) => {
       const url = new URL(window.location.href)
@@ -535,7 +536,7 @@ async function waitForEntryRoute(page: import('playwright').Page, entry: Fixture
   )
 }
 
-async function openQuickViewFromEntrySnippet(page: import('playwright').Page): Promise<void> {
+async function openQuickViewFromEntrySnippet(page: Page): Promise<void> {
   await page.evaluate(() => {
     const entryHost = deepFind(document, 'pm-entry, pm-entry-mobile') as HTMLElement | null
     const entryButton = entryHost?.shadowRoot?.querySelector('[data-action="otp-quick-view"]') as HTMLElement | null
@@ -544,7 +545,7 @@ async function openQuickViewFromEntrySnippet(page: import('playwright').Page): P
       return
     }
 
-    const toolbar = deepFind(document, 'desktop-shell-toolbar[slot="desktop-topbar"]') as HTMLElement | null
+    const toolbar = deepFind(document, 'dashboard-header[slot="desktop-topbar"]') as HTMLElement | null
     const toolbarButton = toolbar
       ? (toolbar.querySelector('[data-action="pm-otp-view"]') as HTMLElement | null)
       : null
@@ -565,7 +566,7 @@ async function openQuickViewFromEntrySnippet(page: import('playwright').Page): P
   })
 }
 
-async function waitForOtpRoute(page: import('playwright').Page): Promise<void> {
+async function waitForOtpRoute(page: Page): Promise<void> {
   await page.waitForFunction(
     () => {
       const url = new URL(window.location.href)

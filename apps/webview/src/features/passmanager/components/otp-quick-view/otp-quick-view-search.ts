@@ -21,11 +21,6 @@ export class PMOtpQuickViewSearch extends ReatomLitElement {
         display: block;
         inline-size: 100%;
         min-inline-size: 0;
-        --pm-toolbar-control-height: var(--app-toolbar-control-height, 40px);
-        --pm-toolbar-control-radius: var(--app-toolbar-control-radius, var(--cv-radius-2));
-        --pm-toolbar-control-padding-inline: var(--app-toolbar-control-padding-inline, var(--cv-space-3));
-        --pm-toolbar-control-font-size: var(--app-toolbar-control-font-size, var(--cv-font-size-sm));
-        --pm-toolbar-control-gap: var(--app-toolbar-control-gap, var(--cv-space-2));
       }
 
       .controls {
@@ -37,7 +32,7 @@ export class PMOtpQuickViewSearch extends ReatomLitElement {
         min-inline-size: 0;
         box-sizing: border-box;
         padding-block: var(--pm-otp-search-padding-block, 0);
-        padding-inline: var(--pm-otp-search-content-inset, 0px);
+        padding-inline: 0px;
       }
 
       cv-input.search {
@@ -45,7 +40,7 @@ export class PMOtpQuickViewSearch extends ReatomLitElement {
         inline-size: 100%;
         max-inline-size: none;
         min-inline-size: 0;
-        --cv-input-height: var(--pm-otp-search-height, var(--pm-toolbar-control-height));
+        --cv-input-height: var(--pm-toolbar-control-block-size);
         --cv-input-padding-inline: var(--pm-toolbar-control-padding-inline);
         --cv-input-border-radius: var(--pm-toolbar-control-radius);
         --cv-input-background: var(--cv-color-surface-2);
@@ -82,8 +77,8 @@ export class PMOtpQuickViewSearch extends ReatomLitElement {
         justify-content: center;
         flex: 0 0 auto;
         gap: var(--cv-space-1);
-        inline-size: var(--pm-toolbar-control-height);
-        min-block-size: var(--pm-toolbar-control-height);
+        inline-size: var(--pm-toolbar-control-block-size);
+        min-block-size: var(--pm-toolbar-control-block-size);
         padding: 0;
         border: 1px solid var(--cv-color-border);
         border-radius: var(--pm-toolbar-control-radius);

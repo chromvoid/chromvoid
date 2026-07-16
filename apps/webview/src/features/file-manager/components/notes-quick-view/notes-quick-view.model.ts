@@ -3,30 +3,44 @@ import {action, atom, computed, wrap} from '@reatom/core'
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import {buildChildPath, parentPath as getParentPath} from 'root/app/navigation/navigation-snapshot'
 import {compareDefaultCatalogNodes} from 'root/core/catalog/local-catalog/catalog-mirror'
-import type {
-  CatalogNotesListItem,
-  CatalogNotesListResponse,
-} from 'root/core/catalog/local-catalog/types'
+import type {CatalogNotesListResponse} from 'root/core/catalog/local-catalog/types'
 import type {AppContext} from 'root/shared/services/app-context'
 import {tryGetAppContext} from 'root/shared/services/app-context'
-import {
-  subscribeCallbackAfterInitial,
-  subscribeToSignalChanges,
-} from 'root/shared/services/subscribed-signal'
+import {subscribeCallbackAfterInitial, subscribeToSignalChanges} from 'root/shared/services/subscribed-signal'
+import {normalizeCatalogNotesResponse, type CatalogMarkdownNote} from '../../services/catalog-notes'
+import {formatDate, formatFileSize} from '../virtual-file-list/virtual-file-list.model-helpers'
 
-export type NotesQuickViewRow = {
-  id: string
-  fileId: number
-  fileName: string
-  path: string
-  parentPath: string
-  size?: number
-  lastModified?: number
-  sourceRevision?: number
-  mimeType?: string
-}
+const NOTES_FILTER_CHIP_LIMIT = 6
+const NOTES_FILTER_ALL_KEY = 'all'
+const NOTES_SORT_MODES = ['name', 'recent', 'size'] as const
+
+export type NotesQuickViewRow = CatalogMarkdownNote
 
 export type NotesQuickViewMode = 'flat' | 'hierarchy'
+export type NotesQuickViewFlatLayout = 'list' | 'grid'
+export type NotesQuickViewDisplayMode = NotesQuickViewFlatLayout | 'tree'
+export type NotesQuickViewSortMode = (typeof NOTES_SORT_MODES)[number]
+
+export type NotesQuickViewFilterChip = {
+  key: string
+  label: string
+  count: number
+  active: boolean
+}
+
+export type NotesQuickViewRowView = {
+  id: string
+  row: NotesQuickViewRow
+  title: string
+  fileLabel: string
+  previewTitle: string
+  excerpt: string
+  excerptDirection: 'auto' | 'ltr'
+  parentLabel: string
+  metadataParts: string[]
+  compactMetadataParts: string[]
+  previewTruncated: boolean
+}
 
 export type NotesQuickViewTreeNote = {
   type: 'note'
@@ -52,6 +66,7 @@ export type NotesQuickViewTreeItem = NotesQuickViewTreeNote | NotesQuickViewTree
 export type NotesQuickViewSummary = {
   total: number
   visible: number
+  label: string
 }
 
 export type NotesQuickViewErrorKey = 'notes:quick_view:error:load_failed'
@@ -76,6 +91,13 @@ type TransportConnection = {
   }
 }
 
+type RemoteSessionGenerationSource = {
+  remoteSessionGeneration?: {
+    (): number | null
+    subscribe?: (listener: (value: number | null) => void) => () => void
+  }
+}
+
 export type NotesQuickViewModelDeps = {
   getContext?: () => AppContext | null
 }
@@ -84,21 +106,17 @@ function normalizeSearchValue(value: string): string {
   return value.trim().toLocaleLowerCase()
 }
 
-function toOptionalFiniteNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
-
 function rowMatchesQuery(row: NotesQuickViewRow, query: string): boolean {
   if (!query) {
     return true
   }
 
-  return [row.fileName, row.path, row.parentPath].some((value) =>
-    normalizeSearchValue(value).includes(query),
+  return [row.fileName, row.path, row.parentPath, row.heading, row.excerpt].some(
+    (value) => typeof value === 'string' && normalizeSearchValue(value).includes(query),
   )
 }
 
-function compareNotesQuickViewRows(left: NotesQuickViewRow, right: NotesQuickViewRow): number {
+function compareRowsByName(left: NotesQuickViewRow, right: NotesQuickViewRow): number {
   return compareDefaultCatalogNodes(
     {
       name: left.fileName,
@@ -113,6 +131,24 @@ function compareNotesQuickViewRows(left: NotesQuickViewRow, right: NotesQuickVie
       nodeId: right.fileId,
     },
   )
+}
+
+function compareNotesQuickViewRows(
+  left: NotesQuickViewRow,
+  right: NotesQuickViewRow,
+  sortMode: NotesQuickViewSortMode,
+): number {
+  if (sortMode === 'recent') {
+    const byDate = (right.lastModified ?? 0) - (left.lastModified ?? 0)
+    return byDate || compareRowsByName(left, right)
+  }
+
+  if (sortMode === 'size') {
+    const bySize = (right.size ?? 0) - (left.size ?? 0)
+    return bySize || compareRowsByName(left, right)
+  }
+
+  return compareRowsByName(left, right)
 }
 
 function compareTreeItems(left: NotesQuickViewTreeItem, right: NotesQuickViewTreeItem): number {
@@ -136,34 +172,67 @@ function splitCatalogPath(path: string): string[] {
   return path.split('/').filter(Boolean)
 }
 
-function rowFromNotesItem(item: CatalogNotesListItem): NotesQuickViewRow | null {
-  const fileId = Number(item.node_id)
-  if (!Number.isFinite(fileId)) {
+function extensionlessNoteTitle(fileName: string): string {
+  const title = fileName.replace(/\.(?:md|markdown)$/i, '').trim()
+  return title || fileName
+}
+
+function topLevelDirectory(row: NotesQuickViewRow): {key: string; label: string} | null {
+  const [first, second] = splitCatalogPath(row.path)
+  if (!first || !second) {
     return null
   }
 
-  const path = item.path || buildChildPath(item.parent_path || '/', item.name)
-  const mimeType = typeof item.mime_type === 'string' ? item.mime_type : undefined
-  const size = toOptionalFiniteNumber(item.size)
-  const lastModified = toOptionalFiniteNumber(item.updated_at)
-  const sourceRevision = toOptionalFiniteNumber(item.source_revision)
-
   return {
-    id: String(fileId),
-    fileId,
-    fileName: item.name,
-    path,
-    parentPath: item.parent_path || getParentPath(path),
-    ...(size !== undefined ? {size} : {}),
-    ...(lastModified !== undefined ? {lastModified} : {}),
-    ...(sourceRevision !== undefined ? {sourceRevision} : {}),
-    ...(mimeType ? {mimeType} : {}),
+    key: `dir:/${first}`,
+    label: first,
   }
 }
 
+function rowMatchesFilter(row: NotesQuickViewRow, filterKey: string): boolean {
+  if (filterKey === NOTES_FILTER_ALL_KEY) {
+    return true
+  }
+
+  return topLevelDirectory(row)?.key === filterKey
+}
+
+function createRowView(row: NotesQuickViewRow): NotesQuickViewRowView {
+  const fileLabel = extensionlessNoteTitle(row.fileName)
+  const title = fileLabel || row.heading || row.fileName
+  const previewTitle = row.heading || title
+  const parentLabel = row.parentPath || '/'
+  const excerpt = row.excerpt || row.heading
+  const metadataParts = [
+    formatFileSize(row.size),
+    row.previewWords !== undefined ? `${row.previewWords} words` : undefined,
+    formatDate(row.lastModified),
+  ].filter((part): part is string => Boolean(part))
+  const compactMetadataParts = [
+    row.size !== undefined ? formatFileSize(row.size) : undefined,
+    row.lastModified !== undefined ? formatDate(row.lastModified) : undefined,
+  ].filter((part): part is string => Boolean(part))
+
+  return {
+    id: row.id,
+    row,
+    title,
+    fileLabel,
+    previewTitle,
+    excerpt: excerpt || parentLabel,
+    excerptDirection: excerpt ? 'auto' : 'ltr',
+    parentLabel,
+    metadataParts,
+    compactMetadataParts,
+    previewTruncated: Boolean(row.previewTruncated),
+  }
+}
 export class NotesQuickViewModel {
   readonly query = atom('', 'notes.quickView.query')
   readonly viewMode = atom<NotesQuickViewMode>('flat', 'notes.quickView.viewMode')
+  readonly flatLayout = atom<NotesQuickViewFlatLayout>('list', 'notes.quickView.flatLayout')
+  readonly sortMode = atom<NotesQuickViewSortMode>('name', 'notes.quickView.sortMode')
+  readonly filterKey = atom(NOTES_FILTER_ALL_KEY, 'notes.quickView.filterKey')
   private readonly catalogRevision = atom(0, 'notes.quickView.catalogRevision')
   private readonly noteRows = atom<NotesQuickViewRow[]>([], 'notes.quickView.noteRows')
   private readonly isLoadingNotes = atom(false, 'notes.quickView.isLoadingNotes')
@@ -183,7 +252,8 @@ export class NotesQuickViewModel {
   }, 'notes.quickView.isLoading')
 
   private readonly projection = computed(() => {
-    const rows = [...this.noteRows()].sort(compareNotesQuickViewRows)
+    const sortMode = this.sortMode()
+    const rows = [...this.noteRows()].sort((left, right) => compareNotesQuickViewRows(left, right, sortMode))
 
     return {
       rows,
@@ -193,16 +263,91 @@ export class NotesQuickViewModel {
 
   readonly rows = computed(() => this.projection().rows, 'notes.quickView.rows')
 
+  private readonly filterGroups = computed(() => {
+    const groups = new Map<string, {label: string; count: number}>()
+    for (const row of this.rows()) {
+      const directory = topLevelDirectory(row)
+      if (!directory) {
+        continue
+      }
+
+      const group = groups.get(directory.key)
+      groups.set(directory.key, {
+        label: directory.label,
+        count: (group?.count ?? 0) + 1,
+      })
+    }
+
+    return [...groups.entries()]
+      .map(([key, value]) => ({key, ...value}))
+      .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
+  }, 'notes.quickView.filterGroups')
+
+  readonly activeFilterKey = computed(() => {
+    const key = this.filterKey()
+    if (key === NOTES_FILTER_ALL_KEY) {
+      return NOTES_FILTER_ALL_KEY
+    }
+
+    return this.filterGroups().some((group) => group.key === key) ? key : NOTES_FILTER_ALL_KEY
+  }, 'notes.quickView.activeFilterKey')
+
+  readonly filterChips = computed(() => {
+    const activeKey = this.activeFilterKey()
+    const rows = this.rows()
+    const directoryChips = this.filterGroups().slice(0, NOTES_FILTER_CHIP_LIMIT - 1)
+    return [
+      {
+        key: NOTES_FILTER_ALL_KEY,
+        label: 'All notes',
+        count: rows.length,
+        active: activeKey === NOTES_FILTER_ALL_KEY,
+      },
+      ...directoryChips.map((group) => ({
+        key: group.key,
+        label: group.label,
+        count: group.count,
+        active: activeKey === group.key,
+      })),
+    ] satisfies NotesQuickViewFilterChip[]
+  }, 'notes.quickView.filterChips')
+
+  readonly filteredRows = computed(() => {
+    const filterKey = this.activeFilterKey()
+    return this.rows().filter((row) => rowMatchesFilter(row, filterKey))
+  }, 'notes.quickView.filteredRows')
+
   readonly visibleRows = computed(() => {
     const query = normalizeSearchValue(this.query())
-    return this.rows().filter((row) => rowMatchesQuery(row, query))
+    return this.filteredRows().filter((row) => rowMatchesQuery(row, query))
   }, 'notes.quickView.visibleRows')
 
   readonly visibleTree = computed(() => {
     const query = normalizeSearchValue(this.query())
     const collapsedDirectoryPaths = this.collapsedDirectoryPaths()
-    return this.filterTree(this.projection().tree, query, collapsedDirectoryPaths)
+    return this.filterTree(this.buildTree(this.filteredRows()), query, collapsedDirectoryPaths)
   }, 'notes.quickView.visibleTree')
+
+  readonly visibleRowViews = computed(
+    () => this.visibleRows().map(createRowView),
+    'notes.quickView.visibleRowViews',
+  )
+
+  readonly rowViewsById = computed(() => {
+    const views = new Map<string, NotesQuickViewRowView>()
+    for (const row of this.rows()) {
+      views.set(row.id, createRowView(row))
+    }
+    return views
+  }, 'notes.quickView.rowViewsById')
+
+  readonly displayMode = computed<NotesQuickViewDisplayMode>(() => {
+    if (this.viewMode() === 'hierarchy') {
+      return 'tree'
+    }
+
+    return this.flatLayout()
+  }, 'notes.quickView.displayMode')
 
   readonly summary = computed(() => {
     const rows = this.rows()
@@ -211,23 +356,29 @@ export class NotesQuickViewModel {
     return {
       total: rows.length,
       visible: visibleRows.length,
+      label:
+        rows.length === visibleRows.length
+          ? `${visibleRows.length} notes`
+          : `${visibleRows.length} of ${rows.length} notes`,
     } satisfies NotesQuickViewSummary
   }, 'notes.quickView.summary')
 
   readonly hasActiveFilters = computed(
-    () => this.query().trim().length > 0,
+    () => this.query().trim().length > 0 || this.activeFilterKey() !== NOTES_FILTER_ALL_KEY,
     'notes.quickView.hasActiveFilters',
   )
 
   private readonly getContext: () => AppContext | null
   private unsubscribeCatalog?: () => void
   private unsubscribeTransport?: () => void
+  private unsubscribeTransportSession?: () => void
   private connectionCount = 0
   private loadRunId = 0
   private loadActive = false
   private loadRequested = false
   private loadScheduled = false
   private hasLoadedNotesThisConnection = false
+  private mobileScrollTop: number | null = null
 
   constructor(deps: NotesQuickViewModelDeps = {}) {
     this.getContext = deps.getContext ?? tryGetAppContext
@@ -250,6 +401,7 @@ export class NotesQuickViewModel {
     }
 
     this.subscribeTransportConnection()
+    this.subscribeTransportSessionGeneration()
     this.bumpCatalogRevision()
     this.scheduleNotesLoad()
   }
@@ -267,6 +419,8 @@ export class NotesQuickViewModel {
     this.unsubscribeCatalog = undefined
     this.unsubscribeTransport?.()
     this.unsubscribeTransport = undefined
+    this.unsubscribeTransportSession?.()
+    this.unsubscribeTransportSession = undefined
     this.loadRunId += 1
     this.loadRequested = false
     this.loadScheduled = false
@@ -282,6 +436,35 @@ export class NotesQuickViewModel {
   readonly setViewMode = action((value: NotesQuickViewMode) => {
     this.viewMode.set(value)
   }, 'notes.quickView.setViewMode')
+
+  readonly setDisplayMode = action((value: NotesQuickViewDisplayMode) => {
+    if (value === 'tree') {
+      this.viewMode.set('hierarchy')
+      return
+    }
+
+    this.viewMode.set('flat')
+    this.flatLayout.set(value)
+  }, 'notes.quickView.setDisplayMode')
+
+  readonly setFlatLayout = action((value: NotesQuickViewFlatLayout) => {
+    this.viewMode.set('flat')
+    this.flatLayout.set(value)
+  }, 'notes.quickView.setFlatLayout')
+
+  readonly setSortMode = action((value: NotesQuickViewSortMode) => {
+    this.sortMode.set(value)
+  }, 'notes.quickView.setSortMode')
+
+  readonly cycleSortMode = action(() => {
+    const currentIndex = NOTES_SORT_MODES.indexOf(this.sortMode())
+    const nextIndex = (currentIndex + 1) % NOTES_SORT_MODES.length
+    this.sortMode.set(NOTES_SORT_MODES[nextIndex] ?? 'name')
+  }, 'notes.quickView.cycleSortMode')
+
+  readonly setFilterKey = action((value: string) => {
+    this.filterKey.set(value || NOTES_FILTER_ALL_KEY)
+  }, 'notes.quickView.setFilterKey')
 
   readonly toggleDirectory = action((path: string) => {
     if (!path) {
@@ -303,6 +486,7 @@ export class NotesQuickViewModel {
 
   readonly clearFilters = action(() => {
     this.query.set('')
+    this.filterKey.set(NOTES_FILTER_ALL_KEY)
   }, 'notes.quickView.clearFilters')
 
   readonly retryLoad = action(() => {
@@ -312,21 +496,20 @@ export class NotesQuickViewModel {
   }, 'notes.quickView.retryLoad')
 
   readonly openNote = action((row: NotesQuickViewRow) => {
-    if (this.viewMode() === 'hierarchy') {
-      navigationModel.openMarkdownDocument(row.fileId, 'push', row.parentPath)
-      return
+    const source = {
+      path: row.path,
+      parentPath: row.parentPath,
+      fileName: row.fileName,
+      ...(row.size !== undefined ? {size: row.size} : {}),
+      ...(row.mimeType ? {mimeType: row.mimeType} : {}),
+      ...(row.lastModified !== undefined ? {lastModified: row.lastModified} : {}),
+      ...(row.sourceRevision !== undefined ? {sourceRevision: row.sourceRevision} : {}),
     }
-
-    navigationModel.openMarkdownDocument(row.fileId, 'push', {
-      source: {
-        path: row.path,
-        fileName: row.fileName,
-        ...(row.size !== undefined ? {size: row.size} : {}),
-        ...(row.mimeType ? {mimeType: row.mimeType} : {}),
-        ...(row.lastModified !== undefined ? {lastModified: row.lastModified} : {}),
-        ...(row.sourceRevision !== undefined ? {sourceRevision: row.sourceRevision} : {}),
-      },
-    })
+    navigationModel.openMarkdownDocument(
+      row.fileId,
+      'push',
+      this.viewMode() === 'hierarchy' ? {parentPath: row.parentPath, source} : {source},
+    )
   }, 'notes.quickView.openNote')
 
   readonly openNoteById = action((rowId: string) => {
@@ -336,12 +519,33 @@ export class NotesQuickViewModel {
     }
   }, 'notes.quickView.openNoteById')
 
+  saveMobileScrollPosition(scrollTop: number): void {
+    this.mobileScrollTop = Number.isFinite(scrollTop) ? Math.max(0, Math.floor(scrollTop)) : 0
+  }
+
+  getMobileScrollPosition(): number | null {
+    return this.mobileScrollTop
+  }
+
+  clearMobileScrollPosition(): void {
+    this.mobileScrollTop = null
+  }
+
   readonly state = {
     query: this.query,
     viewMode: this.viewMode,
+    flatLayout: this.flatLayout,
+    sortMode: this.sortMode,
+    filterKey: this.filterKey,
+    activeFilterKey: this.activeFilterKey,
+    filterChips: this.filterChips,
+    filteredRows: this.filteredRows,
     rows: this.rows,
     visibleRows: this.visibleRows,
+    visibleRowViews: this.visibleRowViews,
+    rowViewsById: this.rowViewsById,
     visibleTree: this.visibleTree,
+    displayMode: this.displayMode,
     summary: this.summary,
     hasCatalog: this.hasCatalog,
     isLoading: this.isLoading,
@@ -352,6 +556,11 @@ export class NotesQuickViewModel {
   readonly actions = {
     setQuery: this.setQuery,
     setViewMode: this.setViewMode,
+    setDisplayMode: this.setDisplayMode,
+    setFlatLayout: this.setFlatLayout,
+    setSortMode: this.setSortMode,
+    cycleSortMode: this.cycleSortMode,
+    setFilterKey: this.setFilterKey,
     toggleDirectory: this.toggleDirectory,
     expandAllDirectories: this.expandAllDirectories,
     clearFilters: this.clearFilters,
@@ -400,6 +609,28 @@ export class NotesQuickViewModel {
     )
   }
 
+  private subscribeTransportSessionGeneration(): void {
+    const generation = (this.getContext()?.store as RemoteSessionGenerationSource | undefined)
+      ?.remoteSessionGeneration
+    if (typeof generation?.subscribe !== 'function') {
+      return
+    }
+
+    this.unsubscribeTransportSession = subscribeToSignalChanges(
+      generation,
+      (nextGeneration, previousGeneration) => {
+        if (nextGeneration === previousGeneration) {
+          return
+        }
+        this.invalidateNotesLoad()
+        this.scheduleNotesLoad()
+      },
+      {
+        readSnapshot: () => generation(),
+      },
+    )
+  }
+
   private scheduleNotesLoad(): void {
     this.loadRequested = true
     if (this.loadActive || this.loadScheduled) {
@@ -443,7 +674,7 @@ export class NotesQuickViewModel {
         return
       }
 
-      this.noteRows.set(response.items.map(rowFromNotesItem).filter((row): row is NotesQuickViewRow => Boolean(row)))
+      this.noteRows.set(normalizeCatalogNotesResponse(response))
       this.hasLoadedNotesThisConnection = true
       this.loadErrorKey.set(null)
     } catch {

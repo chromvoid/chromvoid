@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::catalog::{
-    apply_delta, CatalogDeltaReplayFailure, DeltaApplyOutcome, DeltaEntry, RootIndex, Shard,
-    ShardMeta,
+    apply_delta, CatalogDeltaReplayFailure, DeltaApplyOutcome, DeltaEntry, LoadStrategy, RootIndex,
+    Shard, ShardMeta, MAX_DELTAS,
 };
 use crate::crypto::{decrypt, delta_chunk_name, encrypt, root_index_chunk_name};
 use crate::crypto::{sha256_hex, shard_snapshot_chunk_name};
@@ -28,6 +28,7 @@ pub(crate) enum CatalogRepairPolicy {
 #[serde(rename_all = "snake_case")]
 pub enum CatalogRepairStatus {
     Clean,
+    LosslessRequired,
     LosslessRepaired,
     LossyRequired,
 }
@@ -89,6 +90,8 @@ impl<'a> CatalogRepairService<'a> {
         let mut shard_ids: Vec<&str> = root_index.shards.keys().map(String::as_str).collect();
         shard_ids.sort_unstable();
 
+        let mut lossless_required = Vec::new();
+
         for shard_id in shard_ids {
             let Some(meta) = root_index.shards.get(shard_id) else {
                 continue;
@@ -102,11 +105,75 @@ impl<'a> CatalogRepairService<'a> {
                     lossy_requires_confirm: true,
                 });
             }
+            if delta_chain_needs_lossless_repair(meta) {
+                lossless_required.push(shard_id.to_string());
+            }
+        }
+
+        if !lossless_required.is_empty() {
+            let repair_id = repair_id_for_lossless(&root_index, &lossless_required);
+            return Ok(CatalogRepairDiagnosis {
+                repair_id: Some(repair_id),
+                status: CatalogRepairStatus::LosslessRequired,
+                issues: Vec::new(),
+                lossy_requires_confirm: false,
+            });
         }
 
         Ok(CatalogRepairDiagnosis::clean())
     }
 
+    pub(in crate::vault) fn diagnose_for_unlock_preflight(&self) -> Result<CatalogRepairDiagnosis> {
+        CatalogCommitService::new(self.storage, self.vault_key).recover_incomplete_commit()?;
+
+        let root_name = root_index_chunk_name(self.vault_key, 0);
+        let Some(root_index) = read_root_index(self.storage, self.vault_key, &root_name)? else {
+            return Ok(CatalogRepairDiagnosis::clean());
+        };
+
+        let mut shard_ids: Vec<&str> = root_index.shards.keys().map(String::as_str).collect();
+        shard_ids.sort_unstable();
+
+        let mut lossless_required = Vec::new();
+        for shard_id in &shard_ids {
+            let Some(meta) = root_index.shards.get(*shard_id) else {
+                continue;
+            };
+            if delta_chain_needs_lossless_repair(meta) {
+                lossless_required.push((*shard_id).to_string());
+            }
+        }
+
+        if !lossless_required.is_empty() {
+            return Ok(CatalogRepairDiagnosis {
+                repair_id: Some(repair_id_for_lossless(&root_index, &lossless_required)),
+                status: CatalogRepairStatus::LosslessRequired,
+                issues: Vec::new(),
+                lossy_requires_confirm: false,
+            });
+        }
+
+        for shard_id in shard_ids {
+            let Some(meta) = root_index.shards.get(shard_id) else {
+                continue;
+            };
+            if meta.strategy != LoadStrategy::Eager {
+                continue;
+            }
+            if let Some(issue) = self.diagnose_shard(meta)? {
+                return Ok(CatalogRepairDiagnosis {
+                    repair_id: Some(repair_id_for_issue(&issue)),
+                    status: CatalogRepairStatus::LossyRequired,
+                    issues: vec![issue],
+                    lossy_requires_confirm: true,
+                });
+            }
+        }
+
+        Ok(CatalogRepairDiagnosis::clean())
+    }
+
+    #[cfg(test)]
     pub(in crate::vault) fn repair_lossless(&self) -> Result<Option<CatalogRepairOutcomeSummary>> {
         CatalogCommitService::new(self.storage, self.vault_key).recover_incomplete_commit()?;
 
@@ -126,7 +193,7 @@ impl<'a> CatalogRepairService<'a> {
                 continue;
             };
             let Some((updated_meta, snapshot_name)) =
-                self.prepare_lossless_snapshot_if_needed(meta)?
+                self.prepare_lossless_snapshot_if_needed(meta, false)?
             else {
                 continue;
             };
@@ -165,15 +232,6 @@ impl<'a> CatalogRepairService<'a> {
         repair_id: &str,
         policy: CatalogRepairPolicy,
     ) -> Result<CatalogRepairOutcomeSummary> {
-        match policy {
-            CatalogRepairPolicy::LosslessOnly => {
-                return Err(Error::CatalogRepairUnsafe(
-                    "lossy catalog repair requires explicit confirmation".to_string(),
-                ))
-            }
-            CatalogRepairPolicy::AllowLossyConfirmed => {}
-        }
-
         CatalogCommitService::new(self.storage, self.vault_key).recover_incomplete_commit()?;
 
         let root_name = root_index_chunk_name(self.vault_key, 0);
@@ -188,6 +246,20 @@ impl<'a> CatalogRepairService<'a> {
         if current_repair_id != repair_id {
             return Err(Error::CatalogRepairStale);
         }
+
+        if diagnosis.status == CatalogRepairStatus::LosslessRequired {
+            return self.apply_lossless_required(&root_index, repair_id);
+        }
+
+        match policy {
+            CatalogRepairPolicy::LosslessOnly => {
+                return Err(Error::CatalogRepairUnsafe(
+                    "lossy catalog repair requires explicit confirmation".to_string(),
+                ))
+            }
+            CatalogRepairPolicy::AllowLossyConfirmed => {}
+        }
+
         let Some(issue) = diagnosis.issues.first() else {
             return Err(Error::CatalogRepairStale);
         };
@@ -211,6 +283,56 @@ impl<'a> CatalogRepairService<'a> {
             status: CatalogRepairStatus::LossyRequired,
             issues: diagnosis.issues,
             lossy_applied: true,
+        })
+    }
+
+    fn apply_lossless_required(
+        &self,
+        root_index: &RootIndex,
+        repair_id: &str,
+    ) -> Result<CatalogRepairOutcomeSummary> {
+        let mut affected: Vec<String> = root_index
+            .shards
+            .values()
+            .filter(|meta| delta_chain_needs_lossless_repair(meta))
+            .map(|meta| meta.shard_id.clone())
+            .collect();
+        affected.sort_unstable();
+
+        if affected.is_empty() || repair_id_for_lossless(root_index, &affected) != repair_id {
+            return Err(Error::CatalogRepairStale);
+        }
+
+        let mut repaired_root_index = root_index.clone();
+        let mut new_chunks = Vec::new();
+        for shard_id in &affected {
+            let Some(meta) = root_index.shards.get(shard_id) else {
+                return Err(Error::CatalogRepairStale);
+            };
+            let Some((updated_meta, snapshot_name)) =
+                self.prepare_lossless_snapshot_if_needed(meta, true)?
+            else {
+                return Err(Error::CatalogRepairStale);
+            };
+            repaired_root_index
+                .shards
+                .insert(updated_meta.shard_id.clone(), updated_meta);
+            new_chunks.push(snapshot_name);
+        }
+
+        repaired_root_index.root_version = repaired_root_index.root_version.saturating_add(1);
+        CatalogCommitService::new(self.storage, self.vault_key).commit_root_index_update(
+            &repaired_root_index,
+            new_chunks,
+            Vec::new(),
+            format!("catalog-repair-{}", sha256_hex(repair_id.as_bytes())),
+        )?;
+
+        Ok(CatalogRepairOutcomeSummary {
+            repair_id: repair_id.to_string(),
+            status: CatalogRepairStatus::LosslessRepaired,
+            issues: Vec::new(),
+            lossy_applied: false,
         })
     }
 
@@ -283,6 +405,7 @@ impl<'a> CatalogRepairService<'a> {
         next_meta.last_delta_seq = issue.safe_through_seq;
         next_meta.snapshot_seq = meta.snapshot_seq.saturating_add(1);
         next_meta.update_stats(shard.node_count(), shard.size());
+        next_meta.update_root_summary(&shard.root);
 
         shard.version = issue.safe_through_seq;
         shard.base_version = issue.safe_through_seq;
@@ -299,6 +422,7 @@ impl<'a> CatalogRepairService<'a> {
     fn prepare_lossless_snapshot_if_needed(
         &self,
         meta: &ShardMeta,
+        force_if_replayable: bool,
     ) -> Result<Option<(ShardMeta, String)>> {
         if !meta.has_deltas {
             return Ok(None);
@@ -311,17 +435,17 @@ impl<'a> CatalogRepairService<'a> {
             return Ok(None);
         }
 
-        let mut has_lossless_delta = false;
+        let mut should_compact = force_if_replayable;
         for seq in from..=to {
             let delta = self.read_delta(&meta.shard_id, seq)?;
             match apply_delta(&mut shard.root, &delta) {
                 Ok(DeltaApplyOutcome::Applied) => {}
-                Ok(DeltaApplyOutcome::AlreadyApplied) => has_lossless_delta = true,
+                Ok(DeltaApplyOutcome::AlreadyApplied) => should_compact = true,
                 Err(failure) => return Err(Error::CatalogDeltaReplayFailed(failure)),
             }
         }
 
-        if !has_lossless_delta {
+        if !should_compact {
             return Ok(None);
         }
 
@@ -333,6 +457,7 @@ impl<'a> CatalogRepairService<'a> {
         updated_meta.last_delta_seq = meta.last_delta_seq;
         updated_meta.snapshot_seq = meta.snapshot_seq.saturating_add(1);
         updated_meta.update_stats(shard.node_count(), shard.size());
+        updated_meta.update_root_summary(&shard.root);
 
         shard.version = meta.last_delta_seq;
         shard.base_version = meta.last_delta_seq;
@@ -389,6 +514,19 @@ fn repair_id_for_lossless(root_index: &RootIndex, affected: &[String]) -> String
         root_index.root_version,
         sha256_hex(affected.join("|").as_bytes())
     )
+}
+
+fn delta_chain_needs_lossless_repair(meta: &ShardMeta) -> bool {
+    meta.has_deltas
+        && (pending_delta_window(meta) >= MAX_DELTAS as u64 || meta.delta_count >= MAX_DELTAS)
+}
+
+fn pending_delta_window(meta: &ShardMeta) -> u64 {
+    if !meta.has_deltas || meta.last_delta_seq < meta.base_version {
+        return 0;
+    }
+
+    meta.last_delta_seq.saturating_sub(meta.base_version)
 }
 
 fn issue_matches_meta(issue: &CatalogRepairIssue, meta: &ShardMeta) -> bool {

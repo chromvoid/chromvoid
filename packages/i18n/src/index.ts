@@ -1,3 +1,5 @@
 export * from './translation'
+export * from './bidi'
 export * from './consts'
+export * from './locales'
 export * from './types'

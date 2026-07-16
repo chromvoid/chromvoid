@@ -1,6 +1,10 @@
 import type {FileListItem} from 'root/shared/contracts/file-manager'
 import {FILE_ITEM_HOST_WITH_DATA_ID_SELECTOR} from '../item-host-selectors'
-import type {VirtualFileListHandlerContext, VirtualFileListPointerState, VirtualFileListSelectionState} from './types'
+import type {
+  VirtualFileListHandlerContext,
+  VirtualFileListPointerState,
+  VirtualFileListSelectionState,
+} from './types'
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => {
   return typeof value === 'object' && value != null
@@ -79,7 +83,10 @@ export const getFocusedItemId = (event?: Event): number | null => {
 }
 
 export const handleItemSelect = (
-  context: Pick<VirtualFileListHandlerContext, 'getItems' | 'getSelectedItems' | 'emitSelectionChange'>,
+  context: Pick<
+    VirtualFileListHandlerContext,
+    'getItems' | 'getSelectedItems' | 'isSelectionMode' | 'emitSelectionModeRequested' | 'emitSelectionChange'
+  >,
   selectionState: VirtualFileListSelectionState,
   item: FileListItem,
   event: Event,
@@ -93,6 +100,10 @@ export const handleItemSelect = (
   const currentIndex = filtered.findIndex((i) => i.id === item.id)
   if (currentIndex === -1) return
 
+  if (!context.isSelectionMode()) {
+    context.emitSelectionModeRequested(true)
+  }
+
   if (shiftKey) {
     const anchorIndex =
       selectionState.lastSelectionAnchorId != null
@@ -101,11 +112,12 @@ export const handleItemSelect = (
     const anchor = anchorIndex >= 0 ? anchorIndex : currentIndex
     const start = Math.min(anchor, currentIndex)
     const end = Math.max(anchor, currentIndex)
-    newSelection = []
+    const range: number[] = []
     for (let i = start; i <= end; i++) {
       const candidate = filtered[i]
-      if (candidate) newSelection.push(candidate.id)
+      if (candidate) range.push(candidate.id)
     }
+    newSelection = Array.from(new Set([...newSelection, ...range]))
     if (selectionState.lastSelectionAnchorId == null || anchorIndex < 0) {
       selectionState.lastSelectionAnchorId = filtered[anchor]?.id ?? item.id
     }

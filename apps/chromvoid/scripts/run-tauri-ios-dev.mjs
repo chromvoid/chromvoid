@@ -5,9 +5,12 @@ import os from 'node:os'
 import path from 'node:path'
 import {spawn, spawnSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
+import {loadWalletEnvFromRoot} from './wallet-env.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.resolve(scriptDir, '..')
+const repoRoot = path.resolve(appRoot, '..', '..')
+loadWalletEnvFromRoot(repoRoot)
 const rawForwardedArgs = process.argv.slice(2)
 const forwardedArgs = []
 const devConfigArgs = ['--config', 'src-tauri/tauri.dev.conf.json', '--port', '4410']

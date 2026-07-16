@@ -17,6 +17,7 @@ build
 *.rar
 coverage
 target/
+apps/chromvoid/src-tauri/binaries/
 crates/core/bindings/
 # Generated Web Awesome styles (copied from node_modules during build)
 .auto-claude
@@ -45,3 +46,5 @@ apps/chromvoid/src-tauri/gen/android/keystore.properties
 apps/chromvoid/src-tauri/gen/android/sideload-keystore.properties
 apps/chromvoid/src-tauri/gen/android/*.jks
 .codex-artifacts
+output/playwright
+.mock/

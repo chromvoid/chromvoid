@@ -1,4 +1,4 @@
-import {atom, withLocalStorage} from '@reatom/core'
+import {MAX_SAFE_TIMEOUT, atom, withLocalStorage} from '@reatom/core'
 
 import {css} from 'lit'
 import {html} from '@chromvoid/uikit/reatom-lit'
@@ -22,30 +22,114 @@ export type ViewMode = 'default' | 'compact' | 'dense'
 const GROUP_BY_VALUES: readonly GroupBy[] = ['none', 'website', 'modified', 'security']
 const VIEW_MODE_VALUES: readonly ViewMode[] = ['default', 'compact', 'dense']
 
-function isGroupByValue(value: string | null): value is GroupBy {
-  return value !== null && GROUP_BY_VALUES.includes(value as GroupBy)
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isStoredEnumValue<T extends string>(value: unknown, values: readonly T[]): value is T {
+  return typeof value === 'string' && values.includes(value as T)
+}
+
+function readPersistedEnumValue<T extends string>(value: string, values: readonly T[]): T | null {
+  try {
+    const record: unknown = JSON.parse(value)
+    if (!isObjectRecord(record)) {
+      return null
+    }
+
+    const data = record['data']
+    const id = record['id']
+    const timestamp = record['timestamp']
+    const version = record['version']
+    const to = record['to']
+
+    if (
+      !isStoredEnumValue(data, values) ||
+      typeof id !== 'number' ||
+      typeof timestamp !== 'number' ||
+      version !== 0 ||
+      typeof to !== 'number' ||
+      to < Date.now()
+    ) {
+      return null
+    }
+
+    return data
+  } catch {
+    return null
+  }
+}
+
+function readStoredEnumValue<T extends string>(value: string | null, values: readonly T[]): T | null {
+  if (value === null) {
+    return null
+  }
+
+  return isStoredEnumValue(value, values) ? value : readPersistedEnumValue(value, values)
+}
+
+function serializePersistedEnumValue<T extends string>(value: T): string {
+  const now = Date.now()
+  return JSON.stringify({
+    data: value,
+    id: now,
+    timestamp: now,
+    to: now + MAX_SAFE_TIMEOUT,
+    version: 0,
+  })
+}
+
+function normalizePersistedEnumKey<T extends string>(
+  storage: Pick<Storage, 'setItem'>,
+  key: string,
+  currentValue: string | null,
+  nextValue: T,
+  values: readonly T[],
+  writeMissing = false,
+): void {
+  if (currentValue === null && !writeMissing) {
+    return
+  }
+
+  if (currentValue !== null && readPersistedEnumValue(currentValue, values) === nextValue) {
+    return
+  }
+
+  storage.setItem(key, serializePersistedEnumValue(nextValue))
+}
+
+function normalizeRawEnumKey<T extends string>(
+  storage: Pick<Storage, 'setItem'>,
+  key: string,
+  currentValue: string | null,
+  nextValue: T,
+): void {
+  if (currentValue !== null && currentValue !== nextValue) {
+    storage.setItem(key, nextValue)
+  }
 }
 
 export function normalizeStoredGroupBy(storage?: Pick<Storage, 'getItem' | 'setItem'>): GroupBy {
   try {
     const storageApi = storage ?? localStorage
-    const storageKeys = ['pm_group_by', 'pm-group-by'] as const
-    let next: GroupBy = 'none'
+    const persistedKey = 'pm_group_by'
+    const legacyKey = 'pm-group-by'
+    const persistedValue = storageApi.getItem(persistedKey)
+    const legacyValue = storageApi.getItem(legacyKey)
+    const next =
+      readStoredEnumValue(persistedValue, GROUP_BY_VALUES) ??
+      readStoredEnumValue(legacyValue, GROUP_BY_VALUES) ??
+      'none'
 
-    for (const key of storageKeys) {
-      const value = storageApi.getItem(key)
-      if (isGroupByValue(value)) {
-        next = value
-        break
-      }
-    }
-
-    for (const key of storageKeys) {
-      const value = storageApi.getItem(key)
-      if (value === 'folder' || (value !== null && !isGroupByValue(value))) {
-        storageApi.setItem(key, next)
-      }
-    }
+    normalizePersistedEnumKey(
+      storageApi,
+      persistedKey,
+      persistedValue,
+      next,
+      GROUP_BY_VALUES,
+      legacyValue !== null,
+    )
+    normalizeRawEnumKey(storageApi, legacyKey, legacyValue, next)
 
     return next
   } catch {
@@ -53,26 +137,28 @@ export function normalizeStoredGroupBy(storage?: Pick<Storage, 'getItem' | 'setI
   }
 }
 
-function sanitizeStoredViewMode(): ViewMode {
+export function normalizeStoredViewMode(storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>): ViewMode {
   try {
-    const storageKeys = ['pm_view_mode', 'pm-view-mode'] as const
-    let next: ViewMode = 'default'
-    let sawStoredValue = false
+    const storageApi = storage ?? localStorage
+    const persistedKey = 'pm_view_mode'
+    const legacyKey = 'pm-view-mode'
+    const persistedValue = storageApi.getItem(persistedKey)
+    const legacyValue = storageApi.getItem(legacyKey)
+    const next =
+      readStoredEnumValue(persistedValue, VIEW_MODE_VALUES) ??
+      readStoredEnumValue(legacyValue, VIEW_MODE_VALUES) ??
+      'default'
 
-    for (const key of storageKeys) {
-      const value = localStorage.getItem(key)
-      if (value !== null) {
-        sawStoredValue = true
-      }
-      if (value !== null && VIEW_MODE_VALUES.includes(value as ViewMode)) {
-        next = value as ViewMode
-        break
-      }
-    }
-
-    if (sawStoredValue) {
-      localStorage.setItem('pm_view_mode', next)
-      localStorage.removeItem('pm-view-mode')
+    normalizePersistedEnumKey(
+      storageApi,
+      persistedKey,
+      persistedValue,
+      next,
+      VIEW_MODE_VALUES,
+      legacyValue !== null,
+    )
+    if (legacyValue !== null) {
+      storageApi.removeItem(legacyKey)
     }
 
     return next
@@ -89,7 +175,7 @@ export const sortDirection = atom<SortDirection>('asc', 'pm_sort_direction').ext
 export const groupBy = atom<GroupBy>(normalizeStoredGroupBy(), 'pm_group_by').extend(
   withLocalStorage({key: 'pm_group_by'}),
 )
-export const viewMode = atom<ViewMode>(sanitizeStoredViewMode(), 'pm_view_mode').extend(
+export const viewMode = atom<ViewMode>(normalizeStoredViewMode(), 'pm_view_mode').extend(
   withLocalStorage({key: 'pm_view_mode'}),
 )
 
@@ -109,16 +195,16 @@ export class SortControls extends SortControlsBase {
       display: block;
       min-inline-size: 0;
       container-type: inline-size;
-      --pm-toolbar-control-height: var(--app-toolbar-control-height, 40px);
+      --pm-toolbar-control-block-size: 32px;
       --pm-toolbar-control-radius: var(--app-toolbar-control-radius, var(--cv-radius-2));
-      --pm-toolbar-control-padding-inline: var(--app-toolbar-control-padding-inline, var(--cv-space-3));
-      --pm-toolbar-control-font-size: var(--app-toolbar-control-font-size, var(--cv-font-size-sm));
-      --pm-toolbar-control-font-weight: var(--app-toolbar-control-font-weight, var(--cv-font-weight-medium));
+      --pm-toolbar-control-padding-inline: 11px;
+      --pm-toolbar-control-font-size: var(--cv-font-size-xs);
+      --pm-toolbar-control-font-weight: var(--cv-font-weight-bold);
       --pm-toolbar-control-gap: var(--app-toolbar-control-gap, var(--cv-space-2));
     }
 
     @supports (-webkit-touch-callout: none) {
-      @media (hover: none) and (pointer: coarse) {
+      @media (max-width: 768px) {
         cv-select::part(trigger) {
           font-size: 16px;
         }
@@ -126,40 +212,43 @@ export class SortControls extends SortControlsBase {
     }
 
     .sort-controls {
-      display: flex;
+      display: grid;
+      grid-template-columns: minmax(160px, 184px) minmax(112px, 132px);
       align-items: center;
-      justify-content: flex-end;
+      justify-content: end;
       gap: var(--pm-toolbar-control-gap);
       inline-size: 100%;
       min-inline-size: 0;
     }
 
     .sort-control-set {
-      display: flex;
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: max-content;
       align-items: center;
       gap: var(--pm-toolbar-control-gap);
       min-inline-size: 0;
     }
 
     .sort-control-set[data-kind='sort'] {
-      flex: 1 1 230px;
-      min-inline-size: 190px;
+      grid-template-columns: var(--pm-toolbar-control-block-size) minmax(0, 1fr);
+      min-inline-size: 160px;
     }
 
     .sort-control-set[data-kind='group'] {
-      flex: 0 1 160px;
-      min-inline-size: 136px;
+      grid-template-columns: minmax(0, 1fr);
+      min-inline-size: 112px;
     }
 
     .control-select {
       --cv-select-inline-size: 100%;
-      --cv-select-min-height: var(--pm-toolbar-control-height);
+      --cv-select-min-height: var(--pm-toolbar-control-block-size);
       --cv-select-padding-inline: var(--pm-toolbar-control-padding-inline);
       --cv-select-padding-block: 0;
       --cv-select-border-radius: var(--pm-toolbar-control-radius);
       --cv-select-background: var(--cv-color-surface-2);
+      inline-size: 100%;
       min-inline-size: 0;
-      flex: 1 1 auto;
     }
 
     .control-select::part(trigger) {
@@ -198,7 +287,9 @@ export class SortControls extends SortControlsBase {
     }
 
     .select-trigger-content {
-      display: inline-flex;
+      display: inline-grid;
+      grid-auto-flow: column;
+      grid-auto-columns: max-content;
       align-items: center;
       gap: 6px;
       min-inline-size: 0;
@@ -211,7 +302,7 @@ export class SortControls extends SortControlsBase {
     .select-icon {
       inline-size: 14px;
       block-size: 14px;
-      flex: 0 0 auto;
+      display: block;
       color: var(--cv-color-text-muted);
     }
 
@@ -224,12 +315,10 @@ export class SortControls extends SortControlsBase {
     }
 
     .direction-button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      flex: 0 0 var(--pm-toolbar-control-height);
-      inline-size: var(--pm-toolbar-control-height);
-      block-size: var(--pm-toolbar-control-height);
+      display: inline-grid;
+      place-items: center;
+      inline-size: var(--pm-toolbar-control-block-size);
+      block-size: var(--pm-toolbar-control-block-size);
       border-radius: var(--pm-toolbar-control-radius);
       border: 1px solid var(--cv-color-border);
       background: var(--cv-color-surface-2);
@@ -280,8 +369,8 @@ export class SortControls extends SortControlsBase {
     }
 
     .direction-icon {
-      inline-size: 14px;
-      block-size: 14px;
+      inline-size: 15px;
+      block-size: 15px;
       transition: transform var(--cv-duration-fast) var(--cv-easing-spring);
     }
 
@@ -291,13 +380,13 @@ export class SortControls extends SortControlsBase {
 
     @container (width < 460px) {
       .sort-controls {
-        flex-wrap: wrap;
+        grid-template-columns: minmax(0, 1fr);
         justify-content: stretch;
       }
 
       .sort-control-set[data-kind='sort'],
       .sort-control-set[data-kind='group'] {
-        flex: 1 1 100%;
+        inline-size: 100%;
         min-inline-size: 0;
       }
     }
@@ -305,8 +394,39 @@ export class SortControls extends SortControlsBase {
     @container (width < 300px) {
       .sort-control-set[data-kind='sort'] {
         display: grid;
-        grid-template-columns: var(--pm-toolbar-control-height) minmax(0, 1fr);
+        grid-template-columns: var(--pm-toolbar-control-block-size) minmax(0, 1fr);
       }
+    }
+
+    :host([single-row]) {
+      inline-size: max-content;
+    }
+
+    :host([single-row]) .sort-controls {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: max-content;
+      inline-size: max-content;
+      justify-content: start;
+    }
+
+    :host([single-row]) .sort-control-set {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: max-content;
+      min-inline-size: 0;
+    }
+
+    :host([single-row]) .sort-control-set[data-kind='sort'] {
+      grid-template-columns: var(--pm-toolbar-control-block-size) 132px;
+    }
+
+    :host([single-row]) .sort-field-select {
+      inline-size: 132px;
+    }
+
+    :host([single-row]) .group-by-select {
+      inline-size: 116px;
     }
   `
 

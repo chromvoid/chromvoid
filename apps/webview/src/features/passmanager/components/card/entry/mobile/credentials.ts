@@ -101,6 +101,7 @@ export function renderMobileUsernameField(context: PMEntryMobileRenderContext) {
                 <span slot="label">${i18n('username')}</span>
                 <cv-input
                   class="inline-field-input"
+                  dir="ltr"
                   name="inline-username"
                   data-inline-field="username"
                   .value=${model.inlineUsername()}
@@ -128,6 +129,7 @@ export function renderMobileUsernameField(context: PMEntryMobileRenderContext) {
               <span class="field-label">${i18n('username')}</span>
               <span
                 class="field-value ${card.username ? '' : 'empty'}"
+                dir="ltr"
                 data-credential-edit-value=${data.canEditFields ? 'username' : nothing}
               >
                 ${data.username}
@@ -146,7 +148,7 @@ export function renderMobilePasswordField(context: PMEntryMobileRenderContext) {
     return html``
   }
 
-  const {card, data, model, ui} = context
+  const {data, model, ui} = context
   const passwordResource = model.state.passwordResource()
   const isLoading = passwordResource.status === 'idle' || passwordResource.status === 'loading'
   const isReady = passwordResource.status === 'ready'
@@ -161,6 +163,7 @@ export function renderMobilePasswordField(context: PMEntryMobileRenderContext) {
                   <span slot="label">${i18n('password')}</span>
                   <cv-input
                     class="inline-field-input"
+                    dir="ltr"
                     type="password"
                     password-toggle
                     name="inline-password"
@@ -223,6 +226,7 @@ export function renderMobilePasswordField(context: PMEntryMobileRenderContext) {
                   ? html`
                       <cv-input
                         class="password-input"
+                        dir="ltr"
                         type="password"
                         password-toggle
                         readonly

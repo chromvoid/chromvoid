@@ -4,6 +4,7 @@ pub(in crate::rpc::router::passmanager) const PASSMANAGER_ICONS_ENABLED: bool = 
 pub(super) const ICON_MAX_UPLOAD_BYTES: usize = 1024 * 1024;
 pub(super) const ICON_NORMALIZED_MAX_BYTES: usize = 64 * 1024;
 pub(super) const ICON_MAX_DIMENSION: u32 = 128;
+pub(super) const ICON_GET_MANY_MAX_REFS: usize = 64;
 
 pub(super) const PASSMANAGER_ICONS_DIR: &str = "/.passmanager/.icons";
 pub(in crate::rpc::router::passmanager) const PASSMANAGER_ICONS_INDEX_PATH: &str =
@@ -44,6 +45,12 @@ pub(super) struct IconGetResult {
     pub(super) mime_type: String,
     pub(super) background_color: Option<String>,
     pub(super) content_base64: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct IconGetManyResult {
+    pub(super) icons: Vec<IconGetResult>,
+    pub(super) missing_icon_refs: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]

@@ -1,4 +1,4 @@
-import {atom} from '@reatom/core'
+import {atom, wrap} from '@reatom/core'
 
 import {pmMobileDebug} from './pm-mobile-debug'
 import type {PMSelectionKind} from './pm-mobile-selection.model'
@@ -36,22 +36,25 @@ class PMMobileLongPressModel {
     const token = this.nextToken
     this.nextToken += 1
 
-    const timer = setTimeout(() => {
-      const current = this.armed()
-      if (!current || current.token !== token || current.committed) return
+    const timer = setTimeout(
+      wrap(() => {
+        const current = this.armed()
+        if (!current || current.token !== token || current.committed) return
 
-      this.armed.set({
-        ...current,
-        committed: true,
-      })
-      pmMobileDebug('longPress', 'timer.commit', {
-        token,
-        target: current.target,
-        startX: current.startX,
-        startY: current.startY,
-      })
-      onCommit(token)
-    }, PMMobileLongPressModel.LONG_PRESS_DELAY_MS)
+        this.armed.set({
+          ...current,
+          committed: true,
+        })
+        pmMobileDebug('longPress', 'timer.commit', {
+          token,
+          target: current.target,
+          startX: current.startX,
+          startY: current.startY,
+        })
+        onCommit(token)
+      }),
+      PMMobileLongPressModel.LONG_PRESS_DELAY_MS,
+    )
 
     this.armed.set({
       token,
@@ -72,10 +75,7 @@ class PMMobileLongPressModel {
 
     const deltaX = Math.abs(point.x - current.startX)
     const deltaY = Math.abs(point.y - current.startY)
-    if (
-      deltaX <= PMMobileLongPressModel.MOVE_GUARD &&
-      deltaY <= PMMobileLongPressModel.MOVE_GUARD
-    ) {
+    if (deltaX <= PMMobileLongPressModel.MOVE_GUARD && deltaY <= PMMobileLongPressModel.MOVE_GUARD) {
       return
     }
 

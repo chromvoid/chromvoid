@@ -21,9 +21,11 @@ export class ContextMenuModel {
   readonly visible = atom(false, 'file.contextMenu.visible')
   readonly position = atom<ContextMenuPosition>({x: 0, y: 0}, 'file.contextMenu.position')
   readonly items = atom<ContextMenuItem[]>([], 'file.contextMenu.items')
+  readonly label = atom('', 'file.contextMenu.label')
 
-  show(x: number, y: number, items: ContextMenuItem[]): void {
+  show(x: number, y: number, items: ContextMenuItem[], label = ''): void {
     this.items.set(items)
+    this.label.set(label)
     this.position.set({x: Math.max(8, Math.floor(x)), y: Math.max(8, Math.floor(y))})
     this.visible.set(true)
   }
@@ -31,6 +33,7 @@ export class ContextMenuModel {
   hide(): void {
     this.visible.set(false)
     this.items.set([])
+    this.label.set('')
   }
 
   getActivatableItemById(id: string): ContextMenuItem | undefined {

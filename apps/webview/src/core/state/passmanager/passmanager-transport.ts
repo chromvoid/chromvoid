@@ -5,8 +5,13 @@ import type {
   OTPType,
   PassManagerEntryType,
   PaymentCardMeta,
+  PassManagerSshKey,
+  SshKeygenParams,
+  SshKeygenResult,
   UrlRule,
 } from '@project/passmanager/types'
+import type {CredentialTagCatalogMeta} from '@project/passmanager/tags'
+import type {CredentialSecurityAuditArtifactV1} from '@project/passmanager/security-audit'
 import {normalizeOTPEncoding, streamToText} from '../../pass-utils'
 
 function normalizeGroupDescription(value: string | null | undefined): string | null {
@@ -65,7 +70,6 @@ export class PassmanagerTransport {
     paymentCard?: PaymentCardMeta
     groupPath?: string
     iconRef?: string
-    sshKeys?: Array<{id: string; type: string; fingerprint: string; name?: string; comment?: string}>
     tags?: string[]
   }): Promise<{entryId: string}> {
     const payload: Record<string, unknown> = {
@@ -88,7 +92,6 @@ export class PassmanagerTransport {
         : undefined,
       group_path: params.groupPath,
       icon_ref: params.iconRef,
-      sshKeys: params.sshKeys,
     }
     if (params.tags !== undefined) {
       payload['tags'] = params.tags
@@ -145,6 +148,45 @@ export class PassmanagerTransport {
     })
   }
 
+  async listSshKeys(): Promise<{sshKeys: PassManagerSshKey[]}> {
+    return this.domainCall('passmanager:ssh:list', {})
+  }
+
+  async updateSshKey(key: PassManagerSshKey): Promise<void> {
+    await this.domainCall('passmanager:ssh:key:update', {key})
+  }
+
+  async deleteSshKey(keyId: string): Promise<void> {
+    await this.domainCall('passmanager:ssh:key:delete', {key_id: keyId})
+  }
+
+  async readSshPublicKey(keyId: string): Promise<{value: string}> {
+    return this.domainCall('passmanager:ssh:secret:read', {
+      key_id: keyId,
+      secret_type: 'ssh_public_key',
+    })
+  }
+
+  async generateSshKey(params: SshKeygenParams): Promise<SshKeygenResult> {
+    const result = await this.domainCall<{
+      key_id: string
+      public_key_openssh: string
+      fingerprint: string
+      key_type: PassManagerSshKey['type']
+    }>('passmanager:ssh:keygen', {
+      key_type: params.keyType,
+      name: params.name,
+      comment: params.comment,
+      source_entry_id: params.sourceEntryId,
+    })
+    return {
+      keyId: result.key_id,
+      publicKeyOpenssh: result.public_key_openssh,
+      fingerprint: result.fingerprint,
+      keyType: result.key_type,
+    }
+  }
+
   async ensureGroup(path: string): Promise<void> {
     await this.domainCall('passmanager:group:ensure', {path})
   }
@@ -171,8 +213,12 @@ export class PassmanagerTransport {
     await this.domainCall('passmanager:group:setMeta', payload)
   }
 
-  async setTagCatalog(tags: readonly string[]): Promise<void> {
-    await this.domainCall('passmanager:tags:setCatalog', {tags})
+  async setTagCatalog(tags: readonly string[], tagMeta?: CredentialTagCatalogMeta): Promise<void> {
+    const payload: Record<string, unknown> = {tags}
+    if (tagMeta !== undefined) {
+      payload['tag_meta'] = tagMeta
+    }
+    await this.domainCall('passmanager:tags:setCatalog', payload)
   }
 
   async putIcon(
@@ -229,9 +275,17 @@ export class PassmanagerTransport {
     return this.domainCall('passmanager:icon:gc', {})
   }
 
+  async getCredentialSecurityAudit(): Promise<{artifact: unknown | null}> {
+    return this.domainCall('passmanager:securityAudit:get', {})
+  }
+
+  async setCredentialSecurityAudit(artifact: CredentialSecurityAuditArtifactV1): Promise<void> {
+    await this.domainCall('passmanager:securityAudit:set', {artifact})
+  }
+
   async importRoot(
     entries: object[],
-    folders: object[],
+    folders: unknown[],
     foldersMeta?: object[],
     options?: {
       mode?: 'merge' | 'replace' | 'restore'
@@ -239,16 +293,27 @@ export class PassmanagerTransport {
       allowDestructive?: boolean
     },
     tags?: string[],
+    tagMeta?: CredentialTagCatalogMeta,
+    sshKeys?: PassManagerSshKey[],
   ): Promise<void> {
-    await this.domainCall('passmanager:root:import', {
+    const payload: Record<string, unknown> = {
       entries,
       folders,
       folders_meta: foldersMeta,
-      tags,
       mode: options?.mode,
       reason: options?.reason,
       allow_destructive: options?.allowDestructive,
-    })
+    }
+    if (tags !== undefined) {
+      payload['tags'] = tags
+    }
+    if (tagMeta !== undefined) {
+      payload['tag_meta'] = tagMeta
+    }
+    if (sshKeys !== undefined) {
+      payload['sshKeys'] = sshKeys
+    }
+    await this.domainCall('passmanager:root:import', payload)
   }
 
   async exportRoot(): Promise<{root: object}> {

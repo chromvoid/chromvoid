@@ -11,11 +11,13 @@ mod tests {
             connection_state: ConnectionState::Disconnected,
             transport_type: None,
             remote_core_features: Vec::new(),
+            transport_session_generation: None,
         };
         let json = serde_json::to_value(&info).unwrap();
         assert_eq!(json["mode"], "local");
         assert_eq!(json["connection_state"], "disconnected");
         assert!(json["transport_type"].is_null());
+        assert!(json.get("transport_session_generation").is_none());
     }
 
     #[test]
@@ -29,6 +31,7 @@ mod tests {
             connection_state: ConnectionState::Ready,
             transport_type: Some("webrtc".to_string()),
             remote_core_features: vec!["remote_media_inspection_split_v1".to_string()],
+            transport_session_generation: Some(7),
         };
         let json = serde_json::to_value(&info).unwrap();
         assert!(json["mode"].is_object());
@@ -38,6 +41,7 @@ mod tests {
             json["remote_core_features"][0],
             "remote_media_inspection_split_v1"
         );
+        assert_eq!(json["transport_session_generation"], 7);
     }
 
     #[test]
@@ -72,6 +76,7 @@ mod tests {
             },
             current_mode: CoreMode::Local,
             remote_core_features: Vec::new(),
+            transport_session_generation: None,
             auto_locked: true,
             drain_completed: true,
         };
@@ -80,6 +85,7 @@ mod tests {
         assert_eq!(json["current_mode"], "local");
         assert_eq!(json["auto_locked"], true);
         assert_eq!(json["drain_completed"], true);
+        assert!(json.get("transport_session_generation").is_none());
     }
 
     #[tokio::test]

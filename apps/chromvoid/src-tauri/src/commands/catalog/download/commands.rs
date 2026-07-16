@@ -25,7 +25,9 @@ use super::image_metadata::{load_catalog_image_metadata_cancellable, CatalogImag
 use super::preview::{
     purge_catalog_preview_cache_for_app, release_catalog_preview_file_in_root, PREVIEW_STAGING_DIR,
 };
-use super::rpc::{load_catalog_download_bytes, rpc_result_err, rpc_stream_err};
+use super::rpc::{
+    load_catalog_download_bytes, load_catalog_download_range_bytes, rpc_result_err, rpc_stream_err,
+};
 #[cfg(desktop)]
 use super::staging::write_stream_to_file_atomically;
 use super::staging::{
@@ -66,6 +68,38 @@ pub(crate) async fn catalog_download(
         Ok(Ok(result)) => Ok(RpcResult::Success { ok: true, result }),
         Ok(Err((error, code))) => Ok(rpc_stream_err(error, code)),
         Err(error) => Ok(catalog_blocking_stream_err(error, "Catalog download")),
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn catalog_download_range(
+    state: tauri::State<'_, AppState>,
+    node_id: u64,
+    offset: u64,
+    length: u64,
+    expected_source_revision: u64,
+) -> TauriRpcResult<Vec<u8>> {
+    let adapter = state.adapter.clone();
+    let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
+
+    match catalog_blocking_io_runtime
+        .spawn_blocking(move || {
+            load_catalog_download_range_bytes(
+                &adapter,
+                node_id,
+                offset,
+                length,
+                expected_source_revision,
+            )
+        })
+        .await
+    {
+        Ok(Ok(bytes)) => Ok(RpcResult::Success {
+            ok: true,
+            result: bytes,
+        }),
+        Ok(Err((error, code))) => Ok(rpc_result_err(error, code)),
+        Err(error) => Ok(catalog_blocking_result_err(error, "Catalog download range")),
     }
 }
 

@@ -75,6 +75,8 @@ describe('CatalogOTPSecretsGateway', () => {
         digits: 8,
         period: 60,
         ha: 'SHA256',
+        type: 'HOTP',
+        counter: 3,
       })
 
       const [, payload] = sendCatalog.mock.calls[0]!
@@ -82,6 +84,8 @@ describe('CatalogOTPSecretsGateway', () => {
       expect(payload.digits).toBe(8)
       expect(payload.period).toBe(60)
       expect(payload.ha).toBe('SHA256')
+      expect(payload.type).toBe('HOTP')
+      expect(payload.counter).toBe(3)
     })
 
     it('returns undefined on failure', async () => {
@@ -114,10 +118,17 @@ describe('CatalogOTPSecretsGateway', () => {
   })
 
   describe('saveOTP (passmanager:otp:setSecret)', () => {
-    it('sends otp_id and secret only — no node_id or label', async () => {
+    it('sends otp_id, secret, and settings — no node_id or label', async () => {
       sendCatalog.mockResolvedValue({ok: true})
 
-      const result = await gateway.saveOTP('sha256-otp-save', 'JBSWY3DPEHPK3PXP')
+      const result = await gateway.saveOTP('sha256-otp-save', 'JBSWY3DPEHPK3PXP', {
+        encoding: 'base32',
+        algorithm: 'SHA256',
+        digits: 8,
+        period: 45,
+        type: 'HOTP',
+        counter: 12,
+      })
 
       expect(result).toBe(true)
       expect(sendCatalog).toHaveBeenCalledTimes(1)
@@ -127,6 +138,12 @@ describe('CatalogOTPSecretsGateway', () => {
       expect(payload).toMatchObject({
         otp_id: 'sha256-otp-save',
         secret: 'JBSWY3DPEHPK3PXP',
+        encoding: 'base32',
+        algorithm: 'SHA256',
+        digits: 8,
+        period: 45,
+        type: 'HOTP',
+        counter: 12,
       })
       // Must NOT contain legacy fields
       expect(payload).not.toHaveProperty('node_id')
@@ -139,6 +156,55 @@ describe('CatalogOTPSecretsGateway', () => {
 
       const result = await gateway.saveOTP('missing-otp', 'SECRET')
       expect(result).toBe(false)
+    })
+  })
+
+  describe('previewOTP (passmanager:otp:preview)', () => {
+    it('sends draft payload and maps snake_case result', async () => {
+      sendCatalog.mockResolvedValue({
+        ok: true,
+        result: {otp: '123456', period: 30, left_seconds: 12},
+      })
+
+      const result = await gateway.previewOTP({
+        secret: 'JBSWY3DPEHPK3PXP',
+        encoding: 'base32',
+        algorithm: 'SHA1',
+        digits: 6,
+        period: 30,
+        type: 'TOTP',
+        ts: 59,
+      })
+
+      expect(result).toEqual({otp: '123456', period: 30, leftSeconds: 12})
+      const [command, payload] = sendCatalog.mock.calls[0]!
+      expect(command).toBe('passmanager:otp:preview')
+      expect(payload).toMatchObject({
+        secret: 'JBSWY3DPEHPK3PXP',
+        encoding: 'base32',
+        algorithm: 'SHA1',
+        digits: 6,
+        period: 30,
+        type: 'TOTP',
+        ts: 59,
+      })
+      expect(payload).not.toHaveProperty('otp_id')
+      expect(payload).not.toHaveProperty('entry_id')
+    })
+
+    it('throws on Core failure', async () => {
+      sendCatalog.mockResolvedValue({ok: false, error: 'OTP_SETTINGS_INVALID'})
+
+      await expect(
+        gateway.previewOTP({
+          secret: 'bad',
+          encoding: 'base32',
+          algorithm: 'SHA1',
+          digits: 6,
+          period: 30,
+          type: 'TOTP',
+        }),
+      ).rejects.toThrow('OTP_SETTINGS_INVALID')
     })
   })
 

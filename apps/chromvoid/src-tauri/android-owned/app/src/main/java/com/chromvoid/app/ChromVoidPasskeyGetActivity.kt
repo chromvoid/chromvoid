@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.annotation.RequiresApi
 import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.GetCredentialUnknownException
 import androidx.fragment.app.FragmentActivity
 import com.chromvoid.app.passkey.BiometricPromptRunnerAdapter
 import com.chromvoid.app.passkey.PasskeyGetCoordinator
@@ -17,19 +18,23 @@ class ChromVoidPasskeyGetActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val graph = applicationContext.androidAppGraph()
-        val coordinator =
-            PasskeyGetCoordinator(
-                bridgeGateway = graph.bridgeGateway,
-                requestRegistry = graph.passkeyRequestRegistry,
+        runCatching {
+            val graph = applicationContext.androidAppGraph()
+            val coordinator =
+                PasskeyGetCoordinator(
+                    bridgeGateway = graph.bridgeGateway,
+                    requestRegistry = graph.passkeyRequestRegistry,
+                )
+            coordinator.execute(
+                activity = this,
+                intent = intent,
+                biometric = BiometricPromptRunnerAdapter(graph.biometricPromptRunner),
+                onSuccess = ::finishSuccess,
+                onFailure = ::finishWithException,
             )
-        coordinator.execute(
-            activity = this,
-            intent = intent,
-            biometric = BiometricPromptRunnerAdapter(graph.biometricPromptRunner),
-            onSuccess = ::finishSuccess,
-            onFailure = ::finishWithException,
-        )
+        }.onFailure { error ->
+            finishWithException("", GetCredentialUnknownException(error.message ?: "ChromVoid passkey get failed."))
+        }
     }
 
     private fun finishSuccess(requestId: String, resultIntent: Intent) {

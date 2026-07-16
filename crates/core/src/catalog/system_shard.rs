@@ -1,17 +1,26 @@
 //! System shard registry (ADR-028).
 //!
 //! Centralized source of truth for system shard identification.
-//! System shards (`.passmanager`, `.wallet`, `.passkeys`) must not be exposed through
-//! external generic `catalog:*` surfaces.
+//! System shards (`.passmanager`, `.wallet`, `.passkeys`, `.trash`,
+//! `.cv-env-runtime`) must not be exposed through external generic `catalog:*`
+//! surfaces.
 //!
-//! MVP list: `.passmanager`, `.wallet`, `.passkeys`.
+//! MVP list: `.passmanager`, `.wallet`, `.passkeys`, `.trash`, `.cv-env-runtime`.
 //! Future naming convention: `.cv-*` (policy only, not enforced here).
 
 pub const PASSMANAGER_SHARD_ID: &str = ".passmanager";
 pub const PASSKEYS_SHARD_ID: &str = ".passkeys";
+pub const TRASH_SHARD_ID: &str = ".trash";
 pub const WALLET_SHARD_ID: &str = ".wallet";
+pub const ENV_RUNTIME_SHARD_ID: &str = ".cv-env-runtime";
 
-const SYSTEM_SHARD_IDS: &[&str] = &[PASSMANAGER_SHARD_ID, WALLET_SHARD_ID, PASSKEYS_SHARD_ID];
+const SYSTEM_SHARD_IDS: &[&str] = &[
+    PASSMANAGER_SHARD_ID,
+    WALLET_SHARD_ID,
+    PASSKEYS_SHARD_ID,
+    TRASH_SHARD_ID,
+    ENV_RUNTIME_SHARD_ID,
+];
 const EAGER_SYSTEM_SHARD_IDS: &[&str] = &[PASSMANAGER_SHARD_ID, PASSKEYS_SHARD_ID];
 
 /// Check whether `shard_id` is a system (protected) shard.
@@ -21,6 +30,7 @@ const EAGER_SYSTEM_SHARD_IDS: &[&str] = &[PASSMANAGER_SHARD_ID, PASSKEYS_SHARD_I
 /// assert!(is_system_shard_id(".passmanager"));
 /// assert!(is_system_shard_id(".wallet"));
 /// assert!(is_system_shard_id(".passkeys"));
+/// assert!(is_system_shard_id(".trash"));
 /// assert!(!is_system_shard_id("documents"));
 /// ```
 pub fn is_system_shard_id(shard_id: &str) -> bool {
@@ -60,6 +70,7 @@ pub fn shard_id_from_path(path: &str) -> Option<String> {
 /// use chromvoid_core::catalog::system_shard::is_system_path;
 /// assert!(is_system_path("/.passmanager"));
 /// assert!(is_system_path("/.wallet"));
+/// assert!(is_system_path("/.trash"));
 /// assert!(!is_system_path("/docs"));
 /// assert!(!is_system_path("/"));
 /// ```

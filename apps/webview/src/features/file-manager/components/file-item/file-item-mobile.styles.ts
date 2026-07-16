@@ -2,17 +2,9 @@ import {css} from 'lit'
 
 export const fileItemMobileStyles = css`
   :host([view-mode='list']) {
-    --file-item-mobile-surface: linear-gradient(
-      180deg,
-      var(--cv-color-surface-2) 0%,
-      var(--cv-color-surface) 100%
-    );
-    --file-item-mobile-selected-surface: var(--file-item-selected-background);
-    --file-item-mobile-border: var(--cv-color-border-soft);
-    --file-item-mobile-shadow: 0 10px 24px var(--cv-alpha-black-6);
     /* Match the inner card radius plus its 2px inset so host outline hugs the mobile row. */
     border-radius: 18px;
-    height: 64px;
+    block-size: var(--file-list-item-block-size, 80px);
   }
 
   :host([view-mode='list'])::before {
@@ -34,8 +26,8 @@ export const fileItemMobileStyles = css`
 
   :host([view-mode='list']:focus),
   :host([view-mode='list']:focus-visible) {
-    outline: var(--file-item-focus-outline);
-    outline-offset: var(--file-item-focus-outline-offset);
+    outline: 2px solid var(--cv-color-focus);
+    outline-offset: 2px;
   }
 
   :host([view-mode='list']) .file-item {
@@ -46,15 +38,11 @@ export const fileItemMobileStyles = css`
     border-radius: 16px;
     background: var(--file-item-mobile-surface);
     box-shadow:
-      inset 0 0 0 1px var(--file-item-mobile-border),
+      inset 0 0 0 1px var(--cv-color-border-soft),
       var(--file-item-mobile-shadow);
   }
 
   :host([view-mode='list']) .thumbnail-shell {
-    --file-media-spectrum-width: var(--file-media-spectrum-list-width);
-    --file-media-spectrum-height: var(--file-media-spectrum-list-height);
-    --file-media-spectrum-bar-width: var(--file-media-spectrum-list-bar-width);
-    --file-media-spectrum-gap: var(--file-media-spectrum-list-gap);
     inline-size: 38px;
     block-size: 38px;
     min-inline-size: 38px;
@@ -63,22 +51,32 @@ export const fileItemMobileStyles = css`
     border-radius: 12px;
   }
 
+  :host([view-mode='list']) .media-active-spectrum {
+    inline-size: var(--file-media-spectrum-list-inline-size);
+    block-size: var(--file-media-spectrum-list-block-size);
+    gap: var(--file-media-spectrum-list-gap);
+  }
+
+  :host([view-mode='list']) .media-active-spectrum span {
+    inline-size: var(--file-media-spectrum-list-bar-inline-size);
+  }
+
   :host([view-mode='list'][selected]) .file-item {
-    background: var(--file-item-mobile-selected-surface);
-    outline: var(--file-item-selected-outline);
-    outline-offset: var(--file-item-selected-outline-offset);
+    background: var(--cv-color-primary-surface-strong);
+    outline: 1px solid var(--cv-color-primary-ring);
+    outline-offset: -1px;
     box-shadow: none;
   }
 
   :host([view-mode='list'][active]) .file-item {
-    background: var(--file-item-active-background);
-    outline: var(--file-item-active-outline);
-    outline-offset: var(--file-item-active-outline-offset);
+    background: var(--cv-color-primary-subtle);
+    outline: 1px solid var(--cv-color-primary-ring);
+    outline-offset: -1px;
     box-shadow: none;
   }
 
   :host([view-mode='list'][selected][active]) .file-item {
-    background: var(--file-item-mobile-selected-surface);
+    background: var(--cv-color-primary-surface-strong);
   }
 
   :host([view-mode='list'][selected]) .name,
@@ -94,9 +92,9 @@ export const fileItemMobileStyles = css`
   }
 
   :host([view-mode='list'][selected][media-active]) .file-item {
-    background: var(--file-item-mobile-selected-surface);
-    outline: var(--file-item-selected-outline);
-    outline-offset: var(--file-item-selected-outline-offset);
+    background: var(--cv-color-primary-surface-strong);
+    outline: 1px solid var(--cv-color-primary-ring);
+    outline-offset: -1px;
     box-shadow: none;
   }
 
@@ -122,7 +120,7 @@ export const fileItemMobileStyles = css`
     font-size: 0.95rem;
     font-weight: 600;
     line-height: 1.1;
-    letter-spacing: -0.01em;
+    letter-spacing: 0;
   }
 
   :host([view-mode='list']) .meta {
@@ -136,5 +134,115 @@ export const fileItemMobileStyles = css`
     padding: 4px 7px;
     border-radius: 999px;
     background: var(--cv-color-surface-tertiary-glass-strong);
+    letter-spacing: 0;
+  }
+
+  :host([view-mode='grid']) {
+    block-size: 154px;
+    border: 1px solid var(--cv-color-border-muted);
+    border-radius: 16px;
+    background: linear-gradient(180deg, var(--cv-color-surface-2), var(--cv-color-surface));
+    box-shadow:
+      inset 0 1px 0 var(--cv-alpha-white-4),
+      0 10px 24px var(--cv-alpha-black-8);
+  }
+
+  :host([view-mode='grid'])::after {
+    border-radius: 16px;
+  }
+
+  :host([view-mode='grid']:hover) {
+    transform: none;
+    box-shadow:
+      inset 0 0 0 1px var(--cv-color-primary-border),
+      0 12px 28px var(--cv-alpha-black-10);
+  }
+
+  :host([view-mode='grid']) .file-item {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 12px;
+    text-align: start;
+  }
+
+  :host([view-mode='grid']) .thumbnail-shell {
+    inline-size: 54px;
+    block-size: 54px;
+    margin-block-end: 2px;
+    border-radius: 14px;
+    font-size: 34px;
+  }
+
+  :host([view-mode='grid']) .media-active-spectrum {
+    inline-size: var(--file-media-spectrum-grid-inline-size);
+    block-size: var(--file-media-spectrum-grid-block-size);
+    gap: var(--file-media-spectrum-grid-gap);
+  }
+
+  :host([view-mode='grid']) .media-active-spectrum span {
+    inline-size: var(--file-media-spectrum-grid-bar-inline-size);
+  }
+
+  :host([view-mode='grid']) .icon {
+    font-size: 34px;
+  }
+
+  :host([view-mode='grid']) .info {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 4px;
+    inline-size: 100%;
+    min-block-size: 0;
+  }
+
+  :host([view-mode='grid']) .name {
+    display: -webkit-box;
+    overflow: hidden;
+    white-space: normal;
+    text-overflow: ellipsis;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    font-size: var(--cv-font-size-sm);
+    font-weight: 650;
+    line-height: 1.18;
+    letter-spacing: 0;
+  }
+
+  :host([view-mode='grid']) .meta {
+    margin-block-start: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 0.74rem;
+    line-height: 1.15;
+  }
+
+  :host([view-mode='grid']) .file-type {
+    inset-block-start: 8px;
+    inset-inline-end: 8px;
+    padding: 3px 6px;
+    border-radius: 999px;
+    background: var(--cv-color-surface-tertiary-glass-strong);
+    font-size: 0.62rem;
+    letter-spacing: 0;
+  }
+
+  :host([view-mode='grid']) .selection-indicator {
+    inset-block-start: 8px;
+    inset-inline-start: 8px;
+  }
+
+  :host([view-mode='grid'][selected]),
+  :host([view-mode='grid'][active]) {
+    background: var(--cv-color-primary-surface-strong);
+    border-color: var(--cv-color-primary-border-strong);
+  }
+
+  :host([view-mode='grid'][selected]) .name,
+  :host([view-mode='grid'][selected]) .meta {
+    color: var(--cv-color-primary);
   }
 `

@@ -1,8 +1,6 @@
 import {describe, expect, it} from 'vitest'
 
-import {Entry, ManagerRoot} from '@project/passmanager'
-import type {PassManagerRootV2} from '@project/passmanager'
-import type {OTPOptions} from '@project/passmanager'
+import {type Entry, ManagerRoot, type OTPOptions, type PassManagerRootV2} from '@project/passmanager'
 
 class MemorySaver {
   private rootValue: string | undefined

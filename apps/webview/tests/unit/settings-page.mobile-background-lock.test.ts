@@ -1,4 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {atom} from '@reatom/core'
 
 import {
   DEFAULT_SESSION_SETTINGS,
@@ -8,14 +9,21 @@ import {
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {setLang as setAppLang} from '../../src/i18n'
 import {i18n as passmanagerI18n, setPasswordManagerLang} from '@project/passmanager/i18n'
+import {i18n as passwordImportI18n} from '@chromvoid/password-import/i18n'
 import {CVCallout} from '@chromvoid/uikit/components/cv-callout'
 import {SettingsPage} from '../../src/routes/settings/settings-page'
 import {settingsPageModel} from '../../src/routes/settings/settings.model'
 import {moduleAccessModel, type EntitlementSnapshot} from '../../src/core/pro/module-access.model'
+import {runtimeModeModel} from '../../src/core/runtime/runtime-mode.model'
 import {guidanceModel} from '../../src/core/guidance/guidance.model'
 import {navigationModel} from '../../src/app/navigation/navigation.model'
 import {DEFAULT_SNAPSHOT} from '../../src/app/navigation/navigation-snapshot'
-import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
+import {
+  clearAppContext,
+  createMockAppContext,
+  getAppContext,
+  initAppContext,
+} from '../../src/shared/services/app-context'
 
 const tauriInvoke = vi.fn()
 
@@ -35,8 +43,28 @@ function ensureDefined() {
   defined = true
 }
 
+function settingsLayout(page: SettingsPage): HTMLElement & {updateComplete: Promise<unknown>} {
+  const layout = page.shadowRoot?.querySelector<HTMLElement & {updateComplete: Promise<unknown>}>(
+    'settings-page-desktop-layout, settings-page-mobile-layout',
+  )
+  if (!layout?.shadowRoot) throw new Error('Settings layout not found')
+  return layout
+}
+
+function settingsRoot(page: SettingsPage): ShadowRoot {
+  return settingsLayout(page).shadowRoot!
+}
+
+function setSettingsRoute(kind: 'overview' | 'security' | 'autofill' | 'files' | 'passwords' | 'license') {
+  navigationModel.snapshot.set({
+    surface: 'settings',
+    settings: {kind},
+    overlay: {kind: 'none'},
+  })
+}
+
 function findSettingsButton(page: SettingsPage, label: string): HTMLElement & {disabled: boolean} {
-  const button = Array.from(page.shadowRoot?.querySelectorAll('cv-button') ?? []).find((candidate) =>
+  const button = Array.from(settingsRoot(page).querySelectorAll('cv-button')).find((candidate) =>
     candidate.textContent?.includes(label),
   ) as (HTMLElement & {disabled: boolean}) | undefined
   if (!button) throw new Error(`Settings button not found: ${label}`)
@@ -45,7 +73,7 @@ function findSettingsButton(page: SettingsPage, label: string): HTMLElement & {d
 
 function findVisibleSettingsError(page: SettingsPage): HTMLElement | null {
   return (
-    Array.from(page.shadowRoot?.querySelectorAll<HTMLElement>('cv-callout[variant="danger"]') ?? []).find(
+    Array.from(settingsRoot(page).querySelectorAll<HTMLElement>('cv-callout[variant="danger"]')).find(
       (candidate) => !candidate.hidden,
     ) ?? null
   )
@@ -56,9 +84,11 @@ describe('Session settings mobile background lock', () => {
     tauriInvoke.mockReset()
     resetRuntimeCapabilities()
     settingsPageModel.settings.set({...DEFAULT_SESSION_SETTINGS})
-    settingsPageModel.androidAutofillProviderSelected.set(null)
+    settingsPageModel.credentialProviderSelected.set(null)
+    settingsPageModel.credentialProviderNativeStatus.set(null)
     settingsPageModel.androidQuickLockTileStatus.set(null)
     settingsPageModel.activationCodeDraft.set('')
+    settingsPageModel.activationCodeError.set('')
     settingsPageModel.vaultRekey.reset()
     moduleAccessModel.reset()
     guidanceModel.progress.set([])
@@ -69,6 +99,7 @@ describe('Session settings mobile background lock', () => {
     guidanceModel.setRoute('loading')
     navigationModel.snapshot.set(DEFAULT_SNAPSHOT)
     initAppContext(createMockAppContext())
+    setSettingsRoute('overview')
     setAppLang('en')
     vi.stubGlobal('__TAURI_INTERNALS__', {invoke: vi.fn()})
   })
@@ -76,9 +107,11 @@ describe('Session settings mobile background lock', () => {
   afterEach(() => {
     document.querySelectorAll('settings-page').forEach((element) => element.remove())
     settingsPageModel.settings.set({...DEFAULT_SESSION_SETTINGS})
-    settingsPageModel.androidAutofillProviderSelected.set(null)
+    settingsPageModel.credentialProviderSelected.set(null)
+    settingsPageModel.credentialProviderNativeStatus.set(null)
     settingsPageModel.androidQuickLockTileStatus.set(null)
     settingsPageModel.activationCodeDraft.set('')
+    settingsPageModel.activationCodeError.set('')
     settingsPageModel.vaultRekey.reset()
     moduleAccessModel.reset()
     guidanceModel.progress.set([])
@@ -150,13 +183,13 @@ describe('Session settings mobile background lock', () => {
       requestSupported: true,
       enabled: true,
     })
+    setSettingsRoute('security')
 
     const page = document.createElement('settings-page') as SettingsPage
-    page.hideBackLink = true
     document.body.appendChild(page)
     await page.updateComplete
 
-    const text = page.shadowRoot?.textContent ?? ''
+    const text = settingsRoot(page).textContent ?? ''
     expect(text).toContain('Android quick lock')
     expect(text).toContain('Show vault status notification')
     expect(text).toContain('Quick Settings Lock Tile')
@@ -171,14 +204,14 @@ describe('Session settings mobile background lock', () => {
       mobile: true,
       supports_network_remote: true,
     })
+    setSettingsRoute('license')
 
     const page = document.createElement('settings-page') as SettingsPage
-    page.hideBackLink = true
     document.body.appendChild(page)
     await page.updateComplete
 
-    const text = page.shadowRoot?.textContent ?? ''
-    const inputs = Array.from(page.shadowRoot?.querySelectorAll('.license-input') ?? []) as HTMLInputElement[]
+    const text = settingsRoot(page).textContent ?? ''
+    const inputs = Array.from(settingsRoot(page).querySelectorAll('.license-input')) as HTMLInputElement[]
     expect(inputs[0]?.placeholder).toBe('Activation code')
     expect(inputs).toHaveLength(1)
     expect(text).toContain('Activate')
@@ -216,14 +249,14 @@ describe('Session settings mobile background lock', () => {
         },
       ],
     })
+    setSettingsRoute('license')
 
     const page = document.createElement('settings-page') as SettingsPage
-    page.hideBackLink = true
     document.body.appendChild(page)
     await page.updateComplete
 
-    const text = (page.shadowRoot?.textContent ?? '').replace(/\s+/g, ' ')
-    expect(page.shadowRoot?.querySelector('.license-input')).toBeNull()
+    const text = (settingsRoot(page).textContent ?? '').replace(/\s+/g, ' ')
+    expect(settingsRoot(page).querySelector('.license-input')).toBeNull()
     expect(text).toContain('Seats: 1 of 3 used, 2 free')
     expect(text).toContain('PURCHASE-CURRENT-ID')
     expect(text).toContain('Open cabinet')
@@ -249,16 +282,13 @@ describe('Session settings mobile background lock', () => {
     })
     moduleAccessModel.licenseSeatStatus.set(null)
     moduleAccessModel.licenseSeatError.set('License seat status failed: 405 Method Not Allowed')
+    setSettingsRoute('license')
 
     const page = document.createElement('settings-page') as SettingsPage
-    page.hideBackLink = true
     document.body.appendChild(page)
     await page.updateComplete
 
-    const text = (page.shadowRoot?.querySelector('.license-seat-summary')?.textContent ?? '').replace(
-      /\s+/g,
-      ' ',
-    )
+    const text = (settingsRoot(page).querySelector('.license-stack')?.textContent ?? '').replace(/\s+/g, ' ')
     expect(text).toContain('Unavailable')
     expect(text).not.toContain('Loading')
   })
@@ -290,6 +320,7 @@ describe('Session settings mobile background lock', () => {
       throw new Error(`Unexpected command: ${cmd}`)
     })
     const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    setSettingsRoute('license')
 
     await settingsPageModel.openLicenseCabinet()
 
@@ -405,17 +436,17 @@ describe('Session settings mobile background lock', () => {
       throw new Error(`Unexpected command: ${cmd}`)
     })
     const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    setSettingsRoute('license')
 
     const page = document.createElement('settings-page') as SettingsPage
-    page.hideBackLink = true
     document.body.appendChild(page)
     await page.updateComplete
 
     const button = findSettingsButton(page, 'Open cabinet')
-    expect(page.shadowRoot?.querySelector('.license-input')).toBeNull()
+    expect(settingsRoot(page).querySelector('.license-input')).toBeNull()
     expect(button).not.toBeNull()
-    expect(page.shadowRoot?.textContent).not.toContain('Recover account access')
-    expect(page.shadowRoot?.textContent).not.toContain('New account recovery key')
+    expect(settingsRoot(page).textContent).not.toContain('Recover account access')
+    expect(settingsRoot(page).textContent).not.toContain('New account recovery key')
 
     expect(button.disabled).toBe(false)
     button.click()
@@ -468,9 +499,9 @@ describe('Session settings mobile background lock', () => {
       }
       throw new Error(`Unexpected command: ${cmd}`)
     })
+    setSettingsRoute('license')
 
     const page = document.createElement('settings-page') as SettingsPage
-    page.hideBackLink = true
     document.body.appendChild(page)
     await page.updateComplete
 
@@ -479,7 +510,7 @@ describe('Session settings mobile background lock', () => {
 
     button.click()
     await new Promise((resolve) => setTimeout(resolve, 0))
-    await page.updateComplete
+    await settingsLayout(page).updateComplete
 
     const error = findVisibleSettingsError(page)
     expect(error?.hidden).toBe(false)
@@ -489,28 +520,38 @@ describe('Session settings mobile background lock', () => {
   it('switches WebView and passmanager language from settings without reload', async () => {
     ensureDefined()
     vi.spyOn(settingsPageModel, 'load').mockResolvedValue()
+    setRuntimeCapabilities({platform: 'android', mobile: true})
     setAppLang('en')
 
     const page = document.createElement('settings-page') as SettingsPage
-    page.hideBackLink = true
     document.body.appendChild(page)
     await page.updateComplete
 
-    const select = page.shadowRoot?.querySelector('select[name="language"]') as HTMLSelectElement | null
-    expect(select).not.toBeNull()
-    expect(select?.value).toBe('en')
-    expect(page.shadowRoot?.textContent).toContain('Application')
-
-    select!.value = 'ru'
-    select!.dispatchEvent(new Event('change', {bubbles: true}))
-    await page.updateComplete
+    const root = settingsRoot(page)
+    expect(root.textContent).toContain('Application')
+    const languageRow = Array.from(root.querySelectorAll<HTMLButtonElement>('.overview-row')).find(
+      (row) => row.textContent?.includes('Language'),
+    )
+    expect(languageRow).not.toBeNull()
+    languageRow?.click()
     await Promise.resolve()
-    await page.updateComplete
+    await settingsLayout(page).updateComplete
+    expect(
+      (root.querySelector('cv-bottom-sheet') as HTMLElement & {open: boolean} | null)?.open,
+    ).toBe(true)
+    const russianOption = Array.from(root.querySelectorAll<HTMLButtonElement>('.sheet-option')).find(
+      (option) => option.dataset['value'] === 'ru',
+    )
+    expect(russianOption).not.toBeNull()
+    russianOption?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
+    await Promise.resolve()
+    await settingsLayout(page).updateComplete
 
     expect(localStorage.getItem('current-lang')).toBe('ru')
     expect(document.documentElement.lang).toBe('ru')
-    expect(page.shadowRoot?.textContent).toContain('Приложение')
+    expect(settingsRoot(page).textContent).toContain('Приложение')
     expect(passmanagerI18n('root:title')).toBe('Пароли')
+    expect(passwordImportI18n('import:dialog:title')).toBe('Импорт паролей')
   })
 
   it('hides Android quick lock settings outside Android runtime', async () => {
@@ -521,13 +562,13 @@ describe('Session settings mobile background lock', () => {
       mobile: true,
       supports_biometric: true,
     })
+    setSettingsRoute('security')
 
     const page = document.createElement('settings-page') as SettingsPage
-    page.hideBackLink = true
     document.body.appendChild(page)
     await page.updateComplete
 
-    const text = page.shadowRoot?.textContent ?? ''
+    const text = settingsRoot(page).textContent ?? ''
     expect(text).not.toContain('Android quick lock')
     expect(text).not.toContain('Quick Settings Lock Tile')
     expect(text).not.toContain('Local Android passkeys')
@@ -612,13 +653,13 @@ describe('Session settings mobile background lock', () => {
       ...DEFAULT_SESSION_SETTINGS,
       lock_on_mobile_background: false,
     })
+    setSettingsRoute('security')
 
     const page = document.createElement('settings-page') as SettingsPage
-    page.hideBackLink = true
     document.body.appendChild(page)
     await page.updateComplete
 
-    const text = page.shadowRoot?.textContent ?? ''
+    const text = settingsRoot(page).textContent ?? ''
     expect(text).toContain('Lock when app is hidden or device sleeps')
     expect(text).toContain('Credential Provider / Autofill is incompatible with this option')
     expect(text).not.toContain('Lock vault when app goes to background')
@@ -648,6 +689,71 @@ describe('Session settings mobile background lock', () => {
     })
   })
 
+  it('updates browser session settings without invoking Tauri', async () => {
+    vi.unstubAllGlobals()
+
+    await settingsPageModel.setShowHiddenFiles(true)
+
+    expect(settingsPageModel.settings().show_hidden_files).toBe(true)
+    expect(tauriInvoke).not.toHaveBeenCalled()
+  })
+
+  it('preserves the previous snapshot and reports failed preference saves', async () => {
+    const notification = vi.spyOn(getAppContext().store, 'pushNotification')
+    tauriInvoke.mockResolvedValue({ok: false, error: 'Disk is unavailable'})
+
+    await settingsPageModel.setShowHiddenFiles(true)
+
+    expect(settingsPageModel.settings().show_hidden_files).toBe(false)
+    expect(notification).toHaveBeenCalledWith('error', 'Disk is unavailable')
+    expect(settingsPageModel.preferenceErrorFor('show_hidden_files')).toBe('Failed to save settings')
+    expect(settingsPageModel.preferenceSavePending()).toBe(false)
+  })
+
+  it('keeps one preference save in flight and skips competing writes', async () => {
+    let resolveSave!: (value: unknown) => void
+    tauriInvoke.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve
+        }),
+    )
+
+    const first = settingsPageModel.setShowHiddenFiles(true)
+    await Promise.resolve()
+    expect(settingsPageModel.isPreferencePending('show_hidden_files')).toBe(true)
+
+    const second = settingsPageModel.setConfirmFileDeletion(false)
+    await Promise.resolve()
+    expect(tauriInvoke).toHaveBeenCalledTimes(1)
+
+    resolveSave({
+      ok: true,
+      result: {...DEFAULT_SESSION_SETTINGS, show_hidden_files: true},
+    })
+    await Promise.all([first, second])
+
+    expect(settingsPageModel.settings()).toEqual({
+      ...DEFAULT_SESSION_SETTINGS,
+      show_hidden_files: true,
+    })
+    expect(settingsPageModel.preferenceSavePending()).toBe(false)
+  })
+
+  it('does not show a success toast for ordinary preference saves', async () => {
+    const notification = vi.spyOn(getAppContext().store, 'pushNotification')
+    tauriInvoke.mockImplementation(
+      async (_cmd: string, payload?: {settings: typeof DEFAULT_SESSION_SETTINGS}) => ({
+        ok: true,
+        result: payload?.settings ?? DEFAULT_SESSION_SETTINGS,
+      }),
+    )
+
+    await settingsPageModel.setShowHiddenFiles(true)
+
+    expect(notification).not.toHaveBeenCalledWith('success', expect.any(String))
+  })
+
   it('loads Android autofill provider selection status', async () => {
     setRuntimeCapabilities({
       platform: 'android',
@@ -672,7 +778,7 @@ describe('Session settings mobile background lock', () => {
 
     await settingsPageModel.load()
 
-    expect(settingsPageModel.androidAutofillProviderSelected()).toBe(true)
+    expect(settingsPageModel.credentialProviderSelected()).toBe(true)
     expect(tauriInvoke).toHaveBeenCalledWith('credential_provider_status')
   })
 
@@ -707,8 +813,105 @@ describe('Session settings mobile background lock', () => {
 
     await settingsPageModel.load()
 
-    expect(settingsPageModel.androidAutofillProviderSelected()).toBeNull()
+    expect(settingsPageModel.credentialProviderSelected()).toBeNull()
     expect(tauriInvoke).toHaveBeenCalledWith('credential_provider_status')
+  })
+
+  it('loads macOS Credential Provider selection status', async () => {
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      mobile: false,
+      supports_autofill: true,
+    })
+    tauriInvoke.mockResolvedValue({
+      ok: true,
+      result: {
+        platform: 'macos',
+        selected: false,
+        available: true,
+        settingsAction: 'request_enable',
+      },
+    })
+
+    await settingsPageModel.refreshCredentialProviderStatus()
+
+    expect(settingsPageModel.credentialProviderSelected()).toBe(false)
+    expect(settingsPageModel.credentialProviderSummary()).toBe(
+      'ChromVoid is not enabled as a macOS AutoFill provider yet',
+    )
+    expect(settingsPageModel.credentialProviderActionLabel()).toBe('Enable ChromVoid for AutoFill')
+  })
+
+  it('resolves truthful macOS verification-code capability states independently', () => {
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      mobile: false,
+      supports_autofill: true,
+    })
+    runtimeModeModel.setCoreMode('local')
+    moduleAccessModel.rawStates.set([
+      {feature_key: 'credential-provider', status: 'enabled', denial_code: null},
+    ])
+    const vaultData = atom({StorageOpened: true})
+    clearAppContext()
+    initAppContext(
+      createMockAppContext({
+        state: {data: vaultData} as ReturnType<typeof getAppContext>['state'],
+      }),
+    )
+    settingsPageModel.credentialProviderSelected.set(true)
+    settingsPageModel.credentialProviderNativeStatus.set({
+      platform: 'macos',
+      selected: true,
+      capabilities: {
+        oneTimeCodeAutofill: {
+          status: 'unverified',
+          platformVersionMajor: 15,
+          apiAvailable: true,
+          rolloutEnabled: true,
+          bridgeAvailable: true,
+        },
+        verificationCodeSetupHandler: {
+          status: 'available',
+          scheme: 'otpauth',
+          defaultSelection: 'unverified',
+        },
+      },
+    })
+
+    expect(settingsPageModel.macosOneTimeCodeAutofillStatus()).toBe('ready')
+    expect(settingsPageModel.macosVerificationCodeSetupStatus()).toBe('available')
+
+    vaultData.set({StorageOpened: false})
+    expect(settingsPageModel.macosOneTimeCodeAutofillStatus()).toBe('vault_required')
+
+    settingsPageModel.credentialProviderSelected.set(false)
+    expect(settingsPageModel.macosOneTimeCodeAutofillStatus()).toBe('extension_not_enabled')
+
+    settingsPageModel.credentialProviderNativeStatus.set({
+      platform: 'macos',
+      selected: true,
+      capabilities: {
+        oneTimeCodeAutofill: {
+          status: 'unsupported_os',
+          platformVersionMajor: 14,
+          apiAvailable: false,
+          rolloutEnabled: true,
+          bridgeAvailable: true,
+        },
+      },
+    })
+    expect(settingsPageModel.macosOneTimeCodeAutofillStatus()).toBe('unsupported_os')
+
+    moduleAccessModel.rawStates.set([
+      {feature_key: 'credential-provider', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
+    ])
+    expect(settingsPageModel.credentialProviderSettingsActionDisabled()).toBe(false)
+
+    setRuntimeCapabilities({platform: 'android', mobile: true, supports_autofill: true})
+    expect(settingsPageModel.credentialProviderSettingsActionDisabled()).toBe(true)
   })
 
   it('renders Android autofill provider instructions and Chrome note', async () => {
@@ -719,14 +922,14 @@ describe('Session settings mobile background lock', () => {
       mobile: true,
       supports_autofill: true,
     })
-    settingsPageModel.androidAutofillProviderSelected.set(false)
+    settingsPageModel.credentialProviderSelected.set(false)
+    setSettingsRoute('autofill')
 
     const page = document.createElement('settings-page') as SettingsPage
-    page.hideBackLink = true
     document.body.appendChild(page)
     await page.updateComplete
 
-    const text = (page.shadowRoot?.textContent ?? '').replace(/\s+/g, ' ')
+    const text = (settingsRoot(page).textContent ?? '').replace(/\s+/g, ' ')
     expect(text).toContain('Credential Provider / Autofill')
     expect(text).toContain('ChromVoid is not selected as the Android Autofill provider yet')
     expect(text).toContain('Open Autofill Provider Settings')
@@ -741,14 +944,14 @@ describe('Session settings mobile background lock', () => {
       mobile: true,
       supports_autofill: true,
     })
-    settingsPageModel.androidAutofillProviderSelected.set(null)
+    settingsPageModel.credentialProviderSelected.set(null)
+    setSettingsRoute('autofill')
 
     const page = document.createElement('settings-page') as SettingsPage
-    page.hideBackLink = true
     document.body.appendChild(page)
     await page.updateComplete
 
-    const text = (page.shadowRoot?.textContent ?? '').replace(/\s+/g, ' ')
+    const text = (settingsRoot(page).textContent ?? '').replace(/\s+/g, ' ')
     expect(text).toContain('Credential Provider / Autofill')
     expect(text).toContain('ChromVoid provider status must be checked in iOS settings')
     expect(text).toContain('Open App Settings')
@@ -771,26 +974,21 @@ describe('Session settings mobile background lock', () => {
         denial_code: null,
       },
     ])
-    navigationModel.navigateToSurface('settings', 'replace')
+    setSettingsRoute('autofill')
     guidanceModel.setRoute('dashboard')
-    settingsPageModel.androidAutofillProviderSelected.set(false)
+    settingsPageModel.credentialProviderSelected.set(false)
 
     const page = document.createElement('settings-page') as SettingsPage
-    page.hideBackLink = true
     document.body.appendChild(page)
     await page.updateComplete
 
-    const providerCard = page.shadowRoot?.querySelector('.provider-card')
-    const guidancePanel = providerCard?.querySelector('cv-guidance-panel')
-    const text = (providerCard?.textContent ?? '').replace(/\s+/g, ' ')
+    const root = settingsRoot(page)
+    const text = (root.textContent ?? '').replace(/\s+/g, ' ')
 
-    expect(guidancePanel).not.toBeNull()
-    expect(text).toContain('Enable mobile autofill')
-    expect(text).toContain('Turn on the credential provider')
     expect(text).toContain('ChromVoid is not selected as the Android Autofill provider yet')
     expect(text).toContain('Open Autofill Provider Settings')
     expect(text).toContain('Autofill using another service')
-    expect(page.shadowRoot?.querySelector('cv-bottom-sheet')).toBeNull()
+    expect(root.querySelector('.provider-steps')).not.toBeNull()
   })
 
   it('invokes the Android autofill provider picker command', async () => {
@@ -804,7 +1002,7 @@ describe('Session settings mobile background lock', () => {
       result: {opened: true},
     })
 
-    await settingsPageModel.openAndroidAutofillProviderSettings()
+    await settingsPageModel.openCredentialProviderSettings()
 
     expect(tauriInvoke).toHaveBeenCalledWith('open_credential_provider_settings')
   })
@@ -825,6 +1023,31 @@ describe('Session settings mobile background lock', () => {
     expect(tauriInvoke).toHaveBeenCalledWith('open_credential_provider_settings')
   })
 
+  it('requests macOS Credential Provider activation and refreshes its status', async () => {
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      mobile: false,
+      supports_autofill: true,
+    })
+    tauriInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'open_credential_provider_settings') {
+        return {ok: true, result: {opened: true, selected: true, settingsAction: 'request_enable'}}
+      }
+      if (cmd === 'credential_provider_status') {
+        return {ok: true, result: {platform: 'macos', selected: true, available: true}}
+      }
+      throw new Error(`Unexpected command: ${cmd}`)
+    })
+
+    await settingsPageModel.openCredentialProviderSettings()
+
+    expect(tauriInvoke).toHaveBeenNthCalledWith(1, 'open_credential_provider_settings')
+    expect(tauriInvoke).toHaveBeenNthCalledWith(2, 'credential_provider_status')
+    expect(settingsPageModel.credentialProviderSelected()).toBe(true)
+    expect(settingsPageModel.credentialProviderActionLabel()).toBe('Open AutoFill Settings')
+  })
+
   it('does not render the legacy mobile-only background lock copy', async () => {
     ensureDefined()
     vi.spyOn(settingsPageModel, 'load').mockResolvedValue()
@@ -835,11 +1058,10 @@ describe('Session settings mobile background lock', () => {
     })
 
     const page = document.createElement('settings-page') as SettingsPage
-    page.hideBackLink = true
     document.body.appendChild(page)
     await page.updateComplete
 
-    const text = page.shadowRoot?.textContent ?? ''
+    const text = settingsRoot(page).textContent ?? ''
     expect(text).toContain('Lock when app is hidden or device sleeps')
     expect(text).not.toContain('Lock vault when app goes to background')
   })

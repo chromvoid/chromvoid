@@ -4,6 +4,7 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 import {navigationModel} from '../../src/app/navigation/navigation.model'
 import {setupCatalogSync} from '../../src/app/bootstrap/catalog-sync'
 import {setupPassmanagerReload} from '../../src/app/bootstrap/passmanager-reload'
+import {runtimeModeModel} from '../../src/core/runtime/runtime-mode.model'
 import {clearPassmanagerRoot, setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
 
 function createWs() {
@@ -29,6 +30,7 @@ describe('passmanager bootstrap setup dedupe', () => {
   afterEach(() => {
     navigationModel.disconnect()
     navigationModel.snapshot.set({surface: 'files', overlay: {kind: 'none'}} as never)
+    runtimeModeModel.handleTransportDisconnect()
     vi.restoreAllMocks()
     vi.useRealTimers()
     clearPassmanagerRoot()
@@ -116,6 +118,64 @@ describe('passmanager bootstrap setup dedupe', () => {
     await Promise.resolve()
 
     expect(catalog.startSync).toHaveBeenCalledTimes(1)
+  })
+
+  it('restarts catalog sync when remote transport generation changes', async () => {
+    const ws = createWs()
+    const state = {
+      data: atom({StorageOpened: true}),
+    }
+    const store = {
+      remoteSessionState: atom<'ready' | 'idle'>('ready'),
+      remoteSessionPeerId: atom<string | null>('peer-1'),
+      remoteSessionGeneration: atom<number | null>(1),
+    }
+    const catalog = {
+      startSync: vi.fn().mockResolvedValue(undefined),
+      stopSync: vi.fn().mockResolvedValue(undefined),
+      resetForTransportSession: vi.fn(),
+    }
+
+    setupCatalogSync(ws as never, state as never, store as never, catalog as never)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(catalog.startSync).toHaveBeenCalledTimes(1)
+
+    store.remoteSessionGeneration.set(2)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(catalog.resetForTransportSession).toHaveBeenCalledWith('transport-session-key-change')
+    expect(catalog.startSync).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not start catalog sync from StorageOpened while remote mode waits for session readiness', async () => {
+    const ws = createWs()
+    const state = {
+      data: atom({StorageOpened: true}),
+    }
+    const store = {
+      remoteSessionState: atom<'inactive' | 'ready'>('inactive'),
+      remoteSessionPeerId: atom<string | null>('usb-host-1'),
+      remoteSessionGeneration: atom<number | null>(1),
+    }
+    const catalog = {
+      startSync: vi.fn().mockResolvedValue(undefined),
+      stopSync: vi.fn().mockResolvedValue(undefined),
+    }
+
+    runtimeModeModel.setCoreMode({remote: {host: {type: 'mobile_usb', host_id: 'usb-host-1'}}})
+    const cleanup = setupCatalogSync(ws as never, state as never, store as never, catalog as never)
+    await Promise.resolve()
+
+    expect(catalog.startSync).not.toHaveBeenCalled()
+
+    store.remoteSessionState.set('ready')
+    await Promise.resolve()
+
+    expect(catalog.startSync).toHaveBeenCalledTimes(1)
+    cleanup()
   })
 
   it('cancels catalog sync locally while a vault lock is pending', async () => {

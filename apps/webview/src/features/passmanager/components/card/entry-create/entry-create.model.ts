@@ -1,48 +1,30 @@
 import {action, atom, computed, isAbort, withAbort, withAsync, wrap} from '@reatom/core'
-import type {Entry as PMCoreEntry} from '@project/passmanager/core'
-
-import {HOTP, TOTP} from 'otpauth'
+import {Group} from '@project/passmanager/core'
 
 import {normalizeCredentialTags} from '@project/passmanager/tags'
 import {i18n} from '@project/passmanager/i18n'
 import {formatPasswordStrengthLabel} from '@project/passmanager/i18n/format'
 import {estimatePasswordStrength, generatePassword} from '@project/passmanager/password-utils'
-import type {IEntry, PassManagerEntryType, SshKeyType, UrlRule} from '@project/passmanager/types'
+import type {IEntry, PassManagerEntryType, UrlRule} from '@project/passmanager/types'
 import {formatLink, isLink, transformUrls} from '@project/passmanager/urls'
 import {passmanagerNavigationController} from '../../../passmanager-navigation.controller'
-import type {AndroidPasswordSavePrefill} from 'root/features/passmanager/models/android-password-save-prefill'
+import {
+  finishAndroidPasswordSave,
+  type AndroidPasswordSavePrefill,
+} from 'root/features/passmanager/models/android-password-save-prefill'
 import {pmCredentialTagsModel} from 'root/features/passmanager/models/pm-credential-tags.model'
 import {getPassmanagerRoot} from 'root/features/passmanager/models/pm-root.adapter'
-import {passmanagerSshKeygen} from 'root/features/passmanager/service/passmanager-ssh-keygen'
 import {dialogService} from 'root/shared/services/dialog-service'
 import {
   isPaymentCardExpYearInput,
   parsePaymentCardExpYearInput,
 } from '../payment-card-expiry'
 import {PMEntryOtpCreateModel} from '../entry-otp-create/entry-otp-create.model'
-import {
-  PMEntrySshCreateModel,
-  type PMEntrySshCreateResult,
-} from '../entry-ssh/entry-ssh-create.model'
+const LOGIN_OPTIONAL_DETAILS = ['icon', 'tags', 'otp', 'note'] as const
+const PAYMENT_CARD_OPTIONAL_DETAILS = ['icon', 'tags'] as const
 
-function getInitialTargetGroupPath(): string | undefined {
-  try {
-    const route = passmanagerNavigationController.readRoute()
-    return route.kind === 'create-entry' ? route.targetGroupPath : undefined
-  } catch {
-    return undefined
-  }
-}
-
-export type PMEntryCreateSshResult = PMEntrySshCreateResult
-
-export type PMEntryCreatePaymentCardField =
-  | 'title'
-  | 'cardholderName'
-  | 'cardNumber'
-  | 'expMonth'
-  | 'expYear'
-  | 'cardCvv'
+export type PMEntryCreateOptionalDetail = (typeof LOGIN_OPTIONAL_DETAILS)[number]
+export type PMEntryCreateDetailsView = 'hub' | PMEntryCreateOptionalDetail
 
 export type PMEntryCreateValidationField =
   | 'title'
@@ -53,7 +35,7 @@ export type PMEntryCreateValidationField =
   | 'cardNumber'
   | 'cardExpMonth'
   | 'cardExpYear'
-  | 'ssh'
+  | 'targetGroup'
 
 export type PMEntryCreateSubmitResult =
   | {ok: true}
@@ -65,8 +47,8 @@ export type PMEntryCreateSubmitResult =
         | 'missing_password'
         | 'invalid_website'
         | 'invalid_otp'
-        | 'invalid_ssh'
         | 'invalid_payment_card'
+        | 'invalid_target_group'
         | 'passmanager_unavailable'
         | 'aborted'
       field?: PMEntryCreateValidationField
@@ -125,9 +107,6 @@ export class PMEntryCreateModel {
 
   readonly useOtp = atom(false, 'use-otp')
   readonly otp = new PMEntryOtpCreateModel()
-  readonly otpSheetOpen = atom(false, 'passmanager.entryCreate.otpSheetOpen')
-  readonly useNote = atom(false, 'use-note')
-
   readonly isEditingPassword = atom(false)
   readonly passwordStrengthScore = atom<number | null>(null)
   readonly passwordStrengthLabel = computed(() => {
@@ -138,7 +117,9 @@ export class PMEntryCreateModel {
 
   readonly iconRef = atom<string | undefined>(undefined)
   readonly avatarId = this.iconRef
-  readonly targetGroupPath = atom<string | undefined>(getInitialTargetGroupPath())
+  readonly targetGroupId = atom<string | undefined>(undefined, 'passmanager.entryCreate.targetGroupId')
+  readonly pendingTargetGroupId = atom<string | undefined>(undefined, 'passmanager.entryCreate.pendingTargetGroupId')
+  readonly targetGroupError = atom('', 'passmanager.entryCreate.targetGroupError')
   readonly tags = atom<string[]>([], 'passmanager.entryCreate.tags')
   readonly titleError = atom('')
   readonly usernameError = atom('')
@@ -149,19 +130,34 @@ export class PMEntryCreateModel {
   readonly cardExpMonthError = atom('')
   readonly cardExpYearError = atom('')
   readonly titleWasAutofilled = atom(false)
-
-  readonly useSsh = atom(false)
-  readonly showSshGenerator = atom(false)
-  readonly ssh = new PMEntrySshCreateModel()
-  readonly sshSheetOpen = atom(false, 'passmanager.entryCreate.sshSheetOpen')
-  readonly sshGenKeyType = this.ssh.keyType
-  readonly sshGenComment = this.ssh.comment
-  readonly sshGenName = this.ssh.name
-  readonly sshGenerating = computed(
-    () => this.generateSshForEntryAction.pending() > 0,
-    'passmanager.entryCreate.sshGenerating',
+  readonly touchedFields = atom<PMEntryCreateValidationField[]>([], 'passmanager.entryCreate.touchedFields')
+  readonly submitAttempted = atom(false, 'passmanager.entryCreate.submitAttempted')
+  readonly dirty = atom(false, 'passmanager.entryCreate.dirty')
+  readonly detailsSheetOpen = atom(false, 'passmanager.entryCreate.detailsSheetOpen')
+  readonly detailsSheetView = atom<PMEntryCreateDetailsView>('hub', 'passmanager.entryCreate.detailsView')
+  readonly locationSheetOpen = atom(false, 'passmanager.entryCreate.locationSheetOpen')
+  readonly discardSheetOpen = atom(false, 'passmanager.entryCreate.discardSheetOpen')
+  readonly supportedOptionalDetails = computed<readonly PMEntryCreateOptionalDetail[]>(
+    () => (this.entryType() === 'payment_card' ? PAYMENT_CARD_OPTIONAL_DETAILS : LOGIN_OPTIONAL_DETAILS),
+    'passmanager.entryCreate.supportedDetails',
   )
-  readonly sshGenResult = this.ssh.result
+  readonly configuredOptionalDetails = computed(
+    () => this.supportedOptionalDetails().filter((detail) => this.optionalDetailHasData(detail)),
+    'passmanager.entryCreate.configuredDetails',
+  )
+  readonly configuredOptionalDetailCount = computed(
+    () => this.configuredOptionalDetails().length,
+    'passmanager.entryCreate.configuredDetailCount',
+  )
+  readonly targetGroupLabel = computed(
+    () => {
+      const root = getPassmanagerRoot()
+      const targetGroupId = this.targetGroupId()
+      if (!root || !targetGroupId || targetGroupId === root.id) return root?.name ?? ''
+      return root.getGroup(targetGroupId)?.name ?? ''
+    },
+    'passmanager.entryCreate.targetGroupLabel',
+  )
   readonly isSubmitting = computed(
     () => this.submitAction.pending() > 0,
     'passmanager.entryCreate.isSubmitting',
@@ -186,21 +182,18 @@ export class PMEntryCreateModel {
       return false
     }
 
-    if (this.useSsh() && !this.ssh.canSubmit()) {
-      return false
-    }
-
-    if (this.useSsh() && !this.sshGenResult()) {
-      return false
-    }
-
     return Boolean(this.password() && (this.username().trim() || website))
   }, 'passmanager.entryCreate.canSubmit')
 
   private submitPromise: Promise<PMEntryCreateSubmitResult> | undefined
-  private generateSshPromise: Promise<void> | undefined
+  private pendingDiscardResume: (() => void) | undefined
+
+  constructor() {
+    this.reset()
+  }
 
   private readonly submitAction = action(async (): Promise<PMEntryCreateSubmitResult> => {
+    this.submitAttempted.set(true)
     const passmanager = getPassmanagerRoot()
     if (!passmanager) {
       return {ok: false, reason: 'passmanager_unavailable'}
@@ -209,13 +202,12 @@ export class PMEntryCreateModel {
     const title = this.title().trim()
     this.clearFormErrors()
 
-    if (!title) {
-      this.titleError.set(i18n('error:title_required'))
-      return {ok: false, reason: 'missing_title', field: 'title'}
-    }
-
     if (this.entryType() === 'payment_card') {
+      this.titleError.set(title ? '' : i18n('error:title_required'))
       const paymentCardMeta = this.buildPaymentCardMeta()
+      if (!title) {
+        return {ok: false, reason: 'missing_title', field: 'title'}
+      }
       if ('error' in paymentCardMeta) {
         return {
           ok: false,
@@ -224,6 +216,9 @@ export class PMEntryCreateModel {
           message: paymentCardMeta.error,
         }
       }
+
+      const targetError = this.prepareCreateTarget()
+      if (targetError) return targetError
 
       const entry = passmanager.createEntry(
         {
@@ -271,8 +266,9 @@ export class PMEntryCreateModel {
       return loginFormError
     }
 
-    if (this.useOtp() && !this.otp.validate()) {
-      this.otpSheetOpen.set(true)
+    if (this.useOtp() && !(await wrap(this.otp.validateWithCore()))) {
+      this.detailsSheetView.set('otp')
+      this.detailsSheetOpen.set(true)
       return {
         ok: false,
         reason: 'invalid_otp',
@@ -280,36 +276,10 @@ export class PMEntryCreateModel {
       }
     }
 
-    if (this.useSsh() && !this.ssh.validate()) {
-      this.sshSheetOpen.set(true)
-      return {
-        ok: false,
-        reason: 'invalid_ssh',
-        field: 'ssh',
-        message: i18n('ssh:error:name_required'),
-      }
-    }
-
-    if (this.useSsh() && !this.sshGenResult()) {
-      this.sshSheetOpen.set(true)
-      return {
-        ok: false,
-        reason: 'invalid_ssh',
-        field: 'ssh',
-        message: i18n('ssh:error:name_required'),
-      }
-    }
+    const targetError = this.prepareCreateTarget()
+    if (targetError) return targetError
 
     const otp = this.useOtp() ? this.otp.getFormData() : undefined
-    const otpError = this.validateOtp(otp)
-    if (otpError) {
-      return {
-        ok: false,
-        reason: 'invalid_otp',
-        message: otpError,
-      }
-    }
-
     const rawUrls = this.urls().trim()
     const urls = this.buildUrlRules(rawUrls)
 
@@ -322,55 +292,13 @@ export class PMEntryCreateModel {
       tags: this.tags(),
     }
 
-    const entry = passmanager.createEntry(entryData, this.password(), this.note(), otp)
-    if (entry && this.sshGenResult()) {
-      await wrap(this.generateSshForEntry(entry))
-    }
+    passmanager.createEntry(entryData, this.password(), this.note(), otp)
 
     return {ok: true}
   }, 'passmanager.entryCreate.submit').extend(withAbort('first-in-win'), withAsync({status: true}))
 
-  private readonly generateSshForEntryAction = action(
-    async (entry: PMCoreEntry): Promise<void> => {
-      await wrap(entry.flushPendingPersistence())
-      const ssh = this.ssh.getFormData()
-
-      const generated = await wrap(
-        passmanagerSshKeygen({
-          entryId: entry.id,
-          keyType: ssh.keyType,
-          comment: ssh.comment,
-        }),
-      )
-
-      await wrap(
-        entry.updateSshKeys([
-          {
-            id: generated.key_id,
-            type: generated.key_type as SshKeyType,
-            fingerprint: generated.fingerprint,
-            name: ssh.name,
-            comment: ssh.comment,
-          },
-        ]),
-      )
-
-      this.ssh.setResult({
-        keyId: generated.key_id,
-        fingerprint: generated.fingerprint,
-        publicKey: generated.public_key_openssh,
-        keyType: generated.key_type as SshKeyType,
-        name: ssh.name,
-        comment: ssh.comment,
-        pending: false,
-      })
-    },
-    'passmanager.entryCreate.generateSshForEntry',
-  ).extend(withAbort('first-in-win'), withAsync({status: true}))
-
   reset(): void {
     this.submitAction.abort('entry-create reset')
-    this.generateSshForEntryAction.abort('entry-create reset')
 
     this.entryType.set('login')
     this.title.set('')
@@ -386,57 +314,73 @@ export class PMEntryCreateModel {
 
     this.useOtp.set(false)
     this.otp.reset()
-    this.otpSheetOpen.set(false)
-    this.useNote.set(false)
-
     this.isEditingPassword.set(false)
     this.passwordStrengthScore.set(null)
 
     this.iconRef.set(undefined)
+    this.targetGroupId.set(this.getInitialTargetGroupId())
+    this.pendingTargetGroupId.set(undefined)
+    this.targetGroupError.set('')
     this.tags.set([])
     this.clearFormErrors()
     this.titleWasAutofilled.set(false)
-
-    this.useSsh.set(false)
-    this.showSshGenerator.set(false)
-    this.sshSheetOpen.set(false)
-    this.ssh.reset()
+    this.touchedFields.set([])
+    this.submitAttempted.set(false)
+    this.detailsSheetOpen.set(false)
+    this.detailsSheetView.set('hub')
+    this.locationSheetOpen.set(false)
+    this.discardSheetOpen.set(false)
+    this.pendingDiscardResume = undefined
+    this.dirty.set(false)
     this.submitPromise = undefined
-    this.generateSshPromise = undefined
   }
 
   setTitle(value: string): void {
+    if (this.title() === value) {
+      this.titleWasAutofilled.set(false)
+      return
+    }
     this.title.set(value)
     this.titleWasAutofilled.set(false)
+    this.markDirty()
     if (value.trim()) {
       this.titleError.set('')
     }
   }
 
   setEntryType(value: PassManagerEntryType): void {
+    if (this.entryType() === value) return
     this.entryType.set(value)
+    this.markDirty()
   }
 
   setUsername(value: string): void {
+    if (this.username() === value) return
     this.username.set(value)
+    this.markDirty()
     if (value.trim()) {
       this.usernameError.set('')
     }
   }
 
   setPassword(value: string): void {
+    if (this.password() === value) return
     this.password.set(value)
     this.isEditingPassword.set(Boolean(value))
     this.updateStrength(value)
+    this.markDirty()
     if (value) {
       this.passwordError.set('')
     }
   }
 
   setUrls(value: string): void {
+    if (this.urls() === value) return
     this.urls.set(value)
+    this.markDirty()
     if (!value.trim() || this.isValidWebsiteList(value)) {
       this.websiteError.set('')
+      if (value.trim()) this.usernameError.set('')
     }
   }
 
@@ -452,190 +396,310 @@ export class PMEntryCreateModel {
   }
 
   setNote(value: string): void {
+    if (this.note() === value) return
     this.note.set(value)
-  }
-
-  setUseNote(value: boolean): void {
-    this.useNote.set(value)
+    this.markDirty()
   }
 
   setCardholderName(value: string): void {
+    if (this.cardholderName() === value) return
     this.cardholderName.set(value)
+    this.markDirty()
     if (value.trim()) {
       this.cardholderNameError.set('')
     }
   }
 
   setCardNumber(value: string): void {
+    if (this.cardNumber() === value) return
     this.cardNumber.set(value)
+    this.markDirty()
     if (normalizeCardDigits(value)) {
       this.cardNumberError.set('')
     }
   }
 
   setCardExpMonth(value: string): void {
+    if (this.cardExpMonth() === value) return
     this.cardExpMonth.set(value)
+    this.markDirty()
     if (this.isValidCardExpMonth(value)) {
       this.cardExpMonthError.set('')
     }
   }
 
   setCardExpYear(value: string): void {
+    if (this.cardExpYear() === value) return
     this.cardExpYear.set(value)
+    this.markDirty()
     if (this.isValidCardExpYear(value)) {
       this.cardExpYearError.set('')
     }
   }
 
   setCardCvv(value: string): void {
+    if (this.cardCvv() === value) return
     this.cardCvv.set(value)
-  }
-
-  setPaymentCardField(field: PMEntryCreatePaymentCardField, value: string): void {
-    switch (field) {
-      case 'title':
-        this.setTitle(value)
-        break
-      case 'cardholderName':
-        this.setCardholderName(value)
-        break
-      case 'cardNumber':
-        this.setCardNumber(value)
-        break
-      case 'expMonth':
-        this.setCardExpMonth(value)
-        break
-      case 'expYear':
-        this.setCardExpYear(value)
-        break
-      case 'cardCvv':
-        this.setCardCvv(value)
-        break
-    }
+    this.markDirty()
   }
 
   setUseOtp(value: boolean): void {
-    this.useOtp.set(value)
+    if (value) {
+      if (!this.useOtp()) {
+        this.useOtp.set(true)
+        this.markDirty()
+      }
+      return
+    }
+
+    this.disableOtp()
   }
 
-  openOtpSheet(): void {
+  private openOtpEditor(): void {
     const title = this.title().trim()
     if (!this.useOtp()) {
       this.otp.reset({label: title})
     } else {
       this.otp.setDefaultLabel(title)
     }
-    this.otpSheetOpen.set(true)
+    this.detailsSheetView.set('otp')
+    this.detailsSheetOpen.set(true)
   }
 
-  closeOtpSheet(): void {
+  private closeOtpEditor(): void {
     if (this.otp.qrScannerScanning()) {
-      this.otpSheetOpen.set(true)
       return
     }
 
-    this.otpSheetOpen.set(false)
+    this.otp.actions.closeAdvanced()
     if (!this.otp.secret()) {
       this.useOtp.set(false)
     }
+    if (!this.useOtp()) {
+      this.otp.reset({label: this.title().trim()})
+    }
+    this.detailsSheetView.set('hub')
   }
 
-  confirmOtpSheet(): boolean {
+  async confirmOtpEditor(): Promise<boolean> {
     this.otp.setDefaultLabel(this.title().trim())
-    if (!this.otp.validate()) {
+    if (!(await this.otp.validateWithCore())) {
       return false
     }
 
     this.useOtp.set(true)
-    this.otpSheetOpen.set(false)
+    this.markDirty()
+    this.detailsSheetView.set('hub')
     return true
   }
 
   disableOtp(): void {
+    const hadOtp = this.useOtp() || Boolean(this.otp.secret())
     this.useOtp.set(false)
-    this.otpSheetOpen.set(false)
     this.otp.reset()
+    if (this.detailsSheetView() === 'otp') {
+      this.detailsSheetView.set('hub')
+    }
+    if (hadOtp) this.markDirty()
   }
 
   setIconRef(value: string | undefined): void {
+    if (this.iconRef() === value) return
     this.iconRef.set(value)
+    this.markDirty()
   }
 
   setTags(value: unknown): void {
-    this.tags.set(normalizeCredentialTags(value))
+    const next = normalizeCredentialTags(value)
+    if (next.length === this.tags().length && next.every((tag, index) => tag === this.tags()[index])) return
+    this.tags.set(next)
+    this.markDirty()
   }
 
   setTagsFromKeys(keys: readonly string[]): void {
     this.setTags(pmCredentialTagsModel.resolveLabelsFromTagKeys(keys, this.tags()))
   }
 
-  setUseSsh(value: boolean): void {
-    this.useSsh.set(value)
-    if (value) {
-      this.ssh.setDefaultEntry({entryTitle: this.title().trim(), username: this.username().trim()})
-      this.showSshGenerator.set(true)
+  optionalDetailHasData(detail: PMEntryCreateOptionalDetail): boolean {
+    switch (detail) {
+      case 'icon':
+        return Boolean(this.iconRef())
+      case 'tags':
+        return this.tags().length > 0
+      case 'otp':
+        return this.useOtp()
+      case 'note':
+        return Boolean(this.note().trim())
+    }
+  }
+
+  openDetailsSheet(): void {
+    this.detailsSheetView.set('hub')
+    this.detailsSheetOpen.set(true)
+  }
+
+  closeDetailsSheet(): void {
+    if (this.detailsSheetView() === 'otp' && this.otp.qrScannerScanning()) return
+    if (this.detailsSheetView() === 'otp') {
+      this.otp.actions.closeAdvanced()
+    }
+    if (this.detailsSheetView() === 'otp' && !this.useOtp()) {
+      this.otp.reset({label: this.title().trim()})
+    }
+    this.detailsSheetOpen.set(false)
+    this.detailsSheetView.set('hub')
+  }
+
+  openDetailsEditor(detail: PMEntryCreateOptionalDetail): void {
+    if (!this.supportedOptionalDetails().includes(detail)) return
+    if (detail === 'otp') {
+      this.openOtpEditor()
       return
     }
-
-    this.showSshGenerator.set(false)
-    this.sshSheetOpen.set(false)
-    this.ssh.reset()
+    this.detailsSheetView.set(detail)
+    this.detailsSheetOpen.set(true)
   }
 
-  setSshKeyType(value: SshKeyType): void {
-    this.ssh.setKeyType(value)
-  }
-
-  setSshName(value: string): void {
-    this.ssh.setName(value)
-  }
-
-  setSshComment(value: string): void {
-    this.ssh.setComment(value)
-  }
-
-  openSshSheet(): void {
-    if (!this.useSsh()) {
-      this.ssh.reset({entryTitle: this.title().trim(), username: this.username().trim()})
-    } else {
-      this.ssh.setDefaultEntry({entryTitle: this.title().trim(), username: this.username().trim()})
+  closeDetailsEditor(): void {
+    if (this.detailsSheetView() === 'hub') return
+    if (this.detailsSheetView() === 'otp') {
+      this.closeOtpEditor()
+      return
     }
-    this.sshSheetOpen.set(true)
+    this.detailsSheetView.set('hub')
   }
 
-  closeSshSheet(): void {
-    this.sshSheetOpen.set(false)
-    if (!this.useSsh()) {
-      this.ssh.reset()
-    }
-  }
-
-  confirmSshSheet(): boolean {
-    this.ssh.setDefaultEntry({entryTitle: this.title().trim(), username: this.username().trim()})
-    if (!this.ssh.validate()) {
-      return false
+  removeOptionalDetail(detail: PMEntryCreateOptionalDetail): void {
+    switch (detail) {
+      case 'icon':
+        this.iconRef.set(undefined)
+        break
+      case 'tags':
+        this.tags.set([])
+        break
+      case 'otp':
+        this.useOtp.set(false)
+        this.otp.reset()
+        break
+      case 'note':
+        this.note.set('')
+        break
     }
 
-    this.useSsh.set(true)
-    this.showSshGenerator.set(true)
-    this.ssh.setPending()
-    this.sshSheetOpen.set(false)
+    if (this.detailsSheetView() === detail) {
+      this.detailsSheetView.set('hub')
+    }
+    this.markDirty()
+  }
+
+  async requestRemoveOptionalDetail(detail: PMEntryCreateOptionalDetail): Promise<boolean> {
+    if (!this.optionalDetailHasData(detail)) return false
+
+    const confirmed = await dialogService
+      .showConfirmDialog({
+        title: i18n('entry:create:remove-detail-title' as never),
+        message: i18n('entry:create:remove-detail-message' as never),
+        confirmText: i18n('button:remove'),
+        confirmVariant: 'danger',
+      })
+      .catch(() => false)
+    if (!confirmed) return false
+
+    this.removeOptionalDetail(detail)
     return true
   }
 
-  disableSsh(): void {
-    this.setUseSsh(false)
+  openLocationSheet(): void {
+    this.pendingTargetGroupId.set(this.targetGroupId())
+    this.locationSheetOpen.set(true)
   }
 
-  requestSshGeneration(): void {
-    this.ssh.setDefaultEntry({entryTitle: this.title().trim(), username: this.username().trim()})
-    if (!this.ssh.validate()) {
-      this.sshSheetOpen.set(true)
-      return
+  closeLocationSheet(): void {
+    this.locationSheetOpen.set(false)
+    this.pendingTargetGroupId.set(undefined)
+  }
+
+  selectPendingTargetGroup(value: string): void {
+    const root = getPassmanagerRoot()
+    const next = value.trim()
+    if (!root || !next || (next !== root.id && !root.getGroup(next))) return
+    this.pendingTargetGroupId.set(next)
+  }
+
+  confirmPendingTargetGroup(): boolean {
+    const targetGroupId = this.pendingTargetGroupId()
+    return targetGroupId ? this.setTargetGroupId(targetGroupId) : false
+  }
+
+  setTargetGroupId(value: string): boolean {
+    const root = getPassmanagerRoot()
+    if (!root) return false
+
+    const next = value.trim()
+    if (!next || (next !== root.id && !root.getGroup(next))) {
+      this.targetGroupError.set(i18n('entry:create:location-unavailable' as never))
+      return false
     }
-    this.useSsh.set(true)
-    this.showSshGenerator.set(true)
-    this.ssh.setPending()
+
+    if (next !== this.targetGroupId()) {
+      this.targetGroupId.set(next)
+      this.markDirty()
+    }
+    this.targetGroupError.set('')
+    this.locationSheetOpen.set(false)
+    this.pendingTargetGroupId.set(undefined)
+    return true
+  }
+
+  markFieldTouched(field: PMEntryCreateValidationField): void {
+    if (!this.touchedFields().includes(field)) {
+      this.touchedFields.set([...this.touchedFields(), field])
+    }
+    this.validateField(field)
+  }
+
+  isFieldTouched(field: PMEntryCreateValidationField): boolean {
+    return this.submitAttempted() || this.touchedFields().includes(field)
+  }
+
+  requestDiscard(resume: () => void): boolean {
+    if (!this.dirty() || this.isSubmitting()) return false
+    if (this.discardSheetOpen()) return true
+    this.pendingDiscardResume = resume
+    this.discardSheetOpen.set(true)
+    return true
+  }
+
+  cancelDiscard(): void {
+    this.pendingDiscardResume = undefined
+    this.discardSheetOpen.set(false)
+  }
+
+  confirmDiscard(): void {
+    const resume = this.pendingDiscardResume
+    this.reset()
+    void finishAndroidPasswordSave('dismissed')
+    resume?.()
+  }
+
+  consumeTransientBack(): boolean {
+    if (this.locationSheetOpen()) {
+      this.closeLocationSheet()
+      return true
+    }
+    if (this.detailsSheetOpen()) {
+      if (this.detailsSheetView() === 'hub') {
+        this.closeDetailsSheet()
+      } else {
+        this.closeDetailsEditor()
+      }
+      return true
+    }
+    if (this.discardSheetOpen()) {
+      this.cancelDiscard()
+      return true
+    }
+    return false
   }
 
   generatePassword(): void {
@@ -656,6 +720,7 @@ export class PMEntryCreateModel {
     if (prefill.urls.trim()) {
       this.setWebsite(prefill.urls.trim())
     }
+    this.dirty.set(true)
   }
 
   async submit(): Promise<PMEntryCreateSubmitResult> {
@@ -665,13 +730,8 @@ export class PMEntryCreateModel {
 
     const promise = this.submitAction()
       .then(async (result) => {
-        if (
-          !result.ok &&
-          !result.field &&
-          (result.reason === 'invalid_otp' ||
-            result.reason === 'invalid_ssh' ||
-            result.reason === 'invalid_payment_card')
-        ) {
+        if (result.ok) this.dirty.set(false)
+        if (!result.ok && !result.field && result.reason === 'invalid_payment_card') {
           await dialogService
             .showAlertDialog({
               title: i18n('error:save'),
@@ -699,28 +759,6 @@ export class PMEntryCreateModel {
     return promise
   }
 
-  private validateOtp(otp: ReturnType<PMEntryOtpCreateModel['getFormData']> | undefined): string | null {
-    if (!otp) {
-      return null
-    }
-
-    try {
-      if (otp.type === 'HOTP') {
-        new HOTP(otp)
-      } else {
-        new TOTP(otp)
-      }
-
-      return null
-    } catch (error) {
-      if (error instanceof Error) {
-        return error.message
-      }
-
-      return String(error)
-    }
-  }
-
   private buildUrlRules(rawUrls: string): UrlRule[] {
     if (!rawUrls) {
       return []
@@ -740,6 +778,117 @@ export class PMEntryCreateModel {
     this.cardExpYearError.set('')
   }
 
+  private markDirty(): void {
+    this.dirty.set(true)
+  }
+
+  private getInitialTargetGroupId(): string | undefined {
+    const root = getPassmanagerRoot()
+    if (!root) return undefined
+
+    try {
+      const route = passmanagerNavigationController.readRoute()
+      if (route.kind === 'create-entry' && route.targetGroupPath) {
+        const target = root.entriesList().find(
+          (item): item is Group => item instanceof Group && item.name === route.targetGroupPath,
+        )
+        if (target) return target.id
+      }
+    } catch {
+      // Route state is optional during isolated component/model tests.
+    }
+
+    return root.id
+  }
+
+  private validateField(field: PMEntryCreateValidationField): void {
+    switch (field) {
+      case 'title':
+        this.titleError.set(this.title().trim() ? '' : i18n('error:title_required'))
+        return
+      case 'username':
+        this.usernameError.set(
+          this.entryType() === 'login' && !this.username().trim() && !this.website().trim()
+            ? i18n('error:username_or_website_required')
+            : '',
+        )
+        return
+      case 'password':
+        this.passwordError.set(
+          this.entryType() === 'login' && !this.password() ? i18n('error:password_required') : '',
+        )
+        return
+      case 'urls': {
+        const website = this.website().trim()
+        this.websiteError.set(
+          this.entryType() === 'login' && website && !this.isValidWebsiteList(website)
+            ? i18n('error:valid_website_required')
+            : '',
+        )
+        return
+      }
+      case 'cardholderName':
+        this.cardholderNameError.set(
+          this.entryType() === 'payment_card' && !this.cardholderName().trim()
+            ? i18n('payment-card:error-cardholder-required')
+            : '',
+        )
+        return
+      case 'cardNumber':
+        this.cardNumberError.set(
+          this.entryType() === 'payment_card' && !normalizeCardDigits(this.cardNumber())
+            ? i18n('payment-card:error-number-required')
+            : '',
+        )
+        return
+      case 'cardExpMonth':
+        this.cardExpMonthError.set(
+          this.entryType() === 'payment_card' && !this.isValidCardExpMonth(this.cardExpMonth())
+            ? i18n('payment-card:error-exp-month')
+            : '',
+        )
+        return
+      case 'cardExpYear':
+        this.cardExpYearError.set(
+          this.entryType() === 'payment_card' && !this.isValidCardExpYear(this.cardExpYear())
+            ? i18n('payment-card:error-exp-year')
+            : '',
+        )
+        return
+      case 'targetGroup':
+        this.validateTargetGroup()
+        return
+    }
+  }
+
+  private validateTargetGroup(): boolean {
+    const root = getPassmanagerRoot()
+    const targetGroupId = this.targetGroupId()
+    const valid = Boolean(root && targetGroupId && (targetGroupId === root.id || root.getGroup(targetGroupId)))
+    this.targetGroupError.set(valid ? '' : i18n('entry:create:location-unavailable' as never))
+    return valid
+  }
+
+  private prepareCreateTarget(): PMEntryCreateSubmitResult | null {
+    const root = getPassmanagerRoot()
+    if (!root || !this.validateTargetGroup()) {
+      this.locationSheetOpen.set(true)
+      return {
+        ok: false,
+        reason: 'invalid_target_group',
+        field: 'targetGroup',
+        message: this.targetGroupError(),
+      }
+    }
+
+    const targetGroupId = this.targetGroupId()
+    root.setShowElement(
+      'createEntry',
+      targetGroupId && targetGroupId !== root.id ? root.getGroup(targetGroupId) : undefined,
+    )
+    return null
+  }
+
   private isValidWebsiteList(value: string): boolean {
     return transformUrls(value).every((url) => isLink(url))
   }
@@ -747,26 +896,21 @@ export class PMEntryCreateModel {
   private validateLoginForm(title: string): PMEntryCreateSubmitResult | null {
     this.clearFormErrors()
 
-    if (!title) {
-      this.titleError.set(i18n('error:title_required'))
-      return {ok: false, reason: 'missing_title', field: 'title'}
-    }
-
     const rawUrls = this.website().trim()
-    if (rawUrls && !this.isValidWebsiteList(rawUrls)) {
-      this.websiteError.set(i18n('error:valid_website_required'))
-      return {ok: false, reason: 'invalid_website', field: 'urls'}
-    }
+    const hasTitle = Boolean(title)
+    const hasLocator = Boolean(this.username().trim() || rawUrls)
+    const hasPassword = Boolean(this.password())
+    const websiteValid = !rawUrls || this.isValidWebsiteList(rawUrls)
 
-    if (!this.username().trim() && !rawUrls) {
-      this.usernameError.set(i18n('error:username_or_website_required'))
-      return {ok: false, reason: 'missing_login_locator', field: 'username'}
-    }
+    this.titleError.set(hasTitle ? '' : i18n('error:title_required'))
+    this.usernameError.set(hasLocator ? '' : i18n('error:username_or_website_required'))
+    this.passwordError.set(hasPassword ? '' : i18n('error:password_required'))
+    this.websiteError.set(websiteValid ? '' : i18n('error:valid_website_required'))
 
-    if (!this.password()) {
-      this.passwordError.set(i18n('error:password_required'))
-      return {ok: false, reason: 'missing_password', field: 'password'}
-    }
+    if (!hasTitle) return {ok: false, reason: 'missing_title', field: 'title'}
+    if (!hasLocator) return {ok: false, reason: 'missing_login_locator', field: 'username'}
+    if (!hasPassword) return {ok: false, reason: 'missing_password', field: 'password'}
+    if (!websiteValid) return {ok: false, reason: 'invalid_website', field: 'urls'}
 
     return null
   }
@@ -775,31 +919,26 @@ export class PMEntryCreateModel {
     | {value: NonNullable<Extract<IEntry, {entryType: 'payment_card'}>['paymentCard']>}
     | {error: string; field: PMEntryCreateValidationField} {
     const cardholderName = this.cardholderName().trim()
-    if (!cardholderName) {
-      const error = i18n('payment-card:error-cardholder-required')
-      this.cardholderNameError.set(error)
-      return {error, field: 'cardholderName'}
-    }
-
     const cardPan = normalizeCardDigits(this.cardNumber())
-    if (!cardPan) {
-      const error = i18n('payment-card:error-number-required')
-      this.cardNumberError.set(error)
-      return {error, field: 'cardNumber'}
-    }
-
     const expMonth = Number.parseInt(this.cardExpMonth().trim(), 10)
-    if (!this.isValidCardExpMonth(this.cardExpMonth())) {
-      const error = i18n('payment-card:error-exp-month')
-      this.cardExpMonthError.set(error)
-      return {error, field: 'cardExpMonth'}
-    }
-
     const expYear = parsePaymentCardExpYearInput(this.cardExpYear())
-    if (expYear === undefined) {
-      const error = i18n('payment-card:error-exp-year')
-      this.cardExpYearError.set(error)
-      return {error, field: 'cardExpYear'}
+    const cardholderError = cardholderName ? '' : i18n('payment-card:error-cardholder-required')
+    const cardNumberError = cardPan ? '' : i18n('payment-card:error-number-required')
+    const expMonthError = this.isValidCardExpMonth(this.cardExpMonth())
+      ? ''
+      : i18n('payment-card:error-exp-month')
+    const expYearError = expYear === undefined ? i18n('payment-card:error-exp-year') : ''
+
+    this.cardholderNameError.set(cardholderError)
+    this.cardNumberError.set(cardNumberError)
+    this.cardExpMonthError.set(expMonthError)
+    this.cardExpYearError.set(expYearError)
+
+    if (cardholderError) return {error: cardholderError, field: 'cardholderName'}
+    if (cardNumberError) return {error: cardNumberError, field: 'cardNumber'}
+    if (expMonthError) return {error: expMonthError, field: 'cardExpMonth'}
+    if (expYearError || expYear === undefined) {
+      return {error: expYearError, field: 'cardExpYear'}
     }
 
     return {
@@ -836,26 +975,4 @@ export class PMEntryCreateModel {
     }
   }
 
-  private async generateSshForEntry(
-    entry: PMCoreEntry,
-  ): Promise<void> {
-    if (this.generateSshPromise) {
-      return this.generateSshPromise
-    }
-
-    const promise = this.generateSshForEntryAction(entry)
-      .catch((error) => {
-        if (!isActionAbort(error)) {
-          console.warn('[ssh] failed to generate key on create', error)
-        }
-      })
-      .finally(() => {
-        if (this.generateSshPromise === promise) {
-          this.generateSshPromise = undefined
-        }
-      })
-
-    this.generateSshPromise = promise
-    return promise
-  }
 }

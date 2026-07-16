@@ -27,6 +27,32 @@ pub struct PairedExtension {
     pub label: Option<String>,
 }
 
+/// Route-bound identity class established by the Noise handshake.
+///
+/// This value is selected by the desktop pairing flow and never accepted
+/// from an encrypted request payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GatewayActorKind {
+    BrowserExtension,
+    CliAgent,
+}
+
+impl Default for GatewayActorKind {
+    fn default() -> Self {
+        Self::BrowserExtension
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PairedAgent {
+    pub id: String,
+    pub created_at_ms: u64,
+    pub last_active_ms: Option<u64>,
+    pub revoked: bool,
+    pub label: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // Capability grant types
 // ---------------------------------------------------------------------------
@@ -48,16 +74,29 @@ pub fn classify_command(command: &str) -> CommandCategory {
         | "catalog:download"
         | "catalog:upload"
         | "passmanager:secret:read"
-        | "passmanager:otp:generate" => CommandCategory::Sensitive,
+        | "passmanager:ssh:secret:read"
+        | "passmanager:otp:generate"
+        | "passmanager:otp:preview" => CommandCategory::Sensitive,
         "catalog:createDir"
         | "catalog:rename"
         | "catalog:delete"
         | "catalog:move"
         | "catalog:createFile"
         | "catalog:updateMeta"
-        | "catalog:file:replace" => CommandCategory::CatalogWrite,
+        | "catalog:file:replace"
+        | "passmanager:ssh:key:update"
+        | "passmanager:ssh:key:delete"
+        | "passmanager:ssh:secret:save"
+        | "passmanager:ssh:secret:delete" => CommandCategory::CatalogWrite,
         _ => CommandCategory::ReadOnly,
     }
+}
+
+/// Env Runtime actions are confined to the typed `/agent` route. Even its
+/// metadata RPCs must never be reachable through the extension's generic Core
+/// forwarding surface.
+pub fn is_agent_only_core_command(command: &str) -> bool {
+    command.starts_with("env_runtime:")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

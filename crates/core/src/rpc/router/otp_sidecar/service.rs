@@ -1,12 +1,11 @@
 //! Typed OTP sidecar service used by authorized domain adapters.
 
-use base64::{engine::general_purpose, Engine as _};
-
-use crate::rpc::types::{OtpGenerateResponse, OtpSecret, OtpSecrets};
+use crate::rpc::types::{OtpGenerateResponse, OtpPreviewResponse, OtpSecret, OtpSecrets};
 use crate::storage::Storage;
 use crate::vault::VaultSession;
 
 use super::error::OtpSidecarError;
+use super::generator::{generate as generate_otp_code, normalize_settings};
 use super::storage::{delete_otp_sidecar_atomic, load_otp_secrets, save_otp_secrets};
 use super::OtpSidecarResult;
 
@@ -14,6 +13,9 @@ pub(crate) struct OtpSetSecretRequest {
     pub(crate) node_id: u64,
     pub(crate) label: String,
     pub(crate) secret: String,
+    pub(crate) encoding: String,
+    pub(crate) otp_type: String,
+    pub(crate) counter: Option<u64>,
     pub(crate) algorithm: String,
     pub(crate) digits: u8,
     pub(crate) period: u32,
@@ -34,6 +36,18 @@ pub(crate) struct OtpGenerateRequest<'a> {
     pub(crate) node_id: u64,
     pub(crate) label: Option<&'a str>,
     pub(crate) ts: Option<u64>,
+    pub(crate) counter: Option<u64>,
+}
+
+pub(crate) struct OtpPreviewRequest {
+    pub(crate) secret: String,
+    pub(crate) encoding: String,
+    pub(crate) otp_type: String,
+    pub(crate) counter: Option<u64>,
+    pub(crate) algorithm: String,
+    pub(crate) digits: u8,
+    pub(crate) period: u32,
+    pub(crate) ts: Option<u64>,
 }
 
 pub(crate) fn set_secret(
@@ -43,16 +57,15 @@ pub(crate) fn set_secret(
 ) -> OtpSidecarResult<()> {
     ensure_node_exists(session, request.node_id)?;
 
-    let algorithm = request.algorithm.to_uppercase();
-    if !["SHA1", "SHA256", "SHA512"].contains(&algorithm.as_str()) {
-        return Err(OtpSidecarError::otp_settings_invalid("Invalid algorithm"));
-    }
-
-    if request.digits != 6 && request.digits != 8 {
-        return Err(OtpSidecarError::otp_settings_invalid(
-            "digits must be 6 or 8",
-        ));
-    }
+    let settings = normalize_settings(
+        &request.algorithm,
+        request.digits,
+        request.period,
+        &request.encoding,
+        &request.otp_type,
+        request.counter,
+    )?;
+    let _ = generate_otp_code(&request.secret, settings, None)?;
 
     let vault_key = session.vault_key();
     let mut secrets = load_otp_secrets(vault_key, request.node_id, storage).unwrap_or_default();
@@ -60,9 +73,12 @@ pub(crate) fn set_secret(
     secrets.secrets.push(OtpSecret {
         label: request.label,
         secret: request.secret,
-        algorithm,
-        digits: request.digits,
-        period: request.period,
+        encoding: settings.encoding.as_str().to_string(),
+        otp_type: settings.kind.as_str().to_string(),
+        counter: settings.counter,
+        algorithm: settings.algorithm.as_str().to_string(),
+        digits: settings.digits,
+        period: settings.period,
     });
 
     save_otp_secrets(vault_key, request.node_id, &secrets, storage).map_err(|e| {
@@ -164,8 +180,15 @@ pub(crate) fn generate(
     storage: &Storage,
     request: OtpGenerateRequest<'_>,
 ) -> OtpSidecarResult<OtpGenerateResponse> {
-    use totp_rs::{Algorithm, Secret, TOTP};
+    generate_with_timing(session, storage, request)
+        .map(|generated| OtpGenerateResponse { otp: generated.otp })
+}
 
+pub(crate) fn generate_with_timing(
+    session: &VaultSession,
+    storage: &Storage,
+    request: OtpGenerateRequest<'_>,
+) -> OtpSidecarResult<OtpPreviewResponse> {
     ensure_node_exists(session, request.node_id)?;
 
     let vault_key = session.vault_key();
@@ -222,46 +245,39 @@ pub(crate) fn generate(
         }
     };
 
-    let algorithm = match otp_secret.algorithm.as_str() {
-        "SHA256" => Algorithm::SHA256,
-        "SHA512" => Algorithm::SHA512,
-        _ => Algorithm::SHA1,
-    };
+    let counter = request.counter.or(otp_secret.counter);
+    let settings = normalize_settings(
+        &otp_secret.algorithm,
+        otp_secret.digits,
+        otp_secret.period,
+        &otp_secret.encoding,
+        &otp_secret.otp_type,
+        counter,
+    )?;
+    let generated = generate_otp_code(&otp_secret.secret, settings, request.ts)?;
 
-    let secret_bytes = match Secret::Encoded(otp_secret.secret.clone()).to_bytes() {
-        Ok(bytes) => bytes,
-        Err(_) => match general_purpose::STANDARD_NO_PAD.decode(&otp_secret.secret) {
-            Ok(bytes) => bytes,
-            Err(_) => match hex_decode(&otp_secret.secret) {
-                Some(bytes) => bytes,
-                None => {
-                    return Err(OtpSidecarError::otp_settings_invalid(
-                        "Invalid secret encoding",
-                    ))
-                }
-            },
-        },
-    };
+    Ok(OtpPreviewResponse {
+        otp: generated.otp,
+        period: generated.period,
+        left_seconds: generated.left_seconds,
+    })
+}
 
-    let totp = TOTP::new_unchecked(
-        algorithm,
-        otp_secret.digits as usize,
-        1,
-        otp_secret.period as u64,
-        secret_bytes,
-        None,
-        "account".to_string(),
-    );
+pub(crate) fn preview(request: OtpPreviewRequest) -> OtpSidecarResult<OtpPreviewResponse> {
+    let settings = normalize_settings(
+        &request.algorithm,
+        request.digits,
+        request.period,
+        &request.encoding,
+        &request.otp_type,
+        request.counter,
+    )?;
+    let generated = generate_otp_code(&request.secret, settings, request.ts)?;
 
-    let time = request.ts.unwrap_or_else(|| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
-    });
-
-    Ok(OtpGenerateResponse {
-        otp: totp.generate(time),
+    Ok(OtpPreviewResponse {
+        otp: generated.otp,
+        period: generated.period,
+        left_seconds: generated.left_seconds,
     })
 }
 
@@ -271,14 +287,4 @@ fn ensure_node_exists(session: &VaultSession, node_id: u64) -> OtpSidecarResult<
     }
 
     Ok(())
-}
-
-fn hex_decode(s: &str) -> Option<Vec<u8>> {
-    if s.len() % 2 != 0 {
-        return None;
-    }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
-        .collect()
 }

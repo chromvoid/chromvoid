@@ -32,7 +32,7 @@ export const renderConfirmStep = ({targetDir, onSelectFolder, onBack, onContinue
 
       ${targetDir
         ? html`
-            <div class="path-display">
+            <div class="path-display" dir="ltr">
               <cv-icon name="folder-open"></cv-icon>
               ${targetDir}
             </div>

@@ -1,4 +1,6 @@
+mod provider;
 mod range_reader;
+mod scheduler;
 mod session;
 
 use std::sync::{Arc, Mutex};
@@ -11,12 +13,24 @@ use serde::{Deserialize, Serialize};
 
 use crate::core_adapter::{CoreAdapter, CoreMode};
 
-pub(crate) use range_reader::{read_local_media_range, LocalMediaRangeError};
+pub(crate) use provider::CoreMediaReadProvider;
+#[cfg(mobile)]
+pub(crate) use range_reader::stream_media_source_range;
+pub(crate) use range_reader::{
+    media_range_cap_bytes, read_local_media_range, LocalMediaRangeError,
+};
+#[cfg(any(desktop, test))]
+pub(crate) use range_reader::{
+    read_local_media_range_with_intent, stream_media_source_range_chunks, LocalMediaReadIntent,
+};
+#[cfg(test)]
+pub(crate) use session::USB_MOBILE_MEDIA_RANGE_BYTES;
 pub(crate) use session::{LocalMediaKind, LocalMediaSourceManager, LocalMediaSourceSession};
 pub use session::{MAX_MEDIA_RANGE_BYTES, MEDIA_STREAM_IDLE_TTL_MS};
 
 pub(crate) const ERR_MEDIA_SOURCE_LOCKED: &str = "ERR_MEDIA_STREAM_LOCKED";
 pub(crate) const ERR_MEDIA_SOURCE_LOAD_FAILED: &str = "ERR_MEDIA_SOURCE_LOAD_FAILED";
+pub(crate) const ERR_MEDIA_SOURCE_STALE: &str = "ERR_MEDIA_STREAM_STALE";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub(crate) struct CatalogSourceMetadata {
@@ -67,9 +81,9 @@ pub(crate) fn load_catalog_source_metadata(
     })?;
     let lock_wait_ms = lock_wait_started.elapsed().as_millis();
 
-    if adapter.mode() != CoreMode::Local {
+    if adapter.mode() == CoreMode::Switching {
         return Err((
-            "Media sources are only available for local Core mode".to_string(),
+            "Media sources are not available while Core mode is switching".to_string(),
             Some(ERR_MEDIA_SOURCE_LOAD_FAILED.to_string()),
         ));
     }

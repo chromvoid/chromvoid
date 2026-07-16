@@ -10,6 +10,8 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
 import com.chromvoid.app.nativebridge.VideoPlaybackNativeShell
+import com.chromvoid.app.nativebridge.VideoSourceReadHandleResult
+import com.chromvoid.app.nativebridge.VideoSourceReadResult
 import com.chromvoid.app.shared.TracePrivacy
 import java.io.IOException
 
@@ -25,10 +27,14 @@ internal class ChromVoidVaultVideoDataSource(
     private var readCount = 0
     private var readBuffer = ByteArray(0)
     private var readBufferOffset = 0
+    private var readHandle = 0L
 
     override fun addTransferListener(transferListener: TransferListener) = Unit
 
     override fun open(dataSpec: DataSpec): Long {
+        if (opened || readHandle != 0L) {
+            close()
+        }
         if (dataSpec.position < 0L || dataSpec.length < C.LENGTH_UNSET.toLong()) {
             throw VideoSourceIOException(ERR_RANGE_INVALID)
         }
@@ -59,9 +65,24 @@ internal class ChromVoidVaultVideoDataSource(
         opened = true
         readCount = 0
         clearReadBuffer()
+        if (remaining > 0L) {
+            val openResult = reader.open(source, position, remaining)
+            openResult.errorCode?.takeIf { it.isNotBlank() }?.let {
+                opened = false
+                traceReadFailure("open_error", 0, null, it)
+                throw VideoSourceIOException(it)
+            }
+            if (openResult.handle <= 0L) {
+                opened = false
+                traceReadFailure("open_invalid_handle", 0, null, ERR_SOURCE_READ)
+                throw VideoSourceIOException(ERR_SOURCE_READ)
+            }
+            readHandle = openResult.handle
+        }
         trace(
             "open",
-            "token" to redactIdentifier(source.token),
+            "nativeSourceToken" to redactIdentifier(source.nativeSourceToken),
+            "streamId" to redactIdentifier(source.streamId),
             "position" to position,
             "remaining" to remaining,
             "requestedLength" to dataSpec.length,
@@ -93,7 +114,8 @@ internal class ChromVoidVaultVideoDataSource(
         traceSampled(
             currentRead,
             "read",
-            "token" to redactIdentifier(source.token),
+            "nativeSourceToken" to redactIdentifier(source.nativeSourceToken),
+            "streamId" to redactIdentifier(source.streamId),
             "bytes" to bytesToCopy,
             "position" to position,
             "remaining" to remaining,
@@ -112,23 +134,29 @@ internal class ChromVoidVaultVideoDataSource(
     ) {
         val fetchLength =
             minOf(
-                maxOf(requestedLength, MIN_READ_BUFFER_BYTES).toLong(),
+                requestedLength.toLong(),
                 remaining,
                 MAX_READ_BYTES.toLong(),
             ).toInt()
         val startedAt = SystemClock.elapsedRealtime()
+        val result = reader.read(source, readHandle, fetchLength)
+        result.errorCode?.takeIf { it.isNotBlank() }?.let {
+            traceReadFailure("read_error", fetchLength, null, it)
+            throw VideoSourceIOException(it)
+        }
+
         val bytes =
-            reader.read(source.token, position, fetchLength)
+            result.bytes
                 ?: run {
-                    traceReadFailure("read_null", fetchLength, null)
+                    traceReadFailure("read_null", fetchLength, null, ERR_SOURCE_READ)
                     throw VideoSourceIOException(ERR_SOURCE_READ)
                 }
         if (bytes.isEmpty()) {
-            traceReadFailure("read_empty_before_eof", fetchLength, 0)
+            traceReadFailure("read_empty_before_eof", fetchLength, 0, ERR_SOURCE_READ)
             throw VideoSourceIOException(ERR_SOURCE_READ)
         }
         if (bytes.size > fetchLength) {
-            traceReadFailure("read_overflow", fetchLength, bytes.size)
+            traceReadFailure("read_overflow", fetchLength, bytes.size, ERR_SOURCE_READ)
             throw VideoSourceIOException(ERR_SOURCE_READ)
         }
         val elapsedMs = SystemClock.elapsedRealtime() - startedAt
@@ -138,7 +166,8 @@ internal class ChromVoidVaultVideoDataSource(
         traceSampled(
             currentRead,
             "native_read",
-            "token" to redactIdentifier(source.token),
+            "nativeSourceToken" to redactIdentifier(source.nativeSourceToken),
+            "streamId" to redactIdentifier(source.streamId),
             "bytes" to bytes.size,
             "offset" to position,
             "requestedLength" to fetchLength,
@@ -148,7 +177,7 @@ internal class ChromVoidVaultVideoDataSource(
         if (elapsedMs >= SLOW_NATIVE_READ_MS) {
             Log.i(
                 TAG,
-                "event=native_read_slow token=${redactIdentifier(source.token)} offset=$position bytes=${bytes.size} requestedLength=$fetchLength elapsedMs=$elapsedMs",
+                "event=native_read_slow nativeSourceToken=${redactIdentifier(source.nativeSourceToken)} offset=$position bytes=${bytes.size} requestedLength=$fetchLength elapsedMs=$elapsedMs",
             )
         }
     }
@@ -160,11 +189,16 @@ internal class ChromVoidVaultVideoDataSource(
     override fun close() {
         trace(
             "close",
-            "token" to redactIdentifier(source.token),
+            "nativeSourceToken" to redactIdentifier(source.nativeSourceToken),
+            "streamId" to redactIdentifier(source.streamId),
             "position" to position,
             "remaining" to remaining,
             "readCount" to readCount,
         )
+        if (readHandle > 0L) {
+            reader.close(source, readHandle)
+            readHandle = 0L
+        }
         opened = false
         uri = null
         remaining = 0L
@@ -176,12 +210,23 @@ internal class ChromVoidVaultVideoDataSource(
         readBufferOffset = 0
     }
 
-    internal fun interface VideoSourceReader {
-        fun read(
-            token: String,
+    internal interface VideoSourceReader {
+        fun open(
+            source: VideoSource,
             offset: Long,
-            length: Int,
-        ): ByteArray?
+            length: Long,
+        ): VideoSourceReadHandleResult
+
+        fun read(
+            source: VideoSource,
+            handle: Long,
+            maxLength: Int,
+        ): VideoSourceReadResult
+
+        fun close(
+            source: VideoSource,
+            handle: Long,
+        )
     }
 
     internal class VideoSourceIOException(
@@ -189,18 +234,28 @@ internal class ChromVoidVaultVideoDataSource(
     ) : IOException(code)
 
     private object NativeVideoSourceReader : VideoSourceReader {
-        override fun read(
-            token: String,
+        override fun open(
+            source: VideoSource,
             offset: Long,
-            length: Int,
-        ): ByteArray? = VideoPlaybackNativeShell.readVideoSource(token, offset, length)
+            length: Long,
+        ): VideoSourceReadHandleResult = VideoPlaybackNativeShell.openVideoSourceRead(source, offset, length)
+
+        override fun read(
+            source: VideoSource,
+            handle: Long,
+            maxLength: Int,
+        ): VideoSourceReadResult = VideoPlaybackNativeShell.readVideoSourceChunk(source, handle, maxLength)
+
+        override fun close(
+            source: VideoSource,
+            handle: Long,
+        ) = VideoPlaybackNativeShell.closeVideoSourceRead(source, handle)
     }
 
     companion object {
         const val ERR_RANGE_INVALID = "ERR_NATIVE_VIDEO_RANGE_INVALID"
         const val ERR_SOURCE_READ = "ERR_NATIVE_VIDEO_SOURCE_READ"
         const val MAX_READ_BYTES = 2 * 1024 * 1024
-        const val MIN_READ_BUFFER_BYTES = MAX_READ_BYTES
         private const val TAG = "ChromVoid/VideoSource"
         private const val SLOW_NATIVE_READ_MS = 250L
     }
@@ -209,18 +264,21 @@ internal class ChromVoidVaultVideoDataSource(
         event: String,
         requestedLength: Int,
         actualLength: Int?,
+        errorCode: String,
     ) {
         Log.w(
             TAG,
-            "event=$event token=${redactIdentifier(source.token)} position=$position remaining=$remaining requestedLength=$requestedLength actualLength=$actualLength",
+            "event=$event nativeSourceToken=${redactIdentifier(source.nativeSourceToken)} position=$position remaining=$remaining requestedLength=$requestedLength actualLength=$actualLength errorCode=$errorCode",
         )
         trace(
             event,
-            "token" to redactIdentifier(source.token),
+            "nativeSourceToken" to redactIdentifier(source.nativeSourceToken),
+            "streamId" to redactIdentifier(source.streamId),
             "position" to position,
             "remaining" to remaining,
             "requestedLength" to requestedLength,
             "actualLength" to actualLength,
+            "errorCode" to errorCode,
         )
     }
 

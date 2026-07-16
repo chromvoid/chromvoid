@@ -11,15 +11,17 @@ describe('image gallery shared actions and formatting', () => {
   it('resolves action availability in the shared stable order', () => {
     expect(
       getImageViewerActionButtons({
+        showDownload: false,
         showSaveToGallery: true,
         showShare: true,
         includeInfo: true,
         includeDelete: true,
       }).map((button) => button.action),
-    ).toEqual(['download', 'open-external', 'info', 'save-to-gallery', 'share', 'delete'])
+    ).toEqual(['open-external', 'info', 'save-to-gallery', 'share', 'delete'])
 
     expect(
       getImageViewerActionButtons({
+        showDownload: true,
         showSaveToGallery: false,
         showShare: false,
         includeInfo: false,

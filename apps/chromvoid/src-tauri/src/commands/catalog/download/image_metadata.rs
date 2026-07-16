@@ -199,6 +199,31 @@ fn load_catalog_image_metadata_with_cancellation(
         ImageMetadataCacheLookup::Miss | ImageMetadataCacheLookup::ReadFailed => {}
     }
 
+    let adapter_mode = {
+        let adapter = adapter.lock().map_err(|_| {
+            (
+                "Adapter mutex poisoned".to_string(),
+                Some("INTERNAL".to_string()),
+            )
+        })?;
+        adapter.mode()
+    };
+    if adapter_mode.is_remote() {
+        metadata.gps_diagnostic = Some(build_gps_diagnostic(
+            "remote_cache_miss",
+            CatalogImageGpsDiagnosticParts::default(),
+            metadata.import_provenance.as_ref(),
+        ));
+        tracing::debug!(
+            "image_metadata skipped_remote_cache_miss node_id={} source_revision={} storage_version={} mode={:?}",
+            args.node_id,
+            source_metadata.source_revision,
+            IMAGE_METADATA_CACHE_VERSION,
+            adapter_mode,
+        );
+        return Ok(metadata);
+    }
+
     let source_read_started = Instant::now();
     let source = load_catalog_download_bytes(adapter, args.node_id)?;
     tracing::info!(

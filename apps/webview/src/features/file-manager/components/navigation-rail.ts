@@ -4,11 +4,13 @@ import {css, nothing} from 'lit'
 
 import {i18n} from 'root/i18n'
 import {sharedStyles} from 'root/shared/ui/shared-styles'
+import {WelcomeChromvoidIcon} from 'root/shared/ui/welcome-chromvoid-icon'
 import {moon, sun} from 'root/features/media/components/icons'
 import {navigationRailModel} from './navigation-rail.model'
 
 export class NavigationRail extends ReatomLitElement {
   static define() {
+    WelcomeChromvoidIcon.define()
     if (!customElements.get('navigation-rail')) {
       customElements.define('navigation-rail', this as unknown as CustomElementConstructor)
     }
@@ -22,18 +24,18 @@ export class NavigationRail extends ReatomLitElement {
         display: flex;
         flex-direction: column;
         block-size: 100%;
-        inline-size: var(--nav-rail-width, 72px);
-        background: var(--surface-base, var(--cv-color-bg));
-        border-inline-end: 1px solid var(--border-subtle, var(--cv-alpha-white-6));
+        inline-size: var(--app-editorial-navigation-rail-inline-size, 56px);
+        background: var(--app-editorial-surface-base, var(--cv-color-bg));
+        border-inline-end: 1px solid var(--app-editorial-border-subtle, var(--cv-alpha-white-6));
         overflow: hidden;
         contain: content;
         container-type: inline-size;
         transition: inline-size var(--cv-duration-normal, 250ms)
-          var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1));
+          var(--app-editorial-easing-out-expo, cubic-bezier(0.16, 1, 0.3, 1));
       }
 
       :host([expanded]) {
-        inline-size: var(--nav-rail-width-expanded, 240px);
+        inline-size: var(--app-editorial-navigation-rail-inline-size-expanded, 240px);
       }
 
       :host(.mobile-nav-rail) {
@@ -53,8 +55,15 @@ export class NavigationRail extends ReatomLitElement {
       .brand {
         display: flex;
         align-items: center;
-        gap: var(--space-0);
-        padding: var(--space-4, 16px);
+        gap: 0;
+        padding: var(--app-editorial-space-2, 8px);
+        min-block-size: 56px;
+      }
+
+      :host([expanded]) .brand,
+      :host(.mobile-nav-rail) .brand {
+        gap: var(--app-editorial-space-3, 12px);
+        padding: var(--app-editorial-space-3, 12px) var(--app-editorial-space-4, 16px);
         min-block-size: 64px;
       }
 
@@ -66,19 +75,8 @@ export class NavigationRail extends ReatomLitElement {
         align-items: center;
         justify-content: center;
         border-radius: var(--cv-radius-lg, 12px);
-        color: var(--accent, var(--cv-color-primary));
+        color: var(--app-editorial-accent, var(--cv-color-primary));
         cursor: pointer;
-
-        cv-icon {
-          font-size: 20px;
-        }
-      }
-
-      .brand-icon__image {
-        display: block;
-        inline-size: 28px;
-        block-size: 28px;
-        object-fit: contain;
       }
 
       .brand-icon--static {
@@ -86,17 +84,19 @@ export class NavigationRail extends ReatomLitElement {
       }
 
       .brand-text {
-        font-family: var(--cv-font-family-display, 'Satoshi', system-ui);
-        font-weight: var(--weight-bold, 700);
-        letter-spacing: var(--tracking-tight, -0.02em);
-        color: var(--text-primary, var(--cv-color-text-strongest));
+        font-family: var(--cv-font-family-display, var(--cv-font-family-primary, system-ui));
+        font-weight: var(--app-editorial-font-weight-bold, 700);
+        letter-spacing: var(--app-editorial-letter-spacing-tight, -0.02em);
+        color: var(--app-editorial-text-primary, var(--cv-color-text-strongest));
         white-space: nowrap;
         opacity: 0;
         visibility: hidden;
-        transform: translateX(-8px);
+        transform: translateX(
+          calc(8px * var(--app-runtime-inline-start-direction-sign, -1))
+        );
         transition:
-          opacity var(--cv-duration-fast, 150ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),
-          transform var(--cv-duration-fast, 150ms) var(--ease-out-quart),
+          opacity var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),
+          transform var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart),
           visibility 0s linear var(--cv-duration-fast, 150ms);
       }
 
@@ -105,16 +105,22 @@ export class NavigationRail extends ReatomLitElement {
         visibility: visible;
         transform: translateX(0);
         transition:
-          opacity var(--cv-duration-fast, 150ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),
-          transform var(--cv-duration-fast, 150ms) var(--ease-out-quart),
+          opacity var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),
+          transform var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart),
           visibility 0s linear 0s;
       }
 
       .nav {
         display: flex;
         flex-direction: column;
-        gap: var(--space-1, 4px);
-        padding-inline: var(--space-3, 12px);
+        gap: var(--app-editorial-space-1, 4px);
+        padding-inline: var(--app-editorial-space-2, 8px);
+      }
+
+      :host([expanded]) .nav,
+      :host(.mobile-nav-rail) .nav,
+      :host(.mobile-nav-actions) .nav {
+        padding-inline: var(--app-editorial-space-3, 12px);
       }
 
       .main-nav {
@@ -124,15 +130,15 @@ export class NavigationRail extends ReatomLitElement {
       .secondary-actions {
         flex: 0 0 auto;
         margin-block-start: auto;
-        padding-block: var(--space-3, 12px);
+        padding-block: var(--app-editorial-space-3, 12px);
       }
 
       .secondary-actions::before {
         content: '';
         display: block;
         block-size: 1px;
-        margin-block-end: var(--space-3, 12px);
-        background: var(--border-subtle, var(--cv-alpha-white-6));
+        margin-block-end: var(--app-editorial-space-3, 12px);
+        background: var(--app-editorial-border-subtle, var(--cv-alpha-white-6));
       }
 
       :host(.mobile-nav-actions) .secondary-actions {
@@ -141,26 +147,27 @@ export class NavigationRail extends ReatomLitElement {
 
       :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .nav {
         align-items: center;
+        gap: var(--app-editorial-space-2, 8px);
       }
 
       .item {
         display: flex;
         align-items: center;
-        gap: var(--space-3, 12px);
-        padding: var(--space-3, 12px);
+        gap: var(--app-editorial-space-3, 12px);
+        padding: var(--app-editorial-space-3, 12px);
         min-block-size: 44px;
         border-radius: var(--cv-radius-md, 8px);
         border: none;
         background: transparent;
-        color: var(--text-secondary, var(--cv-alpha-white-70));
+        color: var(--app-editorial-text-secondary, var(--cv-alpha-white-70));
         cursor: pointer;
         text-align: start;
         font-family: var(--cv-font-family-body, 'Inter', system-ui);
-        font-size: var(--text-small, 0.8125rem);
-        font-weight: var(--weight-medium, 500);
+        font-size: var(--app-editorial-text-small, 0.8125rem);
+        font-weight: var(--app-editorial-font-weight-medium, 500);
         transition:
-          background-color var(--cv-duration-fast, 150ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),
-          color var(--cv-duration-fast, 150ms) var(--ease-out-quart);
+          background-color var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),
+          color var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart);
 
         cv-icon {
           flex-shrink: 0;
@@ -169,40 +176,44 @@ export class NavigationRail extends ReatomLitElement {
 
         .label {
           flex: 1;
+          inline-size: 100%;
           opacity: 0;
-          transform: translateX(-8px);
+          text-align: start;
+          transform: translateX(
+            calc(8px * var(--app-runtime-inline-start-direction-sign, -1))
+          );
           transition:
-            opacity var(--cv-duration-fast, 150ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),
-            transform var(--cv-duration-fast, 150ms) var(--ease-out-quart);
+            opacity var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),
+            transform var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart);
           white-space: nowrap;
         }
 
         .hint {
           opacity: 0;
           font-family: var(--cv-font-family-code, 'JetBrains Mono', monospace);
-          font-size: var(--text-micro, 0.6875rem);
-          color: var(--text-quaternary, var(--cv-alpha-white-30));
+          font-size: var(--app-editorial-text-micro, 0.6875rem);
+          color: var(--app-editorial-text-quaternary, var(--cv-alpha-white-30));
           padding: 3px 8px;
           border-radius: var(--cv-radius-sm, 4px);
-          background: var(--surface-muted, var(--cv-color-surface-3));
-          transition: opacity var(--cv-duration-fast, 150ms) var(--ease-out-quart);
+          background: var(--app-editorial-surface-muted, var(--cv-color-surface-3));
+          transition: opacity var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart);
         }
 
         &:hover {
-          background: var(--hover-overlay, var(--cv-alpha-white-4));
-          color: var(--text-primary, var(--cv-color-text-strongest));
+          background: var(--app-editorial-interaction-hover-overlay, var(--cv-alpha-white-4));
+          color: var(--app-editorial-text-primary, var(--cv-color-text-strongest));
         }
 
         &:focus-visible {
           outline: none;
           box-shadow:
-            0 0 0 2px var(--surface-base),
-            0 0 0 4px var(--accent, var(--cv-color-primary));
+            0 0 0 2px var(--app-editorial-surface-base),
+            0 0 0 4px var(--app-editorial-accent, var(--cv-color-primary));
         }
 
         &.active {
-          background: var(--accent-muted, var(--cv-color-accent-surface));
-          color: var(--accent, var(--cv-color-primary));
+          background: var(--app-editorial-accent-muted, var(--cv-color-accent-surface));
+          color: var(--app-editorial-accent, var(--cv-color-primary));
         }
 
         &[disabled] {
@@ -213,17 +224,17 @@ export class NavigationRail extends ReatomLitElement {
 
         &.danger {
           &:hover {
-            background: var(--error-muted, var(--cv-color-danger-surface));
-            color: var(--error, var(--cv-color-danger));
+            background: var(--app-editorial-status-error-muted, var(--cv-color-danger-surface));
+            color: var(--app-editorial-status-error, var(--cv-color-danger));
           }
         }
       }
 
       :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .item,
       :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .theme-toggle {
-        inline-size: 48px;
-        block-size: 48px;
-        min-block-size: 48px;
+        inline-size: 40px;
+        block-size: 40px;
+        min-block-size: 40px;
         padding: 0;
         justify-content: center;
         text-align: center;
@@ -233,8 +244,8 @@ export class NavigationRail extends ReatomLitElement {
       :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .item::part(base),
       :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions))
         .theme-toggle::part(base) {
-        inline-size: 48px;
-        block-size: 48px;
+        inline-size: 40px;
+        block-size: 40px;
         padding: 0;
         justify-content: center;
       }
@@ -251,8 +262,8 @@ export class NavigationRail extends ReatomLitElement {
       :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .item::part(prefix),
       :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions))
         .theme-toggle::part(prefix) {
-        inline-size: 20px;
-        block-size: 20px;
+        inline-size: 18px;
+        block-size: 18px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -284,6 +295,14 @@ export class NavigationRail extends ReatomLitElement {
         text-align: start;
       }
 
+      :host([expanded]) .item::part(label),
+      :host([expanded]) .theme-toggle::part(label),
+      :host(.mobile-nav-rail) .item::part(label),
+      :host(.mobile-nav-actions) .item::part(label),
+      :host(.mobile-nav-actions) .theme-toggle::part(label) {
+        text-align: start;
+      }
+
       :host([expanded]) .item .hint {
         opacity: 1;
       }
@@ -291,21 +310,21 @@ export class NavigationRail extends ReatomLitElement {
       .theme-toggle {
         display: flex;
         align-items: center;
-        gap: var(--space-3, 12px);
-        padding: var(--space-3, 12px);
+        gap: var(--app-editorial-space-3, 12px);
+        padding: var(--app-editorial-space-3, 12px);
         min-block-size: 44px;
         border-radius: var(--cv-radius-md, 8px);
         border: none;
         background: transparent;
-        color: var(--text-secondary, var(--cv-alpha-white-70));
+        color: var(--app-editorial-text-secondary, var(--cv-alpha-white-70));
         cursor: pointer;
         text-align: start;
         font-family: var(--cv-font-family-body, 'Inter', system-ui);
-        font-size: var(--text-small, 0.8125rem);
-        font-weight: var(--weight-medium, 500);
+        font-size: var(--app-editorial-text-small, 0.8125rem);
+        font-weight: var(--app-editorial-font-weight-medium, 500);
         transition:
-          background-color var(--cv-duration-fast, 150ms) var(--ease-out-quart),
-          color var(--cv-duration-fast, 150ms) var(--ease-out-quart);
+          background-color var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart),
+          color var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart);
 
         .theme-icon {
           flex-shrink: 0;
@@ -321,17 +340,21 @@ export class NavigationRail extends ReatomLitElement {
 
         .label {
           flex: 1;
+          inline-size: 100%;
           opacity: 0;
-          transform: translateX(-8px);
+          text-align: start;
+          transform: translateX(
+            calc(8px * var(--app-runtime-inline-start-direction-sign, -1))
+          );
           transition:
-            opacity var(--cv-duration-fast, 150ms) var(--ease-out-quart),
-            transform var(--cv-duration-fast, 150ms) var(--ease-out-quart);
+            opacity var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart),
+            transform var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart);
           white-space: nowrap;
         }
 
         &:hover {
-          background: var(--hover-overlay, var(--cv-alpha-white-4));
-          color: var(--text-primary, var(--cv-color-text-strongest));
+          background: var(--app-editorial-interaction-hover-overlay, var(--cv-alpha-white-4));
+          color: var(--app-editorial-text-primary, var(--cv-color-text-strongest));
         }
       }
 
@@ -340,9 +363,19 @@ export class NavigationRail extends ReatomLitElement {
         transform: translateX(0);
       }
 
-      @media (hover: none) and (pointer: coarse) {
-        .item .hint {
-          display: none;
+      @media (prefers-reduced-motion: reduce) {
+        :host,
+        .brand-text,
+        .item .label,
+        .item .hint,
+        .theme-toggle .label {
+          transition-duration: var(--cv-duration-instant, 0ms);
+        }
+
+        .brand-text,
+        .item .label,
+        .theme-toggle .label {
+          transform: none;
         }
       }
     `,
@@ -378,17 +411,6 @@ export class NavigationRail extends ReatomLitElement {
     navigationRailModel.openSettings()
   }
 
-  private handleCommandPaletteClick() {
-    navigationRailModel.openCommandPalette()
-  }
-
-  private getCommandPaletteGuidanceSurface(): 'files' | 'notes' | 'passwords' | null {
-    if (navigationRailModel.isFilesActive()) return 'files'
-    if (navigationRailModel.isNotesActive()) return 'notes'
-    if (navigationRailModel.isPasswordsActive()) return 'passwords'
-    return null
-  }
-
   private handleFilesClick() {
     navigationRailModel.openFiles()
   }
@@ -405,8 +427,16 @@ export class NavigationRail extends ReatomLitElement {
     navigationRailModel.openOtpCodes()
   }
 
+  private handleSshKeysClick() {
+    navigationRailModel.openSshKeys()
+  }
+
   private handlePasskeysClick() {
     navigationRailModel.openPasskeys()
+  }
+
+  private handleWalletClick() {
+    navigationRailModel.openWallet()
   }
 
   private handleStorageClick() {
@@ -428,13 +458,7 @@ export class NavigationRail extends ReatomLitElement {
   private renderBrand() {
     const isExpanded = navigationRailModel.isExpanded()
     const canToggleExpanded = navigationRailModel.canToggleExpanded()
-    const brandIcon = html`<cv-icon name="shield"></cv-icon>`
-    const staticBrandIcon = html`<img
-      class="brand-icon__image"
-      src="/assets/icon.png"
-      alt=""
-      decoding="async"
-    />`
+    const brandIcon = html`<welcome-chromvoid-icon variant="mark" aria-hidden="true"></welcome-chromvoid-icon>`
 
     return html`
       <div class="brand">
@@ -452,19 +476,24 @@ export class NavigationRail extends ReatomLitElement {
                 ${brandIcon}
               </div>
             `
-          : html`<div class="brand-icon brand-icon--static" aria-hidden="true">${staticBrandIcon}</div>`}
+          : html`<div class="brand-icon brand-icon--static" aria-hidden="true">${brandIcon}</div>`}
         <div class="brand-text">ChromVoid</div>
       </div>
     `
   }
 
   private renderMainNavigation() {
+    const isMobileLayout = navigationRailModel.isMobileLayout()
     const isPasswords = navigationRailModel.isPasswordsActive()
     const isFiles = navigationRailModel.isFilesActive()
     const isNotes = navigationRailModel.isNotesActive()
     const isOtp = navigationRailModel.isOtpActive()
+    const isSshKeys = navigationRailModel.isSshKeysActive()
     const isPasskeys = navigationRailModel.isPasskeysActive()
+    const isWallet = navigationRailModel.isWalletActive()
     const supportsPasskeys = navigationRailModel.supportsPasskeys()
+    const supportsWallet = navigationRailModel.supportsWallet()
+    const walletAccess = navigationRailModel.walletAccess()
 
     return html`
       <nav class="nav main-nav" aria-label=${i18n('navigation:main')}>
@@ -504,6 +533,19 @@ export class NavigationRail extends ReatomLitElement {
           <cv-icon slot="prefix" name="shield-check"></cv-icon>
           <span class="label">${i18n('navigation:otp-codes' as any)}</span>
         </cv-button>
+        ${isMobileLayout
+          ? html`
+              <cv-button
+                unstyled
+                class="item ${isSshKeys ? 'active' : ''}"
+                @click=${this.handleSshKeysClick}
+                aria-current=${isSshKeys}
+              >
+                <cv-icon slot="prefix" name="terminal"></cv-icon>
+                <span class="label">${i18n('navigation:ssh-keys' as never)}</span>
+              </cv-button>
+            `
+          : nothing}
         ${supportsPasskeys
           ? html`
               <cv-button
@@ -514,6 +556,22 @@ export class NavigationRail extends ReatomLitElement {
               >
                 <cv-icon slot="prefix" name="octicons:passkey-fill" fill></cv-icon>
                 <span class="label">${i18n('navigation:passkeys')}</span>
+              </cv-button>
+            `
+          : nothing}
+        ${supportsWallet
+          ? html`
+              <cv-button
+                unstyled
+                class="item ${isWallet ? 'active' : ''}"
+                @click=${this.handleWalletClick}
+                aria-current=${isWallet}
+              >
+                <cv-icon slot="prefix" name="wallet"></cv-icon>
+                <span class="label">${i18n('navigation:wallet')}</span>
+                ${navigationRailModel.isLocked(walletAccess)
+                  ? html`<cv-icon slot="suffix" name="lock"></cv-icon>`
+                  : ''}
               </cv-button>
             `
           : nothing}
@@ -533,37 +591,12 @@ export class NavigationRail extends ReatomLitElement {
     const isExtensions = navigationRailModel.isExtensionsActive()
     const isSettings = navigationRailModel.isSettingsActive()
     const theme = navigationRailModel.theme()
-    const commandPaletteShortcutLabel = navigationRailModel.commandPaletteShortcutLabel()
+    const vaultLockActionLabelKey = navigationRailModel.vaultLockActionLabelKey()
     const vaultLockShortcutLabel = navigationRailModel.vaultLockShortcutLabel()
     const vaultLockPending = navigationRailModel.isVaultLockPending()
-    const isMobileLayout = navigationRailModel.isMobileLayout()
-    const commandGuidanceSurface = this.getCommandPaletteGuidanceSurface()
-    const commandPaletteButton = html`
-      <cv-button unstyled class="item" @click=${this.handleCommandPaletteClick}>
-        <cv-icon slot="prefix" name="search"></cv-icon>
-        <span class="label">${i18n('navigation:command-palette')}</span>
-        ${commandPaletteShortcutLabel
-          ? html`<span slot="suffix" class="hint">${commandPaletteShortcutLabel}</span>`
-          : ''}
-      </cv-button>
-    `
 
     return html`
       <nav class="nav secondary-actions" aria-label=${i18n('navigation:actions')}>
-        ${isMobileLayout
-          ? ''
-          : commandGuidanceSurface
-            ? html`
-                <cv-guidance-anchor
-                  anchor-id="shell.command-palette"
-                  surface=${commandGuidanceSurface}
-                  owner="shell"
-                >
-                  ${commandPaletteButton}
-                </cv-guidance-anchor>
-              `
-            : commandPaletteButton}
-
         <cv-button
           unstyled
           class="theme-toggle"
@@ -631,7 +664,7 @@ export class NavigationRail extends ReatomLitElement {
           @click=${this.handleLockClick}
         >
           <cv-icon slot="prefix" name="lock"></cv-icon>
-          <span class="label">${i18n('navigation:lock')}</span>
+          <span class="label">${i18n(vaultLockActionLabelKey)}</span>
           ${vaultLockShortcutLabel
             ? html`<span slot="suffix" class="hint">${vaultLockShortcutLabel}</span>`
             : ''}

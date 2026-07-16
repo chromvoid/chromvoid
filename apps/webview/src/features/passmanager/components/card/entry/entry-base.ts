@@ -154,7 +154,7 @@ export class PMEntryBase extends ReatomLitElement {
         aria-readonly="true"
         tabindex="-1"
         @dblclick=${isReadOnly ? undefined : this.onStartNoteEdit}
-      >${noteContent}</div>
+      ><bdi dir="auto">${noteContent}</bdi></div>
     `
   }
 
@@ -181,7 +181,7 @@ export class PMEntryBase extends ReatomLitElement {
       <div class="credential-field">
         <div class="field-content">
           <span class="field-label">${i18n('username')}</span>
-          <span class="field-value ${card.username ? '' : 'empty'}">${card.username || '—'}</span>
+          <span class="field-value ${card.username ? '' : 'empty'}" dir="ltr">${card.username || '—'}</span>
         </div>
         <div class="field-actions">
           ${card.username ? renderPMCopyButton({value: card.username, size: 'small'}) : nothing}
@@ -190,7 +190,7 @@ export class PMEntryBase extends ReatomLitElement {
     `
   }
 
-  protected renderPasswordField(card: Entry) {
+  protected renderPasswordField(_card: Entry) {
     const passwordResource = this.model.state.passwordResource()
     const isLoading = passwordResource.status === 'idle' || passwordResource.status === 'loading'
     const isReady = passwordResource.status === 'ready'
@@ -209,6 +209,7 @@ export class PMEntryBase extends ReatomLitElement {
               ? html`
                   <cv-input
                     class="password-input"
+                    dir="ltr"
                     type="password"
                     password-toggle
                     readonly
@@ -241,7 +242,7 @@ export class PMEntryBase extends ReatomLitElement {
           aria-label=${i18n('website')}
           @click=${url.openable ? this.onUrlClick : undefined}
         >
-          <span class="website-name">${url.value}</span>
+          <span class="website-name" dir="ltr">${url.value}</span>
           ${url.openable ? html`<cv-icon name="box-arrow-up-right" slot="suffix" aria-hidden="true"></cv-icon>` : nothing}
         </cv-link>
       `

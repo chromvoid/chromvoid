@@ -19,8 +19,20 @@ pub(super) fn validate_rp_id(rp_id: &str) -> Result<(), PasskeyError> {
     }
 }
 
+pub(super) fn normalize_rp_id(rp_id: &str) -> Result<String, PasskeyError> {
+    let rp_id = rp_id.trim().to_ascii_lowercase();
+    validate_rp_id(&rp_id)?;
+    if psl::domain_str(&rp_id).is_none() || psl::suffix_str(&rp_id) == Some(rp_id.as_str()) {
+        return Err(PasskeyError::new(
+            "INVALID_CONTEXT",
+            "rp.id must be a registrable domain",
+        ));
+    }
+    Ok(rp_id)
+}
+
 pub(super) fn validate_rp_id_for_origin(rp_id: &str, origin: &str) -> Result<(), PasskeyError> {
-    validate_rp_id(rp_id)?;
+    let rp_id = normalize_rp_id(rp_id)?;
 
     if origin.starts_with("android:apk-key-hash:") {
         return Ok(());
@@ -37,8 +49,6 @@ pub(super) fn validate_rp_id_for_origin(rp_id: &str, origin: &str) -> Result<(),
         .ok_or_else(|| PasskeyError::new("INVALID_CONTEXT", "origin host is required"))?
         .trim_end_matches('.')
         .to_ascii_lowercase();
-    let rp_id = rp_id.to_ascii_lowercase();
-
     if host == rp_id || host.ends_with(&format!(".{rp_id}")) {
         Ok(())
     } else {

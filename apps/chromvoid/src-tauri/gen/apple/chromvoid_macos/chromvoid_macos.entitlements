@@ -4,7 +4,11 @@
 <dict>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.com.chromvoid.app.shared</string>
+		<string>group.com.chromvoid.app.shared.lhwc37d5kt</string>
+	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.chromvoid.app.shared</string>
 	</array>
 </dict>
 </plist>

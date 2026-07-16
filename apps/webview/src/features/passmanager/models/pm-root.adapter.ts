@@ -1,6 +1,6 @@
 import {atom} from '@reatom/core'
 
-import {Entry, Group, ManagerRoot} from '@project/passmanager/core'
+import type {Entry, Group, ManagerRoot} from '@project/passmanager/core'
 import type {SubscribedSignal} from '../service/subscribed-signal'
 
 export type PMRootShowElement =
@@ -11,6 +11,8 @@ export type PMRootShowElement =
   | 'createGroup'
   | 'importDialog'
   | 'otpView'
+  | 'sshView'
+  | 'envRuntimeView'
   | undefined
 
 export const passmanagerRoot = atom<ManagerRoot | undefined>(undefined)

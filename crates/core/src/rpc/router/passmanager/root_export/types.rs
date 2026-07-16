@@ -1,3 +1,5 @@
+use crate::rpc::router::passmanager::ssh::SshKeyMetadata;
+use crate::rpc::router::passmanager::tags::TagCatalogMeta;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -12,7 +14,11 @@ pub(super) struct RootExportDocument {
     #[serde(rename = "foldersMeta")]
     folders_meta: Vec<ExportedFolderMeta>,
     tags: Vec<String>,
+    #[serde(rename = "tagMeta")]
+    tag_meta: TagCatalogMeta,
     entries: Vec<Value>,
+    #[serde(rename = "sshKeys")]
+    ssh_keys: Vec<SshKeyMetadata>,
 }
 
 impl RootExportDocument {
@@ -21,16 +27,20 @@ impl RootExportDocument {
         folders: Vec<String>,
         folders_meta: Vec<ExportedFolderMeta>,
         tags: Vec<String>,
+        tag_meta: TagCatalogMeta,
         entries: Vec<Value>,
+        ssh_keys: Vec<SshKeyMetadata>,
     ) -> Self {
         Self {
-            version: 1,
+            version: 4,
             created_ts: now_ms,
             updated_ts: now_ms,
             folders,
             folders_meta,
             tags,
+            tag_meta,
             entries,
+            ssh_keys,
         }
     }
 }

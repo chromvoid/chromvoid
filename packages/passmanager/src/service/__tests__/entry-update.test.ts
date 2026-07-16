@@ -392,7 +392,17 @@ describe('Entry.persistNew()', () => {
     expect(createdOtp).toBeDefined()
     expect(createdOtp?.id).toMatch(/^otp:/)
     expect(saver.saveEntryMeta).toHaveBeenCalledOnce()
-    expect(saver.saveOTP).toHaveBeenCalledWith(createdOtp?.id, 'JBSWY3DPEHPK3PXP')
+    expect(saver.saveOTP).toHaveBeenCalledWith(
+      createdOtp?.id,
+      'JBSWY3DPEHPK3PXP',
+      expect.objectContaining({
+        algorithm: 'SHA1',
+        digits: 6,
+        period: 30,
+        encoding: 'base32',
+        type: 'TOTP',
+      }),
+    )
   })
 
   it('persists OTP label updates through entry metadata', async () => {

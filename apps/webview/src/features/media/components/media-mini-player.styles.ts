@@ -4,15 +4,6 @@ export const mediaMiniPlayerStyles = css`
   :host {
     display: block;
     min-inline-size: 0;
-    --media-mini-surface: var(--cv-color-media-mini-surface);
-    --media-mini-surface-start: var(--cv-color-media-mini-surface-start);
-    --media-mini-surface-end: var(--cv-color-media-mini-surface-end);
-    --media-mini-border: var(--cv-color-media-mini-border);
-    --media-mini-text: var(--cv-color-media-mini-text);
-    --media-mini-text-secondary: var(--cv-color-media-mini-text-secondary);
-    --media-mini-text-muted: var(--cv-color-media-mini-text-muted);
-    --media-mini-accent: var(--cv-color-media-mini-accent);
-    --media-mini-accent-muted: var(--cv-color-media-mini-accent-muted);
   }
 
   :host([variant='statusbar']) {
@@ -28,17 +19,15 @@ export const mediaMiniPlayerStyles = css`
     position: relative;
     box-sizing: border-box;
     min-inline-size: 0;
-    --media-mini-artwork-size: 24px;
-    --media-mini-content-gap: var(--app-spacing-2);
     display: grid;
     grid-template-columns: 3px minmax(0, 1fr) auto;
     grid-template-rows: minmax(0, 1fr);
     align-items: center;
     column-gap: 8px;
     border: 1px solid var(--media-mini-border);
-    background: var(--cv-gradient-media-mini-surface);
-    color: var(--media-mini-text-secondary);
-    box-shadow: var(--cv-shadow-media-mini);
+    background: var(--media-mini-surface-gradient);
+    color: var(--media-mini-foreground-secondary);
+    box-shadow: var(--media-mini-shadow);
     cursor: pointer;
     overflow: visible;
     -webkit-tap-highlight-color: transparent;
@@ -60,7 +49,9 @@ export const mediaMiniPlayerStyles = css`
     max-block-size: 84px;
     grid-template-columns: 2px minmax(0, 1fr) auto;
     column-gap: 6px;
-    padding: 9px 12px 9px 8px;
+    padding-block: 9px;
+    padding-inline-start: 8px;
+    padding-inline-end: 12px;
     border-radius: 20px;
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
@@ -72,11 +63,13 @@ export const mediaMiniPlayerStyles = css`
     inset-inline-start: 0;
     inline-size: 1.5px;
     block-size: 44px;
-    border-radius: 0 1px 1px 0;
-    background: var(--cv-gradient-media-mini-accent-line);
+    border-radius: 0;
+    border-start-end-radius: 1px;
+    border-end-end-radius: 1px;
+    background: var(--media-mini-accent-line-gradient);
     clip-path: polygon(0 0, 100% 3px, 100% calc(100% - 3px), 0 100%);
     opacity: 0.78;
-    box-shadow: 0 0 8px var(--cv-color-media-mini-accent-glow);
+    box-shadow: 0 0 8px var(--media-mini-accent-glow);
     transform: translateY(-50%);
     transition: opacity 180ms var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1));
   }
@@ -85,8 +78,12 @@ export const mediaMiniPlayerStyles = css`
     opacity: 1;
   }
 
+  :host(:dir(rtl)) .media-mini-accent {
+    clip-path: polygon(100% 0, 0 3px, 0 calc(100% - 3px), 100% 100%);
+  }
+
   .media-mini[data-error='true'] .media-mini-accent {
-    background: var(--cv-gradient-media-mini-error-line);
+    background: var(--media-mini-error-line-gradient);
     box-shadow: none;
     opacity: 0.72;
   }
@@ -98,7 +95,7 @@ export const mediaMiniPlayerStyles = css`
     align-self: center;
     display: flex;
     align-items: center;
-    gap: var(--media-mini-content-gap);
+    gap: var(--app-spacing-2);
     min-block-size: 32px;
     padding: 0;
     border: 0;
@@ -128,9 +125,9 @@ export const mediaMiniPlayerStyles = css`
   }
 
   .media-mini-open::part(prefix) {
-    flex: 0 0 var(--media-mini-artwork-size);
-    inline-size: var(--media-mini-artwork-size);
-    min-inline-size: var(--media-mini-artwork-size);
+    flex: 0 0 24px;
+    inline-size: 24px;
+    min-inline-size: 24px;
     align-self: center;
   }
 
@@ -142,8 +139,8 @@ export const mediaMiniPlayerStyles = css`
   }
 
   .media-mini-artwork {
-    inline-size: var(--media-mini-artwork-size);
-    block-size: var(--media-mini-artwork-size);
+    inline-size: 24px;
+    block-size: 24px;
     align-self: center;
     justify-self: center;
     border-radius: 10px;
@@ -152,14 +149,14 @@ export const mediaMiniPlayerStyles = css`
 
   .media-mini-fallback-tile {
     box-sizing: border-box;
-    inline-size: var(--media-mini-artwork-size);
-    block-size: var(--media-mini-artwork-size);
+    inline-size: 24px;
+    block-size: 24px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid var(--cv-color-media-mini-accent-border);
+    border: 1px solid var(--media-mini-accent-border);
     border-radius: 10px;
-    background: var(--cv-gradient-media-mini-fallback-tile);
+    background: var(--media-mini-fallback-tile-gradient);
     color: var(--media-mini-accent);
     pointer-events: none;
   }
@@ -184,7 +181,7 @@ export const mediaMiniPlayerStyles = css`
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--media-mini-text);
+    color: var(--media-mini-foreground);
     font-size: var(--cv-font-size-sm);
     font-weight: var(--cv-font-weight-semibold);
     letter-spacing: 0;
@@ -195,7 +192,7 @@ export const mediaMiniPlayerStyles = css`
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--media-mini-text-secondary);
+    color: var(--media-mini-foreground-secondary);
     font-family: var(--cv-font-body, Inter, system-ui, sans-serif);
     font-size: var(--cv-font-size-xs);
     font-weight: var(--cv-font-weight-regular, 400);
@@ -204,17 +201,17 @@ export const mediaMiniPlayerStyles = css`
   }
 
   .media-mini-time[data-error='true'] {
-    color: var(--media-mini-text-secondary);
+    color: var(--media-mini-foreground-secondary);
   }
 
   .media-mini-progress {
     grid-column: 2;
     grid-row: 1;
-    inline-size: calc(100% - var(--media-mini-artwork-size) - var(--media-mini-content-gap));
+    inline-size: calc(100% - 24px - var(--app-spacing-2));
     min-inline-size: 0;
     block-size: 32px;
     min-block-size: 32px;
-    margin-inline-start: calc(var(--media-mini-artwork-size) + var(--media-mini-content-gap));
+    margin-inline-start: calc(24px + var(--app-spacing-2));
     align-self: end;
     cursor: pointer;
     touch-action: pan-y;
@@ -235,7 +232,7 @@ export const mediaMiniPlayerStyles = css`
     block-size: 3px;
     border: 0;
     border-radius: 999px;
-    background: var(--cv-color-media-mini-track);
+    background: var(--media-mini-track);
     overflow: visible;
   }
 
@@ -252,7 +249,7 @@ export const mediaMiniPlayerStyles = css`
     border: 0;
     border-radius: 999px;
     background: var(--media-mini-accent);
-    box-shadow: 0 0 0 3px var(--cv-color-media-mini-accent-glow-strong);
+    box-shadow: 0 0 0 3px var(--media-mini-accent-glow-strong);
   }
 
   .media-mini-progress[disabled] {
@@ -285,15 +282,15 @@ export const mediaMiniPlayerStyles = css`
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid var(--cv-color-media-mini-accent-border-strong);
+    border: 1px solid var(--media-mini-accent-border-strong);
     border-radius: 999px;
-    background: var(--cv-color-media-mini-accent-soft);
+    background: var(--media-mini-accent-soft);
     color: var(--media-mini-accent);
     cursor: pointer;
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
     box-shadow:
-      var(--cv-shadow-media-mini-control);
+      var(--media-mini-control-shadow);
     transition:
       transform 140ms var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
       border-color 140ms var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
@@ -310,7 +307,7 @@ export const mediaMiniPlayerStyles = css`
     --cv-menu-button-icon-overflow-menu-offset: 8px;
     --cv-menu-button-icon-overflow-menu-min-inline-size: 188px;
     --cv-menu-button-menu-z-index: var(--cv-z-overlay, 300);
-    color: var(--media-mini-text-secondary);
+    color: var(--media-mini-foreground-secondary);
   }
 
   .media-mini-menu::part(trigger) {
@@ -321,8 +318,8 @@ export const mediaMiniPlayerStyles = css`
     padding: 0;
     border: 1px solid var(--cv-alpha-white-8);
     border-radius: 999px;
-    background: var(--cv-color-media-mini-control-surface);
-    color: var(--media-mini-text-secondary);
+    background: var(--media-mini-control-surface);
+    color: var(--media-mini-foreground-secondary);
     transition:
       transform 140ms var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
       border-color 140ms var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
@@ -346,40 +343,53 @@ export const mediaMiniPlayerStyles = css`
     border: 1px solid var(--media-mini-border);
     border-radius: 14px;
     background: var(--media-mini-surface);
-    box-shadow: var(--cv-shadow-media-mini-menu);
+    box-shadow: var(--media-mini-menu-shadow);
   }
 
   .media-mini-menu cv-menu-item {
     --cv-menu-item-border-radius: 10px;
     --cv-menu-item-padding-block: 9px;
     --cv-menu-item-padding-inline: 12px;
-    color: var(--media-mini-text);
+    color: var(--media-mini-foreground);
   }
 
-  @media (hover: hover) and (pointer: fine) {
-    .media-mini-open:hover .media-mini-title {
-      color: var(--cv-color-media-mini-text);
-    }
+  .media-mini-open:hover .media-mini-title {
+    color: var(--media-mini-foreground);
+  }
 
-    .media-mini-button:hover {
-      border-color: var(--cv-color-media-mini-accent-border-hover);
-      background: var(--cv-color-media-mini-accent-surface-hover);
-    }
+  .media-mini-button:hover {
+    border-color: var(--media-mini-accent-border-hover);
+    background: var(--media-mini-accent-surface-hover);
+  }
 
-    .media-mini-menu:hover::part(trigger) {
-      border-color: var(--cv-color-media-mini-border-hover);
-      background: var(--cv-color-media-mini-control-surface-hover);
-      color: var(--media-mini-text);
-    }
+  .media-mini-menu:hover::part(trigger) {
+    border-color: var(--media-mini-border-hover);
+    background: var(--media-mini-control-surface-hover);
+    color: var(--media-mini-foreground);
   }
 
   :host([variant='mobile']) .media-mini-open {
     min-block-size: 52px;
   }
 
-  :host([variant='mobile']) .media-mini {
-    --media-mini-artwork-size: 52px;
-    --media-mini-content-gap: 14px;
+  :host([variant='mobile']) .media-mini-open {
+    gap: 14px;
+  }
+
+  :host([variant='mobile']) .media-mini-open::part(prefix) {
+    flex-basis: 52px;
+    inline-size: 52px;
+    min-inline-size: 52px;
+  }
+
+  :host([variant='mobile']) :is(.media-mini-artwork, .media-mini-fallback-tile) {
+    inline-size: 52px;
+    block-size: 52px;
+  }
+
+  :host([variant='mobile']) .media-mini-progress {
+    inline-size: calc(100% - 52px - 14px);
+    margin-inline-start: calc(52px + 14px);
   }
 
   :host([variant='mobile']) .media-mini-title {
@@ -415,12 +425,27 @@ export const mediaMiniPlayerStyles = css`
       column-gap: 6px;
       padding-inline-start: 8px;
       padding-inline-end: 10px;
-      --media-mini-artwork-size: 48px;
-      --media-mini-content-gap: 12px;
     }
 
     :host([variant='mobile']) .media-mini-open {
+      gap: 12px;
       min-block-size: 48px;
+    }
+
+    :host([variant='mobile']) .media-mini-open::part(prefix) {
+      flex-basis: 48px;
+      inline-size: 48px;
+      min-inline-size: 48px;
+    }
+
+    :host([variant='mobile']) :is(.media-mini-artwork, .media-mini-fallback-tile) {
+      inline-size: 48px;
+      block-size: 48px;
+    }
+
+    :host([variant='mobile']) .media-mini-progress {
+      inline-size: calc(100% - 48px - 12px);
+      margin-inline-start: calc(48px + 12px);
     }
 
     :host([variant='mobile']) .media-mini-menu {

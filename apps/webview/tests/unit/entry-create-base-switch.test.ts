@@ -67,15 +67,16 @@ describe('PMEntryCreateBase switch integration', () => {
     resetRuntimeCapabilities()
   })
 
-  it('renders OTP and SSH toggles as small cv-switch components', async () => {
+  it('renders only the OTP toggle as a small cv-switch component', async () => {
     const component = document.createElement('test-entry-create-switch') as TestEntryCreate
     document.body.append(component)
     await settle(component)
 
     const switches = getSwitches(component)
 
-    expect(switches).toHaveLength(2)
-    expect(switches.map((sw) => sw.getAttribute('size'))).toEqual(['small', 'small'])
+    expect(switches).toHaveLength(1)
+    expect(switches[0]?.getAttribute('size')).toBe('small')
+    expect(component.shadowRoot?.querySelector('pm-entry-ssh-generator')).toBeNull()
   })
 
   it('shows OTP form after toggling the cv-switch', async () => {
@@ -84,7 +85,7 @@ describe('PMEntryCreateBase switch integration', () => {
     await settle(component)
 
     const switches = getSwitches(component)
-    expect(switches).toHaveLength(2)
+    expect(switches).toHaveLength(1)
     const otpSwitch = switches[0]!
 
     expect(component.shadowRoot?.querySelector('pm-entry-otp-create')).toBeNull()
@@ -99,19 +100,4 @@ describe('PMEntryCreateBase switch integration', () => {
     expect(otpCreate?.shadowRoot?.querySelector('.qr-scan-button')).not.toBeNull()
   })
 
-  it('shows SSH generator after toggling the cv-switch', async () => {
-    const component = document.createElement('test-entry-create-switch') as TestEntryCreate
-    document.body.append(component)
-    await settle(component)
-
-    const switches = getSwitches(component)
-    expect(switches).toHaveLength(2)
-    const sshSwitch = switches[1]!
-
-    expect(component.shadowRoot?.querySelector('pm-entry-ssh-generator')).toBeNull()
-
-    await clickSwitch(component, sshSwitch)
-
-    expect(component.shadowRoot?.querySelector('pm-entry-ssh-generator')).not.toBeNull()
-  })
 })

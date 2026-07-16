@@ -26,8 +26,8 @@ export class PMEntrySshCreateSheet extends ReatomLitElement {
       display: contents;
     }
 
-    cv-bottom-sheet::part(header) {
-      padding: var(--cv-space-5) var(--cv-space-5) var(--cv-space-4);
+    cv-bottom-sheet {
+      --cv-bottom-sheet-header-padding: 0 var(--cv-space-5) var(--cv-space-4);
     }
 
     cv-bottom-sheet::part(body) {
@@ -112,6 +112,14 @@ export class PMEntrySshCreateSheet extends ReatomLitElement {
   }
 
   private onPrimary() {
+    const result = this.model.state.result()
+    if ((!result || result.pending) && !this.model.validate()) {
+      void this.updateComplete.then(() => {
+        this.shadowRoot?.querySelector<PMEntrySshCreate>('pm-entry-ssh-create')?.focusNameInput()
+      })
+      return
+    }
+
     this.dispatchEvent(new CustomEvent('pm-entry-ssh-create-sheet-primary', {bubbles: true, composed: true}))
   }
 
@@ -122,14 +130,11 @@ export class PMEntrySshCreateSheet extends ReatomLitElement {
   protected override render() {
     const result = this.model.state.result()
     const resultReady = Boolean(result && !result.pending)
-    const primaryDisabled = resultReady
-      ? !result?.publicKey
-      : this.saving || !this.model.state.canSubmit()
+    const primaryDisabled = resultReady ? !result?.publicKey : this.saving
 
     return html`
       <cv-bottom-sheet
         .open=${this.open}
-        initial-focus-id="ssh-name-input"
         @cv-change=${this.handleSheetChange}
       >
         <span slot="title">${this.title}</span>

@@ -33,8 +33,14 @@ export class VideoPlayer extends VideoPlayerBase {
       .header {
         padding: var(--app-spacing-4);
         padding-top: max(var(--app-spacing-4), env(safe-area-inset-top));
-        padding-left: max(var(--app-spacing-4), env(safe-area-inset-left));
-        padding-right: max(var(--app-spacing-4), env(safe-area-inset-right));
+        padding-inline-start: max(
+          var(--app-spacing-4),
+          var(--app-runtime-safe-area-inline-start, 0px)
+        );
+        padding-inline-end: max(
+          var(--app-spacing-4),
+          var(--app-runtime-safe-area-inline-end, 0px)
+        );
         background: var(--cv-alpha-black-50);
         backdrop-filter: blur(10px);
         color: white;
@@ -189,7 +195,7 @@ export class VideoPlayer extends VideoPlayerBase {
     const isLoading = this.loading()
     const fallbackLimited = this.fallbackLimited()
     const errorMessage = this.errorMessage()
-    const nativeVideo = this.sourceKind() === 'android-native-video'
+    const nativeVideo = this.sourceKind() === 'video-source' && this.sourceDelivery() === 'native-video'
 
     if (nativeVideo && !isLoading && !fallbackLimited && !errorMessage) {
       return nothing
@@ -260,16 +266,30 @@ export class VideoPlayer extends VideoPlayerBase {
                     </div>
                   `
                 : url
-                  ? html`
+                  ? // SPEC-231: no `autoplay` attribute — startup is model-driven
+                    // (VideoPlayerModel calls play() once the startup buffer budget is
+                    // reached). `preload="auto"` keeps the browser fetching ahead so the
+                    // model's buffered-ahead computation can make progress.
+                    html`
                       <video
                         class="player-video"
                         src=${url}
                         controls
-                        autoplay
+                        preload="auto"
                         playsinline
                         @loadedmetadata=${this.handleVideoElementReady}
                         @canplay=${this.handleVideoElementReady}
+                        @loadeddata=${this.handleVideoPlaybackEvent}
                         @error=${this.handleVideoElementError}
+                        @waiting=${this.handleVideoPlaybackEvent}
+                        @stalled=${this.handleVideoPlaybackEvent}
+                        @progress=${this.handleVideoPlaybackEvent}
+                        @seeking=${this.handleVideoPlaybackEvent}
+                        @seeked=${this.handleVideoPlaybackEvent}
+                        @playing=${this.handleVideoPlaybackEvent}
+                        @pause=${this.handleVideoPlaybackEvent}
+                        @canplaythrough=${this.handleVideoPlaybackEvent}
+                        @timeupdate=${this.handleVideoPlaybackEvent}
                       ></video>
                     `
                   : nothing}

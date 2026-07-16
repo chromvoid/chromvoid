@@ -9,6 +9,11 @@
  */
 
 import type {CatalogSyncManifestResponse} from './generated/CatalogSyncManifestResponse'
+import type {CredentialCandidate as GeneratedCredentialCandidate} from './generated/CredentialCandidate'
+import type {CredentialOneTimeCode as GeneratedCredentialOneTimeCode} from './generated/CredentialOneTimeCode'
+import type {CredentialProviderSessionResponse as GeneratedCredentialProviderSessionResponse} from './generated/CredentialProviderSessionResponse'
+import type {CredentialProviderStatusResponse as GeneratedCredentialProviderStatusResponse} from './generated/CredentialProviderStatusResponse'
+import type {CredentialSecret as GeneratedCredentialSecret} from './generated/CredentialSecret'
 import type {SyncShardResponse} from './generated/SyncShardResponse'
 
 /** Base route type */
@@ -36,26 +41,42 @@ export type CatalogListResponse = {
 
 export type ProviderContext = {kind: 'web'; origin: string; domain: string} | {kind: 'app'; app_id: string}
 
-export type CredentialCandidate = {
-  credential_id: string
-  label: string
-  username: string
-  domain?: string
-  app_id?: string
-  match: 'exact' | 'subdomain' | 'etld_plus_one' | 'app'
-  last_used_at?: number
+export type CredentialCandidate = GeneratedCredentialCandidate
+
+export type CredentialSecret = GeneratedCredentialSecret
+
+export type CredentialOneTimeCode = GeneratedCredentialOneTimeCode
+
+export type ProviderStatus = GeneratedCredentialProviderStatusResponse
+
+export type CredentialProviderSession = GeneratedCredentialProviderSessionResponse
+
+export type CredentialSecurityAuditEntrySummary = {
+  entryId: string
+  weakPassword: boolean
+  reusedPassword: boolean
+  hasTwoFactor: boolean
+  strengthScore: 0 | 1 | 2 | 3 | 4 | null
 }
 
-export type CredentialSecret = {
-  credential_id: string
-  username: string
-  password?: string
-  otp?: string
+export type CredentialSecurityAuditArtifactV1 = {
+  version: 1
+  algorithmVersion: 1
+  revision: string
+  generatedAt: number
+  entries: Record<string, CredentialSecurityAuditEntrySummary>
+  failedEntryIds: string[]
 }
 
-export type ProviderStatus = {
-  enabled: boolean
-  vault_open: boolean
+export type PassManagerSshKey = {
+  id: string
+  type: 'ed25519' | 'rsa' | 'ecdsa'
+  fingerprint: string
+  name?: string
+  comment?: string
+  sourceEntryId?: string
+  createdTs?: number
+  updatedTs?: number
 }
 
 /** Catalog command map */
@@ -128,13 +149,25 @@ export type CatalogCommandMap = {
     void
   >
   'passmanager:ssh:keygen': Route<
-    {entryId: string; keyType: 'ed25519' | 'rsa' | 'ecdsa'; comment?: string},
+    {
+      keyType: 'ed25519' | 'rsa' | 'ecdsa'
+      name?: string
+      comment?: string
+      sourceEntryId?: string
+    },
     {
       keyId: string
       publicKeyOpenssh: string
       fingerprint: string
       keyType: string
     }
+  >
+  'passmanager:ssh:list': Route<Record<string, never>, {sshKeys: PassManagerSshKey[]}>
+  'passmanager:ssh:key:update': Route<{key: PassManagerSshKey}, void>
+  'passmanager:ssh:key:delete': Route<{keyId: string}, void>
+  'passmanager:ssh:secret:read': Route<
+    {keyId: string; secretType: 'ssh_public_key'},
+    {value: string}
   >
   'passmanager:secret:read': Route<
     {entryId: string; secretType: 'password' | 'note' | 'card_pan' | 'card_cvv'},
@@ -151,13 +184,23 @@ export type CatalogCommandMap = {
   >
   'passmanager:group:list': Route<Record<string, never>, {groups: object[]}>
   'passmanager:group:delete': Route<{path: string}, void>
-  'passmanager:tags:setCatalog': Route<{tags: string[]}, void>
+  'passmanager:tags:setCatalog': Route<
+    {
+      tags: string[]
+      tagMeta?: Record<string, {colorId?: string}>
+      tag_meta?: Record<string, {colorId?: string; color_id?: string}>
+      sshKeys?: PassManagerSshKey[]
+    },
+    void
+  >
   'passmanager:root:import': Route<
     {
       entries: object[]
       folders: object[]
       foldersMeta?: object[]
       tags?: string[]
+      tagMeta?: Record<string, {colorId?: string}>
+      tag_meta?: Record<string, {colorId?: string; color_id?: string}>
       mode?: 'merge' | 'replace' | 'restore'
       reason?: string
       allowDestructive?: boolean
@@ -180,6 +223,18 @@ export type CatalogCommandMap = {
     {iconRef: string},
     {iconRef: string; mimeType: string; backgroundColor?: string | null; contentBase64: string}
   >
+  'passmanager:icon:getMany': Route<
+    {iconRefs: string[]},
+    {
+      icons: Array<{
+        iconRef: string
+        mimeType: string
+        backgroundColor?: string | null
+        contentBase64: string
+      }>
+      missingIconRefs: string[]
+    }
+  >
   'passmanager:icon:list': Route<
     Record<string, never>,
     {
@@ -197,6 +252,11 @@ export type CatalogCommandMap = {
   >
   'passmanager:icon:setMeta': Route<{iconRef: string; backgroundColor: string | null}, void>
   'passmanager:icon:gc': Route<Record<string, never>, {deleted: number}>
+  'passmanager:securityAudit:get': Route<
+    Record<string, never>,
+    {artifact: CredentialSecurityAuditArtifactV1 | null}
+  >
+  'passmanager:securityAudit:set': Route<{artifact: CredentialSecurityAuditArtifactV1}, void>
   'passmanager:otp:generate': Route<
     {
       nodeId?: number
@@ -207,8 +267,23 @@ export type CatalogCommandMap = {
       period?: number
       digits?: number
       ts?: number
+      type?: 'TOTP' | 'HOTP'
+      counter?: number
     },
     {otp: string}
+  >
+  'passmanager:otp:preview': Route<
+    {
+      secret: string
+      encoding: 'base32' | 'base64' | 'base16' | 'utf-8'
+      algorithm: string
+      digits: number
+      period: number
+      type: 'TOTP' | 'HOTP'
+      counter?: number
+      ts?: number
+    },
+    {otp: string; period: number; left_seconds: number}
   >
   'passmanager:otp:setSecret': Route<
     {
@@ -216,10 +291,12 @@ export type CatalogCommandMap = {
       entryId?: string
       label?: string
       secret: string
-      encoding?: 'base32' | 'base64' | 'hex'
+      encoding?: 'base32' | 'base64' | 'base16' | 'utf-8' | 'hex'
       algorithm?: string
       digits?: number
       period?: number
+      type?: 'TOTP' | 'HOTP'
+      counter?: number
     },
     void
   >
@@ -240,10 +317,7 @@ export type CommandMap = {
   pong: Route<Record<string, never>, null>
   auth: Route<{key: string}, null>
   'credential_provider:status': Route<Record<string, never>, ProviderStatus>
-  'credential_provider:session:open': Route<
-    Record<string, never>,
-    {provider_session: string; expires_at_ms: number}
-  >
+  'credential_provider:session:open': Route<Record<string, never>, CredentialProviderSession>
   'credential_provider:session:close': Route<{provider_session: string}, null>
   'credential_provider:list': Route<{context: ProviderContext}, {candidates: CredentialCandidate[]}>
   'credential_provider:search': Route<
@@ -251,8 +325,12 @@ export type CommandMap = {
     {candidates: CredentialCandidate[]}
   >
   'credential_provider:getSecret': Route<
-    {provider_session: string; credential_id: string; context?: ProviderContext},
+    {provider_session: string; credential_id: string; otp_id?: string; context?: ProviderContext},
     CredentialSecret
+  >
+  'credential_provider:getOneTimeCode': Route<
+    {provider_session: string; credential_id: string; otp_id: string; context: ProviderContext},
+    CredentialOneTimeCode
   >
   'credential_provider:recordUse': Route<
     {credential_id: string; provider_session?: string; context?: ProviderContext},

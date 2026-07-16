@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 
-use super::super::credential_types::{CredentialProviderEntry, ProviderContext};
+use super::super::credential_types::{CredentialProviderEntry, ProviderContext, ProviderMatchKind};
 use super::super::state::RpcRouter;
 
 #[derive(Debug, Clone, Serialize)]
@@ -22,6 +22,8 @@ pub(in crate::rpc::router) struct CredentialProviderCandidate {
     app_id: Option<String>,
     #[serde(rename = "match")]
     match_kind: &'static str,
+    #[serde(skip)]
+    match_priority: ProviderMatchKind,
     otp_options: Vec<CredentialProviderOtpCandidate>,
     last_used_at: Option<u64>,
 }
@@ -68,6 +70,7 @@ impl RpcRouter {
                 domain: matched_domain.or_else(|| entry.domain.clone()),
                 app_id: entry.app_id.clone(),
                 match_kind: kind.as_str(),
+                match_priority: kind,
                 otp_options: entry
                     .otp_options
                     .iter()
@@ -84,9 +87,12 @@ impl RpcRouter {
         candidates.sort_by(|left, right| {
             let l_used = left.last_used_at.unwrap_or(0);
             let r_used = right.last_used_at.unwrap_or(0);
-            r_used
-                .cmp(&l_used)
+            right
+                .match_priority
+                .cmp(&left.match_priority)
+                .then_with(|| r_used.cmp(&l_used))
                 .then_with(|| left.label.cmp(&right.label))
+                .then_with(|| left.credential_id.cmp(&right.credential_id))
         });
 
         candidates

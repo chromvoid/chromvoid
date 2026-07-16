@@ -8,7 +8,19 @@ function hasAssignedContent(slot: HTMLSlotElement | null): boolean {
 
   return slot
     .assignedNodes({flatten: true})
-    .some((node) => node.nodeType === Node.ELEMENT_NODE || node.textContent?.trim())
+    .some((node) => {
+      if (node instanceof HTMLElement) {
+        if (node.hidden) return false
+
+        if (node.hasAttribute('data-slot-forwarder')) {
+          return hasAssignedContent(node.querySelector('slot'))
+        }
+
+        return true
+      }
+
+      return Boolean(node.textContent?.trim())
+    })
 }
 
 export class DesktopShellToolbar extends ReatomLitElement {
@@ -37,27 +49,18 @@ export class DesktopShellToolbar extends ReatomLitElement {
         color: var(--cv-color-text);
         background: var(--cv-color-surface);
         border-block-end: 1px solid
-          var(--desktop-shell-toolbar-border-color, var(--app-toolbar-border-color, var(--cv-color-border-muted)));
+          var(--app-desktop-shell-toolbar-border-color, var(--app-toolbar-border-color, var(--cv-color-border-muted)));
         contain: style;
         container-type: inline-size;
-        --desktop-shell-toolbar-min-block-size: var(--app-toolbar-min-block-size, 64px);
-        --desktop-shell-toolbar-padding-block: var(--app-toolbar-padding-block, var(--app-spacing-4));
-        --desktop-shell-toolbar-padding-inline: var(--app-toolbar-padding-inline, var(--app-spacing-4));
-        --desktop-shell-toolbar-padding-inline-wide: var(
-          --app-toolbar-padding-inline-wide,
-          var(--app-spacing-6)
-        );
-        --desktop-shell-toolbar-row-gap: var(--app-toolbar-row-gap, var(--app-spacing-3));
-        --desktop-shell-toolbar-column-gap: var(--app-toolbar-column-gap, var(--app-spacing-4));
       }
 
       .toolbar {
         display: flex;
         align-items: center;
-        gap: var(--desktop-shell-toolbar-row-gap) var(--desktop-shell-toolbar-column-gap);
+        gap: var(--app-toolbar-row-gap) var(--app-toolbar-column-gap);
         min-inline-size: 0;
-        min-block-size: var(--desktop-shell-toolbar-min-block-size);
-        padding: var(--desktop-shell-toolbar-padding-block) var(--desktop-shell-toolbar-padding-inline);
+        min-block-size: var(--app-toolbar-min-block-size);
+        padding: var(--app-toolbar-padding-block) var(--app-toolbar-padding-inline);
         box-sizing: border-box;
       }
 
@@ -77,6 +80,12 @@ export class DesktopShellToolbar extends ReatomLitElement {
         flex: 0 0 auto;
         justify-items: end;
         margin-inline-start: auto;
+      }
+
+      :host([single-row]) .toolbar-primary {
+        grid-template-columns: auto auto minmax(0, 1fr);
+        grid-auto-flow: column;
+        gap: var(--app-spacing-3);
       }
 
       .toolbar-primary[hidden],
@@ -167,7 +176,7 @@ export class DesktopShellToolbar extends ReatomLitElement {
 
       @container (width >= 1200px) {
         .toolbar {
-          padding-inline: var(--desktop-shell-toolbar-padding-inline-wide);
+          padding-inline: var(--app-toolbar-padding-inline-wide);
         }
       }
 
@@ -189,6 +198,10 @@ export class DesktopShellToolbar extends ReatomLitElement {
           flex-basis: 100%;
           justify-content: stretch;
         }
+
+        :host([single-row]) .toolbar-primary {
+          flex-basis: 100%;
+        }
       }
 
       :host([two-row]) .toolbar {
@@ -198,10 +211,10 @@ export class DesktopShellToolbar extends ReatomLitElement {
           'leading leading actions'
           'start center end';
         align-items: center;
-        gap: var(--desktop-shell-toolbar-two-row-row-gap, var(--app-toolbar-two-row-row-gap, var(--app-spacing-4)))
+        gap: var(--app-desktop-shell-toolbar-two-row-row-gap, var(--app-toolbar-two-row-row-gap, var(--app-spacing-4)))
           var(
-            --desktop-shell-toolbar-two-row-column-gap,
-            var(--app-toolbar-two-row-column-gap, var(--desktop-shell-toolbar-column-gap))
+            --app-desktop-shell-toolbar-two-row-column-gap,
+            var(--app-toolbar-two-row-column-gap)
           );
       }
 

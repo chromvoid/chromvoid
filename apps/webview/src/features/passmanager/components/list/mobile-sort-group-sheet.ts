@@ -83,6 +83,10 @@ export class PMMobileSortGroupSheet extends ReatomLitElement {
       display: contents;
     }
 
+    cv-bottom-sheet {
+      --cv-bottom-sheet-header-padding: 0 var(--cv-space-4) var(--cv-space-1);
+    }
+
     cv-bottom-sheet::part(content) {
       border-color: var(--cv-color-border-strong);
       background: var(--cv-color-surface-elevated);
@@ -90,7 +94,6 @@ export class PMMobileSortGroupSheet extends ReatomLitElement {
     }
 
     cv-bottom-sheet::part(header) {
-      padding: 0 var(--cv-space-4) var(--cv-space-1);
       border-block-end: 1px solid var(--cv-color-border-glass);
     }
 

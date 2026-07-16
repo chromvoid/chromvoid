@@ -2,6 +2,7 @@ import { css, nothing } from "lit";
 import { html } from "@chromvoid/uikit/reatom-lit";
 import { CVOperationQueue } from "@chromvoid/uikit/components/cv-operation-queue";
 
+import { isolateLtrText } from "@project/i18n/pure";
 import { i18n } from "root/i18n";
 import { hostContentContainStyles, sharedStyles } from "root/shared/ui/shared-styles";
 
@@ -23,23 +24,29 @@ export class UploadProgressDesktop extends UploadProgressBase {
     hostContentContainStyles,
     css`
       :host {
-        min-inline-size: 300px;
-        max-inline-size: min(500px, calc(100vw - 40px));
+        inline-size: min(296px, calc(100vw - 32px));
+        min-inline-size: 0;
+        max-inline-size: 100%;
       }
 
       .upload-panel {
         display: block;
-        background: var(--cv-color-surface);
-        border-radius: var(--cv-radius-2);
-        box-shadow: var(--cv-shadow-2);
-        border: 1px solid var(--cv-color-border);
+        background: var(--app-editorial-surface-overlay, var(--cv-color-surface));
+        border-radius: var(--cv-radius-3);
+        box-shadow: var(--cv-shadow-3);
+        border: 1px solid var(--app-editorial-border-strong, var(--cv-color-border));
         overflow: hidden;
+        color: var(--app-editorial-text-primary, var(--cv-color-text));
         --cv-operation-queue-padding: 0;
         --cv-operation-queue-border: 0;
         --cv-operation-queue-radius: 0;
         --cv-operation-queue-background: transparent;
         --cv-operation-queue-shadow: 0 0 0 transparent;
         --cv-operation-queue-busy-line-opacity: 0;
+        --cv-operation-queue-summary-color: var(
+          --app-editorial-text-primary,
+          var(--cv-color-text)
+        );
       }
 
       cv-operation-queue.upload-panel::part(base) {
@@ -50,15 +57,18 @@ export class UploadProgressDesktop extends UploadProgressBase {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding-block: 10px;
-        padding-inline: 16px;
-        background: var(--cv-color-primary-surface);
-        color: var(--cv-color-primary);
+        min-block-size: 40px;
+        padding-block: var(--app-spacing-2);
+        padding-inline: var(--app-spacing-3);
+        background: var(--app-editorial-surface-overlay, var(--cv-color-surface));
+        border-block-end: 1px solid
+          var(--app-editorial-border-subtle, var(--cv-color-border-muted));
+        color: var(--app-editorial-text-primary, var(--cv-color-text));
         cursor: pointer;
         user-select: none;
 
         &:hover {
-          background: var(--cv-color-primary-surface-strong);
+          background: var(--app-editorial-interaction-hover-overlay, var(--cv-color-hover));
         }
       }
 
@@ -73,32 +83,51 @@ export class UploadProgressDesktop extends UploadProgressBase {
       .header-title {
         display: flex;
         align-items: center;
-        gap: 8px;
-        font-weight: 600;
+        min-inline-size: 0;
+        gap: var(--app-spacing-2);
+        font-size: var(--cv-font-size-sm);
+        font-weight: var(--cv-font-weight-semibold);
         cursor: pointer;
+
+        cv-icon {
+          color: var(--cv-color-primary);
+        }
       }
 
       .header-spinner {
-        font-size: 16px;
+        font-size: 14px;
         flex-shrink: 0;
       }
 
       .header-controls {
         display: flex;
-        gap: 8px;
+        gap: var(--app-spacing-1);
       }
 
       .header-btn {
-        padding: 4px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        inline-size: 28px;
+        block-size: 28px;
+        padding: 0;
         border: none;
         border-radius: var(--cv-radius-1);
         background: transparent;
-        color: var(--cv-color-primary);
+        color: var(--cv-color-text-muted);
         cursor: pointer;
-        transition: background var(--cv-duration-fast) var(--cv-easing-standard);
+        transition:
+          background-color var(--cv-duration-fast) var(--cv-easing-standard),
+          color var(--cv-duration-fast) var(--cv-easing-standard);
 
         &:hover {
-          background: var(--cv-color-primary-surface);
+          background: var(--cv-color-hover);
+          color: var(--cv-color-text);
+        }
+
+        &:focus-visible {
+          outline: 2px solid var(--cv-color-accent);
+          outline-offset: 1px;
         }
       }
 
@@ -117,12 +146,12 @@ export class UploadProgressDesktop extends UploadProgressBase {
       }
 
       .tasks-container {
-        max-block-size: 300px;
+        max-block-size: 240px;
         overflow-y: auto;
         padding: 0;
 
         &::-webkit-scrollbar {
-          inline-size: 8px;
+          inline-size: 6px;
         }
 
         &::-webkit-scrollbar-track {
@@ -136,17 +165,18 @@ export class UploadProgressDesktop extends UploadProgressBase {
       }
 
       .overall-progress {
-        padding-block: 8px;
-        padding-inline: 16px;
-        background: var(--cv-color-surface-2);
-        border-block-start: 1px solid var(--cv-color-border);
+        padding-block: var(--app-spacing-2);
+        padding-inline: var(--app-spacing-3);
+        background: var(--app-editorial-surface-muted, var(--cv-color-surface-2));
+        border-block-start: 1px solid
+          var(--app-editorial-border-subtle, var(--cv-color-border-muted));
       }
 
       .overall-stats {
         display: flex;
         flex-direction: column;
         gap: 4px;
-        font-size: 0.85em;
+        font-size: var(--cv-font-size-xs);
         color: var(--cv-color-text);
       }
 
@@ -162,8 +192,15 @@ export class UploadProgressDesktop extends UploadProgressBase {
 
       .overall-size-info {
         text-align: center;
-        font-size: 0.8em;
+        font-size: var(--cv-font-size-xs);
         color: var(--cv-color-text-muted);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .header-btn,
+        .collapsible-wrapper {
+          transition-duration: var(--cv-duration-instant, 0ms);
+        }
       }
     `,
   ];
@@ -185,17 +222,28 @@ export class UploadProgressDesktop extends UploadProgressBase {
     const displayedLoadedBytes = m.primaryDisplay.loadedBytes();
     const minimized = m.minimized();
     const queueTone = summary.tone === "active" ? "info" : summary.tone;
+    const transferLabel = i18n("file-manager:transfers", {
+      total: isolateLtrText(String(stats.total)),
+    });
+    const overallProgressLabel = i18n("file-manager:overall-progress", {
+      progress: isolateLtrText(String(Math.round(displayedProgress))),
+    });
+    const completedLabel = i18n("file-manager:completed-of-total", {
+      completed: isolateLtrText(String(primaryStats.completed)),
+      total: isolateLtrText(String(primaryStats.total)),
+    });
 
     return html`
       <cv-operation-queue
         class="upload-panel"
-        .label=${i18n("file-manager:transfers", { total: String(stats.total) })}
+        density="compact"
+        .label=${transferLabel}
         .busy=${m.hasActiveTransfers()}
         .tone=${queueTone}
       >
           <div slot="summary" class="header-title" @click=${m.toggleMinimize}>
             <cv-icon name=${m.headerIcon()}></cv-icon>
-            <span>${i18n("file-manager:transfers", { total: String(stats.total) })}</span>
+            <span>${transferLabel}</span>
             ${
               m.hasActiveTransfers()
                 ? html`<cv-spinner
@@ -225,23 +273,14 @@ export class UploadProgressDesktop extends UploadProgressBase {
         <div class="collapsible-wrapper ${minimized ? "collapsed" : ""}">
           <div class="collapsible-content">
             <div class="tasks-container">
-              ${tasks.map((task) => html`<upload-task-item .task=${task}></upload-task-item>`)}
+              ${tasks.map((task) => html`<upload-task-item .task=${task} compact></upload-task-item>`)}
             </div>
 
             <div class="overall-progress">
               <div class="overall-stats">
                 <div class="overall-progress-info">
-                  <span
-                    >${i18n("file-manager:overall-progress", {
-                      progress: String(Math.round(displayedProgress)),
-                    })}</span
-                  >
-                  <span
-                    >${i18n("file-manager:completed-of-total", {
-                      completed: String(primaryStats.completed),
-                      total: String(primaryStats.total),
-                    })}</span
-                  >
+                  <span>${overallProgressLabel}</span>
+                  <span>${completedLabel}</span>
                 </div>
                 <cv-progress
                   class="overall-progress-bar"
@@ -251,7 +290,9 @@ export class UploadProgressDesktop extends UploadProgressBase {
                   aria-label=${i18n("file-manager:transfers-progress")}
                 ></cv-progress>
                 <div class="overall-size-info">
-                  ${formatFileSize(displayedLoadedBytes)} / ${formatFileSize(primaryStats.totalBytes)}
+                  <bdi dir="ltr"
+                    >${formatFileSize(displayedLoadedBytes)} / ${formatFileSize(primaryStats.totalBytes)}</bdi
+                  >
                 </div>
               </div>
             </div>

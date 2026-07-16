@@ -10,8 +10,8 @@ import {getAppContext} from 'root/shared/services/app-context'
 import {dialogService} from 'root/shared/services/dialog'
 import {toast} from 'root/shared/services/toast-manager'
 
-import {WelcomeSharedModel} from './welcome-shared.model'
-import {openWelcomeMasterRekeyDialog} from './welcome-master-rekey-dialog'
+import type {WelcomeSharedModel} from './welcome-shared.model'
+import {openWelcomeMasterRekeyDialog, type WelcomeMasterRekeyDialogResult} from './welcome-master-rekey-dialog'
 
 type RpcOk<T> = {ok: true; result: T}
 type RpcErr = {ok: false; error: string; code?: string | null}
@@ -50,6 +50,40 @@ type MasterRekeyResult = {
   backup_recommended: boolean
 }
 
+type DeviceUtilitiesSheetScreen = 'list' | 'backup' | 'restore' | 'master-password' | 'system' | 'erase'
+
+export type WelcomeDesktopUtilityStatusItem = {
+  label: string
+  value: string
+  state?: 'connected' | 'idle'
+}
+
+type WelcomeToolsModelOptions = {
+  desktopStatusItems?: () => WelcomeDesktopUtilityStatusItem[]
+}
+
+type DeviceUtilitiesFormState = {
+  masterPassword: string
+  currentPassword: string
+  newMasterPassword: string
+  confirmPassword: string
+  restoreConfirmed: boolean
+  eraseConfirmed: boolean
+  error: string | null
+}
+
+function createDeviceUtilitiesFormState(): DeviceUtilitiesFormState {
+  return {
+    masterPassword: '',
+    currentPassword: '',
+    newMasterPassword: '',
+    confirmPassword: '',
+    restoreConfirmed: false,
+    eraseConfirmed: false,
+    error: null,
+  }
+}
+
 function isOk<T>(res: RpcResult<T>): res is RpcOk<T> {
   return typeof res === 'object' && res !== null && 'ok' in res && (res as {ok: unknown}).ok === true
 }
@@ -63,13 +97,17 @@ export class WelcomeToolsModel {
   readonly restoreCancelling!: ReturnType<typeof computed<boolean>>
   readonly restoreProgressPercent!: ReturnType<typeof computed<number>>
   readonly storePath!: ReturnType<typeof computed<string>>
-  readonly isDesktopRuntime!: ReturnType<typeof computed<boolean>>
   readonly supportsStorageRootSelection!: ReturnType<typeof computed<boolean>>
   readonly supportsMobileBackupRestore!: ReturnType<typeof computed<boolean>>
   readonly supportsAndroidSafBackupRestore!: ReturnType<typeof computed<boolean>>
+  readonly desktopStatusItems!: ReturnType<typeof computed<WelcomeDesktopUtilityStatusItem[]>>
   readonly backupProgress = atom<BackupProgressEvent | null>(null)
   readonly restoreProgress = atom<RestoreProgressEvent | null>(null)
   readonly masterRekeyInProgress = atom(false)
+  readonly deviceUtilitiesSheetOpen = atom(false)
+  readonly deviceUtilitiesScreen = atom<DeviceUtilitiesSheetScreen>('list')
+  readonly deviceUtilitiesForm = atom<DeviceUtilitiesFormState>(createDeviceUtilitiesFormState())
+  readonly deviceUtilitiesSubmitDisabled!: ReturnType<typeof computed<boolean>>
 
   private readonly backupState = atom({
     inProgress: false,
@@ -84,7 +122,7 @@ export class WelcomeToolsModel {
   private backupProgressUnlisten: UnlistenFn | null = null
   private restoreProgressUnlisten: UnlistenFn | null = null
 
-  constructor(shared: WelcomeSharedModel) {
+  constructor(shared: WelcomeSharedModel, options: WelcomeToolsModelOptions = {}) {
     this.shared = shared
     this.backupInProgress = computed<boolean>(() => this.shared.busy() && this.backupState().inProgress)
     this.backupCancelling = computed<boolean>(() => this.backupState().cancelling)
@@ -107,7 +145,6 @@ export class WelcomeToolsModel {
       return 0
     })
     this.storePath = computed<string>(() => String(getAppContext().state.data().StorePath ?? ''))
-    this.isDesktopRuntime = computed<boolean>(() => isTauriRuntime() && getRuntimeCapabilities().desktop)
     this.supportsStorageRootSelection = computed<boolean>(
       () => isTauriRuntime() && getRuntimeCapabilities().supports_storage_root_selection,
     )
@@ -115,6 +152,26 @@ export class WelcomeToolsModel {
       () => isTauriRuntime() && getRuntimeCapabilities().supports_mobile_backup_restore,
     )
     this.supportsAndroidSafBackupRestore = this.supportsMobileBackupRestore
+    this.desktopStatusItems = computed<WelcomeDesktopUtilityStatusItem[]>(
+      () => options.desktopStatusItems?.() ?? [],
+    )
+    this.deviceUtilitiesSubmitDisabled = computed<boolean>(() => {
+      if (this.shared.busy() || this.masterRekeyInProgress()) return true
+
+      const form = this.deviceUtilitiesForm()
+      switch (this.deviceUtilitiesScreen()) {
+        case 'backup':
+          return false
+        case 'restore':
+          return !form.restoreConfirmed
+        case 'erase':
+          return !form.eraseConfirmed
+        case 'master-password':
+          return false
+        default:
+          return true
+      }
+    })
   }
 
   disconnect(): void {
@@ -132,6 +189,105 @@ export class WelcomeToolsModel {
 
   togglePrivacy = () => {
     this.privacyMode.set(!this.privacyMode())
+  }
+
+  openDeviceUtilities = () => {
+    this.deviceUtilitiesScreen.set('list')
+    this.resetDeviceUtilitiesForm()
+    this.deviceUtilitiesSheetOpen.set(true)
+  }
+
+  openSystemUtilities = () => {
+    if (this.shared.busy()) return
+    this.deviceUtilitiesScreen.set('system')
+    this.resetDeviceUtilitiesForm()
+    this.deviceUtilitiesSheetOpen.set(true)
+  }
+
+  closeDeviceUtilities = () => {
+    this.deviceUtilitiesSheetOpen.set(false)
+    this.deviceUtilitiesScreen.set('list')
+    this.resetDeviceUtilitiesForm()
+  }
+
+  handleDeviceUtilitiesSheetChange = (event: Event) => {
+    const detail = (event as CustomEvent<{open?: boolean}>).detail
+    if (detail?.open === false) {
+      this.closeDeviceUtilities()
+    }
+  }
+
+  onBackupFromDeviceUtilities = () => {
+    if (this.shared.busy()) return
+    this.deviceUtilitiesScreen.set('backup')
+    this.resetDeviceUtilitiesForm()
+  }
+
+  onRestoreFromDeviceUtilities = () => {
+    if (this.shared.busy()) return
+    this.deviceUtilitiesScreen.set('restore')
+    this.resetDeviceUtilitiesForm()
+  }
+
+  onMasterPasswordChangeFromDeviceUtilities = () => {
+    if (this.shared.busy()) return
+    this.deviceUtilitiesScreen.set('master-password')
+    this.resetDeviceUtilitiesForm()
+  }
+
+  onEraseFromDeviceUtilities = () => {
+    if (this.shared.busy()) return
+    this.deviceUtilitiesScreen.set('erase')
+    this.resetDeviceUtilitiesForm()
+  }
+
+  backToDeviceUtilitiesList = () => {
+    this.deviceUtilitiesScreen.set('list')
+    this.resetDeviceUtilitiesForm()
+  }
+
+  handleDeviceUtilitiesMasterPasswordInput = (event: Event) => {
+    this.patchDeviceUtilitiesForm({masterPassword: this.resolveInputValue(event), error: null})
+  }
+
+  handleDeviceUtilitiesCurrentPasswordInput = (event: Event) => {
+    this.patchDeviceUtilitiesForm({currentPassword: this.resolveInputValue(event), error: null})
+  }
+
+  handleDeviceUtilitiesNewMasterPasswordInput = (event: Event) => {
+    this.patchDeviceUtilitiesForm({newMasterPassword: this.resolveInputValue(event), error: null})
+  }
+
+  handleDeviceUtilitiesConfirmPasswordInput = (event: Event) => {
+    this.patchDeviceUtilitiesForm({confirmPassword: this.resolveInputValue(event), error: null})
+  }
+
+  handleDeviceUtilitiesRestoreConfirmChange = (event: Event) => {
+    this.patchDeviceUtilitiesForm({restoreConfirmed: this.resolveCheckedValue(event), error: null})
+  }
+
+  handleDeviceUtilitiesEraseConfirmChange = (event: Event) => {
+    this.patchDeviceUtilitiesForm({eraseConfirmed: this.resolveCheckedValue(event), error: null})
+  }
+
+  handleDeviceUtilitiesBackupSubmit = (event: Event) => {
+    event.preventDefault()
+    void this.submitBackupFromDeviceUtilities()
+  }
+
+  handleDeviceUtilitiesRestoreSubmit = (event: Event) => {
+    event.preventDefault()
+    void this.submitRestoreFromDeviceUtilities()
+  }
+
+  handleDeviceUtilitiesMasterPasswordSubmit = (event: Event) => {
+    event.preventDefault()
+    void this.submitMasterPasswordFromDeviceUtilities()
+  }
+
+  handleDeviceUtilitiesEraseSubmit = (event: Event) => {
+    event.preventDefault()
+    void this.submitEraseFromDeviceUtilities()
   }
 
   onBackupClick = async () => {
@@ -158,28 +314,61 @@ export class WelcomeToolsModel {
     }))
     if (!pwd) return
 
+    await this.createBackup(pwd, typeof targetDir === 'string' ? targetDir : undefined)
+  }
+
+  private async submitBackupFromDeviceUtilities(): Promise<void> {
+    if (!isTauriRuntime()) return
+    if (this.shared.busy()) return
+
+    const masterPassword = this.deviceUtilitiesForm().masterPassword.trim()
+    if (!masterPassword) {
+      this.patchDeviceUtilitiesForm({error: i18n('welcome:master-required')})
+      return
+    }
+
+    const targetDir = this.supportsMobileBackupRestore()
+      ? undefined
+      : await wrap(open({
+          directory: true,
+          multiple: false,
+          title: i18n('welcome:backup-destination'),
+          defaultPath: this.storePath() || undefined,
+        }))
+    if (!this.supportsMobileBackupRestore() && !targetDir) return
+
+    const ok = await this.createBackup(masterPassword, typeof targetDir === 'string' ? targetDir : undefined)
+    if (ok) {
+      this.backToDeviceUtilitiesList()
+    }
+  }
+
+  private async createBackup(masterPassword: string, targetDir?: string): Promise<boolean> {
     try {
       this.backupState.set({inProgress: true, cancelling: false})
       this.backupProgress.set(null)
       this.shared.setBusy(true)
       await wrap(this.startBackupProgressListener())
       const args: {masterPassword: string; targetDir?: string} = {
-        masterPassword: pwd,
+        masterPassword,
       }
-      if (typeof targetDir === 'string') {
+      if (targetDir) {
         args.targetDir = targetDir
       }
       const res = await wrap(tauriInvoke<RpcCommandResult<{backup_dir: string}>>('backup_local_create', args))
 
       if (!isOk(res)) {
-        if (res.code === 'CANCELLED') return
+        if (res.code === 'CANCELLED') return false
         throw new Error(res.error)
       }
 
       guidanceModel.emitDomainEvent('backup.created')
       getAppContext().store.pushNotification('success', i18n('welcome:backup-created', {path: res.result.backup_dir}))
+      return true
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))
+      this.patchDeviceUtilitiesForm({error: error instanceof Error ? error.message : String(error)})
+      return false
     } finally {
       this.clearBackupProgressListener()
       this.backupProgress.set(null)
@@ -236,13 +425,41 @@ export class WelcomeToolsModel {
     )
     if (!pwd) return
 
+    await this.restoreFromBackup(pwd, backupPath)
+  }
+
+  private async submitRestoreFromDeviceUtilities(): Promise<void> {
+    if (!isTauriRuntime()) return
+    if (this.shared.busy()) return
+
+    const form = this.deviceUtilitiesForm()
+    const masterPassword = form.masterPassword.trim()
+    if (!form.restoreConfirmed) {
+      this.patchDeviceUtilitiesForm({error: i18n('welcome:restore-inline-confirm-required')})
+      return
+    }
+    if (!masterPassword) {
+      this.patchDeviceUtilitiesForm({error: i18n('welcome:master-required')})
+      return
+    }
+
+    const backupPath = await wrap(this.selectRestoreBackupPath())
+    if (!backupPath) return
+
+    const ok = await this.restoreFromBackup(masterPassword, backupPath)
+    if (ok) {
+      this.backToDeviceUtilitiesList()
+    }
+  }
+
+  private async restoreFromBackup(masterPassword: string, backupPath?: string): Promise<boolean> {
     try {
       this.restoreState.set({inProgress: true, cancelling: false})
       this.restoreProgress.set(null)
       this.shared.setBusy(true)
       await wrap(this.startRestoreProgressListener())
       const args: {masterPassword: string; backupPath?: string} = {
-        masterPassword: pwd,
+        masterPassword,
       }
       if (typeof backupPath === 'string') {
         args.backupPath = backupPath
@@ -252,15 +469,19 @@ export class WelcomeToolsModel {
       if (!isOk(res)) {
         if (res.code === 'CANCELLED') {
           toast.info(i18n('welcome:restore-cancelled'))
+          return false
         } else {
           throw new Error(res.error)
         }
       } else {
         guidanceModel.emitDomainEvent('restore.started')
         toast.success(i18n('onboard:restore:success'))
+        return true
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))
+      this.patchDeviceUtilitiesForm({error: error instanceof Error ? error.message : String(error)})
+      return false
     } finally {
       this.clearRestoreProgressListener()
       this.restoreProgress.set(null)
@@ -344,18 +565,46 @@ export class WelcomeToolsModel {
     )
     if (!pwd) return
 
+    await this.eraseDevice(pwd)
+  }
+
+  private async submitEraseFromDeviceUtilities(): Promise<void> {
+    if (!isTauriRuntime()) return
+    if (this.shared.busy()) return
+
+    const form = this.deviceUtilitiesForm()
+    const masterPassword = form.masterPassword.trim()
+    if (!form.eraseConfirmed) {
+      this.patchDeviceUtilitiesForm({error: i18n('welcome:erase-inline-confirm-required')})
+      return
+    }
+    if (!masterPassword) {
+      this.patchDeviceUtilitiesForm({error: i18n('welcome:master-required')})
+      return
+    }
+
+    const ok = await this.eraseDevice(masterPassword)
+    if (ok) {
+      this.backToDeviceUtilitiesList()
+    }
+  }
+
+  private async eraseDevice(masterPassword: string): Promise<boolean> {
     try {
       this.shared.setBusy(true)
       const res = await wrap(
         tauriInvoke<RpcCommandResult<unknown>>('erase_device', {
-          masterPassword: pwd,
+          masterPassword,
           confirm: true,
         }),
       )
       if (!isOk(res)) throw new Error(res.error)
       toast.success(i18n('welcome:device-erased'))
+      return true
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))
+      this.patchDeviceUtilitiesForm({error: error instanceof Error ? error.message : String(error)})
+      return false
     } finally {
       this.shared.setBusy(false)
     }
@@ -368,6 +617,23 @@ export class WelcomeToolsModel {
     const input = await wrap(openWelcomeMasterRekeyDialog())
     if (!input) return
 
+    await this.changeMasterPassword(input)
+  }
+
+  private async submitMasterPasswordFromDeviceUtilities(): Promise<void> {
+    if (!isTauriRuntime()) return
+    if (this.shared.busy()) return
+
+    const input = this.validateDeviceUtilitiesMasterPasswordInput()
+    if (!input) return
+
+    const ok = await this.changeMasterPassword(input)
+    if (ok) {
+      this.backToDeviceUtilitiesList()
+    }
+  }
+
+  private async changeMasterPassword(input: WelcomeMasterRekeyDialogResult): Promise<boolean> {
     try {
       this.masterRekeyInProgress.set(true)
       this.shared.setBusy(true)
@@ -381,8 +647,11 @@ export class WelcomeToolsModel {
         throw new Error(this.getMasterRekeyErrorMessage(res))
       }
       getAppContext().store.pushNotification('success', i18n('changepwd:success'))
+      return true
     } catch (error) {
       getAppContext().store.pushNotification('error', error instanceof Error ? error.message : String(error))
+      this.patchDeviceUtilitiesForm({error: error instanceof Error ? error.message : String(error)})
+      return false
     } finally {
       this.masterRekeyInProgress.set(false)
       this.shared.setBusy(false)
@@ -440,10 +709,6 @@ export class WelcomeToolsModel {
     }
   }
 
-  onPrintKit = () => {
-    window.print()
-  }
-
   getBackupPhaseLabel = (phase: string): string => {
     switch (phase) {
       case 'starting':
@@ -491,6 +756,55 @@ export class WelcomeToolsModel {
       default:
         return error.error
     }
+  }
+
+  private validateDeviceUtilitiesMasterPasswordInput(): WelcomeMasterRekeyDialogResult | null {
+    const state = this.deviceUtilitiesForm()
+    if (!state.currentPassword) {
+      this.patchDeviceUtilitiesForm({error: i18n('welcome:master-required')})
+      return null
+    }
+    if (!state.newMasterPassword) {
+      this.patchDeviceUtilitiesForm({error: i18n('welcome:master-required')})
+      return null
+    }
+    if (state.newMasterPassword.length < 12) {
+      this.patchDeviceUtilitiesForm({error: i18n('welcome:master-too-short')})
+      return null
+    }
+    if (state.newMasterPassword === state.currentPassword) {
+      this.patchDeviceUtilitiesForm({error: i18n('changepwd:same-password')})
+      return null
+    }
+    if (state.newMasterPassword !== state.confirmPassword) {
+      this.patchDeviceUtilitiesForm({error: i18n('welcome:master-mismatch')})
+      return null
+    }
+
+    return {
+      currentPassword: state.currentPassword,
+      newMasterPassword: state.newMasterPassword,
+    }
+  }
+
+  private resetDeviceUtilitiesForm(): void {
+    this.deviceUtilitiesForm.set(createDeviceUtilitiesFormState())
+  }
+
+  private patchDeviceUtilitiesForm(next: Partial<DeviceUtilitiesFormState>): void {
+    this.deviceUtilitiesForm.set({...this.deviceUtilitiesForm(), ...next})
+  }
+
+  private resolveInputValue(event: Event): string {
+    const customEvent = event as CustomEvent<{value?: string}>
+    const target = event.target as {value?: string} | null
+    return customEvent.detail?.value ?? target?.value ?? ''
+  }
+
+  private resolveCheckedValue(event: Event): boolean {
+    const customEvent = event as CustomEvent<{checked?: boolean}>
+    const target = event.target as {checked?: boolean} | null
+    return customEvent.detail?.checked ?? target?.checked ?? false
   }
 
   private async startBackupProgressListener(): Promise<void> {

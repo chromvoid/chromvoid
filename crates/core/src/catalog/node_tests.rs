@@ -54,9 +54,35 @@ fn test_source_revision_serde_defaults_for_legacy_nodes() {
 
     assert_eq!(file.source_revision(), 0);
     assert_eq!(file.media_info, None);
+    assert_eq!(file.trash, None);
     let initialized = file.ensure_source_revision();
     assert!(initialized > 0);
     assert_eq!(file.source_revision(), initialized);
+}
+
+#[test]
+fn test_trash_metadata_serde_uses_compact_field() {
+    let mut file = CatalogNode::new_file(7, "report.pdf".to_string(), 128, None);
+    file.trash = Some(CatalogTrashMetadata {
+        original_path: "/docs/report.pdf".to_string(),
+        deleted_at: 1234,
+        trash_name: "report.pdf-7".to_string(),
+    });
+
+    let value = serde_json::to_value(&file).expect("node should serialize");
+
+    assert_eq!(
+        value.get("x"),
+        Some(&serde_json::json!({
+            "p": "/docs/report.pdf",
+            "d": 1234,
+            "n": "report.pdf-7"
+        }))
+    );
+    assert!(value.get("trash").is_none());
+
+    let roundtrip: CatalogNode = serde_json::from_value(value).expect("node should deserialize");
+    assert_eq!(roundtrip.trash, file.trash);
 }
 
 #[test]
@@ -72,6 +98,9 @@ fn test_media_info_serde_uses_compact_field() {
         audio_tracks: 1,
         video_tracks: 0,
         playback_mime_type: Some("audio/mp4".to_string()),
+        codec_string: None,
+        mse_fragmented: None,
+        streaming_metadata: None,
     });
 
     let value = serde_json::to_value(&file).expect("node should serialize");
@@ -91,6 +120,35 @@ fn test_media_info_serde_uses_compact_field() {
     let roundtrip: CatalogNode = serde_json::from_value(value).expect("node should deserialize");
     assert_eq!(roundtrip.media_info, file.media_info);
     assert_eq!(roundtrip.mime_type, Some("video/mp4".to_string()));
+}
+
+#[test]
+fn test_media_info_serde_supports_mse_metadata_without_requiring_it() {
+    let media_info = CatalogMediaInfo {
+        kind: CatalogMediaKind::Video,
+        audio_tracks: 1,
+        video_tracks: 1,
+        playback_mime_type: Some("video/mp4".to_string()),
+        codec_string: Some("video/mp4; codecs=\"avc1.42E01E, mp4a.40.2\"".to_string()),
+        mse_fragmented: Some(true),
+        streaming_metadata: None,
+    };
+
+    let value = serde_json::to_value(&media_info).expect("media info should serialize");
+    assert_eq!(value["c"], "video/mp4; codecs=\"avc1.42E01E, mp4a.40.2\"");
+    assert_eq!(value["f"], true);
+
+    let old_value = serde_json::json!({
+        "k": "video",
+        "a": 1,
+        "v": 1,
+        "m": "video/mp4"
+    });
+    let parsed: CatalogMediaInfo =
+        serde_json::from_value(old_value).expect("old media info should deserialize");
+    assert_eq!(parsed.codec_string, None);
+    assert_eq!(parsed.mse_fragmented, None);
+    assert_eq!(parsed.streaming_metadata, None);
 }
 
 #[test]

@@ -106,12 +106,15 @@ export class OTP {
     const request = (async () => {
       try {
         await wrap(this.entry.flushPendingPersistence())
+        const otpType = peek(this.type)
         const {algorithm, ...data} = {...this.data}
         const code = await wrap(this.entry.root.managerSaver.getOTP({
           ...data,
-          period: peek(this.type) === 'HOTP' ? 1 : this.data.period,
-          ts: requestKey,
+          period: this.data.period,
+          ts: otpType === 'HOTP' ? 0 : requestKey,
           ha: algorithm,
+          type: otpType,
+          counter: otpType === 'HOTP' ? requestKey : undefined,
           entryId: this.entry.id,
           label: this.data.label,
           entryTitle: this.entry.title,

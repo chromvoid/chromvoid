@@ -2,6 +2,7 @@ import {computed, type Computed} from '@reatom/core'
 import {writeAndroidUnlockDebug} from '../../shared/services/android-unlock-debug'
 
 import type {ChromVoidState} from '../../core/state/app-state'
+import {runtimeModeModel} from '../../core/runtime/runtime-mode.model'
 import type {TransportLike} from '../../core/transport/transport'
 import type {Store} from '../state/store'
 
@@ -66,9 +67,16 @@ export class Router {
       const s = state.data()
       const needInit = Boolean(s.NeedUserInitialization)
       const opened = Boolean(s.StorageOpened)
-      const allowRemoteDashboard = store.remoteSessionState() === 'ready'
+      const remoteSessionState = store.remoteSessionState()
+      const allowRemoteDashboard = remoteSessionState === 'ready'
+      const waitingRemoteSession =
+        (remoteSessionState !== 'inactive' || runtimeModeModel.remoteCoreMode()) && !allowRemoteDashboard
 
       if (isVaultLockPending(store)) {
+        return 'welcome'
+      }
+
+      if (waitingRemoteSession) {
         return 'welcome'
       }
 

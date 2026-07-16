@@ -18,7 +18,7 @@ export const paymentCardFaceStyles = css`
     padding: clamp(1rem, 2.8vw, 1.35rem);
     border-radius: 1.5rem;
     overflow: hidden;
-    background: var(--cv-gradient-card-face);
+    background: var(--pm-payment-card-face-gradient);
     border: 1px solid var(--cv-color-border-glass);
     box-shadow:
       0 12px 28px var(--cv-alpha-black-20),
@@ -41,7 +41,7 @@ export const paymentCardFaceStyles = css`
     inset-block-start: -22%;
     inline-size: 11rem;
     block-size: 11rem;
-    background: var(--cv-gradient-card-orb-primary);
+    background: var(--pm-payment-card-orb-primary-gradient);
   }
 
   .payment-card-face::after {
@@ -49,7 +49,7 @@ export const paymentCardFaceStyles = css`
     inset-block-end: -26%;
     inline-size: 10rem;
     block-size: 10rem;
-    background: var(--cv-gradient-card-orb-secondary);
+    background: var(--pm-payment-card-orb-secondary-gradient);
   }
 
   .payment-card-face > * {
@@ -221,7 +221,7 @@ export const paymentCardFaceStyles = css`
     block-size: 2.45rem;
     padding: 0.45rem;
     border-radius: 0.7rem;
-    background: var(--cv-gradient-card-chip-soft);
+    background: var(--pm-payment-card-chip-soft-gradient);
     box-shadow:
       inset 0 1px 0 var(--cv-alpha-white-15),
       0 4px 12px var(--cv-alpha-black-14);
@@ -390,7 +390,7 @@ export const paymentCardFaceStyles = css`
   .payment-card-cvv-value.is-loading {
     display: block;
     border-radius: 999px;
-    background: var(--cv-gradient-card-shimmer);
+    background: var(--pm-payment-card-shimmer-gradient);
     background-size: 200% 100%;
   }
 

@@ -42,6 +42,7 @@ pub(super) fn write_full_catalog_for_rekey(
         meta.base_version = catalog.version();
         meta.last_delta_seq = catalog.version();
         meta.update_stats(shard.node_count(), shard.size());
+        meta.update_root_summary(&shard.root);
         root_index.shards.insert(meta.shard_id.clone(), meta);
 
         shard.version = catalog.version();

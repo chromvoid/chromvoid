@@ -1,4 +1,4 @@
-import {atom, computed} from '@reatom/core'
+import {atom, computed, wrap} from '@reatom/core'
 
 import {Group, ManagerRoot} from '@project/passmanager/core'
 import {filterValue} from '@project/passmanager/select'
@@ -61,10 +61,13 @@ export class PMSearchInputModel {
   input(value: string): void {
     this.inputValue.set(value)
     this.clearDebounce()
-    this.debounceTimer = window.setTimeout(() => {
-      filterValue.set(value)
-      this.debounceTimer = undefined
-    }, this.debounceMs)
+    this.debounceTimer = window.setTimeout(
+      wrap(() => {
+        filterValue.set(value)
+        this.debounceTimer = undefined
+      }),
+      this.debounceMs,
+    )
   }
 
   submit(value: string): void {

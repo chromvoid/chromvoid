@@ -30,12 +30,27 @@ pub(super) fn stage_imported_otp_secrets(
             .and_then(Value::as_str)
             .unwrap_or("SHA1")
             .to_uppercase();
+        let encoding = otp
+            .get("encoding")
+            .and_then(Value::as_str)
+            .map(|value| if value == "hex" { "base16" } else { value })
+            .unwrap_or("base32")
+            .to_string();
+        let otp_type = otp
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("TOTP")
+            .to_uppercase();
+        let counter = otp.get("counter").and_then(Value::as_u64);
         let digits = otp.get("digits").and_then(Value::as_u64).unwrap_or(6) as u8;
         let period = otp.get("period").and_then(Value::as_u64).unwrap_or(30) as u32;
         secrets.secrets.retain(|item| item.label != label);
         secrets.secrets.push(OtpSecret {
             label,
             secret: secret_value.to_string(),
+            encoding,
+            otp_type,
+            counter,
             algorithm,
             digits,
             period,

@@ -19,11 +19,7 @@ export const mobileQuickViewShellStyles = css`
     background: var(--cv-color-surface-1);
   }
 
-  .clear-filters--compact {
-    flex: 0 0 auto;
-  }
-
   .row {
-    padding: var(--mobile-quick-view-row-padding, var(--cv-space-2));
+    padding: var(--cv-space-2);
   }
 `

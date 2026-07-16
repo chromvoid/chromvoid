@@ -1,5 +1,13 @@
 import {getAppContext} from 'root/shared/services/app-context'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
+import {
+  getRuntimeMediaProbeState,
+  loopbackHttpProbeAllows,
+  mobileNativeVideoProbeAllows,
+  peekVideoDecodeSupport,
+  probeVideoDecodeSupport,
+  type VideoDecodeProbeResult,
+} from 'root/core/runtime/runtime-media-probes'
 import {runtimeModeModel} from 'root/core/runtime/runtime-mode.model'
 import {
   notifyAndroidNativeVideoLifecycleEnd,
@@ -14,8 +22,9 @@ import {
 } from 'root/utils/file-format-registry'
 import type {FileMediaInfo} from 'root/core/catalog/media-info'
 import type {
-  PreparedAndroidVideoSource,
   PreparedMediaStreamSource,
+  PreparedVideoDelivery,
+  PreparedVideoSource,
   PreparedPreviewFileSource,
   PreviewCachePurgeReason,
 } from 'root/core/transport/transport'
@@ -27,6 +36,11 @@ import {
   logImageGalleryDebug,
   warnImageGalleryDebug,
 } from './image-gallery-debug'
+import {
+  createMseVideoSourceDescriptor,
+  isMseVideoSourceSelectable,
+  type MseVideoSourceDescriptor,
+} from 'root/features/media/models/mse-video-source-controller'
 import {
   cancelImageDisplaySchedulerJobs,
   getDefaultImageDisplayJobPriority,
@@ -67,10 +81,23 @@ export type FileBlobLoadResult = {
 }
 
 export type FileSourceLoadResult = {
-  kind: 'blob' | 'media-stream' | PreparedAndroidVideoSource['kind'] | PreparedPreviewFileSource['kind']
+  kind:
+    | 'blob'
+    | PreparedVideoSource['kind']
+    | 'media-stream'
+    | PreparedPreviewFileSource['kind']
   url: string
+  fallbackUrl?: string
+  delivery?: PreparedMediaStreamSource['delivery'] | PreparedVideoDelivery['delivery']
   streamId?: string
+  sourceToken?: string
   token?: string
+  nativeSourceToken?: string
+  provider?: PreparedVideoSource['provider']
+  mse?: MseVideoSourceDescriptor
+  mediaSourceGeneration?: number
+  transportSessionGeneration?: number
+  appForegroundEpoch?: number
   size: number
   mimeType: string
   sourceRevision?: number
@@ -91,6 +118,10 @@ export type FileBlobLoadOptions = {
   displayJobPriority?: number
   displayJobIntentId?: string
   materializationPriority?: number
+  /**
+   * Deprecated no-op kept for older call sites while Android video migrates to
+   * generic video-source/native-video delivery.
+   */
   allowAndroidNativeVideo?: boolean
   mediaInfo?: FileMediaInfo | null
 }
@@ -105,10 +136,12 @@ export type VideoSourceAttemptDebug = {
   coreMode: 'local' | 'switching' | 'remote'
   selectedPath:
     | 'desktop-media-stream'
-    | 'android-native-video'
+    | 'video-source'
+    | 'native-video'
     | 'blob'
     | 'fallback-limited'
     | 'unsupported'
+    | 'provider-unavailable'
 }
 
 export const MAX_MEDIA_BLOB_FALLBACK_BYTES = 64 * 1024 * 1024
@@ -240,6 +273,10 @@ function classifyDerivativeFailure(
   }
 
   const code = getStableErrorCode(error)
+  if (code === 'DERIVATIVE_UNAVAILABLE') {
+    return 'DERIVATIVE_UNAVAILABLE'
+  }
+
   if (code === 'PREVIEW_DECODE') {
     return 'PREVIEW_DECODE'
   }
@@ -441,6 +478,26 @@ function mediaFormatInput(
   return {name: fileName, mimeType, mediaInfo}
 }
 
+function targetVideoPlatform(): boolean {
+  const platform = getRuntimeCapabilities().platform
+  return platform === 'android' || platform === 'macos'
+}
+
+function isTargetRawVideoRequest(
+  transportKind: string,
+  fileName: string,
+  mimeType: string,
+  variant: FileBlobVariant,
+  mediaInfo?: FileMediaInfo | null,
+): boolean {
+  return (
+    transportKind === 'tauri' &&
+    variant === 'raw' &&
+    targetVideoPlatform() &&
+    isPlayableVideoMediaFile(mediaFormatInput(fileName, mimeType, mediaInfo))
+  )
+}
+
 function effectiveMediaMimeType(fileName: string, options?: FileBlobLoadOptions): string {
   return (
     options?.mediaInfo?.playbackMimeType?.trim() ||
@@ -493,6 +550,40 @@ function assertMediaBlobFallbackAllowed(
 
   const input = mediaFormatInput(fileName, mimeType, options?.mediaInfo)
   const playbackKind = resolveMediaPlaybackKind(input)
+  if (transportKind === 'tauri' && playbackKind === 'video' && targetVideoPlatform()) {
+    const sourceSize = getAuthoritativeSourceSize(fileId, options)
+    logVideoSourceAttempt(
+      fileId,
+      fileName,
+      mimeType,
+      variant,
+      transportKind,
+      'provider-unavailable',
+      sourceSize,
+    )
+    throw createVideoSourceLoadError('MEDIA_VIDEO_PROVIDER_UNAVAILABLE', 'provider-unavailable', {
+      sourceSize,
+      fallbackLimitBytes: MAX_MEDIA_BLOB_FALLBACK_BYTES,
+    })
+  }
+  if (transportKind === 'tauri' && playbackKind === 'video') {
+    const sourceSize = getAuthoritativeSourceSize(fileId, options)
+    logVideoSourceAttempt(
+      fileId,
+      fileName,
+      mimeType,
+      variant,
+      transportKind,
+      'fallback-limited',
+      sourceSize,
+    )
+    throw createMediaBlobFallbackLimitError(
+      `MEDIA_BLOB_FALLBACK_LIMIT:video-source-required:${MAX_MEDIA_BLOB_FALLBACK_BYTES}`,
+      sourceSize,
+      MAX_MEDIA_BLOB_FALLBACK_BYTES,
+      'video-source-required',
+    )
+  }
   if (
     playbackKind !== 'audio' &&
     isVideoFile(fileName, mimeType) &&
@@ -500,6 +591,12 @@ function assertMediaBlobFallbackAllowed(
   ) {
     const sourceSize = getAuthoritativeSourceSize(fileId, options)
     logVideoSourceAttempt(fileId, fileName, mimeType, variant, transportKind, 'unsupported', sourceSize)
+    if (transportKind === 'tauri' && targetVideoPlatform()) {
+      throw createVideoSourceLoadError('MEDIA_VIDEO_UNSUPPORTED', 'unsupported', {
+        sourceSize,
+        fallbackLimitBytes: MAX_MEDIA_BLOB_FALLBACK_BYTES,
+      })
+    }
     throw createMediaBlobFallbackLimitError(
       `MEDIA_BLOB_FALLBACK_LIMIT:unsupported:${MAX_MEDIA_BLOB_FALLBACK_BYTES}`,
       sourceSize,
@@ -514,6 +611,24 @@ function assertMediaBlobFallbackAllowed(
 
   const fallbackLimitBytes = getMediaBlobFallbackLimitBytes(fileName, mimeType, options?.mediaInfo)
   const sourceSize = getAuthoritativeSourceSize(fileId, options)
+  if (runtimeModeModel.remoteCoreMode()) {
+    logVideoSourceAttempt(
+      fileId,
+      fileName,
+      mimeType,
+      variant,
+      transportKind,
+      'fallback-limited',
+      sourceSize,
+    )
+    throw createMediaBlobFallbackLimitError(
+      `MEDIA_BLOB_FALLBACK_LIMIT:remote-stream-required:${fallbackLimitBytes}`,
+      sourceSize,
+      fallbackLimitBytes,
+      'remote-media-stream-required',
+    )
+  }
+
   if (sourceSize !== null && sourceSize <= fallbackLimitBytes) {
     logVideoSourceAttempt(fileId, fileName, mimeType, variant, transportKind, 'blob', sourceSize)
     return
@@ -569,27 +684,102 @@ function shouldUseMediaStreamForRequest(
   variant: FileBlobVariant,
   mediaInfo?: FileMediaInfo | null,
 ): boolean {
+  if (isTargetRawVideoRequest(transportKind, fileName, mimeType, variant, mediaInfo)) {
+    return false
+  }
+
   return (
     variant === 'raw' &&
     resolveMediaPlaybackKind(mediaFormatInput(fileName, mimeType, mediaInfo)) !== null &&
-    runtimeModeModel.canUseNativeMediaStream({transportKind})
+    runtimeModeModel.canUseMediaStreamSource({transportKind})
   )
 }
 
-function shouldUseAndroidNativeVideoForRequest(
+function shouldUseVideoSourceForRequest(
   transportKind: string,
   fileName: string,
   mimeType: string,
   variant: FileBlobVariant,
-  allowAndroidNativeVideo: boolean,
   mediaInfo?: FileMediaInfo | null,
 ): boolean {
-  return (
-    variant === 'raw' &&
-    allowAndroidNativeVideo &&
-    isPlayableVideoMediaFile(mediaFormatInput(fileName, mimeType, mediaInfo)) &&
-    runtimeModeModel.canUseNativeVideoPlayback({transportKind})
+  if (transportKind !== 'tauri' || variant !== 'raw') return false
+  if (!isPlayableVideoMediaFile(mediaFormatInput(fileName, mimeType, mediaInfo))) return false
+
+  const capabilities = getRuntimeCapabilities()
+  if (capabilities.mobile) {
+    return runtimeModeModel.canUseMobileNativeVideoSource({transportKind})
+  }
+
+  return runtimeModeModel.canUseHttpVideoSource({transportKind})
+}
+
+function throwIfVideoDecodeUnsupported(
+  fileId: number,
+  fileName: string,
+  mimeType: string,
+  decodeSupport: VideoDecodeProbeResult,
+  options?: FileBlobLoadOptions,
+): void {
+  if (decodeSupport.supported) {
+    return
+  }
+  const sourceSize = getAuthoritativeSourceSize(fileId, options)
+  logVideoSourceAttempt(
+    fileId,
+    fileName,
+    mimeType,
+    options?.variant ?? 'raw',
+    'tauri',
+    'unsupported',
+    sourceSize,
   )
+  throw createVideoSourceLoadError(
+    'MEDIA_VIDEO_UNSUPPORTED',
+    decodeSupport.reason ?? 'unsupported-codec',
+    {sourceSize, fallbackLimitBytes: MAX_MEDIA_BLOB_FALLBACK_BYTES},
+  )
+}
+
+function assertVideoSourceRuntimeProbeSupport(
+  fileId: number,
+  fileName: string,
+  mimeType: string,
+  options?: FileBlobLoadOptions,
+): void {
+  const sourceSize = getAuthoritativeSourceSize(fileId, options)
+  const mediaProbes = getRuntimeMediaProbeState()
+  const capabilities = getRuntimeCapabilities()
+  if (capabilities.desktop && !loopbackHttpProbeAllows(mediaProbes)) {
+    logVideoSourceAttempt(
+      fileId,
+      fileName,
+      mimeType,
+      options?.variant ?? 'raw',
+      'tauri',
+      'provider-unavailable',
+      sourceSize,
+    )
+    throw createVideoSourceLoadError('MEDIA_VIDEO_PROVIDER_UNAVAILABLE', 'loopback-http-probe-unavailable', {
+      sourceSize,
+      fallbackLimitBytes: MAX_MEDIA_BLOB_FALLBACK_BYTES,
+    })
+  }
+
+  if (capabilities.mobile && !mobileNativeVideoProbeAllows(mediaProbes)) {
+    logVideoSourceAttempt(
+      fileId,
+      fileName,
+      mimeType,
+      options?.variant ?? 'raw',
+      'tauri',
+      'provider-unavailable',
+      sourceSize,
+    )
+    throw createVideoSourceLoadError('MEDIA_VIDEO_PROVIDER_UNAVAILABLE', 'native-video-probe-unavailable', {
+      sourceSize,
+      fallbackLimitBytes: MAX_MEDIA_BLOB_FALLBACK_BYTES,
+    })
+  }
 }
 
 async function probePreparedSourceLoadability(url: string, signal?: AbortSignal): Promise<boolean> {
@@ -684,39 +874,103 @@ function trackMediaStreamSource(
         sourceRevision: source.sourceRevision,
         releaseReason: 'release',
       }),
-      streamId: source.streamId,
+      streamIdPresent: Boolean(source.streamId),
+      delivery: source.delivery ?? 'custom-scheme',
       size: source.size,
     })
     await releaseMediaStream?.(source)
   }
 }
 
-function trackAndroidVideoSource(
+function selectedVideoDelivery(
+  source: PreparedVideoSource,
+  mediaInfo?: FileMediaInfo | null,
+): PreparedVideoDelivery | null {
+  const capabilities = getRuntimeCapabilities()
+  if (capabilities.mobile) {
+    if (!runtimeModeModel.canUseMobileNativeVideoSource({transportKind: 'tauri'})) return null
+    return source.deliveries.find(isMobileNativeVideoDelivery) ?? null
+  }
+
+  if (capabilities.desktop) {
+    const nativeDelivery = runtimeModeModel.canUseDesktopNativeVideoSource({transportKind: 'tauri'})
+      ? source.deliveries.find(isDesktopNativeVideoDelivery)
+      : null
+    if (nativeDelivery) return nativeDelivery
+
+    const mseDelivery = source.deliveries.find(isDesktopMseDelivery)
+    if (mseDelivery && isMseDeliverySelectable(mseDelivery, source.mimeType, mediaInfo)) return mseDelivery
+
+    if (!runtimeModeModel.canUseHttpVideoSource({transportKind: 'tauri'})) return null
+    return source.deliveries.find(isDesktopLoopbackHttpDelivery) ?? null
+  }
+
+  return null
+}
+
+function isDesktopLoopbackHttpDelivery(delivery: PreparedVideoDelivery): boolean {
+  return delivery.delivery === 'loopback-http' && delivery.platform === 'desktop'
+}
+
+function isDesktopMseDelivery(delivery: PreparedVideoDelivery): boolean {
+  return delivery.delivery === 'mse' && delivery.platform === 'desktop'
+}
+
+function isDesktopNativeVideoDelivery(delivery: PreparedVideoDelivery): boolean {
+  return delivery.delivery === 'native-video' && delivery.platform === 'desktop'
+}
+
+function isMobileNativeVideoDelivery(delivery: PreparedVideoDelivery): boolean {
+  return delivery.delivery === 'native-video' && delivery.platform === 'mobile'
+}
+
+function isMseDeliverySelectable(
+  delivery: PreparedVideoDelivery,
+  mimeType: string,
+  mediaInfo?: FileMediaInfo | null,
+): boolean {
+  return (
+    runtimeModeModel.canUseMseVideoPlayback({transportKind: 'tauri'}) &&
+    isMseVideoSourceSelectable({delivery, mimeType, mediaInfo})
+  )
+}
+
+function trackVideoSource(
   fileId: number,
   variant: FileBlobVariant,
-  source: PreparedAndroidVideoSource,
-  stopAndroidVideo: ((source: PreparedAndroidVideoSource) => Promise<void>) | undefined,
+  source: PreparedVideoSource,
+  releaseMediaSource: ((source: PreparedVideoSource) => Promise<void>) | undefined,
+  delivery: PreparedVideoDelivery,
 ): () => Promise<void> {
   let released = false
   return async () => {
     if (released) return
     released = true
-    logImageGalleryDebug('file-loader', 'android-video.release', {
+    logImageGalleryDebug('file-loader', 'video-source.release', {
       ...createImageDisplaySourceDebugPayload({
         nodeId: fileId,
         variant,
-        sourceKind: 'android-native-video',
+        sourceKind: 'video-source',
         outputMimeType: source.mimeType,
         sourceRevision: source.sourceRevision,
         releaseReason: 'release',
       }),
-      token: source.token,
+      streamId: source.streamId,
+      delivery: delivery.delivery,
+      provider: source.provider,
+      sourceTokenPresent: Boolean(source.sourceToken),
+      nativeSourceTokenPresent:
+        delivery.delivery === 'native-video' && Boolean(delivery.nativeSourceToken),
+      mediaSourceGeneration: source.mediaSourceGeneration,
+      transportSessionGeneration: source.transportSessionGeneration ?? null,
       size: source.size,
     })
     try {
-      await stopAndroidVideo?.(source)
+      await releaseMediaSource?.(source)
     } finally {
-      notifyAndroidNativeVideoLifecycleEnd()
+      if (delivery.delivery === 'native-video') {
+        notifyAndroidNativeVideoLifecycleEnd()
+      }
     }
   }
 }
@@ -804,6 +1058,50 @@ function createMediaBlobFallbackLimitError(
     fallbackLimitBytes,
     reason,
   })
+}
+
+function createVideoSourceLoadError(
+  code:
+    | 'MEDIA_VIDEO_SOURCE_FAILED'
+    | 'MEDIA_VIDEO_UNSUPPORTED'
+    | 'MEDIA_VIDEO_METADATA_NOT_STREAMABLE'
+    | 'MEDIA_VIDEO_PROVIDER_UNAVAILABLE'
+    | 'MEDIA_SOURCE_STARVED',
+  reason: string,
+  details: Omit<FileLoadErrorDetails, 'reason'> = {},
+) {
+  return new FileLoadError(code, code, {
+    ...details,
+    reason,
+  })
+}
+
+function createVideoSourceLoadErrorFromError(error: unknown): FileLoadError {
+  if (error instanceof FileLoadError) {
+    return error
+  }
+
+  const stableCode = getStableErrorCode(error)
+  if (stableCode === 'ERR_MEDIA_SOURCE_STARVED' || stableCode === 'MEDIA_SOURCE_STARVED') {
+    return createVideoSourceLoadError('MEDIA_SOURCE_STARVED', 'source-starved')
+  }
+  if (stableCode === 'ERR_MEDIA_UNSUPPORTED' || stableCode === 'MEDIA_VIDEO_UNSUPPORTED') {
+    return createVideoSourceLoadError('MEDIA_VIDEO_UNSUPPORTED', 'unsupported')
+  }
+  if (
+    stableCode === 'ERR_MEDIA_METADATA_NOT_STREAMABLE' ||
+    stableCode === 'MEDIA_VIDEO_METADATA_NOT_STREAMABLE'
+  ) {
+    return createVideoSourceLoadError('MEDIA_VIDEO_METADATA_NOT_STREAMABLE', 'metadata-not-streamable')
+  }
+  if (
+    stableCode === 'ERR_MEDIA_PROVIDER_UNAVAILABLE' ||
+    stableCode === 'MEDIA_VIDEO_PROVIDER_UNAVAILABLE'
+  ) {
+    return createVideoSourceLoadError('MEDIA_VIDEO_PROVIDER_UNAVAILABLE', 'provider-unavailable')
+  }
+
+  return createVideoSourceLoadError('MEDIA_VIDEO_SOURCE_FAILED', 'backend-failed')
 }
 
 function releaseFileSourceResult(source: FileSourceLoadResult): void {
@@ -1174,98 +1472,184 @@ export async function loadFileSourceById(
       ? ws.prepareMediaStream.bind(ws)
       : null
 
-  const startAndroidVideo =
+  const prepareMediaSource =
     ws.kind === 'tauri' &&
-    shouldUseAndroidNativeVideoForRequest(
-      ws.kind,
-      fileName,
-      mimeType,
-      variant,
-      options?.allowAndroidNativeVideo === true,
-      options?.mediaInfo,
-    ) &&
-    typeof ws.startAndroidVideo === 'function' &&
-    typeof ws.stopAndroidVideo === 'function'
-      ? ws.startAndroidVideo.bind(ws)
+    shouldUseVideoSourceForRequest(ws.kind, fileName, mimeType, variant, options?.mediaInfo) &&
+    typeof ws.prepareMediaSource === 'function' &&
+    typeof ws.releaseMediaSource === 'function'
+      ? ws.prepareMediaSource.bind(ws)
       : null
 
-  if (startAndroidVideo) {
-    const stopAndroidVideo = ws.stopAndroidVideo?.bind(ws)
-    const androidVideoStartedAt = getImageGalleryDebugTime()
+  if (prepareMediaSource) {
+    const releaseMediaSource = ws.releaseMediaSource?.bind(ws)
+    const videoSourceStartedAt = getImageGalleryDebugTime()
     let sourceAttachedToLifecycle = false
-    notifyAndroidNativeVideoLifecycleStart()
+    let nativeLifecycleStarted = false
+    const expectsNativeDelivery =
+      getRuntimeCapabilities().platform === 'android' &&
+      getRuntimeCapabilities().mobile &&
+      runtimeModeModel.canUseNativeVideoPlayback({transportKind: ws.kind})
+    const shouldProbeBrowserDecode = !expectsNativeDelivery
+    const startNativeLifecycle = () => {
+      if (expectsNativeDelivery && !nativeLifecycleStarted) {
+        nativeLifecycleStarted = true
+        notifyAndroidNativeVideoLifecycleStart()
+      }
+    }
     try {
       throwIfAborted(options?.signal)
+      // MediaCapabilities describes the WebView decoder, not the platform
+      // native decoder. It may reject a source (notably QuickTime on Android)
+      // that Media3 can play, so it only gates browser-backed deliveries.
+      const immediateDecodeSupport = shouldProbeBrowserDecode
+        ? peekVideoDecodeSupport({
+            mimeType,
+            mediaInfo: options?.mediaInfo,
+          })
+        : null
+      if (immediateDecodeSupport) {
+        throwIfVideoDecodeUnsupported(fileId, fileName, mimeType, immediateDecodeSupport, options)
+      }
+      assertVideoSourceRuntimeProbeSupport(fileId, fileName, mimeType, options)
+      startNativeLifecycle()
       logVideoSourceAttempt(
         fileId,
         fileName,
         mimeType,
         variant,
         ws.kind,
-        'android-native-video',
+        'video-source',
         getAuthoritativeSourceSize(fileId, options),
       )
-      const source = await startAndroidVideo(fileId, {
+      logImageGalleryDebug('file-loader', 'video-source.start', {
+        ...createImageDisplaySourceDebugPayload({
+          nodeId: fileId,
+          variant,
+          sourceKind: 'video-source',
+          sourceMimeType: mimeType,
+          requestIntent: options?.displayJobIntentId ?? variant,
+        }),
+      })
+
+      // The async decode probe only gates rejection, so it runs concurrently
+      // with prepare_media_source instead of serializing the open path.
+      const sourcePromise = prepareMediaSource({
+        kind: 'video',
+        nodeId: fileId,
         fileName,
         mimeType,
         lastModified: options?.lastModified ?? null,
       })
+      if (shouldProbeBrowserDecode && !immediateDecodeSupport) {
+        try {
+          const decodeSupport = await probeVideoDecodeSupport({
+            mimeType,
+            mediaInfo: options?.mediaInfo,
+            signal: options?.signal,
+          })
+          throwIfVideoDecodeUnsupported(fileId, fileName, mimeType, decodeSupport, options)
+        } catch (probeError) {
+          void sourcePromise
+            .then((lateSource) => releaseMediaSource?.(lateSource))
+            .catch(() => {})
+          throw probeError
+        }
+      }
+      const source = await sourcePromise
+      const delivery = selectedVideoDelivery(source, options?.mediaInfo)
+      if (!delivery) {
+        await releaseMediaSource?.(source)
+        throw createVideoSourceLoadError('MEDIA_VIDEO_PROVIDER_UNAVAILABLE', 'no-supported-delivery')
+      }
+      const mseDescriptor =
+        delivery.delivery === 'mse'
+          ? createMseVideoSourceDescriptor({
+              delivery,
+              mimeType: source.mimeType,
+              mediaInfo: options?.mediaInfo,
+            })
+          : undefined
+      if (delivery.delivery === 'mse' && !mseDescriptor) {
+        await releaseMediaSource?.(source)
+        throw createVideoSourceLoadError('MEDIA_VIDEO_METADATA_NOT_STREAMABLE', 'metadata-not-streamable')
+      }
 
       if (options?.signal?.aborted) {
         try {
-          await stopAndroidVideo?.(source)
+          await releaseMediaSource?.(source)
         } catch (releaseError) {
-          console.warn('[file-loader] failed to stop aborted Android video source', releaseError)
-        } finally {
-          notifyAndroidNativeVideoLifecycleEnd()
+          console.warn('[file-loader] failed to release aborted video source', releaseError)
         }
         throw new DOMException('Aborted', 'AbortError')
       }
 
-      logImageGalleryDebug('file-loader', 'android-video.done', {
+      const url =
+        delivery.delivery === 'loopback-http'
+          ? delivery.url
+          : delivery.delivery === 'mse'
+            ? (delivery.fetchUrl ?? '')
+            : ''
+      const nativeSourceToken =
+        delivery.delivery === 'native-video' ? delivery.nativeSourceToken : undefined
+
+      logImageGalleryDebug('file-loader', 'video-source.done', {
         ...createImageDisplaySourceDebugPayload({
           nodeId: fileId,
           variant,
-          sourceKind: 'android-native-video',
+          sourceKind: 'video-source',
           sourceMimeType: mimeType,
           outputMimeType: source.mimeType,
           sourceRevision: source.sourceRevision,
           requestIntent: options?.displayJobIntentId ?? variant,
         }),
-        token: source.token,
+        delivery: delivery.delivery,
+        provider: source.provider,
+        sourceTokenPresent: Boolean(source.sourceToken),
+        nativeSourceTokenPresent: Boolean(nativeSourceToken),
+        mediaSourceGeneration: source.mediaSourceGeneration,
+        transportSessionGeneration: source.transportSessionGeneration ?? null,
+        appForegroundEpoch: source.appForegroundEpoch,
         size: source.size,
-        dtMs: getImageGalleryDebugDurationMs(androidVideoStartedAt),
+        dtMs: getImageGalleryDebugDurationMs(videoSourceStartedAt),
       })
 
-      sourceAttachedToLifecycle = true
+      sourceAttachedToLifecycle = delivery.delivery === 'native-video'
       return {
-        kind: 'android-native-video',
-        url: '',
-        token: source.token,
+        kind: 'video-source',
+        url,
+        delivery: delivery.delivery,
+        streamId: source.streamId,
+        sourceToken: source.sourceToken,
+        nativeSourceToken,
+        provider: source.provider,
+        mse: mseDescriptor ?? undefined,
+        mediaSourceGeneration: source.mediaSourceGeneration,
+        transportSessionGeneration: source.transportSessionGeneration,
+        appForegroundEpoch: source.appForegroundEpoch,
         size: source.size,
         mimeType: source.mimeType,
         sourceRevision: source.sourceRevision,
-        release: trackAndroidVideoSource(fileId, variant, source, stopAndroidVideo),
+        release: trackVideoSource(fileId, variant, source, releaseMediaSource, delivery),
       }
     } catch (error) {
-      if (!sourceAttachedToLifecycle) {
+      if (nativeLifecycleStarted && !sourceAttachedToLifecycle) {
         notifyAndroidNativeVideoLifecycleEnd()
       }
       if (isAbortError(error)) {
         throw error
       }
-      runtimeModeModel.disableAndroidNativeVideoForRuntimeSession()
-      warnImageGalleryDebug('file-loader', 'android-video.fallback-to-blob', {
+      warnImageGalleryDebug('file-loader', 'video-source.error', {
         ...createImageDisplaySourceDebugPayload({
           nodeId: fileId,
           variant,
-          sourceKind: 'android-native-video',
+          sourceKind: 'video-source',
           sourceMimeType: mimeType,
           requestIntent: options?.displayJobIntentId ?? variant,
         }),
         error: formatImageGalleryDebugError(error),
-        dtMs: getImageGalleryDebugDurationMs(androidVideoStartedAt),
+        dtMs: getImageGalleryDebugDurationMs(videoSourceStartedAt),
       })
+      throw createVideoSourceLoadErrorFromError(error)
     }
   }
 
@@ -1319,6 +1703,8 @@ export async function loadFileSourceById(
           requestIntent: options?.displayJobIntentId ?? variant,
         }),
         streamId: source.streamId,
+        delivery: source.delivery ?? 'custom-scheme',
+        hasFallbackUrl: Boolean(source.fallbackUrl),
         size: source.size,
         dtMs: getImageGalleryDebugDurationMs(mediaStreamStartedAt),
       })
@@ -1326,6 +1712,8 @@ export async function loadFileSourceById(
       return {
         kind: 'media-stream',
         url: source.url,
+        fallbackUrl: source.fallbackUrl,
+        delivery: source.delivery ?? 'custom-scheme',
         streamId: source.streamId,
         size: source.size,
         mimeType: source.mimeType,
@@ -1583,6 +1971,12 @@ export function invalidateFileBlobCache(fileId: number) {
       derivativeNegativeCache.delete(key)
     }
   }
+}
+
+export function invalidateAllFileBlobCache() {
+  blobCache.clear()
+  derivativeNegativeCache.clear()
+  blobCacheBytes = 0
 }
 
 export function isMockTransport(): boolean {

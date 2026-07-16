@@ -1,8 +1,5 @@
 import {atom, wrap} from '@reatom/core'
-import {
-  setExistingEntriesMap,
-  setImportCatalogOps,
-} from '@chromvoid/password-import/ui/import-dialog-state'
+import {setExistingEntriesMap, setImportCatalogOps} from '@chromvoid/password-import/ui/import-dialog-state'
 import {i18n} from '@project/passmanager/i18n'
 import {notify} from '@project/passmanager/notify'
 
@@ -21,15 +18,11 @@ import {getPassmanagerRoot} from './pm-root.adapter'
 export type PassmanagerMaintenanceAction = 'import' | 'export' | 'clean'
 
 export class PassmanagerMaintenanceModel {
+  private importDialogRequest = 0
+
   readonly importDialogOpen = atom(false, 'passmanager.maintenance.importDialogOpen')
-  readonly importCompletedSuccessfully = atom(
-    false,
-    'passmanager.maintenance.importCompletedSuccessfully',
-  )
-  readonly busyAction = atom<PassmanagerMaintenanceAction | null>(
-    null,
-    'passmanager.maintenance.busyAction',
-  )
+  readonly importCompletedSuccessfully = atom(false, 'passmanager.maintenance.importCompletedSuccessfully')
+  readonly busyAction = atom<PassmanagerMaintenanceAction | null>(null, 'passmanager.maintenance.busyAction')
   readonly error = atom('', 'passmanager.maintenance.error')
 
   async prepareImport(): Promise<void> {
@@ -47,14 +40,25 @@ export class PassmanagerMaintenanceModel {
   }
 
   async openSettingsImportDialog(): Promise<void> {
-    await wrap(this.runBusy('import', async () => {
-      this.importCompletedSuccessfully.set(false)
-      await wrap(this.prepareImport())
-      this.importDialogOpen.set(true)
-    }))
+    if (this.busyAction()) return
+    const request = ++this.importDialogRequest
+    await wrap(
+      this.runBusy('import', async () => {
+        this.importCompletedSuccessfully.set(false)
+        await wrap(this.prepareImport())
+        if (request === this.importDialogRequest) {
+          this.importDialogOpen.set(true)
+        }
+      }),
+    )
+  }
+
+  cancelSettingsImportDialogPreparation(): void {
+    this.importDialogRequest += 1
   }
 
   closeSettingsImportDialog(): void {
+    this.cancelSettingsImportDialogPreparation()
     this.importDialogOpen.set(false)
     this.importCompletedSuccessfully.set(false)
   }
@@ -75,44 +79,52 @@ export class PassmanagerMaintenanceModel {
   }
 
   async exportRoot(): Promise<void> {
-    await wrap(this.runBusy('export', async () => {
-      const root = getPassmanagerRoot()
-      if (root) {
-        await wrap(root.export())
-        return
-      }
+    await wrap(
+      this.runBusy('export', async () => {
+        const root = getPassmanagerRoot()
+        if (root) {
+          await wrap(root.export())
+          return
+        }
 
-      const transport = new PassmanagerTransport(getAppContext().catalog)
-      const exported = await wrap(transport.exportRoot())
-      const saved = await wrap(downloadPassmanagerJson(exported.root))
-      if (saved) {
-        notify.success(i18n('notify:export:success'))
-      }
-    }))
+        const transport = new PassmanagerTransport(getAppContext().catalog)
+        const exported = await wrap(transport.exportRoot())
+        const saved = await wrap(downloadPassmanagerJson(exported.root))
+        if (saved) {
+          notify.success(i18n('notify:export:success'))
+        }
+      }),
+    )
   }
 
   async cleanRoot(): Promise<void> {
-    await wrap(this.runBusy('clean', async () => {
-      const confirmed = await wrap(dialogService.showConfirmDialog({
-        title: i18n('remove:dialog:title'),
-        message: i18n('remove:dialog:text'),
-        variant: 'danger',
-        confirmVariant: 'danger',
-      }))
-      if (!confirmed) return
+    await wrap(
+      this.runBusy('clean', async () => {
+        const confirmed = await wrap(
+          dialogService.showConfirmDialog({
+            title: i18n('maintenance:clean:confirm:title'),
+            message: i18n('maintenance:clean:confirm:text'),
+            variant: 'danger',
+            confirmVariant: 'danger',
+          }),
+        )
+        if (!confirmed) return
 
-      const transport = new PassmanagerTransport(getAppContext().catalog)
-      await wrap(transport.importRoot([], [], [], {
-        mode: 'replace',
-        allowDestructive: true,
-        reason: 'settings-maintenance-clean',
-      }))
-      await wrap(transport.gcIcons())
-      pmIconStore.clearMissCache()
-      await wrap(this.refreshCatalog())
-      await wrap(this.reloadMountedRoot())
-      notify.success(i18n('notify:clean:success'))
-    }))
+        const transport = new PassmanagerTransport(getAppContext().catalog)
+        await wrap(
+          transport.importRoot([], [], [], {
+            mode: 'replace',
+            allowDestructive: true,
+            reason: 'settings-maintenance-clean',
+          }),
+        )
+        await wrap(transport.gcIcons())
+        pmIconStore.clearMissCache()
+        await wrap(this.refreshCatalog())
+        await wrap(this.reloadMountedRoot())
+        notify.success(i18n('notify:clean:success'))
+      }),
+    )
   }
 
   private async refreshCatalog(): Promise<void> {
@@ -144,12 +156,14 @@ export class PassmanagerMaintenanceModel {
       const message = error instanceof Error ? error.message : String(error)
       this.error.set(message)
       try {
-        await wrap(dialogService.showAlertDialog({
-          title: i18n('settings:passwords-maintenance-error-title' as never),
-          message,
-          variant: 'danger',
-          confirmText: i18n('button:done'),
-        }))
+        await wrap(
+          dialogService.showAlertDialog({
+            title: i18n('settings:passwords-maintenance-error-title' as never),
+            message,
+            variant: 'danger',
+            confirmText: i18n('button:done'),
+          }),
+        )
       } catch {}
     } finally {
       this.busyAction.set(null)

@@ -62,7 +62,6 @@ const modifierDesktop = (
 })
 
 export const KEYBOARD_SHORTCUT_IDS = [
-  'app.commandPalette.open',
   'app.vault.lock',
   'nav.files',
   'nav.passwords',
@@ -81,10 +80,6 @@ export const KEYBOARD_SHORTCUT_IDS = [
 ] as const satisfies readonly KeyboardShortcutId[]
 
 export const keyboardShortcutRegistry: Readonly<Record<KeyboardShortcutId, KeyboardShortcutDefinition>> = {
-  'app.commandPalette.open': {
-    id: 'app.commandPalette.open',
-    bindings: modifierDesktop(mac('k', '⌘K', {code: 'KeyK'}), ctrl('k', 'Ctrl+K', {code: 'KeyK'})),
-  },
   'app.vault.lock': {
     id: 'app.vault.lock',
     bindings: modifierDesktop(mac('l', '⌘L', {code: 'KeyL'}), ctrl('l', 'Ctrl+L', {code: 'KeyL'})),

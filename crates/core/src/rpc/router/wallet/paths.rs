@@ -1,4 +1,3 @@
-use crate::rpc::types::WalletNetwork;
 use crate::wallet::WALLET_ROOT;
 
 pub(super) fn wallet_meta_path(wallet_id: &str) -> String {
@@ -7,6 +6,10 @@ pub(super) fn wallet_meta_path(wallet_id: &str) -> String {
 
 pub(super) fn account_path(wallet_id: &str, account_id: &str) -> String {
     format!("{WALLET_ROOT}/wallets/{wallet_id}/accounts/{account_id}.json")
+}
+
+pub(super) fn balance_cache_path(wallet_id: &str, account_id: &str) -> String {
+    format!("{WALLET_ROOT}/wallets/{wallet_id}/accounts/{account_id}/balance-cache.json")
 }
 
 pub(super) fn secret_path(secret_id: &str) -> String {
@@ -25,6 +28,22 @@ pub(super) fn tx_path(tx_ref: &str) -> String {
     format!("{WALLET_ROOT}/tx-journal/{tx_ref}.json")
 }
 
+pub(super) fn broadcast_artifact_path(tx_ref: &str) -> String {
+    format!("{WALLET_ROOT}/broadcast-artifacts/{tx_ref}.json")
+}
+
+pub(super) fn reconciliation_evidence_path(tx_ref: &str) -> String {
+    format!("{WALLET_ROOT}/reconciliation/{tx_ref}.json")
+}
+
+pub(super) fn idempotency_path(client_request_id: &str) -> String {
+    format!("{WALLET_ROOT}/idempotency/{client_request_id}.json")
+}
+
+pub(super) fn address_book_entry_path(entry_id: &str) -> String {
+    format!("{WALLET_ROOT}/address-book/{entry_id}.json")
+}
+
 pub(super) fn address_file_path(
     wallet_id: &str,
     account_id: &str,
@@ -34,19 +53,4 @@ pub(super) fn address_file_path(
     format!(
         "{WALLET_ROOT}/wallets/{wallet_id}/accounts/{account_id}/addresses/{purpose}-{index}.json"
     )
-}
-
-pub(super) fn bitcoin_derivation_path(account_index: u32, chain: u32, index: u32) -> String {
-    format!("m/84'/0'/{account_index}'/{chain}/{index}")
-}
-
-pub(super) fn ethereum_derivation_path(account_index: u32) -> String {
-    format!("m/44'/60'/0'/0/{account_index}")
-}
-
-pub(super) fn imported_derivation_path(network: WalletNetwork) -> &'static str {
-    match network {
-        WalletNetwork::Bitcoin => "imported:bitcoin",
-        WalletNetwork::Ethereum => "imported:ethereum",
-    }
 }

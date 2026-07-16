@@ -93,4 +93,50 @@ describe('tauri catalog command dispatcher passmanager secret payloads', () => {
       }),
     ).rejects.toThrow('entry_id is required')
   })
+
+  it('rejects legacy entry-bound SSH secrets on the web path', async () => {
+    const rpcDispatch = vi.fn(async () => ({ok: true, result: null}))
+
+    await expect(
+      dispatchTauriCatalogCommand({
+        command: 'passmanager:secret:save',
+        data: {entry_id: 'entry-42', secret_type: 'ssh_private_key:key-1', value: 'PRIVATE'},
+        logger,
+        rpc: vi.fn(async () => ({}) as never),
+        rpcDispatch,
+        rpcDispatchRaw: vi.fn(async () => ({ok: true, result: null})),
+      }),
+    ).rejects.toThrow('unsupported web secret_type')
+    expect(rpcDispatch).not.toHaveBeenCalled()
+  })
+
+  it('allows root public-key reads but rejects private-key reads from web', async () => {
+    const rpcDispatch = vi.fn(async () => ({value: 'ssh-ed25519 PUBLIC'}))
+    const base = {
+      logger,
+      rpc: vi.fn(async () => ({}) as never),
+      rpcDispatch,
+      rpcDispatchRaw: vi.fn(async () => ({ok: true, result: null})),
+    }
+
+    await expect(
+      dispatchTauriCatalogCommand({
+        ...base,
+        command: 'passmanager:ssh:secret:read',
+        data: {key_id: 'key-1', secret_type: 'ssh_public_key'},
+      }),
+    ).resolves.toEqual({ok: true, result: {value: 'ssh-ed25519 PUBLIC'}})
+    expect(rpcDispatch).toHaveBeenCalledWith('passmanager:ssh:secret:read', {
+      key_id: 'key-1',
+      secret_type: 'ssh_public_key',
+    })
+
+    await expect(
+      dispatchTauriCatalogCommand({
+        ...base,
+        command: 'passmanager:ssh:secret:read',
+        data: {key_id: 'key-1', secret_type: 'ssh_private_key'},
+      }),
+    ).rejects.toThrow('private key access is native-only')
+  })
 })

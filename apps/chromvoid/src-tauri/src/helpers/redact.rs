@@ -1,6 +1,13 @@
 use serde_json::Value;
 
 pub(crate) fn redact_rpc_data(command: &str, data: &Value) -> Value {
+    // Env Runtime payloads can contain secret material, raw references, env
+    // names, paths, arguments, and untrusted reasons. Redact the entire domain
+    // so newly added fields cannot silently become loggable.
+    if command.starts_with("env_runtime:") {
+        return Value::String("<redacted>".to_string());
+    }
+
     fn should_redact(command: &str, key: &str) -> bool {
         matches!(
             key,
@@ -8,6 +15,9 @@ pub(crate) fn redact_rpc_data(command: &str, data: &Value) -> Value {
                 | "master_password"
                 | "pin"
                 | "secret"
+                | "entropy"
+                | "mnemonic_entropy"
+                | "mnemonicEntropy"
                 | "private_key"
                 | "privateKey"
                 | "bip39_passphrase"
@@ -22,6 +32,9 @@ pub(crate) fn redact_rpc_data(command: &str, data: &Value) -> Value {
                 && matches!(
                     key,
                     "mnemonic"
+                        | "entropy"
+                        | "mnemonic_entropy"
+                        | "mnemonicEntropy"
                         | "bip39_passphrase"
                         | "bip39Passphrase"
                         | "private_key"

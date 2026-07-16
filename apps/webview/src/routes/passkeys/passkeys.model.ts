@@ -1,7 +1,6 @@
 import {atom, computed, wrap} from '@reatom/core'
 
-import {navigationModel} from 'root/app/navigation/navigation.model'
-import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
+import {runtimeCapabilitiesAtom} from 'root/core/runtime/runtime-capabilities'
 import {isTauriRuntime} from 'root/core/runtime/runtime'
 import {tauriInvoke} from 'root/core/transport/tauri/ipc'
 import {i18n} from 'root/i18n'
@@ -13,7 +12,7 @@ type RpcOk<T> = {ok: true; result: T}
 type RpcErr = {ok: false; error: string; code?: string | null}
 type RpcResult<T> = RpcOk<T> | RpcErr
 
-export type AndroidPasskeySummary = {
+export type PasskeySummary = {
   credentialIdB64Url: string
   rpId: string
   userName: string
@@ -23,44 +22,43 @@ export type AndroidPasskeySummary = {
   lastUsedEpochMs: number
 }
 
-type AndroidPasskeysListResult = {
-  passkeys: AndroidPasskeySummary[]
+type PasskeysListResult = {
+  passkeys: PasskeySummary[]
 }
 
-export type AndroidPasskeyGroup = {
+export type PasskeyGroup = {
   key: string
   rpId: string
   accountLabel: string
-  primary: AndroidPasskeySummary
-  duplicates: AndroidPasskeySummary[]
+  primary: PasskeySummary
+  duplicates: PasskeySummary[]
 }
 
 function isOk<T>(res: RpcResult<T>): res is RpcOk<T> {
   return typeof res === 'object' && res !== null && 'ok' in res && (res as {ok: unknown}).ok === true
 }
 
-function androidPasskeyAccountKey(passkey: AndroidPasskeySummary): string {
+function passkeyAccountKey(passkey: PasskeySummary): string {
   return passkey.userName.trim() || passkey.userDisplayName.trim()
 }
 
-function androidPasskeyDisplayLabel(passkey: AndroidPasskeySummary): string {
+function passkeyDisplayLabel(passkey: PasskeySummary): string {
   return passkey.userName.trim() || passkey.userDisplayName.trim() || passkey.rpId
 }
 
-function androidPasskeyGroupKey(passkey: AndroidPasskeySummary): string {
-  const accountKey = androidPasskeyAccountKey(passkey) || passkey.credentialIdB64Url
+function passkeyGroupKey(passkey: PasskeySummary): string {
+  const accountKey = passkeyAccountKey(passkey) || passkey.credentialIdB64Url
   return [encodeURIComponent(passkey.rpId), encodeURIComponent(accountKey)].join(':')
 }
 
-function androidPasskeySortValue(value: number): number {
+function passkeySortValue(value: number): number {
   return Number.isFinite(value) ? value : 0
 }
 
-function compareAndroidPasskeys(a: AndroidPasskeySummary, b: AndroidPasskeySummary): number {
-  const createdDiff =
-    androidPasskeySortValue(b.createdAtEpochMs) - androidPasskeySortValue(a.createdAtEpochMs)
+function comparePasskeys(a: PasskeySummary, b: PasskeySummary): number {
+  const createdDiff = passkeySortValue(b.createdAtEpochMs) - passkeySortValue(a.createdAtEpochMs)
   if (createdDiff !== 0) return createdDiff
-  return androidPasskeySortValue(b.lastUsedEpochMs) - androidPasskeySortValue(a.lastUsedEpochMs)
+  return passkeySortValue(b.lastUsedEpochMs) - passkeySortValue(a.lastUsedEpochMs)
 }
 
 function passkeyDebugCredentialLabel(credentialId: string): string {
@@ -81,67 +79,58 @@ function tracePasskeys(event: string, meta: Record<string, unknown> = {}): void 
   writeAndroidUnlockDebug('passkeys-page', event, payload)
 }
 
-export function supportsAndroidPasskeysRuntime(): boolean {
-  return supportsCredentialProviderPasskeysRuntime()
-}
-
 export function supportsCredentialProviderPasskeysRuntime(): boolean {
-  const caps = getRuntimeCapabilities()
-  return isTauriRuntime() && caps.mobile && Boolean(caps.supports_credential_provider_passkeys_lite)
+  return isTauriRuntime() && runtimeCapabilitiesAtom().supports_credential_provider_passkeys_lite
 }
 
-export function groupAndroidPasskeys(passkeys: AndroidPasskeySummary[]): AndroidPasskeyGroup[] {
-  const grouped = new Map<string, AndroidPasskeySummary[]>()
+export function groupPasskeys(passkeys: PasskeySummary[]): PasskeyGroup[] {
+  const grouped = new Map<string, PasskeySummary[]>()
   for (const passkey of passkeys) {
-    const key = androidPasskeyGroupKey(passkey)
+    const key = passkeyGroupKey(passkey)
     grouped.set(key, [...(grouped.get(key) ?? []), passkey])
   }
 
   return [...grouped.entries()]
     .map(([key, values]) => {
-      const sorted = [...values].sort(compareAndroidPasskeys)
+      const sorted = [...values].sort(comparePasskeys)
       const primary = sorted[0]!
       return {
         key,
         rpId: primary.rpId,
-        accountLabel: androidPasskeyDisplayLabel(primary),
+        accountLabel: passkeyDisplayLabel(primary),
         primary,
         duplicates: sorted.slice(1),
       }
     })
-    .sort((a, b) => compareAndroidPasskeys(a.primary, b.primary))
+    .sort((a, b) => comparePasskeys(a.primary, b.primary))
 }
 
 class PasskeysPageModel {
-  readonly androidPasskeys = atom<AndroidPasskeySummary[]>([])
-  readonly androidPasskeysLoading = atom(false)
-  readonly androidPasskeysError = atom<string | null>(null)
-  readonly androidPasskeyDeletingCredentialId = atom<string | null>(null)
-  readonly androidPasskeyExpandedGroupKeys = atom<Set<string>>(new Set<string>())
-  readonly androidPasskeyGroups = computed(() => groupAndroidPasskeys(this.androidPasskeys()))
+  readonly passkeys = atom<PasskeySummary[]>([])
+  readonly passkeysLoading = atom(false)
+  readonly passkeysError = atom<string | null>(null)
+  readonly passkeyDeletingCredentialId = atom<string | null>(null)
+  readonly passkeyExpandedGroupKeys = atom<Set<string>>(new Set<string>())
+  readonly passkeyGroups = computed(() => groupPasskeys(this.passkeys()))
 
-  private androidPasskeysRefreshId = 0
-  private androidPasskeysLoadingRefreshId = 0
+  private passkeysRefreshId = 0
+  private passkeysLoadingRefreshId = 0
 
   isAvailable(): boolean {
     return supportsCredentialProviderPasskeysRuntime()
   }
 
   async load(): Promise<void> {
-    await this.refreshAndroidPasskeys()
+    await this.refreshPasskeys()
   }
 
-  goBack(): void {
-    navigationModel.goBack()
-  }
-
-  async refreshAndroidPasskeys(options: {showLoading?: boolean} = {}): Promise<void> {
-    const refreshId = ++this.androidPasskeysRefreshId
+  async refreshPasskeys(options: {showLoading?: boolean} = {}): Promise<void> {
+    const refreshId = ++this.passkeysRefreshId
     if (!this.isAvailable()) {
-      this.androidPasskeys.set([])
-      this.androidPasskeysLoading.set(false)
-      this.androidPasskeysLoadingRefreshId = 0
-      this.androidPasskeysError.set(null)
+      this.passkeys.set([])
+      this.passkeysLoading.set(false)
+      this.passkeysLoadingRefreshId = 0
+      this.passkeysError.set(null)
       return
     }
 
@@ -149,39 +138,35 @@ class PasskeysPageModel {
     const startedAt = performance.now()
     tracePasskeys('list:start', {show_loading: showLoading})
     if (showLoading) {
-      this.androidPasskeysLoadingRefreshId = refreshId
-      this.androidPasskeysLoading.set(true)
+      this.passkeysLoadingRefreshId = refreshId
+      this.passkeysLoading.set(true)
     }
-    this.androidPasskeysError.set(null)
+    this.passkeysError.set(null)
     try {
-      const res = await wrap(
-        tauriInvoke<RpcResult<AndroidPasskeysListResult>>(
-          'credential_provider_passkeys_list',
-        ),
-      )
-      if (this.androidPasskeysRefreshId !== refreshId) return
+      const res = await wrap(tauriInvoke<RpcResult<PasskeysListResult>>('credential_provider_passkeys_list'))
+      if (this.passkeysRefreshId !== refreshId) return
       if (!isOk(res)) {
         throw new Error(res.error || i18n('passkeys:list-failed'))
       }
-      this.androidPasskeys.set(Array.isArray(res.result.passkeys) ? res.result.passkeys : [])
+      this.passkeys.set(Array.isArray(res.result.passkeys) ? res.result.passkeys : [])
       tracePasskeys('list:done', {
         dt_ms: elapsedMs(startedAt),
-        count: this.androidPasskeys().length,
+        count: this.passkeys().length,
       })
     } catch (error) {
-      if (this.androidPasskeysRefreshId !== refreshId) return
+      if (this.passkeysRefreshId !== refreshId) return
       const message = error instanceof Error ? error.message : i18n('passkeys:list-failed')
-      console.warn('Failed to query Android passkeys', error)
-      this.androidPasskeys.set([])
-      this.androidPasskeysError.set(message)
+      console.warn('Failed to query credential provider passkeys', error)
+      this.passkeys.set([])
+      this.passkeysError.set(message)
       tracePasskeys('list:error', {
         dt_ms: elapsedMs(startedAt),
         error: message,
       })
     } finally {
-      if (showLoading && this.androidPasskeysLoadingRefreshId === refreshId) {
-        this.androidPasskeysLoading.set(false)
-        this.androidPasskeysLoadingRefreshId = 0
+      if (showLoading && this.passkeysLoadingRefreshId === refreshId) {
+        this.passkeysLoading.set(false)
+        this.passkeysLoadingRefreshId = 0
       }
     }
   }
@@ -193,9 +178,9 @@ class PasskeysPageModel {
     if (!normalizedCredentialId) return
     const credential = passkeyDebugCredentialLabel(normalizedCredentialId)
     tracePasskeys('delete:requested', {credential})
-    const passkey = this.androidPasskeys().find((item) => item.credentialIdB64Url === normalizedCredentialId)
+    const passkey = this.passkeys().find((item) => item.credentialIdB64Url === normalizedCredentialId)
     if (passkey) {
-      const isDuplicate = groupAndroidPasskeys(this.androidPasskeys()).some((group) =>
+      const isDuplicate = groupPasskeys(this.passkeys()).some((group) =>
         group.duplicates.some((duplicate) => duplicate.credentialIdB64Url === normalizedCredentialId),
       )
       const confirmStartedAt = performance.now()
@@ -204,7 +189,7 @@ class PasskeysPageModel {
         duplicate: isDuplicate,
         rp_id: passkey.rpId,
       })
-      const confirmed = await wrap(this.confirmAndroidPasskeyDelete(passkey))
+      const confirmed = await wrap(this.confirmPasskeyDelete(passkey))
       tracePasskeys('delete:confirm:resolved', {
         credential,
         duplicate: isDuplicate,
@@ -215,8 +200,8 @@ class PasskeysPageModel {
       if (!confirmed) return
     }
 
-    this.androidPasskeyDeletingCredentialId.set(normalizedCredentialId)
-    this.androidPasskeysError.set(null)
+    this.passkeyDeletingCredentialId.set(normalizedCredentialId)
+    this.passkeysError.set(null)
     try {
       const nativeStartedAt = performance.now()
       tracePasskeys('delete:native:start', {
@@ -224,12 +209,9 @@ class PasskeysPageModel {
         total_dt_ms: elapsedMs(deleteStartedAt),
       })
       const res = await wrap(
-        tauriInvoke<RpcResult<{deleted: boolean}>>(
-          'credential_provider_passkey_delete',
-          {
-            credentialId: normalizedCredentialId,
-          },
-        ),
+        tauriInvoke<RpcResult<{deleted: boolean}>>('credential_provider_passkey_delete', {
+          credentialId: normalizedCredentialId,
+        }),
       )
       tracePasskeys('delete:native:done', {
         credential,
@@ -241,11 +223,9 @@ class PasskeysPageModel {
       if (!isOk(res) || !res.result.deleted) {
         throw new Error(isOk(res) ? i18n('passkeys:delete-failed') : res.error)
       }
-      this.androidPasskeys.set(
-        this.androidPasskeys().filter((item) => item.credentialIdB64Url !== normalizedCredentialId),
-      )
+      this.passkeys.set(this.passkeys().filter((item) => item.credentialIdB64Url !== normalizedCredentialId))
       getAppContext().store.pushNotification('success', i18n('passkeys:delete-success'))
-      void this.refreshAndroidPasskeys({showLoading: false}).then(
+      void this.refreshPasskeys({showLoading: false}).then(
         () =>
           tracePasskeys('delete:refresh:done', {
             credential,
@@ -260,8 +240,8 @@ class PasskeysPageModel {
       )
     } catch (error) {
       const message = error instanceof Error ? error.message : i18n('passkeys:delete-failed')
-      console.warn('Failed to delete Android passkey', error)
-      this.androidPasskeysError.set(message)
+      console.warn('Failed to delete credential provider passkey', error)
+      this.passkeysError.set(message)
       getAppContext().store.pushNotification('error', message)
       tracePasskeys('delete:error', {
         credential,
@@ -269,8 +249,8 @@ class PasskeysPageModel {
         error: message,
       })
     } finally {
-      if (this.androidPasskeyDeletingCredentialId() === normalizedCredentialId) {
-        this.androidPasskeyDeletingCredentialId.set(null)
+      if (this.passkeyDeletingCredentialId() === normalizedCredentialId) {
+        this.passkeyDeletingCredentialId.set(null)
       }
       tracePasskeys('delete:finished', {
         credential,
@@ -279,72 +259,72 @@ class PasskeysPageModel {
     }
   }
 
-  androidPasskeyDisplayName(passkey: AndroidPasskeySummary): string {
-    return androidPasskeyDisplayLabel(passkey)
+  passkeyDisplayName(passkey: PasskeySummary): string {
+    return passkeyDisplayLabel(passkey)
   }
 
-  androidPasskeyShortCredentialId(passkey: AndroidPasskeySummary): string {
+  passkeyShortCredentialId(passkey: PasskeySummary): string {
     const id = passkey.credentialIdB64Url
     if (id.length <= 16) return id
     return `${id.slice(0, 8)}...${id.slice(-6)}`
   }
 
-  androidPasskeyLastUsedLabel(passkey: AndroidPasskeySummary): string {
+  passkeyLastUsedLabel(passkey: PasskeySummary): string {
     if (!Number.isFinite(passkey.lastUsedEpochMs) || passkey.lastUsedEpochMs <= 0) {
       return i18n('passkeys:last-used-never')
     }
-    return this.androidPasskeyDateLabel(passkey.lastUsedEpochMs)
+    return this.passkeyDateLabel(passkey.lastUsedEpochMs)
   }
 
-  androidPasskeyCreatedLabel(passkey: AndroidPasskeySummary): string {
+  passkeyCreatedLabel(passkey: PasskeySummary): string {
     if (!Number.isFinite(passkey.createdAtEpochMs) || passkey.createdAtEpochMs <= 0) {
       return i18n('passkeys:created-unknown')
     }
-    return this.androidPasskeyDateLabel(passkey.createdAtEpochMs)
+    return this.passkeyDateLabel(passkey.createdAtEpochMs)
   }
 
-  androidPasskeySignCountLabel(passkey: AndroidPasskeySummary): string {
+  passkeySignCountLabel(passkey: PasskeySummary): string {
     return Number.isFinite(passkey.signCount) ? String(passkey.signCount) : '0'
   }
 
-  androidPasskeyStorageLabel(): string {
+  passkeyStorageLabel(): string {
     return i18n('passkeys:storage-vault')
   }
 
-  androidPasskeyDeleteActionLabel(): string {
+  passkeyDeleteActionLabel(): string {
     return i18n('passkeys:delete-vault')
   }
 
-  androidPasskeyIsDeleting(passkey: AndroidPasskeySummary): boolean {
-    return this.androidPasskeyDeletingCredentialId() === passkey.credentialIdB64Url
+  passkeyIsDeleting(passkey: PasskeySummary): boolean {
+    return this.passkeyDeletingCredentialId() === passkey.credentialIdB64Url
   }
 
-  isAndroidPasskeyGroupExpanded(groupKey: string): boolean {
-    return this.androidPasskeyExpandedGroupKeys().has(groupKey)
+  isPasskeyGroupExpanded(groupKey: string): boolean {
+    return this.passkeyExpandedGroupKeys().has(groupKey)
   }
 
-  toggleAndroidPasskeyGroup(groupKey: string): void {
-    const next = new Set(this.androidPasskeyExpandedGroupKeys())
+  togglePasskeyGroup(groupKey: string): void {
+    const next = new Set(this.passkeyExpandedGroupKeys())
     if (next.has(groupKey)) {
       next.delete(groupKey)
     } else {
       next.add(groupKey)
     }
-    this.androidPasskeyExpandedGroupKeys.set(next)
+    this.passkeyExpandedGroupKeys.set(next)
   }
 
-  private androidPasskeyDateLabel(epochMs: number): string {
+  private passkeyDateLabel(epochMs: number): string {
     return new Intl.DateTimeFormat(undefined, {
       dateStyle: 'medium',
       timeStyle: 'short',
     }).format(new Date(epochMs))
   }
 
-  private async confirmAndroidPasskeyDelete(passkey: AndroidPasskeySummary): Promise<boolean> {
+  private async confirmPasskeyDelete(passkey: PasskeySummary): Promise<boolean> {
     return dialogService.showConfirmDialog({
       title: i18n('passkeys:delete-vault-confirm-title'),
       message: i18n('passkeys:delete-vault-confirm-message', {
-        account: this.androidPasskeyDisplayName(passkey),
+        account: this.passkeyDisplayName(passkey),
         rpId: passkey.rpId,
       }),
       confirmText: i18n('passkeys:delete-vault-confirm-action'),

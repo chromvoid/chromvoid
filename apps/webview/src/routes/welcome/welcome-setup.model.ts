@@ -11,6 +11,7 @@ import {markPerformance} from 'root/shared/services/performance-measurement'
 import {subscribeAfterInitial} from 'root/shared/services/subscribed-signal'
 import type {RemoteSessionState} from 'root/app/state/store'
 
+import {WelcomeIconModel} from './welcome-icon.model'
 import {WelcomeRemoteModel} from './welcome-remote.model'
 import {WelcomeSharedModel} from './welcome-shared.model'
 import {
@@ -22,7 +23,12 @@ import {
   type VaultRepairDiagnosisResponse,
   type PasswordStrengthFeedback,
 } from './welcome-rpc'
-import type {NetworkPairedPeer} from '../remote/remote.model'
+import {
+  getModeStatus,
+  isRemoteMode,
+  switchMode,
+  type NetworkPairedPeer,
+} from '../remote/remote.model'
 
 export type WelcomeSetupStep =
   | 'mode-select'
@@ -31,6 +37,7 @@ export type WelcomeSetupStep =
   | 'remote-pair'
   | 'remote-wait'
   | null
+export type RemoteSessionWaitReason = 'host_unlock' | 'phone_approval'
 
 export type PasswordFeedback = PasswordStrengthFeedback
 
@@ -62,8 +69,15 @@ export class WelcomeSetupModel {
   readonly heroEyebrow!: ReturnType<typeof computed<string>>
   readonly heroProof!: ReturnType<typeof computed<string>>
   readonly connectedPeerLabel!: ReturnType<typeof computed<string>>
+  readonly remoteWaitReason!: ReturnType<typeof computed<RemoteSessionWaitReason>>
   readonly setupStep = atom<WelcomeSetupStep>(null)
   readonly setupInProgress = atom(false)
+  readonly unlockInProgress!: ReturnType<typeof computed<boolean>>
+  readonly unlockSheetOpen = atom(false)
+  readonly unlockPassword = atom('')
+  readonly unlockValidationError = atom('', 'welcome.unlockValidationError')
+  readonly icon = new WelcomeIconModel()
+  readonly unlockSubmitDisabled!: ReturnType<typeof computed<boolean>>
   readonly passwordStrength = atom<PasswordFeedback>(createNeutralPasswordFeedback())
   readonly creationState = atom({
     p1: '',
@@ -92,7 +106,11 @@ export class WelcomeSetupModel {
       const step = this.effectiveStep()
       if (step === 'remote-connect') return i18n('welcome:remote-vault-title')
       if (step === 'remote-pair') return i18n('welcome:pair-iphone-hero-title')
-      if (step === 'remote-wait') return i18n('welcome:wait-iphone-title')
+      if (step === 'remote-wait') {
+        return this.remoteWaitReason() === 'phone_approval'
+          ? i18n('welcome:wait-phone-approval-title')
+          : i18n('welcome:wait-iphone-title')
+      }
       if (!this.isNeedInit()) return i18n('onboard:hero:unlock')
       if (step === 'create-master') return i18n('welcome:create-local-storage-title')
       return i18n('onboard:hero:create')
@@ -101,7 +119,11 @@ export class WelcomeSetupModel {
       const step = this.effectiveStep()
       if (step === 'remote-connect') return i18n('welcome:remote-vault-desc')
       if (step === 'remote-pair') return i18n('welcome:pair-iphone-hero-desc')
-      if (step === 'remote-wait') return i18n('welcome:wait-iphone-desc')
+      if (step === 'remote-wait') {
+        return this.remoteWaitReason() === 'phone_approval'
+          ? i18n('welcome:wait-phone-approval-desc')
+          : i18n('welcome:wait-iphone-desc')
+      }
       if (!this.isNeedInit()) return i18n('welcome:unlock-desc')
       if (step === 'create-master') return i18n('welcome:create-master-desc')
       return i18n('welcome:choose-storage-desc')
@@ -125,6 +147,18 @@ export class WelcomeSetupModel {
       return i18n('welcome:proof-default')
     })
     this.connectedPeerLabel = computed<string>(() => this.remote.connectedPeerLabel())
+    this.remoteWaitReason = computed<RemoteSessionWaitReason>(() =>
+      getAppContext().store.remoteSessionState() === 'waiting_phone_approval'
+        ? 'phone_approval'
+        : 'host_unlock',
+    )
+    this.unlockSubmitDisabled = computed<boolean>(
+      () => this.shared.busy() || this.setupInProgress(),
+    )
+    this.unlockInProgress = computed<boolean>(
+      () => !this.isNeedInit() && this.effectiveStep() === null && this.setupInProgress(),
+      'welcome.unlockInProgress',
+    )
   }
 
   get busy() {
@@ -197,6 +231,7 @@ export class WelcomeSetupModel {
     try {
       this.setupInProgress.set(true)
       this.shared.setBusy(true)
+      await wrap(this.ensureLocalModeForMasterSetup())
       await wrap(tauriRpc('master:setup', {master_password: p1}))
       guidanceCompletionBridge.markVaultCreated()
       getAppContext().state.update({NeedUserInitialization: false})
@@ -212,7 +247,7 @@ export class WelcomeSetupModel {
     }
   }
 
-  onUnlock = async () => {
+  onUnlock = () => {
     if (!isTauriRuntime()) return
     if (this.shared.busy()) return
 
@@ -220,27 +255,51 @@ export class WelcomeSetupModel {
       layoutMode: getAppContext().store.layoutMode?.() ?? null,
     })
     writeAndroidUnlockDebug('welcome', 'onUnlock:start')
-    markPerformance(WELCOME_UNLOCK_PASSWORD_DIALOG_PERFORMANCE_SCOPE, 'dialog-request')
-    const passwordDialogResult = dialogService.showInputDialog({
-      title: i18n('onboard:hero:unlock'),
-      label: i18n('welcome:vault-password'),
-      type: 'password',
-      required: true,
-      performanceScope: WELCOME_UNLOCK_PASSWORD_DIALOG_PERFORMANCE_SCOPE,
-    })
-    markPerformance(WELCOME_UNLOCK_PASSWORD_DIALOG_PERFORMANCE_SCOPE, 'dialog-promise-created')
-    const pwd = await wrap(passwordDialogResult)
-    markPerformance(WELCOME_UNLOCK_PASSWORD_DIALOG_PERFORMANCE_SCOPE, 'dialog-resolved', {
+    markPerformance(WELCOME_UNLOCK_PASSWORD_DIALOG_PERFORMANCE_SCOPE, 'sheet-open')
+    this.shared.clearError()
+    this.unlockPassword.set('')
+    this.unlockValidationError.set('')
+    this.icon.idle()
+    this.unlockSheetOpen.set(true)
+  }
+
+  closeUnlockSheet = () => {
+    this.unlockSheetOpen.set(false)
+    this.unlockPassword.set('')
+    this.unlockValidationError.set('')
+  }
+
+  handleUnlockSheetChange = (event: Event) => {
+    const detail = (event as CustomEvent<{open?: boolean}>).detail
+    if (detail?.open === false) {
+      this.closeUnlockSheet()
+    }
+  }
+
+  handleUnlockPasswordInput = (event: Event) => {
+    this.unlockPassword.set(this.resolveInputValue(event))
+    this.unlockValidationError.set('')
+  }
+
+  submitUnlock = async () => {
+    if (!isTauriRuntime()) return
+    if (this.shared.busy()) return
+
+    const pwd = this.unlockPassword().trim()
+    markPerformance(WELCOME_UNLOCK_PASSWORD_DIALOG_PERFORMANCE_SCOPE, 'sheet-submit', {
       cancelled: !pwd,
     })
-    writeAndroidUnlockDebug('welcome', 'onUnlock:dialog resolved', {
-      cancelled: !pwd,
-    })
-    if (!pwd) return
+    writeAndroidUnlockDebug('welcome', 'onUnlock:sheet submitted', {cancelled: !pwd})
+    if (!pwd) {
+      this.unlockValidationError.set(i18n('welcome:master-required'))
+      return
+    }
 
     try {
       this.setupInProgress.set(true)
       this.shared.setBusy(true)
+      this.icon.active()
+      this.closeUnlockSheet()
       writeAndroidUnlockDebug('welcome', 'onUnlock:vault:unlock start')
       await wrap(tauriRpc('vault:unlock', {password: pwd}))
       writeAndroidUnlockDebug('welcome', 'onUnlock:vault:unlock success')
@@ -254,12 +313,15 @@ export class WelcomeSetupModel {
         try {
           const repaired = await this.tryRepairAndUnlock(pwd)
           if (repaired) {
+            this.closeUnlockSheet()
             this.markStorageOpened()
             return
           }
+          this.icon.idle()
           return
         } catch (repairError) {
           console.error(repairError)
+          this.icon.idle()
           const errorMessage =
             repairError instanceof RpcError
               ? mapVaultUnlockError(repairError.code, i18n('welcome:unable-access-vault'))
@@ -272,6 +334,7 @@ export class WelcomeSetupModel {
         error instanceof RpcError
           ? mapVaultUnlockError(error.code, i18n('welcome:unable-access-vault'))
           : i18n('welcome:unable-access-vault')
+      this.icon.idle()
       this.shared.setBusy(false, errorMessage)
     } finally {
       this.setupInProgress.set(false)
@@ -281,9 +344,7 @@ export class WelcomeSetupModel {
 
   private async tryRepairAndUnlock(password: string): Promise<boolean> {
     writeAndroidUnlockDebug('welcome', 'onUnlock:repair diagnose start')
-    const diagnosis = await wrap(
-      tauriRpc<VaultRepairDiagnosisResponse>('vault:repair:diagnose', {password}),
-    )
+    const diagnosis = await wrap(tauriRpc<VaultRepairDiagnosisResponse>('vault:repair:diagnose', {password}))
     writeAndroidUnlockDebug('welcome', 'onUnlock:repair diagnose done', {
       status: diagnosis.status,
       issues: diagnosis.issues.length,
@@ -408,7 +469,7 @@ export class WelcomeSetupModel {
     void this.submitRemotePair()
   }
   private syncSetupStepFromRemoteSession(sessionState: RemoteSessionState): void {
-    if (sessionState === 'waiting_host_unlock') {
+    if (sessionState === 'waiting_host_unlock' || sessionState === 'waiting_phone_approval') {
       this.remote.view.set('wait')
       this.setupStep.set('remote-wait')
       return
@@ -427,6 +488,17 @@ export class WelcomeSetupModel {
   private resetPasswordStrength(): void {
     this.passwordStrengthRequestId += 1
     this.passwordStrength.set(createNeutralPasswordFeedback())
+  }
+
+  private async ensureLocalModeForMasterSetup(): Promise<void> {
+    if (!isTauriRuntime()) return
+
+    const modeInfo = await wrap(getModeStatus())
+    if (!modeInfo || !isRemoteMode(modeInfo.mode)) return
+
+    await wrap(switchMode('local'))
+    const store = getAppContext().store as {resetRemoteSession?: () => void}
+    store.resetRemoteSession?.()
   }
 
   private async updatePasswordStrength(password: string): Promise<void> {

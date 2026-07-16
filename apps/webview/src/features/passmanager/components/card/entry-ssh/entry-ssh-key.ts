@@ -18,6 +18,7 @@ export class PMEntrySshKey extends ReatomLitElement {
     publicKey: {attribute: false},
     publicKeyProvider: {attribute: false},
     removable: {type: Boolean},
+    layout: {type: String, reflect: true},
   }
 
   static define() {
@@ -53,15 +54,6 @@ export class PMEntrySshKey extends ReatomLitElement {
         gap: var(--cv-space-2);
         flex: 1;
         min-inline-size: 0;
-      }
-
-      .entry-ssh-fingerprint {
-        flex: 1;
-        min-inline-size: 0;
-        font-size: 13px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
       }
 
       .entry-ssh-public {
@@ -110,6 +102,19 @@ export class PMEntrySshKey extends ReatomLitElement {
         --cv-copy-button-size: 36px;
       }
 
+      .entry-ssh-key-inventory {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: var(--cv-space-3);
+      }
+
+      .entry-ssh-inventory-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--cv-space-1);
+      }
+
       .ssh-remove-action {
         display: inline-flex;
         align-items: center;
@@ -123,9 +128,9 @@ export class PMEntrySshKey extends ReatomLitElement {
         color: var(--cv-color-text);
         cursor: pointer;
         transition:
-          border-color 0.2s ease,
-          background 0.2s ease,
-          color 0.2s ease;
+          border-color var(--cv-duration-fast) var(--cv-easing-standard),
+          background-color var(--cv-duration-fast) var(--cv-easing-standard),
+          color var(--cv-duration-fast) var(--cv-easing-standard);
       }
 
       .ssh-remove-action:hover {
@@ -144,8 +149,9 @@ export class PMEntrySshKey extends ReatomLitElement {
       }
 
       @media (width < 560px) {
-        .entry-ssh-key {
-          padding: 12px 14px;
+        .entry-ssh-key-inventory {
+          align-items: start;
+          gap: var(--cv-space-2);
         }
       }
     `,
@@ -159,6 +165,7 @@ export class PMEntrySshKey extends ReatomLitElement {
   declare publicKey: string
   declare publicKeyProvider: (() => Promise<string>) | undefined
   declare removable: boolean
+  declare layout: 'default' | 'inventory'
   private readonly logger = defaultLogger
 
   constructor() {
@@ -171,6 +178,7 @@ export class PMEntrySshKey extends ReatomLitElement {
     this.publicKey = ''
     this.publicKeyProvider = undefined
     this.removable = false
+    this.layout = 'default'
   }
 
   updated(changedProperties: Map<string | number | symbol, unknown>) {
@@ -194,7 +202,7 @@ export class PMEntrySshKey extends ReatomLitElement {
   }
 
   protected render() {
-    return this.renderKey()
+    return this.layout === 'inventory' ? this.renderInventoryKey() : this.renderKey()
   }
 
   private renderField(
@@ -227,7 +235,9 @@ export class PMEntrySshKey extends ReatomLitElement {
         <span class="entry-ssh-summary-copy">
           <span class="entry-ssh-name">${title}</span>
           ${meta ? html`<span class="entry-ssh-meta-line">${meta}</span>` : nothing}
-          ${this.name && this.comment ? html`<span class="entry-ssh-comment">${this.comment}</span>` : nothing}
+          ${this.name && this.comment
+            ? html`<span class="entry-ssh-comment">${this.comment}</span>`
+            : nothing}
         </span>
       </div>
     `
@@ -249,10 +259,18 @@ export class PMEntrySshKey extends ReatomLitElement {
     }
 
     return html`
-      ${hasCopyAction ? renderPMCopyButton({value: copyValue}) : nothing}
+      ${hasCopyAction
+        ? renderPMCopyButton({value: copyValue, ariaLabel: i18n('ssh:copy_public_key')})
+        : nothing}
       ${this.removable
         ? html`
-            <cv-button unstyled class="ssh-remove-action" type="button" @click=${this.onRemoveClick} aria-label=${i18n('ssh:remove')}>
+            <cv-button
+              unstyled
+              class="ssh-remove-action"
+              type="button"
+              @click=${this.onRemoveClick}
+              aria-label=${i18n('ssh:remove')}
+            >
               <cv-icon name="trash" aria-hidden="true"></cv-icon>
             </cv-button>
           `
@@ -279,6 +297,18 @@ export class PMEntrySshKey extends ReatomLitElement {
           this.renderFieldActions(),
           'entry-ssh-field-flat',
         )}
+      </div>
+    `
+  }
+
+  private renderInventoryKey(): TemplateResult {
+    return html`
+      <div class="entry-ssh-key-inventory">
+        <div class="entry-ssh-key-meta">
+          <cv-badge size="small" variant="warning">${(this.keyType || '').toUpperCase() || '—'}</cv-badge>
+          ${this.renderKeySummary()}
+        </div>
+        <div class="entry-ssh-inventory-actions">${this.renderFieldActions()}</div>
       </div>
     `
   }

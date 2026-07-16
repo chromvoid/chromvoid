@@ -3,6 +3,7 @@ import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {css, nothing} from 'lit'
 import type {PropertyValues} from 'lit'
 
+import {isolateBidiText, isolateLtrText} from '@project/i18n/pure'
 import {i18n} from 'root/i18n'
 import {getAppContext} from 'root/shared/services/app-context'
 import {
@@ -181,13 +182,21 @@ export class UploadTaskItem extends ReatomLitElement {
   ]
 
   private formatSpeed(bytesPerSecond: number): string {
-    return i18n('upload:speed', {speed: formatFileSize(bytesPerSecond)})
+    return i18n('upload:speed', {speed: isolateLtrText(formatFileSize(bytesPerSecond))})
   }
 
   private formatTime(seconds: number): string {
-    if (seconds < 60) return i18n('upload:eta:seconds', {value: String(Math.round(seconds))})
-    if (seconds < 3600) return i18n('upload:eta:minutes', {value: String(Math.round(seconds / 60))})
-    return i18n('upload:eta:hours', {value: String(Math.round(seconds / 3600))})
+    if (seconds < 60) {
+      return i18n('upload:eta:seconds', {value: isolateLtrText(String(Math.round(seconds)))})
+    }
+    if (seconds < 3600) {
+      return i18n('upload:eta:minutes', {
+        value: isolateLtrText(String(Math.round(seconds / 60))),
+      })
+    }
+    return i18n('upload:eta:hours', {
+      value: isolateLtrText(String(Math.round(seconds / 3600))),
+    })
   }
 
   override willUpdate(changedProperties: PropertyValues): void {
@@ -298,11 +307,12 @@ export class UploadTaskItem extends ReatomLitElement {
       t.kind === 'transfer' && status === 'uploading' && rawProgress >= 99
         ? i18n('upload:finalizing')
         : this.getStatusText(t, status)
+    const cancelLabel = t.kind === 'open-external' ? i18n('button:close') : i18n('button:cancel')
 
     return html`
       <div class="upload-task">
         <div class="task-header">
-          <div class="task-name" title=${t.name}>${t.name}</div>
+          <div class="task-name" title=${isolateBidiText(t.name)}><bdi dir="auto">${t.name}</bdi></div>
           <div class="task-status ${status}">
             <cv-icon name=${this.getStatusIcon(t, status)}></cv-icon>
             <span>${statusText}</span>
@@ -323,9 +333,9 @@ export class UploadTaskItem extends ReatomLitElement {
             : html`
                 <div class="task-size-row">
                   <div class="task-size">
-                    <span>${formatFileSize(displayedLoaded)} / ${formatFileSize(total)}</span>
+                    <span><bdi dir="ltr">${formatFileSize(displayedLoaded)} / ${formatFileSize(total)}</bdi></span>
                   </div>
-                  <div class="task-progress-value">${Math.round(displayedProgress)}%</div>
+                  <div class="task-progress-value"><bdi dir="ltr">${Math.round(displayedProgress)}%</bdi></div>
                 </div>
               `}
           <div class="task-meta">
@@ -343,9 +353,9 @@ export class UploadTaskItem extends ReatomLitElement {
                     >${i18n('button:retry')}</cv-button
                   >`
                 : nothing}
-              ${t.kind === 'transfer' && status !== 'done'
+              ${status !== 'done'
                 ? html`<cv-button size="small" variant="ghost" @click=${this.onCancelClick}
-                    >${i18n('button:cancel')}</cv-button
+                    >${cancelLabel}</cv-button
                   >`
                 : nothing}
             </div>

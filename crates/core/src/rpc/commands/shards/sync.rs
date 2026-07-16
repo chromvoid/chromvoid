@@ -19,7 +19,8 @@ pub(super) fn sync_shard(
     if shard_id != ".passmanager" {
         let index = match Vault::read_root_index_from_storage(storage, vault_key) {
             Ok(Some(index)) => index,
-            _ => return Err(ShardCommandError::sync_shard_not_found(shard_id)),
+            Ok(None) => return Err(ShardCommandError::sync_shard_not_found(shard_id)),
+            Err(error) => return Err(ShardCommandError::internal(error.to_string())),
         };
         let meta = match index.get_shard(shard_id) {
             Some(meta) => meta,

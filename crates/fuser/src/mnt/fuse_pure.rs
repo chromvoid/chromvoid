@@ -1,7 +1,8 @@
-//! Native FFI bindings to libfuse.
+//! Pure Rust FUSE mount support.
 //!
-//! This is a small set of bindings that are required to mount/unmount FUSE filesystems and
-//! open/close a fd to the FUSE kernel driver.
+//! On Linux this opens the FUSE device directly or delegates to `fusermount`. On macOS it
+//! delegates to the mount helper installed by macFUSE and receives the FUSE device over a Unix
+//! socket. No macFUSE library is linked or loaded into the application process.
 
 use std::env;
 use std::ffi::CStr;
@@ -29,6 +30,8 @@ use std::sync::Arc;
 
 use log::debug;
 use log::error;
+#[cfg(target_os = "macos")]
+use log::warn;
 use nix::fcntl::FcntlArg;
 use nix::fcntl::FdFlag;
 use nix::fcntl::OFlag;
@@ -51,6 +54,14 @@ const FUSERMOUNT_BIN: &str = "fusermount";
 const FUSERMOUNT3_BIN: &str = "fusermount3";
 const FUSERMOUNT_COMM_ENV: &str = "_FUSE_COMMFD";
 const MOUNT_FUSEFS_BIN: &str = "mount_fusefs";
+#[cfg(target_os = "macos")]
+const MACFUSE_MOUNT_BIN: &str = "/Library/Filesystems/macfuse.fs/Contents/Resources/mount_macfuse";
+#[cfg(target_os = "macos")]
+const MACFUSE_CALL_BY_LIB_ENV: &str = "_FUSE_CALL_BY_LIB";
+#[cfg(target_os = "macos")]
+const MACFUSE_COMM_VERSION_ENV: &str = "_FUSE_COMMVERS";
+#[cfg(target_os = "macos")]
+const MACFUSE_DAEMON_PATH_ENV: &str = "_FUSE_DAEMON_PATH";
 
 #[derive(Debug)]
 pub(crate) struct MountImpl {
@@ -108,25 +119,155 @@ fn fuse_mount_pure(
     options: &[MountOption],
     acl: SessionACL,
 ) -> Result<(DevFuse, Option<UnixStream>), io::Error> {
-    if options.contains(&MountOption::AutoUnmount) {
-        // Auto unmount is only supported via fusermount
-        return fuse_mount_fusermount(mountpoint, options, acl);
+    #[cfg(target_os = "macos")]
+    {
+        // `mount_macfuse` does not accept libfuse's `auto_unmount` option. MountImpl owns the
+        // mount lifecycle and unmounts it on drop instead.
+        return fuse_mount_macfuse(mountpoint, options, acl).map(|file| (file, None));
     }
 
-    // The direct mount path is currently implemented only for Linux and macOS.
-    // Other supported Unix targets (such as the BSDs) rely on the setuid
-    // mount helper, which mirrors libfuse's approach.
-    if cfg!(target_os = "linux") || cfg!(target_os = "macos") {
-        let res = fuse_mount_sys(mountpoint, options, acl)?;
-        match res {
-            Some(file) => return Ok((file, None)),
-            None => {
-                // Retry
+    #[cfg(not(target_os = "macos"))]
+    {
+        if options.contains(&MountOption::AutoUnmount) {
+            // Auto unmount is only supported via fusermount
+            return fuse_mount_fusermount(mountpoint, options, acl);
+        }
+
+        // The direct mount path is currently implemented only for Linux. Other supported Unix
+        // targets (such as the BSDs) rely on the setuid mount helper, which mirrors libfuse's
+        // approach.
+        if cfg!(target_os = "linux") {
+            let res = fuse_mount_sys(mountpoint, options, acl)?;
+            match res {
+                Some(file) => return Ok((file, None)),
+                None => {
+                    // Retry
+                }
             }
         }
+
+        fuse_mount_fusermount(mountpoint, options, acl)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macfuse_mount_options(options: &[MountOption], acl: SessionACL) -> Vec<String> {
+    let mut options_strs: Vec<String> = options
+        .iter()
+        .filter(|option| **option != MountOption::AutoUnmount)
+        .map(option_to_string)
+        .collect();
+    options_strs.extend(acl.to_mount_option().map(str::to_owned));
+    options_strs
+}
+
+#[cfg(target_os = "macos")]
+fn macfuse_mount_command(
+    mountpoint: &OsStr,
+    options: &[MountOption],
+    acl: SessionACL,
+    daemon_path: &Path,
+    communication_fd: RawFd,
+) -> Command {
+    let mut command = Command::new(MACFUSE_MOUNT_BIN);
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    let options_strs = macfuse_mount_options(options, acl);
+    if !options_strs.is_empty() {
+        command.arg("-o").arg(options_strs.join(","));
     }
 
-    fuse_mount_fusermount(mountpoint, options, acl)
+    command
+        .arg(mountpoint)
+        .env(MACFUSE_CALL_BY_LIB_ENV, "1")
+        .env(FUSERMOUNT_COMM_ENV, communication_fd.to_string())
+        .env(MACFUSE_COMM_VERSION_ENV, "2")
+        .env(MACFUSE_DAEMON_PATH_ENV, daemon_path);
+    command
+}
+
+#[cfg(target_os = "macos")]
+fn receive_macfuse_mount_status(socket: &UnixStream) -> io::Result<i32> {
+    let mut status = [0u8; mem::size_of::<i32>()];
+    let mut socket = socket;
+    socket.read_exact(&mut status)?;
+    Ok(i32::from_ne_bytes(status))
+}
+
+#[cfg(target_os = "macos")]
+fn fuse_mount_macfuse(
+    mountpoint: &OsStr,
+    options: &[MountOption],
+    acl: SessionACL,
+) -> Result<DevFuse, Error> {
+    let daemon_path = env::current_exe()?;
+    let (child_socket, receive_socket) = UnixStream::pair()?;
+    let mut command = macfuse_mount_command(
+        mountpoint,
+        options,
+        acl,
+        &daemon_path,
+        child_socket.as_raw_fd(),
+    );
+
+    unsafe {
+        clear_cloexec_in_pre_exec(&mut command, child_socket.as_fd());
+    }
+
+    let mut child = command.spawn()?;
+    drop(child_socket);
+
+    let file = match receive_fusermount_message(&receive_socket) {
+        Ok(file) => file,
+        Err(receive_error) => {
+            drop(receive_socket);
+            let output = child.wait_with_output()?;
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(Error::new(
+                receive_error.kind(),
+                format!("macFUSE mount helper did not return a device: {receive_error}: {stderr}"),
+            ));
+        }
+    };
+
+    if let Err(error) = fcntl(&file, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)) {
+        drop(file);
+        drop(receive_socket);
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(Error::other(format!(
+            "failed to mark macFUSE device close-on-exec: {error}"
+        )));
+    }
+
+    // macFUSE sends the mount(2) result after the device descriptor. Waiting for that result here
+    // can deadlock because the mount may require the FUSE_INIT handshake that starts after this
+    // function returns. Consume it and reap the helper asynchronously, as libfuse does.
+    std::thread::Builder::new()
+        .name("macfuse-mount-status".to_owned())
+        .spawn(move || {
+            match receive_macfuse_mount_status(&receive_socket) {
+                Ok(0) => {}
+                Ok(status) => warn!("macFUSE mount helper returned status {status}"),
+                Err(error) => warn!("Failed to receive macFUSE mount status: {error}"),
+            }
+            drop(receive_socket);
+
+            match child.wait_with_output() {
+                Ok(output) if output.status.success() => {
+                    debug!("mount_macfuse: {}", String::from_utf8_lossy(&output.stdout));
+                    debug!("mount_macfuse: {}", String::from_utf8_lossy(&output.stderr));
+                }
+                Ok(output) => warn!(
+                    "mount_macfuse exited with {}: {}",
+                    output.status,
+                    String::from_utf8_lossy(&output.stderr)
+                ),
+                Err(error) => warn!("Failed to wait for mount_macfuse: {error}"),
+            }
+        })?;
+
+    Ok(file)
 }
 
 fn fuse_unmount_pure(mountpoint: &CStr) {
@@ -507,4 +648,104 @@ fn fuse_mount_sys(
     _acl: SessionACL,
 ) -> Result<Option<DevFuse>, Error> {
     Ok(None)
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use std::ffi::OsStr;
+    use std::ffi::OsString;
+    use std::io::IoSlice;
+    use std::io::Read;
+    use std::io::Seek;
+    use std::io::SeekFrom;
+    use std::io::Write;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::net::UnixStream;
+    use std::path::Path;
+
+    use nix::sys::socket::ControlMessage;
+    use nix::sys::socket::MsgFlags;
+    use nix::sys::socket::sendmsg;
+
+    use super::FUSERMOUNT_COMM_ENV;
+    use super::MACFUSE_CALL_BY_LIB_ENV;
+    use super::MACFUSE_COMM_VERSION_ENV;
+    use super::MACFUSE_DAEMON_PATH_ENV;
+    use super::MACFUSE_MOUNT_BIN;
+    use super::macfuse_mount_command;
+    use super::receive_fusermount_message;
+    use super::receive_macfuse_mount_status;
+    use crate::SessionACL;
+    use crate::mnt::mount_options::MountOption;
+
+    #[test]
+    fn macfuse_command_uses_v2_helper_protocol_without_auto_unmount() {
+        let command = macfuse_mount_command(
+            OsStr::new("/Volumes/ChromVoid"),
+            &[
+                MountOption::AutoUnmount,
+                MountOption::NoAtime,
+                MountOption::FSName("chromvoid".to_owned()),
+                MountOption::CUSTOM("volname=ChromVoid".to_owned()),
+                MountOption::CUSTOM("local".to_owned()),
+            ],
+            SessionACL::RootAndOwner,
+            Path::new("/Applications/ChromVoid.app/Contents/MacOS/chromvoid"),
+            42,
+        );
+
+        assert_eq!(command.get_program(), OsStr::new(MACFUSE_MOUNT_BIN));
+        assert_eq!(
+            command.get_args().map(OsString::from).collect::<Vec<_>>(),
+            [
+                OsString::from("-o"),
+                OsString::from("noatime,fsname=chromvoid,volname=ChromVoid,local,allow_other"),
+                OsString::from("/Volumes/ChromVoid"),
+            ]
+        );
+
+        let env_value = |key: &str| {
+            command
+                .get_envs()
+                .find(|(name, _)| *name == OsStr::new(key))
+                .and_then(|(_, value)| value)
+        };
+        assert_eq!(env_value(MACFUSE_CALL_BY_LIB_ENV), Some(OsStr::new("1")));
+        assert_eq!(env_value(FUSERMOUNT_COMM_ENV), Some(OsStr::new("42")));
+        assert_eq!(env_value(MACFUSE_COMM_VERSION_ENV), Some(OsStr::new("2")));
+        assert_eq!(
+            env_value(MACFUSE_DAEMON_PATH_ENV),
+            Some(OsStr::new(
+                "/Applications/ChromVoid.app/Contents/MacOS/chromvoid"
+            ))
+        );
+    }
+
+    #[test]
+    fn macfuse_protocol_receives_device_and_mount_status() {
+        let (mut helper_socket, application_socket) = UnixStream::pair().unwrap();
+        let mut source = tempfile::tempfile().unwrap();
+        source.write_all(b"macfuse-device").unwrap();
+        source.seek(SeekFrom::Start(0)).unwrap();
+
+        let descriptors = [source.as_raw_fd()];
+        sendmsg::<()>(
+            helper_socket.as_raw_fd(),
+            &[IoSlice::new(&[0])],
+            &[ControlMessage::ScmRights(&descriptors)],
+            MsgFlags::empty(),
+            None,
+        )
+        .unwrap();
+        helper_socket.write_all(&0i32.to_ne_bytes()).unwrap();
+
+        let mut received = receive_fusermount_message(&application_socket).unwrap();
+        let mut contents = String::new();
+        received.0.read_to_string(&mut contents).unwrap();
+        assert_eq!(contents, "macfuse-device");
+        assert_eq!(
+            receive_macfuse_mount_status(&application_socket).unwrap(),
+            0
+        );
+    }
 }

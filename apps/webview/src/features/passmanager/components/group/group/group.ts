@@ -22,26 +22,10 @@ import {pmGroupCommonStyles} from './styles'
 
 export const pmGroupDesktopStyles = css`
   .wrapper {
-    --pm-desktop-list-inline-padding: var(--app-surface-gutter-desktop);
-    --pm-desktop-list-row-padding-start: var(--app-surface-gutter-desktop);
-    --pm-desktop-list-row-padding-end: var(--app-surface-gutter-desktop);
-    --pm-desktop-content-shell-padding-block: 0px;
-    --pm-desktop-content-shell-padding-inline: 0px;
-    --pm-desktop-page-content-inset-start: calc(
-      var(--pm-desktop-content-shell-padding-inline) +
-        var(--pm-desktop-list-inline-padding) +
-        var(--pm-desktop-list-row-padding-start)
-    );
-    --pm-desktop-page-content-inset-end: calc(
-      var(--pm-desktop-content-shell-padding-inline) +
-        var(--pm-scrollbar-safe-area-end) -
-        var(--pm-desktop-list-inline-padding) +
-        var(--pm-desktop-list-row-padding-end)
-    );
     display: grid;
     gap: var(--app-spacing-5);
-    grid-template-rows: min-content minmax(0, 1fr);
-    animation: var(--motion-fade-up-animation, fadeInUp 0.35s var(--cv-easing-standard) both);
+    grid-template-rows: min-content minmax(0, 1fr) min-content;
+    animation: var(--app-motion-fade-up-animation, fadeInUp 0.35s var(--cv-easing-standard) both);
     block-size: 100%;
     min-height: 0;
     padding: 0;
@@ -56,7 +40,6 @@ export const pmGroupDesktopStyles = css`
   }
 
   .group-virtual-list {
-    --pm-desktop-list-row-height: 48px;
     --pm-entry-row-radius: 18px;
     --pm-entry-row-padding: 0 var(--pm-desktop-list-row-padding-end) 0 var(--pm-desktop-list-row-padding-start);
     block-size: 100%;
@@ -97,10 +80,6 @@ export const pmGroupDesktopStyles = css`
     justify-self: start;
   }
 
-  .workspace-back {
-    flex: 0 0 auto;
-  }
-
   .workspace-summary-value {
     font-family: var(--cv-font-family-code);
     font-size: 12px;
@@ -108,27 +87,6 @@ export const pmGroupDesktopStyles = css`
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--cv-color-text-secondary);
-  }
-
-  .workspace-stats {
-    display: inline-flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-
-  .workspace-actions {
-    display: grid;
-    gap: 8px;
-    justify-items: end;
-  }
-
-  .workspace-actions-label {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--cv-color-text-subtle);
   }
 
   cv-toolbar {
@@ -169,18 +127,18 @@ export const pmGroupDesktopStyles = css`
     min-height: 0;
     min-block-size: 0;
     overflow: hidden;
-    padding: var(--pm-desktop-content-shell-padding-block) var(--pm-desktop-content-shell-padding-inline);
+    padding: 0 0;
   }
 
   .entry-row,
   .group-row-wrap {
     user-select: none;
-    min-block-size: var(--pm-desktop-list-row-height);
+    min-block-size: var(--pm-desktop-list-row-block-size);
   }
 
   .group-row-wrap {
     padding: 0;
-    block-size: var(--pm-desktop-list-row-height);
+    block-size: var(--pm-desktop-list-row-block-size);
   }
 
   .group-row * {
@@ -190,8 +148,8 @@ export const pmGroupDesktopStyles = css`
   .entry-row {
     display: block;
     position: relative;
-    block-size: var(--pm-desktop-list-row-height);
-    --pm-desktop-entry-row-inner-height: calc(var(--pm-desktop-list-row-height) - 4px);
+    block-size: var(--pm-desktop-list-row-block-size);
+    --pm-desktop-entry-row-inner-block-size: calc(var(--pm-desktop-list-row-block-size) - 4px);
   }
 
   .group-row {
@@ -207,7 +165,7 @@ export const pmGroupDesktopStyles = css`
     isolation: isolate;
     padding-block: 0;
     padding-inline: var(--pm-desktop-list-row-padding-start) var(--pm-desktop-list-row-padding-end);
-    block-size: calc(var(--pm-desktop-list-row-height) - 4px);
+    block-size: calc(var(--pm-desktop-list-row-block-size) - 4px);
     background: transparent;
     border: none;
     border-radius: 18px;
@@ -335,13 +293,12 @@ export const pmGroupDesktopStyles = css`
 
   @container (width < 560px) {
     .wrapper {
-      --pm-desktop-list-inline-padding: var(--app-surface-gutter-compact);
-      --pm-desktop-list-row-padding-start: var(--app-surface-gutter-compact);
-      --pm-desktop-list-row-padding-end: var(--app-surface-gutter-compact);
-      --pm-desktop-content-shell-padding-block: 0px;
-      --pm-desktop-content-shell-padding-inline: 0px;
       padding: 0;
       gap: 14px;
+    }
+
+    pm-workspace-header {
+      margin-inline: calc(var(--app-surface-gutter-compact) + var(--app-surface-gutter-compact)) 14px;
     }
 
     .content-shell {
@@ -349,8 +306,14 @@ export const pmGroupDesktopStyles = css`
     }
 
     .group-virtual-list {
+      --pm-entry-row-padding: 0 var(--app-surface-gutter-compact);
       border-radius: 20px;
       padding: var(--app-surface-gutter-compact);
+    }
+
+    .workbench-list-header {
+      margin-inline: var(--app-surface-gutter-compact);
+      padding-inline: var(--app-surface-gutter-compact);
     }
 
     .workbench-list-header,
@@ -364,23 +327,6 @@ export const pmGroupDesktopStyles = css`
     }
   }
 
-  @media (hover: none) and (pointer: coarse) {
-    cv-toolbar {
-      --cv-toolbar-gap: 6px;
-    }
-
-    .group-action-item {
-      --cv-toolbar-item-min-height: 40px;
-    }
-
-    .group-action-item.icon-only {
-      min-inline-size: 40px;
-    }
-
-    .group-row:hover {
-      transform: none;
-    }
-  }
 `
 
 export class PMGroup extends PMGroupBase {
@@ -441,6 +387,7 @@ export class PMGroup extends PMGroupBase {
         <section class="content-shell">
           ${this.renderGroupsList(group, items)}
         </section>
+        ${this.renderGroupMetrics(summary)}
       </div>
     `
   }

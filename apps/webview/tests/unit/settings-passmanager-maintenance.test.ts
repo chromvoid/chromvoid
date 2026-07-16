@@ -21,13 +21,21 @@ async function renderSettingsPage() {
   const page = document.createElement('settings-page') as SettingsPage
   document.body.append(page)
   await page.updateComplete
-  await Promise.resolve()
-  await page.updateComplete
+  const layout = page.shadowRoot?.querySelector<HTMLElement & {updateComplete: Promise<unknown>}>(
+    'settings-page-desktop-layout',
+  )
+  await layout?.updateComplete
   return page
 }
 
+function settingsRoot(page: SettingsPage): ShadowRoot {
+  const layout = page.shadowRoot?.querySelector('settings-page-desktop-layout')
+  if (!layout?.shadowRoot) throw new Error('Desktop Settings layout not found')
+  return layout.shadowRoot
+}
+
 function findButton(page: SettingsPage, label: string): HTMLElement {
-  const button = Array.from(page.shadowRoot?.querySelectorAll('cv-button') ?? []).find((candidate) =>
+  const button = Array.from(settingsRoot(page).querySelectorAll('cv-button')).find((candidate) =>
     candidate.textContent?.includes(label),
   ) as HTMLElement | undefined
   if (!button) throw new Error(`Button not found: ${label}`)
@@ -61,8 +69,8 @@ describe('Settings passmanager maintenance', () => {
   it('renders Passwords maintenance actions in Settings', async () => {
     const page = await renderSettingsPage()
 
-    expect(page.shadowRoot?.textContent).toContain('Passwords')
-    expect(page.shadowRoot?.textContent).toContain('Import, export, or clear password vault data.')
+    expect(settingsRoot(page).textContent).toContain('Passwords')
+    expect(settingsRoot(page).textContent).toContain('Import, export, or clear password vault data.')
     expect(findButton(page, 'Import')).toBeTruthy()
     expect(findButton(page, 'Export')).toBeTruthy()
     expect(findButton(page, 'Clear')).toBeTruthy()
@@ -85,7 +93,7 @@ describe('Settings passmanager maintenance', () => {
 
   it('renders the import dialog only while the maintenance model is open', async () => {
     const page = await renderSettingsPage()
-    expect(page.shadowRoot?.querySelector('pm-import-dialog')).toBeNull()
+    expect(settingsRoot(page).querySelector('pm-import-dialog')).toBeNull()
 
     passmanagerMaintenanceModel.importDialogOpen.set(true)
     await Promise.resolve()
@@ -93,7 +101,7 @@ describe('Settings passmanager maintenance', () => {
 
     const completeSpy = vi.spyOn(settingsPageModel, 'handlePasswordImportComplete').mockResolvedValue()
     const closeSpy = vi.spyOn(settingsPageModel, 'closePasswordImportDialog').mockImplementation(() => {})
-    const dialog = page.shadowRoot?.querySelector('pm-import-dialog')
+    const dialog = settingsRoot(page).querySelector('pm-import-dialog')
 
     expect(dialog).not.toBeNull()
 
@@ -110,9 +118,9 @@ describe('Settings passmanager maintenance', () => {
     const closeSpy = vi.spyOn(settingsPageModel, 'closePasswordImportDialog').mockImplementation(() => {})
     const page = await renderSettingsPage()
 
-    expect(page.shadowRoot?.querySelector('pm-import-dialog')).toBeNull()
-    expect(page.shadowRoot?.textContent).toContain('Import complete')
-    expect(page.shadowRoot?.textContent).toContain('Passwords were imported successfully.')
+    expect(settingsRoot(page).querySelector('pm-import-dialog')).toBeNull()
+    expect(settingsRoot(page).textContent).toContain('Import complete')
+    expect(settingsRoot(page).textContent).toContain('Passwords were imported successfully.')
 
     findButton(page, 'Close').click()
 

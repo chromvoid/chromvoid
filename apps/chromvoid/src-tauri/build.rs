@@ -1,7 +1,11 @@
 const LICENSE_PUBLIC_KEY_ENV: &str = "CHROMVOID_LICENSE_PUBLIC_KEY_ED25519_2026_01";
+const WALLET_FLAG_ENVS: &[&str] = &["CHROMVOID_WALLET_ENABLED", "CHROMVOID_BTC_ESPLORA_URL"];
 
 fn main() {
     println!("cargo:rerun-if-env-changed={LICENSE_PUBLIC_KEY_ENV}");
+    for env in WALLET_FLAG_ENVS {
+        println!("cargo:rerun-if-env-changed={env}");
+    }
     require_license_public_key_for_release();
 
     // Use ACL permissions for custom app commands (Tauri v2 capabilities).
@@ -16,6 +20,9 @@ fn main() {
             "license_current_seat_deactivate",
             "module_access_snapshot",
             "module_access_resolve",
+            "macos_otp_import_pending",
+            "macos_otp_import_take",
+            "macos_otp_import_clear",
             "catalog_upload_chunk",
             "catalog_upload_native_files",
             "catalog_cancel_native_upload",
@@ -26,8 +33,13 @@ fn main() {
             "file_stat",
             "write_text_file",
             "catalog_download",
+            "catalog_download_range",
             "prepare_catalog_preview_file",
             "release_catalog_preview_file",
+            "prepare_media_source",
+            "release_media_source",
+            "prepare_media_stream",
+            "release_media_stream",
             "catalog_preview_image",
             "catalog_thumbnail_image",
             "catalog_image_metadata",
@@ -45,6 +57,7 @@ fn main() {
             "init_local_storage",
             "master_setup",
             "master_rekey",
+            "password_strength_estimate",
             "storage_set_root",
             "backup_local_create",
             "backup_local_cancel",
@@ -52,12 +65,24 @@ fn main() {
             "restore_local_select_source",
             "restore_local_cancel",
             "erase_device",
+            "env_runtime_desktop_snapshot",
+            "env_runtime_preset_save",
+            "env_runtime_preset_delete",
+            "env_runtime_profile_delete",
+            "env_runtime_run_approval_resolve",
+            "env_runtime_run_stop",
+            "env_runtime_proposal_resolve",
+            "env_runtime_cli_install_status",
+            "env_runtime_cli_install",
             "gateway_get_config",
             "gateway_set_enabled",
             "gateway_set_access_duration",
             "gateway_list_paired",
+            "gateway_list_paired_agents",
             "gateway_revoke_extension",
+            "gateway_revoke_agent",
             "gateway_start_pairing",
+            "gateway_start_agent_pairing",
             "gateway_cancel_pairing",
             "gateway_set_session_duration",
             "gateway_get_capability_policy",
@@ -81,14 +106,20 @@ fn main() {
             "android_media_session_update",
             "android_media_session_stop",
             "android_audio_session_command",
+            "android_audio_warmup",
             "android_video_start",
             "android_video_stop",
             "mobile_biometric_auth",
+            "credential_provider_status",
+            "open_credential_provider_settings",
+            "credential_provider_passkeys_list",
+            "credential_provider_passkey_delete",
             "android_passkeys_list",
             "android_passkey_delete",
             "android_password_save_finish",
             "android_quick_lock_tile_status",
             "android_request_quick_lock_tile",
+            "configure_native_edge_back",
             "start_ios_host_mode",
             "stop_ios_host_mode",
             "ios_host_status",
@@ -130,6 +161,21 @@ fn main() {
             "ssh_agent_stop",
             "ssh_agent_status",
             "ssh_agent_sign_approval_resolve",
+            "mobile_usb_scan",
+            "mobile_usb_detect",
+            "mobile_usb_pair",
+            "mobile_usb_confirm_pairing",
+            "mobile_usb_connect",
+            "mobile_usb_disconnect",
+            "mobile_usb_status",
+            "mobile_usb_list_paired",
+            "mobile_usb_remove_paired",
+            "mobile_usb_host_pending_pairing_approval",
+            "mobile_usb_host_approve_pairing",
+            "mobile_usb_host_reject_pairing",
+            "mobile_usb_host_pending_session_approval",
+            "mobile_usb_host_approve_session",
+            "mobile_usb_host_reject_session",
         ]),
     ))
     .expect("tauri-build failed");
@@ -142,6 +188,8 @@ fn require_license_public_key_for_release() {
 
     let value = std::env::var(LICENSE_PUBLIC_KEY_ENV).unwrap_or_default();
     if value.trim().is_empty() {
-        panic!("missing {LICENSE_PUBLIC_KEY_ENV}: release app builds must embed the license verification public key");
+        panic!(
+            "missing {LICENSE_PUBLIC_KEY_ENV}: release app builds must embed the license verification public key"
+        );
     }
 }

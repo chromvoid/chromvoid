@@ -104,6 +104,21 @@ if (typeof HTMLMediaElement !== 'undefined') {
   })
 }
 
+type SVGElementWithLength = SVGElement & {
+  getTotalLength?: () => number
+}
+
+const svgElementPrototype =
+  typeof SVGElement !== 'undefined' ? (SVGElement.prototype as SVGElementWithLength) : null
+
+if (svgElementPrototype && typeof svgElementPrototype.getTotalLength !== 'function') {
+  Object.defineProperty(svgElementPrototype, 'getTotalLength', {
+    configurable: true,
+    writable: true,
+    value: () => 1,
+  })
+}
+
 const originalAttachInternals = (HTMLElement.prototype as any).attachInternals as
   | ((...args: unknown[]) => any)
   | undefined

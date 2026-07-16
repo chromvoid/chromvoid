@@ -20,8 +20,10 @@ export class PMEntryMoveMobile extends PMEntryMoveBase {
   static styles = [
     ...pmEntryMoveSharedStyles,
     css`
-      :host {
-        --pm-entry-move-indent-step: var(--pm-move-indent-step-mobile);
+      .indent-step {
+        width: var(--pm-move-indent-step-mobile);
+        min-width: var(--pm-move-indent-step-mobile);
+        flex-basis: var(--pm-move-indent-step-mobile);
       }
 
       .layout {

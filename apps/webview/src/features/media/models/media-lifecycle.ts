@@ -1,4 +1,11 @@
-import {invalidateFileBlobCache} from 'root/features/media/components/file-loader'
+import {
+  invalidateAllFileBlobCache,
+  invalidateFileBlobCache,
+} from 'root/features/media/components/file-loader'
+import {
+  disposeFileThumbnailCache,
+  invalidateFileThumbnailById,
+} from 'root/features/file-manager/models/file-thumbnail-cache.model'
 import {mediaPlaybackModel} from './media-playback.model'
 import {releaseAllMediaStreamOwnersForLifecycle} from './media-stream-owner-registry'
 
@@ -35,6 +42,7 @@ export function getMediaInvalidationNodeIdFromCatalogEvent(payload: unknown): nu
 }
 
 export async function releaseMediaSourcesForVaultLock(): Promise<void> {
+  disposeFileThumbnailCache()
   await mediaPlaybackModel.stopSession()
   await releaseAllMediaStreamOwnersForLifecycle('vault-lock')
 }
@@ -52,11 +60,20 @@ export async function releaseMediaSourcesForAppBackground(
 }
 
 export async function releaseMediaSourcesForSessionEnd(): Promise<void> {
+  disposeFileThumbnailCache()
   await mediaPlaybackModel.stopSession()
   await releaseAllMediaStreamOwnersForLifecycle('session-end')
 }
 
+export async function releaseMediaSourcesForTransportSessionChange(): Promise<void> {
+  disposeFileThumbnailCache()
+  invalidateAllFileBlobCache()
+  await mediaPlaybackModel.stopSession()
+  await releaseAllMediaStreamOwnersForLifecycle('transport-disconnected')
+}
+
 export async function releaseMediaSourcesForSourceInvalidation(nodeId: number): Promise<void> {
+  invalidateFileThumbnailById(nodeId)
   invalidateFileBlobCache(nodeId)
   await mediaPlaybackModel.releaseSourceForLifecycle('source-invalidated', {nodeId})
   await releaseAllMediaStreamOwnersForLifecycle('source-invalidated', {nodeId})

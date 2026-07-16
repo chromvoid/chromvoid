@@ -4,8 +4,10 @@ import {MOBILE_KEYBOARD_PROGRAMMATIC_SCROLL_EVENT} from '../../../shared/service
 import {
   ANDROID_NATIVE_KEYBOARD_INSETS_ATTR,
   IOS_NATIVE_KEYBOARD_INSETS_ATTR,
+  MOBILE_KEYBOARD_BEFORE_INSETS_APPLY_EVENT,
   MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR,
   NATIVE_KEYBOARD_INSETS_ATTR,
+  type MobileKeyboardBeforeInsetsApplyDetail,
 } from '../mobile-keyboard-insets'
 import {
   getActiveMobileKeyboardTarget,
@@ -18,6 +20,7 @@ import {
 import {createMobileKeyboardStateController} from './keyboard-state'
 import {createScrollIntentTracker} from './scroll-intent'
 import {createPreserveController} from './preserve-controller'
+import {createClosePreserveController} from './close-preserve-controller'
 import {createRevealController} from './reveal-controller'
 import {isMobileKeyboardTargetFullyVisible} from './geometry'
 
@@ -58,6 +61,12 @@ export const setupMobileKeyboardFocusScroll = (store: Store): (() => void) => {
     getKeyboardState: keyboardState.getState,
     getActiveTarget: getCurrentActiveTarget,
     hasUserScrollAuthority: () => userScrolledAway,
+    scrollIntent,
+    debug: keyboardScrollDebug,
+    readDebugTarget,
+  })
+  const closePreserve = createClosePreserveController({
+    isMobile,
     scrollIntent,
     debug: keyboardScrollDebug,
     readDebugTarget,
@@ -204,6 +213,17 @@ export const setupMobileKeyboardFocusScroll = (store: Store): (() => void) => {
   const handleProgrammaticScroll = () => {
     scrollIntent.handleProgrammaticScrollEvent()
     preserve.cancel('programmatic-scroll')
+    closePreserve.cancel('programmatic-scroll')
+  }
+
+  const handleBeforeInsetsApply = (event: Event) => {
+    if (!(event instanceof CustomEvent)) return
+    const detail = event.detail as Partial<MobileKeyboardBeforeInsetsApplyDetail> | null
+    if (!detail || detail.nextBottomInset !== 0 || !detail.previousBottomInset) return
+
+    const target = activeTarget ?? getCurrentActiveTarget()
+    if (!target) return
+    closePreserve.start(target, detail.previousBottomInset)
   }
 
   const unsubscribeKeyboardState = keyboardState.subscribe((state) => {
@@ -251,6 +271,7 @@ export const setupMobileKeyboardFocusScroll = (store: Store): (() => void) => {
   document.addEventListener(MOBILE_KEYBOARD_PROGRAMMATIC_SCROLL_EVENT, handleProgrammaticScroll, {
     capture: true,
   })
+  window.addEventListener(MOBILE_KEYBOARD_BEFORE_INSETS_APPLY_EVENT, handleBeforeInsetsApply)
   visualViewport?.addEventListener('resize', handleViewportChange)
   visualViewport?.addEventListener('scroll', handleViewportChange)
   window.addEventListener('resize', handleViewportChange)
@@ -272,6 +293,7 @@ export const setupMobileKeyboardFocusScroll = (store: Store): (() => void) => {
     unsubscribeKeyboardState()
     reveal.cleanup()
     preserve.cleanup()
+    closePreserve.cleanup()
     scrollIntent.cleanup()
     keyboardState.cleanup()
     rootObserver?.disconnect()
@@ -292,6 +314,7 @@ export const setupMobileKeyboardFocusScroll = (store: Store): (() => void) => {
     document.removeEventListener(MOBILE_KEYBOARD_PROGRAMMATIC_SCROLL_EVENT, handleProgrammaticScroll, {
       capture: true,
     })
+    window.removeEventListener(MOBILE_KEYBOARD_BEFORE_INSETS_APPLY_EVENT, handleBeforeInsetsApply)
     visualViewport?.removeEventListener('resize', handleViewportChange)
     visualViewport?.removeEventListener('scroll', handleViewportChange)
     window.removeEventListener('resize', handleViewportChange)

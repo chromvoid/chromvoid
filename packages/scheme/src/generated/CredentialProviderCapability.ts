@@ -3,6 +3,8 @@
 export type CredentialProviderCapability = {
   password_provider: boolean
   passkeys_lite: boolean
+  one_time_codes: boolean
+  one_time_codes_unsupported_reason: string | null
   autofill_fallback: boolean
   unsupported_reason: string | null
 }

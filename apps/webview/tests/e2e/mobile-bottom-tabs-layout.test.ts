@@ -1,5 +1,6 @@
 import {expect, test} from 'vitest'
 
+import type {Page} from 'playwright'
 import {
   installFixedVisualClock,
   openFiles,
@@ -13,7 +14,7 @@ import {
 } from './visual-fixtures'
 
 declare global {
-  var __E2E_PAGE__: import('playwright').Page | undefined
+  var __E2E_PAGE__: Page | undefined
 }
 
 type BottomTabSurface = 'files' | 'notes' | 'passwords' | 'otp'
@@ -42,7 +43,7 @@ type BottomTabLayoutSnapshot = {
   surfaceScrollerTabOverlap: number | null
 }
 
-function getPage(ctx: {skip: () => void}): import('playwright').Page | undefined {
+function getPage(ctx: {skip: () => void}): Page | undefined {
   const page = globalThis.__E2E_PAGE__
   if (!page) {
     ctx.skip()
@@ -51,7 +52,7 @@ function getPage(ctx: {skip: () => void}): import('playwright').Page | undefined
 }
 
 async function readBottomTabLayout(
-  page: import('playwright').Page,
+  page: Page,
   surface: BottomTabSurface,
 ): Promise<BottomTabLayoutSnapshot> {
   return page.evaluate((targetSurface) => {

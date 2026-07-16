@@ -12,6 +12,7 @@ export const renderVolumeMountSection = ({model}: {model: RemoteStorageModel}) =
   const backends = model.volume.backends()
   const selected = model.volume.selectedBackend()
   const selectedInfo = backends.find((b) => b.id === selected)
+  const missingMacFuse = model.volume.missingMacFuse()
 
   const webdavUrl =
     status.backend === 'webdav'
@@ -88,27 +89,24 @@ export const renderVolumeMountSection = ({model}: {model: RemoteStorageModel}) =
                       )}
                 </select>
               </div>
-              ${selectedInfo && !selectedInfo.available
-                ? html`
-                    ${renderRemoteStorageCallout({
-                      variant: 'warning',
-                      icon: 'download',
-                      title: i18n('remote-storage:driver-required'),
-                      text: html`
-                        ${i18n('remote-storage:driver-required')}
-                        ${selectedInfo.install_url
-                          ? html` <a
-                              class="inline-link"
-                              href=${selectedInfo.install_url}
-                              target="_blank"
-                              rel="noopener"
-                            >
-                              ${i18n('remote-storage:download-driver', {label: selectedInfo.label})}
-                            </a>`
-                          : nothing}
-                      `,
-                    })}
-                  `
+              ${missingMacFuse
+                ? renderRemoteStorageCallout({
+                    variant: 'info',
+                    icon: 'download',
+                    title: i18n('remote-storage:macfuse-optional-title'),
+                    text: html`
+                      ${i18n('remote-storage:macfuse-optional-text')}
+                      <a
+                        class="inline-link"
+                        href=${missingMacFuse.install_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        @click=${model.onOpenMacFuseInstallPage}
+                      >
+                        ${i18n('remote-storage:macfuse-open-site')}
+                      </a>
+                    `,
+                  })
                 : nothing}
             `
           : nothing}

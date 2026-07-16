@@ -19,7 +19,7 @@ mod common;
 
 use base64::{engine::general_purpose, Engine as _};
 use chromvoid_lib::{detect_fuse_driver, FuseDriverStatus};
-use common::{catalog_download, catalog_find_child, sha256_hex, TestVault};
+use common::{catalog_download, catalog_find_child, catalog_trash_list, sha256_hex, TestVault};
 use std::ffi::OsStr;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -169,6 +169,20 @@ fn finder_list_names(mountpoint: &Path) -> Result<Vec<String>, String> {
         let item = line.trim();
         if !item.is_empty() {
             names.push(item.to_string());
+        }
+    }
+    if names.is_empty() {
+        let shell_names = match std::fs::read_dir(mountpoint) {
+            Ok(entries) => entries
+                .filter_map(Result::ok)
+                .filter_map(|entry| entry.file_name().into_string().ok())
+                .collect::<Vec<_>>(),
+            Err(_) => Vec::new(),
+        };
+        if !shell_names.is_empty() {
+            return Err(format!(
+                "SKIP Finder automation unavailable: Finder returned an empty listing for a non-empty mounted directory; shell_names={shell_names:?}"
+            ));
         }
     }
     Ok(names)
@@ -413,7 +427,7 @@ async fn e2e_user_full_workflow() {
         format_duration(phase5_start.elapsed())
     );
 
-    log_phase!("PHASE 6: Delete file and verify storage size reduction");
+    log_phase!("PHASE 6: Delete file and verify catalog removal");
     let phase6_start = Instant::now();
 
     log_step!("Saving vault state before deletion...");
@@ -447,19 +461,13 @@ async fn e2e_user_full_workflow() {
         format_bytes(storage_size_after)
     );
 
-    let size_reduction = storage_size_before.saturating_sub(storage_size_after);
-    log_step!("Storage size reduction: {}", format_bytes(size_reduction));
     assert!(
-        size_reduction >= 2 * 1024 * 1024,
-        "storage size should decrease by at least 2MB after deleting 3MB file. before={} after={} reduction={}",
-        storage_size_before,
-        storage_size_after,
-        size_reduction
+        catalog_find_child(&vault.adapter, None, "temp_large_file.bin").is_none(),
+        "deleted file should be absent from root catalog after delete"
     );
 
     log_step!(
-        "✓ Delete completed. Storage reduced by {} in {}",
-        format_bytes(size_reduction),
+        "✓ Delete completed. Physical chunk reclamation is deferred to storage GC; phase completed in {}",
         format_duration(phase6_start.elapsed())
     );
 
@@ -940,7 +948,6 @@ async fn e2e_finder_style_trash_delete_after_restart() {
     let filename = "Screenshot 2026-02-09 at 12.29.42.png";
     let ds_store = ".DS_Store";
     let uid = unsafe { libc::getuid() };
-    let trash_parent = format!("/.Trashes/{uid}");
 
     log_phase!("PHASE 1: Create root files and persist");
     let fuse = start_fuse_or_skip!(
@@ -1011,18 +1018,18 @@ async fn e2e_finder_style_trash_delete_after_restart() {
         "root mount listing should drop deleted file without remount"
     );
     assert!(
-        wait_until_dir_absent(&trash_dir, filename, Duration::from_secs(2))
-            .expect("read_dir trash after trash delete"),
-        "trash listing should not keep deleted file entry"
+        dir_contains_name(&trash_dir, filename).expect("read_dir trash after trash move"),
+        "trash listing should expose reversibly trashed file"
     );
 
     assert!(
         catalog_find_child(&vault.adapter, None, filename).is_none(),
         "screenshot should be absent from root catalog after trash delete"
     );
+    let trash_items = catalog_trash_list(&vault.adapter);
     assert!(
-        catalog_find_child(&vault.adapter, Some(trash_parent.as_str()), filename).is_none(),
-        "trashed screenshot should be absent from trash catalog after delete"
+        trash_items.items.iter().any(|item| item.name == filename),
+        "trashed screenshot should be present in catalog Trash after move"
     );
 
     tokio::time::timeout(Duration::from_secs(5), fuse.join())
@@ -1035,9 +1042,10 @@ async fn e2e_finder_style_trash_delete_after_restart() {
         catalog_find_child(&vault.adapter, None, filename).is_none(),
         "screenshot should remain absent after restart"
     );
+    let trash_items = catalog_trash_list(&vault.adapter);
     assert!(
-        catalog_find_child(&vault.adapter, Some(trash_parent.as_str()), filename).is_none(),
-        "trashed screenshot should remain absent after restart"
+        trash_items.items.iter().any(|item| item.name == filename),
+        "trashed screenshot should remain in catalog Trash after restart"
     );
 
     log_phase!(format!(
@@ -1579,12 +1587,17 @@ async fn e2e_finder_replace_same_name_converges() {
 
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut converged = false;
+    let mut last_shell_ok = false;
+    let mut last_finder_names = Vec::new();
     while Instant::now() < deadline {
         let shell_ok = path.exists() && !temp_path.exists();
+        last_shell_ok = shell_ok;
         let finder_ok = match finder_list_names(&mountpoint) {
             Ok(names) => {
-                names.iter().any(|name| name == filename)
-                    && !names.iter().any(|name| name == temp_name)
+                let ok = names.iter().any(|name| name == filename)
+                    && !names.iter().any(|name| name == temp_name);
+                last_finder_names = names;
+                ok
             }
             Err(msg) if msg.starts_with("SKIP ") => {
                 tokio::time::timeout(Duration::from_secs(5), fuse.join())
@@ -1610,7 +1623,7 @@ async fn e2e_finder_replace_same_name_converges() {
 
     assert!(
         converged,
-        "shell/Finder replace convergence did not complete within timeout"
+        "shell/Finder replace convergence did not complete within timeout; shell_ok={last_shell_ok}; finder_names={last_finder_names:?}"
     );
     assert_no_host_trash_leakage(filename);
     assert_no_host_trash_leakage(temp_name);

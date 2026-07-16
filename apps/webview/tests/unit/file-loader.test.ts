@@ -1,6 +1,16 @@
 import {afterAll, afterEach, beforeAll, describe, expect, it, vi} from 'vitest'
 
+const {tauriInvokeMock} = vi.hoisted(() => ({
+  tauriInvokeMock: vi.fn(),
+}))
+
+vi.mock('../../src/core/transport/tauri/ipc', () => ({
+  tauriInvoke: tauriInvokeMock,
+  tauriListen: vi.fn(async () => () => {}),
+}))
+
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
+import {downloadFileViaTauri} from '../../src/core/transport/tauri/tauri-binary-ops'
 import {
   FileLoadError,
   MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES,
@@ -15,12 +25,21 @@ import {
 } from '../../src/features/media/components/file-loader'
 import {resetImageDisplaySchedulerForTests} from '../../src/features/media/components/image-display-scheduler'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
+import {
+  resetRuntimeMediaProbeState,
+  setRuntimeMediaProbeState,
+} from '../../src/core/runtime/runtime-media-probes'
 import {runtimeModeModel} from '../../src/core/runtime/runtime-mode.model'
 import type {PreparedPreviewFileSource} from '../../src/core/transport/transport'
 
 const originalCreateObjectURL = URL.createObjectURL
 const originalRevokeObjectURL = URL.revokeObjectURL
 const originalImage = globalThis.Image
+const originalMediaSource = globalThis.MediaSource
+const originalMediaCapabilitiesDescriptor = Object.getOwnPropertyDescriptor(
+  globalThis.navigator,
+  'mediaCapabilities',
+)
 
 async function readBlobText(blob: Blob): Promise<string> {
   return await new Promise((resolve, reject) => {
@@ -88,6 +107,17 @@ function mockPreparedSourceImageLoadability(result: 'load' | 'error') {
     configurable: true,
     writable: true,
     value: MockImage,
+  })
+}
+
+function mockMediaSourceTypeSupport(result: boolean) {
+  class MockMediaSource {
+    static isTypeSupported = vi.fn(() => result)
+  }
+  Object.defineProperty(globalThis, 'MediaSource', {
+    configurable: true,
+    writable: true,
+    value: MockMediaSource,
   })
 }
 
@@ -207,9 +237,15 @@ afterEach(async () => {
   invalidateFileBlobCache(45)
   invalidateFileBlobCache(46)
   invalidateFileBlobCache(47)
+  invalidateFileBlobCache(50)
+  invalidateFileBlobCache(51)
+  invalidateFileBlobCache(52)
+  invalidateFileBlobCache(53)
+  invalidateFileBlobCache(54)
   resetDerivativeNegativeCacheForTests()
   clearAppContext()
   resetRuntimeCapabilities()
+  resetRuntimeMediaProbeState()
   runtimeModeModel.handleTransportDisconnect()
   resetPreparedSourceLoadabilityForTests()
   Object.defineProperty(globalThis, 'Image', {
@@ -217,6 +253,21 @@ afterEach(async () => {
     writable: true,
     value: originalImage,
   })
+  Object.defineProperty(globalThis, 'MediaSource', {
+    configurable: true,
+    writable: true,
+    value: originalMediaSource,
+  })
+  if (originalMediaCapabilitiesDescriptor) {
+    Object.defineProperty(
+      globalThis.navigator,
+      'mediaCapabilities',
+      originalMediaCapabilitiesDescriptor,
+    )
+  } else {
+    delete (globalThis.navigator as {mediaCapabilities?: unknown}).mediaCapabilities
+  }
+  tauriInvokeMock.mockReset()
   vi.clearAllMocks()
 })
 
@@ -627,7 +678,7 @@ describe('file-loader', () => {
     source.release()
   })
 
-  it('uses blob downloads for raw playable video even when native prepared source is available', async () => {
+  it('does not use blob downloads for raw playable Tauri video when video source is unavailable', async () => {
     const preparePreviewFile = vi.fn().mockResolvedValue({
       kind: 'asset-file',
       previewId: 'preview-24',
@@ -656,24 +707,22 @@ describe('file-loader', () => {
       }),
     )
 
-    const source = await loadFileSourceById(24, 'clip.mp4', {
-      mimeType: 'video/mp4',
-      sourceSize: 42,
-      variant: 'raw',
-    })
+    await expectFileLoadError(
+      loadFileSourceById(24, 'clip.mp4', {
+        mimeType: 'video/mp4',
+        sourceSize: 42,
+        variant: 'raw',
+      }),
+      'MEDIA_BLOB_FALLBACK_LIMIT',
+      `MEDIA_BLOB_FALLBACK_LIMIT:video-source-required:${MAX_MEDIA_BLOB_FALLBACK_BYTES}`,
+    )
 
-    expect(source.kind).toBe('blob')
-    expect(source.blob!).toBeInstanceOf(Blob)
-    expect(await readBlobText(source.blob!)).toBe('video-bytes')
     expect(preparePreviewFile).not.toHaveBeenCalled()
     expect(releasePreviewFile).not.toHaveBeenCalled()
-    expect(download).toHaveBeenCalledTimes(1)
-
-    source.release()
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url')
+    expect(download).not.toHaveBeenCalled()
   })
 
-  it('uses native media streams for raw playable video when the runtime gate allows it', async () => {
+  it('does not use legacy media streams for raw playable macOS video', async () => {
     setRuntimeCapabilities({
       platform: 'macos',
       desktop: true,
@@ -708,6 +757,67 @@ describe('file-loader', () => {
       }),
     )
 
+    await expectFileLoadError(
+      loadFileSourceById(24, 'clip.mp4', {
+        mimeType: 'video/mp4',
+        sourceSize: 42,
+        variant: 'raw',
+      }),
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+    )
+
+    expect(prepareMediaStream).not.toHaveBeenCalled()
+    expect(releaseMediaStream).not.toHaveBeenCalled()
+    expect(download).not.toHaveBeenCalled()
+  })
+
+  it('uses prepared video-source loopback delivery for raw playable macOS video', async () => {
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      supports_media_stream_protocol: true,
+      supports_media_http_stream: true,
+    })
+    runtimeModeModel.setCoreMode('local')
+    const prepareMediaSource = vi.fn().mockResolvedValue({
+      kind: 'video-source',
+      streamId: 'stream-231',
+      sourceToken: 'stream-231',
+      platform: 'desktop',
+      provider: 'local-catalog',
+      deliveries: [
+        {
+          delivery: 'loopback-http',
+          platform: 'desktop',
+          url: 'http://127.0.0.1:49152/media/stream-231',
+        },
+      ],
+      name: 'clip.mp4',
+      mimeType: 'video/mp4',
+      size: 42,
+      sourceRevision: 9,
+      mediaSourceGeneration: 1,
+      expiresAt: 123456,
+    })
+    const releaseMediaSource = vi.fn().mockResolvedValue(undefined)
+    const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('video-bytes')))
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaSource,
+          releaseMediaSource,
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
     const source = await loadFileSourceById(24, 'clip.mp4', {
       mimeType: 'video/mp4',
       sourceSize: 42,
@@ -715,15 +825,20 @@ describe('file-loader', () => {
     })
 
     expect(source).toMatchObject({
-      kind: 'media-stream',
-      url: 'chromvoid-media://localhost/stream-24',
-      streamId: 'stream-24',
+      kind: 'video-source',
+      url: 'http://127.0.0.1:49152/media/stream-231',
+      delivery: 'loopback-http',
+      streamId: 'stream-231',
+      sourceToken: 'stream-231',
+      provider: 'local-catalog',
       size: 42,
       mimeType: 'video/mp4',
       sourceRevision: 9,
+      mediaSourceGeneration: 1,
     })
-    expect(source.blob).toBeUndefined()
-    expect(prepareMediaStream).toHaveBeenCalledWith(24, {
+    expect(prepareMediaSource).toHaveBeenCalledWith({
+      kind: 'video',
+      nodeId: 24,
       fileName: 'clip.mp4',
       mimeType: 'video/mp4',
       lastModified: null,
@@ -732,10 +847,966 @@ describe('file-loader', () => {
 
     await source.release()
     await source.release()
-    expect(releaseMediaStream).toHaveBeenCalledTimes(1)
-    expect(releaseMediaStream).toHaveBeenCalledWith(
-      expect.objectContaining({streamId: 'stream-24', sourceRevision: 9}),
+    expect(releaseMediaSource).toHaveBeenCalledTimes(1)
+    expect(releaseMediaSource).toHaveBeenCalledWith(
+      expect.objectContaining({streamId: 'stream-231', sourceToken: 'stream-231'}),
     )
+  })
+
+  it('does not request prepared desktop video-source without confirmed loopback HTTP capability', async () => {
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      supports_media_stream_protocol: true,
+      supports_media_http_stream: false,
+    })
+    runtimeModeModel.setCoreMode('local')
+    const prepareMediaSource = vi.fn().mockResolvedValue({
+      kind: 'video-source',
+      streamId: 'stream-disabled-231',
+      sourceToken: 'stream-disabled-231',
+      platform: 'desktop',
+      provider: 'local-catalog',
+      deliveries: [
+        {
+          delivery: 'loopback-http',
+          platform: 'desktop',
+          url: 'http://127.0.0.1:49152/media/stream-disabled-231',
+        },
+      ],
+      name: 'large.mp4',
+      mimeType: 'video/mp4',
+      size: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
+      sourceRevision: 9,
+      mediaSourceGeneration: 1,
+      expiresAt: 123456,
+    })
+    const releaseMediaSource = vi.fn().mockResolvedValue(undefined)
+    const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('video-bytes')))
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaSource,
+          releaseMediaSource,
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    await expectFileLoadError(
+      loadFileSourceById(52, 'large.mp4', {
+        mimeType: 'video/mp4',
+        sourceSize: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
+        variant: 'raw',
+      }),
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+    )
+
+    expect(prepareMediaSource).not.toHaveBeenCalled()
+    expect(releaseMediaSource).not.toHaveBeenCalled()
+    expect(download).not.toHaveBeenCalled()
+  })
+
+  it('does not request prepared desktop video-source when loopback HTTP probe is unavailable', async () => {
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      supports_media_stream_protocol: true,
+      supports_media_http_stream: true,
+    })
+    setRuntimeMediaProbeState({loopbackHttp: 'unsupported'})
+    runtimeModeModel.setCoreMode('local')
+    const prepareMediaSource = vi.fn()
+    const releaseMediaSource = vi.fn()
+    const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('video-bytes')))
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaSource,
+          releaseMediaSource,
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    await expectFileLoadError(
+      loadFileSourceById(52, 'large.mp4', {
+        mimeType: 'video/mp4',
+        sourceSize: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
+        variant: 'raw',
+      }),
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+    )
+
+    expect(prepareMediaSource).not.toHaveBeenCalled()
+    expect(releaseMediaSource).not.toHaveBeenCalled()
+    expect(download).not.toHaveBeenCalled()
+  })
+
+  it('does not request prepared desktop video-source when connect-src probe is unavailable', async () => {
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      supports_media_stream_protocol: true,
+      supports_media_http_stream: true,
+    })
+    setRuntimeMediaProbeState({loopbackHttp: 'supported', connectSrc: 'unsupported'})
+    runtimeModeModel.setCoreMode('local')
+    const prepareMediaSource = vi.fn()
+    const releaseMediaSource = vi.fn()
+    const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('video-bytes')))
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaSource,
+          releaseMediaSource,
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    await expectFileLoadError(
+      loadFileSourceById(52, 'large.mp4', {
+        mimeType: 'video/mp4',
+        sourceSize: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
+        variant: 'raw',
+      }),
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+    )
+
+    expect(prepareMediaSource).not.toHaveBeenCalled()
+    expect(releaseMediaSource).not.toHaveBeenCalled()
+    expect(download).not.toHaveBeenCalled()
+  })
+
+  it('does not request prepared video-source when decode probe rejects the codec', async () => {
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      supports_media_stream_protocol: true,
+      supports_media_http_stream: true,
+    })
+    setRuntimeMediaProbeState({videoDecode: 'unsupported'})
+    runtimeModeModel.setCoreMode('local')
+    const prepareMediaSource = vi.fn()
+    const releaseMediaSource = vi.fn()
+    const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('video-bytes')))
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaSource,
+          releaseMediaSource,
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    await expectFileLoadError(
+      loadFileSourceById(52, 'unsupported-codec.mp4', {
+        mimeType: 'video/mp4',
+        sourceSize: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
+        variant: 'raw',
+      }),
+      'MEDIA_VIDEO_UNSUPPORTED',
+      'MEDIA_VIDEO_UNSUPPORTED',
+    )
+
+    expect(prepareMediaSource).not.toHaveBeenCalled()
+    expect(releaseMediaSource).not.toHaveBeenCalled()
+    expect(download).not.toHaveBeenCalled()
+  })
+
+  it('runs the async decode probe concurrently with prepare_media_source', async () => {
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      supports_media_stream_protocol: true,
+      supports_media_http_stream: true,
+    })
+    runtimeModeModel.setCoreMode('local')
+    const decodeDeferred = deferred<{supported: boolean}>()
+    const decodingInfo = vi.fn(() => decodeDeferred.promise)
+    Object.defineProperty(globalThis.navigator, 'mediaCapabilities', {
+      configurable: true,
+      value: {decodingInfo},
+    })
+    const prepareMediaSource = vi.fn().mockResolvedValue({
+      kind: 'video-source',
+      streamId: 'stream-concurrent-231',
+      sourceToken: 'stream-concurrent-231',
+      platform: 'desktop',
+      provider: 'local-catalog',
+      deliveries: [
+        {
+          delivery: 'loopback-http',
+          platform: 'desktop',
+          url: 'http://127.0.0.1:49152/media/stream-concurrent-231',
+        },
+      ],
+      name: 'concurrent.mp4',
+      mimeType: 'video/mp4',
+      size: 42,
+      sourceRevision: 9,
+      mediaSourceGeneration: 1,
+      expiresAt: 123456,
+    })
+    const releaseMediaSource = vi.fn().mockResolvedValue(undefined)
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaSource,
+          releaseMediaSource,
+        } as any,
+      }),
+    )
+
+    const sourcePromise = loadFileSourceById(55, 'concurrent.mp4', {
+      mimeType: 'video/mp4',
+      sourceSize: 42,
+      variant: 'raw',
+    })
+
+    // The backend prepare is issued while the decode probe is still pending.
+    await vi.waitFor(() => {
+      expect(prepareMediaSource).toHaveBeenCalledTimes(1)
+    })
+    expect(decodingInfo).toHaveBeenCalledTimes(1)
+
+    decodeDeferred.resolve({supported: true})
+    const source = await sourcePromise
+    expect(source).toMatchObject({
+      kind: 'video-source',
+      delivery: 'loopback-http',
+      streamId: 'stream-concurrent-231',
+    })
+    await source.release()
+    expect(releaseMediaSource).toHaveBeenCalledTimes(1)
+  })
+
+  it('releases the prepared source when the concurrent decode probe rejects the codec', async () => {
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      supports_media_stream_protocol: true,
+      supports_media_http_stream: true,
+    })
+    runtimeModeModel.setCoreMode('local')
+    const decodingInfo = vi.fn(async () => ({supported: false}))
+    Object.defineProperty(globalThis.navigator, 'mediaCapabilities', {
+      configurable: true,
+      value: {decodingInfo},
+    })
+    const prepareMediaSource = vi.fn().mockResolvedValue({
+      kind: 'video-source',
+      streamId: 'stream-late-release-231',
+      sourceToken: 'stream-late-release-231',
+      platform: 'desktop',
+      provider: 'local-catalog',
+      deliveries: [
+        {
+          delivery: 'loopback-http',
+          platform: 'desktop',
+          url: 'http://127.0.0.1:49152/media/stream-late-release-231',
+        },
+      ],
+      name: 'late-release.mp4',
+      mimeType: 'video/mp4',
+      size: 42,
+      sourceRevision: 9,
+      mediaSourceGeneration: 1,
+      expiresAt: 123456,
+    })
+    const releaseMediaSource = vi.fn().mockResolvedValue(undefined)
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaSource,
+          releaseMediaSource,
+        } as any,
+      }),
+    )
+
+    await expectFileLoadError(
+      loadFileSourceById(56, 'late-release.mp4', {
+        mimeType: 'video/mp4',
+        sourceSize: 42,
+        variant: 'raw',
+      }),
+      'MEDIA_VIDEO_UNSUPPORTED',
+      'MEDIA_VIDEO_UNSUPPORTED',
+    )
+
+    expect(prepareMediaSource).toHaveBeenCalledTimes(1)
+    // The concurrently prepared backend source is released once it resolves.
+    await vi.waitFor(() => {
+      expect(releaseMediaSource).toHaveBeenCalledWith(
+        expect.objectContaining({streamId: 'stream-late-release-231'}),
+      )
+    })
+  })
+
+  it('falls back to loopback HTTP when MSE delivery is not selectable', async () => {
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      supports_media_http_stream: true,
+      supports_mse_video_playback: true,
+    })
+    runtimeModeModel.setCoreMode('local')
+    const prepareMediaSource = vi.fn().mockResolvedValue({
+      kind: 'video-source',
+      streamId: 'stream-mse-231',
+      sourceToken: 'stream-mse-231',
+      platform: 'desktop',
+      provider: 'local-catalog',
+      deliveries: [
+        {
+          delivery: 'mse',
+          platform: 'desktop',
+          fetchUrl: 'http://127.0.0.1:49152/media/stream-mse-231',
+          initSegment: {offset: 0, length: 128},
+          mediaSegments: [{offset: 128, length: 256, timestampUs: 0}],
+        },
+        {
+          delivery: 'loopback-http',
+          platform: 'desktop',
+          url: 'http://127.0.0.1:49152/media/stream-mse-231',
+        },
+      ],
+      name: 'fragmented.mp4',
+      mimeType: 'video/mp4',
+      size: 42,
+      sourceRevision: 12,
+      mediaSourceGeneration: 1,
+      expiresAt: 123456,
+    })
+    const releaseMediaSource = vi.fn().mockResolvedValue(undefined)
+    const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('video-bytes')))
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaSource,
+          releaseMediaSource,
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    const source = await loadFileSourceById(53, 'fragmented.mp4', {
+      mimeType: 'video/mp4',
+      sourceSize: 42,
+      variant: 'raw',
+      mediaInfo: {
+        kind: 'video',
+        audioTracks: 1,
+        videoTracks: 1,
+        playbackMimeType: 'video/mp4',
+        codecString: 'avc1.640028,mp4a.40.2',
+        mseFragmented: true,
+      },
+    })
+
+    expect(source).toMatchObject({
+      kind: 'video-source',
+      delivery: 'loopback-http',
+      url: 'http://127.0.0.1:49152/media/stream-mse-231',
+      streamId: 'stream-mse-231',
+      sourceToken: 'stream-mse-231',
+    })
+    expect(download).not.toHaveBeenCalled()
+
+    await source.release()
+    expect(releaseMediaSource).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to loopback HTTP when the MSE controller probe is unavailable', async () => {
+    mockMediaSourceTypeSupport(true)
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      supports_media_http_stream: true,
+      supports_mse_video_playback: true,
+    })
+    setRuntimeMediaProbeState({mseController: 'unsupported'})
+    runtimeModeModel.setCoreMode('local')
+    const prepareMediaSource = vi.fn().mockResolvedValue({
+      kind: 'video-source',
+      streamId: 'stream-mse-probe-denied-231',
+      sourceToken: 'stream-mse-probe-denied-231',
+      platform: 'desktop',
+      provider: 'local-catalog',
+      deliveries: [
+        {
+          delivery: 'mse',
+          platform: 'desktop',
+          fetchUrl: 'http://127.0.0.1:49152/media/stream-mse-probe-denied-231',
+          initSegment: {offset: 0, length: 128},
+          mediaSegments: [{offset: 128, length: 256, timestampUs: 0}],
+        },
+        {
+          delivery: 'loopback-http',
+          platform: 'desktop',
+          url: 'http://127.0.0.1:49152/media/stream-mse-probe-denied-231',
+        },
+      ],
+      name: 'fragmented.mp4',
+      mimeType: 'video/mp4',
+      size: 42,
+      sourceRevision: 12,
+      mediaSourceGeneration: 1,
+      expiresAt: 123456,
+    })
+    const releaseMediaSource = vi.fn().mockResolvedValue(undefined)
+    const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('video-bytes')))
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaSource,
+          releaseMediaSource,
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    const source = await loadFileSourceById(53, 'fragmented.mp4', {
+      mimeType: 'video/mp4',
+      sourceSize: 42,
+      variant: 'raw',
+      mediaInfo: {
+        kind: 'video',
+        audioTracks: 1,
+        videoTracks: 1,
+        playbackMimeType: 'video/mp4',
+        codecString: 'avc1.640028,mp4a.40.2',
+        mseFragmented: true,
+      },
+    })
+
+    expect(source).toMatchObject({
+      kind: 'video-source',
+      delivery: 'loopback-http',
+      url: 'http://127.0.0.1:49152/media/stream-mse-probe-denied-231',
+      streamId: 'stream-mse-probe-denied-231',
+      sourceToken: 'stream-mse-probe-denied-231',
+    })
+    expect(download).not.toHaveBeenCalled()
+
+    await source.release()
+    expect(releaseMediaSource).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses MSE delivery only when MediaSource supports the proven fragmented MP4 descriptor', async () => {
+    mockMediaSourceTypeSupport(true)
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      supports_media_http_stream: true,
+      supports_mse_video_playback: true,
+    })
+    runtimeModeModel.setCoreMode('local')
+    const prepareMediaSource = vi.fn().mockResolvedValue({
+      kind: 'video-source',
+      streamId: 'stream-mse-selected-231',
+      sourceToken: 'stream-mse-selected-231',
+      platform: 'desktop',
+      provider: 'local-catalog',
+      deliveries: [
+        {
+          delivery: 'mse',
+          platform: 'desktop',
+          fetchUrl: 'http://127.0.0.1:49152/media/stream-mse-selected-231',
+          initSegment: {offset: 0, length: 128},
+          mediaSegments: [{offset: 128, length: 256, timestampUs: 0}],
+        },
+        {
+          delivery: 'loopback-http',
+          platform: 'desktop',
+          url: 'http://127.0.0.1:49152/media/stream-mse-selected-231',
+        },
+      ],
+      name: 'fragmented.mp4',
+      mimeType: 'video/mp4',
+      size: 42,
+      sourceRevision: 12,
+      mediaSourceGeneration: 1,
+      expiresAt: 123456,
+    })
+    const releaseMediaSource = vi.fn().mockResolvedValue(undefined)
+    const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('video-bytes')))
+    const mediaInfo = {
+      kind: 'video' as const,
+      audioTracks: 1,
+      videoTracks: 1,
+      playbackMimeType: 'video/mp4',
+      codecString: 'avc1.640028,mp4a.40.2',
+      mseFragmented: true,
+    }
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaSource,
+          releaseMediaSource,
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    const source = await loadFileSourceById(53, 'fragmented.mp4', {
+      mimeType: 'video/mp4',
+      sourceSize: 42,
+      variant: 'raw',
+      mediaInfo,
+    })
+
+    expect(source).toMatchObject({
+      kind: 'video-source',
+      delivery: 'mse',
+      url: 'http://127.0.0.1:49152/media/stream-mse-selected-231',
+      streamId: 'stream-mse-selected-231',
+      sourceToken: 'stream-mse-selected-231',
+      mse: {
+        fetchUrl: 'http://127.0.0.1:49152/media/stream-mse-selected-231',
+        contentType: 'video/mp4; codecs="avc1.640028,mp4a.40.2"',
+        initSegment: {offset: 0, length: 128},
+        mediaSegments: [{offset: 128, length: 256, timestampUs: 0}],
+      },
+    })
+    expect(globalThis.MediaSource?.isTypeSupported).toHaveBeenCalledWith(
+      'video/mp4; codecs="avc1.640028,mp4a.40.2"',
+    )
+    expect(download).not.toHaveBeenCalled()
+
+    await source.release()
+    expect(releaseMediaSource).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses prepared video-source native delivery for raw playable Android video', async () => {
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+      supports_native_video_playback: true,
+      supports_mobile_native_video_playback: true,
+      supports_android_native_video: true,
+    })
+    runtimeModeModel.setCoreMode('local')
+    const prepareMediaSource = vi.fn().mockResolvedValue({
+      kind: 'video-source',
+      streamId: 'stream-android-231',
+      sourceToken: 'stream-android-231',
+      platform: 'mobile',
+      provider: 'mobile-local-catalog',
+      deliveries: [
+        {
+          delivery: 'native-video',
+          platform: 'mobile',
+          nativeSourceToken: 'stream-android-231',
+        },
+      ],
+      name: 'large.mp4',
+      mimeType: 'video/mp4',
+      size: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
+      sourceRevision: 11,
+      mediaSourceGeneration: 1,
+      expiresAt: 123456,
+    })
+    const releaseMediaSource = vi.fn().mockResolvedValue(undefined)
+    const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('video-bytes')))
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaSource,
+          releaseMediaSource,
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    const source = await loadFileSourceById(37, 'large.mp4', {
+      mimeType: 'video/mp4',
+      sourceSize: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
+      variant: 'raw',
+      allowAndroidNativeVideo: true,
+    })
+
+    expect(source).toMatchObject({
+      kind: 'video-source',
+      url: '',
+      delivery: 'native-video',
+      streamId: 'stream-android-231',
+      sourceToken: 'stream-android-231',
+      nativeSourceToken: 'stream-android-231',
+      provider: 'mobile-local-catalog',
+      size: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
+      mimeType: 'video/mp4',
+      sourceRevision: 11,
+    })
+    expect(download).not.toHaveBeenCalled()
+
+    await source.release()
+    expect(releaseMediaSource).toHaveBeenCalledWith(
+      expect.objectContaining({streamId: 'stream-android-231', sourceToken: 'stream-android-231'}),
+    )
+  })
+
+  it('does not let the WebView decode probe veto Android native QuickTime video', async () => {
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+      supports_native_video_playback: true,
+      supports_mobile_native_video_playback: true,
+      supports_android_native_video: true,
+    })
+    runtimeModeModel.setCoreMode('local')
+    const decodingInfo = vi.fn(async () => ({supported: false}))
+    Object.defineProperty(globalThis.navigator, 'mediaCapabilities', {
+      configurable: true,
+      value: {decodingInfo},
+    })
+    const prepareMediaSource = vi.fn().mockResolvedValue({
+      kind: 'video-source',
+      streamId: 'stream-android-mov-231',
+      sourceToken: 'stream-android-mov-231',
+      platform: 'mobile',
+      provider: 'mobile-local-catalog',
+      deliveries: [
+        {
+          delivery: 'native-video',
+          platform: 'mobile',
+          nativeSourceToken: 'native-video-token-mov-231',
+        },
+      ],
+      name: 'clip.mov',
+      mimeType: 'video/quicktime',
+      size: 8_559_902,
+      sourceRevision: 12,
+      mediaSourceGeneration: 1,
+      appForegroundEpoch: 1,
+      expiresAt: 123456,
+    })
+    const releaseMediaSource = vi.fn().mockResolvedValue(undefined)
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaSource,
+          releaseMediaSource,
+        } as any,
+      }),
+    )
+
+    const source = await loadFileSourceById(53, 'clip.mov', {
+      mimeType: 'video/quicktime',
+      sourceSize: 8_559_902,
+      variant: 'raw',
+    })
+
+    expect(source).toMatchObject({
+      kind: 'video-source',
+      delivery: 'native-video',
+      nativeSourceToken: 'native-video-token-mov-231',
+      mimeType: 'video/quicktime',
+    })
+    expect(decodingInfo).not.toHaveBeenCalled()
+
+    await source.release()
+    expect(releaseMediaSource).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not request prepared Android video-source without mobile native video capability', async () => {
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+      supports_native_video_playback: true,
+      supports_mobile_native_video_playback: false,
+      supports_android_native_video: false,
+    })
+    runtimeModeModel.setCoreMode('local')
+    const prepareMediaSource = vi.fn().mockResolvedValue({
+      kind: 'video-source',
+      streamId: 'stream-android-disabled-231',
+      sourceToken: 'stream-android-disabled-231',
+      platform: 'mobile',
+      provider: 'mobile-local-catalog',
+      deliveries: [
+        {
+          delivery: 'native-video',
+          platform: 'mobile',
+          nativeSourceToken: 'stream-android-disabled-231',
+        },
+      ],
+      name: 'large.mp4',
+      mimeType: 'video/mp4',
+      size: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
+      sourceRevision: 11,
+      mediaSourceGeneration: 1,
+      expiresAt: 123456,
+    })
+    const releaseMediaSource = vi.fn().mockResolvedValue(undefined)
+    const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('video-bytes')))
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaSource,
+          releaseMediaSource,
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    await expectFileLoadError(
+      loadFileSourceById(54, 'large.mp4', {
+        mimeType: 'video/mp4',
+        sourceSize: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
+        variant: 'raw',
+      }),
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+    )
+
+    expect(prepareMediaSource).not.toHaveBeenCalled()
+    expect(releaseMediaSource).not.toHaveBeenCalled()
+    expect(download).not.toHaveBeenCalled()
+  })
+
+  it('does not request prepared Android video-source when native bridge probe is unavailable', async () => {
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+      supports_native_video_playback: true,
+      supports_mobile_native_video_playback: true,
+      supports_android_native_video: true,
+    })
+    setRuntimeMediaProbeState({mobileNativeVideo: 'unsupported'})
+    runtimeModeModel.setCoreMode('local')
+    const prepareMediaSource = vi.fn()
+    const releaseMediaSource = vi.fn()
+    const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('video-bytes')))
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaSource,
+          releaseMediaSource,
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    await expectFileLoadError(
+      loadFileSourceById(54, 'large.mp4', {
+        mimeType: 'video/mp4',
+        sourceSize: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
+        variant: 'raw',
+      }),
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+    )
+
+    expect(prepareMediaSource).not.toHaveBeenCalled()
+    expect(releaseMediaSource).not.toHaveBeenCalled()
+    expect(download).not.toHaveBeenCalled()
+  })
+
+  it('uses media streams for raw playable remote audio instead of downloading a blob', async () => {
+    setRuntimeCapabilities({
+      mobile: true,
+      platform: 'android',
+      supports_media_stream_protocol: false,
+    })
+    runtimeModeModel.setCoreMode({remote: {host: {host_id: 'host-1', type: 'mobile_usb'}}})
+    const prepareMediaStream = vi.fn().mockResolvedValue({
+      kind: 'media-stream',
+      streamId: 'stream-48',
+      url: 'chromvoid-media://localhost/stream-48',
+      name: 'track.mp3',
+      mimeType: 'audio/mpeg',
+      size: 9_990_144,
+      sourceRevision: 1780561242976,
+      expiresAt: 123456,
+    })
+    const releaseMediaStream = vi.fn().mockResolvedValue(undefined)
+    const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('raw-audio')))
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaStream,
+          releaseMediaStream,
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    const source = await loadFileSourceById(48, 'track.mp3', {
+      mimeType: 'audio/mpeg',
+      sourceSize: 9_990_144,
+      variant: 'raw',
+    })
+
+    expect(source).toMatchObject({
+      kind: 'media-stream',
+      url: 'chromvoid-media://localhost/stream-48',
+      streamId: 'stream-48',
+      size: 9_990_144,
+      mimeType: 'audio/mpeg',
+      sourceRevision: 1780561242976,
+    })
+    expect(prepareMediaStream).toHaveBeenCalledWith(48, {
+      fileName: 'track.mp3',
+      mimeType: 'audio/mpeg',
+      lastModified: null,
+    })
+    expect(download).not.toHaveBeenCalled()
+
+    await source.release()
+    expect(releaseMediaStream).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not full-download raw playable remote media when stream preparation fails', async () => {
+    setRuntimeCapabilities({
+      desktop: true,
+      platform: 'macos',
+      supports_media_stream_protocol: true,
+    })
+    runtimeModeModel.setCoreMode({remote: {host: {peer_id: 'peer-1', type: 'tauri_remote_wss'}}})
+    const prepareMediaStream = vi.fn().mockRejectedValue(new Error('stream unavailable'))
+    const releaseMediaStream = vi.fn().mockResolvedValue(undefined)
+    const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('video-bytes')))
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaStream,
+          releaseMediaStream,
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    await expectFileLoadError(
+      loadFileSourceById(49, 'movie.mp4', {
+        mimeType: 'video/mp4',
+        sourceSize: 8_559_902,
+        variant: 'raw',
+      }),
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+    )
+
+    expect(prepareMediaStream).not.toHaveBeenCalled()
+    expect(download).not.toHaveBeenCalled()
+  })
+
+  it('does not full-download raw playable remote video when stream transport is unavailable', async () => {
+    setRuntimeCapabilities({
+      desktop: true,
+      platform: 'macos',
+      supports_media_stream_protocol: true,
+    })
+    runtimeModeModel.setCoreMode({remote: {host: {host_id: 'host-1', type: 'mobile_usb'}}})
+    const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('video-bytes')))
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    await expectFileLoadError(
+      loadFileSourceById(50, 'remote-broken.mp4', {
+        mimeType: 'video/mp4',
+        sourceSize: 8_559_902,
+        variant: 'raw',
+      }),
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+    )
+
+    expect(download).not.toHaveBeenCalled()
   })
 
   it('uses catalog mediaInfo playback MIME for audio-only MP4 native streams', async () => {
@@ -800,7 +1871,7 @@ describe('file-loader', () => {
     await source.release()
   })
 
-  it('uses native media streams for oversized raw playable desktop video', async () => {
+  it('does not use legacy media streams for oversized raw macOS video', async () => {
     setRuntimeCapabilities({
       platform: 'macos',
       desktop: true,
@@ -835,31 +1906,22 @@ describe('file-loader', () => {
       }),
     )
 
-    const source = await loadFileSourceById(36, 'large.mp4', {
-      mimeType: 'video/mp4',
-      sourceSize: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
-      variant: 'raw',
-    })
+    await expectFileLoadError(
+      loadFileSourceById(36, 'large.mp4', {
+        mimeType: 'video/mp4',
+        sourceSize: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
+        variant: 'raw',
+      }),
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+    )
 
-    expect(source).toMatchObject({
-      kind: 'media-stream',
-      url: 'chromvoid-media://localhost/stream-36',
-      streamId: 'stream-36',
-      size: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
-      mimeType: 'video/mp4',
-      sourceRevision: 10,
-    })
-    expect(prepareMediaStream).toHaveBeenCalledWith(36, {
-      fileName: 'large.mp4',
-      mimeType: 'video/mp4',
-      lastModified: null,
-    })
+    expect(prepareMediaStream).not.toHaveBeenCalled()
+    expect(releaseMediaStream).not.toHaveBeenCalled()
     expect(download).not.toHaveBeenCalled()
-
-    await source.release()
   })
 
-  it('uses Android native video for oversized raw playable Android video when explicitly allowed', async () => {
+  it('uses generic video-source native delivery for oversized raw Android video', async () => {
     setRuntimeCapabilities({
       platform: 'android',
       mobile: true,
@@ -867,22 +1929,36 @@ describe('file-loader', () => {
       supports_android_native_video: true,
     })
     runtimeModeModel.setCoreMode('local')
-    const startAndroidVideo = vi.fn().mockResolvedValue({
-      kind: 'android-native-video',
-      token: 'video-token-37',
+    const prepareMediaSource = vi.fn().mockResolvedValue({
+      kind: 'video-source',
+      streamId: 'stream-android-37',
+      sourceToken: 'stream-android-37',
+      platform: 'mobile',
+      provider: 'mobile-local-catalog',
+      deliveries: [
+        {
+          delivery: 'native-video',
+          platform: 'mobile',
+          nativeSourceToken: 'native-video-token-37',
+        },
+      ],
+      name: 'large.mp4',
       mimeType: 'video/mp4',
       size: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
       sourceRevision: 11,
+      mediaSourceGeneration: 1,
+      appForegroundEpoch: 1,
+      expiresAt: 123456,
     })
-    const stopAndroidVideo = vi.fn().mockResolvedValue(undefined)
+    const releaseMediaSource = vi.fn().mockResolvedValue(undefined)
     const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('video-bytes')))
 
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          startAndroidVideo,
-          stopAndroidVideo,
+          prepareMediaSource,
+          releaseMediaSource,
         } as any,
         catalog: {
           api: {
@@ -900,13 +1976,18 @@ describe('file-loader', () => {
     })
 
     expect(source).toMatchObject({
-      kind: 'android-native-video',
-      token: 'video-token-37',
+      kind: 'video-source',
+      delivery: 'native-video',
+      streamId: 'stream-android-37',
+      sourceToken: 'stream-android-37',
+      nativeSourceToken: 'native-video-token-37',
       size: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
       mimeType: 'video/mp4',
       sourceRevision: 11,
     })
-    expect(startAndroidVideo).toHaveBeenCalledWith(37, {
+    expect(prepareMediaSource).toHaveBeenCalledWith({
+      kind: 'video',
+      nodeId: 37,
       fileName: 'large.mp4',
       mimeType: 'video/mp4',
       lastModified: null,
@@ -914,7 +1995,91 @@ describe('file-loader', () => {
     expect(download).not.toHaveBeenCalled()
 
     await source.release()
-    expect(stopAndroidVideo).toHaveBeenCalledWith(expect.objectContaining({token: 'video-token-37'}))
+    expect(releaseMediaSource).toHaveBeenCalledWith(
+      expect.objectContaining({streamId: 'stream-android-37', sourceToken: 'stream-android-37'}),
+    )
+  })
+
+  it('uses generic video-source native delivery for oversized remote USB Android video', async () => {
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+      supports_native_video_playback: true,
+      supports_android_native_video: true,
+    })
+    runtimeModeModel.setCoreMode({remote: {host: {host_id: 'host-1', type: 'mobile_usb'}}})
+    const prepareMediaSource = vi.fn().mockResolvedValue({
+      kind: 'video-source',
+      streamId: 'stream-android-51',
+      sourceToken: 'stream-android-51',
+      platform: 'mobile',
+      provider: 'remote-usb',
+      deliveries: [
+        {
+          delivery: 'native-video',
+          platform: 'mobile',
+          nativeSourceToken: 'native-video-token-51',
+        },
+      ],
+      name: 'remote-large.mp4',
+      mimeType: 'video/mp4',
+      size: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
+      sourceRevision: 12,
+      mediaSourceGeneration: 1,
+      transportSessionGeneration: 11,
+      appForegroundEpoch: 1,
+      expiresAt: 123456,
+    })
+    const releaseMediaSource = vi.fn().mockResolvedValue(undefined)
+    const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('video-bytes')))
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaSource,
+          releaseMediaSource,
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    const source = await loadFileSourceById(51, 'remote-large.mp4', {
+      mimeType: 'video/mp4',
+      sourceSize: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
+      variant: 'raw',
+      allowAndroidNativeVideo: true,
+    })
+
+    expect(source).toMatchObject({
+      kind: 'video-source',
+      delivery: 'native-video',
+      streamId: 'stream-android-51',
+      sourceToken: 'stream-android-51',
+      nativeSourceToken: 'native-video-token-51',
+      provider: 'remote-usb',
+      size: MAX_MEDIA_BLOB_FALLBACK_BYTES + 1,
+      mimeType: 'video/mp4',
+      sourceRevision: 12,
+    })
+    expect(prepareMediaSource).toHaveBeenCalledWith({
+      kind: 'video',
+      nodeId: 51,
+      fileName: 'remote-large.mp4',
+      mimeType: 'video/mp4',
+      lastModified: null,
+    })
+    expect(download).not.toHaveBeenCalled()
+    expect(runtimeModeModel.canUseNativeVideoPlayback({transportKind: 'tauri'})).toBe(true)
+
+    await source.release()
+    expect(releaseMediaSource).toHaveBeenCalledWith(
+      expect.objectContaining({streamId: 'stream-android-51', sourceToken: 'stream-android-51'}),
+    )
   })
 
   it('does not start Android native video for audio-only MP4 mediaInfo', async () => {
@@ -925,16 +2090,16 @@ describe('file-loader', () => {
       supports_android_native_video: true,
     })
     runtimeModeModel.setCoreMode('local')
-    const startAndroidVideo = vi.fn()
-    const stopAndroidVideo = vi.fn()
+    const prepareMediaSource = vi.fn()
+    const releaseMediaSource = vi.fn()
     const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('audio-bytes')))
 
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          startAndroidVideo,
-          stopAndroidVideo,
+          prepareMediaSource,
+          releaseMediaSource,
         } as any,
         catalog: {
           api: {
@@ -958,13 +2123,13 @@ describe('file-loader', () => {
     })
 
     expect(source.kind).toBe('blob')
-    expect(startAndroidVideo).not.toHaveBeenCalled()
+    expect(prepareMediaSource).not.toHaveBeenCalled()
     expect(download).toHaveBeenCalledTimes(1)
 
     source.release()
   })
 
-  it('keeps Android native video start failures on the fallback-limited path for large videos', async () => {
+  it('keeps Android video-source failures typed without blob fallback', async () => {
     setRuntimeCapabilities({
       platform: 'android',
       mobile: true,
@@ -972,16 +2137,16 @@ describe('file-loader', () => {
       supports_android_native_video: true,
     })
     runtimeModeModel.setCoreMode('local')
-    const startAndroidVideo = vi.fn().mockRejectedValue(new Error('native player failed'))
-    const stopAndroidVideo = vi.fn()
+    const prepareMediaSource = vi.fn().mockRejectedValue(new Error('native player failed'))
+    const releaseMediaSource = vi.fn()
     const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('video-bytes')))
 
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          startAndroidVideo,
-          stopAndroidVideo,
+          prepareMediaSource,
+          releaseMediaSource,
         } as any,
         catalog: {
           api: {
@@ -998,25 +2163,34 @@ describe('file-loader', () => {
         variant: 'raw',
         allowAndroidNativeVideo: true,
       }),
-      'MEDIA_BLOB_FALLBACK_LIMIT',
-      `MEDIA_BLOB_FALLBACK_LIMIT:${MAX_MEDIA_BLOB_FALLBACK_BYTES + 1}:${MAX_MEDIA_BLOB_FALLBACK_BYTES}`,
+      'MEDIA_VIDEO_SOURCE_FAILED',
+      'MEDIA_VIDEO_SOURCE_FAILED',
     )
 
-    expect(startAndroidVideo).toHaveBeenCalledTimes(1)
-    expect(stopAndroidVideo).not.toHaveBeenCalled()
+    expect(prepareMediaSource).toHaveBeenCalledTimes(1)
+    expect(releaseMediaSource).not.toHaveBeenCalled()
     expect(download).not.toHaveBeenCalled()
-    expect(runtimeModeModel.canUseAndroidNativeVideo({transportKind: 'tauri'})).toBe(false)
+    expect(runtimeModeModel.canUseAndroidNativeVideo({transportKind: 'tauri'})).toBe(true)
   })
 
-  it('keeps raw playable video on blob fallback when native media streaming is gated off', async () => {
+  it('does not ask legacy media streams for raw macOS video when HTTP is gated off', async () => {
     setRuntimeCapabilities({
       platform: 'macos',
       desktop: true,
       supports_media_stream_protocol: false,
     })
     runtimeModeModel.setCoreMode('local')
-    const prepareMediaStream = vi.fn()
-    const releaseMediaStream = vi.fn()
+    const prepareMediaStream = vi.fn().mockResolvedValue({
+      kind: 'media-stream',
+      streamId: 'stream-24-gated',
+      url: 'chromvoid-media://localhost/stream-24-gated',
+      name: 'clip.mp4',
+      mimeType: 'video/mp4',
+      size: 42,
+      sourceRevision: 9,
+      expiresAt: 123456,
+    })
+    const releaseMediaStream = vi.fn().mockResolvedValue(undefined)
     const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('video-bytes')))
 
     initAppContext(
@@ -1034,18 +2208,19 @@ describe('file-loader', () => {
       }),
     )
 
-    const source = await loadFileSourceById(24, 'clip.mp4', {
-      mimeType: 'video/mp4',
-      sourceSize: 42,
-      variant: 'raw',
-    })
+    await expectFileLoadError(
+      loadFileSourceById(24, 'clip.mp4', {
+        mimeType: 'video/mp4',
+        sourceSize: 42,
+        variant: 'raw',
+      }),
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+      'MEDIA_VIDEO_PROVIDER_UNAVAILABLE',
+    )
 
-    expect(source.kind).toBe('blob')
     expect(prepareMediaStream).not.toHaveBeenCalled()
     expect(releaseMediaStream).not.toHaveBeenCalled()
-    expect(download).toHaveBeenCalledTimes(1)
-
-    source.release()
+    expect(download).not.toHaveBeenCalled()
   })
 
   it('does not start blob fallback downloads for oversized playable media', async () => {
@@ -1071,7 +2246,7 @@ describe('file-loader', () => {
         variant: 'raw',
       }),
       'MEDIA_BLOB_FALLBACK_LIMIT',
-      `MEDIA_BLOB_FALLBACK_LIMIT:${MAX_MEDIA_BLOB_FALLBACK_BYTES + 1}:${MAX_MEDIA_BLOB_FALLBACK_BYTES}`,
+      `MEDIA_BLOB_FALLBACK_LIMIT:video-source-required:${MAX_MEDIA_BLOB_FALLBACK_BYTES}`,
     )
 
     expect(download).not.toHaveBeenCalled()
@@ -1099,7 +2274,7 @@ describe('file-loader', () => {
         variant: 'raw',
       }),
       'MEDIA_BLOB_FALLBACK_LIMIT',
-      `MEDIA_BLOB_FALLBACK_LIMIT:unknown:${MAX_MEDIA_BLOB_FALLBACK_BYTES}`,
+      `MEDIA_BLOB_FALLBACK_LIMIT:video-source-required:${MAX_MEDIA_BLOB_FALLBACK_BYTES}`,
     )
 
     expect(download).not.toHaveBeenCalled()
@@ -1164,7 +2339,7 @@ describe('file-loader', () => {
           variant: 'raw',
         }),
         'MEDIA_BLOB_FALLBACK_LIMIT',
-        `MEDIA_BLOB_FALLBACK_LIMIT:${MAX_MEDIA_BLOB_FALLBACK_BYTES + 1}:${MAX_MEDIA_BLOB_FALLBACK_BYTES}`,
+        `MEDIA_BLOB_FALLBACK_LIMIT:video-source-required:${MAX_MEDIA_BLOB_FALLBACK_BYTES}`,
       )
 
       const sourceAttemptLog = warn.mock.calls.find(([message]) =>
@@ -1188,8 +2363,8 @@ describe('file-loader', () => {
     }
   })
 
-  it('allows abortable blob fallback downloads for playable media at the limit', async () => {
-    const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('video-bytes')))
+  it('allows abortable blob fallback downloads for playable audio at the limit', async () => {
+    const download = vi.fn().mockResolvedValue(streamOf(new TextEncoder().encode('audio-bytes')))
 
     initAppContext(
       createMockAppContext({
@@ -1204,14 +2379,14 @@ describe('file-loader', () => {
       }),
     )
 
-    const source = await loadFileSourceById(33, 'limit.mp4', {
-      mimeType: 'video/mp4',
+    const source = await loadFileSourceById(33, 'limit.mp3', {
+      mimeType: 'audio/mpeg',
       sourceSize: MAX_MEDIA_BLOB_FALLBACK_BYTES,
       variant: 'raw',
     })
 
     expect(source.kind).toBe('blob')
-    expect(await readBlobText(source.blob!)).toBe('video-bytes')
+    expect(await readBlobText(source.blob!)).toBe('audio-bytes')
     expect(download).toHaveBeenCalledTimes(1)
     source.release()
   })
@@ -2394,5 +3569,205 @@ describe('file-loader', () => {
 
     expect(previewImage).toHaveBeenCalledTimes(2)
     expect(download).not.toHaveBeenCalled()
+  })
+})
+
+describe('chunked tauri download', () => {
+  type RangeCall = {offset: number; length: number; expectedSourceRevision: number}
+
+  function mockRangedBackend(options: {
+    size: number
+    sourceRevision: number
+    fileBytes: Uint8Array
+    onRangeCall?: (call: RangeCall, index: number) => void
+  }) {
+    const rangeCalls: RangeCall[] = []
+    tauriInvokeMock.mockImplementation(async (command: string, payload?: Record<string, unknown>) => {
+      if (command === 'rpc_dispatch') {
+        return {
+          ok: true,
+          result: {
+            command: 'catalog:source:metadata',
+            result: {size: options.size, source_revision: options.sourceRevision},
+          },
+        }
+      }
+      if (command === 'catalog_download_range') {
+        const call = payload as unknown as RangeCall
+        rangeCalls.push({
+          offset: call.offset,
+          length: call.length,
+          expectedSourceRevision: call.expectedSourceRevision,
+        })
+        options.onRangeCall?.(call, rangeCalls.length - 1)
+        return {
+          ok: true,
+          result: Array.from(options.fileBytes.subarray(call.offset, call.offset + call.length)),
+        }
+      }
+      throw new Error(`unexpected tauri invoke: ${command}`)
+    })
+    return rangeCalls
+  }
+
+  it('streams ranged chunks lazily and matches the whole file', async () => {
+    const fileBytes = new TextEncoder().encode('0123456789')
+    const rangeCalls = mockRangedBackend({size: fileBytes.length, sourceRevision: 7, fileBytes})
+
+    const stream = await downloadFileViaTauri(61, {rangeChunkBytes: 4})
+    expect(rangeCalls).toHaveLength(0)
+
+    const received: Uint8Array[] = []
+    for await (const chunk of stream) {
+      received.push(chunk)
+    }
+
+    expect(received.map((chunk) => chunk.byteLength)).toEqual([4, 4, 2])
+    const total = new Uint8Array(fileBytes.length)
+    let offset = 0
+    for (const chunk of received) {
+      total.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    expect(new TextDecoder().decode(total)).toBe('0123456789')
+    expect(rangeCalls).toEqual([
+      {offset: 0, length: 4, expectedSourceRevision: 7},
+      {offset: 4, length: 4, expectedSourceRevision: 7},
+      {offset: 8, length: 2, expectedSourceRevision: 7},
+    ])
+  })
+
+  it('stops further range IPC when the consumer aborts between chunks', async () => {
+    const fileBytes = new Uint8Array(12).fill(1)
+    const controller = new AbortController()
+    const rangeCalls = mockRangedBackend({
+      size: fileBytes.length,
+      sourceRevision: 3,
+      fileBytes,
+      onRangeCall: (_call, index) => {
+        if (index === 0) {
+          // Simulate a user cancel while the first chunk is in flight.
+          controller.abort()
+        }
+      },
+    })
+
+    initAppContext(
+      createMockAppContext({
+        ws: {kind: 'tauri'} as any,
+        catalog: {
+          api: {
+            download: (fileId: number) => downloadFileViaTauri(fileId, {rangeChunkBytes: 4}),
+          },
+        } as any,
+      }),
+    )
+
+    await expect(
+      loadFileSourceById(62, 'photo.png', {
+        signal: controller.signal,
+        mimeType: 'image/png',
+        variant: 'raw',
+      }),
+    ).rejects.toMatchObject({name: 'AbortError'})
+
+    // Only the first of the three ranges crossed IPC; the abort between
+    // chunks stopped the remaining range reads.
+    expect(rangeCalls).toHaveLength(1)
+  })
+
+  it('falls back to the whole-file download when source metadata is unavailable', async () => {
+    tauriInvokeMock.mockImplementation(async (command: string) => {
+      if (command === 'rpc_dispatch') {
+        return {ok: false, error: 'metadata unavailable', code: 'INTERNAL'}
+      }
+      if (command === 'catalog_download') {
+        return {
+          ok: true,
+          result: {
+            meta: {name: 'legacy.bin', type: 'application/octet-stream', size: 3, chunk_size: 2},
+            bytes: [9, 8, 7],
+          },
+        }
+      }
+      throw new Error(`unexpected tauri invoke: ${command}`)
+    })
+
+    const stream = await downloadFileViaTauri(63)
+    const received: number[] = []
+    for await (const chunk of stream) {
+      received.push(...chunk)
+    }
+
+    expect(received).toEqual([9, 8, 7])
+    expect(tauriInvokeMock.mock.calls.map(([command]) => command)).toEqual([
+      'rpc_dispatch',
+      'catalog_download',
+    ])
+  })
+
+  it('propagates stale source revision errors from a ranged chunk', async () => {
+    tauriInvokeMock.mockImplementation(async (command: string) => {
+      if (command === 'rpc_dispatch') {
+        return {
+          ok: true,
+          result: {
+            command: 'catalog:source:metadata',
+            result: {size: 8, source_revision: 4},
+          },
+        }
+      }
+      if (command === 'catalog_download_range') {
+        return {ok: false, error: 'source revision is stale', code: 'CONFLICT'}
+      }
+      throw new Error(`unexpected tauri invoke: ${command}`)
+    })
+
+    const stream = await downloadFileViaTauri(64, {rangeChunkBytes: 4})
+    const iterator = stream[Symbol.asyncIterator]()
+    await expect(iterator.next()).rejects.toThrow('source revision is stale (CONFLICT)')
+  })
+
+  it('enforces the media size limit mid-stream without pulling further chunks', async () => {
+    setRuntimeCapabilities({platform: 'android', mobile: true})
+    runtimeModeModel.setCoreMode('local')
+
+    const chunkBytes = 3 * 1024 * 1024
+    let pulls = 0
+    const lazyStream: AsyncIterable<Uint8Array> = {
+      async *[Symbol.asyncIterator]() {
+        // Would deliver far more chunks than the limit allows; the consumer
+        // must stop pulling once the running size limit trips.
+        for (let index = 0; index < 8; index += 1) {
+          pulls += 1
+          yield new Uint8Array(chunkBytes)
+        }
+      },
+    }
+    const download = vi.fn().mockResolvedValue(lazyStream)
+
+    initAppContext(
+      createMockAppContext({
+        ws: {kind: 'tauri'} as any,
+        catalog: {api: {download}} as any,
+      }),
+    )
+
+    await expectFileLoadError(
+      loadFileSourceById(65, 'track.mp3', {
+        mimeType: 'audio/mpeg',
+        // Stale/incorrect authoritative size below the limit lets the download
+        // start; the streamed guard must stop it mid-stream.
+        sourceSize: 1024,
+        variant: 'raw',
+      }),
+      'MEDIA_BLOB_FALLBACK_LIMIT',
+      `MEDIA_BLOB_FALLBACK_LIMIT:${chunkBytes * 3}:${MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES}`,
+    )
+
+    // 8 MiB limit, 3 MiB chunks: the third pulled chunk trips the limit, so
+    // the limit is exceeded by less than one chunk and no fourth pull happens.
+    expect(pulls).toBe(3)
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
   })
 })

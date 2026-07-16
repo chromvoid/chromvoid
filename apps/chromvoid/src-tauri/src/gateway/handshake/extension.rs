@@ -10,8 +10,8 @@ use tauri::Manager;
 use super::super::state::now_ms;
 use super::super::types::AccessDuration;
 use super::helpers::{
-    extract_remote_static_hex, hex_decode, IK_MSG1_MIN_SIZE, NOISE_PATTERN_EXTENSION,
-    NOISE_PATTERN_IK,
+    extract_remote_static_hex, hex_decode, GatewayWsRoute, IK_MSG1_MIN_SIZE,
+    NOISE_PATTERN_EXTENSION, NOISE_PATTERN_IK,
 };
 use super::HandshakeResult;
 
@@ -22,9 +22,10 @@ use super::HandshakeResult;
 /// - XX msg1 ~32 bytes (just ephemeral key)
 ///
 /// If IK fails for a known peer, falls back to XX with anti-downgrade warning.
-pub(super) async fn perform_extension_handshake(
+pub(super) async fn perform_actor_handshake(
     ws_stream: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
     app_handle: &tauri::AppHandle,
+    route: GatewayWsRoute,
 ) -> Option<HandshakeResult> {
     let (mut write, mut read) = ws_stream.split();
     let mut buf = vec![0u8; 65535];
@@ -74,19 +75,20 @@ pub(super) async fn perform_extension_handshake(
     if msg1.len() >= IK_MSG1_MIN_SIZE {
         if let Some(ref privkey) = gateway_privkey {
             match try_ik_responder(privkey, msg1.as_ref(), &mut buf, &mut write).await {
-                Ok((noise, ext_id)) => {
-                    // Verify the extension is known/paired.
-                    let authorized = authorize_extension(app_handle, &ext_id).await?;
+                Ok((noise, actor_id)) => {
+                    // Verify the static identity was paired for this exact route.
+                    let authorized = authorize_actor(app_handle, &actor_id, route).await?;
                     if !authorized {
                         warn!(
-                            "[gateway] reject extension handshake: unauthorized extension_id={ext_id}"
+                            "[gateway] reject actor handshake: unauthorized route={route:?} actor_id={actor_id}"
                         );
                         return None;
                     }
                     let transport = noise.into_transport_mode().ok()?;
                     return Some(HandshakeResult {
                         transport,
-                        ext_id,
+                        actor_id,
+                        route,
                         write,
                         read,
                     });
@@ -121,7 +123,7 @@ pub(super) async fn perform_extension_handshake(
     };
 
     let result = try_xx_responder(&privkey, msg1.as_ref(), &mut buf, &mut write, &mut read).await;
-    let (noise, ext_id, keypair_for_storage) = match result {
+    let (noise, actor_id, keypair_for_storage) = match result {
         Ok(v) => v,
         Err(err) => {
             warn!("[gateway] reject extension handshake: XX handshake failed: {err}");
@@ -129,9 +131,9 @@ pub(super) async fn perform_extension_handshake(
         }
     };
 
-    let authorized = authorize_extension(app_handle, &ext_id).await?;
+    let authorized = authorize_actor(app_handle, &actor_id, route).await?;
     if !authorized {
-        warn!("[gateway] reject extension handshake: unauthorized extension_id={ext_id}");
+        warn!("[gateway] reject actor handshake: unauthorized route={route:?} actor_id={actor_id}");
         return None;
     }
 
@@ -149,7 +151,10 @@ pub(super) async fn perform_extension_handshake(
                     return None;
                 }
             };
-            st.ensure_gateway_keypair(&kp);
+            if let Err(error) = st.persist_gateway_keypair(&kp) {
+                warn!("[gateway] reject actor handshake: failed to persist gateway key: {error}");
+                return None;
+            }
             (catalog_blocking_io_runtime, st.config_save_snapshot())
         };
         crate::gateway::save_config_snapshot_best_effort(
@@ -163,7 +168,8 @@ pub(super) async fn perform_extension_handshake(
     let transport = noise.into_transport_mode().ok()?;
     Some(HandshakeResult {
         transport,
-        ext_id,
+        actor_id,
+        route,
         write,
         read,
     })
@@ -270,7 +276,11 @@ async fn try_xx_responder(
 
 /// Authorize an extension: check it's paired and active, enforce access duration.
 /// Returns `Some(true)` if authorized, `Some(false)` if denied, `None` on lock error.
-async fn authorize_extension(app_handle: &tauri::AppHandle, ext_id: &str) -> Option<bool> {
+async fn authorize_actor(
+    app_handle: &tauri::AppHandle,
+    actor_id: &str,
+    route: GatewayWsRoute,
+) -> Option<bool> {
     let now = now_ms();
     let (catalog_blocking_io_runtime, save_snapshot) = {
         let state = app_handle.state::<crate::AppState>();
@@ -279,25 +289,33 @@ async fn authorize_extension(app_handle: &tauri::AppHandle, ext_id: &str) -> Opt
             Ok(st) => st,
             Err(_) => {
                 warn!(
-                    "[gateway] reject extension handshake: gateway mutex poisoned while authorizing extension_id={ext_id}"
+                    "[gateway] reject actor handshake: gateway mutex poisoned while authorizing route={route:?} actor_id={actor_id}"
                 );
                 return None;
             }
         };
 
-        if !st.is_paired_and_active(ext_id) {
+        let paired = match route {
+            GatewayWsRoute::Extension => st.is_paired_and_active(actor_id),
+            GatewayWsRoute::Agent => st.is_agent_paired_and_active(actor_id),
+            GatewayWsRoute::Pair => false,
+        };
+        if !paired {
             return Some(false);
         }
 
-        // Enforce access duration as a rolling window.
-        match st.config.access_duration {
-            AccessDuration::UntilVaultLocked => {}
-            AccessDuration::Hour1 => {
+        // Browser extension access duration remains unchanged. CLI agents are
+        // explicitly approved per action and therefore do not inherit the
+        // extension's rolling site-access window.
+        match (route, st.config.access_duration) {
+            (GatewayWsRoute::Agent, _) => {}
+            (GatewayWsRoute::Extension, AccessDuration::UntilVaultLocked) => {}
+            (GatewayWsRoute::Extension, AccessDuration::Hour1) => {
                 let allowed = st
                     .config
                     .paired_extensions
                     .iter()
-                    .find(|e| e.id == ext_id && !e.revoked)
+                    .find(|e| e.id == actor_id && !e.revoked)
                     .and_then(|e| e.last_active_ms)
                     .map(|ts| now.saturating_sub(ts) <= 60 * 60 * 1000)
                     .unwrap_or(false);
@@ -305,12 +323,12 @@ async fn authorize_extension(app_handle: &tauri::AppHandle, ext_id: &str) -> Opt
                     return Some(false);
                 }
             }
-            AccessDuration::Hour24 => {
+            (GatewayWsRoute::Extension, AccessDuration::Hour24) => {
                 let allowed = st
                     .config
                     .paired_extensions
                     .iter()
-                    .find(|e| e.id == ext_id && !e.revoked)
+                    .find(|e| e.id == actor_id && !e.revoked)
                     .and_then(|e| e.last_active_ms)
                     .map(|ts| now.saturating_sub(ts) <= 24 * 60 * 60 * 1000)
                     .unwrap_or(false);
@@ -318,15 +336,20 @@ async fn authorize_extension(app_handle: &tauri::AppHandle, ext_id: &str) -> Opt
                     return Some(false);
                 }
             }
+            (GatewayWsRoute::Pair, _) => return Some(false),
         }
 
-        st.mark_extension_active(ext_id);
+        match route {
+            GatewayWsRoute::Extension => st.mark_extension_active(actor_id),
+            GatewayWsRoute::Agent => st.mark_agent_active(actor_id),
+            GatewayWsRoute::Pair => return Some(false),
+        }
         (catalog_blocking_io_runtime, st.config_save_snapshot())
     };
     crate::gateway::save_config_snapshot_best_effort(
         catalog_blocking_io_runtime,
         save_snapshot,
-        "Gateway extension activity save",
+        "Gateway actor activity save",
     )
     .await;
     Some(true)

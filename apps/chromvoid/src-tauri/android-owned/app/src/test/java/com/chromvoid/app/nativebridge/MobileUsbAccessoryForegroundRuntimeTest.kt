@@ -285,7 +285,7 @@ class MobileUsbAccessoryForegroundRuntimeTest {
     }
 
     @Test
-    fun endedNativeSessionWithoutExplicitShutdownReopensCurrentAccessory() {
+    fun endedNativeSessionWithoutExplicitReasonStopsWithoutReopeningCurrentAccessory() {
         val firstHandle = FakeHandle(sessionId = "session-first")
         val secondHandle = FakeHandle(sessionId = "session-second")
         val opener = QueueOpener(firstHandle, secondHandle)
@@ -298,10 +298,7 @@ class MobileUsbAccessoryForegroundRuntimeTest {
         MobileUsbAccessoryForegroundRuntime.setCurrentAccessoryProviderForTests {
             chromVoidAccessory()
         }
-        val startedIntents = mutableListOf<Intent>()
-        ForegroundServiceSupport.setStartForegroundServiceForTests { _, intent ->
-            startedIntents += Intent(intent)
-        }
+        ForegroundServiceSupport.setStartForegroundServiceForTests { _, _ -> }
 
         MobileUsbAccessoryForegroundRuntime.handleCurrentAccessory(context)
         val result =
@@ -310,11 +307,11 @@ class MobileUsbAccessoryForegroundRuntimeTest {
                 "session-first",
             )
 
-        assertEquals(MobileUsbAccessoryCoordinatorResult.Opened, result)
-        assertEquals(MobileUsbAccessoryCoordinatorState.Open, coordinator.status.state)
-        assertEquals(listOf("session-first", "session-second"), opener.openedSessionIds)
-        assertEquals(2, startedIntents.size)
-        assertNull(shadowOf(context as Application).nextStoppedService)
+        assertEquals(MobileUsbAccessoryCoordinatorResult.Disconnected, result)
+        assertEquals(MobileUsbAccessoryCoordinatorState.Idle, coordinator.status.state)
+        assertEquals(listOf("session-first"), opener.openedSessionIds)
+        val stoppedService = shadowOf(context as Application).nextStoppedService
+        assertEquals(ConnectionForegroundService::class.java.name, stoppedService.component?.className)
     }
 
     @Test
@@ -348,6 +345,44 @@ class MobileUsbAccessoryForegroundRuntimeTest {
     }
 
     @Test
+    fun endedNativeSessionWithErrorRetriesWhenCurrentAccessoryReopenFailsOnce() {
+        val firstHandle = FakeHandle(sessionId = "session-first")
+        val retryHandle = FakeHandle(sessionId = "session-retry")
+        val opener = FailOnceReopenOpener(firstHandle, retryHandle)
+        val coordinator =
+            MobileUsbAccessoryCoordinator(
+                FakeGateway(hasPermission = true),
+                opener,
+            )
+        MobileUsbAccessoryForegroundRuntime.setCoordinatorForTests(coordinator)
+        MobileUsbAccessoryForegroundRuntime.setCurrentAccessoryProviderForTests {
+            chromVoidAccessory()
+        }
+        ForegroundServiceSupport.setStartForegroundServiceForTests { _, _ -> }
+
+        MobileUsbAccessoryForegroundRuntime.handleCurrentAccessory(context)
+        val result =
+            MobileUsbAccessoryForegroundRuntime.handleNativeSessionEnded(
+                context,
+                "session-first",
+                "error",
+            )
+
+        assertEquals(MobileUsbAccessoryCoordinatorResult.Error("ERR_USB_MOBILE_OPEN_FAILED"), result)
+        assertEquals(MobileUsbAccessoryCoordinatorState.Error, coordinator.status.state)
+        assertEquals(listOf("session-first"), opener.openedSessionIds)
+        assertEquals(2, opener.openCalls)
+        assertNull(shadowOf(context as Application).nextStoppedService)
+
+        shadowOf(Looper.getMainLooper()).idleFor(201, TimeUnit.MILLISECONDS)
+
+        assertEquals(MobileUsbAccessoryCoordinatorState.Open, coordinator.status.state)
+        assertEquals(listOf("session-first", "session-retry"), opener.openedSessionIds)
+        assertEquals(3, opener.openCalls)
+        assertNull(shadowOf(context as Application).nextStoppedService)
+    }
+
+    @Test
     fun nativeShellSessionEndedWithTransportClosedReopensCurrentAccessory() {
         val firstHandle = FakeHandle(sessionId = "session-first")
         val secondHandle = FakeHandle(sessionId = "session-second")
@@ -368,6 +403,62 @@ class MobileUsbAccessoryForegroundRuntimeTest {
             context,
             "session-first",
             "transport_closed",
+        )
+
+        assertEquals(MobileUsbAccessoryCoordinatorState.Open, coordinator.status.state)
+        assertEquals(listOf("session-first", "session-second"), opener.openedSessionIds)
+        assertNull(shadowOf(context as Application).nextStoppedService)
+    }
+
+    @Test
+    fun nativeShellSessionEndedWithPeerClosedReopensCurrentAccessory() {
+        val firstHandle = FakeHandle(sessionId = "session-first")
+        val secondHandle = FakeHandle(sessionId = "session-second")
+        val opener = QueueOpener(firstHandle, secondHandle)
+        val coordinator =
+            MobileUsbAccessoryCoordinator(
+                FakeGateway(hasPermission = true),
+                opener,
+            )
+        MobileUsbAccessoryForegroundRuntime.setCoordinatorForTests(coordinator)
+        MobileUsbAccessoryForegroundRuntime.setCurrentAccessoryProviderForTests {
+            chromVoidAccessory()
+        }
+        ForegroundServiceSupport.setStartForegroundServiceForTests { _, _ -> }
+
+        MobileUsbAccessoryForegroundRuntime.handleCurrentAccessory(context)
+        MobileUsbAccessoryNativeShell.onNativeAccessorySessionEnded(
+            context,
+            "session-first",
+            "peer_closed",
+        )
+
+        assertEquals(MobileUsbAccessoryCoordinatorState.Open, coordinator.status.state)
+        assertEquals(listOf("session-first", "session-second"), opener.openedSessionIds)
+        assertNull(shadowOf(context as Application).nextStoppedService)
+    }
+
+    @Test
+    fun nativeShellSessionEndedWithVaultLockedReopensCurrentAccessory() {
+        val firstHandle = FakeHandle(sessionId = "session-first")
+        val secondHandle = FakeHandle(sessionId = "session-second")
+        val opener = QueueOpener(firstHandle, secondHandle)
+        val coordinator =
+            MobileUsbAccessoryCoordinator(
+                FakeGateway(hasPermission = true),
+                opener,
+            )
+        MobileUsbAccessoryForegroundRuntime.setCoordinatorForTests(coordinator)
+        MobileUsbAccessoryForegroundRuntime.setCurrentAccessoryProviderForTests {
+            chromVoidAccessory()
+        }
+        ForegroundServiceSupport.setStartForegroundServiceForTests { _, _ -> }
+
+        MobileUsbAccessoryForegroundRuntime.handleCurrentAccessory(context)
+        MobileUsbAccessoryNativeShell.onNativeAccessorySessionEnded(
+            context,
+            "session-first",
+            "vault_locked",
         )
 
         assertEquals(MobileUsbAccessoryCoordinatorState.Open, coordinator.status.state)
@@ -404,7 +495,7 @@ class MobileUsbAccessoryForegroundRuntimeTest {
     }
 
     @Test
-    fun nativeShellSessionEndedWithPairingCompleteReopensEndedSessionAccessoryWhenCurrentAccessoryIsUnavailable() {
+    fun nativeShellSessionEndedWithPairingCompleteReopensSessionAccessoryWhenCurrentAccessoryIsUnavailable() {
         val firstHandle = FakeHandle(sessionId = "session-first")
         val secondHandle = FakeHandle(sessionId = "session-second")
         val opener = QueueOpener(firstHandle, secondHandle)
@@ -429,6 +520,62 @@ class MobileUsbAccessoryForegroundRuntimeTest {
             context,
             "session-first",
             "pairing_complete",
+        )
+
+        assertEquals(MobileUsbAccessoryCoordinatorState.Open, coordinator.status.state)
+        assertEquals(listOf("session-first", "session-second"), opener.openedSessionIds)
+        assertNull(shadowOf(context as Application).nextStoppedService)
+    }
+
+    @Test
+    fun nativeShellSessionEndedWithStreamTimeoutReopensCurrentAccessory() {
+        val firstHandle = FakeHandle(sessionId = "session-first")
+        val secondHandle = FakeHandle(sessionId = "session-second")
+        val opener = QueueOpener(firstHandle, secondHandle)
+        val coordinator =
+            MobileUsbAccessoryCoordinator(
+                FakeGateway(hasPermission = true),
+                opener,
+            )
+        MobileUsbAccessoryForegroundRuntime.setCoordinatorForTests(coordinator)
+        MobileUsbAccessoryForegroundRuntime.setCurrentAccessoryProviderForTests {
+            chromVoidAccessory()
+        }
+        ForegroundServiceSupport.setStartForegroundServiceForTests { _, _ -> }
+
+        MobileUsbAccessoryForegroundRuntime.handleCurrentAccessory(context)
+        MobileUsbAccessoryNativeShell.onNativeAccessorySessionEnded(
+            context,
+            "session-first",
+            "stream_timeout",
+        )
+
+        assertEquals(MobileUsbAccessoryCoordinatorState.Open, coordinator.status.state)
+        assertEquals(listOf("session-first", "session-second"), opener.openedSessionIds)
+        assertNull(shadowOf(context as Application).nextStoppedService)
+    }
+
+    @Test
+    fun nativeShellSessionEndedWithDataPlaneErrorReopensCurrentAccessory() {
+        val firstHandle = FakeHandle(sessionId = "session-first")
+        val secondHandle = FakeHandle(sessionId = "session-second")
+        val opener = QueueOpener(firstHandle, secondHandle)
+        val coordinator =
+            MobileUsbAccessoryCoordinator(
+                FakeGateway(hasPermission = true),
+                opener,
+            )
+        MobileUsbAccessoryForegroundRuntime.setCoordinatorForTests(coordinator)
+        MobileUsbAccessoryForegroundRuntime.setCurrentAccessoryProviderForTests {
+            chromVoidAccessory()
+        }
+        ForegroundServiceSupport.setStartForegroundServiceForTests { _, _ -> }
+
+        MobileUsbAccessoryForegroundRuntime.handleCurrentAccessory(context)
+        MobileUsbAccessoryNativeShell.onNativeAccessorySessionEnded(
+            context,
+            "session-first",
+            "data_plane_error",
         )
 
         assertEquals(MobileUsbAccessoryCoordinatorState.Open, coordinator.status.state)
@@ -480,7 +627,100 @@ class MobileUsbAccessoryForegroundRuntimeTest {
     }
 
     @Test
-    fun endedNativeSessionWithShutdownStopsServiceWithoutReopeningCurrentAccessory() {
+    fun nativeShellSessionEndedWithPairingCompleteAndMissingAccessoryDoesNotReopen() {
+        val firstHandle = FakeHandle(sessionId = "session-first")
+        val secondHandle = FakeHandle(sessionId = "session-second")
+        val opener = QueueOpener(firstHandle, secondHandle)
+        val coordinator =
+            MobileUsbAccessoryCoordinator(
+                FakeGateway(hasPermission = true),
+                opener,
+            )
+        MobileUsbAccessoryForegroundRuntime.setCoordinatorForTests(coordinator)
+        MobileUsbAccessoryForegroundRuntime.setCurrentAccessoryProviderForTests { null }
+        ForegroundServiceSupport.setStartForegroundServiceForTests { _, _ -> }
+
+        MobileUsbAccessoryForegroundRuntime.handleIntent(
+            context,
+            Intent(UsbManager.ACTION_USB_ACCESSORY_ATTACHED).putExtra(
+                UsbManager.EXTRA_ACCESSORY,
+                chromVoidAccessory(),
+            ),
+        )
+        val result =
+            MobileUsbAccessoryForegroundRuntime.handleNativeSessionEnded(
+                context,
+                "missing-session",
+                "pairing_complete",
+            )
+
+        assertEquals(MobileUsbAccessoryCoordinatorResult.Ignored, result)
+        assertEquals(MobileUsbAccessoryCoordinatorState.Open, coordinator.status.state)
+        assertEquals(listOf("session-first"), opener.openedSessionIds)
+        assertNull(shadowOf(context as Application).nextStoppedService)
+    }
+
+    @Test
+    fun endedNativeSessionWithAccessoryDetachedReopensCurrentAccessory() {
+        val firstHandle = FakeHandle(sessionId = "session-first")
+        val secondHandle = FakeHandle(sessionId = "session-second")
+        val opener = QueueOpener(firstHandle, secondHandle)
+        val coordinator =
+            MobileUsbAccessoryCoordinator(
+                FakeGateway(hasPermission = true),
+                opener,
+            )
+        MobileUsbAccessoryForegroundRuntime.setCoordinatorForTests(coordinator)
+        MobileUsbAccessoryForegroundRuntime.setCurrentAccessoryProviderForTests {
+            chromVoidAccessory()
+        }
+        ForegroundServiceSupport.setStartForegroundServiceForTests { _, _ -> }
+
+        MobileUsbAccessoryForegroundRuntime.handleCurrentAccessory(context)
+        val result =
+            MobileUsbAccessoryForegroundRuntime.handleNativeSessionEnded(
+                context,
+                "session-first",
+                "accessory_detached",
+            )
+
+        assertEquals(MobileUsbAccessoryCoordinatorResult.Opened, result)
+        assertEquals(MobileUsbAccessoryCoordinatorState.Open, coordinator.status.state)
+        assertEquals(listOf("session-first", "session-second"), opener.openedSessionIds)
+        assertNull(shadowOf(context as Application).nextStoppedService)
+    }
+
+    @Test
+    fun endedNativeSessionAfterExplicitDisconnectDoesNotReopenCurrentAccessory() {
+        val handle = FakeHandle(sessionId = "session-first")
+        val opener = QueueOpener(handle)
+        val coordinator =
+            MobileUsbAccessoryCoordinator(
+                FakeGateway(hasPermission = true),
+                opener,
+            )
+        MobileUsbAccessoryForegroundRuntime.setCoordinatorForTests(coordinator)
+        MobileUsbAccessoryForegroundRuntime.setCurrentAccessoryProviderForTests {
+            chromVoidAccessory()
+        }
+        MobileUsbAccessoryForegroundRuntime.handleCurrentAccessory(context)
+        coordinator.disconnect()
+
+        val result =
+            MobileUsbAccessoryForegroundRuntime.handleNativeSessionEnded(
+                context,
+                "session-first",
+                "explicit_disconnect",
+            )
+
+        assertEquals(MobileUsbAccessoryCoordinatorResult.Ignored, result)
+        assertEquals(MobileUsbAccessoryCoordinatorState.Idle, coordinator.status.state)
+        assertEquals(listOf("session-first"), opener.openedSessionIds)
+        assertTrue(handle.closed)
+    }
+
+    @Test
+    fun endedNativeSessionWithLegacyShutdownStopsServiceWithoutReopeningCurrentAccessory() {
         val firstHandle = FakeHandle(sessionId = "session-first")
         val secondHandle = FakeHandle(sessionId = "session-second")
         val opener = QueueOpener(firstHandle, secondHandle)
@@ -508,33 +748,6 @@ class MobileUsbAccessoryForegroundRuntimeTest {
         assertEquals(listOf("session-first"), opener.openedSessionIds)
         val stoppedService = shadowOf(context as Application).nextStoppedService
         assertEquals(ConnectionForegroundService::class.java.name, stoppedService.component?.className)
-    }
-
-    @Test
-    fun endedNativeSessionAfterExplicitDisconnectDoesNotReopenCurrentAccessory() {
-        val handle = FakeHandle(sessionId = "session-first")
-        val opener = QueueOpener(handle)
-        val coordinator =
-            MobileUsbAccessoryCoordinator(
-                FakeGateway(hasPermission = true),
-                opener,
-            )
-        MobileUsbAccessoryForegroundRuntime.setCoordinatorForTests(coordinator)
-        MobileUsbAccessoryForegroundRuntime.setCurrentAccessoryProviderForTests {
-            chromVoidAccessory()
-        }
-        MobileUsbAccessoryForegroundRuntime.handleCurrentAccessory(context)
-        coordinator.disconnect()
-
-        val result =
-            MobileUsbAccessoryForegroundRuntime.handleNativeSessionEnded(
-                context,
-                "session-first",
-            )
-
-        assertEquals(MobileUsbAccessoryCoordinatorResult.Ignored, result)
-        assertEquals(MobileUsbAccessoryCoordinatorState.Idle, coordinator.status.state)
-        assertEquals(listOf("session-first"), opener.openedSessionIds)
     }
 
     @Test
@@ -768,7 +981,7 @@ class MobileUsbAccessoryForegroundRuntimeTest {
     ) : MobileUsbAccessorySessionHandle {
         var closed = false
 
-        override fun close() {
+        override fun close(reason: MobileUsbAccessorySessionStopReason) {
             closed = true
         }
     }

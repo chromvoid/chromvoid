@@ -20,9 +20,7 @@ export const virtualFileListStyles = [
       background: transparent;
       overflow: hidden;
       position: relative;
-      --file-list-padding-block: var(--app-spacing-6);
-      --file-list-padding-inline: var(--app-spacing-6);
-      --file-list-item-height: 80px;
+      --file-list-item-block-size: 80px;
     }
 
     /* ========== SCROLL CONTAINER ========== */
@@ -30,9 +28,9 @@ export const virtualFileListStyles = [
     .file-list-scroll-edge {
       flex: 1;
       min-block-size: 0;
-      --cv-scroll-edge-block-size: var(--cv-scroll-edge-list-block-size);
-      --cv-scroll-edge-inline-end: var(--cv-scroll-edge-list-inline-end);
-      --cv-scroll-edge-surface: var(--cv-scroll-edge-default-surface);
+      --app-scroll-edge-block-size: var(--app-scroll-edge-list-block-size);
+      --app-scroll-edge-inline-end: var(--app-scroll-edge-list-inline-end);
+      --app-scroll-edge-surface: var(--app-scroll-edge-default-surface);
     }
 
     .list-container {
@@ -73,7 +71,7 @@ export const virtualFileListStyles = [
     /* ========== LAYOUT CONTAINERS ========== */
 
     .list-view {
-      padding: var(--file-list-padding-block) var(--file-list-padding-inline);
+      padding: var(--app-spacing-6);
       display: flex;
       flex-direction: column;
     }
@@ -86,12 +84,12 @@ export const virtualFileListStyles = [
     }
 
     .grid-virtual-spacer {
-      block-size: var(--virtual-total-height, 0px);
+      block-size: var(--_file-virtual-list-total-block-size, 0px);
       position: relative;
     }
 
     .grid-virtual-window {
-      transform: translateY(var(--virtual-offset-y, 0px));
+      transform: translateY(var(--_file-virtual-list-offset-block, 0px));
     }
 
     .table-view {
@@ -99,11 +97,11 @@ export const virtualFileListStyles = [
     }
 
     .virtual-spacer {
-      block-size: var(--virtual-total-height, 0px);
+      block-size: var(--_file-virtual-list-total-block-size, 0px);
     }
 
     .virtual-window {
-      transform: translateY(var(--virtual-offset-y, 0px));
+      transform: translateY(var(--_file-virtual-list-offset-block, 0px));
     }
 
     file-item-desktop[data-delete-exiting],
@@ -161,7 +159,7 @@ export const virtualFileListStyles = [
       color: var(--cv-color-text);
       box-shadow: var(--cv-shadow-3);
       pointer-events: none;
-      transform: translate(var(--file-mobile-dnd-x, 0), var(--file-mobile-dnd-y, 0)) translate(12px, 12px);
+      transform: translate(var(--_file-mobile-dnd-inline, 0), var(--_file-mobile-dnd-block, 0)) translate(12px, 12px);
     }
 
     .mobile-dnd-ghost span {
@@ -232,6 +230,39 @@ export const virtualFileListStyles = [
       .skeleton-cell {
         inline-size: 72px;
         block-size: 12px;
+      }
+    }
+
+    .file-item-skeleton-grid {
+      min-block-size: 200px;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto;
+      align-items: stretch;
+      gap: 10px;
+      padding: 10px;
+      border-radius: var(--cv-radius-3);
+      background: linear-gradient(180deg, var(--cv-color-surface-2), var(--cv-color-surface));
+      box-shadow:
+        inset 0 1px 0 var(--cv-alpha-white-4),
+        0 10px 24px var(--cv-alpha-black-8);
+
+      .skeleton-icon {
+        inline-size: 100%;
+        block-size: 110px;
+        border-radius: calc(var(--cv-radius-3) - 2px);
+      }
+
+      .skeleton-lines {
+        inline-size: 100%;
+        gap: 7px;
+      }
+
+      .skeleton-lines span:first-child {
+        inline-size: 86%;
+      }
+
+      .skeleton-lines span:last-child {
+        inline-size: 58%;
       }
     }
 
@@ -342,24 +373,6 @@ export const virtualFileListStyles = [
       }
     }
 
-    /* ========== STATUS BAR ========== */
-
-    .status-bar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: var(--app-spacing-3);
-      color: var(--cv-color-text);
-      font-size: var(--cv-font-size-sm);
-
-      .status-summary {
-        flex: 1 1 auto;
-        min-inline-size: 0;
-      }
-    }
-
-    /*====================*/
-
     @container (min-width: 1200px) {
       .grid-view {
         grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -396,20 +409,6 @@ export const virtualFileListStyles = [
       }
     }
 
-    @media (hover: none) and (pointer: coarse) {
-      @container (min-width: 700px) and (max-width: 900px) {
-        .grid-view {
-          --file-grid-touch-card-block-size: 144px;
-          --file-grid-touch-thumbnail-size: 56px;
-          --file-grid-touch-icon-size: 34px;
-          --file-grid-touch-icon-target-size: 40px;
-          --file-grid-touch-thumbnail-gap: var(--app-spacing-2);
-          gap: var(--app-spacing-2);
-          padding: var(--app-spacing-2);
-        }
-      }
-    }
-
     @container (min-width: 600px) and (max-width: 700px) {
       .table-header {
         grid-template-columns: 36px 1fr 72px;
@@ -441,6 +440,12 @@ export const virtualFileListStyles = [
     @container (max-width: 600px) {
       .list-container {
         background: transparent;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+
+        &::-webkit-scrollbar {
+          display: none;
+        }
       }
 
       .table-header {
@@ -469,12 +474,12 @@ export const virtualFileListStyles = [
         grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
         gap: var(--app-mobile-surface-gap);
         padding: var(--app-mobile-surface-gutter-block-start) var(--app-mobile-surface-gutter-inline)
-          var(--app-mobile-surface-gutter-block-end);
+          calc(var(--app-mobile-surface-gutter-block-end) + 88px);
       }
 
       .list-view {
         padding: var(--app-mobile-surface-gutter-block-start) var(--app-mobile-surface-gutter-inline)
-          var(--app-mobile-surface-gutter-block-end);
+          calc(var(--app-mobile-surface-gutter-block-end) + 88px);
       }
 
       .list-container > cv-empty-state {
@@ -483,26 +488,6 @@ export const virtualFileListStyles = [
           --cv-empty-state-page-inline-padding,
           var(--app-mobile-surface-gutter-inline, var(--cv-space-4))
         );
-      }
-
-      .status-bar {
-        padding: 0 var(--cv-space-3);
-        font-size: var(--cv-font-size-xs, 0.75rem);
-        gap: var(--app-spacing-2);
-      }
-    }
-
-    /* Touch-specific optimizations */
-    @media (hover: none) and (pointer: coarse) {
-      .list-container {
-        -webkit-overflow-scrolling: touch;
-
-        /* Hide scrollbar on touch devices */
-        &::-webkit-scrollbar {
-          display: none;
-        }
-
-        scrollbar-width: none;
       }
     }
 

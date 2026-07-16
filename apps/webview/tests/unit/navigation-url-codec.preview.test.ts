@@ -83,13 +83,16 @@ describe('navigation preview URL codec', () => {
             kind: 'markdown',
             fileId: 17,
             originSurface: 'notes',
+            viewMode: 'edit',
             source: {
               path: '/Docs/Plan.md',
+              parentPath: '/Docs',
               fileName: 'Plan.md',
               size: 512,
               mimeType: 'text/markdown',
               lastModified: 1_717_171_717,
               sourceRevision: 9,
+              anchor: 'intro',
             },
           },
         },
@@ -99,11 +102,14 @@ describe('navigation preview URL codec', () => {
     )
 
     expect(url).toContain('docPath=%2FDocs%2FPlan.md')
+    expect(url).toContain('docParentPath=%2FDocs')
     expect(url).toContain('docName=Plan.md')
     expect(url).toContain('docSize=512')
     expect(url).toContain('docMime=text%2Fmarkdown')
     expect(url).toContain('docModified=1717171717')
     expect(url).toContain('docRevision=9')
+    expect(url).toContain('docAnchor=intro')
+    expect(url).toContain('docView=edit')
     expect(decodeNavigationSnapshotFromUrl(url)).toEqual({
       surface: 'files',
       files: {
@@ -112,13 +118,16 @@ describe('navigation preview URL codec', () => {
           kind: 'markdown',
           fileId: 17,
           originSurface: 'notes',
+          viewMode: 'edit',
           source: {
             path: '/Docs/Plan.md',
+            parentPath: '/Docs',
             fileName: 'Plan.md',
             size: 512,
             mimeType: 'text/markdown',
             lastModified: 1_717_171_717,
             sourceRevision: 9,
+            anchor: 'intro',
           },
         },
       },
@@ -190,6 +199,40 @@ describe('navigation preview URL codec', () => {
     expect(decodeNavigationSnapshotFromUrl(url)).toEqual({
       surface: 'passwords',
       passwords: {kind: 'otp-view'},
+      overlay: {kind: 'none'},
+    })
+  })
+
+  it('encodes and decodes the SSH keys passwords route', () => {
+    const url = encodeNavigationSnapshotToUrl(
+      {surface: 'passwords', passwords: {kind: 'ssh-view'}, overlay: {kind: 'none'}},
+      'https://example.test/dashboard?surface=files&path=%2FDocs',
+    )
+
+    expect(url).toContain('surface=passwords')
+    expect(url).toContain('pm=ssh')
+    expect(decodeNavigationSnapshotFromUrl(url)).toEqual({
+      surface: 'passwords',
+      passwords: {kind: 'ssh-view'},
+      overlay: {kind: 'none'},
+    })
+  })
+
+  it('encodes and decodes the Env Runtime passwords route', () => {
+    const url = encodeNavigationSnapshotToUrl(
+      {
+        surface: 'passwords',
+        passwords: {kind: 'env-runtime-view'},
+        overlay: {kind: 'none'},
+      },
+      'https://example.test/dashboard?surface=files&path=%2FDocs',
+    )
+
+    expect(url).toContain('surface=passwords')
+    expect(url).toContain('pm=env-runtime')
+    expect(decodeNavigationSnapshotFromUrl(url)).toEqual({
+      surface: 'passwords',
+      passwords: {kind: 'env-runtime-view'},
       overlay: {kind: 'none'},
     })
   })

@@ -1,6 +1,10 @@
 #![allow(dead_code)]
 
-use chromvoid_core::rpc::types::{CatalogListResponse, RpcRequest, RpcResponse};
+pub mod remote_transport_harness;
+
+use chromvoid_core::rpc::types::{
+    CatalogListResponse, CatalogTrashListResponse, RpcRequest, RpcResponse,
+};
 use chromvoid_core::rpc::RpcReply;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -191,6 +195,19 @@ pub fn catalog_find_child(
         .map(|it| it.node_id)
 }
 
+pub fn catalog_trash_list(adapter: &Arc<Mutex<Box<dyn CoreAdapter>>>) -> CatalogTrashListResponse {
+    let mut a = adapter.lock().expect("adapter lock");
+    let res = a.handle(&RpcRequest::new(
+        "catalog:trash:list".to_string(),
+        json!({}),
+    ));
+    let RpcResponse::Success { result, .. } = res else {
+        panic!("catalog:trash:list failed: {res:?}");
+    };
+    serde_json::from_value::<CatalogTrashListResponse>(result)
+        .expect("parse CatalogTrashListResponse")
+}
+
 pub fn catalog_download(adapter: &Arc<Mutex<Box<dyn CoreAdapter>>>, node_id: u64) -> Vec<u8> {
     let mut a = adapter.lock().expect("adapter lock");
     let req = RpcRequest::new("catalog:download".to_string(), json!({"node_id": node_id}));
@@ -289,7 +306,7 @@ pub fn finder_list_items(path: &std::path::Path) -> std::process::Output {
         "with timeout of 15 seconds",
         "tell application \"Finder\"",
         "set targetFolder to POSIX file p as alias",
-        "set itemNames to name of every item of targetFolder",
+        "set itemNames to displayed name of every item of targetFolder",
         "set AppleScript's text item delimiters to linefeed",
         "return itemNames as text",
         "end tell",

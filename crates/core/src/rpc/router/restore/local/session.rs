@@ -50,13 +50,14 @@ fn restore_local_start(
         .recover_before_restore_entry()
         .map_err(RestoreCommandError::from)?;
 
+    router.expire_restore_local_if_idle();
+
     // Restore writes attacker-controllable chunks straight into storage. Like
     // admin:restore, it must only run against blank storage so it can never
     // overwrite or corrupt an existing vault (H5). Recovery above first clears
     // any half-finished prior restore.
     require_blank_storage_for_restore(router)?;
 
-    router.expire_restore_local_if_idle();
     if router.restore_local_is_active() {
         return Err(RestoreCommandError::backup_already_in_progress(
             "Restore already in progress",

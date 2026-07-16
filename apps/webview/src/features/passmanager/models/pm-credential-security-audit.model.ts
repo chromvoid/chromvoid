@@ -1,11 +1,16 @@
 import {atom, computed, wrap} from '@reatom/core'
 
-import {Entry, Group, type ManagerRoot} from '@project/passmanager/core'
+import {Group, type Entry, type ManagerRoot} from '@project/passmanager/core'
 import {
+  CREDENTIAL_SECURITY_AUDIT_ALGORITHM_VERSION,
+  CREDENTIAL_SECURITY_AUDIT_ARTIFACT_VERSION,
   createCredentialAuditResult,
+  parseCredentialSecurityAuditArtifact,
   type CredentialAuditEntryInput,
   type CredentialAuditEntrySummary,
+  type CredentialSecurityAuditArtifactV1,
 } from '@project/passmanager/security-audit'
+import {defaultLogger} from 'root/core/logger'
 import {subscribeAfterInitial, type Unsubscribe} from 'root/shared/services/subscribed-signal'
 
 export type PMCredentialAuditStatus = 'idle' | 'loading' | 'ready' | 'degraded'
@@ -36,13 +41,13 @@ function getEntryOtpCount(entry: Entry): number {
 }
 
 function buildEntryRevision(entry: Entry): string {
-  return [
+  return JSON.stringify([
     entry.groupPath ?? '',
     entry.id,
     entry.entryType,
     entry.updatedTs,
     getEntryOtpCount(entry),
-  ].join(':')
+  ])
 }
 
 function getDirectEntries(target: Group | ManagerRoot): Entry[] {
@@ -166,6 +171,7 @@ export class PMCredentialSecurityAuditModel {
     if (revision === this.revision() && this.status() !== 'idle') return
 
     this.revision.set(revision)
+    if (this.applyArtifact(root, revision)) return
     void this.scanRoot(root, revision)
   }
 
@@ -224,20 +230,46 @@ export class PMCredentialSecurityAuditModel {
     this.entries.set(new Map(result.entries))
     this.failedEntryIds.set(failedEntryIds)
     this.status.set(failedEntryIds.size > 0 ? 'degraded' : 'ready')
+
+    this.persistArtifact(root, {
+      version: CREDENTIAL_SECURITY_AUDIT_ARTIFACT_VERSION,
+      algorithmVersion: CREDENTIAL_SECURITY_AUDIT_ALGORITHM_VERSION,
+      revision,
+      generatedAt: Date.now(),
+      entries: Object.fromEntries(result.entries),
+      failedEntryIds: Array.from(failedEntryIds).sort(),
+    })
+  }
+
+  private applyArtifact(root: ManagerRoot, revision: string): boolean {
+    const artifact = parseCredentialSecurityAuditArtifact(root.credentialSecurityAudit(), revision)
+    if (!artifact) return false
+
+    this.scanToken += 1
+    this.entries.set(new Map(Object.entries(artifact.entries)))
+    this.failedEntryIds.set(new Set(artifact.failedEntryIds))
+    this.status.set(artifact.failedEntryIds.length > 0 ? 'degraded' : 'ready')
+    return true
+  }
+
+  private persistArtifact(root: ManagerRoot, artifact: CredentialSecurityAuditArtifactV1): void {
+    if (!root.managerSaver.saveCredentialSecurityAudit) return
+
+    void root.managerSaver
+      .saveCredentialSecurityAudit(artifact)
+      .then((saved) => {
+        if (!saved) {
+          defaultLogger.warn('[PassManager][security-audit] failed to persist audit artifact')
+        }
+      })
+      .catch((error: unknown) => {
+        defaultLogger.warn('[PassManager][security-audit] failed to persist audit artifact', error)
+      })
   }
 
   private buildRootRevision(root: ManagerRoot): string {
-    const itemTokens: string[] = []
-
-    for (const item of root.entriesList()) {
-      if (item instanceof Entry) {
-        itemTokens.push(`entry:${buildEntryRevision(item)}`)
-      } else {
-        itemTokens.push(`group:${item.id}:${item.name}:${item.entries().map(buildEntryRevision).join(',')}`)
-      }
-    }
-
-    return `loaded:${root.updatedTs()}:${itemTokens.join('|')}`
+    const entryTokens = root.allEntries.map(buildEntryRevision).sort()
+    return `loaded:${JSON.stringify(entryTokens)}`
   }
 
   private countFailedEntries(entries: readonly Entry[], failedEntryIds: ReadonlySet<string>): number {

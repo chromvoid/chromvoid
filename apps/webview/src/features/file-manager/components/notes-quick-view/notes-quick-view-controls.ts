@@ -1,6 +1,6 @@
 import {css} from 'lit'
 
-import {NotesQuickViewBase} from './notes-quick-view-base'
+import {defineNotesQuickViewUikitControls, NotesQuickViewBase} from './notes-quick-view-base'
 import {notesQuickViewStyles} from './notes-quick-view.styles'
 
 export class NotesQuickViewControls extends NotesQuickViewBase {
@@ -20,12 +20,13 @@ export class NotesQuickViewControls extends NotesQuickViewBase {
   ]
 
   static define() {
+    defineNotesQuickViewUikitControls()
     if (!customElements.get(this.elementName)) {
       customElements.define(this.elementName, this as unknown as CustomElementConstructor)
     }
   }
 
   protected render() {
-    return this.renderControls()
+    return this.renderHeader()
   }
 }

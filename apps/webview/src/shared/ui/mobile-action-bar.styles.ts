@@ -16,13 +16,11 @@ export const mobileActionBarButtonStyles: CSSResult = css`
 
   /* ===== Toolbar button base ===== */
   .tb-btn {
-    --tb-size: 36px;
-    --tb-icon-size: 18px;
-    inline-size: var(--tb-size);
-    block-size: var(--tb-size);
-    min-inline-size: var(--tb-size);
-    min-block-size: var(--tb-size);
-    max-inline-size: var(--tb-size);
+    inline-size: var(--app-mobile-action-bar-control-size);
+    block-size: var(--app-mobile-action-bar-control-size);
+    min-inline-size: var(--app-mobile-action-bar-control-size);
+    min-block-size: var(--app-mobile-action-bar-control-size);
+    max-inline-size: var(--app-mobile-action-bar-control-size);
     flex-shrink: 0;
   }
 
@@ -31,21 +29,21 @@ export const mobileActionBarButtonStyles: CSSResult = css`
   }
 
   .tb-btn::part(base) {
-    inline-size: var(--tb-size);
-    block-size: var(--tb-size);
-    min-inline-size: var(--tb-size);
-    min-block-size: var(--tb-size);
+    inline-size: var(--app-mobile-action-bar-control-size);
+    block-size: var(--app-mobile-action-bar-control-size);
+    min-inline-size: var(--app-mobile-action-bar-control-size);
+    min-block-size: var(--app-mobile-action-bar-control-size);
     padding: 0;
     justify-content: center;
-    border-radius: 8px;
+    border-radius: var(--app-mobile-action-bar-control-radius);
     border: 1px solid var(--cv-color-border-soft);
     background: var(--cv-color-surface-2);
   }
 
   .tb-btn.has-badge {
     position: relative;
-    --cv-notification-dot-size: 7px;
-    --cv-notification-dot-radius: 50%;
+    --app-notification-dot-size: 7px;
+    --app-notification-dot-radius: 50%;
   }
 
   .tb-btn:not(cv-menu-button):hover::part(base) {
@@ -57,19 +55,19 @@ export const mobileActionBarButtonStyles: CSSResult = css`
   }
 
   .tb-btn cv-icon {
-    inline-size: var(--tb-icon-size);
-    block-size: var(--tb-icon-size);
+    inline-size: var(--app-mobile-action-bar-icon-size);
+    block-size: var(--app-mobile-action-bar-icon-size);
   }
 
   /* ===== More menu button ===== */
   .tb-btn-more::part(trigger) {
-    inline-size: var(--tb-size);
-    block-size: var(--tb-size);
-    min-inline-size: var(--tb-size);
-    min-block-size: var(--tb-size);
+    inline-size: var(--app-mobile-action-bar-control-size);
+    block-size: var(--app-mobile-action-bar-control-size);
+    min-inline-size: var(--app-mobile-action-bar-control-size);
+    min-block-size: var(--app-mobile-action-bar-control-size);
     padding: 0;
     justify-content: center;
-    border-radius: 8px;
+    border-radius: var(--app-mobile-action-bar-control-radius);
     border: 1px solid var(--cv-color-border-soft);
     background: var(--cv-color-surface-2);
   }

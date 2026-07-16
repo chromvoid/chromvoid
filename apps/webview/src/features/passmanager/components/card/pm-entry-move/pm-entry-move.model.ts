@@ -34,7 +34,7 @@ export type PMEntryMoveListKeyResult = {
   selectedId?: string
 }
 
-export class PMEntryMovePickerModel {
+export class PMGroupTargetPickerModel {
   readonly expandedPaths = atom<Set<string>>(new Set<string>(), 'pm_entry_move_picker_expanded')
   readonly searchValue = atom('', 'pm_entry_move_picker_search')
   readonly liveMessage = atom('', 'pm_entry_move_picker_live')
@@ -92,7 +92,7 @@ export class PMEntryMovePickerModel {
     this.selectedId.set(nextId)
     this.setActiveOptionKey(`target:${nextId}`)
 
-    const targetLabel = pmEntryMoveModel.getTargetLabelById(nextId)
+    const targetLabel = this.getTargetLabel(nextId)
     this.liveMessage.set(`${i18n('dialog:move:selected_announce_prefix')}: ${targetLabel}`)
 
     return nextId
@@ -126,7 +126,7 @@ export class PMEntryMovePickerModel {
       return null
     }
 
-    const disabledIds = Array.from(new Set([this.getCurrentEntryParentId(), ...this.disabledIds()].filter(Boolean)))
+    const disabledIds = this.getEffectiveDisabledIds()
     const groups = root.entriesList().filter((item): item is Group => item instanceof Group)
     const groupIdByPath = new Map<string, string>()
     for (const group of groups) {
@@ -192,7 +192,18 @@ export class PMEntryMovePickerModel {
     }
   }
 
-  private getCurrentEntryParentId(): string {
+  protected getEffectiveDisabledIds(): string[] {
+    return Array.from(new Set(this.disabledIds().filter(Boolean)))
+  }
+
+  protected getTargetLabel(id: string): string {
+    const root = getPassmanagerRoot()
+    if (!root) return id
+    if (id === root.id) return root.name
+    return root.getGroup(id)?.name ?? id
+  }
+
+  protected getCurrentEntryParentId(): string {
     const root = getPassmanagerRoot()
     if (!root) return ''
     const currentEntryId = this.entryId()
@@ -408,5 +419,15 @@ export class PMEntryMovePickerModel {
   private getLeafName(path: string): string {
     const parts = path.split('/').filter(Boolean)
     return parts[parts.length - 1] ?? path
+  }
+}
+
+export class PMEntryMovePickerModel extends PMGroupTargetPickerModel {
+  protected override getEffectiveDisabledIds(): string[] {
+    return Array.from(new Set([this.getCurrentEntryParentId(), ...this.disabledIds()].filter(Boolean)))
+  }
+
+  protected override getTargetLabel(id: string): string {
+    return pmEntryMoveModel.getTargetLabelById(id)
   }
 }

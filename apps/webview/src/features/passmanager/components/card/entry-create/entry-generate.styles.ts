@@ -52,9 +52,6 @@ export const pmEntryGenerateStyles = css`
 
   .strength-bar {
     inline-size: 100%;
-    --cv-progress-height: 4px;
-    --cv-progress-track-color: var(--cv-color-border-muted);
-    --cv-progress-indicator-color: var(--strength-color);
   }
 
   .otp-summary {

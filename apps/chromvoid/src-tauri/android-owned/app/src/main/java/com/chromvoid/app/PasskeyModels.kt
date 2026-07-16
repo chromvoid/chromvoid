@@ -44,6 +44,7 @@ data class PasskeyCoreRequestPayload(
     val origin: String,
     val clientDataHashB64Url: String?,
     val selectedCredentialId: String? = null,
+    val userVerified: Boolean = false,
 )
 
 data class PasskeyCoreQueryResult(

@@ -153,6 +153,7 @@ describe('file-move-mobile', () => {
         offset: 0,
         limit: 500,
         reload_required: false,
+        filter_counts: {all: 0, markdown: 0, images: 0},
         items: [
           {
             node_id: 2,
@@ -201,6 +202,7 @@ describe('file-move-mobile', () => {
           offset: 0,
           limit: 500,
           reload_required: false,
+          filter_counts: {all: 1, markdown: 0, images: 0},
           items: [
             {
               node_id: 2,

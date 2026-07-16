@@ -6,6 +6,8 @@ import {SettingsPage} from '../../src/routes/settings/settings-page'
 import {settingsPageModel} from '../../src/routes/settings/settings.model'
 import {vaultRekeyModel, type VaultRekeyProgressEvent} from '../../src/routes/settings/vault-rekey.model'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
+import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
+import type {SettingsVaultRekeyForm} from '../../src/routes/settings/settings-vault-rekey-form'
 
 const ipc = vi.hoisted(() => ({
   tauriInvoke: vi.fn(),
@@ -29,20 +31,29 @@ async function renderSettingsPage() {
   ensureDefined()
   vi.spyOn(settingsPageModel, 'load').mockResolvedValue()
   const page = document.createElement('settings-page') as SettingsPage
-  page.hideBackLink = true
   document.body.append(page)
   await page.updateComplete
-  await Promise.resolve()
-  await page.updateComplete
+  const layout = page.shadowRoot?.querySelector<HTMLElement & {updateComplete: Promise<unknown>}>(
+    'settings-page-desktop-layout',
+  )
+  await layout?.updateComplete
   return page
+}
+
+function rekeyForm(page: SettingsPage): SettingsVaultRekeyForm {
+  const layout = page.shadowRoot?.querySelector('settings-page-desktop-layout')
+  const form = layout?.shadowRoot?.querySelector<SettingsVaultRekeyForm>('settings-vault-rekey-form')
+  if (!form?.shadowRoot) throw new Error('Vault rekey form not found')
+  return form
 }
 
 function resetSettingsState() {
   settingsPageModel.settings.set({...DEFAULT_SESSION_SETTINGS})
-  settingsPageModel.androidAutofillProviderSelected.set(null)
+  settingsPageModel.credentialProviderSelected.set(null)
   settingsPageModel.androidQuickLockTileStatus.set(null)
   settingsPageModel.sshAgentStatus.set(null)
   settingsPageModel.activationCodeDraft.set('')
+  settingsPageModel.activationCodeError.set('')
   vaultRekeyModel.reset()
 }
 
@@ -52,6 +63,8 @@ describe('Settings vault password rekey', () => {
     ipc.tauriListen.mockReset()
     ipc.tauriListen.mockResolvedValue(() => {})
     resetSettingsState()
+    resetRuntimeCapabilities()
+    setRuntimeCapabilities({platform: 'macos', desktop: true, mobile: false})
     initAppContext(createMockAppContext())
     setAppLang('en')
     vi.stubGlobal('__TAURI_INTERNALS__', {invoke: vi.fn()})
@@ -60,6 +73,7 @@ describe('Settings vault password rekey', () => {
   afterEach(() => {
     document.querySelectorAll('settings-page').forEach((element) => element.remove())
     clearAppContext()
+    resetRuntimeCapabilities()
     resetSettingsState()
     setAppLang('en')
     vi.restoreAllMocks()
@@ -88,6 +102,29 @@ describe('Settings vault password rekey', () => {
     vaultRekeyModel.setNewPassword('new-password')
     vaultRekeyModel.setConfirmPassword('new-password')
     expect(vaultRekeyModel.canSubmit()).toBe(true)
+  })
+
+  it('keeps submit available and focuses the first missing password after validation', async () => {
+    const page = await renderSettingsPage()
+    const form = rekeyForm(page)
+    const root = form.shadowRoot!
+    const submit = root.querySelector('cv-button[type="submit"]') as HTMLElement | null
+    const currentInput = root.querySelector<HTMLInputElement>('#settings-vault-password-current')
+
+    expect(submit?.hasAttribute('disabled')).toBe(false)
+    root
+      .querySelector('form')
+      ?.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))
+
+    await vi.waitFor(() => {
+      expect(vaultRekeyModel.validationField()).toBe('current')
+    })
+    await form.updateComplete
+
+    expect(currentInput?.getAttribute('aria-invalid')).toBe('true')
+    expect(root.textContent).toContain('Enter the current vault password')
+    expect(root.activeElement).toBe(currentInput)
+    expect(ipc.tauriInvoke).not.toHaveBeenCalled()
   })
 
   it('submits rekey, tracks progress, clears secrets, and recommends backup on success', async () => {
@@ -160,9 +197,9 @@ describe('Settings vault password rekey', () => {
 
   it('renders form, progress, cancel, errors, and backup CTA', async () => {
     const page = await renderSettingsPage()
-    const root = page.shadowRoot!
+    const form = rekeyForm(page)
+    const root = form.shadowRoot!
 
-    expect(root.getElementById('settings-vault-password-rekey')).not.toBeNull()
     expect(root.querySelectorAll('.vault-password-input')).toHaveLength(3)
     expect(root.textContent).toContain('Change vault password')
 
@@ -175,7 +212,7 @@ describe('Settings vault password rekey', () => {
       can_cancel: true,
     })
     await Promise.resolve()
-    await page.updateComplete
+    await form.updateComplete
 
     expect(root.textContent).toContain('Writing')
     expect(root.textContent).toContain('2 of 4 chunks')
@@ -187,7 +224,7 @@ describe('Settings vault password rekey', () => {
     vaultRekeyModel.success.set(true)
     vaultRekeyModel.backupRecommended.set(true)
     await Promise.resolve()
-    await page.updateComplete
+    await form.updateComplete
 
     expect(root.textContent).toContain('Vault password changed')
     expect(root.textContent).toContain('Create fresh backup')
@@ -195,9 +232,9 @@ describe('Settings vault password rekey', () => {
 
   it('delegates rendered form events to model methods', async () => {
     const page = await renderSettingsPage()
-    const root = page.shadowRoot!
+    const root = rekeyForm(page).shadowRoot!
     const setCurrentSpy = vi.spyOn(vaultRekeyModel, 'setCurrentPassword')
-    const submitSpy = vi.spyOn(vaultRekeyModel, 'submit').mockResolvedValue()
+    const submitSpy = vi.spyOn(vaultRekeyModel, 'submit').mockResolvedValue(false)
     const currentInput = root.querySelector<HTMLInputElement>('#settings-vault-password-current')
     const form = root.querySelector<HTMLFormElement>('.vault-rekey-form')
 

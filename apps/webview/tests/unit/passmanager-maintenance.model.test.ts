@@ -161,10 +161,17 @@ describe('PassmanagerMaintenanceModel', () => {
   })
 
   it('does not run destructive clean when confirmation is canceled', async () => {
-    vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(false)
+    const confirmSpy = vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(false)
 
     await passmanagerMaintenanceModel.cleanRoot()
 
+    expect(confirmSpy).toHaveBeenCalledWith({
+      title: 'Clear password vault?',
+      message:
+        'This permanently removes all passwords, folders, and saved icons from the vault. This action cannot be undone.',
+      variant: 'danger',
+      confirmVariant: 'danger',
+    })
     expect(catalog.transport.sendPassmanager).not.toHaveBeenCalledWith(
       'passmanager:root:import',
       expect.anything(),

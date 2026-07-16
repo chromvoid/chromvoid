@@ -1,6 +1,6 @@
 import {computed} from '@reatom/core'
 
-import {Entry, Group} from '@project/passmanager/core'
+import {Entry, Group, type ManagerRoot} from '@project/passmanager/core'
 import {
   createEntryFilterMatcher,
   createGroupFilterMatcher,
@@ -126,6 +126,45 @@ export function composePMGroupRows(
   })
 
   return [...folderRows, ...groupedRows]
+}
+
+export function getPMCredentialSurfaceRows(root: ManagerRoot, group: Group | ManagerRoot): PMGroupRow[] {
+  if (!(group instanceof Group)) {
+    return pmRootSearchProjectionModel.getSnapshot().rows
+  }
+
+  const entries = group.searched() as Entry[]
+  const prefix = group.name + '/'
+  const query = filterValue()
+  const activeFilters = quickFilters()
+  const selectedTags = getEffectiveSelectedCredentialTagFilters(
+    getPMRootEntriesForSearch(root),
+    getPMRootCredentialTagsForSearch(root),
+  )
+  const matchesGroup = createGroupFilterMatcher(query)
+  const childGroups = root.entriesList().filter((item): item is Group => {
+    if (!(item instanceof Group) || !item.name.startsWith(prefix)) return false
+
+    const restPath = item.name.slice(prefix.length)
+    if (restPath.includes('/')) return false
+    if (query || activeFilters.length || selectedTags.length) {
+      return (
+        item.searched().length > 0 ||
+        (query.length > 0 &&
+          matchesGroup({
+            name: item.name.slice(item.name.lastIndexOf('/') + 1),
+            description: item.description,
+          }))
+      )
+    }
+    return true
+  })
+
+  return composePMGroupRows(childGroups, entries, {
+    groupBy: groupBy(),
+    sortField: sortField(),
+    sortDirection: sortDirection(),
+  })
 }
 
 class PMRootSearchProjectionModel {

@@ -1,12 +1,14 @@
 import {expect, test} from 'vitest'
 
+import type {Page} from 'playwright'
+import type * as AppContextModule from '../../src/shared/services/app-context'
 declare global {
-  var __E2E_PAGE__: import('playwright').Page | undefined
+  var __E2E_PAGE__: Page | undefined
 }
 
 const BASE_URL = 'http://localhost:4400/index.html'
 
-async function deepQuerySelector(page: import('playwright').Page, selector: string): Promise<boolean> {
+async function deepQuerySelector(page: Page, selector: string): Promise<boolean> {
   return page.evaluate((sel) => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -33,7 +35,7 @@ type TransferTaskUpdates = {
 }
 
 async function createTransferTask(
-  page: import('playwright').Page,
+  page: Page,
   params: TransferTaskParams,
   updates?: TransferTaskUpdates,
 ): Promise<boolean> {
@@ -42,7 +44,7 @@ async function createTransferTask(
       const modulePath = '/shared/services/app-context.ts'
       const dynamicImport = new Function('path', 'return import(path)') as (
         path: string,
-      ) => Promise<typeof import('../../src/shared/services/app-context')>
+      ) => Promise<typeof AppContextModule>
       const {getAppContext} = await dynamicImport(modulePath)
       const store = getAppContext().store
       if (!store?.createTransferTask) return false
@@ -113,7 +115,7 @@ type MobileActionPanelState = {
   viewportH: number
 }
 
-async function getMobileActionPanelState(page: import('playwright').Page): Promise<MobileActionPanelState> {
+async function getMobileActionPanelState(page: Page): Promise<MobileActionPanelState> {
   return page.evaluate(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -129,7 +131,7 @@ async function getMobileActionPanelState(page: import('playwright').Page): Promi
 
     const viewportW = window.innerWidth
     const viewportH = window.innerHeight
-    const header = deepFind(document, 'dashboard-header') as HTMLElement | null
+    const header = deepFind(document, 'workspace-dashboard-header') as HTMLElement | null
     if (!header?.shadowRoot) {
       return {
         exists: false,
@@ -144,9 +146,8 @@ async function getMobileActionPanelState(page: import('playwright').Page): Promi
       }
     }
 
-    const layout = header.shadowRoot.querySelector('dashboard-header-mobile-layout') as HTMLElement | null
-    const toolbarRow = layout?.shadowRoot?.querySelector('.toolbar-row') as HTMLElement | null
-    const selectionToolbar = header.shadowRoot.querySelector('.selection-toolbar') as HTMLElement | null
+    const layout = header.shadowRoot.querySelector('.workspace-mobile-shell') as HTMLElement | null
+    const selectionToolbar = header.shadowRoot.querySelector('.mobile-selection-bar') as HTMLElement | null
     const createBtn = header.shadowRoot.querySelector('[data-action="create-dir"]') as HTMLElement | null
     const uploadBtn = header.shadowRoot.querySelector('[data-action="upload"]') as HTMLElement | null
     const topToolbar = deepFind(document, 'mobile-top-toolbar') as
@@ -158,8 +159,8 @@ async function getMobileActionPanelState(page: import('playwright').Page): Promi
 
     return {
       exists: true,
-      layoutSelectionMode: layout?.hasAttribute('selection-mode') ?? false,
-      toolbarDisplay: toolbarRow ? getComputedStyle(toolbarRow).display : null,
+      layoutSelectionMode: Boolean(layout?.hasAttribute('selection-mode')),
+      toolbarDisplay: null,
       hasSelectionToolbar: Boolean(selectionToolbar),
       hasCreateButton: Boolean(createBtn),
       hasUploadButton: Boolean(uploadBtn),
@@ -199,7 +200,7 @@ type UploadSheetState = {
   viewportH: number
 }
 
-async function getUploadPillState(page: import('playwright').Page): Promise<UploadPillState> {
+async function getUploadPillState(page: Page): Promise<UploadPillState> {
   return page.evaluate(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -252,7 +253,7 @@ async function getUploadPillState(page: import('playwright').Page): Promise<Uplo
   })
 }
 
-async function getUploadSheetState(page: import('playwright').Page): Promise<UploadSheetState> {
+async function getUploadSheetState(page: Page): Promise<UploadSheetState> {
   return page.evaluate(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -298,7 +299,7 @@ async function getUploadSheetState(page: import('playwright').Page): Promise<Upl
   })
 }
 
-async function hasVisibleMobileSwipeShell(page: import('playwright').Page): Promise<boolean> {
+async function hasVisibleMobileSwipeShell(page: Page): Promise<boolean> {
   return page.evaluate(() => {
     function deepCollect(root: Document | ShadowRoot, selector: string, acc: Element[] = []): Element[] {
       for (const el of root.querySelectorAll(selector)) {
@@ -351,7 +352,7 @@ type MobileScrollOwnerSnapshot = {
 }
 
 async function startMobileSelectionFromScrolledRow(
-  page: import('playwright').Page,
+  page: Page,
 ): Promise<MobileSelectionScrollStart> {
   return page.evaluate(async () => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -466,7 +467,7 @@ async function startMobileSelectionFromScrolledRow(
 }
 
 async function getMobileSelectionScrollResult(
-  page: import('playwright').Page,
+  page: Page,
 ): Promise<MobileSelectionScrollResult> {
   return page.evaluate(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -544,7 +545,7 @@ function expectScrollOwnerStable(
   expect(Math.abs(after!.scrollTop - before!.scrollTop), `${label} should not become the active scroll owner`).toBeLessThanOrEqual(4)
 }
 
-async function waitForFileManager(page: import('playwright').Page): Promise<void> {
+async function waitForFileManager(page: Page): Promise<void> {
   await page.waitForFunction(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -561,6 +562,85 @@ async function waitForFileManager(page: import('playwright').Page): Promise<void
     return !!fm?.shadowRoot
   }, undefined, {timeout: 10_000})
   await page.waitForTimeout(500)
+}
+
+async function getDesktopTypeFilterGeometry(page: Page) {
+  return page.evaluate(async () => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const popover = deepFind(document, 'cv-popover.type-filter') as HTMLElement | null
+    const header = deepFind(document, 'workspace-dashboard-header') as HTMLElement | null
+    const headerRoot = header?.shadowRoot
+    const filterSection = headerRoot?.querySelector<HTMLElement>('.filters-section')
+    const divider = headerRoot?.querySelector<HTMLElement>('.filters-section + .files-toolbar-divider')
+    const viewGroup = headerRoot?.querySelector<HTMLElement>('.view-mode-group')
+    const viewButtons = Array.from(headerRoot?.querySelectorAll<HTMLElement>('.view-mode-button') ?? [])
+    const viewIcons = viewButtons.map((button) => button.querySelector<SVGElement>('[data-file-view-icon]'))
+    const trigger = popover?.shadowRoot?.querySelector<HTMLButtonElement>('[part="trigger"]')
+    const content = popover?.shadowRoot?.querySelector<HTMLElement>('[part="content"]')
+    if (
+      !popover ||
+      !filterSection ||
+      !divider ||
+      !viewGroup ||
+      viewIcons.some((icon) => !icon) ||
+      !trigger ||
+      !content
+    ) {
+      return null
+    }
+
+    trigger.click()
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+
+    const panelRect = content.getBoundingClientRect()
+    const triggerRect = trigger.getBoundingClientRect()
+    const dividerRect = divider.getBoundingClientRect()
+    const viewGroupRect = viewGroup.getBoundingClientRect()
+    const rowHeights = Array.from(
+      popover.querySelectorAll<HTMLElement>('.type-filter-option'),
+      (option) => option.getBoundingClientRect().height,
+    )
+
+    return {
+      open: popover.hasAttribute('open'),
+      toolbar: {
+        filterSectionClientWidth: filterSection.clientWidth,
+        filterSectionScrollWidth: filterSection.scrollWidth,
+        typeTriggerRight: triggerRect.right,
+        dividerLeft: dividerRect.left,
+        viewGroupLeft: viewGroupRect.left,
+        viewButtons: viewButtons.map((button, index) => {
+          const buttonRect = button.getBoundingClientRect()
+          const iconRect = viewIcons[index]!.getBoundingClientRect()
+          return {
+            buttonWidth: buttonRect.width,
+            iconWidth: iconRect.width,
+            inlineStart: iconRect.left - buttonRect.left,
+            inlineEnd: buttonRect.right - iconRect.right,
+          }
+        }),
+      },
+      panel: {
+        width: panelRect.width,
+        height: panelRect.height,
+        top: panelRect.top,
+        bottom: panelRect.bottom,
+      },
+      rowHeights,
+      viewportHeight: window.innerHeight,
+    }
+  })
 }
 
 test('file manager renders mobile layout when layout=mobile', async () => {
@@ -581,6 +661,39 @@ test('file manager renders desktop layout when layout=desktop', async () => {
   expect(await deepQuerySelector(page, 'file-manager-mobile-layout')).toBe(false)
 })
 
+test('desktop type filter stays compact and inside the viewport', async () => {
+  const page = globalThis.__E2E_PAGE__!
+  await page.setViewportSize({width: 1280, height: 720})
+  await page.goto(`${BASE_URL}?surface=files&path=%2F&layout=desktop`)
+  await waitForFileManager(page)
+
+  const geometry = await getDesktopTypeFilterGeometry(page)
+
+  expect(geometry).not.toBeNull()
+  expect(geometry!.open).toBe(true)
+  expect(geometry!.toolbar.filterSectionScrollWidth).toBeLessThanOrEqual(
+    geometry!.toolbar.filterSectionClientWidth + 1,
+  )
+  expect(geometry!.toolbar.typeTriggerRight).toBeLessThanOrEqual(geometry!.toolbar.dividerLeft)
+  expect(geometry!.toolbar.dividerLeft).toBeLessThan(geometry!.toolbar.viewGroupLeft)
+  expect(geometry!.toolbar.viewButtons).toHaveLength(3)
+  geometry!.toolbar.viewButtons.forEach((button) => {
+    expect(button.buttonWidth).toBeGreaterThanOrEqual(30)
+    expect(button.iconWidth).toBeCloseTo(16, 1)
+    expect(button.inlineStart).toBeGreaterThanOrEqual(6)
+    expect(button.inlineEnd).toBeGreaterThanOrEqual(6)
+    expect(Math.abs(button.inlineStart - button.inlineEnd)).toBeLessThanOrEqual(1)
+  })
+  expect(geometry!.panel.width).toBeGreaterThanOrEqual(180)
+  expect(geometry!.panel.width).toBeLessThanOrEqual(230)
+  expect(geometry!.panel.height).toBeLessThan(320)
+  expect(geometry!.panel.top).toBeGreaterThanOrEqual(0)
+  expect(geometry!.panel.bottom).toBeLessThanOrEqual(geometry!.viewportHeight)
+  expect(geometry!.rowHeights).toHaveLength(8)
+  expect(Math.min(...geometry!.rowHeights)).toBeGreaterThanOrEqual(28)
+  expect(Math.max(...geometry!.rowHeights)).toBeLessThanOrEqual(32)
+})
+
 test('file list is visible in mobile layout', async () => {
   const page = globalThis.__E2E_PAGE__!
   await page.goto(`${BASE_URL}?layout=mobile`)
@@ -599,6 +712,58 @@ test('desktop runtime mobile layout does not expose swipe gutters on file rows',
   expect(await hasVisibleMobileSwipeShell(page)).toBe(false)
 })
 
+test('mobile row geometry matches the virtualizer item height while scrolling', async () => {
+  const page = globalThis.__E2E_PAGE__!
+  await seedScrollableFilesFixture()
+  await page.setViewportSize({width: 390, height: 844})
+  await page.goto(`${BASE_URL}?surface=files&path=%2F&layout=mobile`)
+  await waitForFileManager(page)
+
+  const geometry = await page.evaluate(async () => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const list = deepFind(document, 'virtual-file-list') as (HTMLElement & {itemHeight?: number}) | null
+    const container = list?.shadowRoot?.querySelector('.list-container') as HTMLElement | null
+    const itemHeight = list?.itemHeight ?? 0
+    if (!list || !container || itemHeight <= 0) return null
+
+    container.scrollTop = itemHeight * 21
+    container.dispatchEvent(new Event('scroll'))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+
+    const rows = Array.from(list.shadowRoot?.querySelectorAll<HTMLElement>('file-item-mobile') ?? [])
+    const firstRect = rows[0]?.getBoundingClientRect()
+    const secondRect = rows[1]?.getBoundingClientRect()
+
+    return {
+      mobileAttribute: list.hasAttribute('mobile'),
+      itemHeight,
+      firstRowHeight: firstRect?.height ?? 0,
+      rowStep: firstRect && secondRect ? secondRect.top - firstRect.top : 0,
+      scrollTop: container.scrollTop,
+      firstItemId: rows[0]?.getAttribute('data-id') ?? null,
+    }
+  })
+
+  expect(geometry).not.toBeNull()
+  expect(geometry!.mobileAttribute).toBe(true)
+  expect(geometry!.firstRowHeight).toBeCloseTo(geometry!.itemHeight, 3)
+  expect(geometry!.rowStep).toBeCloseTo(geometry!.itemHeight, 3)
+  expect(geometry!.scrollTop).toBe(geometry!.itemHeight * 21)
+  expect(geometry!.firstItemId).toBe('22')
+})
+
 test('file list is visible in desktop layout', async () => {
   const page = globalThis.__E2E_PAGE__!
   await page.goto(`${BASE_URL}?layout=desktop`)
@@ -615,8 +780,8 @@ test('navigation works in both layouts', async () => {
     await page.goto(`${BASE_URL}?layout=${layout}`)
     await waitForFileManager(page)
 
-    const hasBreadcrumbs = await deepQuerySelector(page, 'dashboard-header')
-    expect(hasBreadcrumbs, `dashboard-header should exist in ${layout} layout`).toBe(true)
+    const hasBreadcrumbs = await deepQuerySelector(page, 'workspace-dashboard-header')
+    expect(hasBreadcrumbs, `workspace-dashboard-header should exist in ${layout} layout`).toBe(true)
   }
 })
 
@@ -906,7 +1071,7 @@ test('mobile upload pill auto-hides after successful completion', async () => {
     const modulePath = '/shared/services/app-context.ts'
     const dynamicImport = new Function('path', 'return import(path)') as (
       path: string,
-    ) => Promise<typeof import('../../src/shared/services/app-context')>
+    ) => Promise<typeof AppContextModule>
     const {getAppContext} = await dynamicImport(modulePath)
     const store = getAppContext().store
     return Boolean(store?.uploadTasks) && store.uploadTasks().length === 0

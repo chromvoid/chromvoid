@@ -10,6 +10,7 @@ export const getFileTypeExtensions = (fileTypes: readonly string[]): string[] =>
   fileTypes.flatMap((type) => {
     if (
       type === 'images' ||
+      type === 'markdown' ||
       type === 'documents' ||
       type === 'videos' ||
       type === 'audio' ||

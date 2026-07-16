@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gateway-revoke-agent"
+description = "Enables the gateway_revoke_agent command without any pre-configured scope."
+commands.allow = ["gateway_revoke_agent"]
+
+[[permission]]
+identifier = "deny-gateway-revoke-agent"
+description = "Denies the gateway_revoke_agent command without any pre-configured scope."
+commands.deny = ["gateway_revoke_agent"]

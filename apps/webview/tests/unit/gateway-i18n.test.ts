@@ -4,7 +4,8 @@ import {fileURLToPath} from 'node:url'
 
 import {describe, expect, it} from 'vitest'
 
-import data from '../../src/i18n/data.json'
+import en from '../../src/i18n/locales/en.json'
+import ru from '../../src/i18n/locales/ru.json'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const gatewayDir = path.resolve(currentDir, '../../src/routes/gateway')
@@ -32,18 +33,16 @@ function collectGatewayKeys(dirPath: string): string[] {
 }
 
 describe('gateway route i18n coverage', () => {
-  it('contains all gateway translation keys in data.json', () => {
-    const translations = data as Record<string, {en?: string; ru?: string}>
+  it('contains all gateway translation keys in English and Russian locales', () => {
     const keys = collectGatewayKeys(gatewayDir)
 
     expect(keys.length).toBeGreaterThan(0)
 
     for (const key of keys) {
-      expect(translations).toHaveProperty(key)
-      expect(translations[key]).toMatchObject({
-        en: expect.any(String),
-        ru: expect.any(String),
-      })
+      expect(en).toHaveProperty(key)
+      expect(ru).toHaveProperty(key)
+      expect(en[key as keyof typeof en]).toEqual(expect.any(String))
+      expect(ru[key as keyof typeof ru]).toEqual(expect.any(String))
     }
   })
 })

@@ -118,6 +118,71 @@ describe('setupSshAgentHandler', () => {
     })
   })
 
+  it('does not retry stale approval resolve failures', async () => {
+    showConfirmDialog.mockResolvedValue(true)
+    tauriInvoke.mockRejectedValue(new Error('ssh_agent_sign_approval_resolve rejected stale request_id=req-stale'))
+
+    const transport = createTransport()
+    setupSshAgentHandler(transport.ws as any)
+
+    transport.emit('ssh-agent:sign-request', {
+      request_id: 'req-stale',
+      connection_id: 12,
+      fingerprint: 'SHA256:test-stale',
+      comment: 'chromvoid-manual-check',
+    })
+
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(tauriInvoke).toHaveBeenCalledTimes(1)
+    expect(tauriInvoke).toHaveBeenCalledWith('ssh_agent_sign_approval_resolve', {
+      requestId: 'req-stale',
+      approved: true,
+    })
+  })
+
+  it('closes expired sign requests without resolving stale approvals', async () => {
+    let dialogOptions: {abortSignal?: AbortSignal} | undefined
+    let resolveDialog: ((value: boolean) => void) | undefined
+    showConfirmDialog.mockImplementation((options: {abortSignal?: AbortSignal}) => {
+      dialogOptions = options
+      return new Promise<boolean>((resolve) => {
+        resolveDialog = resolve
+      })
+    })
+    tauriInvoke.mockResolvedValue(undefined)
+
+    const transport = createTransport()
+    setupSshAgentHandler(transport.ws as any)
+
+    transport.emit('ssh-agent:sign-request', {
+      request_id: 'req-expired',
+      connection_id: 15,
+      fingerprint: 'SHA256:test-expired',
+      comment: 'chromvoid-manual-check',
+    })
+
+    await Promise.resolve()
+
+    expect(showConfirmDialog).toHaveBeenCalledOnce()
+    expect(dialogOptions?.abortSignal?.aborted).toBe(false)
+
+    transport.emit('ssh-agent:sign-request-expired', {
+      request_id: 'req-expired',
+      reason: 'timeout',
+    })
+
+    expect(dialogOptions?.abortSignal?.aborted).toBe(true)
+    resolveDialog?.(true)
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(tauriInvoke).not.toHaveBeenCalled()
+  })
+
   it('treats rejected confirm dialogs as denied approvals', async () => {
     showConfirmDialog.mockRejectedValue(new Error('dialog dismissed'))
     tauriInvoke.mockResolvedValue(undefined)

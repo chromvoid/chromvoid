@@ -7,6 +7,17 @@ export type FileOpenCommand =
       kind: 'document'
       mode: 'markdown'
       fileId: number
+      viewMode?: 'preview' | 'edit'
+      source?: {
+        path: string
+        parentPath?: string
+        fileName: string
+        size?: number
+        mimeType?: string
+        lastModified?: number
+        sourceRevision?: number
+        anchor?: string
+      }
     }
   | {
       kind: 'preview'

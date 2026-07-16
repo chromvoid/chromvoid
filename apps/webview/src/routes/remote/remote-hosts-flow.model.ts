@@ -1,86 +1,63 @@
 import {atom, computed, wrap} from '@reatom/core'
 
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
-import {tauriInvoke} from 'root/core/transport/tauri/ipc'
+import {tauriInvoke, type UnlistenFn} from 'root/core/transport/tauri/ipc'
 import {i18n} from 'root/i18n'
 import {getAppContext} from 'root/shared/services/app-context'
 import {dialogService} from 'root/shared/services/dialog'
 
+import {
+  DEFAULT_IOS_RELAY_URL,
+  parsePairingOffer,
+  resolveActiveRemotePeerId,
+  resolveModeRemotePeerId,
+  shouldAutoRefreshPresence,
+  type BootstrapProfile,
+  type MobileHostStatus,
+  type MobileHostTransportKind,
+  type PairingOffer,
+  type RemoteFlowScreen,
+  type RemoteFlowSummaryItem,
+  type RemoteHostsCallbacks,
+  type RemoteHostsFlowView,
+  type RemoteHostsPairPhase,
+  type ServerProfileSummary,
+} from './remote-hosts-flow.contract'
 import {remoteSessionModel} from './remote-session.model'
 import {RemoteUsbFlowModel} from './remote-usb-flow.model'
 import {
   getModeStatus,
   isRemoteMode,
   listNetworkPairedPeers,
+  onMobileUsbInventoryChanged,
+  onMobileUsbStatusChanged,
   removeNetworkPairedPeer,
   switchMode,
+  type MobileUsbHostView,
+  type MobileUsbStatus,
   type ModeInfo,
   type NetworkPairedPeer,
-  type RemoteHost,
 } from './remote.model'
 
-const DEFAULT_IOS_RELAY_URL = 'wss://relay.chromvoid.com'
-const PRESENCE_AUTO_REFRESH_THRESHOLD_MS = 30_000
+export type {
+  ConnectedDesktopPeer,
+  HostPresence,
+  IosHostStatus,
+  MobileHostPhase,
+  MobileHostStatus,
+  MobileHostTransportKind,
+  PairingOffer,
+  RemoteFlowScreen,
+  RemoteFlowSummaryItem,
+  RemoteHostsFlowView,
+  RemoteHostsPairPhase,
+} from './remote-hosts-flow.contract'
 
-export interface PairingOffer {
-  session_id: string
-  relay_base_url: string
-  device_label: string
-  expires_at_ms: number
-  platform?: string | null
+type PollTimer = ReturnType<typeof setInterval>
+
+function startPolling(callback: () => void): PollTimer {
+  return setInterval(wrap(callback), 2_000)
 }
-
-export interface HostPresence {
-  peer_id: string
-  relay_url: string
-  room_id: string
-  expires_at_ms: number
-  status: 'ready' | 'offline' | 'waking'
-}
-
-export type MobileHostPhase = 'Idle' | 'Pairing' | 'Ready' | 'Error'
-
-export interface ConnectedDesktopPeer {
-  peer_id: string
-  label: string
-  connected_at_ms: number
-  transport_type: string
-}
-
-export interface MobileHostStatus {
-  phase: MobileHostPhase
-  platform: string
-  relay_url: string | null
-  device_id: string | null
-  device_label: string | null
-  pairing_pin: string | null
-  pairing_offer: PairingOffer | null
-  expires_at_ms: number | null
-  presence: HostPresence | null
-  paired_peer_id: string | null
-  connected_peers: ConnectedDesktopPeer[]
-  error: string | null
-}
-
-export type IosHostStatus = MobileHostStatus
-
-interface ServerProfileSummary {
-  profile_id: string
-  mode: string
-}
-
-interface BootstrapProfile {
-  profile_id: string
-  relay_url: string
-}
-
-type RemoteHostsCallbacks = {
-  onTransportLost?: () => void
-}
-
-export type RemoteHostsFlowView = 'hosts' | 'pair-ios' | 'wait' | 'usb-mobile'
-export type RemoteHostsPairPhase = 'idle' | 'starting' | 'waiting' | 'connecting' | 'success' | 'failed'
-export type MobileHostTransportKind = 'wss_relay' | 'usb_mobile'
 
 export class RemoteHostsFlowModel {
   readonly view = atom<RemoteHostsFlowView>('hosts')
@@ -128,6 +105,37 @@ export class RemoteHostsFlowModel {
   readonly connectedPeerLabel = computed<string>(() => {
     return this.connectedPeer()?.label ?? this.connectedPeer()?.peer_id ?? i18n('welcome:iphone-vault')
   })
+  readonly welcomeFlowScreen = computed<RemoteFlowScreen>(() => {
+    const view = this.view()
+    if (view === 'pair-ios') return 'pair'
+    if (view === 'usb-mobile') return 'usb'
+    if (view === 'wait') return 'wait'
+    return 'hosts'
+  })
+  readonly welcomeFlowSummaryItems = computed<RemoteFlowSummaryItem[]>(() => {
+    const transportConnected = this.transportConnected()
+    const transportState: RemoteFlowSummaryItem['state'] = transportConnected ? 'connected' : 'idle'
+
+    return [
+      {
+        label: i18n('welcome:remote-flow-screen-label'),
+        value: this.welcomeFlowScreen(),
+      },
+      {
+        label: 'transport',
+        state: transportState,
+        value: transportConnected ? 'connected' : 'none',
+      },
+      {
+        label: i18n('welcome:remote-flow-peer-label'),
+        value: transportConnected ? this.connectedPeerLabel() : 'n/a',
+      },
+      {
+        label: i18n('welcome:remote-flow-hosts-label'),
+        value: String(this.peers().length),
+      },
+    ]
+  })
   readonly pairingPin = computed<string>(() => this.hostStatus()?.pairing_pin ?? '')
   readonly offer = computed<PairingOffer | null>(() => this.hostStatus()?.pairing_offer ?? null)
   readonly offerText = computed<string>(() => {
@@ -160,10 +168,12 @@ export class RemoteHostsFlowModel {
   })
 
   private callbacks: RemoteHostsCallbacks = {}
-  private modePollTimer: ReturnType<typeof setInterval> | null = null
-  private peerPollTimer: ReturnType<typeof setInterval> | null = null
+  private usbInventoryUnlisten: Promise<UnlistenFn> | null = null
+  private usbStatusUnlisten: Promise<UnlistenFn> | null = null
+  private modePollTimer: PollTimer | null = null
+  private peerPollTimer: PollTimer | null = null
   private peerPollingEnabled = false
-  private hostPollTimer: ReturnType<typeof setInterval> | null = null
+  private hostPollTimer: PollTimer | null = null
   private presenceRefreshPromise: Promise<void> | null = null
   private peerLoadGeneration = 0
   private modeRefreshGeneration = 0
@@ -176,11 +186,13 @@ export class RemoteHostsFlowModel {
       void this.refreshHostStatus()
       return
     }
+    this.startUsbInventoryWatch()
     void this.refreshModeState()
   }
 
   disconnect(): void {
     this.invalidateAsyncRefreshes()
+    this.stopUsbInventoryWatch()
     this.stopModePolling()
     this.pausePeerPolling()
     this.stopHostPolling()
@@ -212,6 +224,7 @@ export class RemoteHostsFlowModel {
     this.errorText.set(null)
     this.pausePeerPolling()
     this.view.set('usb-mobile')
+    void this.usb.refreshDetectedDevices()
     const refresh = this.usb.refreshStatus()
     if (!options.scan) return
     void refresh.then((ok) => {
@@ -221,6 +234,13 @@ export class RemoteHostsFlowModel {
 
   async closePairIos(): Promise<void> {
     await this.cancelPairing()
+    this.showHosts()
+  }
+
+  async closeUsbMobile(): Promise<void> {
+    if (this.usb.flowState() === 'pairing_approval') {
+      await wrap(this.usb.disconnect())
+    }
     this.showHosts()
   }
 
@@ -347,6 +367,28 @@ export class RemoteHostsFlowModel {
     }
   }
 
+  async removeUsbPairedHost(hostId: string): Promise<boolean> {
+    if (this.usb.actionBusy()) return false
+    const host = this.findUsbHostView(hostId)
+    if (!host) return false
+
+    const label = host.label || host.host_id
+    const confirmed = await wrap(
+      dialogService.showConfirmDialog({
+        title: i18n('welcome:remove-paired-host-title'),
+        message: i18n('welcome:remove-paired-host-message', {
+          label,
+          target: i18n('remote:transport-usb-mobile'),
+        }),
+        confirmText: i18n('button:remove'),
+        confirmVariant: 'danger',
+      }),
+    )
+    if (!confirmed) return false
+
+    return await this.usb.removePaired(host.host_id)
+  }
+
   async connectToPeer(peerId: string): Promise<boolean> {
     this.invalidatePeerLoads()
     this.activePeerId.set(peerId)
@@ -357,8 +399,8 @@ export class RemoteHostsFlowModel {
     try {
       const modeInfo = await wrap(this.safeGetModeStatus())
       if (modeInfo && isRemoteMode(modeInfo.mode)) {
-        const modePeerId = this.resolveModeRemotePeerId(modeInfo)
-        const activePeerId = this.resolveActiveRemotePeerId(modeInfo)
+        const modePeerId = resolveModeRemotePeerId(modeInfo)
+        const activePeerId = resolveActiveRemotePeerId(modeInfo)
         if (modePeerId === peerId && activePeerId === peerId) {
           await wrap(remoteSessionModel.syncNow())
           await wrap(this.refreshModeState())
@@ -413,6 +455,47 @@ export class RemoteHostsFlowModel {
     this.stopPeerPolling()
   }
 
+  private startUsbInventoryWatch(): void {
+    if (!this.isMobileUsbRemoteRuntime() || this.usbInventoryUnlisten !== null) return
+    void this.usb.refreshDetectedDevices()
+    this.usbInventoryUnlisten = onMobileUsbInventoryChanged(
+      wrap(() => {
+        void this.usb.refreshDetectedDevices()
+      }),
+    ).catch(() => () => {})
+    this.usbStatusUnlisten = onMobileUsbStatusChanged(
+      wrap((status) => {
+        this.applyMobileUsbStatusEvent(status)
+      }),
+    ).catch(() => () => {})
+  }
+
+  private stopUsbInventoryWatch(): void {
+    const unlisten = this.usbInventoryUnlisten
+    this.usbInventoryUnlisten = null
+    if (unlisten !== null) {
+      void unlisten.then((dispose) => dispose())
+    }
+    const statusUnlisten = this.usbStatusUnlisten
+    this.usbStatusUnlisten = null
+    if (statusUnlisten !== null) {
+      void statusUnlisten.then((dispose) => dispose())
+    }
+  }
+
+  private applyMobileUsbStatusEvent(status: MobileUsbStatus): void {
+    this.usb.applyStatusEvent(status)
+    void this.refreshModeState()
+  }
+
+  private findUsbHostView(hostId: string): MobileUsbHostView | null {
+    return (
+      this.usb.pairedHosts().find((host) => host.host_id === hostId) ??
+      this.usb.status()?.paired_hosts.find((host) => host.host_id === hostId) ??
+      null
+    )
+  }
+
   private async startIosHostMode(): Promise<void> {
     this.pairPhase.set('starting')
     this.pairError.set(null)
@@ -442,7 +525,7 @@ export class RemoteHostsFlowModel {
     this.pairError.set(null)
 
     try {
-      const offer = this.parseOfferInput()
+      const offer = parsePairingOffer(this.offerInput())
       const pin = this.pinInput().trim()
       if (!pin) {
         throw new Error(i18n('network-pair:error-pin-required'))
@@ -462,49 +545,6 @@ export class RemoteHostsFlowModel {
     }
   }
 
-  private parseOfferInput(): PairingOffer {
-    const raw = this.offerInput().trim()
-    if (!raw) {
-      throw new Error(i18n('network-pair:error-offer-required'))
-    }
-
-    if (raw.startsWith('{')) {
-      const parsed = JSON.parse(raw) as Partial<PairingOffer>
-      return this.validateOffer(parsed)
-    }
-
-    if (raw.startsWith('chromvoid://')) {
-      const normalized = raw.replace('chromvoid://', 'https://chromvoid.local/')
-      const parsed = new URL(normalized)
-      const scheme = raw.slice('chromvoid://'.length).split('?')[0] ?? ''
-      return this.validateOffer({
-        session_id: parsed.searchParams.get('session_id') ?? '',
-        relay_base_url: parsed.searchParams.get('relay_base_url') ?? '',
-        device_label: parsed.searchParams.get('device_label') ?? '',
-        expires_at_ms: Number(parsed.searchParams.get('expires_at_ms') ?? '0'),
-        platform:
-          parsed.searchParams.get('platform') ??
-          (scheme === 'pair-mobile' ? 'android' : scheme === 'pair-ios' ? 'ios' : 'ios'),
-      })
-    }
-
-    throw new Error(i18n('network-pair:error-offer-format'))
-  }
-
-  private validateOffer(offer: Partial<PairingOffer>): PairingOffer {
-    if (!offer.session_id || !offer.relay_base_url || !offer.device_label || !offer.expires_at_ms) {
-      throw new Error(i18n('network-pair:error-offer-fields'))
-    }
-
-    return {
-      session_id: offer.session_id,
-      relay_base_url: offer.relay_base_url,
-      device_label: offer.device_label,
-      expires_at_ms: offer.expires_at_ms,
-      platform: offer.platform ?? 'ios',
-    }
-  }
-
   private async refreshHostStatus(): Promise<void> {
     if (!this.isMobileHostRuntime()) return
     const requestId = ++this.hostStatusGeneration
@@ -513,7 +553,7 @@ export class RemoteHostsFlowModel {
       const status = await wrap(tauriInvoke<MobileHostStatus>('mobile_host_status'))
       if (!this.isHostStatusCurrent(requestId)) return
       this.applyHostStatus(status)
-      if (this.shouldAutoRefreshPresence(status)) {
+      if (shouldAutoRefreshPresence(status)) {
         await wrap(this.refreshPresenceInternal(false, requestId))
       }
       if (!this.isHostStatusCurrent(requestId)) return
@@ -525,15 +565,6 @@ export class RemoteHostsFlowModel {
       this.pairError.set(e instanceof Error ? e.message : String(e))
       this.pairPhase.set('failed')
     }
-  }
-
-  private shouldAutoRefreshPresence(status: MobileHostStatus): boolean {
-    if (status.phase !== 'Ready') return false
-
-    const presence = status.presence
-    if (!presence) return true
-
-    return presence.status !== 'ready' || presence.expires_at_ms - Date.now() <= PRESENCE_AUTO_REFRESH_THRESHOLD_MS
   }
 
   private async refreshPresenceInternal(
@@ -600,7 +631,7 @@ export class RemoteHostsFlowModel {
     const modeInfo = await wrap(this.safeGetModeStatus(requestId))
     if (!this.isModeRefreshCurrent(requestId)) return
     const previousPeerId = this.transportConnectedPeerId()
-    const nextPeerId = this.resolveActiveRemotePeerId(modeInfo)
+    const nextPeerId = resolveActiveRemotePeerId(modeInfo)
 
     this.transportConnectedPeerId.set(nextPeerId)
     if (nextPeerId) {
@@ -657,60 +688,30 @@ export class RemoteHostsFlowModel {
     }
   }
 
-  private resolveRemotePeerId(modeInfo: ModeInfo | null): string | null {
-    if (!modeInfo || !isRemoteMode(modeInfo.mode)) return null
-    const host = modeInfo.mode.remote.host as RemoteHost
-    return host.type === 'tauri_remote_wss' ? host.peer_id : host.host_id
-  }
-
-  private resolveModeRemotePeerId(modeInfo: ModeInfo | null): string | null {
-    return this.resolveRemotePeerId(modeInfo)
-  }
-
-  private resolveActiveRemotePeerId(modeInfo: ModeInfo | null): string | null {
-    if (!modeInfo) return null
-    if (modeInfo.connection_state === 'disconnected' || modeInfo.connection_state === 'error') {
-      return null
-    }
-    return this.resolveRemotePeerId(modeInfo)
-  }
-
   private startModePolling(): void {
-    if (this.modePollTimer !== null) return
-    this.modePollTimer = setInterval(() => {
-      void this.refreshModeState()
-    }, 2_000)
+    this.modePollTimer ??= startPolling(() => void this.refreshModeState())
   }
 
   private stopModePolling(): void {
-    if (this.modePollTimer === null) return
-    clearInterval(this.modePollTimer)
+    if (this.modePollTimer !== null) clearInterval(this.modePollTimer)
     this.modePollTimer = null
   }
 
   private startPeerPolling(): void {
-    if (this.peerPollTimer !== null) return
-    this.peerPollTimer = setInterval(() => {
-      void this.loadPeers()
-    }, 2_000)
+    this.peerPollTimer ??= startPolling(() => void this.loadPeers())
   }
 
   private stopPeerPolling(): void {
-    if (this.peerPollTimer === null) return
-    clearInterval(this.peerPollTimer)
+    if (this.peerPollTimer !== null) clearInterval(this.peerPollTimer)
     this.peerPollTimer = null
   }
 
   private startHostPolling(): void {
-    if (this.hostPollTimer !== null) return
-    this.hostPollTimer = setInterval(() => {
-      void this.refreshHostStatus()
-    }, 2_000)
+    this.hostPollTimer ??= startPolling(() => void this.refreshHostStatus())
   }
 
   private stopHostPolling(): void {
-    if (this.hostPollTimer === null) return
-    clearInterval(this.hostPollTimer)
+    if (this.hostPollTimer !== null) clearInterval(this.hostPollTimer)
     this.hostPollTimer = null
   }
 
@@ -730,9 +731,7 @@ export class RemoteHostsFlowModel {
 
   private clearPairTransientErrors(): void {
     this.pairError.set(null)
-    if (!this.isMobileHostRuntime()) {
-      this.pairPhase.set('idle')
-    }
+    if (!this.isMobileHostRuntime()) this.pairPhase.set('idle')
   }
 
   private resetPairingState({clearDesktopInputs}: {clearDesktopInputs: boolean}): void {

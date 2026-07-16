@@ -92,10 +92,3 @@ fn shell_execute_open(target: &OsStr, kind: &str) -> Result<(), String> {
 
     Ok(())
 }
-
-pub(crate) fn now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-}

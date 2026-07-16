@@ -26,7 +26,8 @@ internal object BridgePayloadJsonCodec {
                 .put("request_json", payload.requestJson)
                 .put("origin", payload.origin)
                 .put("client_data_hash", payload.clientDataHashB64Url)
-                .put("selected_credential_id", payload.selectedCredentialId),
+                .put("selected_credential_id", payload.selectedCredentialId)
+                .put("user_verified", payload.userVerified),
         )
     }
 

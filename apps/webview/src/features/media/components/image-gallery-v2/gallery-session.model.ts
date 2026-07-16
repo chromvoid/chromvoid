@@ -516,6 +516,24 @@ export class ImageGallerySessionModel {
     })
   }
 
+  primeRetainedThumbnail(index: number): void {
+    const image = this.images()[index]
+    const {centerIndex, visibleRadius} = this.thumbnailWindowState()
+    if (
+      !image ||
+      Math.abs(index - centerIndex) > visibleRadius + THUMBNAIL_PRELOAD_RADIUS ||
+      this.store.hasFailed(image, 'thumbnail-image') ||
+      this.store.peekImage(image, ['thumbnail-image']) ||
+      this.store.hasInFlightAsset(image, 'thumbnail-image')
+    ) {
+      return
+    }
+
+    const load = this.store.loadDisplayAsset(image, 'thumbnail-image', 'thumbnail')
+    this.syncResourceState()
+    void this.finishThumbnailLoad(load)
+  }
+
   primeThumbnailVirtualWindow(centerIndex: number): void {
     const images = this.images()
     const clampedCenter = this.clampIndex(centerIndex, images)

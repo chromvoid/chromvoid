@@ -42,8 +42,8 @@ class ChromVoidVideoActivity : AppCompatActivity() {
     private fun handleIntent() {
         val stopToken = intent.getStringExtra(EXTRA_STOP_TOKEN)
         if (!stopToken.isNullOrBlank()) {
-            trace("stop_intent", "token" to redactIdentifier(stopToken))
-            if (source?.token == stopToken) {
+            trace("stop_intent", "nativeSourceToken" to redactIdentifier(stopToken))
+            if (source?.nativeSourceToken == stopToken) {
                 finish()
             } else {
                 VideoPlaybackNativeShell.releaseVideoSource(stopToken)
@@ -67,19 +67,20 @@ class ChromVoidVideoActivity : AppCompatActivity() {
                 }
 
         val previous = source
-        if (previous?.token == parsed.token && player != null) {
-            trace("duplicate_start_ignored", "token" to redactIdentifier(parsed.token))
+        if (previous?.nativeSourceToken == parsed.nativeSourceToken && player != null) {
+            trace("duplicate_start_ignored", "nativeSourceToken" to redactIdentifier(parsed.nativeSourceToken))
             return
         }
-        if (previous != null && previous.token != parsed.token) {
+        if (previous != null && previous.nativeSourceToken != parsed.nativeSourceToken) {
             releasePlayer(notifyNative = true)
         }
 
         source = parsed
-        setActiveActivity(this, parsed.token)
+        setActiveActivity(this, parsed.nativeSourceToken)
         trace(
             "source_ready",
-            "token" to redactIdentifier(parsed.token),
+            "nativeSourceToken" to redactIdentifier(parsed.nativeSourceToken),
+            "streamId" to redactIdentifier(parsed.streamId),
             "nodeId" to parsed.nodeId,
             "mimeType" to parsed.mimeType,
             "size" to parsed.size,
@@ -89,7 +90,7 @@ class ChromVoidVideoActivity : AppCompatActivity() {
     }
 
     private fun startPlayer(source: VideoSource) {
-        trace("start_player", "token" to redactIdentifier(source.token))
+        trace("start_player", "nativeSourceToken" to redactIdentifier(source.nativeSourceToken))
         if (player != null || playerView != null) {
             releasePlayer(notifyNative = false)
         }
@@ -110,7 +111,7 @@ class ChromVoidVideoActivity : AppCompatActivity() {
             ProgressiveMediaSource.Factory { ChromVoidVaultVideoDataSource(source) }
                 .createMediaSource(
                     MediaItem.Builder()
-                        .setUri(Uri.parse("chromvoid-video://${source.token}"))
+                        .setUri(Uri.parse("chromvoid-video://${source.nativeSourceToken}"))
                         .setMimeType(source.mimeType)
                         .build(),
                 )
@@ -134,7 +135,17 @@ class ChromVoidVideoActivity : AppCompatActivity() {
         exoPlayer.setMediaSource(mediaSource)
         exoPlayer.prepare()
         exoPlayer.playWhenReady = true
-        trace("player_prepared", "token" to redactIdentifier(source.token))
+        trace("player_prepared", "nativeSourceToken" to redactIdentifier(source.nativeSourceToken))
+    }
+
+    override fun onStop() {
+        trace("stop", "isFinishing" to isFinishing, "isChangingConfigurations" to isChangingConfigurations)
+        // SPEC-231 I2: app background is a canonical release trigger for v1 video playback.
+        if (!isFinishing && !isChangingConfigurations) {
+            releasePlayer(notifyNative = true)
+            finish()
+        }
+        super.onStop()
     }
 
     override fun onDestroy() {
@@ -148,7 +159,7 @@ class ChromVoidVideoActivity : AppCompatActivity() {
         val currentSource = source
         trace(
             "release_player",
-            "token" to redactIdentifier(currentSource?.token),
+            "nativeSourceToken" to redactIdentifier(currentSource?.nativeSourceToken),
             "notifyNative" to notifyNative,
         )
         playerView?.player = null
@@ -156,9 +167,9 @@ class ChromVoidVideoActivity : AppCompatActivity() {
         player?.release()
         player = null
         if (notifyNative && currentSource != null) {
-            VideoPlaybackNativeShell.onVideoPlayerEvent(currentSource.token, "released")
-            VideoPlaybackNativeShell.releaseVideoSource(currentSource.token)
-            clearActiveActivity(this, currentSource.token)
+            VideoPlaybackNativeShell.onVideoPlayerEvent(currentSource, "released")
+            VideoPlaybackNativeShell.releaseVideoSource(currentSource.nativeSourceToken)
+            clearActiveActivity(this, currentSource.nativeSourceToken)
             source = null
         }
     }
@@ -176,24 +187,38 @@ class ChromVoidVideoActivity : AppCompatActivity() {
                     Player.STATE_IDLE -> "idle"
                     else -> return
                 }
-            trace("playback_state", "event" to event, "token" to redactIdentifier(source.token))
-            VideoPlaybackNativeShell.onVideoPlayerEvent(source.token, event)
+            trace(
+                "playback_state",
+                "event" to event,
+                "nativeSourceToken" to redactIdentifier(source.nativeSourceToken),
+            )
+            VideoPlaybackNativeShell.onVideoPlayerEvent(source, event)
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            val event = if (isPlaying) "playing" else "paused"
+            trace(
+                "playback_is_playing",
+                "event" to event,
+                "nativeSourceToken" to redactIdentifier(source.nativeSourceToken),
+            )
+            VideoPlaybackNativeShell.onVideoPlayerEvent(source, event)
         }
 
         override fun onPlayerError(error: PlaybackException) {
             val errorCode = error.findVideoErrorCode()
             Log.e(
                 TAG,
-                "Video player failed token=${redactIdentifier(source.token)} error=$errorCode message=${TracePrivacy.failureMessage(error)}",
+                "Video player failed nativeSourceToken=${redactIdentifier(source.nativeSourceToken)} error=$errorCode message=${TracePrivacy.failureMessage(error)}",
             )
             trace(
                 "player_error",
-                "token" to redactIdentifier(source.token),
+                "nativeSourceToken" to redactIdentifier(source.nativeSourceToken),
                 "error" to errorCode,
                 "message" to TracePrivacy.failureMessage(error),
             )
             VideoPlaybackNativeShell.onVideoPlayerEvent(
-                token = source.token,
+                source = source,
                 event = "error",
                 error = errorCode,
             )

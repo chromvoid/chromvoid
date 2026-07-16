@@ -21,6 +21,13 @@ pub const HEADER_SIZE: usize = 14;
 /// Maximum payload size (16 MiB).
 pub const MAX_PAYLOAD_SIZE: usize = 16 * 1024 * 1024;
 
+/// ChaCha20-Poly1305 authentication tag bytes added by Noise transport messages.
+pub const NOISE_TRANSPORT_TAG_BYTES: usize = 16;
+
+/// Maximum SPEC-002 frame payload that fits into one Noise transport message.
+pub const MAX_FRAME_PAYLOAD_SIZE: usize =
+    crate::noise::MAX_HANDSHAKE_MSG - HEADER_SIZE - NOISE_TRANSPORT_TAG_BYTES;
+
 /// SPEC-002 s4.4: Structured error codes for Error frames (Type 0x04).
 pub mod error_codes {
     pub const INVALID_FORMAT: u16 = 1001;
@@ -29,6 +36,8 @@ pub mod error_codes {
     pub const REPLAY_DETECTED: u16 = 1004;
     pub const RATE_LIMIT_EXCEEDED: u16 = 1005;
     pub const CAPABILITY_DENIED: u16 = 1006;
+    pub const STREAM_READ_FAILED: u16 = 1101;
+    pub const STREAM_CANCELLED: u16 = 1102;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,15 +99,15 @@ impl Frame {
         let message_id = u64::from_be_bytes(mid);
 
         let flags = bytes[9];
-        // SPEC-002: bits 2-7 are reserved and must be 0.
-        if (flags & 0b1111_1100) != 0 {
+        // SPEC-002: only bit 0 is defined; bits 1-7 are reserved.
+        if (flags & !FLAG_HAS_CONTINUATION) != 0 {
             return Err("unsupported flags");
         }
 
         let mut lenb = [0u8; 4];
         lenb.copy_from_slice(&bytes[10..14]);
         let payload_len = u32::from_be_bytes(lenb) as usize;
-        if payload_len > MAX_PAYLOAD_SIZE {
+        if payload_len > MAX_FRAME_PAYLOAD_SIZE {
             return Err("payload too large");
         }
         if bytes.len() != HEADER_SIZE + payload_len {
@@ -172,11 +181,7 @@ pub fn validate_timestamp(timestamp_secs: u64) -> Result<(), &'static str> {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let diff = if timestamp_secs > now {
-        timestamp_secs - now
-    } else {
-        now - timestamp_secs
-    };
+    let diff = timestamp_secs.abs_diff(now);
     if diff > 300 {
         return Err("timestamp out of range");
     }

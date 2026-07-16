@@ -37,43 +37,59 @@ pub(in crate::volume_fuse::imp) fn handle_readdir(
             .unwrap_or(FUSE_ROOT_ID)
     };
 
-    let is_trash_dir = is_trash_path(&dir_path);
+    let is_trash_listing = is_trash_listing_path(&dir_path);
 
-    let path_val = if dir_path == "/" {
-        serde_json::Value::Null
+    let res_items: Vec<InodeEntry> = if is_trash_listing {
+        let res = match fs.list_trash_entries() {
+            Ok(res) => res,
+            Err(e) => {
+                reply.error(fuse_errno(e));
+                return;
+            }
+        };
+        res.items
+            .iter()
+            .map(|item| inode_entry_from_trash_item(ino, item))
+            .collect()
     } else {
-        serde_json::Value::String(dir_path.clone())
-    };
+        let path_val = if dir_path == "/" {
+            serde_json::Value::Null
+        } else {
+            serde_json::Value::String(dir_path.clone())
+        };
 
-    let mut adapter = match fs.adapter.lock() {
-        Ok(a) => a,
-        Err(_) => {
-            reply.error(fuse_errno(libc::EIO));
-            return;
-        }
-    };
+        let value = match fs.rpc_json_deferred(
+            "catalog:list",
+            json!({"path": path_val, "include_hidden": null}),
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                reply.error(fuse_errno(e));
+                return;
+            }
+        };
 
-    let value = match rpc_json(
-        adapter.as_mut(),
-        "catalog:list",
-        json!({"path": path_val, "include_hidden": null}),
-    ) {
-        Ok(v) => v,
-        Err(e) => {
-            reply.error(fuse_errno(e));
-            return;
-        }
-    };
+        let res: CatalogListResponse = match serde_json::from_value(value) {
+            Ok(r) => r,
+            Err(_) => {
+                reply.error(fuse_errno(libc::EIO));
+                return;
+            }
+        };
 
-    let res: CatalogListResponse = match serde_json::from_value(value) {
-        Ok(r) => r,
-        Err(_) => {
-            reply.error(fuse_errno(libc::EIO));
-            return;
-        }
+        res.items
+            .into_iter()
+            .map(|item| InodeEntry {
+                catalog_node_id: item.node_id,
+                name: item.name,
+                parent_ino: ino,
+                is_dir: item.is_dir,
+                size: item.size.unwrap_or(0),
+                source_revision: item.source_revision,
+                modified: Some(ms_to_system_time(item.updated_at)),
+            })
+            .collect()
     };
-
-    drop(adapter);
 
     let mut entries: Vec<(u64, FileType, String)> = vec![
         (ino, FileType::Directory, ".".to_string()),
@@ -81,32 +97,21 @@ pub(in crate::volume_fuse::imp) fn handle_readdir(
     ];
 
     let mut keep_names: HashSet<String> = HashSet::new();
-    for item in res.items {
+    for item in res_items {
         keep_names.insert(item.name.clone());
-        let child_ino = fuse_ino_from_catalog_node_id(item.node_id);
+        let child_ino = fuse_ino_from_catalog_node_id(item.catalog_node_id);
         let ft = if item.is_dir {
             FileType::Directory
         } else {
             FileType::RegularFile
         };
-        fs.inode_table.upsert(InodeEntry {
-            catalog_node_id: item.node_id,
-            name: item.name.clone(),
-            parent_ino: ino,
-            is_dir: item.is_dir,
-            size: item.size.unwrap_or(0),
-            modified: Some(ms_to_system_time(item.updated_at)),
-        });
+        fs.inode_table.upsert(item.clone());
         entries.push((child_ino, ft, item.name));
     }
 
-    // For trash directories, skip retain_children so that ghost
-    // inodes placed by the rename handler survive for lookup().
-    if !is_trash_dir {
-        fs.inode_table.retain_children(ino, &keep_names);
-    }
+    fs.inode_table.retain_children(ino, &keep_names);
 
-    if ino == FUSE_ROOT_ID || is_trash_dir {
+    if ino == FUSE_ROOT_ID || is_trash_path(&dir_path) {
         let mut sample_names: Vec<&str> = entries
             .iter()
             .skip(2)

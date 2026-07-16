@@ -9,7 +9,7 @@ private struct StagedSharedFile {
 }
 
 final class ShareViewController: UIViewController {
-  private let appGroupIdentifier = "group.com.chromvoid.app.shared"
+  private let appGroupIdentifier = "group.com.chromvoid.app.shared.lhwc37d5kt"
   private var didStart = false
 
   override func viewDidAppear(_ animated: Bool) {

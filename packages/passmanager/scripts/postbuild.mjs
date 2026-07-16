@@ -72,7 +72,9 @@ async function rewriteRelativeSpecifiers(filePath) {
 }
 
 try {
-  await cp(path.join(srcDir, 'i18n', 'data.json'), path.join(distDir, 'i18n', 'data.json'))
+  await cp(path.join(srcDir, 'i18n', 'locales'), path.join(distDir, 'i18n', 'locales'), {
+    recursive: true,
+  })
 
   for (const filePath of await walk(distDir)) {
     const fileStat = await stat(filePath)

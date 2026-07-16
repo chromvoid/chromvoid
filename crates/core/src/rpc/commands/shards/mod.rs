@@ -28,9 +28,13 @@ pub fn handle_catalog_sync_manifest_request(
     _data: &Value,
     storage: &Storage,
 ) -> RpcResponse {
-    let response = manifest::catalog_sync_manifest(session, storage);
-    logging::log_manifest_payload(&response);
-    RpcResponse::success(response)
+    match manifest::catalog_sync_manifest(session, storage) {
+        Ok(response) => {
+            logging::log_manifest_payload(&response);
+            RpcResponse::success(response)
+        }
+        Err(error) => RpcResponse::error(error.to_string(), Some(ErrorCode::InternalError)),
+    }
 }
 
 pub fn handle_catalog_shard_list_request(
@@ -38,9 +42,13 @@ pub fn handle_catalog_shard_list_request(
     _data: &Value,
     storage: &Storage,
 ) -> RpcResponse {
-    let response = manifest::catalog_shard_list(session, storage);
-    logging::log_shard_list_payload(&response);
-    RpcResponse::success(response)
+    match manifest::catalog_shard_list(session, storage) {
+        Ok(response) => {
+            logging::log_shard_list_payload(&response);
+            RpcResponse::success(response)
+        }
+        Err(error) => RpcResponse::error(error.to_string(), Some(ErrorCode::InternalError)),
+    }
 }
 
 pub fn handle_catalog_shard_load_request(

@@ -35,6 +35,10 @@ export function describeSnapshot(snapshot: NavigationSnapshot): string {
     return `files:${snapshot.files?.path || DEFAULT_FILES_PATH}:document=${document}:overlay=${overlay}`
   }
 
+  if (snapshot.surface === 'settings') {
+    return `settings:${snapshot.settings?.kind ?? 'overview'}:overlay=${overlay}`
+  }
+
   if (snapshot.surface === 'remote') {
     return `remote:${snapshot.remote?.panel ?? 'hosts'}:overlay=${overlay}`
   }
@@ -120,12 +124,14 @@ function normalizeFilesDocument(document: FilesDocumentRoute | undefined): Files
       ? document.originSurface
       : undefined
   const source = normalizeMarkdownDocumentSource(document.source)
+  const viewMode = document.viewMode === 'edit' ? document.viewMode : undefined
 
   return {
     kind: 'markdown',
     fileId: document.fileId,
     ...(originSurface ? {originSurface} : {}),
     ...(source ? {source} : {}),
+    ...(viewMode ? {viewMode} : {}),
   }
 }
 
@@ -156,6 +162,9 @@ export function normalizeSnapshot(snapshot: NavigationSnapshot): NavigationSnaps
     }
   } else if (snapshot.surface === 'passwords') {
     normalized.passwords = snapshot.passwords ?? {kind: 'root'}
+    normalized.overlay = DEFAULT_OVERLAY
+  } else if (snapshot.surface === 'settings') {
+    normalized.settings = snapshot.settings ?? {kind: 'overview'}
     normalized.overlay = DEFAULT_OVERLAY
   } else if (snapshot.surface === 'remote') {
     normalized.remote = {
@@ -249,6 +258,8 @@ export function buildFallbackSnapshot(
       case 'create-group':
       case 'import':
       case 'otp-view':
+      case 'ssh-view':
+      case 'env-runtime-view':
         return normalizeSnapshot({
           surface: 'passwords',
           passwords: {kind: 'root'},
@@ -260,6 +271,24 @@ export function buildFallbackSnapshot(
           files: {path: readExternalFilesPath()},
           overlay: DEFAULT_OVERLAY,
         })
+    }
+  }
+
+  if (snapshot.surface === 'settings') {
+    const route = snapshot.settings ?? {kind: 'overview'}
+    if (route.kind === 'vault-rekey' || route.kind === 'password-import') {
+      return normalizeSnapshot({
+        surface: 'settings',
+        settings: {kind: 'passwords'},
+        overlay: DEFAULT_OVERLAY,
+      })
+    }
+    if (route.kind !== 'overview') {
+      return normalizeSnapshot({
+        surface: 'settings',
+        settings: {kind: 'overview'},
+        overlay: DEFAULT_OVERLAY,
+      })
     }
   }
 
@@ -340,6 +369,8 @@ export function buildHierarchyFallbackSnapshot(snapshot: NavigationSnapshot): Na
       case 'create-group':
       case 'import':
       case 'otp-view':
+      case 'ssh-view':
+      case 'env-runtime-view':
         return normalizeSnapshot({
           surface: 'passwords',
           passwords: {kind: 'root'},
@@ -348,6 +379,25 @@ export function buildHierarchyFallbackSnapshot(snapshot: NavigationSnapshot): Na
       case 'root':
         return null
     }
+  }
+
+  if (snapshot.surface === 'settings') {
+    const route = snapshot.settings ?? {kind: 'overview'}
+    if (route.kind === 'vault-rekey' || route.kind === 'password-import') {
+      return normalizeSnapshot({
+        surface: 'settings',
+        settings: {kind: 'passwords'},
+        overlay: DEFAULT_OVERLAY,
+      })
+    }
+    if (route.kind !== 'overview') {
+      return normalizeSnapshot({
+        surface: 'settings',
+        settings: {kind: 'overview'},
+        overlay: DEFAULT_OVERLAY,
+      })
+    }
+    return null
   }
 
   if (snapshot.surface === 'remote' && snapshot.remote?.panel && snapshot.remote.panel !== 'hosts') {

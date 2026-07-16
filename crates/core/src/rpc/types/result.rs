@@ -9,22 +9,42 @@ use crate::license::{EntitlementSnapshot, SignedCert};
 use ts_rs::TS;
 
 use super::{
-    CatalogFileReplaceResponse, CatalogFolderBatchResponse, CatalogFolderPageResponse,
-    CatalogListResponse, CatalogMediaInspectResponse, CatalogNotesListResponse,
-    CatalogSyncManifestResponse, CompactShardResponse, CoreCapabilitiesResponse,
-    CredentialCandidate, CredentialProviderPasskeyCommandResponse,
-    CredentialProviderSessionResponse, CredentialProviderStatusResponse, CredentialSecret,
-    DerivativeStatsResponse, ListShardsResponse, LoadShardResponse, MasterRekeyResponse,
-    NodeCreatedResponse, SourceMetadataResponse, SyncShardResponse, UploadResponse,
+    AgentProfileMetadataV1, AgentSecretMetadataV1, CatalogFileLinksCompleteResponse,
+    CatalogFileLinksResolveResponse, CatalogFileReplaceResponse, CatalogFolderBatchResponse,
+    CatalogFolderPageResponse, CatalogListResponse, CatalogMediaInspectResponse,
+    CatalogNotesListResponse, CatalogSyncManifestResponse, CatalogTrashEmptyResponse,
+    CatalogTrashListResponse, CatalogTrashResponse, CatalogTrashRestoreResponse,
+    CompactShardResponse, CoreCapabilitiesResponse, CredentialCandidate, CredentialOneTimeCode,
+    CredentialProviderPasskeyCommandResponse, CredentialProviderSessionResponse,
+    CredentialProviderStatusResponse, CredentialSecret, CredentialSecurityAuditArtifactV1,
+    DerivativeStatsResponse, EnvDeleteResponse, EnvRuntimeStatusResponse, EnvSecretRevealResponse,
+    ListShardsResponse, LoadShardResponse, MasterRekeyResponse, NodeCreatedResponse,
+    OtpPreviewResponse, SourceMetadataResponse, SyncShardResponse, UploadResponse,
     VaultPasskeyDeleteResponse, VaultPasskeysListResponse, VaultRekeyResponse,
     VaultRepairApplyResponse, VaultRepairDiagnosisResponse, VaultStatusResponse,
     VaultUnlockResponse, WalletAccountsDeriveResponse, WalletAccountsListResponse,
-    WalletAddressesDeriveResponse, WalletBackupExportResponse, WalletBalanceGetResponse,
-    WalletHdCreateResponse, WalletHdGenerateMnemonicResponse, WalletImportCreateResponse,
-    WalletListResponse, WalletStatusResponse, WalletTransactionCancelResponse,
-    WalletTransactionConfirmResponse, WalletTransactionPrepareResponse,
-    WalletTransactionsListResponse, WalletTransactionsRefreshResponse,
+    WalletAddressBookCreateResponse, WalletAddressBookDeleteResponse,
+    WalletAddressBookListResponse, WalletAddressBookUpdateResponse, WalletAddressesDeriveResponse,
+    WalletBackupExportResponse, WalletBalanceGetResponse, WalletHdCreateResponse,
+    WalletHdGenerateMnemonicResponse, WalletImportCreateResponse, WalletListResponse,
+    WalletSpendAuthorizationCreateResponse, WalletSpendAuthorizationRevokeResponse,
+    WalletStatusResponse, WalletTransactionCancelResponse, WalletTransactionConfirmResponse,
+    WalletTransactionPrepareResponse, WalletTransactionQuoteResponse,
+    WalletTransactionRebroadcastResponse, WalletTransactionsListResponse,
+    WalletTransactionsRefreshResponse, WalletTransactionsSyncResponse,
 };
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+pub struct PassmanagerSecurityAuditGetResult {
+    pub artifact: Option<CredentialSecurityAuditArtifactV1>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+pub struct PassmanagerSecurityAuditSetResult {}
 
 /// Response for each command (discriminated union)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,6 +114,39 @@ pub enum RpcCommandResult {
         skipped_chunks: Vec<String>,
     },
 
+    #[serde(rename = "env_runtime:status")]
+    EnvRuntimeStatus(EnvRuntimeStatusResponse),
+
+    #[serde(rename = "env_runtime:secret:list")]
+    EnvRuntimeSecretList(Vec<AgentSecretMetadataV1>),
+
+    #[serde(rename = "env_runtime:secret:create")]
+    EnvRuntimeSecretCreate(AgentSecretMetadataV1),
+
+    #[serde(rename = "env_runtime:secret:update")]
+    EnvRuntimeSecretUpdate(AgentSecretMetadataV1),
+
+    #[serde(rename = "env_runtime:secret:reveal")]
+    EnvRuntimeSecretReveal(EnvSecretRevealResponse),
+
+    #[serde(rename = "env_runtime:secret:delete")]
+    EnvRuntimeSecretDelete(EnvDeleteResponse),
+
+    #[serde(rename = "env_runtime:profile:list")]
+    EnvRuntimeProfileList(Vec<AgentProfileMetadataV1>),
+
+    #[serde(rename = "env_runtime:profile:get")]
+    EnvRuntimeProfileGet(AgentProfileMetadataV1),
+
+    #[serde(rename = "env_runtime:profile:create")]
+    EnvRuntimeProfileCreate(AgentProfileMetadataV1),
+
+    #[serde(rename = "env_runtime:profile:update")]
+    EnvRuntimeProfileUpdate(AgentProfileMetadataV1),
+
+    #[serde(rename = "env_runtime:profile:delete")]
+    EnvRuntimeProfileDelete(EnvDeleteResponse),
+
     #[serde(rename = "wallet:status")]
     WalletStatus(WalletStatusResponse),
 
@@ -121,6 +174,9 @@ pub enum RpcCommandResult {
     #[serde(rename = "wallet:balance:get")]
     WalletBalanceGet(WalletBalanceGetResponse),
 
+    #[serde(rename = "wallet:transaction:quote")]
+    WalletTransactionQuote(WalletTransactionQuoteResponse),
+
     #[serde(rename = "wallet:transaction:prepare")]
     WalletTransactionPrepare(WalletTransactionPrepareResponse),
 
@@ -130,14 +186,38 @@ pub enum RpcCommandResult {
     #[serde(rename = "wallet:transaction:cancel")]
     WalletTransactionCancel(WalletTransactionCancelResponse),
 
+    #[serde(rename = "wallet:transaction:rebroadcast")]
+    WalletTransactionRebroadcast(WalletTransactionRebroadcastResponse),
+
     #[serde(rename = "wallet:transactions:list")]
     WalletTransactionsList(WalletTransactionsListResponse),
 
     #[serde(rename = "wallet:transactions:refresh")]
     WalletTransactionsRefresh(WalletTransactionsRefreshResponse),
 
+    #[serde(rename = "wallet:transactions:sync")]
+    WalletTransactionsSync(WalletTransactionsSyncResponse),
+
     #[serde(rename = "wallet:backup:export")]
     WalletBackupExport(WalletBackupExportResponse),
+
+    #[serde(rename = "wallet:spendAuthorization:create")]
+    WalletSpendAuthorizationCreate(WalletSpendAuthorizationCreateResponse),
+
+    #[serde(rename = "wallet:spendAuthorization:revoke")]
+    WalletSpendAuthorizationRevoke(WalletSpendAuthorizationRevokeResponse),
+
+    #[serde(rename = "wallet:addressBook:list")]
+    WalletAddressBookList(WalletAddressBookListResponse),
+
+    #[serde(rename = "wallet:addressBook:create")]
+    WalletAddressBookCreate(WalletAddressBookCreateResponse),
+
+    #[serde(rename = "wallet:addressBook:update")]
+    WalletAddressBookUpdate(WalletAddressBookUpdateResponse),
+
+    #[serde(rename = "wallet:addressBook:delete")]
+    WalletAddressBookDelete(WalletAddressBookDeleteResponse),
 
     #[serde(rename = "catalog:list")]
     CatalogList(CatalogListResponse),
@@ -154,6 +234,12 @@ pub enum RpcCommandResult {
     #[serde(rename = "catalog:notes:list")]
     CatalogNotesList(CatalogNotesListResponse),
 
+    #[serde(rename = "catalog:file-links:complete")]
+    CatalogFileLinksComplete(CatalogFileLinksCompleteResponse),
+
+    #[serde(rename = "catalog:file-links:resolve")]
+    CatalogFileLinksResolve(CatalogFileLinksResolveResponse),
+
     #[serde(rename = "catalog:createDir")]
     CatalogCreateDir(NodeCreatedResponse),
 
@@ -166,11 +252,29 @@ pub enum RpcCommandResult {
     #[serde(rename = "catalog:move")]
     CatalogMove {},
 
+    #[serde(rename = "catalog:trash")]
+    CatalogTrash(CatalogTrashResponse),
+
+    #[serde(rename = "catalog:trash:list")]
+    CatalogTrashList(CatalogTrashListResponse),
+
+    #[serde(rename = "catalog:trash:restore")]
+    CatalogTrashRestore(CatalogTrashRestoreResponse),
+
+    #[serde(rename = "catalog:trash:empty")]
+    CatalogTrashEmpty(CatalogTrashEmptyResponse),
+
+    #[serde(rename = "catalog:exchange")]
+    CatalogExchange {},
+
     #[serde(rename = "catalog:upload")]
     CatalogUpload(UploadResponse),
 
     #[serde(rename = "catalog:file:replace")]
     CatalogFileReplace(CatalogFileReplaceResponse),
+
+    #[serde(rename = "catalog:file:patch")]
+    CatalogFilePatch(CatalogFileReplaceResponse),
 
     #[serde(rename = "catalog:download")]
     CatalogDownload {},
@@ -236,6 +340,9 @@ pub enum RpcCommandResult {
     #[serde(rename = "credential_provider:getSecret")]
     CredentialProviderGetSecret(CredentialSecret),
 
+    #[serde(rename = "credential_provider:getOneTimeCode")]
+    CredentialProviderGetOneTimeCode(CredentialOneTimeCode),
+
     #[serde(rename = "credential_provider:recordUse")]
     CredentialProviderRecordUse {},
 
@@ -281,6 +388,27 @@ pub enum RpcCommandResult {
     #[serde(rename = "passmanager:secret:delete")]
     PassmanagerSecretDelete {},
 
+    #[serde(rename = "passmanager:ssh:list")]
+    PassmanagerSshList {
+        #[serde(rename = "sshKeys")]
+        ssh_keys: Value,
+    },
+
+    #[serde(rename = "passmanager:ssh:key:update")]
+    PassmanagerSshKeyUpdate {},
+
+    #[serde(rename = "passmanager:ssh:key:delete")]
+    PassmanagerSshKeyDelete {},
+
+    #[serde(rename = "passmanager:ssh:secret:read")]
+    PassmanagerSshSecretRead { value: String },
+
+    #[serde(rename = "passmanager:ssh:secret:save")]
+    PassmanagerSshSecretSave {},
+
+    #[serde(rename = "passmanager:ssh:secret:delete")]
+    PassmanagerSshSecretDelete {},
+
     #[serde(rename = "passmanager:group:ensure")]
     PassmanagerGroupEnsure {},
 
@@ -318,6 +446,12 @@ pub enum RpcCommandResult {
         content_base64: String,
     },
 
+    #[serde(rename = "passmanager:icon:getMany")]
+    PassmanagerIconGetMany {
+        icons: Value,
+        missing_icon_refs: Vec<String>,
+    },
+
     #[serde(rename = "passmanager:icon:list")]
     PassmanagerIconList { icons: Value },
 
@@ -330,8 +464,17 @@ pub enum RpcCommandResult {
         deleted: u64,
     },
 
+    #[serde(rename = "passmanager:securityAudit:get")]
+    PassmanagerSecurityAuditGet(PassmanagerSecurityAuditGetResult),
+
+    #[serde(rename = "passmanager:securityAudit:set")]
+    PassmanagerSecurityAuditSet(PassmanagerSecurityAuditSetResult),
+
     #[serde(rename = "passmanager:otp:generate")]
     PassmanagerOtpGenerate { otp: String },
+
+    #[serde(rename = "passmanager:otp:preview")]
+    PassmanagerOtpPreview(OtpPreviewResponse),
 
     #[serde(rename = "passmanager:otp:setSecret")]
     PassmanagerOtpSetSecret {},

@@ -7,6 +7,12 @@ const projectRoot = fileURLToPath(new URL('.', import.meta.url))
 const workspaceRoot = fileURLToPath(new URL('../..', import.meta.url))
 const srcRoot = join(projectRoot, 'src')
 
+export type ExtensionEntry = {
+  entry: string
+  fileName: string
+  globalName: string
+}
+
 export const extensionEntries = [
   {
     entry: join(srcRoot, 'service-worker.ts'),
@@ -23,12 +29,9 @@ export const extensionEntries = [
     fileName: 'popup.js',
     globalName: 'ChromVoidPopup',
   },
-] as const
+] as const satisfies readonly ExtensionEntry[]
 
-export function createExtensionBuildConfig(
-  entry: (typeof extensionEntries)[number],
-  options: {watch: boolean},
-) {
+export function createExtensionBuildConfig(entry: ExtensionEntry, options: {watch: boolean}) {
   return defineConfig({
     appType: 'custom',
     publicDir: false,
@@ -40,13 +43,8 @@ export function createExtensionBuildConfig(
         formats: ['iife'],
         name: entry.globalName,
       },
-      minify: options.watch ? false : 'esbuild',
+      minify: options.watch ? false : 'oxc',
       outDir: join(projectRoot, 'dist'),
-      rollupOptions: {
-        output: {
-          inlineDynamicImports: true,
-        },
-      },
       sourcemap: options.watch,
       watch: options.watch ? {} : null,
     },
@@ -57,13 +55,11 @@ export function createExtensionBuildConfig(
         {find: /^@chromvoid\/scheme\/(.+)$/, replacement: join(workspaceRoot, 'packages/scheme/src/$1')},
         {find: /^@project\/i18n$/, replacement: join(workspaceRoot, 'packages/i18n/src/index.ts')},
         {find: /^@project\/i18n\/(.+)$/, replacement: join(workspaceRoot, 'packages/i18n/src/$1')},
-        {find: /^@project\/passmanager$/, replacement: join(workspaceRoot, 'packages/passmanager/src/index.ts')},
-        {
-          find: /^@project\/passmanager\/(.+)$/,
-          replacement: join(workspaceRoot, 'packages/passmanager/src/$1.ts'),
-        },
         {find: /^@chromvoid\/uikit$/, replacement: join(workspaceRoot, 'packages/uikit/src/index.ts')},
-        {find: /^@chromvoid\/headless-ui$/, replacement: join(workspaceRoot, 'packages/headless-ui/src/index.ts')},
+        {
+          find: /^@chromvoid\/headless-ui$/,
+          replacement: join(workspaceRoot, 'packages/headless-ui/src/index.ts'),
+        },
         {
           find: /^@chromvoid\/headless-ui\/(.+)$/,
           replacement: join(workspaceRoot, 'packages/headless-ui/src/$1/index.ts'),
@@ -72,7 +68,10 @@ export function createExtensionBuildConfig(
           find: /^@chromvoid\/uikit\/reatom-lit$/,
           replacement: join(workspaceRoot, 'packages/uikit/src/reatom-lit/index.ts'),
         },
-        {find: /^@chromvoid\/uikit\/html$/, replacement: join(workspaceRoot, 'packages/uikit/src/reatom-lit/html.ts')},
+        {
+          find: /^@chromvoid\/uikit\/html$/,
+          replacement: join(workspaceRoot, 'packages/uikit/src/reatom-lit/html.ts'),
+        },
         {
           find: /^@chromvoid\/uikit\/components\/(.+)$/,
           replacement: join(workspaceRoot, 'packages/uikit/src/components/$1.ts'),

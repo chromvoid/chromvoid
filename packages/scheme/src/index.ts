@@ -35,9 +35,16 @@ export type {
   CatalogListResponse,
   ProviderContext,
   CredentialCandidate,
+  CredentialOneTimeCode,
+  CredentialProviderSession,
   CredentialSecret,
+  CredentialSecurityAuditEntrySummary,
+  CredentialSecurityAuditArtifactV1,
   ProviderStatus,
 } from './command-maps'
+export type {CredentialOtpOption} from './generated/CredentialOtpOption'
+export type {CredentialProviderSessionResponse} from './generated/CredentialProviderSessionResponse'
+export type {CredentialProviderStatusResponse} from './generated/CredentialProviderStatusResponse'
 
 // === RPC helpers (runtime functions) ===
 export {success, error, isSuccess, isError} from './rpc-helpers'

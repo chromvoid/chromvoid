@@ -110,8 +110,10 @@ describe('PasswordManagerMobileLayout selection toolbar', () => {
       singleSelectionKind: 'entry',
     })
     expect(pmMobileChromeModel.getToolbarContext()).toMatchObject({
+      title: 'Selected',
+      meta: [{id: 'entries', icon: 'key', label: 'Entries', value: '1'}],
+      metaLabel: 'Selected: Entries: 1',
       canGoBack: true,
-      showCommand: false,
       maxVisible: 4,
     })
     expect(pmMobileChromeModel.getToolbarActions()).toMatchObject([
@@ -126,6 +128,14 @@ describe('PasswordManagerMobileLayout selection toolbar', () => {
       kind: 'passwords-selection',
       selectedCount: 2,
       singleSelectionKind: null,
+    })
+    expect(pmMobileChromeModel.getToolbarContext()).toMatchObject({
+      title: 'Selected',
+      meta: [
+        {id: 'entries', icon: 'key', label: 'Entries', value: '1'},
+        {id: 'groups', icon: 'folder', label: 'Groups', value: '1'},
+      ],
+      metaLabel: 'Selected: Entries: 1, Groups: 1',
     })
     expect(pmMobileChromeModel.getToolbarActions()).toMatchObject([
       {id: 'pm-selection-done', icon: 'check-lg'},

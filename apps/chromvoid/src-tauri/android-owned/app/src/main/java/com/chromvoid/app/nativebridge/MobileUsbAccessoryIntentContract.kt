@@ -4,6 +4,7 @@ import android.content.Intent
 import android.hardware.usb.UsbAccessory
 import android.hardware.usb.UsbManager
 import android.os.Build
+import com.chromvoid.app.BuildConfig
 
 internal data class MobileUsbAccessoryIdentity(
     val manufacturer: String?,
@@ -53,7 +54,12 @@ internal object MobileUsbAccessoryIntentContract {
         "com.chromvoid.app.action.USB_ACCESSORY_DEBUG_HANDSHAKE"
 
     const val MANUFACTURER = "ChromVoid"
-    const val MODEL = "ChromVoid Mobile Host"
+    val MODEL: String =
+        if (BuildConfig.APPLICATION_ID.endsWith(".dev")) {
+            "ChromVoid Mobile Host Dev"
+        } else {
+            "ChromVoid Mobile Host"
+        }
     const val DESCRIPTION = "ChromVoid USB Remote"
     const val VERSION = "1"
     const val URI = "https://chromvoid.com"

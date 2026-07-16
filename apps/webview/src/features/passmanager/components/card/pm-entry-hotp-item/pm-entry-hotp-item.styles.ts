@@ -9,11 +9,11 @@ export const pmEntryHOTPItemSharedStyles = [
     :host {
       position: relative;
       display: block;
-      --pm-otp-action-size: var(--hotp-action-size, 36px);
+      --pm-otp-action-size: var(--pm-hotp-action-size, 36px);
     }
 
     @supports (-webkit-touch-callout: none) {
-      @media (hover: none) and (pointer: coarse) {
+      @media (max-width: 768px) {
         cv-number::part(input) {
           font-size: 16px;
         }
@@ -22,11 +22,11 @@ export const pmEntryHOTPItemSharedStyles = [
 
     .hotp-card {
       display: grid;
-      gap: var(--hotp-card-gap, var(--cv-space-3));
-      padding: var(--hotp-card-padding, 10px);
-      background: var(--hotp-card-background, var(--cv-color-surface));
-      border: 1px solid var(--hotp-card-border-color, var(--cv-color-border-strong));
-      border-radius: var(--hotp-card-radius, var(--cv-radius-2));
+      gap: var(--pm-hotp-card-gap, var(--cv-space-3));
+      padding: var(--pm-hotp-card-padding, 10px);
+      background: var(--pm-hotp-card-background, var(--cv-color-surface));
+      border: 1px solid var(--pm-hotp-card-border-color, var(--cv-color-border-strong));
+      border-radius: var(--pm-hotp-card-radius, var(--cv-radius-2));
       font-family: var(--cv-font-family-sans, sans-serif);
       position: relative;
       overflow: hidden;
@@ -34,12 +34,12 @@ export const pmEntryHOTPItemSharedStyles = [
     }
 
     .hotp-card:hover {
-      border-color: var(--hotp-card-border-hover-color, var(--hotp-accent-border, var(--pm-otp-warning-border)));
+      border-color: var(--pm-hotp-card-border-hover-color, var(--pm-hotp-accent-border, var(--pm-otp-warning-border)));
     }
 
     .hotp-card:focus-within {
-      border-color: var(--hotp-card-border-focus-color, var(--hotp-accent-border, var(--pm-otp-warning-border)));
-      outline: 2px solid var(--hotp-card-focus-ring, var(--hotp-accent-ring, var(--pm-otp-warning-ring)));
+      border-color: var(--pm-hotp-card-border-focus-color, var(--pm-hotp-accent-border, var(--pm-otp-warning-border)));
+      outline: 2px solid var(--pm-hotp-card-focus-ring, var(--pm-hotp-accent-ring, var(--pm-otp-warning-ring)));
       outline-offset: -2px;
     }
 
@@ -51,7 +51,7 @@ export const pmEntryHOTPItemSharedStyles = [
     }
 
     .hotp-label {
-      display: var(--hotp-label-display, block);
+      display: var(--pm-hotp-label-display, block);
       font-size: 11px;
       font-weight: var(--cv-font-weight-semibold);
       color: var(--cv-color-text);
@@ -71,11 +71,11 @@ export const pmEntryHOTPItemSharedStyles = [
       font-weight: var(--cv-font-weight-bold);
       text-transform: uppercase;
       letter-spacing: 0.1em;
-      color: var(--hotp-badge-color, var(--hotp-accent-color, var(--cv-color-warning)));
-      background: var(--hotp-badge-background, var(--hotp-accent-surface, var(--cv-color-warning-surface)));
+      color: var(--pm-hotp-badge-color, var(--pm-hotp-accent-color, var(--cv-color-warning)));
+      background: var(--pm-hotp-badge-background, var(--pm-hotp-accent-surface, var(--cv-color-warning-surface)));
       padding: 2px 7px;
       border-radius: var(--cv-radius-pill, 999px);
-      border: 1px solid var(--hotp-badge-border-color, var(--hotp-accent-border, var(--cv-color-warning-border)));
+      border: 1px solid var(--pm-hotp-badge-border-color, var(--pm-hotp-accent-border, var(--cv-color-warning-border)));
 
       cv-icon {
         font-size: 11px;
@@ -91,30 +91,31 @@ export const pmEntryHOTPItemSharedStyles = [
 
     .hotp-code-section {
       display: grid;
-      gap: var(--hotp-card-gap, var(--cv-space-2));
+      gap: var(--pm-hotp-card-gap, var(--cv-space-2));
     }
 
     .hotp-code {
       font-family: var(--cv-font-family-code, monospace);
+      font-variant-ligatures: none;
       font-weight: var(--cv-font-weight-bold);
-      font-size: var(--hotp-code-font-size, calc(var(--cv-font-size-base) * 1.2));
+      font-size: var(--pm-hotp-code-font-size, calc(var(--cv-font-size-base) * 1.2));
       letter-spacing: 0.12em;
-      color: var(--hotp-code-color, var(--hotp-accent-color, var(--cv-color-warning)));
+      color: var(--pm-hotp-code-color, var(--pm-hotp-accent-color, var(--cv-color-warning)));
       text-align: center;
-      padding: var(--hotp-code-padding, 9px 10px);
-      background: var(--hotp-code-background, var(--hotp-accent-surface, var(--cv-color-warning-surface)));
+      padding: var(--pm-hotp-code-padding, 9px 10px);
+      background: var(--pm-hotp-code-background, var(--pm-hotp-accent-surface, var(--cv-color-warning-surface)));
       border-radius: var(--cv-radius-2);
-      border: 1px solid var(--hotp-code-border-color, var(--hotp-accent-border, var(--cv-color-warning-border)));
+      border: 1px solid var(--pm-hotp-code-border-color, var(--pm-hotp-accent-border, var(--cv-color-warning-border)));
       cursor: pointer;
       user-select: none;
 
       &:hover {
-        border-color: var(--hotp-code-border-hover-color, var(--hotp-accent-border-strong, var(--cv-color-warning-border-strong)));
+        border-color: var(--pm-hotp-code-border-hover-color, var(--pm-hotp-accent-border-strong, var(--cv-color-warning-border-strong)));
       }
 
       &[data-hidden] {
-        background: var(--hotp-code-hidden-background, var(--cv-color-surface-highlight));
-        color: var(--hotp-code-hidden-color, var(--cv-color-text-muted));
+        background: var(--pm-hotp-code-hidden-background, var(--cv-color-surface-highlight));
+        color: var(--pm-hotp-code-hidden-color, var(--cv-color-text-muted));
         letter-spacing: 0.1em;
       }
     }
@@ -122,7 +123,7 @@ export const pmEntryHOTPItemSharedStyles = [
     .hotp-counter-section {
       display: grid;
       grid-template-columns: 1fr auto;
-      gap: var(--hotp-card-gap, var(--cv-space-2));
+      gap: var(--pm-hotp-card-gap, var(--cv-space-2));
       align-items: center;
     }
 
@@ -140,11 +141,11 @@ export const pmEntryHOTPItemSharedStyles = [
       align-items: center;
 
       cv-number {
-        inline-size: var(--hotp-counter-width, 100px);
+        inline-size: var(--pm-hotp-counter-inline-size, 100px);
 
         &::part(base) {
-          border-color: var(--hotp-counter-border-color, var(--hotp-accent-border, var(--cv-color-warning-border)));
-          background: var(--hotp-counter-background, var(--hotp-accent-surface, var(--cv-color-warning-surface)));
+          border-color: var(--pm-hotp-counter-border-color, var(--pm-hotp-accent-border, var(--cv-color-warning-border)));
+          background: var(--pm-hotp-counter-background, var(--pm-hotp-accent-surface, var(--cv-color-warning-surface)));
         }
 
         &::part(input) {
@@ -161,19 +162,19 @@ export const pmEntryHOTPItemSharedStyles = [
         align-items: center;
         justify-content: center;
         gap: calc(var(--cv-space-2) * 0.75);
-        block-size: var(--hotp-action-size, 38px);
-        padding-inline: var(--hotp-generate-padding-inline, var(--cv-space-3));
-        background: var(--hotp-generate-background, var(--hotp-accent-surface-strong, var(--cv-color-warning-surface-strong)));
-        border: 1px solid var(--hotp-generate-border-color, var(--hotp-accent-border-strong, var(--cv-color-warning-border-strong)));
-        color: var(--hotp-generate-color, var(--hotp-accent-color, var(--cv-color-warning)));
+        block-size: var(--pm-hotp-action-size, 38px);
+        padding-inline: var(--pm-hotp-generate-padding-inline, var(--cv-space-3));
+        background: var(--pm-hotp-generate-background, var(--pm-hotp-accent-surface-strong, var(--cv-color-warning-surface-strong)));
+        border: 1px solid var(--pm-hotp-generate-border-color, var(--pm-hotp-accent-border-strong, var(--cv-color-warning-border-strong)));
+        color: var(--pm-hotp-generate-color, var(--pm-hotp-accent-color, var(--cv-color-warning)));
         font-weight: var(--cv-font-weight-semibold);
         border-radius: var(--cv-radius-2);
       }
 
       &:hover::part(base) {
-        background: var(--hotp-generate-hover-background, var(--hotp-accent-color, var(--cv-color-warning)));
-        border-color: var(--hotp-generate-hover-border-color, var(--hotp-accent-color, var(--cv-color-warning)));
-        color: var(--hotp-generate-hover-color, var(--cv-color-warning-text));
+        background: var(--pm-hotp-generate-hover-background, var(--pm-hotp-accent-color, var(--cv-color-warning)));
+        border-color: var(--pm-hotp-generate-hover-border-color, var(--pm-hotp-accent-color, var(--cv-color-warning)));
+        color: var(--pm-hotp-generate-hover-color, var(--cv-color-warning-text));
       }
 
       &:active::part(base) {
@@ -213,17 +214,17 @@ export const pmEntryHOTPItemSharedStyles = [
       }
 
       cv-tooltip {
-        block-size: var(--hotp-action-size, 36px);
+        block-size: var(--pm-hotp-action-size, 36px);
       }
 
       cv-button::part(base) {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        block-size: var(--hotp-action-size, 36px);
-        inline-size: var(--hotp-action-size, 36px);
+        block-size: var(--pm-hotp-action-size, 36px);
+        inline-size: var(--pm-hotp-action-size, 36px);
         padding: 0;
-        min-inline-size: var(--hotp-action-size, 36px);
+        min-inline-size: var(--pm-hotp-action-size, 36px);
         background: var(--cv-color-surface-2);
         border: 1px solid var(--cv-color-border-strong);
         color: var(--cv-color-text);
@@ -231,13 +232,13 @@ export const pmEntryHOTPItemSharedStyles = [
       }
 
       cv-button:hover::part(base) {
-        border-color: var(--hotp-action-border-hover-color, var(--hotp-accent-border-strong, var(--cv-color-warning-border-strong)));
-        color: var(--hotp-action-hover-color, var(--hotp-accent-color, var(--cv-color-warning)));
+        border-color: var(--pm-hotp-action-border-hover-color, var(--pm-hotp-accent-border-strong, var(--cv-color-warning-border-strong)));
+        color: var(--pm-hotp-action-hover-color, var(--pm-hotp-accent-color, var(--cv-color-warning)));
       }
 
       cv-copy-button {
         flex-shrink: 0;
-        --cv-copy-button-size: var(--hotp-action-size, 36px);
+        --cv-copy-button-size: var(--pm-hotp-action-size, 36px);
       }
 
       cv-icon {

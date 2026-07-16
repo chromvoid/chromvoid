@@ -47,6 +47,9 @@ describe('SplashLogo', () => {
     vi.useRealTimers()
     document.documentElement.removeAttribute('loading')
     delete document.documentElement.dataset['splashNativeReady']
+    delete document.documentElement.dataset['startupSplashActive']
+    delete document.documentElement.dataset['startupSplashReleased']
+    delete document.documentElement.dataset['startupSplashSurface']
     delete document.documentElement.dataset['startupContentReady']
     document.body.innerHTML = ''
     delete window.ChromVoidSplash
@@ -69,6 +72,7 @@ describe('SplashLogo', () => {
 
     expect(root.dataset['splashMode']).toBe('web')
     expect(root.dataset['splashMotion']).toBe('active')
+    expect(document.documentElement.dataset['startupSplashSurface']).toBe('web')
     expect(document.querySelector('.splash-logo__canvas')).toBeNull()
     markStartupContentReady()
 
@@ -77,6 +81,7 @@ describe('SplashLogo', () => {
 
     await vi.advanceTimersByTimeAsync(1)
     expect(document.documentElement.hasAttribute('loading')).toBe(false)
+    expect(document.documentElement.dataset['startupSplashReleased']).toBe('true')
   })
 
   it('marks reduced-motion mode without creating dynamic rendering surfaces', async () => {
@@ -143,6 +148,7 @@ describe('SplashLogo', () => {
     startSplashLogo({exitDurationMs: 0, minVisibleMs: 1_600, startedAt: 0})
 
     expect(root.dataset['splashMode']).toBe('native')
+    expect(document.documentElement.dataset['startupSplashSurface']).toBe('native-bridge')
 
     await vi.advanceTimersByTimeAsync(701)
     await vi.advanceTimersByTimeAsync(0)
@@ -166,6 +172,7 @@ describe('SplashLogo', () => {
     await Promise.resolve()
 
     expect(domReady).toHaveBeenCalledTimes(1)
+    expect(document.documentElement.dataset['startupSplashReleased']).toBe('true')
   })
 
   it('still releases the native splash bridge if the DOM splash already exited', async () => {

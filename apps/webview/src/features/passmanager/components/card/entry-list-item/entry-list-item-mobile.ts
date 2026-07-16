@@ -230,10 +230,12 @@ export class PMEntryListItemMobile extends PMEntryListItemBase {
   }
 
   private renderStatusDots(badges: readonly PMEntryListBadge[]) {
-    if (badges.length === 0) return nothing
-
     return html`
-      <div class="entry-status-dots" aria-label=${i18n('entry:badges')}>
+      <div
+        class="entry-status-dots"
+        aria-label=${badges.length > 0 ? i18n('entry:badges') : nothing}
+        aria-hidden=${badges.length === 0 ? 'true' : nothing}
+      >
         ${badges.map(
           (badge) => html`
             <span
@@ -303,15 +305,19 @@ export class PMEntryListItemMobile extends PMEntryListItemBase {
           ${this.renderIcon(entry, presentation)}
 
           <div class="item-content">
-            <div class="item-title">${presentation.title}</div>
-            ${presentation.subtitle ? html`<div class="item-subtitle">${presentation.subtitle}</div>` : nothing}
+            <div class="item-title"><bdi dir="auto">${presentation.title}</bdi></div>
+            ${presentation.subtitle
+              ? html`<div class="item-subtitle" dir="ltr">${presentation.subtitle}</div>`
+              : nothing}
           </div>
 
           ${this.renderStatusDots(presentation.statusBadges)}
           ${this.renderBadgeList(
-            presentation.visibleTextBadges,
-            presentation.textOverflowCount,
+            [],
+            0,
             presentation.typeMarker,
+            presentation.tagSnippet.mobile.badges,
+            [[1, presentation.tagSnippet.mobile.overflowCount]],
           )}
 
           ${selectionModeActive
@@ -366,6 +372,6 @@ export class PMEntryListItemMobile extends PMEntryListItemBase {
   }
 
   private syncSwipeOffsetStyle() {
-    this.style.setProperty('--pm-entry-swipe-offset-x', `${Math.round(this.model.swipeOffsetX())}px`)
+    this.style.setProperty('--_pm-entry-swipe-offset-inline', `${Math.round(this.model.swipeOffsetX())}px`)
   }
 }

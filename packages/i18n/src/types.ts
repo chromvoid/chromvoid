@@ -1,5 +1,6 @@
 import type {Action, Atom} from '@reatom/core'
 
+import type {LANGUAGES} from './consts'
 export interface ITranslationStorage {
   [key: string]: string | ITranslationStorage
 }
@@ -39,6 +40,18 @@ export type TransStore = Readonly<{
   [key in string]: Readonly<TranslationUnit>
 }>
 
+export type LocaleStore = Readonly<Record<string, Readonly<Record<string, string>>>>
+
+type KeysOfUnion<T> = T extends T ? keyof T : never
+
+export type TransStoreFromLocales<T extends LocaleStore> = Readonly<{
+  [K in Extract<KeysOfUnion<T[keyof T]>, string>]: Readonly<
+    Partial<{
+      [L in keyof T]: K extends keyof T[L] ? T[L][K] : never
+    }>
+  >
+}>
+
 export type PickValues<T extends TransStore, K extends keyof T, L extends Lang> = {
   [key in ParseString<T[K][L]>]: string | number
 }
@@ -50,7 +63,7 @@ export type I18nResult<
   Vals extends PickValues<T, K, L> | undefined = undefined,
 > = T[K][L] extends string ? (Vals extends PickValues<T, K, L> ? ReplaceString<Vals, T[K][L]> : T[K][L]) : K
 
-export type Lang = keyof typeof import('./consts').LANGUAGES | (string & {})
+export type Lang = keyof typeof LANGUAGES | (string & {})
 
 export interface CreateI18nOptions {
   fallbackLang?: Lang

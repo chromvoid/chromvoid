@@ -9,11 +9,11 @@ import {keyed} from 'lit/directives/keyed.js'
 
 import {i18n} from '@project/passmanager/i18n'
 import {defaultLogger} from 'root/core/logger'
-import {DesktopShellToolbar} from 'root/features/shell/components/desktop-shell-toolbar'
 import {PMQuickFilters} from '../list/quick-filters'
 import {PMSearch} from '../list/search'
 import {SortControls} from '../list/sort-controls'
 import {PMOtpQuickViewSearch} from '../otp-quick-view/otp-quick-view-search'
+import {envRuntimeI18n} from '../env-runtime/env-runtime.i18n'
 import type {PasswordManagerLayoutModel, PMDesktopToolbarSection} from './password-manager-layout.model'
 
 type PMDesktopToolbarRenderOptions = {
@@ -30,7 +30,6 @@ export function definePasswordManagerDesktopToolbarContent(): void {
   CVIcon.define()
   CVMenuButton.define()
   CVMenuItem.define()
-  DesktopShellToolbar.define()
   PMSearch.define()
   PMQuickFilters.define()
   SortControls.define()
@@ -102,7 +101,7 @@ function renderToolbarButton(
     <cv-button
       type="button"
       size="small"
-      variant=${action.id === 'pm-create-entry' ? 'primary' : 'default'}
+      variant=${action.id === 'pm-create-entry' || action.id === 'pm-create-ssh-key' ? 'primary' : 'default'}
       class="toolbar-button"
       data-action=${action.id}
       ?disabled=${action.disabled ?? false}
@@ -240,16 +239,29 @@ export function renderPasswordManagerDesktopToolbarContent({
     return nothing
   }
   const otpView = model.getCurrentShowElement() === 'otpView'
+  const sshView = model.getCurrentShowElement() === 'sshView'
+  const envRuntimeView = model.getCurrentShowElement() === 'envRuntimeView'
+  const dedicatedView = otpView || sshView || envRuntimeView
+  const createSshKeyAction = createSection.actions.find((action) => action.id === 'pm-create-ssh-key')
+  const dedicatedTitle = envRuntimeView
+    ? envRuntimeI18n('title')
+    : i18n((sshView ? 'ssh:keys_view:title' : 'otp:quick_view:title') as never)
+  const dedicatedSubtitle = envRuntimeView
+    ? envRuntimeI18n('subtitle')
+    : i18n((sshView ? 'ssh:keys_view:subtitle' : 'otp:quick_view:subtitle') as never)
 
   return html`
-    ${otpView
+    ${dedicatedView
       ? html`
-          <span slot="title">${i18n('otp:quick_view:title' as never)}</span>
-          <span slot="subtitle">${i18n('otp:quick_view:subtitle' as never)}</span>
+          <span slot="title">${dedicatedTitle}</span>
+          <span slot="subtitle">${dedicatedSubtitle}</span>
         `
       : renderToolbarPrimaryRow(createSection, model, onToolbarButtonClick)}
-    ${otpView ? renderOtpToolbarSearch(model) : renderToolbarControlsRow()}
+    ${otpView ? renderOtpToolbarSearch(model) : dedicatedView ? nothing : renderToolbarControlsRow()}
     <div slot="actions" class="toolbar-side toolbar-side-end">
+      ${sshView && createSshKeyAction
+        ? renderToolbarButton(createSshKeyAction, onToolbarButtonClick)
+        : nothing}
       ${renderActionsMenu([vaultSection], onActionsMenuInput)}
     </div>
   `

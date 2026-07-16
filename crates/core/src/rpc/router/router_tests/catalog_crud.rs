@@ -204,3 +204,238 @@ fn test_catalog_source_revision_metadata_and_upload_bump() {
         .expect("source revision");
     assert_eq!(renamed_revision, second_revision);
 }
+
+#[test]
+fn test_catalog_list_item_includes_source_revision() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_test_router(&mut router);
+
+    let (_node_id, source_revision) =
+        prepare_test_file_with_chunk_size(&mut router, "notes.txt", b"hello", 4);
+
+    let response = router.handle(&RpcRequest::new(
+        "catalog:list",
+        serde_json::json!({"path": "/"}),
+    ));
+    let items = response
+        .result()
+        .unwrap()
+        .get("items")
+        .and_then(|value| value.as_array())
+        .expect("items");
+
+    assert_eq!(
+        items[0]
+            .get("source_revision")
+            .and_then(|value| value.as_u64()),
+        Some(source_revision)
+    );
+}
+
+#[test]
+fn test_catalog_trash_list_restore_and_empty() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_test_router(&mut router);
+
+    let (node_id, source_revision) =
+        prepare_test_file_with_chunk_size(&mut router, "report.txt", b"hello", 4);
+
+    let trash = router.handle(&RpcRequest::new(
+        "catalog:trash",
+        serde_json::json!({"node_id": node_id}),
+    ));
+    assert!(trash.is_ok());
+    assert_eq!(
+        trash
+            .result()
+            .unwrap()
+            .get("original_path")
+            .and_then(|value| value.as_str()),
+        Some("/report.txt")
+    );
+
+    let root_list = router.handle(&RpcRequest::new(
+        "catalog:list",
+        serde_json::json!({"path": "/"}),
+    ));
+    assert!(root_list
+        .result()
+        .unwrap()
+        .get("items")
+        .and_then(|value| value.as_array())
+        .expect("items")
+        .is_empty());
+
+    let generic_trash_list = router.handle(&RpcRequest::new(
+        "catalog:list",
+        serde_json::json!({"path": "/.trash"}),
+    ));
+    assert!(!generic_trash_list.is_ok());
+    assert_eq!(generic_trash_list.code(), Some("ACCESS_DENIED"));
+
+    let trash_list = router.handle(&RpcRequest::new(
+        "catalog:trash:list",
+        serde_json::json!({}),
+    ));
+    let trash_items = trash_list
+        .result()
+        .unwrap()
+        .get("items")
+        .and_then(|value| value.as_array())
+        .expect("trash items");
+    assert_eq!(trash_items.len(), 1);
+    assert_eq!(
+        trash_items[0].get("name").and_then(|value| value.as_str()),
+        Some("report.txt")
+    );
+    assert_eq!(
+        trash_items[0]
+            .get("source_revision")
+            .and_then(|value| value.as_u64()),
+        Some(source_revision)
+    );
+
+    let restore = router.handle(&RpcRequest::new(
+        "catalog:trash:restore",
+        serde_json::json!({"node_id": node_id}),
+    ));
+    assert!(restore.is_ok());
+    assert_eq!(
+        restore
+            .result()
+            .unwrap()
+            .get("restored_path")
+            .and_then(|value| value.as_str()),
+        Some("/report.txt")
+    );
+
+    router.handle(&RpcRequest::new(
+        "catalog:trash",
+        serde_json::json!({"node_id": node_id}),
+    ));
+    let empty = router.handle(&RpcRequest::new(
+        "catalog:trash:empty",
+        serde_json::json!({}),
+    ));
+    assert!(empty.is_ok());
+    assert_eq!(
+        empty
+            .result()
+            .unwrap()
+            .get("removed")
+            .and_then(|value| value.as_u64()),
+        Some(1)
+    );
+    assert!(router
+        .handle(&RpcRequest::new(
+            "catalog:trash:list",
+            serde_json::json!({})
+        ))
+        .result()
+        .unwrap()
+        .get("items")
+        .and_then(|value| value.as_array())
+        .expect("trash items")
+        .is_empty());
+}
+
+#[test]
+fn test_catalog_trash_restore_conflict_is_reversible() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_test_router(&mut router);
+
+    let (node_id, _source_revision) =
+        prepare_test_file_with_chunk_size(&mut router, "report.txt", b"hello", 4);
+    router.handle(&RpcRequest::new(
+        "catalog:trash",
+        serde_json::json!({"node_id": node_id}),
+    ));
+    prepare_test_file_with_chunk_size(&mut router, "report.txt", b"new", 4);
+
+    let restore = router.handle(&RpcRequest::new(
+        "catalog:trash:restore",
+        serde_json::json!({"node_id": node_id}),
+    ));
+
+    assert!(!restore.is_ok());
+    assert_eq!(restore.code(), Some("NAME_EXIST"));
+    let trash_list = router.handle(&RpcRequest::new(
+        "catalog:trash:list",
+        serde_json::json!({}),
+    ));
+    assert_eq!(
+        trash_list
+            .result()
+            .unwrap()
+            .get("items")
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(1)
+    );
+}
+
+#[test]
+fn test_catalog_exchange_swaps_nodes_atomically() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_test_router(&mut router);
+
+    router.handle(&RpcRequest::new(
+        "catalog:createDir",
+        serde_json::json!({"name": "left"}),
+    ));
+    router.handle(&RpcRequest::new(
+        "catalog:createDir",
+        serde_json::json!({"name": "right"}),
+    ));
+    let left_id = upload_text_file_to(&mut router, "/left", "a.txt", b"a");
+    let right_id = upload_text_file_to(&mut router, "/right", "b.txt", b"b");
+
+    let exchange = router.handle(&RpcRequest::new(
+        "catalog:exchange",
+        serde_json::json!({
+            "src_node_id": left_id,
+            "dst_node_id": right_id,
+        }),
+    ));
+    assert!(exchange.is_ok());
+
+    let session = router.session().expect("session");
+    assert_eq!(
+        session.catalog().get_path(left_id).as_deref(),
+        Some("/right/b.txt")
+    );
+    assert_eq!(
+        session.catalog().get_path(right_id).as_deref(),
+        Some("/left/a.txt")
+    );
+    assert!(session
+        .catalog()
+        .find_by_path("/.chromvoid-swap-left")
+        .is_none());
+}
+
+fn upload_text_file_to(router: &mut RpcRouter, parent_path: &str, name: &str, bytes: &[u8]) -> u64 {
+    let reply = router.handle_with_stream(
+        &RpcRequest::new(
+            "catalog:upload",
+            serde_json::json!({
+                "parent_path": parent_path,
+                "name": name,
+                "total_size": bytes.len(),
+                "size": bytes.len(),
+                "offset": 0,
+                "mime_type": "text/plain",
+            }),
+        ),
+        Some(RpcInputStream::from_bytes(bytes.to_vec())),
+    );
+    let RpcReply::Json(response) = reply else {
+        panic!("catalog upload should return JSON");
+    };
+    response
+        .result()
+        .unwrap()
+        .get("node_id")
+        .and_then(|value| value.as_u64())
+        .expect("node id")
+}

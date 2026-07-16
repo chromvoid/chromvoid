@@ -9,6 +9,7 @@ fn passkey_create_request() -> serde_json::Value {
     serde_json::json!({
         "platform": "android",
         "platform_version_major": 34,
+        "userVerified": true,
         "origin": "https://github.com",
         "request": {
             "rp": {
@@ -33,6 +34,7 @@ fn passkey_get_request(credential_id: &str) -> serde_json::Value {
     serde_json::json!({
         "platform": "android",
         "platform_version_major": 34,
+        "userVerified": true,
         "credentialIdB64Url": credential_id,
         "origin": "https://github.com",
         "request": {
@@ -76,6 +78,18 @@ fn response_client_data_json(response: &RpcResponse) -> String {
 
 fn client_data_hash(byte: u8) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([byte; 32])
+}
+
+fn authenticator_data_flag(response: &RpcResponse) -> u8 {
+    let encoded = response
+        .result()
+        .and_then(|result| result.pointer("/response/authenticatorData"))
+        .and_then(|v| v.as_str())
+        .expect("authenticatorData");
+    let auth_data = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(encoded)
+        .expect("auth data b64url");
+    auth_data[32]
 }
 
 fn second_passkey_create_request() -> serde_json::Value {
@@ -557,6 +571,112 @@ fn test_passkey_rp_id_suffix_boundary_validation() {
         boundary_reject,
     );
     assert_rpc_error(&rejected, "INVALID_CONTEXT");
+}
+
+#[test]
+fn test_passkey_rejects_public_suffix_rp_id() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_vault(&mut router, "test_password");
+
+    for rp_id in ["com", "co.uk"] {
+        let mut request = passkey_create_request();
+        request["origin"] = serde_json::json!("https://evil.com");
+        request["request"]["rp"]["id"] = serde_json::json!(rp_id);
+
+        let response = call(&mut router, "credential_provider:passkey:create", request);
+
+        assert_rpc_error(&response, "INVALID_CONTEXT");
+        assert_eq!(
+            response.error_message(),
+            Some("rp.id must be a registrable domain")
+        );
+    }
+}
+
+#[test]
+fn test_passkey_accepts_valid_parent_rp_id_for_subdomain_origin() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_vault(&mut router, "test_password");
+
+    let mut request = passkey_create_request();
+    request["origin"] = serde_json::json!("https://login.example.co.uk");
+    request["request"]["rp"]["id"] = serde_json::json!("example.co.uk");
+
+    let response = call(&mut router, "credential_provider:passkey:create", request);
+
+    assert_rpc_ok(&response);
+}
+
+#[test]
+fn test_passkey_rp_id_is_case_normalized() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_vault(&mut router, "test_password");
+
+    let mut create = passkey_create_request();
+    create["request"]["rp"]["id"] = serde_json::json!("GitHub.COM");
+    let created = call(&mut router, "credential_provider:passkey:create", create);
+    assert_rpc_ok(&created);
+    let credential_id = credential_id(&created);
+
+    let listed = call(&mut router, "passkeys:list", serde_json::json!({}));
+    assert_rpc_ok(&listed);
+    assert_eq!(
+        listed
+            .result()
+            .and_then(|result| result.get("passkeys"))
+            .and_then(|v| v.as_array())
+            .and_then(|passkeys| passkeys.first())
+            .and_then(|passkey| passkey.get("rpId"))
+            .and_then(|v| v.as_str()),
+        Some("github.com")
+    );
+
+    let mut get = passkey_get_request(&credential_id);
+    get["request"]["rpId"] = serde_json::json!("GITHUB.com");
+    let queried = call(
+        &mut router,
+        "credential_provider:passkey:query",
+        get.clone(),
+    );
+    assert_rpc_ok(&queried);
+    assert_eq!(
+        queried
+            .result()
+            .and_then(|result| result.get("passkeys"))
+            .and_then(|v| v.as_array())
+            .map(Vec::len),
+        Some(1)
+    );
+
+    let assertion = call(&mut router, "credential_provider:passkey:get", get);
+    assert_rpc_ok(&assertion);
+}
+
+#[test]
+fn test_passkey_user_verified_flag_reflects_provider_context() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_vault(&mut router, "test_password");
+
+    let mut create = passkey_create_request();
+    create["userVerified"] = serde_json::json!(false);
+    let created = call(&mut router, "credential_provider:passkey:create", create);
+    assert_rpc_ok(&created);
+    assert_eq!(
+        authenticator_data_flag(&created),
+        0x59,
+        "registration without verified user must advertise UP|BE|BS|AT"
+    );
+
+    let credential_id = credential_id(&created);
+    let mut get = passkey_get_request(&credential_id);
+    get["userVerified"] = serde_json::json!(false);
+    let assertion = call(&mut router, "credential_provider:passkey:get", get);
+    assert_rpc_ok(&assertion);
+    assert_eq!(
+        authenticator_data_flag(&assertion),
+        0x19,
+        "assertion without verified user must advertise UP|BE|BS"
+    );
 }
 
 #[test]

@@ -73,6 +73,36 @@ describe('CatalogService folder page loading', () => {
     expect(service.catalog.getFolderItems('/docs')[0]?.name).toBe('a.txt')
   })
 
+  it('deduplicates reentrant visible range requests from loading notifications', async () => {
+    const sendCatalog = vi.fn(async (command: string, data: Record<string, unknown>) => {
+      if (command === 'catalog:folder:batch') {
+        expect((data.pages as unknown[])).toHaveLength(1)
+        return {ok: true, result: {pages: [page('reentrant.txt')], truncated: false, warnings: []}}
+      }
+      throw new Error(`Unexpected command: ${command}`)
+    })
+    const service = new CatalogService(createTransport(sendCatalog))
+    const request = {path: '/docs', offset: 0, limit: 1}
+    let reentrantCalls = 0
+    const reentrantPromises: Array<Promise<void>> = []
+
+    const unsubscribe = service.catalog.subscribe(() => {
+      if (reentrantCalls > 0) {
+        return
+      }
+      reentrantCalls += 1
+      reentrantPromises.push(service.ensureFolderRangeLoaded(request))
+    })
+
+    await service.ensureFolderRangeLoaded(request)
+    await Promise.all(reentrantPromises)
+    unsubscribe()
+
+    expect(reentrantCalls).toBe(1)
+    expect(sendCatalog).toHaveBeenCalledTimes(1)
+    expect(service.catalog.getFolderItems('/docs')[0]?.name).toBe('reentrant.txt')
+  })
+
   it('does not apply a late folder batch after cancellation', async () => {
     let resolveBatch!: (value: unknown) => void
     const batch = new Promise((resolve) => {
@@ -92,5 +122,28 @@ describe('CatalogService folder page loading', () => {
 
     expect(service.catalog.getFolderItems('/docs')).toEqual([])
   })
-})
 
+  it('retries a visible range after a failed folder batch', async () => {
+    let attempts = 0
+    const sendCatalog = vi.fn(async (command: string) => {
+      if (command === 'catalog:folder:batch') {
+        attempts += 1
+        if (attempts === 1) {
+          throw new Error('temporary folder load failure')
+        }
+        return {ok: true, result: {pages: [page('retry.txt')], truncated: false, warnings: []}}
+      }
+      throw new Error(`Unexpected command: ${command}`)
+    })
+    const service = new CatalogService(createTransport(sendCatalog))
+    const request = {path: '/docs', offset: 0, limit: 1}
+
+    await expect(service.ensureFolderRangeLoaded(request)).rejects.toThrow(
+      'temporary folder load failure',
+    )
+    await service.ensureFolderRangeLoaded(request)
+
+    expect(sendCatalog).toHaveBeenCalledTimes(2)
+    expect(service.catalog.getFolderItems('/docs')[0]?.name).toBe('retry.txt')
+  })
+})

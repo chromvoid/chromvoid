@@ -7,7 +7,13 @@ import {
   normalizeSnapshot,
   snapshotsEqual,
 } from './navigation-snapshot'
-import type {HistoryMode, NavigationIntentKind, NavigationSnapshot} from './navigation.types'
+import type {
+  HistoryMode,
+  NavigationApplyContext,
+  NavigationApplyResult,
+  NavigationIntentKind,
+  NavigationSnapshot,
+} from './navigation.types'
 
 type HistoryState = {
   __chromvoidNavIndex: number
@@ -27,7 +33,8 @@ type NavigationHistoryRuntimeOptions = {
     historyMode: HistoryMode,
     intentKind?: NavigationIntentKind,
     resumeEffect?: () => void,
-  ) => boolean
+    context?: NavigationApplyContext,
+  ) => NavigationApplyResult
   consumeCurrentSurfaceBack: () => boolean
 }
 
@@ -78,7 +85,7 @@ export class NavigationHistoryRuntime {
     this.historyIndex = 0
     this.pendingHistoryRestore = null
     this.historySnapshots.clear()
-    this.options.applySnapshot(snapshot, 'replace')
+    this.options.applySnapshot(snapshot, 'replace', undefined, undefined, {motion: 'none'})
   }
 
   hasBrowserHistoryEntry(): boolean {
@@ -176,16 +183,28 @@ export class NavigationHistoryRuntime {
       state: event.state,
       decoded: describeSnapshot(decoded),
     })
-    const applied = this.options.applySnapshot(decoded, 'none', 'history-pop', () => {
-      this.resumeBlockedPopState(targetIndex, decoded)
-    })
-    if (!applied) {
+    const historyDelta = targetIndex - this.historyIndex
+    const result = this.options.applySnapshot(
+      decoded,
+      'none',
+      'history-pop',
+      () => this.resumeBlockedPopState(targetIndex, decoded),
+      {historyDelta},
+    )
+    if (!result.accepted) {
       this.restoreTraversedHistoryEntry(targetIndex, '[NavigationModel] handlePopState blocked by navigation blocker')
       return
     }
 
-    this.historyIndex = targetIndex
-    this.recordHistorySnapshot(this.historyIndex, this.options.getSnapshot())
+    const finalizeHistoryTraversal = () => {
+      this.historyIndex = targetIndex
+      this.recordHistorySnapshot(this.historyIndex, this.options.getSnapshot())
+    }
+    if (result.synchronous) {
+      finalizeHistoryTraversal()
+    } else {
+      void result.committed.then(finalizeHistoryTraversal)
+    }
   }
 
   private resumeBlockedPopState(targetIndex: number, decoded: NavigationSnapshot): void {

@@ -9,6 +9,10 @@ import type {Store} from '../state/store'
 import type {TransportLike} from '../../core/transport/transport'
 import {writeAndroidUnlockDebug} from '../../shared/services/android-unlock-debug'
 import {purgePreparedFileSources} from '../../features/media/components/file-loader'
+import {
+  resumeFileThumbnailCache,
+  suspendFileThumbnailCache,
+} from '../../features/file-manager/models/file-thumbnail-cache.model'
 import {releaseMediaSourcesForAppBackground} from '../../features/media/models/media-lifecycle'
 import {mediaPlaybackModel} from '../../features/media/models/media-playback.model'
 import {redactAndroidNativeSessionId} from '../../features/media/models/android-media3-playback-driver'
@@ -33,6 +37,7 @@ type RpcResult<T> =
 export const setupMobileLifecycle = (ws: TransportLike, store: Store) => {
   let backgroundNotifyInFlight = false
   let foregroundNotifyInFlight = false
+  let previewCachePurgeInFlight: Promise<void> | null = null
   let externalActivityDepth = 0
   let externalActivityDeadline = 0
   let externalActivitySuppressedHidden = false
@@ -147,9 +152,17 @@ export const setupMobileLifecycle = (ws: TransportLike, store: Store) => {
         return
       }
       biometricAppGateModel.handleBackground()
-      void purgePreparedFileSources('background').catch((error) => {
-        console.warn('[dashboard][preview-cache] background purge failed', error)
-      })
+      suspendFileThumbnailCache()
+      const previewCachePurge = purgePreparedFileSources('background')
+        .catch((error) => {
+          console.warn('[dashboard][preview-cache] background purge failed', error)
+        })
+        .finally(() => {
+          if (previewCachePurgeInFlight === previewCachePurge) {
+            previewCachePurgeInFlight = null
+          }
+        })
+      previewCachePurgeInFlight = previewCachePurge
       const preserveAudioSession = shouldPreserveAudioOnBackground()
       writeAndroidUnlockDebug('lifecycle', 'background:media-release', {
         preserveAudioSession,
@@ -190,6 +203,14 @@ export const setupMobileLifecycle = (ws: TransportLike, store: Store) => {
         if (stillSuppressed) {
           return
         }
+      }
+      const pendingPurge = previewCachePurgeInFlight
+      if (pendingPurge) {
+        void pendingPurge.finally(() => {
+          if (!surfaceHidden) resumeFileThumbnailCache()
+        })
+      } else {
+        resumeFileThumbnailCache()
       }
       notifyForeground()
       biometricAppGateModel.handleForegroundResume()

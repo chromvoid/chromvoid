@@ -177,7 +177,7 @@ export class ImagePreviewModel {
     this.retryCount++
     const delay = 1000 * this.retryCount
     this.clearRetryTimer()
-    this.retryTimer = setTimeout(() => {
+    this.retryTimer = setTimeout(wrap(() => {
       this.retryTimer = null
       if (!this.isCurrentSession(sessionId)) {
         return
@@ -185,15 +185,15 @@ export class ImagePreviewModel {
 
       const nextSessionId = this.beginLoadAttempt({resetRetryCount: false})
       void this.loadImageForSession(nextSessionId)
-    }, delay)
+    }), delay)
   }
 
   private scheduleLoadImage() {
     this.clearLoadTimer()
-    this.loadTimer = setTimeout(() => {
+    this.loadTimer = setTimeout(wrap(() => {
       this.loadTimer = null
       void this.loadImage()
-    }, IMAGE_PREVIEW_LOAD_DEBOUNCE_MS)
+    }), IMAGE_PREVIEW_LOAD_DEBOUNCE_MS)
   }
 
   private beginLoadAttempt(options: {resetRetryCount: boolean}): number {

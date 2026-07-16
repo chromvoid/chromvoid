@@ -1,18 +1,12 @@
-import {atom, wrap} from '@reatom/core'
+import {atom, computed, wrap} from '@reatom/core'
 
 import {tryGetAppContext} from 'root/shared/services/app-context'
-import type {ViewMode} from 'root/shared/contracts/file-manager'
-import type {FileItemData} from 'root/shared/contracts/file-manager'
-import {isAudioFile, resolveFileFormat} from 'root/utils/file-format-registry'
-import {isDerivativeUnavailableError} from 'root/features/media/components/file-loader'
+import type {FileItemData, ViewMode} from 'root/shared/contracts/file-manager'
 import {
-  acquireFileThumbnail,
+  fileThumbnailStore,
   getFileThumbnailKey,
-  invalidateFileThumbnail,
-  peekFileThumbnail,
-  releaseFileThumbnail,
-  type FileThumbnailHandle,
-  type FileThumbnailAcquireOptions,
+  isFileThumbnailCandidate,
+  type FileThumbnailLease,
 } from './file-thumbnail-cache.model'
 
 export type SwipeState = 'idle' | 'tracking' | 'open-left' | 'open-right'
@@ -33,19 +27,20 @@ export class FileItemModel {
   readonly isTouchDragging = atom(false)
   readonly swipeOffsetX = atom(0)
   readonly swipeState = atom<SwipeState>('idle')
-  readonly thumbnailUrl = atom<string | null>(null)
+  private readonly thumbnailKey = atom('', 'file.item.thumbnailKey')
+  readonly thumbnailUrl = computed(
+    () => fileThumbnailStore.read(this.thumbnailKey()).url,
+    'file.item.thumbnailUrl',
+  )
 
   private longPressTimer?: ReturnType<typeof setTimeout>
   private swipeStartX = 0
   private swipeStartY = 0
   private swipeBaseOffset = 0
   private swipeDirection: SwipeDirection = null
-  private thumbnailAbortController: AbortController | null = null
-  private thumbnailHandle: FileThumbnailHandle | null = null
   private thumbnailTargetItem: FileItemData | null = null
+  private thumbnailLease: FileThumbnailLease | null = null
   private thumbnailRenderRecoveryAttempted = false
-  private thumbnailToken = 0
-  private thumbnailTargetKey = ''
 
   static readonly SWIPE_ACTION_WIDTH = 64
   static readonly SWIPE_SNAP_THRESHOLD = 28
@@ -67,12 +62,14 @@ export class FileItemModel {
 
   setThumbnailTarget(item: FileItemData | undefined, viewMode: ViewMode) {
     const nextKey = item && this.shouldLoadThumbnail(item, viewMode) ? getFileThumbnailKey(item) : ''
-    if (this.thumbnailTargetKey === nextKey) {
+    if (this.thumbnailKey() === nextKey) {
+      if (item && nextKey) void fileThumbnailStore.ensure(item)
       return
     }
 
-    this.clearThumbnail()
-    this.thumbnailTargetKey = nextKey
+    if (this.thumbnailLease) fileThumbnailStore.release(this.thumbnailLease)
+    this.thumbnailLease = null
+    this.thumbnailKey.set('')
     this.thumbnailTargetItem = item ?? null
     this.thumbnailRenderRecoveryAttempted = false
 
@@ -84,42 +81,29 @@ export class FileItemModel {
       return
     }
 
-    const cached = peekFileThumbnail(item)
-    if (cached?.status === 'loaded') {
-      this.thumbnailUrl.set(cached.url)
-    }
-    if (cached?.status === 'failed') {
-      return
-    }
-
-    const controller = new AbortController()
-    this.thumbnailAbortController = controller
-    const token = ++this.thumbnailToken
-
-    void this.loadThumbnail(item, controller, token, nextKey)
+    this.thumbnailLease = fileThumbnailStore.retain(item)
+    this.thumbnailKey.set(this.thumbnailLease.key)
+    void fileThumbnailStore.ensure(item)
   }
 
   handleThumbnailRenderError(sourceUrl: string | null) {
     const item = this.thumbnailTargetItem
-    const targetKey = this.thumbnailTargetKey
+    const targetKey = this.thumbnailKey()
     if (!sourceUrl || this.thumbnailUrl() !== sourceUrl || !item || !targetKey) {
       return
     }
 
-    invalidateFileThumbnail(item, sourceUrl)
-    this.clearThumbnail()
-    this.thumbnailTargetKey = targetKey
-    this.thumbnailTargetItem = item
+    fileThumbnailStore.invalidate(item, sourceUrl)
 
     if (this.thumbnailRenderRecoveryAttempted || !tryGetAppContext()) {
       return
     }
 
     this.thumbnailRenderRecoveryAttempted = true
-    const controller = new AbortController()
-    this.thumbnailAbortController = controller
-    const token = ++this.thumbnailToken
-    void this.loadThumbnail(item, controller, token, targetKey, 'skip')
+    void fileThumbnailStore.ensure(item, {
+      displayJobIntentId: `file-item-thumbnail:${targetKey}:blob-retry`,
+      preparedSourcePolicy: 'skip',
+    })
   }
 
   clearLongPressTimer() {
@@ -144,10 +128,13 @@ export class FileItemModel {
       return
     }
 
-    this.longPressTimer = setTimeout(() => {
-      this.longPressTimer = undefined
-      onLongPress(event)
-    }, FileItemModel.LONG_PRESS_DELAY_MS)
+    this.longPressTimer = setTimeout(
+      wrap(() => {
+        this.longPressTimer = undefined
+        onLongPress(event)
+      }),
+      FileItemModel.LONG_PRESS_DELAY_MS,
+    )
   }
 
   onTouchMove(event: TouchEvent, viewMode: ViewMode): SwipeMoveResult | null {
@@ -171,7 +158,10 @@ export class FileItemModel {
       }
     }
 
-    if (this.longPressTimer && (absDx > FileItemModel.SWIPE_MOVE_GUARD || absDy > FileItemModel.SWIPE_MOVE_GUARD)) {
+    if (
+      this.longPressTimer &&
+      (absDx > FileItemModel.SWIPE_MOVE_GUARD || absDy > FileItemModel.SWIPE_MOVE_GUARD)
+    ) {
       this.clearLongPressTimer()
     }
 
@@ -227,8 +217,9 @@ export class FileItemModel {
 
   dispose() {
     this.clearLongPressTimer()
-    this.clearThumbnail()
-    this.thumbnailTargetKey = ''
+    if (this.thumbnailLease) fileThumbnailStore.release(this.thumbnailLease)
+    this.thumbnailLease = null
+    this.thumbnailKey.set('')
     this.thumbnailTargetItem = null
     this.thumbnailRenderRecoveryAttempted = false
     this.closeSwipe()
@@ -238,76 +229,8 @@ export class FileItemModel {
     this.swipeDirection = null
   }
 
-  private async loadThumbnail(
-    item: FileItemData,
-    controller: AbortController,
-    token: number,
-    targetKey: string,
-    preparedSourcePolicy: FileThumbnailAcquireOptions['preparedSourcePolicy'] = 'auto',
-  ) {
-    try {
-      const handle = await wrap(
-        acquireFileThumbnail(item, {
-          signal: controller.signal,
-          displayJobIntentId:
-            preparedSourcePolicy === 'skip'
-              ? `file-item-thumbnail:${targetKey}:blob-retry`
-              : `file-item-thumbnail:${targetKey}`,
-          preparedSourcePolicy,
-        }),
-      )
-
-      if (
-        controller.signal.aborted ||
-        token !== this.thumbnailToken ||
-        this.thumbnailTargetKey !== targetKey
-      ) {
-        releaseFileThumbnail(handle)
-        return
-      }
-
-      this.releaseThumbnailHandle()
-      this.thumbnailHandle = handle
-      this.thumbnailUrl.set(handle.url)
-    } catch (error) {
-      if (
-        !(error instanceof DOMException && error.name === 'AbortError') &&
-        !isDerivativeUnavailableError(error)
-      ) {
-        console.warn('Failed to load file item thumbnail', error)
-      }
-    } finally {
-      if (this.thumbnailAbortController === controller) {
-        this.thumbnailAbortController = null
-      }
-    }
-  }
-
-  private clearThumbnail() {
-    this.thumbnailAbortController?.abort()
-    this.thumbnailAbortController = null
-    this.thumbnailToken++
-
-    this.releaseThumbnailHandle()
-    this.thumbnailUrl.set(null)
-  }
-
-  private releaseThumbnailHandle() {
-    const handle = this.thumbnailHandle
-    if (!handle) {
-      return
-    }
-
-    this.thumbnailHandle = null
-    releaseFileThumbnail(handle)
-  }
-
   private shouldLoadThumbnail(item: FileItemData, viewMode: ViewMode): boolean {
-    if (item.isDir) return false
     if (viewMode !== 'list' && viewMode !== 'grid') return false
-    return (
-      resolveFileFormat(item).openBehavior.kind === 'gallery' ||
-      isAudioFile(item.name, item.mimeType)
-    )
+    return isFileThumbnailCandidate(item)
   }
 }

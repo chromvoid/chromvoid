@@ -68,7 +68,7 @@ class ChromVoidCredentialProviderService : CredentialProviderService() {
             if (cancellationSignal.isCanceled) {
                 return
             }
-            when (val outcome = passkeyQueryHandler.addEntries(builder, option)) {
+            when (val outcome = passkeyQueryHandler.addEntries(builder, request, option)) {
                 is PasskeyQueryOutcome.EntriesAdded -> {
                     addedEntries += outcome.count
                 }

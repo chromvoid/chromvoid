@@ -1,4 +1,5 @@
 import {isStartupContentReady, STARTUP_CONTENT_READY_EVENT} from '../bootstrap/startup-readiness'
+import {markStartupSplashActive, markStartupSplashReleased} from '../bootstrap/startup-splash'
 import {markStartupTimeline} from '../bootstrap/startup-timeline'
 
 const DEFAULT_MIN_VISIBLE_MS = 1_600
@@ -76,6 +77,7 @@ class BrowserSplashLogoController implements SplashLogoController {
     this.root.dataset['splashState'] = 'visible'
     this.root.dataset['splashMode'] = this.nativeSplash ? 'native' : 'web'
     this.root.dataset['splashMotion'] = this.reducedMotion ? 'reduced' : 'active'
+    markStartupSplashActive(this.nativeSplash ? 'native-bridge' : 'web')
     markStartupTimeline('web.splash.controller-created', {
       contentReadyTimeoutMs: this.contentReadyTimeoutMs,
       minVisibleMs: this.minVisibleMs,
@@ -224,7 +226,7 @@ class BrowserSplashLogoController implements SplashLogoController {
       console.warn('[splash] native splash bridge failed:', error)
     }
 
-    void notifyTauriSplashReady()
+    void notifyTauriSplashReady().finally(() => markStartupSplashReleased())
   }
 }
 

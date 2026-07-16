@@ -11,9 +11,7 @@
 
 mod common;
 
-use common::{
-    catalog_download, catalog_find_child, catalog_list, deterministic_bytes, sha256_hex, TestVault,
-};
+use common::{catalog_download, catalog_find_child, deterministic_bytes, sha256_hex, TestVault};
 use std::io::Write as _;
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::Path;
@@ -154,17 +152,12 @@ async fn fuse_rw_matrix() {
     let patch_path = sub.join("patch.bin");
     let mut patch = deterministic_bytes(0xDEAD_BEEF, 64 * 1024);
     std::fs::write(&patch_path, &patch).expect("write patch.bin");
-    let closed_truncate =
-        truncate_without_open(&patch_path, 128).expect_err("closed truncate must fail");
+    truncate_without_open(&patch_path, 128).expect("closed truncate");
+    patch.truncate(128);
     assert_eq!(
-        closed_truncate.raw_os_error(),
-        Some(libc::EOPNOTSUPP),
-        "closed truncate must fail instead of reporting unsafe success"
-    );
-    assert_eq!(
-        sha256_hex(&std::fs::read(&patch_path).expect("read after failed closed truncate")),
+        sha256_hex(&std::fs::read(&patch_path).expect("read after closed truncate")),
         sha256_hex(&patch),
-        "failed closed truncate must preserve content"
+        "closed truncate must persist truncated content"
     );
     {
         use std::io::{Seek, SeekFrom, Write};
@@ -312,36 +305,7 @@ async fn fuse_rw_matrix() {
     tokio::time::sleep(Duration::from_millis(250)).await;
 
     let moved_old = mountpoint.join("docs/moved.bin");
-    {
-        // Diagnostics for the "empty read after remount" bug.
-        // On macOS/macFUSE, if kernel sees st_size==0 it may return EOF without calling read().
-        let exists = moved_old.exists();
-        let meta = std::fs::metadata(&moved_old).expect("stat moved.bin after remount");
-
-        println!(
-            "DEBUG moved.bin after remount: exists={exists} is_file={} len={} ",
-            meta.is_file(),
-            meta.len()
-        );
-        if let Ok(entries) = std::fs::read_dir(mountpoint.join("docs")) {
-            let mut names: Vec<String> = entries
-                .filter_map(|e| e.ok())
-                .map(|e| e.file_name().to_string_lossy().to_string())
-                .collect();
-            names.sort();
-            println!("DEBUG /docs entries after remount: {names:?}");
-        }
-
-        let docs_list = catalog_list(&vault.adapter, Some("/docs"));
-        let moved_item = docs_list.items.iter().find(|it| it.name == "moved.bin");
-        println!("DEBUG core catalog:list /docs moved.bin: {moved_item:?}");
-    }
-
     let got_moved = std::fs::read(&moved_old).expect("read moved.bin after remount");
-    println!(
-        "DEBUG moved.bin read bytes: len={} bytes={got_moved:?}",
-        got_moved.len()
-    );
     assert_eq!(got_moved, b"short");
 
     // Read back the largest file to catch "old files half not readable" issues.

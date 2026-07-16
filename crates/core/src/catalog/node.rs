@@ -67,6 +67,10 @@ pub struct CatalogNode {
     #[serde(rename = "l", skip_serializing_if = "Option::is_none")]
     pub link_to: Option<String>,
 
+    /// Reversible Trash metadata for nodes moved into the hidden Trash shard.
+    #[serde(rename = "x", skip_serializing_if = "Option::is_none")]
+    pub trash: Option<CatalogTrashMetadata>,
+
     /// Children nodes (for directories)
     #[serde(rename = "c", skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<CatalogNode>>,
@@ -89,6 +93,7 @@ impl CatalogNode {
             media_inspected_revision: 0,
             source_revision: 0,
             link_to: None,
+            trash: None,
             children: Some(Vec::new()),
         }
     }
@@ -109,6 +114,7 @@ impl CatalogNode {
             media_inspected_revision: 0,
             source_revision: 0,
             link_to: None,
+            trash: None,
             children: Some(Vec::new()),
         }
     }
@@ -129,6 +135,7 @@ impl CatalogNode {
             media_inspected_revision: 0,
             source_revision: next_source_revision(0),
             link_to: None,
+            trash: None,
             children: None,
         }
     }
@@ -238,6 +245,20 @@ impl CatalogNode {
     }
 }
 
+/// Reversible Trash metadata stored compactly on trashed catalog nodes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+pub struct CatalogTrashMetadata {
+    #[serde(rename = "p")]
+    pub original_path: String,
+    #[serde(rename = "d")]
+    #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
+    pub deleted_at: u64,
+    #[serde(rename = "n")]
+    pub trash_name: String,
+}
+
 /// Catalog-backed media classification.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
@@ -261,6 +282,57 @@ pub struct CatalogMediaInfo {
     pub video_tracks: u16,
     #[serde(rename = "m", skip_serializing_if = "Option::is_none")]
     pub playback_mime_type: Option<String>,
+    #[serde(rename = "c", default, skip_serializing_if = "Option::is_none")]
+    pub codec_string: Option<String>,
+    #[serde(rename = "f", default, skip_serializing_if = "Option::is_none")]
+    pub mse_fragmented: Option<bool>,
+    #[serde(rename = "s", default, skip_serializing_if = "Option::is_none")]
+    pub streaming_metadata: Option<CatalogMediaStreamingMetadata>,
+}
+
+/// Optional streamability and startup-budget metadata for media playback.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+pub struct CatalogMediaStreamingMetadata {
+    #[serde(rename = "d", default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    #[serde(rename = "b", default, skip_serializing_if = "Option::is_none")]
+    pub bitrate_bps: Option<u64>,
+    #[serde(rename = "w", default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(rename = "h", default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    #[serde(rename = "p", default, skip_serializing_if = "Option::is_none")]
+    pub fps_millis: Option<u32>,
+    #[serde(rename = "o", default, skip_serializing_if = "Option::is_none")]
+    pub moov_at_start: Option<bool>,
+    #[serde(rename = "i", default, skip_serializing_if = "Option::is_none")]
+    pub init_segment: Option<CatalogMediaByteRange>,
+    #[serde(rename = "g", default, skip_serializing_if = "Option::is_none")]
+    pub media_segments: Option<Vec<CatalogMediaSegmentRange>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+pub struct CatalogMediaByteRange {
+    #[serde(rename = "o")]
+    pub offset: u64,
+    #[serde(rename = "l")]
+    pub length: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+pub struct CatalogMediaSegmentRange {
+    #[serde(rename = "o")]
+    pub offset: u64,
+    #[serde(rename = "l")]
+    pub length: u64,
+    #[serde(rename = "t")]
+    pub timestamp_us: u64,
 }
 
 /// Get current timestamp in milliseconds

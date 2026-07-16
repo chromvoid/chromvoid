@@ -1,9 +1,9 @@
 import {atom} from '@reatom/core'
 
 import {navigationModel} from 'root/app/navigation/navigation.model'
+import type {RemoteSessionState} from 'root/app/state/store'
 import {moduleAccessModel, type ModuleAccessState} from 'root/core/pro/module-access.model'
 import {keyboardShortcutsModel} from 'root/shared/keyboard'
-import {openCommandPalette} from 'root/shared/services/command-palette'
 import {getAppContext} from 'root/shared/services/app-context'
 import {lockVaultFromUi} from 'root/shared/services/vault-lock'
 import {supportsCredentialProviderPasskeysRuntime} from 'root/routes/passkeys/passkeys.model'
@@ -47,6 +47,10 @@ class NavigationRailModel {
     return supportsCredentialProviderPasskeysRuntime()
   }
 
+  supportsWallet(): boolean {
+    return moduleAccessModel.isSurfaceVisible('wallet')
+  }
+
   storageAccess(): ModuleAccessState {
     return moduleAccessModel.featureAccess('mounted-vault')
   }
@@ -59,16 +63,21 @@ class NavigationRailModel {
     return moduleAccessModel.featureAccess('browser-extension')
   }
 
+  walletAccess(): ModuleAccessState {
+    return moduleAccessModel.featureAccess('crypto-wallet')
+  }
+
   isLocked(access: ModuleAccessState): boolean {
     return access.status !== 'enabled'
   }
 
-  commandPaletteShortcutLabel(): string | undefined {
-    return keyboardShortcutsModel.label('app.commandPalette.open')
-  }
-
   vaultLockShortcutLabel(): string | undefined {
     return keyboardShortcutsModel.label('app.vault.lock')
+  }
+
+  vaultLockActionLabelKey(): 'navigation:lock' | 'button:disconnect' {
+    if (this.isDesktopRemoteSession()) return 'button:disconnect'
+    return 'navigation:lock'
   }
 
   isVaultLockPending(): boolean {
@@ -86,7 +95,11 @@ class NavigationRailModel {
 
   isPasswordsActive(): boolean {
     const snapshot = navigationModel.snapshot()
-    return snapshot.surface === 'passwords' && snapshot.passwords?.kind !== 'otp-view'
+    return (
+      snapshot.surface === 'passwords' &&
+      snapshot.passwords?.kind !== 'otp-view' &&
+      (!this.isMobileLayout() || snapshot.passwords?.kind !== 'ssh-view')
+    )
   }
 
   isOtpActive(): boolean {
@@ -94,8 +107,19 @@ class NavigationRailModel {
     return snapshot.surface === 'passwords' && snapshot.passwords?.kind === 'otp-view'
   }
 
+  isSshKeysActive(): boolean {
+    const snapshot = navigationModel.snapshot()
+    return (
+      this.isMobileLayout() && snapshot.surface === 'passwords' && snapshot.passwords?.kind === 'ssh-view'
+    )
+  }
+
   isPasskeysActive(): boolean {
     return this.currentSurface() === 'passkeys'
+  }
+
+  isWalletActive(): boolean {
+    return this.currentSurface() === 'wallet'
   }
 
   isStorageActive(): boolean {
@@ -126,11 +150,6 @@ class NavigationRailModel {
     getAppContext().store.switchTheme()
   }
 
-  openCommandPalette(): void {
-    openCommandPalette({mode: 'all', source: 'rail'})
-    this.closeSidebarOnMobile()
-  }
-
   openFiles(): void {
     navigationModel.navigateToSurface('files')
     this.closeSidebarOnMobile()
@@ -151,9 +170,20 @@ class NavigationRailModel {
     this.closeSidebarOnMobile()
   }
 
+  openSshKeys(): void {
+    navigationModel.openPassmanagerRoute({kind: 'ssh-view'})
+    this.closeSidebarOnMobile()
+  }
+
   openPasskeys(): void {
     if (!this.supportsPasskeys()) return
     navigationModel.navigateToSurface('passkeys')
+    this.closeSidebarOnMobile()
+  }
+
+  openWallet(): void {
+    if (!this.supportsWallet()) return
+    navigationModel.navigateToSurface('wallet')
     this.closeSidebarOnMobile()
   }
 
@@ -191,6 +221,13 @@ class NavigationRailModel {
     if (store.layoutMode() === 'mobile' && store.sidebarOpen()) {
       store.setSidebarOpen(false)
     }
+  }
+
+  private isDesktopRemoteSession(): boolean {
+    if (this.isMobileLayout()) return false
+    const remoteSessionState = (getAppContext().store as {remoteSessionState?: () => RemoteSessionState})
+      .remoteSessionState
+    return typeof remoteSessionState === 'function' && remoteSessionState() !== 'inactive'
   }
 
   isMobileLayout(): boolean {

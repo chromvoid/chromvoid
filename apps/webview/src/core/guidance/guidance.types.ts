@@ -1,7 +1,7 @@
 import type {Routes} from 'root/app/router/router'
 import type {ModuleAccessStatus, ProFeatureKey} from 'root/core/pro/module-access.model'
 import type {RuntimeCapabilityKey} from 'root/core/runtime/runtime-capabilities'
-import type i18nData from 'root/i18n/data.json'
+import type en from 'root/i18n/locales/en.json'
 
 import type {
   GUIDANCE_PLATFORM_IDS,
@@ -14,7 +14,7 @@ export type GuidanceSurfaceId = (typeof GUIDANCE_SURFACE_IDS)[number]
 export type GuidanceTrigger = (typeof GUIDANCE_TRIGGER_IDS)[number]
 export type GuidancePresentation = (typeof GUIDANCE_PRESENTATION_IDS)[number]
 export type GuidancePlatform = (typeof GUIDANCE_PLATFORM_IDS)[number]
-export type GuidanceI18nKey = keyof typeof i18nData
+export type GuidanceI18nKey = keyof typeof en
 
 export type GuidanceCompletion =
   | {kind: 'product_state'; key: string}

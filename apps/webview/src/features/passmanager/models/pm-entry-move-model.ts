@@ -8,6 +8,7 @@ import {
   type MobilePointerDndPayload,
 } from 'root/shared/services/mobile-pointer-dnd'
 import {toast} from 'root/shared/services/toast-manager'
+import {hasFinePointer} from 'root/utils/input-capabilities'
 import {pmMobileSelectionModel} from './pm-mobile-selection.model'
 import {getPassmanagerRoot} from './pm-root.adapter'
 
@@ -80,10 +81,7 @@ class PMEntryMoveModel {
   })
 
   isDesktopDragEnabled(): boolean {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-      return true
-    }
-    return window.matchMedia('(pointer:fine)').matches
+    return typeof window === 'undefined' ? true : hasFinePointer()
   }
 
   listTargets(): MoveTarget[] {

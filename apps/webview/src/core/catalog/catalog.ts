@@ -3,6 +3,10 @@ import {atom, wrap} from '@reatom/core'
 import type {
   CatalogEvent,
   CatalogEventBatch,
+  CatalogFileLinksCompleteRequest,
+  CatalogFileLinksCompleteResponse,
+  CatalogFileLinksResolveRequest,
+  CatalogFileLinksResolveResponse,
   CatalogFolderBatchResponse,
   CatalogFolderPageRequest,
   CatalogFolderPageResponse,
@@ -63,6 +67,25 @@ export function getCatalogSyncPayloadDebugMetrics(value: unknown): CatalogSyncPa
   }
 }
 
+function logCatalogFolderPageDebug(event: string, meta?: Record<string, unknown>): void {
+  writeAndroidUnlockDebug('catalog-folder-page', event, meta)
+  try {
+    console.info(`[debug][catalog][folder-page] ${event}`, meta ?? {})
+  } catch {}
+}
+
+function summarizeFolderRequest(request: CatalogFolderPageRequest, queryKey: string): Record<string, unknown> {
+  return {
+    path: request.path,
+    offset: request.offset,
+    limit: request.limit ?? null,
+    expectedVersion: request.expected_version ?? null,
+    queryKey,
+    sort: request.sort ?? null,
+    filter: request.filter ?? null,
+  }
+}
+
 export type CatalogFileReplaceConflictMode = 'fail_if_stale' | 'overwrite'
 
 export type CatalogFileReplaceOptions = {
@@ -110,6 +133,8 @@ export type CatalogClientProtocol = {
   folderList(request: CatalogFolderPageRequest): Promise<CatalogFolderPageResponse>
   folderBatch(pages: CatalogFolderPageRequest[]): Promise<CatalogFolderBatchResponse>
   notesList(): Promise<CatalogNotesListResponse>
+  completeFileLinks(request: CatalogFileLinksCompleteRequest): Promise<CatalogFileLinksCompleteResponse>
+  resolveFileLinks(request: CatalogFileLinksResolveRequest): Promise<CatalogFileLinksResolveResponse>
   subscribe(): Promise<() => Promise<void>>
 }
 
@@ -691,6 +716,22 @@ export class CatalogService {
     }
   }
 
+  resetForTransportSession(reason = 'transport-session-reset'): void {
+    this.cancelSync(reason)
+    const unsubscribe = this.unsubscribe
+    this.unsubscribe = undefined
+    if (unsubscribe) void wrap(unsubscribe().catch(() => {}))
+
+    const resetError = new Error(`Catalog reset: ${reason}`)
+    for (const item of this.folderPageQueue.splice(0)) {
+      item.reject(resetError)
+    }
+    this.pendingFolderPages.clear()
+    this.folderPageFlushScheduled = false
+    this.entryMeta.clear()
+    this.mirror.clear(reason)
+  }
+
   cancelSync(reason = 'cancel'): void {
     this.syncRunId++
     this.syncing.set(false)
@@ -770,10 +811,25 @@ export class CatalogService {
     return this.client!.notesList()
   }
 
+  async completeFileLinks(
+    request: CatalogFileLinksCompleteRequest,
+  ): Promise<CatalogFileLinksCompleteResponse> {
+    this.ensureClient()
+    return this.client!.completeFileLinks(request)
+  }
+
+  async resolveFileLinks(request: CatalogFileLinksResolveRequest): Promise<CatalogFileLinksResolveResponse> {
+    this.ensureClient()
+    return this.client!.resolveFileLinks(request)
+  }
+
   ensureFolderRangeLoaded(request: CatalogFolderPageRequest, queryKey = 'default'): Promise<void> {
     this.ensureClient()
     const limit = request.limit ?? 200
     if (this.mirror.isFolderRangeLoaded(request.path, request.offset, limit, queryKey)) {
+      logCatalogFolderPageDebug('ensure:already-loaded', {
+        ...summarizeFolderRequest({...request, limit}, queryKey),
+      })
       return Promise.resolve()
     }
 
@@ -783,16 +839,25 @@ export class CatalogService {
     }
     const key = this.folderPageRequestKey(normalized, queryKey)
     const pending = this.pendingFolderPages.get(key)
-    if (pending) return pending
+    if (pending) {
+      logCatalogFolderPageDebug('ensure:pending-reuse', {
+        ...summarizeFolderRequest(normalized, queryKey),
+      })
+      return pending
+    }
 
-    this.mirror.setFolderRangeLoading(normalized.path, normalized.offset, limit, true, queryKey)
     const promise = new Promise<void>((resolve, reject) => {
       this.folderPageQueue.push({key, request: normalized, queryKey, resolve, reject})
+      logCatalogFolderPageDebug('ensure:enqueue', {
+        ...summarizeFolderRequest(normalized, queryKey),
+        queueLength: this.folderPageQueue.length,
+      })
       this.scheduleFolderPageFlush()
     }).finally(() => {
       this.pendingFolderPages.delete(key)
     })
     this.pendingFolderPages.set(key, promise)
+    this.mirror.setFolderRangeLoading(normalized.path, normalized.offset, limit, true, queryKey)
     return promise
   }
 
@@ -837,10 +902,34 @@ export class CatalogService {
 
     const runId = this.syncRunId
     try {
+      logCatalogFolderPageDebug('flush:start', {
+        runId,
+        queryKey,
+        batchLength: batch.length,
+        itemCount,
+        pages: batch.map((item) => summarizeFolderRequest(item.request, item.queryKey)),
+      })
       const response = await this.client!.folderBatch(batch.map((item) => item.request))
       if (this.isCurrentSyncRun(runId)) {
         this.mirror.applyFolderBatch(response, queryKey)
       }
+      logCatalogFolderPageDebug('flush:done', {
+        runId,
+        queryKey,
+        applied: this.isCurrentSyncRun(runId),
+        responsePages: response.pages.map((page) => ({
+          path: page.current_path,
+          version: page.version,
+          totalCount: page.total_count,
+          offset: page.offset,
+          limit: page.limit,
+          items: page.items.length,
+          nextOffset: page.next_offset ?? null,
+          reloadRequired: page.reload_required,
+        })),
+        truncated: response.truncated,
+        warnings: response.warnings?.length ?? 0,
+      })
       for (const item of batch) {
         this.mirror.setFolderRangeLoading(
           item.request.path,
@@ -852,6 +941,12 @@ export class CatalogService {
         item.resolve()
       }
     } catch (error) {
+      logCatalogFolderPageDebug('flush:error', {
+        runId,
+        queryKey,
+        batchLength: batch.length,
+        error: error instanceof Error ? error.message : String(error),
+      })
       for (const item of batch) {
         this.mirror.setFolderRangeLoading(
           item.request.path,
@@ -1153,6 +1248,20 @@ export class CatalogService {
       notesList: async () => {
         const resp = await ws.sendCatalog('catalog:notes:list', {})
         return unwrap<CatalogNotesListResponse>(resp, 'catalog:notes:list')
+      },
+      completeFileLinks: async (request) => {
+        const resp = await ws.sendCatalog('catalog:file-links:complete', {
+          query: request.query,
+          limit: request.limit ?? null,
+          current_path: request.current_path ?? null,
+        })
+        return unwrap<CatalogFileLinksCompleteResponse>(resp, 'catalog:file-links:complete')
+      },
+      resolveFileLinks: async (request) => {
+        const resp = await ws.sendCatalog('catalog:file-links:resolve', {
+          targets: request.targets,
+        })
+        return unwrap<CatalogFileLinksResolveResponse>(resp, 'catalog:file-links:resolve')
       },
       subscribe: async () => {
         const resp = await ws.sendCatalog('catalog:subscribe', {})

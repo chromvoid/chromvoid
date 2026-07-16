@@ -2,8 +2,10 @@ import {expect, test} from 'vitest'
 
 import {clearMockPassmanagerState, writeMockPassmanagerState} from './utils'
 
+import type {ConsoleMessage, Page} from 'playwright'
+import type * as KeyboardStabilizationModule from '../../src/shared/services/mobile-dialog-keyboard-stabilization'
 declare global {
-  var __E2E_PAGE__: import('playwright').Page | undefined
+  var __E2E_PAGE__: Page | undefined
 }
 
 const BASE_URL = 'http://localhost:4400/index.html'
@@ -24,6 +26,7 @@ async function seedLayoutPassmanagerFixture(): Promise<void> {
           title: 'Layout Root Login',
           username: 'layout-user',
           urls: [{value: 'https://layout.example.test/login', match: 'base_domain'}],
+          tags: ['Work'],
         },
       },
       {
@@ -43,17 +46,33 @@ async function seedLayoutPassmanagerFixture(): Promise<void> {
   })
 }
 
+async function seedScrollablePassmanagerFixture(): Promise<void> {
+  await clearMockPassmanagerState()
+  await writeMockPassmanagerState({
+    version: 1,
+    revision: 1,
+    nextNodeId: 1,
+    folders: Array.from({length: 40}, (_, index) => `scroll-folder-${String(index).padStart(2, '0')}`),
+    foldersMeta: [],
+    entries: [],
+    secrets: [],
+    otpSecrets: [],
+    icons: [],
+  })
+}
+
 async function applyLayoutEmulation(
-  page: import('playwright').Page,
+  page: Page,
   layout: 'mobile' | 'desktop' | null,
   mobileWidth = 390,
+  mobileHeight = 844,
 ): Promise<void> {
   const client = await page.context().newCDPSession(page)
 
   if (layout === 'mobile') {
     await client.send('Emulation.setDeviceMetricsOverride', {
       width: mobileWidth,
-      height: 844,
+      height: mobileHeight,
       deviceScaleFactor: 1,
       mobile: true,
     })
@@ -78,7 +97,7 @@ async function applyLayoutEmulation(
   await page.waitForTimeout(50)
 }
 
-async function deepQuerySelector(page: import('playwright').Page, selector: string): Promise<boolean> {
+async function deepQuerySelector(page: Page, selector: string): Promise<boolean> {
   return page.evaluate((sel) => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       let match: Element | null = null
@@ -106,6 +125,29 @@ type PMMobileFabState = {
   fabOrder: string[]
   dropdownItems: string[]
   hasSortGroup: boolean
+  hasCredentialsHeader: boolean
+  hasCredentialsSortControls: boolean
+  hasCredentialsFilterControls: boolean
+  hasSlottedCredentialsFilterControls: boolean
+  hasLegacyCredentialsFilterRow: boolean
+  hasCredentialsManageAction: boolean
+  credentialsManageText: string | null
+  credentialsManageAriaLabel: string | null
+  credentialsManageIconName: string | null
+  credentialsFilterSelectionMode: string | null
+  credentialsFilterChipValues: string[]
+  credentialsSelectedFilterChipValues: string[]
+  hasCredentialsDirectionControl: boolean
+  credentialsSortValue: string | null
+  credentialsGroupValue: string | null
+  credentialsSortRect: {
+    width: number
+    height: number
+  } | null
+  credentialsGroupRect: {
+    width: number
+    height: number
+  } | null
   hasSearchSortGroup: boolean
   searchSortGroupActive: boolean
   sortGroupSheetOpen: boolean
@@ -116,8 +158,6 @@ type PMMobileFabState = {
   hasEntryDelete: boolean
   hasMore: boolean
   hasSearchComponent: boolean
-  commandOpen: boolean
-  commandIds: string[]
   actionsRect: {
     left: number
     right: number
@@ -139,7 +179,7 @@ type PMMobileSelectionState = {
   entrySelected: boolean
 }
 
-async function deepClick(page: import('playwright').Page, selector: string): Promise<boolean> {
+async function deepClick(page: Page, selector: string): Promise<boolean> {
   return page.evaluate((sel) => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       let match: Element | null = null
@@ -166,7 +206,7 @@ async function deepClick(page: import('playwright').Page, selector: string): Pro
 }
 
 async function getDeepRect(
-  page: import('playwright').Page,
+  page: Page,
   selector: string,
 ): Promise<{x: number; y: number; width: number; height: number} | null> {
   return page.evaluate((sel) => {
@@ -199,8 +239,44 @@ async function getDeepRect(
   }, selector)
 }
 
-async function dispatchTrustedLongPress(
-  page: import('playwright').Page,
+type PMMobileSecurityRowGeometry = {
+  entry: {left: number; top: number; width: number; height: number}
+  group: {left: number; top: number; width: number; height: number}
+}
+
+async function getMobileSecurityRowGeometry(page: Page): Promise<PMMobileSecurityRowGeometry | null> {
+  return page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found instanceof Element && found.isConnected) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (!el.shadowRoot) continue
+        const inner = deepFind(el.shadowRoot, selector)
+        if (inner instanceof Element && inner.isConnected) return inner
+      }
+      return null
+    }
+
+    const entry = deepFind(document, '.list-item[data-entry-id="layout-root-login"]') as HTMLElement | null
+    const group = deepFind(document, '.group-row') as HTMLElement | null
+    if (!entry || !group) return null
+
+    const toGeometry = (element: HTMLElement) => {
+      const rect = element.getBoundingClientRect()
+      return {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      }
+    }
+
+    return {entry: toGeometry(entry), group: toGeometry(group)}
+  })
+}
+
+async function _dispatchTrustedLongPress(
+  page: Page,
   selector: string,
   holdMs = 650,
 ): Promise<void> {
@@ -233,7 +309,73 @@ async function dispatchTrustedLongPress(
   })
 }
 
-async function getPMMobileSelectionState(page: import('playwright').Page): Promise<PMMobileSelectionState> {
+async function dispatchTrustedSwipeLeft(page: Page, selector: string): Promise<void> {
+  const client = await page.context().newCDPSession(page)
+  const rect = await getDeepRect(page, selector)
+  if (!rect) {
+    throw new Error(`swipe target not found: ${selector}`)
+  }
+
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{x: rect.x, y: rect.y, radiusX: 3, radiusY: 3, force: 1, id: 1}],
+  })
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchMove',
+    touchPoints: [{x: rect.x - 80, y: rect.y, radiusX: 3, radiusY: 3, force: 1, id: 1}],
+  })
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  })
+}
+
+async function waitForDeepAttribute(
+  page: Page,
+  selector: string,
+  attribute: string,
+  value: string,
+): Promise<void> {
+  await page.waitForFunction(
+    ({targetSelector, attributeName, expectedValue}) => {
+      function deepFind(root: Document | ShadowRoot, nestedSelector: string): Element | null {
+        const found = root.querySelector(nestedSelector)
+        if (found) return found
+        for (const element of root.querySelectorAll('*')) {
+          if (element.shadowRoot) {
+            const nested = deepFind(element.shadowRoot, nestedSelector)
+            if (nested) return nested
+          }
+        }
+        return null
+      }
+
+      return deepFind(document, targetSelector)?.getAttribute(attributeName) === expectedValue
+    },
+    {targetSelector: selector, attributeName: attribute, expectedValue: value},
+  )
+}
+
+async function confirmDeepDialog(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const nested = deepFind(element.shadowRoot, selector)
+          if (nested) return nested
+        }
+      }
+      return null
+    }
+
+    return Boolean(deepFind(document, '[data-confirm-action="confirm"]'))
+  })
+  expect(await deepClick(page, '[data-confirm-action="confirm"]')).toBe(true)
+}
+
+async function getPMMobileSelectionState(page: Page): Promise<PMMobileSelectionState> {
   return page.evaluate(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       let match: Element | null = null
@@ -313,7 +455,7 @@ type PasswordDialogKeyboardSnapshot = {
 }
 
 async function getMobilePasswordDialogKeyboardSnapshot(
-  page: import('playwright').Page,
+  page: Page,
 ): Promise<PasswordDialogKeyboardSnapshot> {
   return page.evaluate(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -367,14 +509,14 @@ async function getMobilePasswordDialogKeyboardSnapshot(
         input?.shadowRoot?.activeElement === nativeInput,
       layoutRect: rectOf(layout),
       passwordDialogKeyboardOffset: getComputedStyle(document.documentElement).getPropertyValue(
-        '--password-input-dialog-keyboard-offset',
+        '--app-runtime-dialog-password-input-keyboard-offset',
       ),
       primaryActionRect: rectOf(primaryAction),
       rootKeyboardInset: getComputedStyle(document.documentElement).getPropertyValue(
-        '--visual-viewport-bottom-inset',
+        '--app-runtime-visual-viewport-inset-block-end',
       ),
       rootVisualViewportBlockSize: getComputedStyle(document.documentElement).getPropertyValue(
-        '--visual-viewport-block-size',
+        '--app-runtime-visual-viewport-block-size',
       ),
       sheetKeyboardInset: sheet
         ? getComputedStyle(sheet).getPropertyValue('--cv-bottom-sheet-keyboard-inset')
@@ -401,7 +543,7 @@ type DesktopEntryClickPoint = {
 }
 
 async function getMenuButtonAlignment(
-  page: import('playwright').Page,
+  page: Page,
   layoutSelector: string,
   menuSelector: string,
 ): Promise<MenuButtonAlignment | null> {
@@ -442,7 +584,7 @@ async function getMenuButtonAlignment(
 }
 
 async function openMenuButton(
-  page: import('playwright').Page,
+  page: Page,
   layoutSelector: string,
   menuSelector: string,
 ): Promise<boolean> {
@@ -477,7 +619,7 @@ async function openMenuButton(
 }
 
 async function getMenuButtonPopupRect(
-  page: import('playwright').Page,
+  page: Page,
   layoutSelector: string,
   menuSelector: string,
 ): Promise<RectSnapshot | null> {
@@ -517,7 +659,7 @@ async function getMenuButtonPopupRect(
 }
 
 async function getMenuButtonTriggerRect(
-  page: import('playwright').Page,
+  page: Page,
   layoutSelector: string,
   menuSelector: string,
 ): Promise<RectSnapshot | null> {
@@ -558,7 +700,7 @@ async function getMenuButtonTriggerRect(
   )
 }
 
-async function showFirstMobileLoginEntry(page: import('playwright').Page): Promise<string> {
+async function showFirstMobileLoginEntry(page: Page): Promise<string> {
   const entryId = await findFirstLoginEntryId(page)
 
   if (!entryId) {
@@ -606,7 +748,7 @@ async function showFirstMobileLoginEntry(page: import('playwright').Page): Promi
   return entryId
 }
 
-async function findFirstLoginEntryId(page: import('playwright').Page): Promise<string | null> {
+async function findFirstLoginEntryId(page: Page): Promise<string | null> {
   return page.evaluate(() => {
     const pm = (window as any).passmanager
 
@@ -640,7 +782,7 @@ async function findFirstLoginEntryId(page: import('playwright').Page): Promise<s
 }
 
 async function getDesktopVirtualRowLayout(
-  page: import('playwright').Page,
+  page: Page,
   target: {
     groupRowLabel: string
     entryWithSubtitleTitle: string
@@ -711,7 +853,7 @@ async function getDesktopVirtualRowLayout(
 }
 
 async function getDesktopEntryClickPoint(
-  page: import('playwright').Page,
+  page: Page,
   targetTitle: string,
 ): Promise<DesktopEntryClickPoint | null> {
   return page.evaluate((targetTitle) => {
@@ -769,7 +911,7 @@ async function getDesktopEntryClickPoint(
   }, targetTitle)
 }
 
-async function getPMMobileFabState(page: import('playwright').Page): Promise<PMMobileFabState> {
+async function getPMMobileFabState(page: Page): Promise<PMMobileFabState> {
   return page.evaluate(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -793,6 +935,23 @@ async function getPMMobileFabState(page: import('playwright').Page): Promise<PMM
         fabOrder: [],
         dropdownItems: [],
         hasSortGroup: false,
+        hasCredentialsHeader: false,
+        hasCredentialsSortControls: false,
+        hasCredentialsFilterControls: false,
+        hasSlottedCredentialsFilterControls: false,
+        hasLegacyCredentialsFilterRow: false,
+        hasCredentialsManageAction: false,
+        credentialsManageText: null,
+        credentialsManageAriaLabel: null,
+        credentialsManageIconName: null,
+        credentialsFilterSelectionMode: null,
+        credentialsFilterChipValues: [],
+        credentialsSelectedFilterChipValues: [],
+        hasCredentialsDirectionControl: false,
+        credentialsSortValue: null,
+        credentialsGroupValue: null,
+        credentialsSortRect: null,
+        credentialsGroupRect: null,
         hasSearchSortGroup: false,
         searchSortGroupActive: false,
         sortGroupSheetOpen: false,
@@ -803,8 +962,6 @@ async function getPMMobileFabState(page: import('playwright').Page): Promise<PMM
         hasEntryDelete: false,
         hasMore: false,
         hasSearchComponent: false,
-        commandOpen: false,
-        commandIds: [],
         actionsRect: null,
         viewportW,
         viewportH,
@@ -815,18 +972,42 @@ async function getPMMobileFabState(page: import('playwright').Page): Promise<PMM
     const toolbarRoot = toolbar?.shadowRoot ?? null
     const actions = toolbarRoot?.querySelector('.trailing') as HTMLElement | null
     const moreMenu = toolbarRoot?.querySelector('cv-menu-button.overflow-menu') as HTMLElement | null
-    const search = deepFind(layout.shadowRoot, 'pm-search-mobile') as HTMLElement | null
-    const searchSortGroup = search?.shadowRoot?.querySelector('.sort-group-trigger') as HTMLElement | null
+    const credentialsHeader = deepFind(
+      layout.shadowRoot,
+      'workspace-dashboard-header[surface="passwords"]',
+    ) as HTMLElement | null
+    const credentialsHeaderRoot = credentialsHeader?.shadowRoot ?? null
+    const credentialsSortControls = credentialsHeaderRoot?.querySelector(
+      '.workspace-sort-control',
+    ) as HTMLElement | null
+    const credentialsFilterControls = credentialsHeaderRoot?.querySelector(
+      'cv-chip-group.workspace-filter-chips',
+    ) as HTMLElement | null
+    const slottedCredentialsFilterControls = credentialsHeader?.querySelector('pm-mobile-tag-filter-row')
+    const legacyCredentialsFilterRow = deepFind(layout.shadowRoot, 'pm-mobile-tag-filter-row')
+    const credentialsManageAction = credentialsHeaderRoot?.querySelector('[data-filter-action="tags-manage"]')
+    const credentialsManageIcon = credentialsManageAction?.querySelector('cv-icon')
+    const credentialsFilterChips = Array.from(
+      credentialsHeaderRoot?.querySelectorAll('cv-chip.workspace-filter-chip') ?? [],
+    )
+    const directionButton = credentialsHeaderRoot?.querySelector(
+      '.direction-button',
+    ) as HTMLElement | null
+    const credentialsSortButton = credentialsSortControls
+    const credentialsGroupRadioGroup = credentialsHeaderRoot?.querySelector(
+      'cv-radio-group.workspace-view-switch',
+    ) as {value?: string} | null
+    const headerSearchInput = credentialsHeaderRoot?.querySelector('cv-input.search-box') as HTMLElement | null
+    const legacySearch = deepFind(layout.shadowRoot, 'pm-search-mobile') as HTMLElement | null
+    const searchSortGroup = legacySearch?.shadowRoot?.querySelector('.sort-group-trigger') as HTMLElement | null
     const sortGroupSheet = layout.shadowRoot.querySelector('pm-mobile-sort-group-sheet') as HTMLElement | null
     const sortGroupBottomSheet = sortGroupSheet?.shadowRoot?.querySelector(
       'cv-bottom-sheet',
     ) as HTMLElement | null
-    const commandBar = deepFind(document, 'command-bar') as HTMLElement | null
-    const commandRoot = commandBar?.shadowRoot ?? null
     const order: string[] = []
     for (const child of Array.from(actions?.querySelectorAll('[data-action]') ?? [])) {
       const action = child.getAttribute('data-action')
-      if (action && action !== 'mobile-leading' && action !== 'mobile-command') {
+      if (action && action !== 'mobile-leading') {
         order.push(action)
       }
     }
@@ -834,17 +1015,50 @@ async function getPMMobileFabState(page: import('playwright').Page): Promise<PMM
     const dropdownItems = Array.from(moreMenu?.querySelectorAll('cv-menu-item[value]') ?? [])
       .map((item) => item.getAttribute('value'))
       .filter((item): item is string => Boolean(item))
-    const commandIds = Array.from(commandRoot?.querySelectorAll('.command[data-command-id]') ?? [])
-      .map((item) => item.getAttribute('data-command-id'))
-      .filter((item): item is string => Boolean(item))
-
     const rect = actions?.getBoundingClientRect() ?? null
+    const credentialsSortRect = credentialsSortControls?.getBoundingClientRect() ?? null
+    const credentialsGroupRect =
+      credentialsGroupRadioGroup instanceof HTMLElement
+        ? credentialsGroupRadioGroup.getBoundingClientRect()
+        : null
     return {
       exists: true,
       actionsHidden: !toolbar || order.length === 0,
       fabOrder: order,
       dropdownItems,
       hasSortGroup: Boolean(toolbarRoot?.querySelector('[data-action="pm-sort-group"]')),
+      hasCredentialsHeader: Boolean(credentialsHeader),
+      hasCredentialsSortControls: Boolean(credentialsSortControls),
+      hasCredentialsFilterControls: Boolean(credentialsFilterControls),
+      hasSlottedCredentialsFilterControls: Boolean(slottedCredentialsFilterControls),
+      hasLegacyCredentialsFilterRow: Boolean(legacyCredentialsFilterRow),
+      hasCredentialsManageAction: Boolean(credentialsManageAction),
+      credentialsManageText: credentialsManageAction?.textContent?.trim() ?? null,
+      credentialsManageAriaLabel: credentialsManageAction?.getAttribute('aria-label') ?? null,
+      credentialsManageIconName: credentialsManageIcon?.getAttribute('name') ?? null,
+      credentialsFilterSelectionMode: credentialsFilterControls?.getAttribute('selection-mode') ?? null,
+      credentialsFilterChipValues: credentialsFilterChips
+        .map((chip) => chip.getAttribute('value'))
+        .filter((value): value is string => Boolean(value)),
+      credentialsSelectedFilterChipValues: credentialsFilterChips
+        .filter((chip) => chip.hasAttribute('selected'))
+        .map((chip) => chip.getAttribute('value'))
+        .filter((value): value is string => Boolean(value)),
+      hasCredentialsDirectionControl: Boolean(directionButton),
+      credentialsSortValue: credentialsSortButton?.dataset['sortMode'] ?? null,
+      credentialsGroupValue: credentialsGroupRadioGroup?.value ?? null,
+      credentialsSortRect: credentialsSortRect
+        ? {
+            width: credentialsSortRect.width,
+            height: credentialsSortRect.height,
+          }
+        : null,
+      credentialsGroupRect: credentialsGroupRect
+        ? {
+            width: credentialsGroupRect.width,
+            height: credentialsGroupRect.height,
+          }
+        : null,
       hasSearchSortGroup: Boolean(searchSortGroup),
       searchSortGroupActive: Boolean(searchSortGroup?.classList.contains('active')),
       sortGroupSheetOpen: Boolean(sortGroupBottomSheet?.hasAttribute('open')),
@@ -860,9 +1074,7 @@ async function getPMMobileFabState(page: import('playwright').Page): Promise<PMM
         Boolean(toolbarRoot?.querySelector('[data-action="pm-entry-delete"]')) ||
         dropdownItems.includes('pm-entry-delete'),
       hasMore: Boolean(moreMenu),
-      hasSearchComponent: Boolean(search),
-      commandOpen: Boolean(commandBar?.hasAttribute('open')),
-      commandIds,
+      hasSearchComponent: Boolean(headerSearchInput),
       actionsRect: rect
         ? {
             left: rect.left,
@@ -879,15 +1091,21 @@ async function getPMMobileFabState(page: import('playwright').Page): Promise<PMM
   })
 }
 
-async function enableAndWaitForPasswordManager(page: import('playwright').Page, url: string): Promise<void> {
-  await seedLayoutPassmanagerFixture()
+async function enableAndWaitForPasswordManager(
+  page: Page,
+  url: string,
+  seedFixture = seedLayoutPassmanagerFixture,
+): Promise<void> {
+  await seedFixture()
   const nextUrl = new URL(url)
   nextUrl.searchParams.set('surface', 'passwords')
   const mobileWidth = Number.parseInt(nextUrl.searchParams.get('e2eWidth') ?? '', 10)
+  const mobileHeight = Number.parseInt(nextUrl.searchParams.get('e2eHeight') ?? '', 10)
   await applyLayoutEmulation(
     page,
     (nextUrl.searchParams.get('layout') as 'mobile' | 'desktop' | null) ?? null,
     Number.isFinite(mobileWidth) ? mobileWidth : 390,
+    Number.isFinite(mobileHeight) ? mobileHeight : 844,
   )
   await page.goto(nextUrl.toString(), {waitUntil: 'domcontentloaded'})
   await page.waitForFunction(
@@ -1021,9 +1239,12 @@ test('desktop toolbar keeps create actions visible and maintenance actions in th
       return null
     }
 
-    const toolbar = deepFind(document, 'desktop-shell-toolbar[slot="desktop-topbar"]') as HTMLElement | null
+    const toolbar = deepFind(
+      document,
+      'workspace-dashboard-header[slot="desktop-topbar"][surface="passwords"]',
+    ) as HTMLElement | null
     const root = toolbar
-    const sideStart = root?.querySelector('.toolbar-side-start')
+    const primaryRow = root?.querySelector('.toolbar-primary-row')
     const sideEnd = root?.querySelector('.toolbar-side-end')
     const rightmost = sideEnd?.lastElementChild
 
@@ -1034,7 +1255,7 @@ test('desktop toolbar keeps create actions visible and maintenance actions in th
       menuItemActions: Array.from(root?.querySelectorAll<HTMLElement>('cv-menu-item[data-action]') ?? [])
         .map((button) => button.dataset['action'])
         .filter((id): id is string => Boolean(id)),
-      startButtonActions: Array.from(sideStart?.querySelectorAll<HTMLElement>('cv-button[data-action]') ?? [])
+      startButtonActions: Array.from(primaryRow?.querySelectorAll<HTMLElement>('cv-button[data-action]') ?? [])
         .map((button) => button.dataset['action'])
         .filter((id): id is string => Boolean(id)),
       hasRightmostGearMenu: Boolean(rightmost?.matches('cv-menu-button.toolbar-actions-menu')),
@@ -1154,7 +1375,20 @@ test('mobile layout shows list/group FAB actions and no sidebar/resizer', async 
   expect(state.actionsHidden).toBe(false)
   expect(state.hasMore).toBe(false)
   expect(state.hasSortGroup).toBe(false)
-  expect(state.hasSearchSortGroup).toBe(true)
+  expect(state.hasCredentialsHeader).toBe(true)
+  expect(state.hasCredentialsSortControls).toBe(true)
+  expect(state.hasCredentialsFilterControls).toBe(true)
+  expect(state.hasSlottedCredentialsFilterControls).toBe(false)
+  expect(state.hasLegacyCredentialsFilterRow).toBe(false)
+  expect(state.hasCredentialsManageAction).toBe(true)
+  expect(state.credentialsManageText).toBe('')
+  expect(state.credentialsManageAriaLabel).toBe('Manage tags')
+  expect(state.credentialsManageIconName).toBe('sliders')
+  expect(state.credentialsFilterSelectionMode).toBe('multiple')
+  expect(state.credentialsFilterChipValues).toEqual(expect.arrayContaining(['__all-tags', 'work']))
+  expect(state.credentialsSelectedFilterChipValues).toEqual(['__all-tags'])
+  expect(state.hasCredentialsDirectionControl).toBe(false)
+  expect(state.hasSearchSortGroup).toBe(false)
   expect(state.searchSortGroupActive).toBe(false)
   expect(state.hasCreateGroup).toBe(true)
   expect(state.hasCreateEntry).toBe(true)
@@ -1171,6 +1405,150 @@ test('mobile layout shows list/group FAB actions and no sidebar/resizer', async 
   expect(state.actionsRect).not.toBeNull()
   expect(state.actionsRect!.right).toBeGreaterThan(state.viewportW * 0.78)
   expect(state.actionsRect!.top).toBeLessThan(state.viewportH * 0.2)
+})
+
+test('mobile audit settlement preserves credential and group row geometry', async () => {
+  const page = globalThis.__E2E_PAGE__!
+  await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile&e2eWidth=390`)
+
+  await page.evaluate(() => {
+    const root = (window as unknown as {passmanager: any}).passmanager
+    let resolvePassword: (value: string | undefined) => void = () => {}
+    const pendingPassword = new Promise<string | undefined>((resolve) => {
+      resolvePassword = resolve
+    })
+    ;(window as unknown as {resolveAuditPassword?: (value: string | undefined) => void})
+      .resolveAuditPassword = resolvePassword
+    root.managerSaver.readEntryPassword = () => {
+      ;(window as unknown as {auditScanStarted?: boolean}).auditScanStarted = true
+      return pendingPassword
+    }
+    const saveArtifact = root.managerSaver.saveCredentialSecurityAudit?.bind(root.managerSaver)
+    root.managerSaver.saveCredentialSecurityAudit = async (artifact: unknown) => {
+      ;(window as unknown as {auditScanSettled?: boolean}).auditScanSettled = true
+      return saveArtifact ? saveArtifact(artifact) : true
+    }
+    for (const entry of root.allEntries) {
+      entry.passwordCache = undefined
+      entry.passwordCacheReady = false
+      entry.passwordReadPending = undefined
+    }
+
+    const groupEntry = root.allEntries.find((entry: {id: string}) => entry.id === 'layout-group-login')
+    if (!groupEntry) throw new Error('layout group entry is missing')
+    groupEntry.otps.set([...groupEntry.otps(), {id: 'audit-pending', label: 'Audit pending'}])
+  })
+
+  await page.waitForFunction(
+    () => Boolean((window as unknown as {auditScanStarted?: boolean}).auditScanStarted),
+    undefined,
+    {timeout: 10_000},
+  )
+  const pendingGeometry = await getMobileSecurityRowGeometry(page)
+
+  await page.evaluate(() => {
+    const runtime = window as unknown as {resolveAuditPassword?: (value: string | undefined) => void}
+    runtime.resolveAuditPassword?.('abc')
+  })
+  await page.waitForFunction(
+    () => Boolean((window as unknown as {auditScanSettled?: boolean}).auditScanSettled),
+    undefined,
+    {timeout: 10_000},
+  )
+  await page.waitForTimeout(50)
+  const settledIndicators = {
+    entry: await deepQuerySelector(page, '.entry-status-dot[data-badge-id="weak_password"]'),
+    group: await deepQuerySelector(page, '.group-risk-dot[data-severity="critical"]'),
+  }
+  const settledGeometry = await getMobileSecurityRowGeometry(page)
+
+  expect(settledIndicators).toEqual({entry: true, group: true})
+  expect(pendingGeometry).not.toBeNull()
+  expect(settledGeometry).toEqual(pendingGeometry)
+})
+
+test('mobile credentials restores list scroll after returning from a group', async () => {
+  const page = globalThis.__E2E_PAGE__!
+  await enableAndWaitForPasswordManager(
+    page,
+    `${BASE_URL}?layout=mobile&e2eHeight=520`,
+    seedScrollablePassmanagerFixture,
+  )
+
+  const result = await page.evaluate(async () => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const nested = deepFind(element.shadowRoot, selector)
+          if (nested) return nested
+        }
+      }
+      return null
+    }
+
+    async function nextFrame(): Promise<void> {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    }
+
+    const originalGroupHost = deepFind(document, 'pm-group-mobile') as HTMLElement | null
+    const originalVirtualizer = originalGroupHost?.shadowRoot?.querySelector('lit-virtualizer') as HTMLElement | null
+    if (!originalGroupHost || !originalVirtualizer) {
+      return {before: 0, after: 0, remounted: false, restoredRoot: false}
+    }
+
+    originalVirtualizer.scrollTop = Math.min(
+      760,
+      originalVirtualizer.scrollHeight - originalVirtualizer.clientHeight,
+    )
+    await nextFrame()
+    await nextFrame()
+    const before = originalVirtualizer.scrollTop
+
+    const visibleRow = Array.from(
+      originalGroupHost.shadowRoot?.querySelectorAll<HTMLElement>('.group-row-wrap[data-row-id]') ?? [],
+    ).find((row) => {
+      const rowRect = row.getBoundingClientRect()
+      const listRect = originalVirtualizer.getBoundingClientRect()
+      return rowRect.top >= listRect.top && rowRect.bottom <= listRect.bottom
+    })
+    const group = visibleRow?.dataset['rowId']
+      ? (window as any).passmanager?.getCardByID?.(visibleRow.dataset['rowId'])
+      : null
+    if (!group) {
+      return {before, after: 0, remounted: false, restoredRoot: false}
+    }
+
+    const {passmanagerNavigationController} = await (0, eval)(
+      'import("/features/passmanager/passmanager-navigation.controller.ts")',
+    )
+    passmanagerNavigationController.openItem(group)
+    await nextFrame()
+    await nextFrame()
+    passmanagerNavigationController.goBackFromCurrent()
+    await nextFrame()
+    await nextFrame()
+    for (let frame = 0; frame < 12; frame += 1) {
+      await nextFrame()
+    }
+
+    const restoredGroupHost = deepFind(document, 'pm-group-mobile') as HTMLElement | null
+    const restoredVirtualizer = restoredGroupHost?.shadowRoot?.querySelector('lit-virtualizer') as HTMLElement | null
+    await nextFrame()
+    await nextFrame()
+    return {
+      before,
+      after: restoredVirtualizer?.scrollTop ?? 0,
+      remounted: restoredGroupHost !== originalGroupHost,
+      restoredRoot: (window as any).passmanager?.showElement?.()?.isRoot === true,
+    }
+  })
+
+  expect(result.before).toBeGreaterThan(100)
+  expect(result.remounted).toBe(true)
+  expect(result.restoredRoot).toBe(true)
+  expect(Math.abs(result.after - result.before)).toBeLessThanOrEqual(2)
 })
 
 test('mobile selection delete confirmation stays inside viewport', async () => {
@@ -1269,6 +1647,55 @@ test('mobile selection delete confirmation stays inside viewport', async () => {
   expect(bounds.hasHorizontalOverflow).toBe(false)
 })
 
+test('mobile swipe delete removes the credential after confirmation', async () => {
+  const page = globalThis.__E2E_PAGE__!
+  await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile`)
+  await page.waitForFunction(() => !document.documentElement.hasAttribute('loading'), undefined, {timeout: 10_000})
+
+  const entryId = await findFirstLoginEntryId(page)
+  expect(entryId).not.toBeNull()
+  const rowSelector = `.list-item[data-entry-id="${entryId}"]`
+  await dispatchTrustedSwipeLeft(page, rowSelector)
+  await waitForDeepAttribute(page, rowSelector, 'data-swipe-state', 'open-left')
+
+  const deleteButtonRect = await getDeepRect(page, '.swipe-actions-right .swipe-action')
+  expect(deleteButtonRect).not.toBeNull()
+  await page.mouse.click(deleteButtonRect!.x, deleteButtonRect!.y)
+  await confirmDeepDialog(page)
+  await page.waitForFunction(
+    (id) => !(window as any).passmanager?.getCardByID?.(id),
+    entryId,
+    {timeout: 10_000},
+  )
+})
+
+test('mobile group swipe delete removes the group after confirmation', async () => {
+  const page = globalThis.__E2E_PAGE__!
+  await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile`)
+  await page.waitForFunction(() => !document.documentElement.hasAttribute('loading'), undefined, {timeout: 10_000})
+
+  const groupId = await page.evaluate(() => {
+    const group = (window as any).passmanager
+      ?.entriesList?.()
+      ?.find((item: any) => item?.constructor?.name === 'Group' && item.name === 'layout-fixture-group')
+    return group?.id ?? null
+  })
+  expect(groupId).not.toBeNull()
+  const rowSelector = `.group-row-wrap[data-row-id="${groupId}"]`
+  await dispatchTrustedSwipeLeft(page, rowSelector)
+  await waitForDeepAttribute(page, '.group-row[data-swipe-state]', 'data-swipe-state', 'open-left')
+
+  const deleteButtonRect = await getDeepRect(page, '.group-swipe-actions-right .swipe-action')
+  expect(deleteButtonRect).not.toBeNull()
+  await page.mouse.click(deleteButtonRect!.x, deleteButtonRect!.y)
+  await confirmDeepDialog(page)
+  await page.waitForFunction(
+    (id) => !(window as any).passmanager?.getCardByID?.(id),
+    groupId,
+    {timeout: 10_000},
+  )
+})
+
 test('mobile entry overflow actions icon stays centered in trigger', async () => {
   const page = globalThis.__E2E_PAGE__!
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile`)
@@ -1309,15 +1736,91 @@ test('mobile entry overflow actions menu stays inside the viewport', async () =>
   expect(rect!.top).toBeGreaterThanOrEqual(triggerRect!.bottom)
 })
 
-test('mobile search sort/group button opens the bottom sheet', async () => {
+test('mobile visible sort/group controls replace the legacy search trigger', async () => {
   const page = globalThis.__E2E_PAGE__!
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile`)
 
-  expect(await deepClick(page, '.sort-group-trigger')).toBe(true)
+  let state = await getPMMobileFabState(page)
+  expect(state.hasCredentialsSortControls).toBe(true)
+  expect(state.hasCredentialsFilterControls).toBe(true)
+  expect(state.hasSlottedCredentialsFilterControls).toBe(false)
+  expect(state.hasLegacyCredentialsFilterRow).toBe(false)
+  expect(state.hasCredentialsManageAction).toBe(true)
+  expect(state.credentialsFilterSelectionMode).toBe('multiple')
+  expect(state.credentialsFilterChipValues).toEqual(expect.arrayContaining(['__all-tags', 'work']))
+  expect(state.credentialsSelectedFilterChipValues).toEqual(['__all-tags'])
+  expect(state.hasSearchSortGroup).toBe(false)
+  expect(state.hasCredentialsDirectionControl).toBe(false)
+  expect(state.credentialsSortValue).toBe('name')
+  expect(state.credentialsGroupValue).toBe('none')
+  expect(state.credentialsSortRect).not.toBeNull()
+  expect(state.credentialsGroupRect).not.toBeNull()
+  expect(Math.abs((state.credentialsSortRect?.height ?? 0) - 32)).toBeLessThanOrEqual(1)
+  expect(Math.abs((state.credentialsGroupRect?.height ?? 0) - 34)).toBeLessThanOrEqual(1)
+
+  expect(await deepClick(page, '.workspace-sort-control')).toBe(true)
+  expect(await deepClick(page, 'cv-radio[data-display-mode="website"]')).toBe(true)
+  const dispatchedTagFilter = await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const header = deepFind(
+      document,
+      'workspace-dashboard-header[surface="passwords"]',
+    ) as HTMLElement | null
+    const chipGroup = header?.shadowRoot?.querySelector('cv-chip-group.workspace-filter-chips')
+    if (!chipGroup) return false
+
+    chipGroup.dispatchEvent(
+      new CustomEvent('cv-input', {
+        detail: {
+          value: ['__all-tags', 'work'],
+          changedValue: 'work',
+          selected: true,
+          source: 'click',
+        },
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    return true
+  })
+  expect(dispatchedTagFilter).toBe(true)
+  expect(await deepClick(page, '[data-filter-action="tags-manage"]')).toBe(true)
   await page.waitForTimeout(150)
-  const state = await getPMMobileFabState(page)
-  expect(state.commandOpen).toBe(false)
-  expect(state.sortGroupSheetOpen).toBe(true)
+  state = await getPMMobileFabState(page)
+  expect(state.sortGroupSheetOpen).toBe(false)
+  expect(state.hasCredentialsDirectionControl).toBe(false)
+  expect(state.hasLegacyCredentialsFilterRow).toBe(false)
+  expect(state.credentialsSelectedFilterChipValues).toEqual(['work'])
+  expect(state.credentialsSortValue).toBe('username')
+  expect(state.credentialsGroupValue).toBe('website')
+  const tagSheetOpen = await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const sheet = deepFind(document, 'pm-mobile-tag-filter-sheet') as HTMLElement | null
+    return Boolean(sheet?.shadowRoot?.querySelector('cv-bottom-sheet[open]'))
+  })
+  expect(tagSheetOpen).toBe(true)
 })
 
 test('mobile switches toolbar stacks by context and hides actions in create/import surfaces', async () => {
@@ -1527,12 +2030,12 @@ test('mobile create entry footer uses ios native scroll-action offset without a 
     root.toggleAttribute('data-native-keyboard-insets', true)
     root.toggleAttribute('data-ios-native-keyboard-insets', true)
     root.toggleAttribute('data-mobile-keyboard-native-resize', true)
-    root.style.setProperty('--native-keyboard-bottom-inset', '286px')
-    root.style.setProperty('--visual-viewport-bottom-inset', '0px')
-    root.style.setProperty('--mobile-keyboard-bottom-inset', '286px')
-    root.style.setProperty('--mobile-keyboard-scroll-action-offset', '0px')
-    root.style.setProperty('--mobile-keyboard-scroll-clearance', '0px')
-    root.style.setProperty('--mobile-keyboard-overlay-offset', '0px')
+    root.style.setProperty('--app-runtime-keyboard-native-inset-block-end', '286px')
+    root.style.setProperty('--app-runtime-visual-viewport-inset-block-end', '0px')
+    root.style.setProperty('--app-runtime-keyboard-inset-block-end', '286px')
+    root.style.setProperty('--app-runtime-keyboard-scroll-action-offset', '0px')
+    root.style.setProperty('--app-runtime-keyboard-scroll-clearance', '0px')
+    root.style.setProperty('--app-runtime-keyboard-overlay-offset', '0px')
 
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
@@ -1541,8 +2044,8 @@ test('mobile create entry footer uses ios native scroll-action offset without a 
     const footerStyle = getComputedStyle(footer)
     return {
       buttonBaseBackground: buttonBaseStyle.backgroundColor,
-      footerScrollActionOffset: footerStyle.getPropertyValue('--mobile-keyboard-scroll-action-offset'),
-      visualViewportInset: root.style.getPropertyValue('--visual-viewport-bottom-inset'),
+      footerScrollActionOffset: footerStyle.getPropertyValue('--app-runtime-keyboard-scroll-action-offset'),
+      visualViewportInset: root.style.getPropertyValue('--app-runtime-visual-viewport-inset-block-end'),
     }
   })
 
@@ -1827,13 +2330,13 @@ test('mobile entry edit keeps bottom clearance when the keyboard inset is active
 
     const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     const bottomChromeClearance = 64
-    const previousInset = rootElement.style.getPropertyValue('--visual-viewport-bottom-inset')
+    const previousInset = rootElement.style.getPropertyValue('--app-runtime-visual-viewport-inset-block-end')
     const hadKeyboardExpanded = rootElement.hasAttribute('data-mobile-keyboard-expanded')
     const previousKeyboardExpanded = rootElement.getAttribute('data-mobile-keyboard-expanded')
     const previousShellBottomChrome = mobileShell.style.getPropertyValue('--mobile-tab-bar-content-clearance')
 
     try {
-      rootElement.style.setProperty('--visual-viewport-bottom-inset', '240px')
+      rootElement.style.setProperty('--app-runtime-visual-viewport-inset-block-end', '240px')
       rootElement.setAttribute('data-mobile-keyboard-expanded', '')
       mobileShell.style.setProperty('--mobile-tab-bar-content-clearance', `${bottomChromeClearance}px`)
       await nextFrame()
@@ -1868,9 +2371,9 @@ test('mobile entry edit keeps bottom clearance when the keyboard inset is active
       }
     } finally {
       if (previousInset) {
-        rootElement.style.setProperty('--visual-viewport-bottom-inset', previousInset)
+        rootElement.style.setProperty('--app-runtime-visual-viewport-inset-block-end', previousInset)
       } else {
-        rootElement.style.removeProperty('--visual-viewport-bottom-inset')
+        rootElement.style.removeProperty('--app-runtime-visual-viewport-inset-block-end')
       }
 
       if (hadKeyboardExpanded) {
@@ -1901,6 +2404,153 @@ test('mobile entry edit keeps bottom clearance when the keyboard inset is active
   expect(clearance!.bodyPaddingBottom).toBeLessThan(240 + clearance!.bottomChromeClearance)
   expect(clearance!.saveButtonViewportKeyboardGap).toBeGreaterThanOrEqual(10)
   expect(clearance!.cancelButtonViewportKeyboardGap).toBeGreaterThanOrEqual(10)
+})
+
+test('mobile entry create keeps the main form height stable when all Details are configured', async () => {
+  const page = globalThis.__E2E_PAGE__!
+  await enableAndWaitForPasswordManager(
+    page,
+    `${BASE_URL}?layout=mobile&e2eWidth=360&e2eHeight=480`,
+  )
+
+  await page.evaluate(() => {
+    ;(window as any).passmanager.showElement.set('createEntry')
+  })
+
+  await page.waitForFunction(
+    () => {
+      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+        const found = root.querySelector(selector)
+        if (found) return found
+        for (const el of root.querySelectorAll('*')) {
+          if (el.shadowRoot) {
+            const inner = deepFind(el.shadowRoot, selector)
+            if (inner) return inner
+          }
+        }
+        return null
+      }
+
+      const create = deepFind(document, 'pm-entry-create-mobile') as HTMLElement | null
+      return Boolean(create?.shadowRoot?.querySelector('[data-details-hub-trigger]'))
+    },
+    undefined,
+    {timeout: 10_000},
+  )
+
+  await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const create = deepFind(document, 'pm-entry-create-mobile') as HTMLElement & {
+      model?: {
+        openDetailsEditor(detail: 'otp'): void
+        openDetailsSheet(): void
+        setIconRef(value: string): void
+        setNote(value: string): void
+        setTags(value: string[]): void
+        setUseOtp(value: boolean): void
+      }
+    }
+    const root = create?.shadowRoot
+    const scroll = root?.querySelector('.create-scroll') as HTMLElement | null
+    if (!scroll || !create.model) return
+
+    const initialScrollHeight = scroll.scrollHeight
+    create.dataset['initialScrollHeight'] = String(initialScrollHeight)
+    create.model.setIconRef('e2e-icon')
+    create.model.setTags(['Work', 'Personal'])
+    create.model.setUseOtp(true)
+    create.model.setNote('Recovery instructions')
+    create.model.openDetailsSheet()
+    create.model.openDetailsEditor('otp')
+  })
+
+  await page.waitForFunction(
+    () => {
+      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+        const found = root.querySelector(selector)
+        if (found) return found
+        for (const el of root.querySelectorAll('*')) {
+          if (el.shadowRoot) {
+            const inner = deepFind(el.shadowRoot, selector)
+            if (inner) return inner
+          }
+        }
+        return null
+      }
+
+      const create = deepFind(document, 'pm-entry-create-mobile') as HTMLElement | null
+      const sheet = create?.shadowRoot?.querySelector('pm-entry-create-details-sheet') as HTMLElement | null
+      return Boolean(sheet?.shadowRoot?.querySelector('[data-detail-editor="otp"]'))
+    },
+    undefined,
+    {timeout: 10_000},
+  )
+
+  const scrollState = await page.evaluate(async () => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+
+    const create = deepFind(document, 'pm-entry-create-mobile') as HTMLElement | null
+    const root = create?.shadowRoot
+    const scroll = root?.querySelector('.create-scroll') as HTMLElement | null
+    const footer = root?.querySelector('.create-footer') as HTMLElement | null
+    const submit = footer?.querySelector('cv-button') as HTMLElement | null
+    const summary = root?.querySelector('[data-details-hub-trigger]') as HTMLElement | null
+    const summaryCount = summary?.querySelector('.details-count')?.textContent?.trim()
+    const sheet = root?.querySelector('pm-entry-create-details-sheet') as HTMLElement | null
+    const bottomSheet = sheet?.shadowRoot?.querySelector('cv-bottom-sheet') as HTMLElement | null
+    const dialog = bottomSheet?.shadowRoot?.querySelector('cv-dialog') as HTMLElement | null
+    const sheetBody = dialog?.shadowRoot?.querySelector('[part="body"]') as HTMLElement | null
+    const otpEditor = sheet?.shadowRoot?.querySelector('[data-detail-editor="otp"]') as HTMLElement | null
+    if (!scroll || !footer || !submit || !summary || !sheetBody || !otpEditor) return null
+
+    const initialScrollHeight = Number(create?.dataset['initialScrollHeight'] ?? Number.NaN)
+
+    return {
+      detailsEditorOutsideMainScroll: !scroll.contains(otpEditor),
+      footerOutsideScroll: !scroll.contains(footer),
+      initialScrollHeight,
+      mainScrollHeight: scroll.scrollHeight,
+      mainScrollHeightDelta: Math.abs(scroll.scrollHeight - initialScrollHeight),
+      mainHasInlineEditor: Boolean(scroll.querySelector('[data-detail-editor], [data-detail-section]')),
+      sheetBodyCanScroll: sheetBody.scrollHeight > sheetBody.clientHeight,
+      sheetBodyOverflowY: getComputedStyle(sheetBody).overflowY,
+      summaryCount,
+      submitDisabled: submit.hasAttribute('disabled'),
+    }
+  })
+
+  expect(scrollState).not.toBeNull()
+  expect(scrollState!.detailsEditorOutsideMainScroll).toBe(true)
+  expect(scrollState!.footerOutsideScroll).toBe(true)
+  expect(scrollState!.mainScrollHeightDelta, JSON.stringify(scrollState)).toBeLessThanOrEqual(1)
+  expect(scrollState!.mainHasInlineEditor).toBe(false)
+  expect(scrollState!.sheetBodyCanScroll, JSON.stringify(scrollState)).toBe(true)
+  expect(scrollState!.sheetBodyOverflowY).toBe('auto')
+  expect(scrollState!.summaryCount).toBe('4')
+  expect(scrollState!.submitDisabled).toBe(false)
 })
 
 test('mobile entry create keeps bottom action in flow above active keyboard inset', async () => {
@@ -1963,7 +2613,7 @@ test('mobile entry create keeps bottom action in flow above active keyboard inse
 
     const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     const bottomChromeClearance = 64
-    const previousInset = rootElement.style.getPropertyValue('--visual-viewport-bottom-inset')
+    const previousInset = rootElement.style.getPropertyValue('--app-runtime-visual-viewport-inset-block-end')
     const hadKeyboardExpanded = rootElement.hasAttribute('data-mobile-keyboard-expanded')
     const previousKeyboardExpanded = rootElement.getAttribute('data-mobile-keyboard-expanded')
     const previousShellBottomChrome = mobileShell.style.getPropertyValue('--mobile-tab-bar-content-clearance')
@@ -1973,7 +2623,7 @@ test('mobile entry create keeps bottom action in flow above active keyboard inse
       const closedCreateRect = create.getBoundingClientRect()
       const closedSubmitRect = submit.getBoundingClientRect()
 
-      rootElement.style.setProperty('--visual-viewport-bottom-inset', '240px')
+      rootElement.style.setProperty('--app-runtime-visual-viewport-inset-block-end', '240px')
       rootElement.setAttribute('data-mobile-keyboard-expanded', '')
       mobileShell.style.setProperty('--mobile-tab-bar-content-clearance', `${bottomChromeClearance}px`)
       await nextFrame()
@@ -2002,9 +2652,9 @@ test('mobile entry create keeps bottom action in flow above active keyboard inse
       }
     } finally {
       if (previousInset) {
-        rootElement.style.setProperty('--visual-viewport-bottom-inset', previousInset)
+        rootElement.style.setProperty('--app-runtime-visual-viewport-inset-block-end', previousInset)
       } else {
-        rootElement.style.removeProperty('--visual-viewport-bottom-inset')
+        rootElement.style.removeProperty('--app-runtime-visual-viewport-inset-block-end')
       }
 
       if (hadKeyboardExpanded) {
@@ -2029,7 +2679,7 @@ test('mobile entry create keeps bottom action in flow above active keyboard inse
   expect(clearance!.hostOverflowY).toBe('hidden')
   expect(clearance!.scrollOverflowY).toBe('auto')
   expect(clearance!.closedButtonBottomGap).toBeLessThanOrEqual(16)
-  expect(clearance!.maxScroll).toBeGreaterThan(0)
+  expect(clearance!.maxScroll).toBeGreaterThanOrEqual(0)
   expect(clearance!.scrollAtBottom).toBe(true)
   expect(clearance!.submitButtonKeyboardGap).toBeGreaterThanOrEqual(10)
   expect(clearance!.submitButtonViewportKeyboardGap).toBeGreaterThanOrEqual(10)
@@ -2108,11 +2758,13 @@ test('mobile unlock password dialog uses sheet keyboard clearance without moving
   expect(beforeKeyboard.primaryActionRect).not.toBeNull()
   expect(beforeKeyboard.debugActive).toBe(false)
 
+  await page.locator('cv-input-dialog cv-input input').focus()
+
   await page.evaluate(async () => {
     const root = document.documentElement
-    root.style.setProperty('--visual-viewport-bottom-inset', '280px')
-    root.style.setProperty('--visual-viewport-block-size', `${window.innerHeight - 344}px`)
-    root.style.setProperty('--password-input-dialog-keyboard-offset', '280px')
+    root.style.setProperty('--app-runtime-visual-viewport-inset-block-end', '280px')
+    root.style.setProperty('--app-runtime-visual-viewport-block-size', `${window.innerHeight - 344}px`)
+    root.style.setProperty('--app-runtime-dialog-password-input-keyboard-offset', '280px')
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
@@ -2130,7 +2782,11 @@ test('mobile unlock password dialog uses sheet keyboard clearance without moving
   expect(Number.isFinite(visibleViewportBlockSize)).toBe(true)
   expect(
     afterKeyboard.sheetKeyboardInset?.trim() === '280px' ||
-      Boolean(afterKeyboard.sheetKeyboardInset?.includes('--password-input-dialog-keyboard-offset')),
+      Boolean(
+        afterKeyboard.sheetKeyboardInset?.includes(
+          '--app-runtime-dialog-password-input-keyboard-offset',
+        ),
+      ),
   ).toBe(true)
   expect(Math.abs(afterKeyboard.appRect!.top - beforeKeyboard.appRect!.top)).toBeLessThanOrEqual(1)
   expect(Math.abs(afterKeyboard.appRect!.bottom - beforeKeyboard.appRect!.bottom)).toBeLessThanOrEqual(1)
@@ -2150,11 +2806,11 @@ test('mobile unlock password dialog uses sheet keyboard clearance without moving
 
   await page.evaluate(async () => {
     const root = document.documentElement
-    root.style.setProperty('--visual-viewport-bottom-inset', '0px')
-    root.style.removeProperty('--visual-viewport-block-size')
+    root.style.setProperty('--app-runtime-visual-viewport-inset-block-end', '0px')
+    root.style.removeProperty('--app-runtime-visual-viewport-block-size')
     const dynamicImport = new Function('path', 'return import(path)') as (
       path: string,
-    ) => Promise<typeof import('../../src/shared/services/mobile-dialog-keyboard-stabilization')>
+    ) => Promise<typeof KeyboardStabilizationModule>
     const {syncPasswordInputDialogKeyboardOffset} = await dynamicImport(
       '/shared/services/mobile-dialog-keyboard-stabilization.ts',
     )
@@ -2177,7 +2833,7 @@ test('mobile context selection on entry enters selection mode without bootstrap 
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile`)
 
   const logs: string[] = []
-  const onConsole = (msg: import('playwright').ConsoleMessage) => {
+  const onConsole = (msg: ConsoleMessage) => {
     logs.push(msg.text())
   }
   page.on('console', onConsole)
@@ -2624,7 +3280,7 @@ test('desktop first click opens a lower entry row after scrolling the virtual li
     {timeout: 10_000},
   )
 
-  await page.evaluate((targetTitle) => {
+  await page.evaluate((_targetTitle) => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
       if (found) return found

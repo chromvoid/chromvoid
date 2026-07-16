@@ -1,6 +1,7 @@
 package com.chromvoid.app.credentialprovider
 
 import androidx.credentials.exceptions.GetCredentialUnknownException
+import androidx.credentials.provider.BeginGetCredentialRequest
 import androidx.credentials.provider.BeginGetCredentialResponse
 import androidx.credentials.provider.BeginGetPublicKeyCredentialOption
 import com.chromvoid.app.AndroidPasskeySummary
@@ -20,6 +21,7 @@ internal class PasskeyQueryHandler(
 ) {
     fun addEntries(
         builder: BeginGetCredentialResponse.Builder,
+        request: BeginGetCredentialRequest,
         option: BeginGetPublicKeyCredentialOption,
     ): PasskeyQueryOutcome {
         val parsedRequest = PasskeyRequestParser.parseGetRequestJson(option.requestJson)
@@ -32,7 +34,12 @@ internal class PasskeyQueryHandler(
         val queryResult =
             when (
                 val query =
-                    bridgeGateway.passkeyQuery(PasskeyPreflightPayloadFactory.buildCoreGet(option))
+                    bridgeGateway.passkeyQuery(
+                        PasskeyPreflightPayloadFactory.buildCoreGet(
+                            option,
+                            request.callingAppInfo,
+                        ),
+                    )
             ) {
                 is BridgeResult.Failure -> {
                     return PasskeyQueryOutcome.Error(PasskeyResultMapper.getException(query.error))

@@ -18,7 +18,9 @@ fn create_router_with_master() -> (RpcRouter, TempDir) {
     let temp_dir = TempDir::new().expect("temp dir");
     let storage = Storage::new(temp_dir.path()).expect("storage");
     let keystore = Arc::new(InMemoryKeystore::new());
-    let mut router = RpcRouter::new(storage).with_keystore(keystore);
+    let mut router = RpcRouter::new(storage)
+        .with_master_key(MASTER_PASSWORD)
+        .with_keystore(keystore);
     let setup = router.handle(&RpcRequest::new(
         "master:setup",
         serde_json::json!({"master_password": MASTER_PASSWORD}),

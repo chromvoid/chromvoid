@@ -209,12 +209,18 @@ mod tests {
             audio_tracks: 1,
             video_tracks: 0,
             playback_mime_type: Some("audio/mp4".to_string()),
+            codec_string: None,
+            mse_fragmented: None,
+            streaming_metadata: None,
         };
         let video_m4a = CatalogMediaInfo {
             kind: CatalogMediaKind::Video,
             audio_tracks: 1,
             video_tracks: 1,
             playback_mime_type: Some("video/mp4".to_string()),
+            codec_string: None,
+            mse_fragmented: None,
+            streaming_metadata: None,
         };
 
         assert_eq!(

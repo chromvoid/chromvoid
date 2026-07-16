@@ -41,7 +41,14 @@ internal interface MobileUsbAccessoryPermissionGateway {
 internal interface MobileUsbAccessorySessionHandle {
     val sessionId: String
 
-    fun close()
+    fun close(reason: MobileUsbAccessorySessionStopReason)
+}
+
+internal enum class MobileUsbAccessorySessionStopReason(val code: String) {
+    ExplicitDisconnect("explicit_disconnect"),
+    AccessoryDetached("accessory_detached"),
+    SessionReplaced("session_replaced"),
+    LocalError("local_error"),
 }
 
 internal interface MobileUsbAccessorySessionOpener {
@@ -177,16 +184,18 @@ internal class MobileUsbAccessoryCoordinator(
                 return@synchronized MobileUsbAccessoryCoordinatorResult.Ignored
             }
 
-            closeOpenSessionLocked()
+            closeOpenSessionLocked(MobileUsbAccessorySessionStopReason.AccessoryDetached)
             pending = null
             state = MobileUsbAccessoryCoordinatorState.Detached
             lastErrorCode = null
             MobileUsbAccessoryCoordinatorResult.Detached
         }
 
-    fun disconnect(): MobileUsbAccessoryCoordinatorResult =
+    fun disconnect(
+        reason: MobileUsbAccessorySessionStopReason = MobileUsbAccessorySessionStopReason.ExplicitDisconnect,
+    ): MobileUsbAccessoryCoordinatorResult =
         synchronized(lock) {
-            closeOpenSessionLocked()
+            closeOpenSessionLocked(reason)
             pending = null
             state = MobileUsbAccessoryCoordinatorState.Idle
             lastErrorCode = null
@@ -244,17 +253,17 @@ internal class MobileUsbAccessoryCoordinator(
         }
 
     private fun failLocked(code: String): MobileUsbAccessoryCoordinatorResult {
-        closeOpenSessionLocked()
+        closeOpenSessionLocked(MobileUsbAccessorySessionStopReason.LocalError)
         pending = null
         state = MobileUsbAccessoryCoordinatorState.Error
         lastErrorCode = code
         return MobileUsbAccessoryCoordinatorResult.Error(code)
     }
 
-    private fun closeOpenSessionLocked() {
+    private fun closeOpenSessionLocked(reason: MobileUsbAccessorySessionStopReason) {
         val session = openSession ?: return
         openSession = null
-        runCatching { session.handle.close() }
+        runCatching { session.handle.close(reason) }
     }
 
     private fun sameAccessoryIdentity(

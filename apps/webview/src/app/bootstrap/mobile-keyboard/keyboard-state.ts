@@ -127,10 +127,10 @@ const withStableSince = (
 
 const getRootKeyboardBottomInset = (): number =>
   Math.max(
-    readRootCssPx('--mobile-keyboard-scroll-clearance'),
-    readRootCssPx('--mobile-keyboard-overlay-offset'),
-    readRootCssPx('--visual-viewport-bottom-inset'),
-    readRootCssPx('--native-keyboard-bottom-inset'),
+    readRootCssPx('--app-runtime-keyboard-scroll-clearance'),
+    readRootCssPx('--app-runtime-keyboard-overlay-offset'),
+    readRootCssPx('--app-runtime-visual-viewport-inset-block-end'),
+    readRootCssPx('--app-runtime-keyboard-native-inset-block-end'),
   )
 
 const sourceFromRoot = (root: HTMLElement): MobileKeyboardStateSource => {

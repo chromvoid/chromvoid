@@ -856,7 +856,7 @@ fn persist_paired_peer_to_legacy_store(
     peer: PairedPeer,
 ) -> Result<(), String> {
     let mut store = PairedPeerStore::load(&legacy_peers_path(storage_root));
-    store.upsert(peer);
+    store.upsert(peer)?;
     store.save()
 }
 

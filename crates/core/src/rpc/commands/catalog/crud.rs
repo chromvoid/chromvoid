@@ -5,6 +5,7 @@ use serde_json::Value;
 use crate::catalog::CatalogNode;
 use crate::error::ErrorCode;
 use crate::rpc::request_parse::{optional_str, required_str, required_u64};
+use crate::storage::Storage;
 use crate::vault::VaultSession;
 
 use super::super::super::types::{
@@ -16,9 +17,19 @@ use super::super::guards::{
 };
 
 pub(super) fn catalog_list_item_from_node(node: &CatalogNode) -> CatalogListItem {
+    catalog_list_item_from_node_with_location(node, None, None)
+}
+
+pub(super) fn catalog_list_item_from_node_with_location(
+    node: &CatalogNode,
+    path: Option<&str>,
+    parent_path: Option<&str>,
+) -> CatalogListItem {
     CatalogListItem {
         node_id: node.node_id,
         name: node.name.clone(),
+        path: path.map(str::to_string),
+        parent_path: parent_path.map(str::to_string),
         is_dir: node.is_dir(),
         size: if node.is_file() {
             Some(node.size)
@@ -28,6 +39,7 @@ pub(super) fn catalog_list_item_from_node(node: &CatalogNode) -> CatalogListItem
         mime_type: node.mime_type.clone(),
         media_info: node.media_info.clone(),
         media_inspected_revision: node.media_inspected_revision,
+        source_revision: node.source_revision(),
         created_at: node.birthtime,
         updated_at: node.modtime,
     }
@@ -44,7 +56,11 @@ fn parse_catalog_list_request(data: &Value) -> CatalogListRequest<'_> {
 }
 
 /// Handle catalog:list command
-pub fn handle_catalog_list(session: &VaultSession, data: &Value) -> RpcResponse {
+pub fn handle_catalog_list(
+    session: &mut VaultSession,
+    data: &Value,
+    storage: &Storage,
+) -> RpcResponse {
     let request = parse_catalog_list_request(data);
     let path = request.path;
 
@@ -53,7 +69,16 @@ pub fn handle_catalog_list(session: &VaultSession, data: &Value) -> RpcResponse 
         return system_shard_denied();
     }
 
-    match session.catalog().list(path) {
+    if let Err(error) = ensure_shard_loaded_for_path(session, storage, path) {
+        return RpcResponse::error(error.to_string(), Some(ErrorCode::DeltasLost));
+    }
+
+    let list_result = session
+        .catalog()
+        .list(path)
+        .map(|nodes| nodes.into_iter().cloned().collect::<Vec<_>>());
+
+    match list_result {
         Ok(nodes) => {
             let nodes = if path == "/" {
                 nodes
@@ -80,6 +105,21 @@ pub fn handle_catalog_list(session: &VaultSession, data: &Value) -> RpcResponse 
     }
 }
 
+fn ensure_shard_loaded_for_path(
+    session: &mut VaultSession,
+    storage: &Storage,
+    path: &str,
+) -> crate::error::Result<()> {
+    if path != "/" && !session.is_dirty() {
+        let normalized = normalize_path(path);
+        if let Some(shard_id) = shard_id_from_path(&normalized) {
+            session.ensure_shard_loaded(storage, &shard_id)?;
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,6 +138,9 @@ mod tests {
             audio_tracks: 1,
             video_tracks: 0,
             playback_mime_type: Some("audio/mp4".to_string()),
+            codec_string: None,
+            mse_fragmented: None,
+            streaming_metadata: None,
         });
 
         let item = catalog_list_item_from_node(&node);
@@ -105,6 +148,7 @@ mod tests {
         assert_eq!(item.mime_type.as_deref(), Some("video/mp4"));
         assert_eq!(item.media_info, node.media_info);
         assert_eq!(item.media_inspected_revision, node.media_inspected_revision);
+        assert_eq!(item.source_revision, node.source_revision());
     }
 }
 

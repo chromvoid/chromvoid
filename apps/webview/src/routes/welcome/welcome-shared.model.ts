@@ -1,4 +1,4 @@
-import {atom} from '@reatom/core'
+import {atom, wrap} from '@reatom/core'
 
 export class WelcomeSharedModel {
   readonly busy = atom(false)
@@ -26,8 +26,11 @@ export class WelcomeSharedModel {
 
   private triggerShake(): void {
     this.shakeError.set(true)
-    window.setTimeout(() => {
-      this.shakeError.set(false)
-    }, 500)
+    window.setTimeout(
+      wrap(() => {
+        this.shakeError.set(false)
+      }),
+      500,
+    )
   }
 }

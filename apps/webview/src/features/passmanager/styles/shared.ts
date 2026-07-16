@@ -14,66 +14,6 @@ export const pmSharedStyles: CSSResult[] = [
     /* ===== DESIGN TOKENS ===== */
     :host {
       -webkit-tap-highlight-color: transparent;
-
-      --pm-focus-outline: 2px solid var(--cv-color-focus, var(--cv-color-primary));
-      --pm-focus-outline-offset: 0;
-      --pm-focus-outline-outer-offset: 2px;
-      --pm-focus-outline-inner-offset: -2px;
-      --pm-focus-border-color: var(--cv-color-primary-border-strong);
-      --pm-active-outline: 2px solid var(--cv-color-primary-ring);
-      --pm-active-outline-offset: -2px;
-
-      --pm-divider-gradient: var(--cv-gradient-divider-subtle);
-      --pm-surface-gradient: var(--cv-gradient-surface);
-      --pm-surface-gradient-primary: var(--cv-gradient-surface-primary);
-      --pm-surface-gradient-danger: var(--cv-gradient-surface-danger);
-      --pm-control-background: var(--cv-color-surface-3);
-      --pm-control-background-hover: var(--cv-color-surface-4);
-      --pm-control-background-active: var(--cv-color-primary-surface);
-      --pm-control-border: var(--cv-color-border-strong);
-      --pm-control-border-muted: var(--cv-color-border-muted);
-      --pm-control-border-strong: var(--cv-color-border-strong);
-      --pm-control-border-active: var(--cv-color-primary-border-strong);
-      --pm-control-border-danger: var(--cv-color-danger-border);
-      --pm-control-border-danger-active: var(--cv-color-danger-border-strong);
-      --pm-entry-row-icon-color: var(--cv-color-primary);
-      --pm-entry-row-icon-background: var(--cv-color-primary-surface);
-      --pm-entry-row-background: transparent;
-      --pm-entry-row-border: transparent;
-      --pm-entry-row-shadow: inset 0 -1px 0 var(--cv-color-border-soft);
-      --pm-entry-row-leading-accent: transparent;
-      --pm-entry-row-hover-background: var(--cv-color-primary-surface);
-      --pm-entry-row-hover-border: var(--cv-color-primary-border-strong);
-      --pm-entry-row-hover-leading-accent: var(--cv-color-primary);
-      --pm-entry-row-active-background: var(--cv-color-primary-surface-strong);
-      --pm-entry-row-active-border: var(--cv-color-primary);
-      --pm-entry-row-active-leading-accent: var(--cv-color-primary);
-      --pm-list-row-hover-background: var(--cv-color-primary-surface);
-      --pm-list-row-hover-border: var(--cv-color-primary-border);
-      --pm-list-row-active-background: var(--cv-color-primary-surface-strong);
-      --pm-list-row-active-border: var(--cv-color-primary-border-strong);
-      --pm-otp-success-surface: var(--cv-color-success-surface-strong);
-      --pm-otp-success-border: var(--cv-color-success-border-strong);
-      --pm-otp-success-ring: var(--cv-color-success-ring);
-      --pm-otp-warning-surface: var(--cv-color-warning-surface-strong);
-      --pm-otp-warning-border: var(--cv-color-warning-border-strong);
-      --pm-otp-warning-ring: var(--cv-color-warning-ring);
-      --pm-otp-danger-surface: var(--cv-color-danger-surface-strong);
-      --pm-otp-danger-border: var(--cv-color-danger-border-strong);
-      --pm-otp-danger-ring: var(--cv-color-danger-ring);
-      --pm-swipe-action-background: var(--cv-alpha-black-10);
-      --pm-swipe-action-border: var(--cv-alpha-white-20);
-      --pm-strength-color-0: var(--cv-color-danger);
-      --pm-strength-color-1: var(--cv-color-warning-dark);
-      --pm-strength-color-2: var(--cv-color-warning);
-      --pm-strength-color-3: var(--cv-color-success-dark);
-      --pm-strength-color-4: var(--cv-color-success);
-
-      --cv-shadow-subtle: var(--cv-shadow-1);
-      --cv-shadow-card: var(--cv-shadow-2);
-
-      /* cv-button specific */
-      --cv-button-font-weight-medium: var(--cv-font-weight-medium);
     }
 
     :host *,
@@ -84,17 +24,19 @@ export const pmSharedStyles: CSSResult[] = [
 
     /* ===== CV-BUTTON STYLES ===== */
     cv-button:not([unstyled]) {
+      --cv-button-font-weight-medium: var(--cv-font-weight-medium);
+
       &:not([variant]),
       &[variant='default'],
       &[variant='ghost'] {
         &::part(base) {
-          background: var(--pm-control-background);
+          background: var(--cv-color-surface-3);
           border: 1px solid var(--pm-control-border);
           color: var(--cv-color-text);
         }
 
         &:hover::part(base) {
-          background: var(--pm-control-background-hover);
+          background: var(--cv-color-surface-4);
           border-color: var(--cv-color-primary);
           color: var(--cv-color-primary);
         }
@@ -133,7 +75,7 @@ export const pmSharedStyles: CSSResult[] = [
       overflow-y: auto;
       overflow-x: hidden;
       contain: layout style;
-      scrollbar-gutter: var(--cv-scrollable-scrollbar-gutter, stable both-edges);
+      scrollbar-gutter: stable both-edges;
       overscroll-behavior: contain;
       -webkit-overflow-scrolling: touch;
       scrollbar-width: thin;
@@ -156,14 +98,14 @@ export const pmSharedStyles: CSSResult[] = [
     /* ===== DIVIDERS ===== */
     .divider {
       height: 1px;
-      background: var(--pm-divider-gradient);
+      background: var(--cv-gradient-divider-subtle);
       margin-block: var(--cv-space-3);
     }
 
     /* ===== FOCUS STATES ===== */
     *:focus-visible {
       outline: var(--pm-focus-outline);
-      outline-offset: var(--pm-focus-outline-offset);
+      outline-offset: 0;
       border-radius: var(--cv-radius-1);
     }
 
@@ -182,16 +124,16 @@ export const pmSharedStyles: CSSResult[] = [
     cv-select:focus-within::part(trigger) {
       border-color: var(--pm-focus-border-color);
       outline: var(--pm-focus-outline);
-      outline-offset: var(--pm-focus-outline-inner-offset);
+      outline-offset: -2px;
       box-shadow: none;
     }
 
     /*
      * iOS Safari zooms focused inputs when effective font-size is below 16px.
-     * Force 16px for form controls on touch iOS runtimes.
+     * Force 16px for form controls on narrow iOS runtimes.
      */
     @supports (-webkit-touch-callout: none) {
-      @media (hover: none) and (pointer: coarse) {
+      @media (max-width: 768px) {
         cv-input::part(input),
         cv-number::part(input),
         cv-textarea::part(textarea),
@@ -200,8 +142,6 @@ export const pmSharedStyles: CSSResult[] = [
         }
       }
     }
-
-
 
 
     /* ===== ACCESSIBILITY ===== */

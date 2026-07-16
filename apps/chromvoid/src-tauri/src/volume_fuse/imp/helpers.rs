@@ -96,6 +96,7 @@ pub(super) fn rpc_code_to_errno(code: Option<&str>) -> i32 {
         Some("INVALID_PATH") => libc::ENOENT,
         Some("NOT_A_DIR") => libc::ENOTDIR,
         Some("NAME_EXIST") => libc::EEXIST,
+        Some("ERR_STALE_SOURCE") => libc::ESTALE,
         Some("VAULT_REQUIRED") | Some("VAULT_NOT_UNLOCKED") => libc::EACCES,
         Some("EMPTY_PAYLOAD") => libc::EINVAL,
         _ => libc::EIO,
@@ -120,15 +121,28 @@ pub(super) fn build_catalog_path(inode_table: &InodeTable, ino: u64) -> Option<S
     if ino == FUSE_ROOT_ID {
         return Some("/".to_string());
     }
-    let entry = inode_table.get(ino)?;
-    if entry.parent_ino == FUSE_ROOT_ID {
-        return Some(format!("/{}", entry.name));
+
+    let mut current = ino;
+    let mut visited = HashSet::new();
+    let mut parts: Vec<String> = Vec::new();
+
+    while current != FUSE_ROOT_ID {
+        if current == 0 || !visited.insert(current) {
+            return None;
+        }
+        let entry = inode_table.get(current)?;
+        if entry.catalog_node_id == 0 {
+            return None;
+        }
+        parts.push(entry.name);
+        current = entry.parent_ino;
     }
-    let parent_path = build_catalog_path(inode_table, entry.parent_ino)?;
-    if parent_path == "/" {
-        Some(format!("/{}", entry.name))
+
+    parts.reverse();
+    if parts.is_empty() {
+        Some("/".to_string())
     } else {
-        Some(format!("{}/{}", parent_path, entry.name))
+        Some(format!("/{}", parts.join("/")))
     }
 }
 
@@ -163,14 +177,16 @@ pub(super) fn make_attr(ino: u64, size: u64, is_dir: bool, mtime: SystemTime) ->
 }
 
 pub(super) fn is_trash_parent_path(path: &str) -> bool {
-    if path.starts_with("/.Trashes/") {
+    if is_trash_listing_path(path) {
         return true;
     }
 
-    if path == "/.Trash" || path.starts_with("/.Trash/") {
+    if let Some(rest) = path.strip_prefix("/.Trashes/") {
+        return !rest.is_empty();
+    }
+    if path.starts_with("/.Trash/") {
         return true;
     }
-
     if let Some(rest) = path.strip_prefix("/.Trash-") {
         return !rest.is_empty();
     }
@@ -178,8 +194,46 @@ pub(super) fn is_trash_parent_path(path: &str) -> bool {
     false
 }
 
+pub(super) fn is_trash_listing_path(path: &str) -> bool {
+    if path == "/.Trash" {
+        return true;
+    }
+
+    if let Some(rest) = path.strip_prefix("/.Trash-") {
+        return !rest.is_empty() && !rest.contains('/');
+    }
+
+    if let Some(rest) = path.strip_prefix("/.Trashes/") {
+        return !rest.is_empty() && !rest.contains('/');
+    }
+
+    false
+}
+
 pub(super) fn is_trash_path(path: &str) -> bool {
-    path == "/.Trashes" || path.starts_with("/.Trashes/")
+    path == "/.Trashes"
+        || path.starts_with("/.Trashes/")
+        || path == "/.Trash"
+        || path.starts_with("/.Trash/")
+        || path
+            .strip_prefix("/.Trash-")
+            .map(|rest| !rest.is_empty())
+            .unwrap_or(false)
+}
+
+pub(super) fn inode_entry_from_trash_item(
+    parent_ino: u64,
+    item: &CatalogTrashListItem,
+) -> InodeEntry {
+    InodeEntry {
+        catalog_node_id: item.node_id,
+        name: item.name.clone(),
+        parent_ino,
+        is_dir: item.is_dir,
+        size: item.size.unwrap_or(0),
+        source_revision: item.source_revision,
+        modified: Some(ms_to_system_time(item.updated_at)),
+    }
 }
 
 pub(super) fn is_platform_metadata_child(parent_path: &str, name: &str) -> bool {

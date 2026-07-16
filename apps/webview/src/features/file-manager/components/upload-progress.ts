@@ -20,9 +20,9 @@ export class UploadProgress extends ReatomLitElement {
     :host {
       display: block;
       position: fixed;
-      inset-block-end: 20px;
-      inset-inline-end: 20px;
-      z-index: 1000;
+      inset-block-end: 40px;
+      inset-inline-end: 16px;
+      z-index: calc(var(--cv-z-overlay, 300) - 10);
     }
 
     :host([data-mobile]) {

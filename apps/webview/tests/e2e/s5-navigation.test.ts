@@ -2,8 +2,9 @@ import {expect, test} from 'vitest'
 
 import {createFolder, createUniqueName, openFilesRoot, waitForCatalogItem, waitForCurrentPath} from './utils'
 
+import type {Page} from 'playwright'
 declare global {
-  var __E2E_PAGE__: import('playwright').Page | undefined
+  var __E2E_PAGE__: Page | undefined
 }
 
 test('S5: Navigating folders', async () => {

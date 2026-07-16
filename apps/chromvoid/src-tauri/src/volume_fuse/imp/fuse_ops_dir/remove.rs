@@ -135,6 +135,7 @@ pub(in crate::volume_fuse::imp) fn handle_rmdir(
             if e == libc::ENOENT {
                 fs.inode_table
                     .remove(fuse_ino_from_catalog_node_id(entry.catalog_node_id));
+                fs.clear_xattrs_for_ino(child_ino);
                 touch_dir_mtime(&fs.inode_table, parent);
                 emit_catalog_delete_event(&fs.event_sink, entry.catalog_node_id);
                 info!(target: "chromvoid_lib::volume_fuse::imp", node_id = entry.catalog_node_id, "FUSE rmdir: core already missing");
@@ -158,6 +159,7 @@ pub(in crate::volume_fuse::imp) fn handle_rmdir(
 
     fs.inode_table
         .remove(fuse_ino_from_catalog_node_id(entry.catalog_node_id));
+    fs.clear_xattrs_for_ino(child_ino);
     touch_dir_mtime(&fs.inode_table, parent);
     emit_catalog_delete_event(&fs.event_sink, entry.catalog_node_id);
     let parent_path = removed_child_parent_refresh_path(&fs.inode_table, parent, "rmdir");
@@ -235,6 +237,7 @@ pub(in crate::volume_fuse::imp) fn handle_unlink(
             if e == libc::ENOENT {
                 fs.inode_table
                     .remove(fuse_ino_from_catalog_node_id(entry.catalog_node_id));
+                fs.clear_xattrs_for_ino(child_ino);
                 touch_dir_mtime(&fs.inode_table, parent);
                 emit_catalog_delete_event(&fs.event_sink, entry.catalog_node_id);
                 info!(target: "chromvoid_lib::volume_fuse::imp", node_id = entry.catalog_node_id, "FUSE unlink: core already missing");
@@ -258,6 +261,7 @@ pub(in crate::volume_fuse::imp) fn handle_unlink(
 
     fs.inode_table
         .remove(fuse_ino_from_catalog_node_id(entry.catalog_node_id));
+    fs.clear_xattrs_for_ino(child_ino);
     touch_dir_mtime(&fs.inode_table, parent);
     emit_catalog_delete_event(&fs.event_sink, entry.catalog_node_id);
     let parent_path = removed_child_parent_refresh_path(&fs.inode_table, parent, "unlink");
@@ -294,6 +298,7 @@ mod tests {
             parent_ino: FUSE_ROOT_ID,
             is_dir: true,
             size: 0,
+            source_revision: 0,
             modified: None,
         });
 

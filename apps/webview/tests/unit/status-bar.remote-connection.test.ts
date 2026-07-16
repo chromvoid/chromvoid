@@ -88,4 +88,13 @@ describe('status-bar remote connection indicator', () => {
 
     expect(text).toContain(i18n('statusbar:remote-connection:waiting-host'))
   })
+
+  it('shows phone approval state while USB remote waits for Allow', async () => {
+    store.setRemoteSessionPhoneApproval('usb-host-1')
+
+    const element = await renderStatusBar()
+    const text = element.shadowRoot?.textContent ?? ''
+
+    expect(text).toContain(i18n('statusbar:remote-connection:waiting-phone'))
+  })
 })

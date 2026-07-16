@@ -4,7 +4,6 @@ import {Entry, Group, type ManagerRoot} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
 import {
   createEntryFilterMatcher,
-  createGroupFilterMatcher,
   filterValue,
   getEffectiveSelectedCredentialTagFilters,
   quickFilters,
@@ -27,10 +26,9 @@ import {
   isPassmanagerReadOnlyOrMissing,
 } from '../../../models/pm-root.adapter'
 import {
-  composePMGroupRows,
+  getPMCredentialSurfaceRows,
   getPMRootCredentialTagsForSearch,
   getPMRootEntriesForSearch,
-  pmRootSearchProjectionModel,
   type PMGroupEntryRow,
   type PMGroupFolderRow,
   type PMGroupRow,
@@ -286,46 +284,7 @@ export class PMGroupModel {
   getVisibleRows(group: Group | ManagerRoot): PMGroupRow[] {
     const root = getPassmanagerRoot()
     if (!root) return []
-
-    if (this.isManagerRoot(group)) {
-      return pmRootSearchProjectionModel.getSnapshot().rows
-    }
-
-    const currentGroup = group as Group
-    const entries = currentGroup.searched() as Entry[]
-    const prefix = currentGroup.name + '/'
-    const query = filterValue()
-    const filters = quickFilters()
-    const selectedTags = getEffectiveSelectedCredentialTagFilters(
-      getPMRootEntriesForSearch(root),
-      getPMRootCredentialTagsForSearch(root),
-    )
-    const matchesGroup = createGroupFilterMatcher(query)
-
-    const childGroups = root.entriesList().filter((item): item is Group => {
-      if (!(item instanceof Group)) return false
-      if (!item.name.startsWith(prefix)) return false
-
-      const restPath = item.name.slice(prefix.length)
-      if (restPath.includes('/')) return false
-      if (query || filters.length || selectedTags.length) {
-        return (
-          item.searched().length > 0 ||
-          (query.length > 0 &&
-            matchesGroup({
-              name: this.getGroupDisplayName(item),
-              description: item.description,
-            }))
-        )
-      }
-      return true
-    })
-
-    return composePMGroupRows(childGroups, entries, {
-      groupBy: groupBy(),
-      sortField: sortField(),
-      sortDirection: sortDirection(),
-    })
+    return getPMCredentialSurfaceRows(root, group)
   }
 
   getUniqueRows(items: PMGroupRow[]): PMGroupRow[] {
@@ -597,6 +556,8 @@ export class PMGroupModel {
   }
 
   deleteGroup(group: Group): void {
+    if (this.isReadOnly()) return
+
     pmDeleteMotionModel.markPending([group])
     void this.removeGroupWithDeleteMotion(group).catch(() => {})
   }

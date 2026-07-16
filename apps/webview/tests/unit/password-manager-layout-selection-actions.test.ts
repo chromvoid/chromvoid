@@ -3,6 +3,11 @@ import {Entry, Group, ManagerRoot} from '@project/passmanager/core'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {PMGroupModel} from '../../src/features/passmanager/components/group/group/group.model'
+import {moduleAccessModel} from '../../src/core/pro/module-access.model'
+import {
+  resetRuntimeCapabilities,
+  setRuntimeCapabilities,
+} from '../../src/core/runtime/runtime-capabilities'
 import {PasswordManagerLayoutModel} from '../../src/features/passmanager/components/password-manager-layout/password-manager-layout.model'
 import {pmMobileChromeModel} from '../../src/features/passmanager/models/pm-mobile-chrome.model'
 import {pmMobileSelectionModel} from '../../src/features/passmanager/models/pm-mobile-selection.model'
@@ -126,6 +131,8 @@ describe('PasswordManagerLayoutModel selection actions', () => {
     pmSelectionModeModel.exit()
     pmDeleteMotionModel.reset()
     new PMGroupModel().exitEditMode()
+    moduleAccessModel.reset()
+    resetRuntimeCapabilities()
     vi.restoreAllMocks()
   })
 
@@ -161,6 +168,45 @@ describe('PasswordManagerLayoutModel selection actions', () => {
     expect(pmMobileChromeModel.getToolbarActions().map((action) => action.id)).not.toContain('pm-otp-view')
     expect(pmMobileChromeModel.executeCommand('pm-otp-view')).toBe(false)
     expect(openSpy).not.toHaveBeenCalled()
+  })
+
+  it('keeps Env Runtime locked-visible on desktop and absent from mobile', () => {
+    const root = new ManagerRoot(createMockSaver())
+    root.entries.set([])
+    root.showElement.set(root)
+    ;(window as any).passmanager = root
+    setRuntimeCapabilities({platform: 'macos', desktop: true})
+    moduleAccessModel.rawStates.set([
+      {feature_key: 'env-runtime', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
+    ])
+
+    const model = new PasswordManagerLayoutModel()
+    const openSpy = vi.spyOn(pmModel, 'openEnvRuntimeView').mockImplementation(() => {})
+    const actions = model.getDesktopToolbarSections().flatMap((section) => section.actions)
+
+    expect(actions.find((action) => action.id === 'pm-env-runtime-view')).toMatchObject({
+      icon: 'terminal',
+      disabled: false,
+    })
+    expect(model.isDesktopToolbarAction('pm-env-runtime-view')).toBe(true)
+
+    model.executeDesktopToolbarAction('pm-env-runtime-view')
+
+    expect(openSpy).toHaveBeenCalledTimes(1)
+
+    setRuntimeCapabilities({platform: 'windows', desktop: true})
+    expect(moduleAccessModel.featureAccess('env-runtime').status).toBe('unsupported')
+    expect(
+      model
+        .getDesktopToolbarSections()
+        .flatMap((section) => section.actions)
+        .find((action) => action.id === 'pm-env-runtime-view'),
+    ).toMatchObject({disabled: false})
+
+    expect(pmMobileChromeModel.getToolbarActions().map((action) => action.id)).not.toContain(
+      'pm-env-runtime-view',
+    )
+    expect(pmMobileChromeModel.executeCommand('pm-env-runtime-view')).toBe(false)
   })
 
   it('reports passwords-selection context and exits selection mode on mobile back', () => {

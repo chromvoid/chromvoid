@@ -1,8 +1,9 @@
 import {expect, test} from 'vitest'
 import {waitForAuthenticated, waitForWSConnected} from './utils'
 
+import type {Page} from 'playwright'
 declare global {
-  var __E2E_PAGE__: import('playwright').Page | undefined
+  var __E2E_PAGE__: Page | undefined
 }
 
 test('app bootstrap reaches connected opened state', async () => {

@@ -28,13 +28,21 @@ export const remotePageStyles = [
   routeEmptyStateStyles,
   css`
     :host {
-      --route-card-padding: 0;
-      --route-card-shadow: inset 0 1px 0 var(--cv-color-surface-highlight);
-      --route-callout-base-justify-content: center;
-      --route-callout-text-align: center;
+      --app-route-card-padding: 0;
+      --app-route-card-shadow: inset 0 1px 0 var(--cv-color-surface-highlight);
+      --app-route-callout-base-justify-content: center;
+      --app-route-callout-text-align: center;
+      display: block;
+      min-block-size: 0;
+      block-size: 100%;
+      overflow-x: hidden;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scroll-padding-block-end: var(--app-spacing-8);
     }
 
     .page {
+      box-sizing: border-box;
       max-inline-size: 920px;
       inline-size: 100%;
       padding-inline: var(--app-spacing-4);
@@ -44,17 +52,6 @@ export const remotePageStyles = [
     .grid {
       display: grid;
       gap: var(--app-spacing-4);
-    }
-
-    .device-name {
-      font-weight: var(--cv-font-weight-semibold);
-      font-size: var(--cv-font-size-sm);
-    }
-
-    .device-port {
-      font-family: var(--cv-font-family-code);
-      font-size: var(--cv-font-size-xs);
-      color: var(--cv-color-text-muted);
     }
 
     .lock-polling {

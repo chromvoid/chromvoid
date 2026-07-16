@@ -3,7 +3,7 @@ import {sha256} from '@noble/hashes/sha2.js'
 
 import {GATEWAY_FALLBACK_ORIGINS, toGatewayWsEndpoint} from '../host-policy'
 import {decodeGatewayFrame, encodeGatewayFrame, GatewayFrameType} from './frame'
-import {GatewayNoiseTransport, loadOrCreateNoiseStaticKeyPair, NoiseXXInitiator} from './noise-xx'
+import {type GatewayNoiseTransport, loadOrCreateNoiseStaticKeyPair, NoiseXXInitiator} from './noise-xx'
 
 const PROTOCOL_VERSION = 1
 const DEFAULT_TIMEOUT_MS = 15000

@@ -31,11 +31,25 @@ pub(super) fn parse_root_import_payload(
     let entries = required_array_any(data, "entries", &[], "entries")
         .map_err(RootImportError::from_rpc_response)?;
     validate_entries(entries)?;
+    let ssh_keys = match data.get("sshKeys").or_else(|| data.get("ssh_keys")) {
+        Some(value) => value
+            .as_array()
+            .map(Vec::as_slice)
+            .ok_or_else(|| RootImportError::empty_payload("sshKeys must be object[]"))?,
+        None => &[],
+    };
+
+    let imported_tags = parse_tags(data)?;
+    let imported_entry_tags = super::super::tags::extract_entry_tags(entries);
+    let imported_catalog =
+        super::super::tags::merge_tag_catalogs([imported_tags.clone(), imported_entry_tags]);
 
     Ok(RootImportPayload {
         folders,
         entries,
-        imported_tags: parse_tags(data)?,
+        ssh_keys,
+        imported_tag_meta: parse_tag_meta(data, &imported_catalog),
+        imported_tags,
         imported_group_meta: parse_group_meta(data)?,
         should_clear_existing: requires_destructive && allow_destructive,
     })
@@ -51,6 +65,15 @@ fn parse_tags(data: &Value) -> Result<Vec<String>, RootImportError> {
     Ok(super::super::tags::normalize_tag_catalog_from_value(
         tags_value,
     ))
+}
+
+fn parse_tag_meta(data: &Value, imported_catalog: &[String]) -> super::super::tags::TagCatalogMeta {
+    data.get("tag_meta")
+        .or_else(|| data.get("tagMeta"))
+        .map(|value| {
+            super::super::tags::normalize_tag_catalog_meta_from_value(value, imported_catalog)
+        })
+        .unwrap_or_default()
 }
 
 fn parse_group_meta(

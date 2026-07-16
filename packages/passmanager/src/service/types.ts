@@ -1,16 +1,12 @@
 import type {Entry} from './entry'
 import type {IGroup} from './root'
+import type {CredentialTagCatalogMeta} from './tags'
+import type {CredentialSecurityAuditArtifactV1} from './security-audit'
 
 export type Algorithm =
   | 'SHA1'
-  | 'SHA224'
   | 'SHA256'
-  | 'SHA384'
   | 'SHA512'
-  | 'SHA3224'
-  | 'SHA3256'
-  | 'SHA3384'
-  | 'SHA3512'
 
 export type Encoding = 'base32' | 'base64' | 'base16' | 'utf-8'
 
@@ -35,6 +31,22 @@ export type OTPOptions = {
   counter?: number
 }
 
+export type OTPSaveSettings = Partial<
+  Pick<OTPOptions, 'algorithm' | 'digits' | 'period' | 'encoding' | 'type' | 'counter'>
+>
+
+export type OTPPreviewParams = OTPSaveSettings & {
+  secret: string
+  label?: string
+  ts?: number
+}
+
+export type OTPPreviewResult = {
+  otp: string
+  period: number
+  leftSeconds: number
+}
+
 type OTPId = string
 
 export type OTPItem = {
@@ -48,6 +60,8 @@ export type OTPGetParams = {
   period: number
   digits: number
   ha: Algorithm
+  type?: OTPType
+  counter?: number
   entryId?: string
   label?: string
   entryTitle?: string
@@ -67,12 +81,32 @@ export type OTPEntry = {
 
 export type SshKeyType = 'ed25519' | 'rsa' | 'ecdsa'
 
-export type SshKeyEntry = {
+export type PassManagerSshKey = {
   id: string
   type: SshKeyType
   fingerprint: string
   name?: string
   comment?: string
+  sourceEntryId?: string
+  createdTs?: number
+  updatedTs?: number
+}
+
+/** Legacy entry adapter. Canonical SSH metadata lives in PassManagerRootV4.sshKeys. */
+export type SshKeyEntry = PassManagerSshKey
+
+export type SshKeygenParams = {
+  keyType: SshKeyType
+  name?: string
+  comment?: string
+  sourceEntryId?: string
+}
+
+export type SshKeygenResult = {
+  keyId: string
+  publicKeyOpenssh: string
+  fingerprint: string
+  keyType: SshKeyType
 }
 
 export type PassManagerEntryType = 'login' | 'payment_card'
@@ -249,7 +283,20 @@ export interface PassManagerRootV3 {
   folders: string[]
   foldersMeta?: PassManagerRootV3FolderMeta[]
   tags?: string[]
+  tagMeta?: CredentialTagCatalogMeta
   entries: PassManagerRootV3Entry[]
+}
+
+export interface PassManagerRootV4 {
+  version: 4
+  createdTs: number
+  updatedTs: number
+  folders: string[]
+  foldersMeta?: PassManagerRootV3FolderMeta[]
+  tags?: string[]
+  tagMeta?: CredentialTagCatalogMeta
+  entries: PassManagerRootV3Entry[]
+  sshKeys: PassManagerSshKey[]
 }
 
 // --- Full-backup export payload (v1) ---
@@ -263,6 +310,7 @@ export interface PassManagerExportV1 {
   folders: string[]
   foldersMeta?: PassManagerRootV3FolderMeta[]
   tags?: string[]
+  tagMeta?: CredentialTagCatalogMeta
   entries: PassManagerExportV1Entry[]
 }
 
@@ -292,7 +340,6 @@ export type PassManagerSaveLoginEntryMetaPayload = PassManagerSaveEntryMetaTimes
   groupPath?: string
   tags?: string[]
   iconRef?: string
-  sshKeys?: Array<{id: string; type: string; fingerprint: string; name?: string; comment?: string}>
   paymentCard?: undefined
 }
 
@@ -321,7 +368,7 @@ export interface ManagerSaver {
   getOTP(data: OTPGetParams): Promise<string | undefined>
   getOTPSeckey(id: string): Promise<string | undefined>
   removeOTP(id: OTPId): Promise<boolean>
-  saveOTP(id: OTPId, secret: string): Promise<boolean>
+  saveOTP(id: OTPId, secret: string, settings?: OTPSaveSettings): Promise<boolean>
   renameOTPLabel?(id: OTPId, previousLabel: string, nextLabel: string): Promise<boolean>
   readEntrySecret(entryId: string, slot: PassManagerSecretSlot): Promise<string | undefined>
   saveEntrySecret(entryId: string, slot: PassManagerSecretSlot, value: string | null): Promise<boolean>
@@ -332,6 +379,12 @@ export interface ManagerSaver {
   saveEntryNote(entryId: string, note: string | null): Promise<boolean>
   removeEntryPassword(entryId: string): Promise<boolean>
   removeEntryNote(entryId: string): Promise<boolean>
+  listSshKeys?(): Promise<PassManagerSshKey[]>
+  updateSshKey?(key: PassManagerSshKey): Promise<boolean>
+  removeSshKey?(keyId: string): Promise<boolean>
+  readSshPublicKey?(keyId: string): Promise<string | undefined>
+  generateSshKey?(params: SshKeygenParams): Promise<SshKeygenResult>
+  /** Internal legacy migration compatibility. Do not use from entry UI/model. */
   readEntrySshPrivateKey(entryId: string, keyId: string): Promise<string | undefined>
   readEntrySshPublicKey(entryId: string, keyId: string): Promise<string | undefined>
   saveEntrySshPrivateKey(entryId: string, keyId: string, key: string | null): Promise<boolean>
@@ -342,6 +395,8 @@ export interface ManagerSaver {
     backgroundColor?: string
     contentBase64: string
   }>
+  readCredentialSecurityAudit?(): Promise<CredentialSecurityAuditArtifactV1 | undefined>
+  saveCredentialSecurityAudit?(artifact: CredentialSecurityAuditArtifactV1): Promise<boolean>
   removeEntrySshPrivateKey(entryId: string, keyId: string): Promise<boolean>
   removeEntrySshPublicKey(entryId: string, keyId: string): Promise<boolean>
   saveEntryMeta(data: PassManagerSaveEntryMetaPayload): Promise<boolean>

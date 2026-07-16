@@ -3,8 +3,12 @@ import type {WalletNetwork} from './WalletNetwork'
 
 export type WalletHdCreateRequest = {
   label: string
-  mnemonic: Array<string>
+  wallet_mode?: string | null
+  mnemonic?: Array<string> | null
+  mnemonic_draft_id?: string | null
   wordlist: string
+  mnemonic_standard?: string | null
   bip39_passphrase?: string | null
   supported_networks: Array<WalletNetwork>
+  client_request_id?: string | null
 }

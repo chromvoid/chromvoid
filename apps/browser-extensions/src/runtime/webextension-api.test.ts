@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import {afterEach, beforeEach, describe, it} from 'node:test'
 
-import {queryActiveTab, sendRuntimeMessage, setActionBadgeText} from './webextension-api'
+import {openExtensionTab, queryActiveTab, sendRuntimeMessage, setActionBadgeText} from './webextension-api'
 
 let previousBrowser: unknown
 let previousChrome: unknown
@@ -138,5 +138,29 @@ describe('webextension runtime adapter', () => {
     })
 
     await assert.doesNotReject(async () => setActionBadgeText(''))
+  })
+
+  it('opens a new tab through the browser promise API', async () => {
+    let openedUrl: string | undefined
+    setGlobalApi('browser', {
+      runtime: {
+        onInstalled: {addListener: () => {}},
+        onStartup: {addListener: () => {}},
+        onMessage: {addListener: () => {}},
+        sendMessage: async (_message: unknown) => undefined,
+      },
+      tabs: {
+        query: async (_queryInfo: unknown) => [],
+        create: async ({url}: {url?: string}) => {
+          openedUrl = url
+          return {id: 8, url}
+        },
+        sendMessage: async (_tabId: number, _message: unknown) => undefined,
+      },
+    })
+
+    const tab = await openExtensionTab('https://example.test')
+    assert.equal(openedUrl, 'https://example.test')
+    assert.equal(tab.id, 8)
   })
 })

@@ -82,6 +82,20 @@ describe("file-manager shortcut surfaces", () => {
     expect(shortcuts).toEqual([]);
   });
 
+  it("renders the active file name as context for menu actions", async () => {
+    ensureDefined();
+    const menu = document.createElement("context-menu") as ContextMenu;
+    document.body.appendChild(menu);
+
+    menu.show(20, 20, items(), "roadmap.md");
+    await settleContextMenu(menu);
+
+    expect(menu.shadowRoot?.querySelector(".menu-label")?.textContent).toBe("roadmap.md");
+    expect(menu.shadowRoot?.querySelector("cv-context-menu")?.getAttribute("aria-label")).toBe(
+      "Actions for roadmap.md",
+    );
+  });
+
   it("activates context-menu shortcuts only when the current platform has bindings", async () => {
     ensureDefined();
     setRuntimeCapabilities({ platform: "windows", desktop: true });

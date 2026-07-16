@@ -3,7 +3,7 @@ import {html, nothing} from 'lit'
 import {i18n} from 'root/i18n'
 import type {FileItemData, ViewMode} from 'root/shared/contracts/file-manager'
 
-import {getFileExtension, getFileIcon, getFileTypeClass, getInfoText} from './utils'
+import {getFileExtension, getFileIcon, getFileTypeClass, getInfoText, isDotfile} from './utils'
 
 interface FileItemRenderCallbacks {
   onClick: (event: Event) => void
@@ -17,6 +17,7 @@ interface FileItemRenderCallbacks {
   onDragOver: (event: DragEvent) => void
   onDragLeave: (event: DragEvent) => void
   onDrop: (event: DragEvent) => void
+  onSelectionClick?: (event: MouseEvent) => void
   onMoreClick: (event: Event) => void
   onInfoClick: (event: Event) => void
   onRenameClick: (event: Event) => void
@@ -41,20 +42,30 @@ export interface FileItemRenderData {
   callbacks: FileItemRenderCallbacks
 }
 
-const renderSelectionIndicator = ({selected, selectionMode}: FileItemRenderData) => {
-  if (!selectionMode && !selected) return nothing
+const renderSelectionIndicator = (
+  {item, selected, selectionMode, viewMode, callbacks}: FileItemRenderData,
+  desktop: boolean,
+) => {
+  const visible = desktop ? viewMode === 'list' || selected : selectionMode || selected
+  if (!visible) return nothing
 
   return html`
-    <div class="selection-indicator ${selected ? 'is-selected' : ''}" aria-hidden="true">
+    <button
+      type="button"
+      class="selection-indicator ${selected ? 'is-selected' : ''}"
+      aria-label=${i18n('file-manager:select-item', {name: item.name})}
+      aria-pressed=${selected ? 'true' : 'false'}
+      @click=${callbacks.onSelectionClick}
+    >
       ${selected ? html`<cv-icon name="check" size="s"></cv-icon>` : nothing}
-    </div>
+    </button>
   `
 }
 
 const renderFileType = (item: FileItemData, fileExt: string) => {
   if (item.isDir || !fileExt) return nothing
 
-  return html`<div class="file-type">${fileExt}</div>`
+  return html`<div class="file-type"><bdi dir="ltr">${fileExt}</bdi></div>`
 }
 
 const renderMediaActiveSpectrum = ({mediaPlaying}: FileItemRenderData) => html`
@@ -65,9 +76,32 @@ const renderMediaActiveSpectrum = ({mediaPlaying}: FileItemRenderData) => html`
   </span>
 `
 
+const renderDesktopName = (data: FileItemRenderData) => html`
+  <div class="name-line">
+    ${data.viewMode === 'grid' ? renderSelectionIndicator(data, true) : nothing}
+    <div class="name"><bdi dir="auto">${data.item.name}</bdi></div>
+    ${isDotfile(data.item)
+      ? html`
+          <span class="hidden-badge" title=${i18n('file-manager:hidden-files')}>
+            ${i18n('file-manager:hidden-files')}
+          </span>
+        `
+      : nothing}
+    ${data.pendingExternalOpen
+      ? html`
+          <span class="pending-open-badge" role="status">
+            <cv-spinner size="xs" aria-hidden="true"></cv-spinner>
+            <span class="pending-open-label">${i18n('file-manager:preparing-file')}</span>
+          </span>
+        `
+      : nothing}
+  </div>
+`
+
 const renderActions = ({item, callbacks}: FileItemRenderData) => html`
   <div class="actions">
-    <cv-button unstyled
+    <cv-button
+      unstyled
       class="action-btn more"
       title=${i18n('file-manager:more')}
       button-tabindex="-1"
@@ -77,7 +111,8 @@ const renderActions = ({item, callbacks}: FileItemRenderData) => html`
     </cv-button>
     ${!item.isDir
       ? html`
-          <cv-button unstyled
+          <cv-button
+            unstyled
             class="action-btn"
             title=${i18n('file-manager:info')}
             button-tabindex="-1"
@@ -87,12 +122,19 @@ const renderActions = ({item, callbacks}: FileItemRenderData) => html`
           </cv-button>
         `
       : nothing}
-    <cv-button unstyled class="action-btn" title=${i18n('action:rename')} button-tabindex="-1" @click=${callbacks.onRenameClick}>
+    <cv-button
+      unstyled
+      class="action-btn"
+      title=${i18n('action:rename')}
+      button-tabindex="-1"
+      @click=${callbacks.onRenameClick}
+    >
       <cv-icon name="pencil"></cv-icon>
     </cv-button>
     ${!item.isDir
       ? html`
-          <cv-button unstyled
+          <cv-button
+            unstyled
             class="action-btn"
             title=${i18n('action:download')}
             button-tabindex="-1"
@@ -102,7 +144,13 @@ const renderActions = ({item, callbacks}: FileItemRenderData) => html`
           </cv-button>
         `
       : nothing}
-    <cv-button unstyled class="action-btn" title=${i18n('action:delete')} button-tabindex="-1" @click=${callbacks.onDeleteClick}>
+    <cv-button
+      unstyled
+      class="action-btn"
+      title=${i18n('action:delete')}
+      button-tabindex="-1"
+      @click=${callbacks.onDeleteClick}
+    >
       <cv-icon name="trash"></cv-icon>
     </cv-button>
   </div>
@@ -118,8 +166,8 @@ const renderLeadingVisual = (data: FileItemRenderData, fileTypeClass: string) =>
           class="thumbnail-image"
           src=${thumbnailUrl}
           alt=""
-          loading="lazy"
           decoding="async"
+          data-loading-owner="virtual-list"
           @error=${callbacks.onThumbnailError}
         />
       </div>
@@ -135,17 +183,12 @@ const renderLeadingVisual = (data: FileItemRenderData, fileTypeClass: string) =>
     >
       ${showMediaSpectrum
         ? renderMediaActiveSpectrum(data)
-        : html`
-            <cv-icon
-              class=${`icon ${fileTypeClass}`}
-              name=${getFileIcon(item)}
-            ></cv-icon>
-          `}
+        : html` <cv-icon class=${`icon ${fileTypeClass}`} name=${getFileIcon(item)}></cv-icon> `}
     </div>
   `
 }
 
-const renderFileItemMain = (data: FileItemRenderData, actions: unknown = nothing) => {
+const renderFileItemMain = (data: FileItemRenderData, actions: unknown = nothing, desktop = false) => {
   const {item, dragEnabled, callbacks} = data
   const fileExt = !item.isDir ? getFileExtension(item.name) : ''
   const fileTypeClass = item.isDir ? 'folder' : getFileTypeClass(item)
@@ -169,11 +212,15 @@ const renderFileItemMain = (data: FileItemRenderData, actions: unknown = nothing
       aria-busy=${data.pendingExternalOpen ? 'true' : 'false'}
     >
       ${renderLeadingVisual(data, fileTypeClass)}
-      ${renderSelectionIndicator(data)}
+      ${desktop && data.viewMode === 'grid' ? nothing : renderSelectionIndicator(data, desktop)}
 
       <div class="info">
-        <div class="name">${item.name}</div>
-        <div class="meta">${getInfoText(item)}</div>
+        ${desktop
+          ? renderDesktopName(data)
+          : html`<div class="name"><bdi dir="auto">${item.name}</bdi></div>`}
+        <div class="meta">
+          <bdi dir=${item.isDir ? 'auto' : 'ltr'}>${getInfoText(item)}</bdi>
+        </div>
       </div>
 
       ${renderFileType(item, fileExt)} ${actions}
@@ -205,7 +252,7 @@ export const renderFileItem = (data: FileItemRenderData) => {
 }
 
 export const renderDesktopFileItem = (data: FileItemRenderData) => {
-  return renderFileItemMain(data, renderActions(data))
+  return renderFileItemMain(data, renderActions(data), true)
 }
 
 export const renderMobileFileItem = (data: FileItemRenderData) => {

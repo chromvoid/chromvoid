@@ -1,6 +1,11 @@
 export {ManagerRoot, Group, ALGORITHMS, ENCODINGS, filterEntries} from './service/root'
 export type {IGroup, RootJSONData, Entry as EntryType} from './service/root'
-export type {PassManagerRootV2FolderMeta, PassManagerRootV3FolderMeta} from './service/types'
+export type {
+  PassManagerRootV2FolderMeta,
+  PassManagerRootV3FolderMeta,
+  PassManagerRootV4,
+  PassManagerSshKey,
+} from './service/types'
 export {
   confirmPassManagerAction,
   getPassManagerDialogAdapter,
@@ -18,6 +23,7 @@ export {Entry, DEFAULT_OPTIONS} from './service/entry'
 export {OTP} from './service/otp'
 export {
   parseOtpAuthUri,
+  type OtpAuthUriMetadata,
   type OtpAuthUriParseErrorCode,
   type OtpAuthUriParseResult,
 } from './service/otp-auth-uri'

@@ -93,6 +93,95 @@ fn test_passmanager_icon_put_get_and_deduplicate_roundtrip() {
 }
 
 #[test]
+fn test_passmanager_icon_get_many_preserves_order_deduplicates_and_reports_missing() {
+    let (mut router, _tmp) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "pw"));
+
+    let first_put = router.handle(&RpcRequest::new(
+        "passmanager:icon:put",
+        serde_json::json!({"content_base64": PNG_ICON_A_BASE64, "mime_type": "image/png"}),
+    ));
+    assert_rpc_ok(&first_put);
+    let first_ref = first_put
+        .result()
+        .and_then(|result| result.get("icon_ref"))
+        .and_then(|value| value.as_str())
+        .expect("first icon ref")
+        .to_string();
+
+    let second_put = router.handle(&RpcRequest::new(
+        "passmanager:icon:put",
+        serde_json::json!({"content_base64": PNG_ICON_B_BASE64, "mime_type": "image/png"}),
+    ));
+    assert_rpc_ok(&second_put);
+    let second_ref = second_put
+        .result()
+        .and_then(|result| result.get("icon_ref"))
+        .and_then(|value| value.as_str())
+        .expect("second icon ref")
+        .to_string();
+    let missing_ref = format!("sha256:{}", "f".repeat(64));
+
+    let fetched = router.handle(&RpcRequest::new(
+        "passmanager:icon:getMany",
+        serde_json::json!({
+            "icon_refs": [&second_ref, &first_ref, &second_ref, &missing_ref]
+        }),
+    ));
+    assert_rpc_ok(&fetched);
+
+    let icons = fetched
+        .result()
+        .and_then(|result| result.get("icons"))
+        .and_then(|value| value.as_array())
+        .expect("batch icons");
+    let fetched_refs = icons
+        .iter()
+        .filter_map(|icon| icon.get("icon_ref").and_then(|value| value.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(fetched_refs, vec![second_ref.as_str(), first_ref.as_str()]);
+    assert!(icons.iter().all(|icon| icon
+        .get("content_base64")
+        .and_then(|value| value.as_str())
+        .is_some()));
+    assert_eq!(
+        fetched
+            .result()
+            .and_then(|result| result.get("missing_icon_refs"))
+            .and_then(|value| value.as_array()),
+        Some(&vec![serde_json::Value::String(missing_ref)])
+    );
+}
+
+#[test]
+fn test_passmanager_icon_get_many_validates_request_and_requires_unlocked_vault() {
+    let (mut router, _tmp) = create_test_router();
+    let valid_ref = format!("sha256:{}", "a".repeat(64));
+
+    let locked = router.handle(&RpcRequest::new(
+        "passmanager:icon:getMany",
+        serde_json::json!({"icon_refs": [&valid_ref]}),
+    ));
+    assert_rpc_error(&locked, "VAULT_REQUIRED");
+
+    assert_rpc_ok(&unlock_vault(&mut router, "pw"));
+    let invalid = router.handle(&RpcRequest::new(
+        "passmanager:icon:getMany",
+        serde_json::json!({"icon_refs": ["sha256:ABC"]}),
+    ));
+    assert_rpc_error(&invalid, "EMPTY_PAYLOAD");
+
+    let too_many = (0..65)
+        .map(|index| format!("sha256:{index:064x}"))
+        .collect::<Vec<_>>();
+    let oversized = router.handle(&RpcRequest::new(
+        "passmanager:icon:getMany",
+        serde_json::json!({"icon_refs": too_many}),
+    ));
+    assert_rpc_error(&oversized, "EMPTY_PAYLOAD");
+}
+
+#[test]
 fn test_passmanager_icon_list_returns_uploaded_icons() {
     let (mut router, _tmp) = create_test_router();
     assert_rpc_ok(&unlock_vault(&mut router, "pw"));

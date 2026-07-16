@@ -50,6 +50,13 @@ fn mirrored_logs_dir() -> Option<std::path::PathBuf> {
     None
 }
 
+const LAST_SESSION_LOG_FILE_NAME: &str = "chromvoid-last-session.log";
+
+fn create_truncated_log_file(path: &std::path::Path) -> Result<std::fs::File, String> {
+    std::fs::File::create(path)
+        .map_err(|error| format!("create last session log '{}': {error}", path.display()))
+}
+
 #[cfg(desktop)]
 fn should_refresh_ssh_agent_from_catalog_event(payload: &serde_json::Value) -> bool {
     if payload.get("shard_id").and_then(|value| value.as_str()) == Some(".passmanager") {
@@ -113,12 +120,22 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     // ── Logging ───────────────────────────────────────────────────────
     let logs_dir = data_dir.join("logs");
     std::fs::create_dir_all(&logs_dir).map_err(|e| boxed_error(format!("create logs dir: {e}")))?;
+    crate::commands::vault::reset_unlock_debug_log(&logs_dir)
+        .map_err(|error| boxed_error(format!("reset unlock debug log: {error}")))?;
 
     let file_appender = tracing_appender::rolling::daily(&logs_dir, "chromvoid.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
     let mut guards = vec![guard];
 
+    let last_session_path = logs_dir.join(LAST_SESSION_LOG_FILE_NAME);
+    let last_session_file = create_truncated_log_file(&last_session_path).map_err(boxed_error)?;
+    let (last_session_non_blocking, last_session_guard) =
+        tracing_appender::non_blocking(last_session_file);
+    guards.push(last_session_guard);
+
     let mut mirrored_dir: Option<std::path::PathBuf> = None;
+    let mut mirrored_last_session_path: Option<std::path::PathBuf> = None;
+    let mut mirrored_last_session_layer = None;
     let mirrored_file_layer = mirrored_logs_dir().and_then(|dir| {
         if let Err(e) = std::fs::create_dir_all(&dir) {
             eprintln!(
@@ -132,7 +149,19 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         let (mirrored_non_blocking, mirrored_guard) =
             tracing_appender::non_blocking(mirrored_file_appender);
         guards.push(mirrored_guard);
+        let last_session_path = dir.join(LAST_SESSION_LOG_FILE_NAME);
         mirrored_dir = Some(dir);
+
+        match create_truncated_log_file(&last_session_path) {
+            Ok(file) => {
+                let (non_blocking, guard) = tracing_appender::non_blocking(file);
+                guards.push(guard);
+                mirrored_last_session_path = Some(last_session_path);
+                mirrored_last_session_layer =
+                    Some(fmt::layer().with_ansi(false).with_writer(non_blocking));
+            }
+            Err(error) => eprintln!("[logging] {error}"),
+        }
 
         Some(
             fmt::layer()
@@ -146,15 +175,25 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         .with(filter)
         .with(fmt::layer().with_ansi(false).with_writer(std::io::stdout))
         .with(fmt::layer().with_ansi(false).with_writer(non_blocking))
+        .with(
+            fmt::layer()
+                .with_ansi(false)
+                .with_writer(last_session_non_blocking),
+        )
         .with(mirrored_file_layer)
+        .with(mirrored_last_session_layer)
         .try_init();
 
     app.manage(LogGuards { _guards: guards });
 
     info!("ChromVoid application starting");
     info!("main: app_data_dir = {}", data_dir.display());
+    info!("main: last_session_log = {}", last_session_path.display());
     if let Some(dir) = mirrored_dir {
         info!("main: mirrored logs dir = {}", dir.display());
+    }
+    if let Some(path) = mirrored_last_session_path {
+        info!("main: mirrored last_session_log = {}", path.display());
     }
     if let Err(error) =
         crate::commands::catalog::purge_catalog_preview_cache_for_app(app.handle(), "startup")
@@ -245,8 +284,10 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     #[cfg(desktop)]
     let remote_io_runtime = Arc::new(crate::remote_io_runtime::RemoteIoRuntimeState::new());
     #[cfg(desktop)]
+    let app_identifier = app.config().identifier.clone();
+    #[cfg(desktop)]
     let mobile_usb_runtime = Arc::new(crate::mobile_usb::MobileUsbController::new(
-        create_mobile_usb_bridge(),
+        create_mobile_usb_bridge(&app_identifier),
         Arc::new(crate::mobile_usb::JsonMobileUsbPairingStore::new(
             storage_root.clone(),
         )),
@@ -257,6 +298,20 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
             remote_io_runtime.clone(),
         )),
     ));
+
+    #[cfg(all(
+        desktop,
+        any(target_os = "linux", target_os = "macos", target_os = "windows")
+    ))]
+    if crate::commands::mobile_usb_cmds::mobile_usb_enabled() {
+        crate::mobile_usb::spawn_mobile_usb_hotplug_watcher(app_handle.clone());
+    }
+
+    #[cfg(desktop)]
+    let env_runtime = Arc::new(
+        crate::env_runtime::EnvRuntimeState::new(data_dir.join("env-runtime-device.enc.json"))
+            .map_err(|error| boxed_error(format!("env_runtime: {}", error.message)))?,
+    );
 
     app.manage(AppState {
         adapter: adapter_arc,
@@ -269,6 +324,8 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         gateway: Arc::new(Mutex::new(crate::gateway::GatewayState::load_or_default(
             data_dir.join("gateway.json"),
         ))),
+        #[cfg(desktop)]
+        env_runtime,
         session_settings: Arc::new(Mutex::new(session_settings)),
         mobile_is_foreground: Arc::new(Mutex::new(cfg!(mobile))),
         last_activity,
@@ -289,6 +346,10 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         ),
         media_streams: Arc::new(crate::media_source::LocalMediaSourceManager::new()),
         media_protocol_runtime: Arc::new(crate::media_stream::MediaProtocolRuntimeState::new()),
+        #[cfg(desktop)]
+        media_http_stream_runtime: Arc::new(
+            crate::media_stream::MediaHttpStreamRuntimeState::new(),
+        ),
         #[cfg(desktop)]
         network_pairing_runtime: Arc::new(crate::network::pairing::NetworkPairingRuntimeState::new()),
         #[cfg(desktop)]
@@ -486,6 +547,14 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     crate::gateway::spawn_gateway_server(app.handle().clone(), task_lifecycle.clone())
         .map_err(|e| boxed_error(e))?;
 
+    // ── Loopback media HTTP server (desktop) ─────────────────────────
+    #[cfg(desktop)]
+    crate::media_stream::spawn_media_http_stream_server(
+        app.handle().clone(),
+        task_lifecycle.clone(),
+    )
+    .map_err(|e| boxed_error(e))?;
+
     // ── macOS Credential Provider IPC bridge ──────────────────────────
     crate::credential_provider_bridge::spawn_credential_provider_bridge(
         app.handle().clone(),
@@ -547,7 +616,7 @@ fn mobile_usb_bridge_selection_for_capability(
 }
 
 #[cfg(desktop)]
-fn create_mobile_usb_bridge() -> Arc<dyn crate::mobile_usb::MobileUsbBridge> {
+fn create_mobile_usb_bridge(app_identifier: &str) -> Arc<dyn crate::mobile_usb::MobileUsbBridge> {
     match mobile_usb_bridge_selection() {
         MobileUsbBridgeSelection::Unsupported => {
             Arc::new(crate::mobile_usb::UnsupportedMobileUsbBridge)
@@ -555,7 +624,9 @@ fn create_mobile_usb_bridge() -> Arc<dyn crate::mobile_usb::MobileUsbBridge> {
         MobileUsbBridgeSelection::AndroidAoa => {
             #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
             {
-                Arc::new(crate::mobile_usb::AndroidAoaMobileUsbBridge::new())
+                crate::mobile_usb::create_android_aoa_mobile_usb_bridge_for_app_identifier(
+                    app_identifier,
+                )
             }
             #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
             {
@@ -568,9 +639,24 @@ fn create_mobile_usb_bridge() -> Arc<dyn crate::mobile_usb::MobileUsbBridge> {
 #[cfg(all(test, desktop))]
 mod tests {
     use super::{
-        mobile_usb_bridge_selection_for_capability, should_refresh_ssh_agent_from_catalog_event,
-        MobileUsbBridgeSelection,
+        create_truncated_log_file, mobile_usb_bridge_selection_for_capability,
+        should_refresh_ssh_agent_from_catalog_event, MobileUsbBridgeSelection,
     };
+
+    #[test]
+    fn last_session_log_file_is_truncated_on_create() {
+        let temp_dir = tempfile::tempdir().expect("tempdir should be created");
+        let path = temp_dir.path().join("chromvoid-last-session.log");
+        std::fs::write(&path, "previous session\n").expect("previous log should be written");
+
+        let file = create_truncated_log_file(&path).expect("log file should be created");
+        file.sync_all().expect("log file should sync");
+
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("log file should be readable"),
+            ""
+        );
+    }
 
     #[test]
     fn ssh_agent_hot_reload_filters_non_passmanager_shards() {

@@ -14,10 +14,13 @@ import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/r
 import {passmanagerNavigationController} from '../../src/features/passmanager/passmanager-navigation.controller'
 import {PMEntry} from '../../src/features/passmanager/components/card/entry/entry'
 import {PMEntryModel} from '../../src/features/passmanager/components/card/entry/entry.model'
+import {configurePMEntryOtpDraftPreviewPort} from '../../src/features/passmanager/components/card/entry-otp-create'
+import {pmCredentialTagsModel} from '../../src/features/passmanager/models/pm-credential-tags.model'
 import {pmEntryEditorModel} from '../../src/features/passmanager/models/pm-entry-editor.model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
 
 let defined = false
+let entryFixtureRoot: ManagerRoot
 
 function ensureDefined() {
   if (defined) return
@@ -110,7 +113,8 @@ function createEntry(
     tags?: string[]
   } = {},
 ) {
-  const parent = options.parent ?? (Object.create(ManagerRoot.prototype) as ManagerRoot)
+  const parent = options.parent ?? entryFixtureRoot
+  if (parent instanceof ManagerRoot) parent.entries.set([])
   const entry = new Entry(parent, {
     id: 'entry-render-test',
     title: 'Entry',
@@ -119,10 +123,16 @@ function createEntry(
     createdTs: Date.now(),
     updatedTs: Date.now(),
     otps: options.otps ?? [],
-    sshKeys: options.sshKeys ?? [],
+    sshKeys: [],
     tags: options.tags ?? [],
   } as any)
-
+  entry.root.sshKeys.set([
+    ...entry.root.sshKeys().filter((key) => key.sourceEntryId !== entry.id),
+    ...(options.sshKeys ?? []).map((key) => ({
+      ...(key as Record<string, unknown>),
+      sourceEntryId: entry.id,
+    })),
+  ] as never)
   ;(entry as Entry & {flushPendingPersistence: () => Promise<void>}).flushPendingPersistence = vi.fn(
     options.flushPendingPersistence ?? (async () => {}),
   )
@@ -179,6 +189,8 @@ describe('PMEntry', () => {
   let currentPassmanager: typeof window.passmanager
 
   beforeEach(() => {
+    entryFixtureRoot = new ManagerRoot({} as never)
+    entryFixtureRoot.entries.set([])
     openExternalBrowserUrl.mockReset()
     openExternalBrowserUrl.mockResolvedValue(undefined)
     previousPassmanager = window.passmanager
@@ -196,6 +208,13 @@ describe('PMEntry', () => {
     })
     setPassmanagerRoot(previousPassmanager as any)
     ensureDefined()
+    configurePMEntryOtpDraftPreviewPort({
+      previewOTP: vi.fn(async (data) => ({
+        otp: data.digits === 8 ? '12345678' : '123456',
+        period: data.period ?? 30,
+        leftSeconds: 12,
+      })),
+    })
   })
 
   afterEach(() => {
@@ -209,6 +228,7 @@ describe('PMEntry', () => {
     }
     delete (globalThis as {__TAURI_INTERNALS__?: unknown}).__TAURI_INTERNALS__
     resetRuntimeCapabilities()
+    pmCredentialTagsModel.closeSheet()
     pmEntryEditorModel.reset()
     setPasswordManagerLang('en')
     vi.restoreAllMocks()
@@ -251,6 +271,9 @@ describe('PMEntry', () => {
       value?: string
     }
     expect(passwordInput?.value).toBe('secret')
+    expect(passwordInput?.getAttribute('dir')).toBe('ltr')
+    expect(component.shadowRoot?.querySelector('.field-value[dir="ltr"]')?.textContent).toContain('alice')
+    expect(component.shadowRoot?.querySelector('.field-value bdi[dir="auto"]')?.textContent).toBe('Entry')
   })
 
   it('copies the loaded password from the detail copy icon without re-reading the entry secret', async () => {
@@ -356,7 +379,9 @@ describe('PMEntry', () => {
       expect(noteContent).not.toBeNull()
       expect(noteContent?.textContent).toBe('Desktop note')
 
-      noteContent?.dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true, composed: true}))
+      noteContent?.dispatchEvent(
+        new MouseEvent('dblclick', {bubbles: true, cancelable: true, composed: true}),
+      )
       await settleFocus(component)
 
       expect(pmEntryEditorModel.isActiveForEntry(entry.id, 'entry')).toBe(true)
@@ -390,6 +415,7 @@ describe('PMEntry', () => {
     expect(link).not.toBeNull()
     expect(link?.getAttribute('target')).toBe('_blank')
     expect(link?.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(link?.querySelector('.website-name[dir="ltr"]')?.textContent).toBe('https://example.com')
 
     const click = new MouseEvent('click', {bubbles: true, cancelable: true, composed: true})
     link?.dispatchEvent(click)
@@ -399,7 +425,7 @@ describe('PMEntry', () => {
     expect(windowOpen).not.toHaveBeenCalled()
   })
 
-  it('shows inline SSH remove controls and opens the generator from the add action', async () => {
+  it('shows a compact related SSH indicator without a navigation action', async () => {
     const entry = createEntry({
       sshKeys: [
         {
@@ -410,8 +436,6 @@ describe('PMEntry', () => {
         },
       ],
     })
-    vi.spyOn(entry, 'sshPublicKey').mockResolvedValue('ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA')
-
     window.passmanager = {
       isReadOnly: () => false,
     } as unknown as typeof window.passmanager
@@ -421,23 +445,13 @@ describe('PMEntry', () => {
     document.body.append(component)
     await settle(component)
 
-    const addButton = component.shadowRoot?.querySelector(
-      'cv-button[aria-label="Add SSH Key"]',
-    ) as HTMLButtonElement | null
-    const sshKey = component.shadowRoot?.querySelector('pm-entry-ssh-key') as
-      | (HTMLElement & {shadowRoot?: ShadowRoot; updateComplete?: Promise<unknown>})
-      | null
-
-    expect(addButton).not.toBeNull()
-    expect(sshKey).not.toBeNull()
-    await sshKey?.updateComplete
-    expect(sshKey?.shadowRoot?.querySelector('.ssh-remove-action')).not.toBeNull()
-
-    addButton?.click()
-    await settle(component)
-
-    expect(component.shadowRoot?.querySelector('pm-entry-ssh-key')).not.toBeNull()
-    expect(component.shadowRoot?.querySelector('pm-entry-ssh-generator')).not.toBeNull()
+    const sshSection = Array.from(component.shadowRoot?.querySelectorAll('.inline-section-card') ?? []).find(
+      (section) => section.textContent?.includes('SSH'),
+    )
+    expect(component.shadowRoot?.querySelector('pm-entry-ssh-key')).toBeNull()
+    expect(component.shadowRoot?.querySelector('pm-entry-ssh-generator')).toBeNull()
+    expect(sshSection?.textContent).toContain('SSH')
+    expect(sshSection?.querySelector('cv-button')).toBeNull()
   })
 
   it('renders desktop header toolbar actions only when enabled and dispatches through PMEntryModel', async () => {
@@ -595,6 +609,10 @@ describe('PMEntry', () => {
   it('renders read-only tag chips without tag edit actions', async () => {
     const root = new ManagerRoot({} as any)
     root.isReadOnly.set(true)
+    root.setCredentialTagCatalog(['Work', 'Rotate'], {
+      work: {colorId: 'orange'},
+      rotate: {colorId: 'cyan'},
+    })
     const entry = createEntry({parent: root, tags: ['Work', 'Rotate']})
     root.entries.set([entry])
     window.passmanager = root as unknown as typeof window.passmanager
@@ -612,6 +630,11 @@ describe('PMEntry', () => {
     expect(tagSection?.textContent).toContain('Rotate')
     expect(tagSection?.querySelector('cv-combobox.entry-tags-combobox')).toBeNull()
     expect(tagSection?.querySelector('[data-snippet-section="tags"]')).toBeNull()
+    expect(
+      Array.from(tagSection?.querySelectorAll('.entry-tags-chip') ?? []).map((chip) =>
+        chip.getAttribute('data-tag-color-id'),
+      ),
+    ).toEqual(['orange', 'cyan'])
   })
 
   it('saves changed desktop tags through the entry model', async () => {
@@ -649,7 +672,13 @@ describe('PMEntry', () => {
 
     combobox?.dispatchEvent(
       new CustomEvent('cv-change', {
-        detail: {selectedIds: ['work', 'client-a'], value: 'work client-a', inputValue: '', activeId: null, open: false},
+        detail: {
+          selectedIds: ['work', 'client-a'],
+          value: 'work client-a',
+          inputValue: '',
+          activeId: null,
+          open: false,
+        },
         bubbles: true,
         composed: true,
       }),
@@ -664,10 +693,11 @@ describe('PMEntry', () => {
     await settle(component)
 
     expect(updateTags).toHaveBeenCalledWith(['Work', 'Client A'])
-    expect(model.tagDraft()).toEqual([])
+    expect(model.tagDraft()).toEqual(['Work', 'Client A'])
+    expect(pmEntryEditorModel.isActiveForEntry(entry.id, 'entry')).toBe(true)
   })
 
-  it('clears desktop tag draft after cancelling tag edit', async () => {
+  it('restores the desktop tag draft and full-entry editor after cancelling tag edit', async () => {
     const root = new ManagerRoot({} as any)
     root.credentialTags.set(['Work', 'Client A'])
     const entry = createEntry({parent: root, tags: ['Work']})
@@ -688,10 +718,18 @@ describe('PMEntry', () => {
       ?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
     await settle(component)
 
-    const combobox = component.shadowRoot?.querySelector('cv-combobox.entry-tags-combobox') as HTMLElement | null
+    const combobox = component.shadowRoot?.querySelector(
+      'cv-combobox.entry-tags-combobox',
+    ) as HTMLElement | null
     combobox?.dispatchEvent(
       new CustomEvent('cv-change', {
-        detail: {selectedIds: ['work', 'client-a'], value: 'work client-a', inputValue: '', activeId: null, open: false},
+        detail: {
+          selectedIds: ['work', 'client-a'],
+          value: 'work client-a',
+          inputValue: '',
+          activeId: null,
+          open: false,
+        },
         bubbles: true,
         composed: true,
       }),
@@ -705,7 +743,8 @@ describe('PMEntry', () => {
     tagSection?.querySelector<HTMLButtonElement>('.inline-edit-cancel')?.click()
     await settle(component)
 
-    expect(model.tagDraft()).toEqual([])
+    expect(model.tagDraft()).toEqual(['Work'])
+    expect(pmEntryEditorModel.isActiveForEntry(entry.id, 'entry')).toBe(true)
   })
 
   it('renders the full parent group path in the shared workspace header', async () => {
@@ -844,7 +883,9 @@ describe('PMEntry', () => {
     await settle(component)
 
     const header = component.shadowRoot?.querySelector('pm-workspace-header') as HTMLElement | null
-    const currentItem = header?.shadowRoot?.querySelectorAll('cv-breadcrumb-item')[3] as HTMLElement | undefined
+    const currentItem = header?.shadowRoot?.querySelectorAll('cv-breadcrumb-item')[3] as
+      | HTMLElement
+      | undefined
     const currentLink = currentItem?.shadowRoot?.querySelector('[part="link"]') as HTMLAnchorElement | null
     const clickEvent = new MouseEvent('click', {bubbles: true, cancelable: true, composed: true})
 
@@ -1147,9 +1188,11 @@ describe('PMEntry', () => {
 
     expect(update).not.toHaveBeenCalled()
     expect(updateOTPLabels).not.toHaveBeenCalled()
-    const erroredInput = component.shadowRoot?.querySelector('cv-input[data-otp-label-input="otp-1"]')
-    expect(erroredInput).not.toBeNull()
-    expect(erroredInput?.textContent).toContain('Label is too long')
+    const erroredField = component.shadowRoot?.querySelector(
+      'cv-input[data-otp-label-input="otp-1"]',
+    )?.parentElement
+    expect(erroredField).not.toBeNull()
+    expect(erroredField?.textContent).toContain('Label is too long')
     expect(component.shadowRoot?.querySelector('.entry-edit-save-action')).not.toBeNull()
   })
 
@@ -1221,6 +1264,7 @@ describe('PMEntry', () => {
 
     const saveButton = otpSection?.querySelector('.inline-edit-save') as HTMLButtonElement | null
     saveButton?.click()
+    await settle(component)
     await settle(component)
 
     expect(addOTP).toHaveBeenCalledTimes(1)

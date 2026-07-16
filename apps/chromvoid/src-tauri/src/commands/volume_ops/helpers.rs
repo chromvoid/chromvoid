@@ -12,7 +12,7 @@ pub(crate) fn fuse_backend_label_and_install_url() -> (String, String) {
     if cfg!(target_os = "macos") {
         (
             "FUSE (macFUSE)".to_string(),
-            "https://osxfuse.github.io/".to_string(),
+            "https://macfuse.github.io/".to_string(),
         )
     } else {
         (

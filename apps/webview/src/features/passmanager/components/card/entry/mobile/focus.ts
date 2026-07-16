@@ -199,17 +199,12 @@ export function scheduleSectionSnippetFocus(
   getShadowRoot: ShadowRootGetter,
   sectionSnippet: PMEntrySectionSnippet | null,
 ): void {
-  if (sectionSnippet !== 'note' && sectionSnippet !== 'payment-card' && sectionSnippet !== 'otp' && sectionSnippet !== 'tags') {
+  if (sectionSnippet !== 'note' && sectionSnippet !== 'payment-card' && sectionSnippet !== 'otp') {
     return
   }
 
   scheduler.schedule(() => {
     if (sectionSnippet === 'otp') {
-      return
-    }
-
-    if (sectionSnippet === 'tags') {
-      focusElement(getShadowRoot, 'cv-combobox.entry-tags-combobox', EDIT_FIELD_SCROLL_OPTIONS)
       return
     }
 

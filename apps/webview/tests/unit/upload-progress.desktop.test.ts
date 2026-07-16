@@ -11,6 +11,8 @@ import {
   initAppContext,
 } from "../../src/shared/services/app-context";
 
+const isolateLtr = (value: string) => `\u2066${value}\u2069`;
+
 function createUploadStats(tasks: UploadTask[]) {
   const total = tasks.length;
   const completed = tasks.filter((t) => t.status() === "done").length;
@@ -68,11 +70,17 @@ describe("upload-progress-desktop", () => {
     await settle(element);
 
     const text = element.shadowRoot?.textContent ?? "";
-    expect(text).toContain("File transfers (2)");
-    expect(text).toContain("Overall progress: 75%");
-    expect(text).toContain("1 of 2");
+    expect(text).toContain(`File transfers (${isolateLtr("2")})`);
+    expect(text).toContain(`Overall progress: ${isolateLtr("75")}%`);
+    expect(text).toContain(`${isolateLtr("1")} of ${isolateLtr("2")}`);
     expect(text).toContain("1.5 KB / 2 KB");
-    expect(element.shadowRoot?.querySelector("cv-operation-queue.upload-panel")).not.toBeNull();
+    expect(
+      element.shadowRoot?.querySelector('.overall-size-info bdi[dir="ltr"]')?.textContent,
+    ).toBe("1.5 KB / 2 KB");
+    expect(
+      element.shadowRoot?.querySelector("cv-operation-queue.upload-panel")?.getAttribute("density"),
+    ).toBe("compact");
+    expect(element.shadowRoot?.querySelectorAll("upload-task-item[compact]")).toHaveLength(2);
 
     const buttons = [
       ...(element.shadowRoot?.querySelectorAll<HTMLButtonElement>(".header-btn") ?? []),
@@ -167,9 +175,12 @@ describe("upload-progress-desktop", () => {
     await settle(element);
 
     const text = element.shadowRoot?.textContent ?? "";
-    expect(text).toContain("File transfers (3)");
-    expect(text).toContain("Overall progress: 25%");
-    expect(text).toContain("1 of 2");
+    expect(text).toContain(`File transfers (${isolateLtr("3")})`);
+    expect(text).toContain(`Overall progress: ${isolateLtr("25")}%`);
+    expect(text).toContain(`${isolateLtr("1")} of ${isolateLtr("2")}`);
     expect(text).toContain("100 B / 400 B");
+    expect(
+      element.shadowRoot?.querySelector('.overall-size-info bdi[dir="ltr"]')?.textContent,
+    ).toBe("100 B / 400 B");
   });
 });

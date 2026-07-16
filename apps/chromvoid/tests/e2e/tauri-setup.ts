@@ -9,7 +9,8 @@ declare global {
 }
 
 export async function setup() {
-  // Connect Playwright to a running Tauri static host or standalone webview dev server.
+  // Connect Playwright to a browser-hosted app smoke target.
+  // This localhost runner does not prove native Tauri WebView or custom protocol behavior.
   browser = await chromium.launch({headless: false})
   page = await browser.newPage()
 

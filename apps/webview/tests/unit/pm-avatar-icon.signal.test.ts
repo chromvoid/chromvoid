@@ -76,6 +76,9 @@ function createIconRefSource(initial: string) {
         listener()
       }
     },
+    listenerCount() {
+      return listeners.size
+    },
   })
 
   return source
@@ -181,17 +184,12 @@ describe('PMAvatarIconModel iconRef resolution', () => {
 })
 
 describe('PMAvatarIcon subscription cleanup', () => {
-  it('unsubscribes on disconnect and resumes on reconnect', async () => {
+  it('unsubscribes from its iconRef source on disconnect and resumes on reconnect', async () => {
     const element = createElement()
     const iconRefSignal = createIconRefSource('alpha')
     const cache = new Map<string, string>()
     const calls: string[] = []
 
-    const unsubscribe = vi.fn()
-    const subscribeSpy = vi.spyOn(pmIconStore, 'subscribe').mockImplementation((listener) => {
-      void listener
-      return unsubscribe
-    })
     const getCachedUrlSpy = vi.spyOn(pmIconStore, 'getCachedUrl').mockImplementation((iconRef) => {
       if (!iconRef) return undefined
       return cache.get(iconRef)
@@ -210,9 +208,10 @@ describe('PMAvatarIcon subscription cleanup', () => {
       await element.updateComplete
 
       expect(calls).toContain('alpha')
+      expect(iconRefSignal.listenerCount()).toBe(1)
 
       element.remove()
-      expect(unsubscribe).toHaveBeenCalledTimes(1)
+      expect(iconRefSignal.listenerCount()).toBe(0)
 
       calls.length = 0
       iconRefSignal.set('beta')
@@ -223,9 +222,9 @@ describe('PMAvatarIcon subscription cleanup', () => {
       await element.updateComplete
 
       expect(calls).toContain('beta')
+      expect(iconRefSignal.listenerCount()).toBe(1)
     } finally {
       element.remove()
-      subscribeSpy.mockRestore()
       getCachedUrlSpy.mockRestore()
       loadIconUrlSpy.mockRestore()
     }
@@ -249,11 +248,6 @@ describe('PMAvatarIcon subscription cleanup', () => {
       cache.set(iconRef, url)
       return url
     })
-    const subscribeSpy = vi.spyOn(pmIconStore, 'subscribe').mockImplementation((listener) => {
-      void listener
-      return () => {}
-    })
-
     try {
       element.iconRef = firstSource
       document.body.append(element)
@@ -277,7 +271,6 @@ describe('PMAvatarIcon subscription cleanup', () => {
       expect(calls).toContain('delta')
     } finally {
       element.remove()
-      subscribeSpy.mockRestore()
       getCachedUrlSpy.mockRestore()
       loadIconUrlSpy.mockRestore()
     }
@@ -300,11 +293,6 @@ describe('PMAvatarIcon subscription cleanup', () => {
       cache.set(iconRef, url)
       return url
     })
-    const subscribeSpy = vi.spyOn(pmIconStore, 'subscribe').mockImplementation((listener) => {
-      void listener
-      return () => {}
-    })
-
     try {
       element.iconRef = iconRefSignal
       document.body.append(element)
@@ -325,7 +313,6 @@ describe('PMAvatarIcon subscription cleanup', () => {
       expect(calls).toEqual(['beta'])
     } finally {
       element.remove()
-      subscribeSpy.mockRestore()
       getCachedUrlSpy.mockRestore()
       loadIconUrlSpy.mockRestore()
     }
@@ -342,10 +329,6 @@ describe('PMAvatarIcon subscription cleanup', () => {
 
     const cache = new Map<string, string>()
 
-    const subscribeSpy = vi.spyOn(pmIconStore, 'subscribe').mockImplementation((listener) => {
-      void listener
-      return () => {}
-    })
     const getCachedUrlSpy = vi.spyOn(pmIconStore, 'getCachedUrl').mockImplementation((iconRef) => {
       if (!iconRef) return undefined
       return cache.get(iconRef)
@@ -372,7 +355,6 @@ describe('PMAvatarIcon subscription cleanup', () => {
       expect(image?.getAttribute('src')).toBe('blob:group-icon')
     } finally {
       element.remove()
-      subscribeSpy.mockRestore()
       getCachedUrlSpy.mockRestore()
       loadIconUrlSpy.mockRestore()
     }
@@ -397,14 +379,6 @@ describe('PMAvatarIcon subscription cleanup', () => {
     await entry.flushPendingPersistence()
 
     const cache = new Map<string, string>()
-    const listeners = new Set<() => void>()
-
-    const subscribeSpy = vi.spyOn(pmIconStore, 'subscribe').mockImplementation((listener) => {
-      listeners.add(listener)
-      return () => {
-        listeners.delete(listener)
-      }
-    })
     const getCachedUrlSpy = vi.spyOn(pmIconStore, 'getCachedUrl').mockImplementation((iconRef) => {
       if (!iconRef) return undefined
       return cache.get(iconRef)
@@ -413,9 +387,6 @@ describe('PMAvatarIcon subscription cleanup', () => {
       if (!iconRef) return undefined
       const url = `blob:${iconRef}`
       cache.set(iconRef, url)
-      for (const listener of listeners) {
-        listener()
-      }
       return url
     })
 
@@ -441,7 +412,6 @@ describe('PMAvatarIcon subscription cleanup', () => {
       expect(element.shadowRoot?.querySelector('img')?.getAttribute('src')).toBe('blob:entry-icon-new')
     } finally {
       element.remove()
-      subscribeSpy.mockRestore()
       getCachedUrlSpy.mockRestore()
       loadIconUrlSpy.mockRestore()
     }
@@ -454,10 +424,6 @@ describe('PMAvatarIcon cached image rendering', () => {
     const iconRef = 'entry-icon-with-background'
     const cache = new Map<string, string>([[iconRef, `blob:${iconRef}`]])
 
-    const subscribeSpy = vi.spyOn(pmIconStore, 'subscribe').mockImplementation((listener) => {
-      void listener
-      return () => {}
-    })
     const getCachedUrlSpy = vi.spyOn(pmIconStore, 'getCachedUrl').mockImplementation((ref) => {
       if (!ref) return undefined
       return cache.get(ref)
@@ -476,7 +442,6 @@ describe('PMAvatarIcon cached image rendering', () => {
       expect(element.shadowRoot?.querySelector('img')?.getAttribute('src')).toBe(`blob:${iconRef}`)
     } finally {
       element.remove()
-      subscribeSpy.mockRestore()
       getCachedUrlSpy.mockRestore()
       getCachedBackgroundColorSpy.mockRestore()
       loadIconUrlSpy.mockRestore()

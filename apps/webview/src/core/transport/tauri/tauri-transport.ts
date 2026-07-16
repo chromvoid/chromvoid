@@ -13,9 +13,9 @@ import type {
   NativeAudioPlayerEvent,
   NativeUploadOptions,
   PreparedMediaStreamSource,
-  PreparedAndroidVideoSource,
   PreparedPreviewFileSource,
   PreparedPreviewFileVariant,
+  PreparedVideoSource,
   PreviewCachePurgeReason,
   PreviewCachePurgeResult,
   TransportEventHandler,
@@ -51,12 +51,14 @@ import {
   openExternalViaTauri,
   pickDownloadTargetViaTauri,
   pickUploadFilesViaTauri,
+  prepareMediaSourceViaTauri,
   prepareMediaStreamViaTauri,
   preparePreviewFileViaTauri,
   previewImageViaTauri,
   purgePreviewSourcesViaTauri,
   readSecretViaTauri,
   replaceFileViaTauri,
+  releaseMediaSourceViaTauri,
   releaseMediaStreamViaTauri,
   releasePreviewFileViaTauri,
   cancelAndroidSharedFilesViaTauri,
@@ -66,8 +68,6 @@ import {
   sendNativeAudioCommandViaTauri,
   startNativeOtpQrScanViaTauri,
   thumbnailImageViaTauri,
-  startAndroidVideoViaTauri,
-  stopAndroidVideoViaTauri,
   uploadAndroidSharedFilesViaTauri,
   uploadSharedFilesViaTauri,
   uploadFilePathViaTauri,
@@ -81,6 +81,11 @@ import type {RpcCmdData, RpcCmdName, RpcCmdResult} from './tauri-rpc-types'
 type RuntimeModeInfo = {
   mode?: RuntimeCoreMode
   remote_core_features?: unknown
+  transport_session_generation?: unknown
+}
+
+function supportsDetailedModeStatus(capabilities: RuntimeCapabilities): boolean {
+  return capabilities.desktop
 }
 
 function isRpcCommandResult<T extends RpcCmdName>(
@@ -103,6 +108,7 @@ const PASSMANAGER_READ_COMMAND_SUFFIXES = [
 ] as const
 
 function isPassmanagerMutatingCommand(command: string): boolean {
+  if (command === 'passmanager:securityAudit:set') return false
   return (
     command.startsWith('passmanager:') &&
     !PASSMANAGER_READ_COMMAND_SUFFIXES.some((suffix) => command.endsWith(suffix))
@@ -195,6 +201,11 @@ export class TauriTransport implements TransportLike {
           ),
         )
         this.unlisten.push(
+          await tauriListen('ssh-agent:sign-request-expired', (payload) =>
+            this.emit('ssh-agent:sign-request-expired', payload),
+          ),
+        )
+        this.unlisten.push(
           await tauriListen('android-media-session:action', (payload) =>
             this.emit('android-media-session:action', payload),
           ),
@@ -234,6 +245,7 @@ export class TauriTransport implements TransportLike {
             'pong',
             'media-stream:error',
             'ssh-agent:sign-request',
+            'ssh-agent:sign-request-expired',
             'android-media-session:action',
             'android-video-player:event',
             'android-audio-player:event',
@@ -260,24 +272,21 @@ export class TauriTransport implements TransportLike {
           setRuntimeCapabilities(null)
         }
 
-        try {
-          const modeInfo = await tauriInvoke<RuntimeModeInfo>('mode_status')
-          runtimeModeModel.setCoreMode(modeInfo.mode, modeInfo.remote_core_features)
-          void moduleAccessModel.refresh()
-        } catch (modeStatusError) {
+        if (supportsDetailedModeStatus(getRuntimeCapabilities())) {
           try {
-            const mode = await tauriInvoke<RpcResult<RuntimeCoreMode>>('get_current_mode')
-            if (isSuccess(mode)) {
-              runtimeModeModel.setCoreMode(mode.result)
-            } else {
-              runtimeModeModel.setCoreMode('switching')
-              console.warn('[dashboard][tauri] get_current_mode failed', mode.error)
-            }
-          } catch (error) {
-            runtimeModeModel.setCoreMode('switching')
-            console.warn('[dashboard][tauri] get_current_mode invoke failed', error)
+            const modeInfo = await tauriInvoke<RuntimeModeInfo>('mode_status')
+            runtimeModeModel.setCoreMode(
+              modeInfo.mode,
+              modeInfo.remote_core_features,
+              modeInfo.transport_session_generation,
+            )
+            void moduleAccessModel.refresh()
+          } catch (modeStatusError) {
+            await this.syncCurrentModeFallback()
+            console.warn('[dashboard][tauri] mode_status invoke failed', modeStatusError)
           }
-          console.warn('[dashboard][tauri] mode_status invoke failed', modeStatusError)
+        } else {
+          await this.syncCurrentModeFallback()
         }
 
         this.connected.set(true)
@@ -325,6 +334,21 @@ export class TauriTransport implements TransportLike {
     return getRuntimeCapabilities()
   }
 
+  private async syncCurrentModeFallback(): Promise<void> {
+    try {
+      const mode = await tauriInvoke<RpcResult<RuntimeCoreMode>>('get_current_mode')
+      if (isSuccess(mode)) {
+        runtimeModeModel.setCoreMode(mode.result)
+      } else {
+        runtimeModeModel.setCoreMode('switching')
+        console.warn('[dashboard][tauri] get_current_mode failed', mode.error)
+      }
+    } catch (error) {
+      runtimeModeModel.setCoreMode('switching')
+      console.warn('[dashboard][tauri] get_current_mode invoke failed', error)
+    }
+  }
+
   private emit(event: string, payload: unknown): void {
     const set = this.handlers.get(event)
     if (!set) return
@@ -341,7 +365,7 @@ export class TauriTransport implements TransportLike {
     }
   }
 
-  private async rpc<T extends RpcCmdName>(command: T, data: RpcCmdData<T>): Promise<RpcCmdResult<T>> {
+  async rpc<T extends RpcCmdName>(command: T, data: RpcCmdData<T>): Promise<RpcCmdResult<T>> {
     const t0 = performance.now()
     const response = await tauriInvoke<RpcDispatchResponse>('rpc_dispatch', {
       args: {
@@ -607,19 +631,20 @@ export class TauriTransport implements TransportLike {
     return releaseMediaStreamViaTauri(source)
   }
 
-  async startAndroidVideo(
-    nodeId: number,
-    opts: {
-      fileName: string
-      mimeType?: string | null
-      lastModified?: number | null
-    },
-  ): Promise<PreparedAndroidVideoSource> {
-    return startAndroidVideoViaTauri(nodeId, opts)
+  async prepareMediaSource(opts: {
+    kind: 'video'
+    nodeId: number
+    sourceRevision?: number | null
+    ownerToken?: string | null
+    fileName?: string | null
+    mimeType?: string | null
+    lastModified?: number | null
+  }): Promise<PreparedVideoSource> {
+    return prepareMediaSourceViaTauri(opts)
   }
 
-  async stopAndroidVideo(source: PreparedAndroidVideoSource): Promise<void> {
-    return stopAndroidVideoViaTauri(source)
+  async releaseMediaSource(source: PreparedVideoSource): Promise<void> {
+    return releaseMediaSourceViaTauri(source)
   }
 
   async sendAndroidAudioCommand(command: AndroidAudioCommand): Promise<AndroidAudioCommandResult> {
@@ -679,6 +704,8 @@ export class TauriTransport implements TransportLike {
     digits?: number
     period?: number
     ha?: string
+    type?: string
+    counter?: number
   }): Promise<string> {
     const otp_id = params.otpId?.trim() || null
     const entry_id = params.entryId?.trim() || null
@@ -693,6 +720,8 @@ export class TauriTransport implements TransportLike {
       digits: params.digits ?? null,
       period: params.period ?? null,
       ha: params.ha ?? null,
+      type: params.type ?? null,
+      counter: params.counter ?? null,
     })) as {ok: boolean; result?: {otp?: string}}
 
     if (!response.result?.otp) {
@@ -710,6 +739,8 @@ export class TauriTransport implements TransportLike {
     algorithm?: string
     digits?: number
     period?: number
+    type?: string
+    counter?: number
   }): Promise<void> {
     await this.sendPassmanager('passmanager:otp:setSecret', {
       otp_id: params.otpId,
@@ -719,6 +750,8 @@ export class TauriTransport implements TransportLike {
       algorithm: params.algorithm ?? null,
       digits: params.digits ?? null,
       period: params.period ?? null,
+      type: params.type ?? null,
+      counter: params.counter ?? null,
     })
   }
 

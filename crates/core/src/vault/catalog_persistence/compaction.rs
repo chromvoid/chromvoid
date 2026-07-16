@@ -114,6 +114,7 @@ impl<'a> CatalogCompactionService<'a> {
         meta.last_delta_seq = meta.version;
         meta.snapshot_seq = new_snapshot_seq;
         meta.update_stats(shard.node_count(), shard.size());
+        meta.update_root_summary(&shard.root);
 
         Ok(PreparedShardCompaction {
             new_chunks: vec![snapshot_name],

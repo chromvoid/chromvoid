@@ -17,11 +17,11 @@ use serde_json::Value;
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 use crate::core_adapter::CoreAdapter;
-#[cfg(any(target_os = "ios", target_os = "macos"))]
-use crate::credential_provider_contract::PasskeyLiteCommand;
 use crate::task_lifecycle::TaskLifecycleRuntime;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 use crate::task_lifecycle::{ExternalTaskName, ExternalTaskReadiness};
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+use chromvoid_core::license::PRO_FEATURE_CREDENTIAL_PROVIDER;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 #[cfg(any(target_os = "ios", target_os = "macos"))]
@@ -36,6 +36,12 @@ mod identity_store;
 mod ipc_handler;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 mod notifications;
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+mod otp_policy;
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+mod secret_store;
+#[cfg(target_os = "macos")]
+pub(crate) mod settings;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 mod user_defaults;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
@@ -64,6 +70,47 @@ pub fn runtime_ready() -> bool {
     }
 }
 
+#[cfg(target_os = "macos")]
+pub(crate) fn otp_capability_status(selected: bool) -> Value {
+    let platform_version_major = otp_policy::otp_autofill_platform_version_major();
+    let rollout_enabled = otp_policy::otp_autofill_rollout_enabled();
+    let bridge_available = runtime_ready();
+    let status = otp_autofill_native_status(platform_version_major, rollout_enabled, selected);
+
+    serde_json::json!({
+        "oneTimeCodeAutofill": {
+            "status": status,
+            "platformVersionMajor": platform_version_major,
+            "apiAvailable": platform_version_major >= 15,
+            "rolloutEnabled": rollout_enabled,
+            "bridgeAvailable": bridge_available,
+        },
+        "verificationCodeSetupHandler": {
+            "status": "available",
+            "scheme": "otpauth",
+            "defaultSelection": "unverified",
+        },
+    })
+}
+
+#[cfg(any(test, target_os = "macos"))]
+fn otp_autofill_native_status(
+    platform_version_major: u64,
+    rollout_enabled: bool,
+    selected: bool,
+) -> &'static str {
+    if platform_version_major < 15 {
+        "unsupported_os"
+    } else if !rollout_enabled {
+        "provider_disabled"
+    } else if !selected {
+        "extension_not_enabled"
+    } else {
+        // Pro entitlement and vault state are resolved reactively in the host UI.
+        "unverified"
+    }
+}
+
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 fn register_task_lifecycle(task_lifecycle: &Arc<TaskLifecycleRuntime>) {
     let _ = TASK_LIFECYCLE.set(Arc::downgrade(task_lifecycle));
@@ -83,19 +130,42 @@ pub fn dispatch_provider_rpc(
     command: &str,
     data: Value,
 ) -> RpcResponse {
+    if !provider_bridge_command_allowed(command) {
+        tracing::warn!(
+            command = command,
+            "credential_provider_bridge: rejected disallowed provider RPC command"
+        );
+        return RpcResponse::error(
+            "Provider bridge command is not allowed",
+            Some("POLICY_DENIED".to_string()),
+        );
+    }
+
     let response = match adapter.lock() {
         Ok(mut adapter) => {
-            if PasskeyLiteCommand::from_bridge_command(command).is_some() {
-                let platform_label = if cfg!(target_os = "ios") {
-                    "iOS"
-                } else {
-                    "macOS"
-                };
-                if let Err(error) = crate::credential_provider_passkey::ensure_local_mode(
-                    adapter.mode(),
-                    platform_label,
-                ) {
+            if provider_bridge_command_requires_local_core(command)
+                && !matches!(adapter.mode(), crate::core_adapter::CoreMode::Local)
+            {
+                return RpcResponse::error(
+                    "Apple Credential Provider requires local Core adapter mode",
+                    Some("REMOTE_CORE_UNSUPPORTED".to_string()),
+                );
+            }
+
+            if command == "credential_provider:getOneTimeCode" {
+                if let Err(error) = otp_policy::ensure_otp_autofill_enabled() {
                     return RpcResponse::error(error.message, Some(error.code));
+                }
+            }
+
+            if provider_bridge_command_requires_pro(command) {
+                let caps = crate::types::runtime_capabilities_for_current_target();
+                if let Err(error) = crate::pro::guard_pro_feature_for_adapter(
+                    adapter.as_mut(),
+                    PRO_FEATURE_CREDENTIAL_PROVIDER,
+                    &caps,
+                ) {
+                    return pro_guard_error_response(error);
                 }
             }
 
@@ -110,6 +180,50 @@ pub fn dispatch_provider_rpc(
     };
 
     response
+}
+
+#[cfg(any(test, target_os = "ios", target_os = "macos"))]
+fn provider_bridge_command_allowed(command: &str) -> bool {
+    matches!(
+        command.trim(),
+        "credential_provider:status"
+            | "credential_provider:session:open"
+            | "credential_provider:session:close"
+            | "credential_provider:list"
+            | "credential_provider:search"
+            | "credential_provider:getSecret"
+            | "credential_provider:getOneTimeCode"
+            | "credential_provider:recordUse"
+            | "credential_provider:passkey:create"
+            | "credential_provider:passkey:get"
+            | "credential_provider:passkey:query"
+    )
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+fn provider_bridge_command_requires_local_core(command: &str) -> bool {
+    !matches!(
+        command.trim(),
+        "credential_provider:status"
+            | "credential_provider:session:open"
+            | "credential_provider:session:close"
+    )
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+fn provider_bridge_command_requires_pro(command: &str) -> bool {
+    provider_bridge_command_requires_local_core(command)
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+fn pro_guard_error_response(error: crate::types::RpcResult<Value>) -> RpcResponse {
+    match error {
+        crate::types::RpcResult::Error { error, code, .. } => RpcResponse::error(error, code),
+        crate::types::RpcResult::Success { .. } => RpcResponse::error(
+            "Credential Provider entitlement unavailable",
+            Some("ENTITLEMENT_UNAVAILABLE".to_string()),
+        ),
+    }
 }
 
 // MARK: - Public API (platform-gated)
@@ -158,23 +272,231 @@ pub fn spawn_credential_provider_bridge(
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 pub fn on_vault_unlocked(app_handle: &tauri::AppHandle) {
-    let _ = app_handle;
-    identity_store::sync_credential_identities_on_unlock(app_handle);
+    identity_store::schedule_credential_identity_sync_on_unlock(app_handle);
 }
 
 #[cfg(not(any(target_os = "ios", target_os = "macos")))]
 pub fn on_vault_unlocked(_app_handle: &tauri::AppHandle) {}
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-pub fn on_vault_locked() {
+pub fn on_vault_locked(app_handle: &tauri::AppHandle) {
+    crate::otp_import_handoff::clear_pending_otp_import();
+    identity_store::cancel_credential_identity_sync(app_handle);
     identity_store::clear_credential_identities_on_lock();
 }
 
 #[cfg(not(any(target_os = "ios", target_os = "macos")))]
-pub fn on_vault_locked() {}
+pub fn on_vault_locked(_app_handle: &tauri::AppHandle) {}
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+pub fn on_passmanager_mutation(app_handle: &tauri::AppHandle, command: &str) {
+    if matches!(
+        command,
+        "passmanager:entry:save"
+            | "passmanager:entry:delete"
+            | "passmanager:entry:move"
+            | "passmanager:entry:rename"
+            | "passmanager:otp:setSecret"
+            | "passmanager:otp:removeSecret"
+            | "passmanager:otp:renameSecret"
+    ) {
+        identity_store::schedule_credential_identity_sync_after_mutation(app_handle);
+    }
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+pub(crate) fn on_identity_policy_status(app_handle: &tauri::AppHandle, enabled: bool) {
+    if enabled {
+        identity_store::schedule_credential_identity_sync_for_policy(app_handle);
+    } else {
+        identity_store::cancel_credential_identity_sync(app_handle);
+        identity_store::clear_credential_identities_on_lock();
+    }
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "macos")))]
+pub(crate) fn on_identity_policy_status(_app_handle: &tauri::AppHandle, _enabled: bool) {}
+
+#[cfg(not(any(target_os = "ios", target_os = "macos")))]
+pub fn on_passmanager_mutation(_app_handle: &tauri::AppHandle, _command: &str) {}
 
 #[cfg(test)]
 mod tests {
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    use crate::core_adapter::{CoreAdapter, CoreMode, RemoteHost};
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    use serde_json::Value;
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    use std::sync::{Arc, Mutex};
+
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    struct RecordingAdapter {
+        mode: CoreMode,
+        commands: Arc<Mutex<Vec<String>>>,
+        response: RpcResponse,
+    }
+
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    impl CoreAdapter for RecordingAdapter {
+        fn mode(&self) -> CoreMode {
+            self.mode.clone()
+        }
+
+        fn is_unlocked(&self) -> bool {
+            true
+        }
+
+        fn handle(&mut self, request: &RpcRequest) -> RpcResponse {
+            self.commands
+                .lock()
+                .expect("recording adapter commands")
+                .push(request.command.clone());
+            self.response.clone()
+        }
+
+        fn handle_with_stream(
+            &mut self,
+            request: &RpcRequest,
+            _stream: Option<chromvoid_core::rpc::RpcInputStream>,
+        ) -> chromvoid_core::rpc::RpcReply {
+            chromvoid_core::rpc::RpcReply::Json(self.handle(request))
+        }
+
+        fn save(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn take_events(&mut self) -> Vec<Value> {
+            Vec::new()
+        }
+
+        fn set_master_key(&mut self, _key: Option<String>) {}
+    }
+
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    #[test]
+    fn provider_bridge_command_allowlist_rejects_non_provider_commands() {
+        assert!(super::provider_bridge_command_allowed(
+            "credential_provider:list"
+        ));
+        assert!(super::provider_bridge_command_allowed(
+            "credential_provider:passkey:get"
+        ));
+        assert!(super::provider_bridge_command_allowed(
+            "credential_provider:getOneTimeCode"
+        ));
+        assert!(!super::provider_bridge_command_allowed("vault:unlock"));
+        assert!(!super::provider_bridge_command_allowed("catalog:list"));
+        assert!(!super::provider_bridge_command_allowed("passmanager:list"));
+    }
+
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    #[test]
+    fn provider_bridge_policy_leaves_status_and_session_commands_unmetered() {
+        for command in [
+            "credential_provider:status",
+            "credential_provider:session:open",
+            "credential_provider:session:close",
+        ] {
+            assert!(!super::provider_bridge_command_requires_local_core(command));
+            assert!(!super::provider_bridge_command_requires_pro(command));
+        }
+
+        for command in [
+            "credential_provider:list",
+            "credential_provider:search",
+            "credential_provider:getSecret",
+            "credential_provider:getOneTimeCode",
+            "credential_provider:recordUse",
+            "credential_provider:passkey:create",
+            "credential_provider:passkey:get",
+            "credential_provider:passkey:query",
+        ] {
+            assert!(super::provider_bridge_command_requires_local_core(command));
+            assert!(super::provider_bridge_command_requires_pro(command));
+        }
+    }
+
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    #[test]
+    fn local_core_guard_rejects_paid_commands_before_core_dispatch() {
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let adapter: Arc<Mutex<Box<dyn CoreAdapter>>> =
+            Arc::new(Mutex::new(Box::new(RecordingAdapter {
+                mode: CoreMode::Remote {
+                    host: RemoteHost::TauriRemoteWss {
+                        peer_id: "peer".to_string(),
+                    },
+                },
+                commands: commands.clone(),
+                response: RpcResponse::success(serde_json::json!({})),
+            })));
+
+        let response = super::dispatch_provider_rpc(
+            &adapter,
+            "credential_provider:getOneTimeCode",
+            serde_json::json!({}),
+        );
+
+        assert!(matches!(
+            response,
+            RpcResponse::Error { code: Some(code), .. } if code == "REMOTE_CORE_UNSUPPORTED"
+        ));
+        assert!(commands.lock().expect("recorded commands").is_empty());
+    }
+
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    #[test]
+    fn pro_guard_stops_paid_command_after_license_status_probe() {
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let adapter: Arc<Mutex<Box<dyn CoreAdapter>>> =
+            Arc::new(Mutex::new(Box::new(RecordingAdapter {
+                mode: CoreMode::Local,
+                commands: commands.clone(),
+                response: RpcResponse::error(
+                    "License status unavailable",
+                    Some("ENTITLEMENT_UNAVAILABLE".to_string()),
+                ),
+            })));
+
+        let response = super::dispatch_provider_rpc(
+            &adapter,
+            "credential_provider:getSecret",
+            serde_json::json!({}),
+        );
+
+        assert!(matches!(
+            response,
+            RpcResponse::Error { code: Some(code), .. } if code == "ENTITLEMENT_UNAVAILABLE"
+        ));
+        assert_eq!(
+            commands.lock().expect("recorded commands").as_slice(),
+            ["core:capabilities", "license:status"]
+        );
+    }
+
+    #[test]
+    fn otp_native_status_never_claims_ready_without_host_policy_state() {
+        assert_eq!(
+            super::otp_autofill_native_status(14, true, true),
+            "unsupported_os"
+        );
+        assert_eq!(
+            super::otp_autofill_native_status(15, false, true),
+            "provider_disabled"
+        );
+        assert_eq!(
+            super::otp_autofill_native_status(15, true, false),
+            "extension_not_enabled"
+        );
+        assert_eq!(
+            super::otp_autofill_native_status(15, true, true),
+            "unverified"
+        );
+    }
+
     #[cfg(not(any(target_os = "ios", target_os = "macos")))]
     #[test]
     fn runtime_ready_defaults_false_without_apple_listener() {

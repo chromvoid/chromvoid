@@ -84,4 +84,21 @@ describe('DesktopShellToolbar', () => {
     expect(shadowPart(toolbar, '.heading').hidden).toBe(true)
     expect(shadowPart(toolbar, '.center').hidden).toBe(false)
   })
+
+  it('ignores hidden slot forwarders when calculating toolbar groups', async () => {
+    ensureToolbarDefined()
+    const toolbar = document.createElement(DesktopShellToolbar.elementName) as DesktopShellToolbar
+    const forwarder = document.createElement('div')
+    forwarder.slot = 'leading'
+    forwarder.hidden = true
+    forwarder.setAttribute('data-slot-forwarder', '')
+    forwarder.textContent = 'Hidden wrapper text'
+    toolbar.append(forwarder)
+
+    document.body.appendChild(toolbar)
+    await flushToolbar(toolbar)
+
+    expect(shadowPart(toolbar, '.toolbar-primary').hidden).toBe(true)
+    expect(shadowPart(toolbar, '.leading').hidden).toBe(true)
+  })
 })

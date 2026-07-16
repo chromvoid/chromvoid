@@ -1,6 +1,13 @@
 use super::*;
 
 #[test]
+fn env_runtime_commands_are_agent_route_only() {
+    assert!(is_agent_only_core_command("env_runtime:status"));
+    assert!(is_agent_only_core_command("env_runtime:secret:list"));
+    assert!(!is_agent_only_core_command("vault:status"));
+}
+
+#[test]
 fn classify_sensitive_commands() {
     assert_eq!(
         classify_command("catalog:secret:read"),
@@ -31,7 +38,15 @@ fn classify_sensitive_commands() {
         CommandCategory::Sensitive
     );
     assert_eq!(
+        classify_command("passmanager:otp:preview"),
+        CommandCategory::Sensitive
+    );
+    assert_eq!(
         classify_command("passmanager:secret:read"),
+        CommandCategory::Sensitive
+    );
+    assert_eq!(
+        classify_command("passmanager:ssh:secret:read"),
         CommandCategory::Sensitive
     );
 }

@@ -6,21 +6,19 @@ import {renderGuidanceInline} from 'root/features/guidance/render-guidance-inlin
 import {mediaPlaybackModel} from 'root/features/media/models/media-playback.model'
 import {getAppContext} from 'root/shared/services/app-context'
 import {ScrollEdgeAffordanceModel} from 'root/shared/ui/scroll-edge-affordance.model'
-import type {
-  FileItemData,
-  FileListItem,
-  FileListRenderItem,
-  FileListVisibleItem,
-  FileListVisibleRange,
-  FileListViewportRestoreState,
-  FileListViewportSnapshot,
-  SearchFilters,
-} from 'root/shared/contracts/file-manager'
 import {
   isFileListPlaceholderItem,
   isRealFileListItem,
+  type FileItemData,
+  type FileListItem,
+  type FileListRenderItem,
+  type FileListVisibleItem,
+  type FileListVisibleRange,
+  type FileListViewportRestoreState,
+  type FileListViewportSnapshot,
+  type SearchFilters,
+  type SortOption,
 } from 'root/shared/contracts/file-manager'
-import {type SortOption} from 'root/shared/contracts/file-manager'
 import {
   createDefaultFileSearchFilters,
   createFileSearchFilterActions,
@@ -47,13 +45,15 @@ import {VirtualFileListModel} from '../models/virtual-file-list.model'
 import type {FileDeletionMotionModel} from '../models/file-deletion-motion.model'
 import {VirtualFileListHandlers} from './virtual-file-list/handlers'
 import {getFileManagerModel} from '../file-manager.model'
-import type {PMSummaryRailItem} from '../../passmanager/components/summary-rail'
+import {logFileManagerDebug} from '../file-manager-debug'
 
 export type {FileListItem} from 'root/shared/contracts/file-manager'
 
 type FileItemHost = HTMLElement & {closeSwipe?: () => void}
 
-const DESKTOP_LIST_ITEM_HEIGHT = 96
+const DESKTOP_ROW_HEIGHT = 36
+
+type EmptyActionId = 'upload' | 'create-dir' | 'create-note'
 
 export class VirtualFileListBase extends ReatomLitElement {
   static get properties() {
@@ -66,7 +66,7 @@ export class VirtualFileListBase extends ReatomLitElement {
       selectionMode: {type: Boolean, attribute: 'selection-mode'},
       pendingExternalOpenIds: {type: Array, attribute: 'pending-external-open-ids'},
       currentPath: {type: String, attribute: 'current-path'},
-      mobile: {type: Boolean},
+      mobile: {type: Boolean, reflect: true},
       restoreViewport: {type: Object, attribute: false},
       itemsPreFiltered: {type: Boolean, attribute: 'items-pre-filtered'},
       deletionMotion: {attribute: false},
@@ -193,17 +193,15 @@ export class VirtualFileListBase extends ReatomLitElement {
   private listResizeObserver: ResizeObserver | null = null
   private appliedViewportRestoreRevision: number | null = null
   private lastVisibleRangeKey = ''
+  private lastInputDebugKey: string | null = null
   private previousVisibleRows: FileListVisibleItem[] = []
-  private readonly fallbackGridCardHeight = 200
-  private readonly fallbackTouchGridCardHeight = 160
+  private readonly fallbackGridCardHeight = 140
+  private readonly fallbackMobileGridCardHeight = 160
   private readonly fallbackGridGap = 16
 
   override connectedCallback() {
     super.connectedCallback()
     this.getFileMoveModel()?.registerMobileDropZone(this.renderRoot as ShadowRoot)
-    if (window.matchMedia?.('(hover: none) and (pointer: coarse)')?.matches) {
-      this.itemHeight = 64
-    }
     this.updateViewportHeight()
     void this.updateComplete.then(() => this.updateViewportHeight())
     window.addEventListener('resize', this.onWindowResize)
@@ -283,15 +281,35 @@ export class VirtualFileListBase extends ReatomLitElement {
 
   private onScroll = (event: Event) => {
     const target = event.target as HTMLElement
-    this.pendingScrollTop = target.scrollTop
+    this.pendingScrollTop = Math.max(0, target.scrollTop)
+    if (!this.rafPending && !this.shouldCommitVirtualScrollTop(this.pendingScrollTop)) return
     if (this.rafPending) return
     this.rafPending = true
     requestAnimationFrame(() => {
-      this.model.setVirtualScrollTop(this.pendingScrollTop)
-      this.focusController.maybeUpdateActiveFromScroll(this.pendingScrollTop)
-      this.dispatchVisibleRangeChange()
+      const nextScrollTop = this.pendingScrollTop
+      if (this.shouldCommitVirtualScrollTop(nextScrollTop)) {
+        this.model.setVirtualScrollTop(nextScrollTop)
+        this.focusController.maybeUpdateActiveFromScroll(nextScrollTop)
+        this.dispatchVisibleRangeChange()
+      }
       this.rafPending = false
     })
+  }
+
+  private shouldCommitVirtualScrollTop(nextScrollTop: number): boolean {
+    const currentScrollTop = Math.max(0, this.model.virtualScrollTop())
+    if (currentScrollTop === nextScrollTop) return false
+
+    return this.getVirtualScrollBucket(currentScrollTop) !== this.getVirtualScrollBucket(nextScrollTop)
+  }
+
+  private getVirtualScrollBucket(scrollTop: number): number {
+    const safeScrollTop = Math.max(0, scrollTop)
+    if (this.filters.viewMode === 'grid') {
+      return Math.floor(safeScrollTop / Math.max(1, this.model.gridRowHeight()))
+    }
+
+    return Math.floor(safeScrollTop / Math.max(1, this.getEffectiveItemHeight()))
   }
 
   private isFocusInsideList(): boolean {
@@ -311,8 +329,8 @@ export class VirtualFileListBase extends ReatomLitElement {
   }
 
   private getEffectiveItemHeight(): number {
-    if (!this.mobile && this.filters.viewMode === 'list') {
-      return DESKTOP_LIST_ITEM_HEIGHT
+    if (!this.mobile && (this.filters.viewMode === 'list' || this.filters.viewMode === 'table')) {
+      return DESKTOP_ROW_HEIGHT
     }
 
     return this.itemHeight
@@ -364,34 +382,6 @@ export class VirtualFileListBase extends ReatomLitElement {
     }
   }
 
-  private syncVirtualStyles() {
-    const filteredItems = this.getFilteredItems()
-    const totalItemsCount =
-      this.filters.viewMode === 'grid'
-        ? filteredItems.length
-        : (this.deletionMotion?.getTotalItemsCount(filteredItems.length) ?? filteredItems.length)
-    const {totalHeight, offsetY} = this.model.getVirtualMetrics(
-      totalItemsCount,
-      this.filters.viewMode,
-      this.getEffectiveItemHeight(),
-      this.model.virtualScrollTop(),
-      this.model.gridColumns(),
-      this.model.gridRowHeight(),
-    )
-
-    this.style.setProperty('--virtual-total-height', `${totalHeight}px`)
-    this.style.setProperty('--virtual-offset-y', `${offsetY}px`)
-    this.style.setProperty('--file-list-item-height', `${this.getEffectiveItemHeight()}px`)
-  }
-
-  private syncMobileDndPointStyles() {
-    const point = this.getFileMoveModel()?.mobileDnd.point()
-    if (!point) return
-
-    this.style.setProperty('--file-mobile-dnd-x', `${Math.round(point.x)}px`)
-    this.style.setProperty('--file-mobile-dnd-y', `${Math.round(point.y)}px`)
-  }
-
   private renderMobileDndFeedback() {
     const dnd = this.getFileMoveModel()?.mobileDnd
     if (!dnd) return nothing
@@ -411,6 +401,38 @@ export class VirtualFileListBase extends ReatomLitElement {
           `
         : nothing}
     `
+  }
+
+  private renderDynamicMetricsStyle(
+    virtualMetrics: {totalHeight: number; offsetY: number},
+    itemHeight: number,
+  ) {
+    const dndPoint = this.getFileMoveModel()?.mobileDnd.point()
+    const dndX = dndPoint ? this.toCssPx(Math.round(dndPoint.x)) : '0px'
+    const dndY = dndPoint ? this.toCssPx(Math.round(dndPoint.y)) : '0px'
+    const nonce = this.getStyleNonce()
+
+    return html`
+      <style nonce=${nonce ?? nothing}>
+        :host {
+          --_file-virtual-list-total-block-size: ${this.toCssPx(virtualMetrics.totalHeight)};
+          --_file-virtual-list-offset-block: ${this.toCssPx(virtualMetrics.offsetY)};
+          --file-list-item-block-size: ${this.toCssPx(itemHeight)};
+          --_file-mobile-dnd-inline: ${dndX};
+          --_file-mobile-dnd-block: ${dndY};
+        }
+      </style>
+    `
+  }
+
+  private toCssPx(value: number): string {
+    const safeValue = Number.isFinite(value) ? Math.max(0, value) : 0
+    return `${Math.round(safeValue * 1000) / 1000}px`
+  }
+
+  private getStyleNonce(): string | null {
+    const nonce = (globalThis as typeof globalThis & {litNonce?: unknown}).litNonce
+    return typeof nonce === 'string' && nonce.length > 0 ? nonce : null
   }
 
   private isFileItemDragEvent(event: DragEvent): boolean {
@@ -560,6 +582,7 @@ export class VirtualFileListBase extends ReatomLitElement {
     }
 
     return html`
+      ${this.renderDynamicMetricsStyle(virtualMetrics, itemHeight)}
       <div
         class="scroll-edge-frame file-list-scroll-edge"
         data-scroll-block-start=${String(hasScrollBlockStart)}
@@ -568,7 +591,7 @@ export class VirtualFileListBase extends ReatomLitElement {
         <div
           class="list-container scroll-edge-scroller"
           data-mobile-dnd-target-id=${normalizePath(this.currentPath || '/')}
-          tabindex=${containerRole === 'listbox' ? '0' : '-1'}
+          tabindex="0"
           @pointerdown=${this.handlers.onPointerDown}
           @pointermove=${this.handlers.onPointerMove}
           @pointerup=${this.handlers.onPointerUp}
@@ -581,9 +604,7 @@ export class VirtualFileListBase extends ReatomLitElement {
           @drop=${this.handleContainerDrop}
           role=${containerRole}
           aria-multiselectable="true"
-          aria-activedescendant=${containerRole === 'listbox' && activeItemId != null
-            ? `file-option-${activeItemId}`
-            : nothing}
+          aria-activedescendant=${activeItemId != null ? `file-option-${activeItemId}` : nothing}
           aria-label=${i18n('file-manager:files')}
         >
           ${shouldRenderEmptyState
@@ -600,14 +621,44 @@ export class VirtualFileListBase extends ReatomLitElement {
                     ? html`
                         <cv-button
                           slot="actions"
-                          variant="ghost"
+                          variant="primary"
                           size="medium"
                           @click=${this.onClearFiltersClick}
                         >
                           ${i18n('file-manager:clear-filters')}
                         </cv-button>
                       `
-                    : nothing}
+                    : !this.mobile
+                      ? html`
+                          <div class="empty-actions" slot="actions">
+                            <cv-button
+                              data-empty-action="upload"
+                              variant="primary"
+                              size="medium"
+                              @click=${this.handleEmptyAction}
+                            >
+                              <cv-icon name="upload"></cv-icon>
+                              ${i18n('file-manager:upload-files')}
+                            </cv-button>
+                            <cv-button
+                              data-empty-action="create-dir"
+                              size="medium"
+                              @click=${this.handleEmptyAction}
+                            >
+                              <cv-icon name="folder-plus"></cv-icon>
+                              ${i18n('file-manager:create-folder')}
+                            </cv-button>
+                            <cv-button
+                              data-empty-action="create-note"
+                              size="medium"
+                              @click=${this.handleEmptyAction}
+                            >
+                              <cv-icon name="file-plus"></cv-icon>
+                              ${i18n('file-manager:create-note')}
+                            </cv-button>
+                          </div>
+                        `
+                      : nothing}
                 </cv-empty-state>
               `
             : html`
@@ -654,37 +705,38 @@ export class VirtualFileListBase extends ReatomLitElement {
                   : ''}
                 ${this.filters.viewMode === 'table'
                   ? renderTableView({
-                    items: decoratedRows.items,
-                    filteredItems,
-                    totalItemsCount: decoratedRows.totalItemsCount,
-                    itemHeight,
-                    virtualScrollTop: this.model.virtualScrollTop(),
-                    viewportHeight: this.model.viewportHeight(),
-                    sortBy: this.filters.sortBy === 'type' ? 'name' : this.filters.sortBy,
-                    sortDirection: this.filters.sortDirection,
-                    selectedItems: this.selectedItems,
-                    pendingExternalOpenIds: this.pendingExternalOpenIds,
-                    selectionMode: this.selectionMode,
-                    onSortName: this.handlers.onSortName,
-                    onSortSize: this.handlers.onSortSize,
-                    onSortDate: this.handlers.onSortDate,
-                    onRowClick: this.handlers.onTableRowClick,
-                    onRowDblClick: this.handlers.onTableRowDblClick,
-                    onRowContextMenu: this.handlers.onTableRowContextMenu,
-                    onCheckboxClick: this.handlers.onTableCheckboxClick,
-                    onMoreButtonClick: this.handlers.onMoreButtonClick,
-                    onDeleteExitAnimationEnd: (event: AnimationEvent, id: number) =>
-                      this.onDeleteExitAnimationEnd(event, id),
-                    getAriaSort: (column) => this.getAriaSort(column),
-                  })
+                      items: decoratedRows.items,
+                      filteredItems,
+                      totalItemsCount: decoratedRows.totalItemsCount,
+                      itemHeight,
+                      virtualScrollTop: this.model.virtualScrollTop(),
+                      viewportHeight: this.model.viewportHeight(),
+                      sortBy: this.filters.sortBy,
+                      sortDirection: this.filters.sortDirection,
+                      selectedItems: this.selectedItems,
+                      pendingExternalOpenIds: this.pendingExternalOpenIds,
+                      selectionMode: this.selectionMode,
+                      activeItemId,
+                      onSortName: this.handlers.onSortName,
+                      onSortType: this.handlers.onSortType,
+                      onSortSize: this.handlers.onSortSize,
+                      onSortDate: this.handlers.onSortDate,
+                      onSelectAll: this.handlers.onTableSelectAll,
+                      onRowClick: this.handlers.onTableRowClick,
+                      onRowDblClick: this.handlers.onTableRowDblClick,
+                      onRowContextMenu: this.handlers.onTableRowContextMenu,
+                      onCheckboxClick: this.handlers.onTableCheckboxClick,
+                      onInfoButtonClick: this.handlers.onTableInfoButtonClick,
+                      onMoreButtonClick: this.handlers.onMoreButtonClick,
+                      onDeleteExitAnimationEnd: (event: AnimationEvent, id: number) =>
+                        this.onDeleteExitAnimationEnd(event, id),
+                      getAriaSort: (column) => this.getAriaSort(column),
+                    })
                   : ''}
               `}
         </div>
       </div>
       ${this.renderMobileDndFeedback()}
-      ${this.mobile
-        ? html`<div class="status-bar">${this.renderStatusSummary(filteredItems.length)}</div>`
-        : nothing}
     `
   }
 
@@ -695,9 +747,8 @@ export class VirtualFileListBase extends ReatomLitElement {
   override updated(changed: Map<string, unknown>) {
     super.updated(changed)
     this.updateGridViewportMetrics()
-    this.syncVirtualStyles()
-    this.syncMobileDndPointStyles()
     this.dispatchVisibleRangeChange()
+    this.logInputSnapshot(changed)
     this.scrollEdge.scheduleMeasure()
 
     if (changed.has('items') || changed.has('filters') || changed.has('currentPath')) {
@@ -729,6 +780,21 @@ export class VirtualFileListBase extends ReatomLitElement {
 
   private onClearFiltersClick = () => {
     this.getFilterActions().reset()
+  }
+
+  private handleEmptyAction(event: Event) {
+    const action = (event.currentTarget as HTMLElement).dataset['emptyAction'] as EmptyActionId
+    this.dispatchEmptyAction(action)
+  }
+
+  private dispatchEmptyAction(action: EmptyActionId) {
+    this.dispatchEvent(
+      new CustomEvent('empty-action', {
+        detail: {action},
+        bubbles: true,
+        composed: true,
+      }),
+    )
   }
 
   protected dispatchSelectionChange(selectedItems: number[]) {
@@ -787,6 +853,54 @@ export class VirtualFileListBase extends ReatomLitElement {
       totalItems: filteredItems.length,
     }
     this.dispatchEvent(new CustomEvent('visible-range-change', {detail, bubbles: true}))
+  }
+
+  private logInputSnapshot(changed: Map<string, unknown>) {
+    if (
+      !changed.has('items') &&
+      !changed.has('filters') &&
+      !changed.has('currentPath') &&
+      !changed.has('itemsPreFiltered') &&
+      !changed.has('mobile')
+    ) {
+      return
+    }
+
+    const filteredItems = this.getFilteredItems()
+    const realInputItems = this.items.filter(isRealFileListItem)
+    const realFilteredItems = filteredItems.filter(isRealFileListItem)
+    const visibleItems = this.getVisibleItems(filteredItems).filter(isRealFileListItem)
+    const renderedHosts = Array.from(
+      this.renderRoot.querySelectorAll('file-item-desktop[data-id], file-item-mobile[data-id]'),
+    )
+    const key = `${this.currentPath}|${this.mobile}|${this.filters.viewMode}|${this.itemsPreFiltered}|${this.items.length}|${realInputItems.length}|${filteredItems.length}|${realFilteredItems.length}|${visibleItems.length}|${renderedHosts.length}`
+    if (key === this.lastInputDebugKey) return
+    this.lastInputDebugKey = key
+
+    logFileManagerDebug('virtual-file-list', 'updated:inputs', {
+      path: this.currentPath,
+      mobile: this.mobile,
+      viewMode: this.filters.viewMode,
+      itemsPreFiltered: this.itemsPreFiltered,
+      inputSlots: this.items.length,
+      inputRealCount: realInputItems.length,
+      filteredSlots: filteredItems.length,
+      filteredRealCount: realFilteredItems.length,
+      visibleRealCount: visibleItems.length,
+      renderedHostCount: renderedHosts.length,
+      virtualScrollTop: this.model.virtualScrollTop(),
+      viewportHeight: this.model.viewportHeight(),
+      firstInputItems: realInputItems.slice(0, 5).map((item) => ({
+        id: item.id,
+        name: item.name,
+        isDir: item.isDir,
+      })),
+      firstVisibleItems: visibleItems.slice(0, 5).map((item) => ({
+        id: item.id,
+        name: item.name,
+        isDir: item.isDir,
+      })),
+    })
   }
 
   private dispatchSelectionModeRequested(enabled: boolean) {
@@ -907,6 +1021,7 @@ export class VirtualFileListBase extends ReatomLitElement {
   }
 
   private getEstimatedGridMinColumnWidth(width: number) {
+    if (!this.mobile) return 168
     if (width >= 1200) return 280
     if (width >= 900) return 250
     if (width >= 700) return 200
@@ -915,45 +1030,21 @@ export class VirtualFileListBase extends ReatomLitElement {
   }
 
   private getEstimatedGridGap(width: number) {
+    if (!this.mobile) return 12
     if (width >= 1200) return 20
     if (width >= 700) return 12
     return 8
   }
 
   private getFallbackGridCardHeight() {
-    return window.matchMedia?.('(hover: none) and (pointer: coarse)')?.matches
-      ? this.fallbackTouchGridCardHeight
+    return this.mobile
+      ? this.fallbackMobileGridCardHeight
       : this.fallbackGridCardHeight
   }
 
-  protected getAriaSort(
-    column: SortOption & ('name' | 'size' | 'date'),
-  ): 'none' | 'ascending' | 'descending' {
+  protected getAriaSort(column: SortOption): 'none' | 'ascending' | 'descending' {
     if (this.filters.sortBy !== column) return 'none'
     return this.filters.sortDirection === 'asc' ? 'ascending' : 'descending'
-  }
-
-  private renderStatusSummary(visibleCount: number) {
-    return html`
-      <pm-summary-rail
-        class="status-summary"
-        .items=${this.getStatusSummaryItems(visibleCount)}
-        .label=${i18n('file-manager:summary:label' as never)}
-      ></pm-summary-rail>
-    `
-  }
-
-  private getStatusSummaryItems(visibleCount: number): PMSummaryRailItem[] {
-    const selectedCount = this.selectedItems.length
-    return [
-      {id: 'items', label: i18n('file-manager:summary:items' as never), value: visibleCount},
-      {
-        id: 'selected',
-        label: i18n('file-manager:summary:selected' as never),
-        value: selectedCount,
-        tone: selectedCount > 0 ? 'primary' : 'neutral',
-      },
-    ]
   }
 
   private getItemClientRect(id: number): DOMRect | null {

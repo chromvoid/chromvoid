@@ -1,5 +1,6 @@
 use super::*;
 use fuser::Notifier;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc as std_mpsc;
 use std::thread::{self, JoinHandle};
 
@@ -11,6 +12,7 @@ pub(super) struct FusePlatformRuntime {
 struct FusePlatformRuntimeState {
     notifier: Mutex<Option<Notifier>>,
     mount_path: Mutex<Option<PathBuf>>,
+    finder_poke_pending: AtomicBool,
 }
 
 struct FusePlatformWorker {
@@ -25,8 +27,15 @@ enum FusePlatformWork {
         name: String,
         secondary_parent: Option<(u64, String)>,
     },
+    NotifyInvalidate {
+        parent_ino: u64,
+        name: String,
+        child_ino: Option<u64>,
+    },
     #[cfg(target_os = "macos")]
-    PokeFinder,
+    PokeFinder {
+        catalog_path: String,
+    },
     Shutdown,
 }
 
@@ -35,6 +44,7 @@ impl FusePlatformRuntime {
         let state = Arc::new(FusePlatformRuntimeState {
             notifier: Mutex::new(None),
             mount_path: Mutex::new(None),
+            finder_poke_pending: AtomicBool::new(false),
         });
         let (tx, rx) = std_mpsc::channel();
         let worker_state = state.clone();
@@ -98,8 +108,30 @@ impl FusePlatformRuntime {
         }
     }
 
+    pub(super) fn notify_kernel_invalidate(
+        &self,
+        parent_ino: u64,
+        name: &str,
+        child_ino: Option<u64>,
+    ) {
+        let name = name.to_string();
+        if self.send_work(FusePlatformWork::NotifyInvalidate {
+            parent_ino,
+            name: name.clone(),
+            child_ino,
+        }) {
+            info!(
+                target: "chromvoid_lib::volume_fuse::imp",
+                parent_ino,
+                child_ino,
+                name = name.as_str(),
+                "FUSE notify invalidate queued"
+            );
+        }
+    }
+
     #[cfg(target_os = "macos")]
-    pub(super) fn poke_finder_dir(&self, _parent_catalog_path: &str) {
+    pub(super) fn poke_finder_dir(&self, parent_catalog_path: &str) {
         let has_mount_path = match self.state.mount_path.lock() {
             Ok(guard) => guard.is_some(),
             Err(_) => {
@@ -111,7 +143,21 @@ impl FusePlatformRuntime {
             return;
         }
 
-        let _ = self.send_work(FusePlatformWork::PokeFinder);
+        if self.state.finder_poke_pending.swap(true, Ordering::AcqRel) {
+            debug!(
+                target: "chromvoid_lib::volume_fuse::imp",
+                "poke_finder_dir: coalesced pending request"
+            );
+            return;
+        }
+
+        if !self.send_work(FusePlatformWork::PokeFinder {
+            catalog_path: parent_catalog_path.to_string(),
+        }) {
+            self.state
+                .finder_poke_pending
+                .store(false, Ordering::Release);
+        }
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -188,8 +234,15 @@ fn run_worker(state: Arc<FusePlatformRuntimeState>, rx: std_mpsc::Receiver<FuseP
                 name,
                 secondary_parent,
             } => process_notify_delete(&state, parent_ino, child_ino, name, secondary_parent),
+            FusePlatformWork::NotifyInvalidate {
+                parent_ino,
+                name,
+                child_ino,
+            } => process_notify_invalidate(&state, parent_ino, name, child_ino),
             #[cfg(target_os = "macos")]
-            FusePlatformWork::PokeFinder => process_poke_finder(&state),
+            FusePlatformWork::PokeFinder { catalog_path } => {
+                process_poke_finder(&state, &catalog_path)
+            }
             FusePlatformWork::Shutdown => break,
         }
     }
@@ -240,6 +293,42 @@ fn process_notify_delete(
     }
 }
 
+fn process_notify_invalidate(
+    state: &FusePlatformRuntimeState,
+    parent_ino: u64,
+    name: String,
+    child_ino: Option<u64>,
+) {
+    let notifier = match state.notifier.lock() {
+        Ok(guard) => guard.clone(),
+        Err(_) => {
+            warn!("FUSE platform runtime notifier mutex poisoned");
+            return;
+        }
+    };
+    let Some(notifier) = notifier else {
+        return;
+    };
+
+    let name_os = OsStr::new(&name);
+    for retry_ms in [0_u64, 60, 250] {
+        if retry_ms > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(retry_ms));
+        }
+        if let Err(e) = notifier.inval_inode(fuse_ino(parent_ino), 0, 0) {
+            warn!(target: "chromvoid_lib::volume_fuse::imp", parent_ino, retry_ms, err = %e, "FUSE notify invalidate parent retry failed");
+        }
+        if let Err(e) = notifier.inval_entry(fuse_ino(parent_ino), name_os) {
+            warn!(target: "chromvoid_lib::volume_fuse::imp", parent_ino, name = name.as_str(), retry_ms, err = %e, "FUSE notify invalidate entry retry failed");
+        }
+        if let Some(child_ino) = child_ino {
+            if let Err(e) = notifier.inval_inode(fuse_ino(child_ino), 0, 0) {
+                warn!(target: "chromvoid_lib::volume_fuse::imp", child_ino, retry_ms, err = %e, "FUSE notify invalidate child retry failed");
+            }
+        }
+    }
+}
+
 /// Tell Finder to re-read a directory after a delete/rename.
 ///
 /// macFUSE does not fire kqueue/FSEvents for the process that initiated
@@ -253,17 +342,31 @@ fn process_notify_delete(
 /// re-read.  The double-toggle restores the original hidden-files state
 /// so it's invisible to the user.
 #[cfg(target_os = "macos")]
-fn process_poke_finder(state: &FusePlatformRuntimeState) {
-    let has_mount_path = match state.mount_path.lock() {
-        Ok(guard) => guard.is_some(),
+fn process_poke_finder(state: &FusePlatformRuntimeState, catalog_path: &str) {
+    struct PendingReset<'a>(&'a AtomicBool);
+    impl Drop for PendingReset<'_> {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::Release);
+        }
+    }
+
+    let _reset = PendingReset(&state.finder_poke_pending);
+
+    let mount_path = match state.mount_path.lock() {
+        Ok(guard) => guard.clone(),
         Err(_) => {
             warn!("FUSE platform runtime mount path mutex poisoned");
-            false
+            None
         }
     };
-    if !has_mount_path {
+    let Some(mount_path) = mount_path else {
         return;
-    }
+    };
+    let target_path = if catalog_path == "/" {
+        mount_path
+    } else {
+        mount_path.join(catalog_path.trim_start_matches('/'))
+    };
 
     // Wait for kernel to process our inval_entry / delete notifications.
     std::thread::sleep(std::time::Duration::from_millis(300));
@@ -272,6 +375,10 @@ fn process_poke_finder(state: &FusePlatformRuntimeState) {
     // This toggles hidden-files visibility ON then OFF, which forces
     // Finder to re-read all visible directories.
     let script = r#"tell application "System Events"
+  set frontApp to name of first application process whose frontmost is true
+  if frontApp is not "Finder" then
+    return "not-frontmost"
+  end if
   tell process "Finder"
     keystroke "." using {command down, shift down}
     delay 0.3
@@ -291,12 +398,58 @@ return "toggled"
             if !out.status.success() {
                 let message = crate::macos_external::output_message(&out, "Finder refresh failed");
                 warn!(target: "chromvoid_lib::volume_fuse::imp", error = %message, "poke_finder_dir: toggle failed");
+            } else if String::from_utf8_lossy(&out.stdout).contains("not-frontmost") {
+                run_targeted_finder_update(&target_path);
+                info!(
+                    target: "chromvoid_lib::volume_fuse::imp",
+                    path = %target_path.display(),
+                    "poke_finder_dir: Finder not frontmost; requested targeted update"
+                );
             } else {
                 info!(target: "chromvoid_lib::volume_fuse::imp", "poke_finder_dir: toggled hidden files");
             }
         }
         Err(e) => {
             warn!(target: "chromvoid_lib::volume_fuse::imp", err = %e, "poke_finder_dir: spawn failed");
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn run_targeted_finder_update(path: &Path) {
+    let script = r#"on run argv
+  set p to item 1 of argv
+  tell application "Finder"
+    try
+      set targetFolder to POSIX file p as alias
+      update targetFolder
+      return "updated"
+    on error errMsg number errNum
+      return "update-failed:" & errNum & ":" & errMsg
+    end try
+  end tell
+end run
+"#;
+    match crate::macos_external::run_output(
+        "osascript",
+        vec![
+            std::ffi::OsString::from("-e"),
+            std::ffi::OsString::from(script),
+            std::ffi::OsString::from("--"),
+            path.as_os_str().to_os_string(),
+        ],
+    ) {
+        Ok(out) => {
+            if !out.status.success() {
+                let message =
+                    crate::macos_external::output_message(&out, "Finder targeted update failed");
+                warn!(target: "chromvoid_lib::volume_fuse::imp", path = %path.display(), error = %message, "poke_finder_dir: targeted update failed");
+            } else {
+                debug!(target: "chromvoid_lib::volume_fuse::imp", path = %path.display(), output = %String::from_utf8_lossy(&out.stdout), "poke_finder_dir: targeted update result");
+            }
+        }
+        Err(e) => {
+            warn!(target: "chromvoid_lib::volume_fuse::imp", path = %path.display(), err = %e, "poke_finder_dir: targeted update spawn failed");
         }
     }
 }

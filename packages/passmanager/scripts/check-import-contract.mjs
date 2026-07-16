@@ -14,8 +14,9 @@ const guardedFiles = [
   'apps/webview/src/app/bootstrap/passmanager-reload.ts',
   'apps/webview/src/core/state/passmanager/manager-saver-adapter.ts',
   'apps/webview/src/features/passmanager/password-manager.model.ts',
-  'apps/browser-extensions/src/popup/store.ts',
-  'apps/browser-extensions/src/popup/manager-saver-adapter.ts',
+  'apps/browser-extensions/src/popup/app.ts',
+  'apps/browser-extensions/src/popup/popup.model.ts',
+  'apps/browser-extensions/src/popup/credential-provider-client.ts',
 ]
 
 const rootImportRe = /from ['"]@project\/passmanager['"]/u

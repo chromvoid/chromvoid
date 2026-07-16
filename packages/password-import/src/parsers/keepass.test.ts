@@ -391,11 +391,11 @@ describe('KeePass parser', () => {
           ['Title', 'Custom Icon Entry'],
           ['Password', 'pass'],
         ]),
-        customIconUuid: 'custom-1',
+        customIcon: 'custom-1',
       }
       const db = makeDb([], [entry]) as any
       db.meta = {
-        customIcons: new Map([['custom-1', iconBytes]]),
+        customIcons: new Map([['custom-1', {data: iconBytes.buffer}]]),
       }
 
       const result = await createMockedParser(db)(makeFile(), 'password')

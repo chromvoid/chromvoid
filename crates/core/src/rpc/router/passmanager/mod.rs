@@ -11,6 +11,8 @@ mod path;
 mod root_export;
 mod root_import;
 mod secret;
+mod security_audit;
+mod ssh;
 mod tags;
 
 use super::super::types::RpcResponse;
@@ -149,6 +151,11 @@ impl RpcRouter {
         self.with_session(|s| icon::handle_get(s, &storage, data))
     }
 
+    pub(super) fn handle_passmanager_icon_get_many(&self, data: &serde_json::Value) -> RpcResponse {
+        let storage = self.storage.clone();
+        self.with_session(|s| icon::handle_get_many(s, &storage, data))
+    }
+
     pub(super) fn handle_passmanager_icon_list(&self, data: &serde_json::Value) -> RpcResponse {
         let storage = self.storage.clone();
         self.with_session(|s| icon::handle_list(s, &storage, data))
@@ -166,6 +173,25 @@ impl RpcRouter {
     pub(super) fn handle_passmanager_icon_gc(&mut self, data: &serde_json::Value) -> RpcResponse {
         self.commit_passmanager_domain_uow("passmanager-icon-gc", |s, storage, uow| {
             icon::handle_gc(s, storage, uow, data)
+        })
+    }
+
+    // ── Security audit handlers ──────────────────────────────────────────────
+
+    pub(super) fn handle_passmanager_security_audit_get(
+        &self,
+        data: &serde_json::Value,
+    ) -> RpcResponse {
+        let storage = self.storage.clone();
+        self.with_session(|s| security_audit::handle_get(s, &storage, data))
+    }
+
+    pub(super) fn handle_passmanager_security_audit_set(
+        &mut self,
+        data: &serde_json::Value,
+    ) -> RpcResponse {
+        self.commit_passmanager_domain_uow("passmanager-security-audit-set", |_s, _storage, uow| {
+            security_audit::handle_set(uow, data)
         })
     }
 
@@ -188,6 +214,13 @@ impl RpcRouter {
             return otp::PassmanagerOtpError::vault_required().into_rpc_response();
         };
         otp::handle_generate(session, &storage, &self.passmanager_otp_target_cache, data)
+    }
+
+    pub(super) fn handle_passmanager_otp_preview(&self, data: &serde_json::Value) -> RpcResponse {
+        let Some(session) = self.session.as_ref() else {
+            return otp::PassmanagerOtpError::vault_required().into_rpc_response();
+        };
+        otp::handle_preview(session, data)
     }
 
     pub(super) fn handle_passmanager_otp_remove_secret(

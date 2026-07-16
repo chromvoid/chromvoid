@@ -1,4 +1,9 @@
-import type {OTPGetParams} from '@project/passmanager/types'
+import type {
+  OTPGetParams,
+  OTPPreviewParams,
+  OTPPreviewResult,
+  OTPSaveSettings,
+} from '@project/passmanager/types'
 import type {OTPSecretsGateway} from '@project/passmanager/ports'
 import type {CatalogDeps} from './types'
 import type {PassmanagerTransport} from './passmanager-transport'
@@ -61,6 +66,8 @@ export class CatalogOTPSecretsGateway implements OTPSecretsGateway {
         digits: data.digits,
         period: data.period,
         ha: data.ha,
+        type: data.type,
+        counter: data.counter,
       })) as {ok: boolean; result: {otp: string}; error?: string}
 
       if (!res.ok) throw new Error(String(res.error || 'passmanager:otp:generate failed'))
@@ -89,6 +96,37 @@ export class CatalogOTPSecretsGateway implements OTPSecretsGateway {
     return undefined
   }
 
+  async previewOTP(data: OTPPreviewParams): Promise<OTPPreviewResult> {
+    try {
+      if (!this.transport.hasSendPassmanager) throw new Error('passmanager transport not available')
+
+      const res = (await this.transport.sendPassmanager('passmanager:otp:preview', {
+        secret: data.secret,
+        encoding: data.encoding,
+        algorithm: data.algorithm,
+        digits: data.digits,
+        period: data.period,
+        type: data.type,
+        counter: data.counter,
+        ts: data.ts,
+      })) as {
+        ok: boolean
+        result: {otp: string; period: number; left_seconds: number}
+        error?: string
+      }
+
+      if (!res.ok) throw new Error(String(res.error || 'passmanager:otp:preview failed'))
+      return {
+        otp: res.result.otp,
+        period: res.result.period,
+        leftSeconds: res.result.left_seconds,
+      }
+    } catch (e) {
+      this.setError(ADAPTER_ERROR.OTP_GENERATE, 'Failed to preview OTP', e)
+      throw e
+    }
+  }
+
   async removeOTP(id: string): Promise<boolean> {
     try {
       if (!this.transport.hasSendPassmanager) throw new Error('passmanager transport not available')
@@ -107,13 +145,19 @@ export class CatalogOTPSecretsGateway implements OTPSecretsGateway {
     }
   }
 
-  async saveOTP(id: string, secret: string): Promise<boolean> {
+  async saveOTP(id: string, secret: string, settings?: OTPSaveSettings): Promise<boolean> {
     try {
       if (!this.transport.hasSendPassmanager) throw new Error('passmanager transport not available')
 
       const res = (await this.transport.sendPassmanager('passmanager:otp:setSecret', {
         otp_id: id,
         secret,
+        encoding: settings?.encoding,
+        algorithm: settings?.algorithm,
+        digits: settings?.digits,
+        period: settings?.period,
+        type: settings?.type,
+        counter: settings?.counter,
       })) as {ok: boolean; error?: string}
 
       if (!res.ok) throw new Error(String(res.error || 'passmanager:otp:setSecret failed'))

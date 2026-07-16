@@ -5,8 +5,12 @@ import {clearAppContext, createMockAppContext, initAppContext} from '../../src/s
 import {FileItem} from '../../src/features/file-manager/components/file-item'
 import {FileItemModel} from '../../src/features/file-manager/models/file-item.model'
 import {
-  acquireFileThumbnail,
+  disposeFileThumbnailCache,
+  fileThumbnailStore,
+  getFileThumbnailKey,
+  resumeFileThumbnailCache,
   resetFileThumbnailCacheForTests,
+  suspendFileThumbnailCache,
 } from '../../src/features/file-manager/models/file-thumbnail-cache.model'
 
 const IMAGE_ITEM = {
@@ -17,6 +21,13 @@ const IMAGE_ITEM = {
   size: 2048,
   lastModified: 1710000000000,
   mimeType: 'image/jpeg',
+}
+
+const SECOND_IMAGE_ITEM = {
+  ...IMAGE_ITEM,
+  id: 44,
+  path: '/second-photo.jpg',
+  name: 'second-photo.jpg',
 }
 
 const DOC_ITEM = {
@@ -97,8 +108,9 @@ describe('file-item thumbnail rendering', () => {
       )
       const image = element.shadowRoot?.querySelector<HTMLImageElement>('img.thumbnail-image')
       expect(image?.getAttribute('src')).toBe('blob:file-thumb')
-      expect(image?.getAttribute('loading')).toBe('lazy')
+      expect(image?.getAttribute('loading')).toBeNull()
       expect(image?.getAttribute('decoding')).toBe('async')
+      expect(image?.dataset['loadingOwner']).toBe('virtual-list')
     })
 
     element.remove()
@@ -271,8 +283,9 @@ describe('file-item thumbnail rendering', () => {
     warn.mockRestore()
   })
 
-  it('does not set a stale thumbnail url after dispose', async () => {
+  it('does not publish a stale thumbnail after session cache disposal', async () => {
     const pending = deferred<Awaited<ReturnType<typeof fileLoader.loadFileSourceById>>>()
+    const release = vi.fn()
     vi.spyOn(fileLoader, 'loadFileSourceById').mockReturnValue(pending.promise)
     const model = new FileItemModel()
 
@@ -281,18 +294,20 @@ describe('file-item thumbnail rendering', () => {
       expect(fileLoader.loadFileSourceById).toHaveBeenCalledTimes(1)
     })
 
-    model.dispose()
+    disposeFileThumbnailCache()
     pending.resolve({
       kind: 'asset-file',
       url: 'blob:stale-thumbnail',
       size: 5,
       mimeType: 'image/webp',
-      release: vi.fn(),
+      release,
     })
 
     await vi.waitFor(() => {
       expect(model.thumbnailUrl()).toBeNull()
+      expect(release).toHaveBeenCalledTimes(1)
     })
+    model.dispose()
   })
 
   it('reuses cached thumbnails across virtualized remounts without a second load', async () => {
@@ -337,6 +352,100 @@ describe('file-item thumbnail rendering', () => {
     resetFileThumbnailCacheForTests()
 
     expect(release).toHaveBeenCalledTimes(1)
+  })
+
+  it('updates only consumers of the loaded thumbnail key', async () => {
+    const firstPending = deferred<Awaited<ReturnType<typeof fileLoader.loadFileSourceById>>>()
+    const secondPending = deferred<Awaited<ReturnType<typeof fileLoader.loadFileSourceById>>>()
+    vi.spyOn(fileLoader, 'loadFileSourceById').mockImplementation((fileId) =>
+      fileId === IMAGE_ITEM.id ? firstPending.promise : secondPending.promise,
+    )
+    const first = new FileItemModel()
+    const second = new FileItemModel()
+    first.setThumbnailTarget(IMAGE_ITEM, 'list')
+    second.setThumbnailTarget(SECOND_IMAGE_ITEM, 'list')
+
+    const secondUpdates: Array<string | null> = []
+    const unsubscribe = second.thumbnailUrl.subscribe(() => {
+      secondUpdates.push(second.thumbnailUrl())
+    })
+    const initialUpdateCount = secondUpdates.length
+
+    firstPending.resolve({
+      kind: 'asset-file',
+      url: 'blob:first-reactive-thumbnail',
+      size: 5,
+      mimeType: 'image/webp',
+      release: vi.fn(),
+    })
+
+    await vi.waitFor(() => {
+      expect(first.thumbnailUrl()).toBe('blob:first-reactive-thumbnail')
+    })
+    expect(secondUpdates).toHaveLength(initialUpdateCount)
+
+    secondPending.resolve({
+      kind: 'asset-file',
+      url: 'blob:second-reactive-thumbnail',
+      size: 5,
+      mimeType: 'image/webp',
+      release: vi.fn(),
+    })
+    await vi.waitFor(() => {
+      expect(second.thumbnailUrl()).toBe('blob:second-reactive-thumbnail')
+    })
+
+    unsubscribe()
+    first.dispose()
+    second.dispose()
+  })
+
+  it('ignores a stale row lease after a cache generation change', async () => {
+    const loadSpy = vi.spyOn(fileLoader, 'loadFileSourceById').mockImplementation(async () => ({
+      kind: 'asset-file',
+      url: `blob:lease-generation-${loadSpy.mock.calls.length}`,
+      size: 5,
+      mimeType: 'image/webp',
+      release: vi.fn(),
+    }))
+    const staleModel = new FileItemModel()
+    staleModel.setThumbnailTarget(IMAGE_ITEM, 'list')
+    await vi.waitFor(() => expect(staleModel.thumbnailUrl()).toBe('blob:lease-generation-1'))
+
+    disposeFileThumbnailCache()
+    const currentModel = new FileItemModel()
+    currentModel.setThumbnailTarget(IMAGE_ITEM, 'list')
+    await vi.waitFor(() => expect(currentModel.thumbnailUrl()).toBe('blob:lease-generation-2'))
+
+    staleModel.dispose()
+    suspendFileThumbnailCache()
+    resumeFileThumbnailCache()
+
+    await vi.waitFor(() => {
+      expect(loadSpy).toHaveBeenCalledTimes(3)
+      expect(currentModel.thumbnailUrl()).toBe('blob:lease-generation-3')
+    })
+    currentModel.dispose()
+  })
+
+  it('bounds initial thumbnail prewarm work', async () => {
+    const loadSpy = vi.spyOn(fileLoader, 'loadFileSourceById').mockImplementation(async (fileId) => ({
+      kind: 'asset-file',
+      url: `blob:prewarm-${fileId}`,
+      size: 5,
+      mimeType: 'image/webp',
+      release: vi.fn(),
+    }))
+    const items = Array.from({length: 40}, (_, index) => ({
+      ...IMAGE_ITEM,
+      id: 100 + index,
+      path: `/prewarm-${index}.jpg`,
+      name: `prewarm-${index}.jpg`,
+    }))
+
+    await fileThumbnailStore.preload(items)
+
+    expect(loadSpy).toHaveBeenCalledTimes(24)
   })
 
   it('keeps an in-flight thumbnail load when the same item host reconnects during sorting', async () => {
@@ -441,23 +550,101 @@ describe('file-item thumbnail rendering', () => {
     expect(element.shadowRoot?.querySelector('.icon.file-document')).not.toBeNull()
   })
 
-  it('aborts an unused in-flight thumbnail cache entry when the only waiter leaves', async () => {
+  it('keeps an in-flight thumbnail across virtualized remounts', async () => {
+    const pending = deferred<Awaited<ReturnType<typeof fileLoader.loadFileSourceById>>>()
     let loadSignal: AbortSignal | null = null
     vi.spyOn(fileLoader, 'loadFileSourceById').mockImplementation((_id, _name, options) => {
       loadSignal = options?.signal ?? null
-      return new Promise(() => {})
+      return pending.promise
     })
 
-    const controller = new AbortController()
-    const pending = acquireFileThumbnail(IMAGE_ITEM, {signal: controller.signal})
+    const first = document.createElement('file-item-desktop') as FileItem
+    first.item = IMAGE_ITEM
+    first.viewMode = 'list'
+    document.body.appendChild(first)
 
     await vi.waitFor(() => {
       expect(loadSignal).not.toBeNull()
     })
+    first.remove()
+    await new Promise((resolve) => setTimeout(resolve, 0))
 
-    controller.abort()
+    expect(loadSignal?.aborted).toBe(false)
 
-    await expect(pending).rejects.toMatchObject({name: 'AbortError'})
-    expect(loadSignal?.aborted).toBe(true)
+    const second = document.createElement('file-item-desktop') as FileItem
+    second.item = IMAGE_ITEM
+    second.viewMode = 'list'
+    document.body.appendChild(second)
+    await second.updateComplete
+
+    pending.resolve({
+      kind: 'asset-file',
+      url: 'blob:virtualized-in-flight-thumbnail',
+      size: 5,
+      mimeType: 'image/webp',
+      release: vi.fn(),
+    })
+
+    await vi.waitFor(() => {
+      expect(fileLoader.loadFileSourceById).toHaveBeenCalledTimes(1)
+      expect(
+        second.shadowRoot?.querySelector<HTMLImageElement>('img.thumbnail-image')?.getAttribute('src'),
+      ).toBe('blob:virtualized-in-flight-thumbnail')
+    })
+  })
+
+  it('suspends released native sources and resumes retained thumbnails after foreground', async () => {
+    const firstRelease = vi.fn()
+    const secondRelease = vi.fn()
+    const loadSpy = vi
+      .spyOn(fileLoader, 'loadFileSourceById')
+      .mockResolvedValueOnce({
+        kind: 'asset-file',
+        url: 'blob:before-background',
+        size: 5,
+        mimeType: 'image/webp',
+        release: firstRelease,
+      })
+      .mockResolvedValueOnce({
+        kind: 'asset-file',
+        url: 'blob:after-foreground',
+        size: 5,
+        mimeType: 'image/webp',
+        release: secondRelease,
+      })
+
+    const element = document.createElement('file-item-desktop') as FileItem
+    element.item = IMAGE_ITEM
+    element.viewMode = 'list'
+    document.body.appendChild(element)
+
+    await vi.waitFor(() => {
+      expect(element.shadowRoot?.querySelector('img.thumbnail-image')?.getAttribute('src')).toBe(
+        'blob:before-background',
+      )
+    })
+
+    suspendFileThumbnailCache()
+    await vi.waitFor(() => {
+      expect(element.shadowRoot?.querySelector('img.thumbnail-image')).toBeNull()
+    })
+    expect(firstRelease).toHaveBeenCalledTimes(1)
+
+    resumeFileThumbnailCache()
+    await vi.waitFor(() => {
+      expect(loadSpy).toHaveBeenCalledTimes(2)
+      expect(element.shadowRoot?.querySelector('img.thumbnail-image')?.getAttribute('src')).toBe(
+        'blob:after-foreground',
+      )
+    })
+
+    expect(fileThumbnailStore.read(getFileThumbnailKey(IMAGE_ITEM))).toMatchObject({
+      status: 'loaded',
+      url: 'blob:after-foreground',
+    })
+
+    element.remove()
+    resetFileThumbnailCacheForTests()
+    expect(secondRelease).toHaveBeenCalledTimes(1)
   })
 })

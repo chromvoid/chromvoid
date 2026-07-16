@@ -11,7 +11,8 @@ use super::types::{
     PasskeyRegistration, ES256_ALGORITHM, P256_CURVE, PASSKEY_SCHEMA_V1, STORAGE_KIND_VAULT,
 };
 use super::validation::{
-    reject_excluded_credentials, require_attestation_none, require_es256, validate_rp_id_for_origin,
+    normalize_rp_id, reject_excluded_credentials, require_attestation_none, require_es256,
+    validate_rp_id_for_origin,
 };
 use super::webauthn::{
     attestation_object_none, client_data_hash, client_data_json, registration_authenticator_data,
@@ -26,7 +27,7 @@ pub fn create_registration(
     let request = public_key_request(data);
     let rp = object_field(request, "rp")?;
     let user = object_field(request, "user")?;
-    let rp_id = required_str(rp, "id")?.to_string();
+    let rp_id = normalize_rp_id(required_str(rp, "id")?)?;
     validate_rp_id_for_origin(&rp_id, &context.origin)?;
     let rp_name = optional_str(rp, "name").unwrap_or(&rp_id).to_string();
     let user_name = required_str(user, "name")?.to_string();
@@ -76,8 +77,12 @@ pub fn create_registration(
     let client_data_json = client_data_json("webauthn.create", challenge, &origin);
     let _client_data_hash = client_data_hash(context, client_data_json.as_bytes())?;
     let response_client_data_json = response_client_data_json(context, &client_data_json);
-    let auth_data =
-        registration_authenticator_data(&rp_id, &credential_id, &key_material.public_key_cose);
+    let auth_data = registration_authenticator_data(
+        &rp_id,
+        &credential_id,
+        &key_material.public_key_cose,
+        context.user_verified,
+    );
     let attestation_object = attestation_object_none(&auth_data);
 
     let response = serde_json::json!({

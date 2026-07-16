@@ -50,6 +50,7 @@ export class RemoteStorageModel {
   readonly transferStep = atom<TransferStep>('idle')
   readonly targetDir = atom<string | null>(null)
   readonly masterPassword = atom('')
+  readonly passwordError = atom('', 'remoteStorage.passwordError')
   readonly progress = atom<BackupProgressEvent | null>(null)
   readonly transferResult = atom<TransferResult | null>(null)
   readonly isCancelling = atom(false)
@@ -76,7 +77,6 @@ export class RemoteStorageModel {
     title: string
     canGoBack: boolean
     backDisabled: boolean
-    showCommand: boolean
   } {
     const step = this.transferStep()
     if (step === 'idle') {
@@ -84,7 +84,6 @@ export class RemoteStorageModel {
         title: i18n('remote-storage:toolbar-storage'),
         canGoBack: false,
         backDisabled: false,
-        showCommand: true,
       }
     }
 
@@ -93,7 +92,6 @@ export class RemoteStorageModel {
         title: i18n('remote-storage:toolbar-confirm-export'),
         canGoBack: true,
         backDisabled: false,
-        showCommand: false,
       }
     }
 
@@ -102,7 +100,6 @@ export class RemoteStorageModel {
         title: i18n('remote-storage:toolbar-authorization'),
         canGoBack: true,
         backDisabled: false,
-        showCommand: false,
       }
     }
 
@@ -111,7 +108,6 @@ export class RemoteStorageModel {
         title: i18n('remote-storage:toolbar-export-progress'),
         canGoBack: true,
         backDisabled: true,
-        showCommand: false,
       }
     }
 
@@ -119,7 +115,6 @@ export class RemoteStorageModel {
       title: i18n('remote-storage:toolbar-export-result'),
       canGoBack: true,
       backDisabled: false,
-      showCommand: false,
     }
   }
 
@@ -169,7 +164,11 @@ export class RemoteStorageModel {
 
   onBackendChange = (event: Event) => {
     const value = (event.target as HTMLSelectElement).value as VolumeBackend
-    this.volume.selectedBackend.set(value)
+    this.volume.selectBackend(value)
+  }
+
+  onOpenMacFuseInstallPage = (event: Event) => {
+    this.volume.openMacFuseInstallPage(event)
   }
 
   copyVolumeUrl = async () => {
@@ -190,6 +189,7 @@ export class RemoteStorageModel {
     this.transferStep.set('confirm')
     this.targetDir.set(null)
     this.masterPassword.set('')
+    this.passwordError.set('')
     this.progress.set(null)
     this.transferResult.set(null)
     this.isCancelling.set(false)
@@ -198,6 +198,7 @@ export class RemoteStorageModel {
   cancelWizard = () => {
     this.transferStep.set('idle')
     this.masterPassword.set('')
+    this.passwordError.set('')
     this.isCancelling.set(false)
     if (this.progressUnlisten) {
       this.progressUnlisten()
@@ -206,6 +207,9 @@ export class RemoteStorageModel {
   }
 
   goToStep = (step: TransferStep) => {
+    if (step !== 'password') {
+      this.passwordError.set('')
+    }
     this.transferStep.set(step)
   }
 
@@ -257,16 +261,22 @@ export class RemoteStorageModel {
     const event = e as CustomEvent<{value?: string}>
     const input = e.target as {value?: string} | null
     this.masterPassword.set(event.detail?.value ?? input?.value ?? '')
+    this.passwordError.set('')
   }
 
-  startExport = async () => {
-    if (!isTauriRuntime()) return
-    if (this.exportInFlight) return
+  startExport = async (): Promise<boolean> => {
+    if (this.exportInFlight) return false
 
     const targetDir = this.targetDir()
     const masterPassword = this.masterPassword()
 
-    if (!masterPassword.trim()) return
+    if (!masterPassword.trim()) {
+      this.passwordError.set(i18n('welcome:master-required'))
+      return false
+    }
+
+    this.passwordError.set('')
+    if (!isTauriRuntime()) return false
 
     this.exportInFlight = true
     this.transferStep.set('progress')
@@ -324,6 +334,8 @@ export class RemoteStorageModel {
       }
       this.transferStep.set('result')
     }
+
+    return true
   }
 
   cancelExport = async () => {

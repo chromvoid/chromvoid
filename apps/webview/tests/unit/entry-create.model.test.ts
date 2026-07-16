@@ -1,12 +1,9 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
-vi.mock('../../src/features/passmanager/service/passmanager-ssh-keygen', () => ({
-  passmanagerSshKeygen: vi.fn(),
-}))
-
 import {PMEntryCreateModel} from '../../src/features/passmanager/components/card/entry-create/entry-create.model'
+import {configurePMEntryOtpDraftPreviewPort} from '../../src/features/passmanager/components/card/entry-otp-create/entry-otp-create.model'
 import type {AndroidPasswordSavePrefill} from '../../src/features/passmanager/models/android-password-save-prefill'
-import {passmanagerSshKeygen} from '../../src/features/passmanager/service/passmanager-ssh-keygen'
+import {dialogService} from '../../src/shared/services/dialog-service'
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -16,11 +13,32 @@ function deferred<T>() {
   return {promise, resolve}
 }
 
+function createTestRoot(overrides: Record<string, unknown> = {}): typeof window.passmanager {
+  return {
+    id: 'root',
+    name: 'Vault',
+    entriesList: vi.fn(() => []),
+    getEntry: vi.fn(() => undefined),
+    getGroup: vi.fn(() => undefined),
+    setShowElement: vi.fn(),
+    showElement: vi.fn(() => 'createEntry'),
+    isReadOnly: vi.fn(() => false),
+    ...overrides,
+  } as unknown as typeof window.passmanager
+}
+
 describe('PMEntryCreateModel', () => {
   let previousPassmanager: typeof window.passmanager
 
   beforeEach(() => {
     previousPassmanager = window.passmanager
+    configurePMEntryOtpDraftPreviewPort({
+      previewOTP: vi.fn(async (data) => ({
+        otp: data.digits === 8 ? '12345678' : '123456',
+        period: data.period ?? 30,
+        leftSeconds: 12,
+      })),
+    })
   })
 
   afterEach(() => {
@@ -39,10 +57,7 @@ describe('PMEntryCreateModel', () => {
 
   it('requires title before submit', async () => {
     const createEntry = vi.fn()
-    window.passmanager = {
-      createEntry,
-      isReadOnly: vi.fn(() => false),
-    } as unknown as typeof window.passmanager
+    window.passmanager = createTestRoot({createEntry})
 
     const model = new PMEntryCreateModel()
     const result = await model.submit()
@@ -51,23 +66,22 @@ describe('PMEntryCreateModel', () => {
     expect(createEntry).not.toHaveBeenCalled()
   })
 
-  it('keeps OTP sheet open while native QR scanner is active', () => {
+  it('keeps the OTP editor open while native QR scanner is active', () => {
     const model = new PMEntryCreateModel()
 
-    model.openOtpSheet()
+    model.openDetailsSheet()
+    model.openDetailsEditor('otp')
     model.otp.setQrScannerScanning(true)
-    model.closeOtpSheet()
+    model.closeDetailsEditor()
 
-    expect(model.otpSheetOpen()).toBe(true)
+    expect(model.detailsSheetOpen()).toBe(true)
+    expect(model.detailsSheetView()).toBe('otp')
     expect(model.useOtp()).toBe(false)
   })
 
   it('keeps invalid login submit clickable and reports field errors without creating an entry', async () => {
     const createEntry = vi.fn()
-    window.passmanager = {
-      createEntry,
-      isReadOnly: vi.fn(() => false),
-    } as unknown as typeof window.passmanager
+    window.passmanager = createTestRoot({createEntry})
 
     const model = new PMEntryCreateModel()
     expect(model.canSubmit()).toBe(false)
@@ -93,12 +107,31 @@ describe('PMEntryCreateModel', () => {
     expect(createEntry).not.toHaveBeenCalled()
   })
 
+  it('opens the inline OTP editor without a second alert when submit validation fails', async () => {
+    const createEntry = vi.fn()
+    const showAlertDialog = vi.spyOn(dialogService, 'showAlertDialog').mockResolvedValue(undefined)
+    window.passmanager = createTestRoot({createEntry})
+
+    const model = new PMEntryCreateModel()
+    model.setTitle('Entry')
+    model.setUsername('alice')
+    model.setPassword('secret')
+    model.setUseOtp(true)
+    model.otp.setSecret('not-valid!')
+
+    await expect(model.submit()).resolves.toEqual(
+      expect.objectContaining({ok: false, reason: 'invalid_otp'}),
+    )
+    expect(model.detailsSheetOpen()).toBe(true)
+    expect(model.detailsSheetView()).toBe('otp')
+    expect(model.otp.secretError()).not.toBe('')
+    expect(showAlertDialog).not.toHaveBeenCalled()
+    expect(createEntry).not.toHaveBeenCalled()
+  })
+
   it('creates login entry with separate title, website URL rule, and avatar ref', async () => {
     const createEntry = vi.fn(() => undefined)
-    window.passmanager = {
-      createEntry,
-      isReadOnly: vi.fn(() => false),
-    } as unknown as typeof window.passmanager
+    window.passmanager = createTestRoot({createEntry})
 
     const model = new PMEntryCreateModel()
     model.setTitle('Example login')
@@ -132,10 +165,7 @@ describe('PMEntryCreateModel', () => {
 
   it('preserves Cyrillic note text when creating a login entry', async () => {
     const createEntry = vi.fn(() => undefined)
-    window.passmanager = {
-      createEntry,
-      isReadOnly: vi.fn(() => false),
-    } as unknown as typeof window.passmanager
+    window.passmanager = createTestRoot({createEntry})
 
     const note = 'Привет, заметка №1'
     const model = new PMEntryCreateModel()
@@ -156,10 +186,7 @@ describe('PMEntryCreateModel', () => {
 
   it('resets and normalizes draft tags before creating a login entry', async () => {
     const createEntry = vi.fn(() => undefined)
-    window.passmanager = {
-      createEntry,
-      isReadOnly: vi.fn(() => false),
-    } as unknown as typeof window.passmanager
+    window.passmanager = createTestRoot({createEntry})
 
     const model = new PMEntryCreateModel()
     model.setTags(['  #Work  ', 'work', 'Client   A'])
@@ -198,10 +225,7 @@ describe('PMEntryCreateModel', () => {
 
   it('creates login entry with OTP from QR payload', async () => {
     const createEntry = vi.fn(() => undefined)
-    window.passmanager = {
-      createEntry,
-      isReadOnly: vi.fn(() => false),
-    } as unknown as typeof window.passmanager
+    window.passmanager = createTestRoot({createEntry})
 
     const model = new PMEntryCreateModel()
     model.setTitle('GitHub')
@@ -236,10 +260,7 @@ describe('PMEntryCreateModel', () => {
       saveCardCvv: vi.fn(async () => true),
     }
     const createEntry = vi.fn(() => entry)
-    window.passmanager = {
-      createEntry,
-      isReadOnly: vi.fn(() => false),
-    } as unknown as typeof window.passmanager
+    window.passmanager = createTestRoot({createEntry})
 
     const model = new PMEntryCreateModel()
     model.setEntryType('payment_card')
@@ -284,10 +305,7 @@ describe('PMEntryCreateModel', () => {
       saveCardCvv: vi.fn(async () => true),
     }
     const createEntry = vi.fn(() => entry)
-    window.passmanager = {
-      createEntry,
-      isReadOnly: vi.fn(() => false),
-    } as unknown as typeof window.passmanager
+    window.passmanager = createTestRoot({createEntry})
 
     const model = new PMEntryCreateModel()
     model.setEntryType('payment_card')
@@ -323,10 +341,7 @@ describe('PMEntryCreateModel', () => {
       cleanCardCvv: vi.fn(async () => true),
     }
     const createEntry = vi.fn(() => entry)
-    window.passmanager = {
-      createEntry,
-      isReadOnly: vi.fn(() => false),
-    } as unknown as typeof window.passmanager
+    window.passmanager = createTestRoot({createEntry})
 
     const model = new PMEntryCreateModel()
     model.setEntryType('payment_card')
@@ -353,10 +368,7 @@ describe('PMEntryCreateModel', () => {
 
   it('sets and clears payment-card field errors during submit validation', async () => {
     const createEntry = vi.fn()
-    window.passmanager = {
-      createEntry,
-      isReadOnly: vi.fn(() => false),
-    } as unknown as typeof window.passmanager
+    window.passmanager = createTestRoot({createEntry})
 
     const model = new PMEntryCreateModel()
     model.setEntryType('payment_card')
@@ -399,10 +411,7 @@ describe('PMEntryCreateModel', () => {
 
   it('rejects four-digit payment-card expiry years', async () => {
     const createEntry = vi.fn()
-    window.passmanager = {
-      createEntry,
-      isReadOnly: vi.fn(() => false),
-    } as unknown as typeof window.passmanager
+    window.passmanager = createTestRoot({createEntry})
 
     const model = new PMEntryCreateModel()
     model.setEntryType('payment_card')
@@ -422,10 +431,7 @@ describe('PMEntryCreateModel', () => {
 
   it('dedupes repeated submit clicks to a single create flow', async () => {
     const createEntry = vi.fn(() => undefined)
-    window.passmanager = {
-      createEntry,
-      isReadOnly: vi.fn(() => false),
-    } as unknown as typeof window.passmanager
+    window.passmanager = createTestRoot({createEntry})
 
     const model = new PMEntryCreateModel()
     model.setTitle('Entry')
@@ -450,10 +456,7 @@ describe('PMEntryCreateModel', () => {
       saveCardCvv: vi.fn(async () => true),
     }
     const createEntry = vi.fn(() => entry)
-    window.passmanager = {
-      createEntry,
-      isReadOnly: vi.fn(() => false),
-    } as unknown as typeof window.passmanager
+    window.passmanager = createTestRoot({createEntry})
 
     const model = new PMEntryCreateModel()
     model.setEntryType('payment_card')
@@ -476,97 +479,149 @@ describe('PMEntryCreateModel', () => {
     expect(entry.saveCardCvv).not.toHaveBeenCalled()
   })
 
-  it('blocks submit when SSH is enabled without a generated key request', async () => {
-    const createEntry = vi.fn(() => undefined)
-    window.passmanager = {
-      createEntry,
-      isReadOnly: vi.fn(() => false),
-    } as unknown as typeof window.passmanager
+  it('validates a field after blur and validates the full form after submit', async () => {
+    window.passmanager = createTestRoot({createEntry: vi.fn()})
+    const model = new PMEntryCreateModel()
+    model.reset()
+
+    expect(model.titleError()).toBe('')
+    expect(model.usernameError()).toBe('')
+    expect(model.passwordError()).toBe('')
+
+    model.markFieldTouched('title')
+    expect(model.titleError()).not.toBe('')
+    expect(model.usernameError()).toBe('')
+    expect(model.passwordError()).toBe('')
+
+    await model.submit()
+    expect(model.titleError()).not.toBe('')
+    expect(model.usernameError()).not.toBe('')
+    expect(model.passwordError()).not.toBe('')
+
+    model.setTitle('Entry')
+    expect(model.titleError()).toBe('')
+  })
+
+  it('tracks meaningful draft changes without treating hub or editor visibility as dirty', () => {
+    window.passmanager = createTestRoot()
+    const model = new PMEntryCreateModel()
+    model.reset()
+
+    model.openDetailsSheet()
+    model.openDetailsEditor('note')
+    model.closeDetailsEditor()
+    model.closeDetailsSheet()
+    model.openLocationSheet()
+    model.closeLocationSheet()
+    model.openDetailsEditor('otp')
+    model.closeDetailsEditor()
+    expect(model.dirty()).toBe(false)
+
+    model.setNote('Recovery instructions')
+    expect(model.dirty()).toBe(true)
+    model.reset()
+    model.setEntryType('payment_card')
+    expect(model.dirty()).toBe(true)
+  })
+
+  it('derives configured details and their count from draft data', () => {
+    window.passmanager = createTestRoot()
+    const model = new PMEntryCreateModel()
+    model.reset()
+
+    expect(model.configuredOptionalDetails()).toEqual([])
+    expect(model.configuredOptionalDetailCount()).toBe(0)
+
+    model.setIconRef('stored-icon')
+    model.setTags(['Work'])
+    model.setUseOtp(true)
+    model.setNote('Recovery instructions')
+
+    expect(model.configuredOptionalDetails()).toEqual(['icon', 'tags', 'otp', 'note'])
+    expect(model.configuredOptionalDetailCount()).toBe(4)
+  })
+
+  it('confirms before removing a populated optional detail and clears it after approval', async () => {
+    window.passmanager = createTestRoot()
+    const model = new PMEntryCreateModel()
+    model.setNote('Recovery instructions')
+    const confirm = vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValueOnce(false)
+
+    await expect(model.requestRemoveOptionalDetail('note')).resolves.toBe(false)
+    expect(model.note()).toBe('Recovery instructions')
+    expect(model.configuredOptionalDetails()).toContain('note')
+
+    confirm.mockResolvedValueOnce(true)
+    await expect(model.requestRemoveOptionalDetail('note')).resolves.toBe(true)
+    expect(model.note()).toBe('')
+    expect(model.configuredOptionalDetails()).not.toContain('note')
+  })
+
+  it('preserves hidden branch drafts while restricting payment-card details', () => {
+    window.passmanager = createTestRoot()
+    const model = new PMEntryCreateModel()
+    model.setUsername('alice')
+    model.setPassword('secret')
+    model.setUseOtp(true)
+    model.setNote('Login note')
+
+    model.setEntryType('payment_card')
+    expect(model.username()).toBe('alice')
+    expect(model.password()).toBe('secret')
+    expect(model.note()).toBe('Login note')
+    expect(model.supportedOptionalDetails()).toEqual(['icon', 'tags'])
+    expect(model.configuredOptionalDetails()).toEqual([])
+
+    model.setEntryType('login')
+    expect(model.configuredOptionalDetails()).toEqual(['otp', 'note'])
+  })
+
+  it('uses the selected root or group and blocks a stale destination', async () => {
+    const group = {id: 'group-work', name: 'Work'}
+    const createEntry = vi.fn()
+    const getGroup = vi.fn((id: string) => (id === group.id ? group : undefined))
+    const setShowElement = vi.fn()
+    window.passmanager = createTestRoot({createEntry, getGroup, setShowElement})
 
     const model = new PMEntryCreateModel()
+    model.reset()
     model.setTitle('Entry')
     model.setUsername('alice')
     model.setPassword('secret')
-    model.setUseSsh(true)
+    expect(model.setTargetGroupId(group.id)).toBe(true)
+    await expect(model.submit()).resolves.toEqual({ok: true})
+    expect(setShowElement).toHaveBeenCalledWith('createEntry', group)
 
-    await expect(model.submit()).resolves.toEqual(
-      expect.objectContaining({ok: false, reason: 'invalid_ssh'}),
-    )
-    expect(model.sshSheetOpen()).toBe(true)
-    expect(createEntry).not.toHaveBeenCalled()
-  })
-
-  it('dedupes SSH generation when repeated submits race on the same create flow', async () => {
-    const persistence = deferred<void>()
-    const updateSshKeys = vi.fn(async () => {})
-    const entry = {
-      id: 'new-entry',
-      flushPendingPersistence: vi.fn(async () => {
-        await persistence.promise
-      }),
-      updateSshKeys,
-    }
-    const createEntry = vi.fn(() => entry)
-    vi.mocked(passmanagerSshKeygen).mockResolvedValue({
-      key_id: 'ssh-1',
-      public_key_openssh: 'ssh-ed25519 AAAA test',
-      fingerprint: 'SHA256:test',
-      key_type: 'ed25519',
-    })
-    window.passmanager = {
-      createEntry,
-      isReadOnly: vi.fn(() => false),
-    } as unknown as typeof window.passmanager
-
-    const model = new PMEntryCreateModel()
-    model.setTitle('Entry')
+    model.reset()
+    model.setTitle('Second')
     model.setUsername('alice')
     model.setPassword('secret')
-    model.ssh.setName('Entry SSH')
-    model.ssh.setComment('alice@Entry')
-    model.requestSshGeneration()
+    expect(model.setTargetGroupId(group.id)).toBe(true)
+    getGroup.mockReturnValue(undefined)
 
-    const first = model.submit()
-    const second = model.submit()
-
-    expect(createEntry).toHaveBeenCalledTimes(1)
-    persistence.resolve()
-
-    await Promise.all([first, second])
-
-    expect(passmanagerSshKeygen).toHaveBeenCalledTimes(1)
-    expect(updateSshKeys).toHaveBeenCalledTimes(1)
-    expect(updateSshKeys).toHaveBeenCalledWith([
-      expect.objectContaining({
-        id: 'ssh-1',
-        type: 'ed25519',
-        fingerprint: 'SHA256:test',
-        name: 'Entry SSH',
-        comment: 'alice@Entry',
-      }),
-    ])
-    expect(model.sshGenResult()).toEqual({
-      keyId: 'ssh-1',
-      fingerprint: 'SHA256:test',
-      publicKey: 'ssh-ed25519 AAAA test',
-      keyType: 'ed25519',
-      name: 'Entry SSH',
-      comment: 'alice@Entry',
-      pending: false,
+    await expect(model.submit()).resolves.toMatchObject({
+      ok: false,
+      reason: 'invalid_target_group',
+      field: 'targetGroup',
     })
+    expect(model.locationSheetOpen()).toBe(true)
   })
 
-  it('toggles ssh UI state and clears pending result when disabling ssh', () => {
+  it('does not mark the draft dirty when confirming the current root destination', () => {
+    window.passmanager = createTestRoot()
     const model = new PMEntryCreateModel()
+    model.reset()
 
-    model.setUseSsh(true)
-    model.requestSshGeneration()
-    expect(model.showSshGenerator()).toBe(true)
-    expect(model.sshGenResult()?.pending).toBe(true)
+    model.openLocationSheet()
+    expect(model.confirmPendingTargetGroup()).toBe(true)
+    expect(model.dirty()).toBe(false)
+  })
 
-    model.setUseSsh(false)
-    expect(model.showSshGenerator()).toBe(false)
-    expect(model.sshGenResult()).toBeNull()
+  it('removes create-specific SSH state from the model contract', () => {
+    const model = new PMEntryCreateModel() as unknown as Record<string, unknown>
+    expect('ssh' in model).toBe(false)
+    expect('setUseSsh' in model).toBe(false)
+    expect('requestSshGeneration' in model).toBe(false)
   })
 
   it('applies Android password save prefill into the create form', () => {
@@ -586,5 +641,6 @@ describe('PMEntryCreateModel', () => {
     expect(model.password()).toBe('pw-123')
     expect(model.urls()).toBe('https://github.com/login')
     expect(model.isEditingPassword()).toBe(true)
+    expect(model.dirty()).toBe(true)
   })
 })

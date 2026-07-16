@@ -1,6 +1,9 @@
 import {css} from 'lit'
+import {credentialTagColorStyles} from '../../../styles/credential-tags'
 
 export const pmEntryTagsStyles = css`
+  ${credentialTagColorStyles}
+
   .entry-tags-editor {
     display: grid;
     gap: var(--cv-space-2);

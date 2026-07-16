@@ -161,7 +161,7 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
 
   it('deletes obsolete groups deepest-first during saveRoot reconcile', async () => {
     ctx = createRepo({
-      sendCatalogOverride: async (cmd: string, data: Record<string, unknown>) => {
+      sendCatalogOverride: async (cmd: string, _data: Record<string, unknown>) => {
         switch (cmd) {
           case 'passmanager:group:list':
             return {
@@ -269,15 +269,6 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
         type: 'TOTP' as const,
       },
     ]
-    const sshKeys = [
-      {
-        id: 'ssh-1',
-        type: 'ed25519',
-        fingerprint: 'SHA256:ssh-1',
-        name: 'Laptop',
-      },
-    ]
-
     const ok = await ctx.repo.saveEntryMeta({
       id: 'entry-otp-full',
       entryType: 'login',
@@ -285,7 +276,6 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
       urls,
       username: 'alice',
       otps,
-      sshKeys,
       tags: ['  Work ', 'work'],
       groupPath: 'Common',
       iconRef,
@@ -312,11 +302,11 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
           type: 'TOTP',
         },
       ],
-      sshKeys,
       tags: ['Work'],
       group_path: 'Common',
       icon_ref: iconRef,
     })
+    expect(saveCalls[0]?.[1]).not.toHaveProperty('sshKeys')
   })
 
   it('saveEntryMeta queues catalog refresh instead of awaiting full refresh', async () => {
@@ -381,11 +371,17 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
   })
 
   it('saveRoot preserves tags while normalizing v3 root payloads', async () => {
-    const data: PassManagerRootV3 = {
+    const data = {
       version: 3,
       createdTs: Date.now(),
       updatedTs: Date.now(),
       folders: [],
+      tags: ['Zero Use', 'Work'],
+      tag_meta: {
+        work: {color_id: 'pink'},
+        'zero-use': {colorId: 'cyan'},
+        stale: {colorId: 'amber'},
+      },
       entries: [
         {
           id: 'entry-tags',
@@ -398,13 +394,23 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
           tags: ['  #Work  ', 'work'],
         },
       ],
-    }
+    } as unknown as PassManagerRootV3
 
     const ok = await ctx.repo.saveRoot(fileFromJson(data))
     assertOk(ok, ctx)
 
     const saveCalls = ctx.sendCatalog.mock.calls.filter((call) => call[0] === 'passmanager:entry:save')
     expect(saveCalls.at(-1)?.[1]).toMatchObject({entry_id: 'entry-tags', tags: ['Work']})
+    const setCatalogCalls = ctx.sendCatalog.mock.calls.filter(
+      (call) => call[0] === 'passmanager:tags:setCatalog',
+    )
+    expect(setCatalogCalls.at(-1)?.[1]).toEqual({
+      tags: ['Zero Use', 'Work'],
+      tag_meta: {
+        'zero-use': {colorId: 'cyan'},
+        work: {colorId: 'pink'},
+      },
+    })
   })
 
   it('saveEntryPassword keeps explicit empty value via secret:save', async () => {
@@ -783,7 +789,7 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
     const result = await ctx.repo.readRoot<{version: number; entries: unknown[]; folders: string[]}>()
 
     expect(result).toBeDefined()
-    expect(result?.version).toBe(3)
+    expect(result?.version).toBe(4)
     expect(result?.entries).toEqual([])
 
     const exportCalls = ctx.sendCatalog.mock.calls.filter((call) => call[0] === 'passmanager:root:export')

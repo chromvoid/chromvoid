@@ -1,148 +1,113 @@
 #!/bin/bash
-# Build the ChromVoid Credential Provider Extension for macOS
-# and embed it into the Tauri app bundle.
-#
-# Usage:
-#   ./scripts/build-credential-extension.sh [--release]
-#
-# The script compiles the Swift extension sources, creates the .appex bundle,
-# signs it, and copies it into the Tauri-built .app bundle (Contents/PlugIns/).
-#
-# Environment variables:
-#   CODESIGN_IDENTITY  — code signing identity (default: "ChromVoid Dev")
-#   APP_BUNDLE_PATH    — explicit path to the .app bundle (auto-detected if unset)
+# Build the signed macOS Credential Provider and its provisioning container.
+# Tauri consumes the deterministic stage directory through bundle.macOS.files,
+# so the extension and host profile are present before the final app/DMG signing.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_DIR="$SCRIPT_DIR/.."
 GEN_DIR="$APP_DIR/src-tauri/gen/apple"
-EXT_SRC_DIR="$GEN_DIR/chromvoid_CredentialProviderExtension"
-BRIDGE_SRC="$GEN_DIR/Sources/chromvoid/CredentialIPCBridge.swift"
-ENTITLEMENTS_EXT="$EXT_SRC_DIR/chromvoid_CredentialProviderExtension_macos.entitlements"
-ENTITLEMENTS_APP="$APP_DIR/src-tauri/Entitlements.plist"
+SPEC="$GEN_DIR/macos-credential-provider.yml"
+TEAM_ID="${APPLE_DEVELOPMENT_TEAM:-LHWC37D5KT}"
+IDENTITY="${CODESIGN_IDENTITY:-Apple Development}"
+CONFIGURATION="release"
+ARCHS="${CHROMVOID_MACOS_ARCHS:-$(uname -m)}"
+BUILD_ROOT="$GEN_DIR/build/credential-provider"
+PROJECT_DIR="$BUILD_ROOT/project"
+PROJECT="$PROJECT_DIR/ChromVoidCredentialProvider.xcodeproj"
+SCHEME="ChromVoidCredentialProvider"
+PRODUCTS_DIR="$BUILD_ROOT/Build/Products/$CONFIGURATION"
+HOST_APP="$PRODUCTS_DIR/ChromVoidProvisioningHost.app"
+HOST_APPEX="$HOST_APP/Contents/PlugIns/ChromVoidCredentialProvider.appex"
+HOST_PROFILE="$HOST_APP/Contents/embedded.provisionprofile"
+HOST_ENTITLEMENTS="$BUILD_ROOT/Build/Intermediates.noindex/ChromVoidCredentialProvider.build/$CONFIGURATION/ChromVoidProvisioningHost.build/ChromVoidProvisioningHost.app.xcent"
+STAGE_DIR="$BUILD_ROOT/stage"
+CERT_DIR="$BUILD_ROOT/signing-certificate"
+APP_VERSION="$(plutil -extract version raw "$APP_DIR/src-tauri/tauri.conf.json")"
 
-# Build settings
-SDK_PATH=$(xcrun --show-sdk-path --sdk macosx)
-ARCH=$(uname -m)
-DEPLOYMENT_TARGET="13.0"
-TARGET="${ARCH}-apple-macos${DEPLOYMENT_TARGET}"
-PRODUCT_NAME="ChromVoidCredentialProvider"
-BUNDLE_ID="com.chromvoid.app.credential-provider"
-
-# Parse arguments
-CONFIGURATION="debug"
 for arg in "$@"; do
   case "$arg" in
+    --debug) CONFIGURATION="debug" ;;
     --release) CONFIGURATION="release" ;;
+    *)
+      echo "Unknown argument: $arg" >&2
+      exit 2
+      ;;
   esac
 done
 
-# Signing identity
-IDENTITY="${CODESIGN_IDENTITY:-ChromVoid Dev}"
+PRODUCTS_DIR="$BUILD_ROOT/Build/Products/$CONFIGURATION"
+HOST_APP="$PRODUCTS_DIR/ChromVoidProvisioningHost.app"
+HOST_APPEX="$HOST_APP/Contents/PlugIns/ChromVoidCredentialProvider.appex"
+HOST_PROFILE="$HOST_APP/Contents/embedded.provisionprofile"
+HOST_ENTITLEMENTS="$BUILD_ROOT/Build/Intermediates.noindex/ChromVoidCredentialProvider.build/$CONFIGURATION/ChromVoidProvisioningHost.build/ChromVoidProvisioningHost.app.xcent"
 
-# Build output
-BUILD_DIR="$APP_DIR/target/credential-extension/$CONFIGURATION"
-APPEX_DIR="$BUILD_DIR/$PRODUCT_NAME.appex"
+echo "==> Generating Apple project"
+rm -rf "$PROJECT_DIR"
+mkdir -p "$PROJECT_DIR"
+xcodegen generate --spec "$SPEC" --project "$PROJECT_DIR" --quiet
 
-echo "==> Building Credential Provider Extension ($CONFIGURATION, $ARCH)"
+echo "==> Building macOS Credential Provider $APP_VERSION ($CONFIGURATION, $ARCHS, team $TEAM_ID)"
+xcodebuild \
+  -project "$PROJECT" \
+  -scheme "$SCHEME" \
+  -configuration "$CONFIGURATION" \
+  -destination "platform=macOS" \
+  -derivedDataPath "$BUILD_ROOT" \
+  -allowProvisioningUpdates \
+  -allowProvisioningDeviceRegistration \
+  -quiet \
+  ARCHS="$ARCHS" \
+  ONLY_ACTIVE_ARCH=NO \
+  DEVELOPMENT_TEAM="$TEAM_ID" \
+  CODE_SIGN_STYLE=Automatic \
+  CODE_SIGN_IDENTITY="$IDENTITY" \
+  CHROMVOID_APP_VERSION="$APP_VERSION" \
+  CHROMVOID_APPLE_SOURCE_ROOT="$GEN_DIR" \
+  CHROMVOID_TAURI_ROOT="$APP_DIR/src-tauri" \
+  clean build
 
-mkdir -p "$BUILD_DIR"
+if [ ! -d "$HOST_APPEX" ]; then
+  echo "Credential Provider product not found: $HOST_APPEX" >&2
+  exit 1
+fi
+if [ ! -f "$HOST_PROFILE" ]; then
+  echo "Host provisioning profile not found: $HOST_PROFILE" >&2
+  exit 1
+fi
+if [ ! -f "$HOST_ENTITLEMENTS" ]; then
+  echo "Host signing entitlements not found: $HOST_ENTITLEMENTS" >&2
+  exit 1
+fi
 
-# Swift compiler flags
-# Extension is a Mach-O executable with _NSExtensionMain as entry point
-# (provided by Foundation framework). -parse-as-library because there's no
-# top-level Swift code — the system calls _NSExtensionMain to bootstrap.
-SWIFT_FLAGS=(
-  -target "$TARGET"
-  -sdk "$SDK_PATH"
-  -parse-as-library
-  -framework AuthenticationServices
-  -framework Foundation
-  -framework AppKit
-  -module-name "$PRODUCT_NAME"
-  -Xlinker -e -Xlinker _NSExtensionMain
-  -Xlinker -rpath -Xlinker "@executable_path/../Frameworks"
-  -o "$BUILD_DIR/$PRODUCT_NAME"
+codesign --verify --strict --verbose=2 "$HOST_APPEX"
+codesign --verify --strict --verbose=2 "$HOST_APP"
+
+rm -rf "$STAGE_DIR"
+mkdir -p "$STAGE_DIR"
+cp -R "$HOST_APPEX" "$STAGE_DIR/ChromVoidCredentialProvider.appex"
+cp "$HOST_PROFILE" "$STAGE_DIR/embedded.provisionprofile"
+cp "$HOST_ENTITLEMENTS" "$STAGE_DIR/host-entitlements.plist"
+plutil -lint "$STAGE_DIR/host-entitlements.plist" >/dev/null
+
+rm -rf "$CERT_DIR"
+mkdir -p "$CERT_DIR"
+(
+  cd "$CERT_DIR"
+  codesign --display --extract-certificates "$HOST_APP"
 )
-
-if [ "$CONFIGURATION" = "release" ]; then
-  SWIFT_FLAGS+=(-O -whole-module-optimization)
-else
-  SWIFT_FLAGS+=(-Onone -g)
+CERT_SHA1="$(openssl x509 -inform DER -in "$CERT_DIR/codesign0" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')"
+if [ -z "$CERT_SHA1" ]; then
+  echo "Failed to determine the Xcode signing certificate fingerprint" >&2
+  exit 1
 fi
-
-# Compile
-swiftc "${SWIFT_FLAGS[@]}" \
-  "$EXT_SRC_DIR/CredentialProviderViewController.swift" \
-  "$BRIDGE_SRC"
-
-echo "    Compiled Swift sources"
-
-# Create .appex bundle structure
-rm -rf "$APPEX_DIR"
-mkdir -p "$APPEX_DIR/Contents/MacOS"
-cp "$BUILD_DIR/$PRODUCT_NAME" "$APPEX_DIR/Contents/MacOS/"
-
-# Process Info.plist: substitute Xcode build variables with actual values
-sed \
-  -e "s|\$(PRODUCT_BUNDLE_IDENTIFIER)|${BUNDLE_ID}|g" \
-  -e "s|\$(PRODUCT_NAME)|${PRODUCT_NAME}|g" \
-  -e "s|\$(PRODUCT_MODULE_NAME)|${PRODUCT_NAME}|g" \
-  -e "s|\$(EXECUTABLE_NAME)|${PRODUCT_NAME}|g" \
-  -e "s|\$(DEVELOPMENT_LANGUAGE)|en|g" \
-  "$EXT_SRC_DIR/Info.plist" > "$APPEX_DIR/Contents/Info.plist"
-
-echo "    Created .appex bundle"
-
-# Code sign the extension
-codesign -fs "$IDENTITY" \
-  --entitlements "$ENTITLEMENTS_EXT" \
-  "$APPEX_DIR" 2>/dev/null || {
-  echo "    WARNING: Code signing failed (identity '$IDENTITY' not found?)"
-  echo "    The extension will be built but unsigned."
-  echo "    Set CODESIGN_IDENTITY or create the certificate with:"
-  echo "      ./scripts/setup-dev-codesign.sh"
-}
-
-echo "    Signed .appex"
-
-# Find the Tauri app bundle (Tauri places it under src-tauri/target/)
-TAURI_TARGET="$APP_DIR/src-tauri/target"
-if [ -n "${APP_BUNDLE_PATH:-}" ]; then
-  APP_BUNDLE="$APP_BUNDLE_PATH"
-elif [ -d "$TAURI_TARGET/release/bundle/macos/ChromVoid.app" ] && [ "$CONFIGURATION" = "release" ]; then
-  APP_BUNDLE="$TAURI_TARGET/release/bundle/macos/ChromVoid.app"
-elif [ -d "$TAURI_TARGET/debug/bundle/macos/ChromVoid.app" ]; then
-  APP_BUNDLE="$TAURI_TARGET/debug/bundle/macos/ChromVoid.app"
-elif [ -d "$TAURI_TARGET/release/bundle/macos/ChromVoid.app" ]; then
-  APP_BUNDLE="$TAURI_TARGET/release/bundle/macos/ChromVoid.app"
-else
-  echo ""
-  echo "==> Extension built at: $APPEX_DIR"
-  echo "    No app bundle found. Run 'tauri build' first, then re-run this script."
-  echo "    Or set APP_BUNDLE_PATH explicitly."
-  exit 0
+SIGNING_CERTIFICATE_NAME="$(openssl x509 -inform DER -in "$CERT_DIR/codesign0" -noout -subject -nameopt multiline | sed -n 's/^[[:space:]]*commonName[[:space:]]*=[[:space:]]*//p' | head -n 1)"
+if [ -z "$SIGNING_CERTIFICATE_NAME" ]; then
+  echo "Failed to determine the Xcode signing certificate name" >&2
+  exit 1
 fi
+printf '%s\n' "$CERT_SHA1" > "$STAGE_DIR/signing-identity"
+printf '%s\n' "$SIGNING_CERTIFICATE_NAME" > "$STAGE_DIR/signing-certificate-name"
 
-# Embed in the app bundle
-PLUGINS_DIR="$APP_BUNDLE/Contents/PlugIns"
-mkdir -p "$PLUGINS_DIR"
-rm -rf "$PLUGINS_DIR/$PRODUCT_NAME.appex"
-cp -R "$APPEX_DIR" "$PLUGINS_DIR/"
-
-echo "    Embedded in: $APP_BUNDLE"
-
-# Re-sign the outer app bundle (required after modifying bundle contents).
-# IMPORTANT: do NOT use --deep — it would overwrite the extension's
-# entitlements with the app's entitlements (losing app-sandbox).
-# Sign the extension first (already done above), then sign the app only.
-codesign -fs "$IDENTITY" \
-  --entitlements "$ENTITLEMENTS_APP" \
-  "$APP_BUNDLE" 2>/dev/null || {
-  echo "    WARNING: Failed to re-sign the app bundle."
-}
-
-echo ""
-echo "==> Done. Extension embedded in $APP_BUNDLE/Contents/PlugIns/"
-echo "    To test: open the app, then check System Settings > Passwords > AutoFill"
+echo "==> Staged signed Credential Provider for Tauri: $STAGE_DIR"

@@ -1,5 +1,4 @@
-import {html} from 'lit'
-import {nothing} from 'lit'
+import {html, nothing} from 'lit'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {Entry, Group, ManagerRoot} from '@project/passmanager'
@@ -7,7 +6,10 @@ import {PMEntryModel} from '../../src/features/passmanager/components/card/entry
 import {PMEntryListItemMobile} from '../../src/features/passmanager/components/card/entry-list-item/entry-list-item-mobile'
 import {PMGroupBase} from '../../src/features/passmanager/components/group/group/group-base'
 import {PMGroupListItemMobile} from '../../src/features/passmanager/components/group/group'
-import type {PMGroupRowPresentation} from '../../src/features/passmanager/components/group/group/group.model'
+import {
+  PMGroupModel,
+  type PMGroupRowPresentation,
+} from '../../src/features/passmanager/components/group/group/group.model'
 import {pmActiveRowModel} from '../../src/features/passmanager/models/pm-active-row.model'
 import {pmModel} from '../../src/features/passmanager/password-manager.model'
 
@@ -90,6 +92,7 @@ class TestPMGroupMobileRows extends PMGroupBase {
           .selectionActive=${false}
           .selectedInSelectionMode=${false}
           @pm-group-row-focus=${() => this.setActiveItemById(item.id)}
+          @group-delete=${(event: Event) => this.handleGroupDelete(event)}
         ></pm-group-list-item-mobile>
       </div>
     `
@@ -419,6 +422,26 @@ describe('PMGroup mobile row state', () => {
     expect(openItemSpy).not.toHaveBeenCalled()
     expect(firstRowAfter?.classList.contains('active-row')).toBe(true)
     expect(targetRowAfter?.classList.contains('active-row')).toBe(false)
+  })
+
+  it('routes group-delete events to the group delete model without opening the group', async () => {
+    const parent = createGroup('group-swipe-delete-parent', 'Group Swipe Delete Parent')
+    const group = createGroup('group-swipe-delete-target', 'Group Swipe Delete Parent/Target')
+    window.passmanager = createPassmanagerRoot(parent, [parent, group])
+
+    const deleteSpy = vi.spyOn(PMGroupModel.prototype, 'deleteGroup').mockImplementation(() => {})
+    const selectSpy = vi.spyOn(PMGroupModel.prototype, 'selectByID').mockImplementation(() => {})
+    const element = document.createElement('test-pm-group-mobile-rows') as TestPMGroupMobileRows
+    document.body.appendChild(element)
+    await flush(element)
+
+    getGroupHost(element, group.id)?.dispatchEvent(
+      new CustomEvent('group-delete', {detail: group, bubbles: true, composed: true}),
+    )
+
+    expect(deleteSpy).toHaveBeenCalledTimes(1)
+    expect(deleteSpy).toHaveBeenCalledWith(group)
+    expect(selectSpy).not.toHaveBeenCalled()
   })
 })
 

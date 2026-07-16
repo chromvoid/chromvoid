@@ -42,6 +42,11 @@
       "import": "./dist/i18n/format.js",
       "default": "./dist/i18n/format.js"
     },
+    "./i18n/availability": {
+      "types": "./dist/i18n/availability.d.ts",
+      "import": "./dist/i18n/availability.js",
+      "default": "./dist/i18n/availability.js"
+    },
     "./notify": {
       "types": "./dist/service/notify.d.ts",
       "import": "./dist/service/notify.js",
@@ -127,15 +132,14 @@
   },
   "dependencies": {
     "@reatom/core": "^1001.0.0",
-    "@tauri-apps/api": "2.10.1",
-    "@tauri-apps/plugin-dialog": "2.6.0",
-    "@project/i18n": "0.0.1",
-    "@project/utils": "*",
-    "nanoid": "^5.0.7",
-    "otpauth": "^9.1.4"
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-dialog": "2.7.1",
+    "@project/i18n": "workspace:*",
+    "@project/utils": "workspace:*",
+    "uuid": "^14.0.1"
   },
   "devDependencies": {
-    "esbuild": "^0.27.4",
-    "vitest": "^4.1.8"
+    "esbuild": "^0.28.1",
+    "vitest": "^4.1.10"
   }
 }

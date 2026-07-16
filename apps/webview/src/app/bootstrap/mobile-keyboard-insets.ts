@@ -7,6 +7,7 @@ import {
 
 export const ANDROID_KEYBOARD_INSETS_EVENT = 'chromvoid:android-keyboard-insets-changed'
 export const IOS_KEYBOARD_INSETS_EVENT = 'chromvoid:ios-keyboard-insets-changed'
+export const MOBILE_KEYBOARD_BEFORE_INSETS_APPLY_EVENT = 'chromvoid:mobile-keyboard-before-insets-apply'
 export const NATIVE_KEYBOARD_INSETS_ATTR = 'data-native-keyboard-insets'
 export const ANDROID_NATIVE_KEYBOARD_INSETS_ATTR = 'data-android-native-keyboard-insets'
 export const IOS_NATIVE_KEYBOARD_INSETS_ATTR = 'data-ios-native-keyboard-insets'
@@ -18,8 +19,6 @@ export const IOS_NATIVE_SAFE_AREA_BOTTOM_ATTR = 'data-ios-native-safe-area-botto
 export type MobileKeyboardInsetsPhase = 'progress' | 'settled'
 export type MobileKeyboardInsetsSource = 'android-native' | 'ios-native' | 'tauri-visibility'
 export type MobileKeyboardViewportMode = 'overlay' | 'native-resize'
-export type MobileKeyboardCssOffsetSource = MobileKeyboardInsetsSource | 'visual-viewport'
-
 export type MobileKeyboardInsetsPayload = {
   visible: boolean
   bottomInset?: number | null
@@ -38,6 +37,14 @@ export type MobileKeyboardVisibilityPayload = {
   phase?: MobileKeyboardInsetsPhase
   source?: MobileKeyboardInsetsSource
   viewportMode?: MobileKeyboardViewportMode
+}
+
+export type MobileKeyboardBeforeInsetsApplyDetail = {
+  visible: boolean
+  previousBottomInset: number
+  nextBottomInset: number
+  source: MobileKeyboardInsetsSource
+  viewportMode: MobileKeyboardViewportMode
 }
 
 type WindowWithNativeKeyboardInsets = Window & {
@@ -66,12 +73,24 @@ const isNativeKeyboardInsetsSource = (source: MobileKeyboardInsetsSource): boole
 
 const getCurrentViewportInset = (root: HTMLElement): number => {
   const currentViewportInset = Number.parseFloat(
-    getComputedStyle(root).getPropertyValue('--visual-viewport-bottom-inset'),
+    getComputedStyle(root).getPropertyValue('--app-runtime-visual-viewport-inset-block-end'),
   )
   return Number.isFinite(currentViewportInset) && currentViewportInset > 0
     ? Math.round(currentViewportInset)
     : 0
 }
+
+const readRootCssPx = (root: HTMLElement, name: string): number => {
+  const value = Number.parseFloat(getComputedStyle(root).getPropertyValue(name))
+  return Number.isFinite(value) && value > 0 ? Math.round(value) : 0
+}
+
+const getCurrentKeyboardLayoutInset = (root: HTMLElement): number =>
+  Math.max(
+    readRootCssPx(root, '--app-runtime-keyboard-scroll-clearance'),
+    readRootCssPx(root, '--app-runtime-keyboard-overlay-offset'),
+    readRootCssPx(root, '--app-runtime-visual-viewport-inset-block-end'),
+  )
 
 const getSafeAreaTopInset = (payload: MobileKeyboardInsetsPayload): number | null => {
   const topInset = payload.safeAreaTopInset
@@ -88,21 +107,39 @@ const getSafeAreaBottomInset = (payload: MobileKeyboardInsetsPayload): number | 
 const normalizeKeyboardInset = (keyboardInset: number): number =>
   Number.isFinite(keyboardInset) && keyboardInset > 0 ? Math.round(keyboardInset) : 0
 
+export type MobileKeyboardLayoutOffsets = {
+  bottomInset: number
+  scrollActionOffset: number
+  scrollClearance: number
+  overlayOffset: number
+}
+
+export const resolveMobileKeyboardLayoutOffsets = (
+  keyboardInset: number,
+  viewportMode: MobileKeyboardViewportMode = 'overlay',
+): MobileKeyboardLayoutOffsets => {
+  const bottomInset = normalizeKeyboardInset(keyboardInset)
+  const viewportOffset = viewportMode === 'native-resize' ? 0 : bottomInset
+
+  return {
+    bottomInset,
+    scrollActionOffset: viewportOffset,
+    scrollClearance: viewportOffset,
+    overlayOffset: viewportOffset,
+  }
+}
+
 export const applyMobileKeyboardCssOffsets = (
   root: HTMLElement,
   keyboardInset: number,
-  source: MobileKeyboardCssOffsetSource,
   viewportMode: MobileKeyboardViewportMode = 'overlay',
 ): void => {
-  const bottomInset = normalizeKeyboardInset(keyboardInset)
-  const nativeResize = viewportMode === 'native-resize'
-  const scrollActionOffset = nativeResize ? 0 : bottomInset
-  const overlayOffset = nativeResize ? 0 : bottomInset
+  const offsets = resolveMobileKeyboardLayoutOffsets(keyboardInset, viewportMode)
 
-  root.style.setProperty('--mobile-keyboard-bottom-inset', `${bottomInset}px`)
-  root.style.setProperty('--mobile-keyboard-scroll-action-offset', `${scrollActionOffset}px`)
-  root.style.setProperty('--mobile-keyboard-scroll-clearance', `${scrollActionOffset}px`)
-  root.style.setProperty('--mobile-keyboard-overlay-offset', `${overlayOffset}px`)
+  root.style.setProperty('--app-runtime-keyboard-inset-block-end', `${offsets.bottomInset}px`)
+  root.style.setProperty('--app-runtime-keyboard-scroll-action-offset', `${offsets.scrollActionOffset}px`)
+  root.style.setProperty('--app-runtime-keyboard-scroll-clearance', `${offsets.scrollClearance}px`)
+  root.style.setProperty('--app-runtime-keyboard-overlay-offset', `${offsets.overlayOffset}px`)
 }
 
 export const applyMobileKeyboardInsetsPayload = (
@@ -116,8 +153,23 @@ export const applyMobileKeyboardInsetsPayload = (
   const usesAndroidNativeInsets = source === 'android-native'
   const usesIOSNativeInsets = source === 'ios-native'
   const usesNativeKeyboardInsets = isNativeKeyboardInsetsSource(source)
-  const usesNativeResize = usesIOSNativeInsets && viewportMode === 'native-resize'
+  const usesNativeResize = usesNativeKeyboardInsets && viewportMode === 'native-resize'
   const keyboardVisible = payload.visible || bottomInset > 0
+  const previousBottomInset = getCurrentKeyboardLayoutInset(root)
+
+  if (typeof window !== 'undefined' && previousBottomInset > 0 && bottomInset === 0) {
+    window.dispatchEvent(
+      new CustomEvent<MobileKeyboardBeforeInsetsApplyDetail>(MOBILE_KEYBOARD_BEFORE_INSETS_APPLY_EVENT, {
+        detail: {
+          visible: keyboardVisible,
+          previousBottomInset,
+          nextBottomInset: bottomInset,
+          source,
+          viewportMode,
+        },
+      }),
+    )
+  }
 
   root.toggleAttribute(MOBILE_KEYBOARD_EXPANDED_ATTR, keyboardVisible)
   setMobileKeyboardOccluding(keyboardVisible || root.hasAttribute(VISUAL_VIEWPORT_SHRUNK_ATTR))
@@ -125,11 +177,11 @@ export const applyMobileKeyboardInsetsPayload = (
   root.toggleAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR, usesAndroidNativeInsets && keyboardVisible)
   root.toggleAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR, usesIOSNativeInsets && keyboardVisible)
   root.toggleAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR, usesNativeResize && keyboardVisible)
-  root.style.setProperty('--native-keyboard-bottom-inset', `${bottomInset}px`)
+  root.style.setProperty('--app-runtime-keyboard-native-inset-block-end', `${bottomInset}px`)
 
   const safeAreaTopInset = usesNativeKeyboardInsets ? getSafeAreaTopInset(payload) : null
   if (safeAreaTopInset !== null) {
-    root.style.setProperty('--safe-area-top-fallback', `${safeAreaTopInset}px`)
+    root.style.setProperty('--app-runtime-safe-area-block-start-fallback', `${safeAreaTopInset}px`)
   }
 
   const safeAreaBottomInset = usesNativeKeyboardInsets ? getSafeAreaBottomInset(payload) : null
@@ -138,9 +190,9 @@ export const applyMobileKeyboardInsetsPayload = (
     root.toggleAttribute(ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR, usesAndroidNativeInsets && safeAreaBottomInset !== null)
     root.toggleAttribute(IOS_NATIVE_SAFE_AREA_BOTTOM_ATTR, usesIOSNativeInsets && safeAreaBottomInset !== null)
     if (safeAreaBottomInset !== null) {
-      root.style.setProperty('--safe-area-bottom-native', `${safeAreaBottomInset}px`)
+      root.style.setProperty('--app-runtime-safe-area-block-end-native', `${safeAreaBottomInset}px`)
     } else {
-      root.style.removeProperty('--safe-area-bottom-native')
+      root.style.removeProperty('--app-runtime-safe-area-block-end-native')
     }
   }
 
@@ -150,11 +202,11 @@ export const applyMobileKeyboardInsetsPayload = (
       : usesNativeKeyboardInsets
         ? bottomInset
         : Math.max(getCurrentViewportInset(root), bottomInset)
-    root.style.setProperty('--visual-viewport-bottom-inset', `${visualViewportInset}px`)
-    applyMobileKeyboardCssOffsets(root, bottomInset, source, viewportMode)
+    root.style.setProperty('--app-runtime-visual-viewport-inset-block-end', `${visualViewportInset}px`)
+    applyMobileKeyboardCssOffsets(root, bottomInset, viewportMode)
   } else {
-    root.style.setProperty('--visual-viewport-bottom-inset', '0px')
-    applyMobileKeyboardCssOffsets(root, 0, source, viewportMode)
+    root.style.setProperty('--app-runtime-visual-viewport-inset-block-end', '0px')
+    applyMobileKeyboardCssOffsets(root, 0, viewportMode)
   }
 
   syncPasswordInputDialogKeyboardOffset(bottomInset, {phase, source, viewportMode})
@@ -184,6 +236,7 @@ const normalizeAndroidKeyboardInsetsPayload = (detail: unknown): MobileKeyboardI
   if (typeof record['visible'] !== 'boolean') return null
 
   const phase = record['phase'] === 'progress' || record['phase'] === 'settled' ? record['phase'] : 'progress'
+  const viewportMode = record['viewportMode'] === 'native-resize' ? 'native-resize' : 'overlay'
   return {
     visible: record['visible'],
     bottomInset: typeof record['bottomInset'] === 'number' ? record['bottomInset'] : null,
@@ -192,7 +245,7 @@ const normalizeAndroidKeyboardInsetsPayload = (detail: unknown): MobileKeyboardI
       typeof record['safeAreaBottomInset'] === 'number' ? record['safeAreaBottomInset'] : null,
     phase,
     source: 'android-native',
-    viewportMode: 'overlay',
+    viewportMode,
   }
 }
 

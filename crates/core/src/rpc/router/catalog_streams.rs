@@ -6,6 +6,7 @@ mod file_streams;
 
 use crate::rpc::stream::{RpcInputStream, RpcReply};
 use crate::rpc::types::RpcResponse;
+use serde_json::Value;
 
 use super::state::RpcRouter;
 
@@ -32,6 +33,10 @@ impl RpcRouter {
         stream: Option<RpcInputStream>,
     ) -> RpcReply {
         file_streams::handle_replace(self, data, stream)
+    }
+
+    pub(super) fn handle_catalog_file_patch(&mut self, data: &serde_json::Value) -> RpcResponse {
+        file_streams::handle_patch(self, data)
     }
 
     pub(super) fn recover_catalog_file_replace_transaction(
@@ -67,7 +72,8 @@ impl RpcRouter {
         data: &serde_json::Value,
         stream: Option<RpcInputStream>,
     ) -> RpcReply {
-        self.handle_catalog_upload_stream(data, stream)
+        let data = catalog_secret_write_upload_data(data);
+        self.handle_catalog_upload_stream(&data, stream)
     }
 
     pub(super) fn handle_catalog_secret_read_stream(&self, data: &serde_json::Value) -> RpcReply {
@@ -88,4 +94,23 @@ impl RpcRouter {
     ) -> RpcReply {
         derivative_streams::handle_read(self, data)
     }
+}
+
+fn catalog_secret_write_upload_data(data: &Value) -> Value {
+    let mut data = data.clone();
+    let Some(object) = data.as_object_mut() else {
+        return data;
+    };
+    if object.contains_key("total_size") {
+        return data;
+    }
+
+    let offset = object.get("offset").and_then(Value::as_u64).unwrap_or(0);
+    let size = object.get("size").and_then(Value::as_u64).unwrap_or(0);
+    object.insert(
+        "total_size".to_string(),
+        Value::from(offset.saturating_add(size)),
+    );
+    object.entry("finish").or_insert(Value::Bool(true));
+    data
 }

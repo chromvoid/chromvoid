@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 
-import {applyMobileKeyboardCssOffsets} from 'root/app/bootstrap/mobile-keyboard-insets'
+import {resolveMobileKeyboardLayoutOffsets} from 'root/app/bootstrap/mobile-keyboard-insets'
 import {
   getVisualViewportBottomInset,
   getVisualViewportBlockSize,
@@ -257,33 +257,32 @@ describe('resolveEffectiveKeyboardInset', () => {
   })
 })
 
-describe('applyMobileKeyboardCssOffsets', () => {
+describe('resolveMobileKeyboardLayoutOffsets', () => {
   it('keeps ios native-resized action and overlay offsets at the resized viewport edge', () => {
-    applyMobileKeyboardCssOffsets(document.documentElement, 286.4, 'ios-native', 'native-resize')
-
-    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-bottom-inset')).toBe('286px')
-    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-scroll-action-offset')).toBe('0px')
-    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-scroll-clearance')).toBe('0px')
-    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-overlay-offset')).toBe('0px')
-
-    document.documentElement.style.removeProperty('--mobile-keyboard-bottom-inset')
-    document.documentElement.style.removeProperty('--mobile-keyboard-scroll-action-offset')
-    document.documentElement.style.removeProperty('--mobile-keyboard-scroll-clearance')
-    document.documentElement.style.removeProperty('--mobile-keyboard-overlay-offset')
+    expect(resolveMobileKeyboardLayoutOffsets(286.4, 'native-resize')).toEqual({
+      bottomInset: 286,
+      scrollActionOffset: 0,
+      scrollClearance: 0,
+      overlayOffset: 0,
+    })
   })
 
   it('moves android-style scroll and overlay action surfaces by the native keyboard overlap', () => {
-    applyMobileKeyboardCssOffsets(document.documentElement, 140, 'android-native')
+    expect(resolveMobileKeyboardLayoutOffsets(140)).toEqual({
+      bottomInset: 140,
+      scrollActionOffset: 140,
+      scrollClearance: 140,
+      overlayOffset: 140,
+    })
+  })
 
-    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-bottom-inset')).toBe('140px')
-    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-scroll-action-offset')).toBe('140px')
-    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-scroll-clearance')).toBe('140px')
-    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-overlay-offset')).toBe('140px')
-
-    document.documentElement.style.removeProperty('--mobile-keyboard-bottom-inset')
-    document.documentElement.style.removeProperty('--mobile-keyboard-scroll-action-offset')
-    document.documentElement.style.removeProperty('--mobile-keyboard-scroll-clearance')
-    document.documentElement.style.removeProperty('--mobile-keyboard-overlay-offset')
+  it('keeps android native-resized action and overlay offsets at the resized viewport edge', () => {
+    expect(resolveMobileKeyboardLayoutOffsets(286.4, 'native-resize')).toEqual({
+      bottomInset: 286,
+      scrollActionOffset: 0,
+      scrollClearance: 0,
+      overlayOffset: 0,
+    })
   })
 })
 

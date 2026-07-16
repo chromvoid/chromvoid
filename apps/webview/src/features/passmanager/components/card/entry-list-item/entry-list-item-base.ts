@@ -151,11 +151,7 @@ export class PMEntryListItemBase extends ReatomLitElement {
         <pm-avatar-icon class="entry-favicon" .item=${entry}></pm-avatar-icon>
         ${presentation.typeMarker
           ? html`
-              <span
-                class="entry-type-glyph"
-                data-badge-id=${presentation.typeMarker.id}
-                aria-hidden="true"
-              >
+              <span class="entry-type-glyph" data-badge-id=${presentation.typeMarker.id} aria-hidden="true">
                 <cv-icon name=${presentation.typeMarker.icon}></cv-icon>
               </span>
             `
@@ -175,15 +171,32 @@ export class PMEntryListItemBase extends ReatomLitElement {
   }
 
   protected renderBadges(presentation: PMEntryListPresentation) {
-    return this.renderBadgeList(presentation.visibleBadges, presentation.overflowCount)
+    return this.renderBadgeList(
+      presentation.visibleBadges,
+      presentation.overflowCount,
+      null,
+      presentation.tagSnippet.desktop.badges,
+      [
+        [2, presentation.tagSnippet.desktop.narrowOverflowCount],
+        [3, presentation.tagSnippet.desktop.wideOverflowCount],
+      ],
+    )
   }
 
   protected renderBadgeList(
     visibleBadges: readonly PMEntryListBadge[],
     overflowCount: number,
     typeMarker: PMEntryListBadge | null = null,
+    tagBadges: readonly PMEntryListBadge[] = [],
+    tagOverflowCounts: readonly (readonly [limit: number, count: number])[] = [],
   ) {
-    if (visibleBadges.length === 0 && overflowCount === 0 && !typeMarker) {
+    if (
+      visibleBadges.length === 0 &&
+      overflowCount === 0 &&
+      !typeMarker &&
+      tagBadges.length === 0 &&
+      tagOverflowCounts.every(([, count]) => count === 0)
+    ) {
       return nothing
     }
 
@@ -199,7 +212,7 @@ export class PMEntryListItemBase extends ReatomLitElement {
                 title=${typeMarker.label}
               >
                 <cv-icon name=${typeMarker.icon} aria-hidden="true"></cv-icon>
-                <span class="entry-badge-label">${typeMarker.label}</span>
+                <span class="entry-badge-label"><bdi dir="auto">${typeMarker.label}</bdi></span>
               </span>
             `
           : nothing}
@@ -210,11 +223,11 @@ export class PMEntryListItemBase extends ReatomLitElement {
               data-badge-id=${badge.id}
               data-family=${badge.family}
               data-severity=${badge.severity}
+              data-tag-color-id=${badge.tagColorId ?? nothing}
               title=${badge.label}
             >
               ${this.renderBadgeIcon(badge)}
-              <span class="entry-badge-label">${badge.label}</span>
-              ${badge.hasMore ? html`<span class="entry-badge-suffix" aria-hidden="true">+</span>` : nothing}
+              <span class="entry-badge-label"><bdi dir="auto">${badge.label}</bdi></span>
             </span>
           `,
         )}
@@ -228,6 +241,38 @@ export class PMEntryListItemBase extends ReatomLitElement {
               </span>
             `
           : nothing}
+        ${tagBadges.map(
+          (badge, index) => html`
+            <span
+              class="entry-badge entry-tag-badge"
+              data-badge-id=${badge.id}
+              data-family=${badge.family}
+              data-severity=${badge.severity}
+              data-tag-color-id=${badge.tagColorId ?? nothing}
+              data-tag-position=${String(index + 1)}
+              title=${badge.label}
+            >
+              ${this.renderBadgeIcon(badge)}
+              <span class="entry-badge-label"><bdi dir="auto">${badge.label}</bdi></span>
+            </span>
+          `,
+        )}
+        ${tagOverflowCounts.map(([limit, count]) =>
+          count > 0
+            ? html`
+                <span
+                  class="entry-badge entry-tag-overflow"
+                  data-tag-limit=${String(limit)}
+                  aria-label=${i18n('entry:badge:tag_overflow_label', {
+                    count: String(count),
+                  })}
+                  role="img"
+                >
+                  +${count}
+                </span>
+              `
+            : nothing,
+        )}
       </div>
     `
   }
@@ -242,7 +287,8 @@ export class PMEntryListItemBase extends ReatomLitElement {
     return html`
       <div class="item-actions">
         <cv-tooltip arrow show-delay="150" hide-delay="0">
-          <cv-button unstyled
+          <cv-button
+            unstyled
             slot="trigger"
             class="action-button"
             button-tabindex=${String(actionTabIndex)}
@@ -256,7 +302,12 @@ export class PMEntryListItemBase extends ReatomLitElement {
         ${entry.otps().length > 0
           ? html`
               <cv-tooltip arrow show-delay="150" hide-delay="0">
-                <cv-button unstyled slot="trigger" class="action-button" button-tabindex=${String(actionTabIndex)}>
+                <cv-button
+                  unstyled
+                  slot="trigger"
+                  class="action-button"
+                  button-tabindex=${String(actionTabIndex)}
+                >
                   <cv-icon name="shield-check"></cv-icon>
                 </cv-button>
                 <span slot="content">${i18n('tooltip:copy-otp')}</span>
@@ -286,7 +337,8 @@ export class PMEntryListItemBase extends ReatomLitElement {
 
   private renderPrimaryAction(presentation: PMEntryListPresentation) {
     return html`
-      <cv-button unstyled
+      <cv-button
+        unstyled
         class="action-button primary-action entry-menu-button"
         button-tabindex=${String(this.getActionTabIndex())}
         @click=${this.onMoreActions}
@@ -298,38 +350,51 @@ export class PMEntryListItemBase extends ReatomLitElement {
     `
   }
 
-  private renderDefaultContent(entry: Entry, presentation: PMEntryListPresentation, showSecondaryActions: boolean) {
+  private renderDefaultContent(
+    entry: Entry,
+    presentation: PMEntryListPresentation,
+    showSecondaryActions: boolean,
+  ) {
     return html`
       ${this.renderIcon(entry, presentation)}
 
       <div class="item-content">
-        <div class="item-title">${presentation.title}</div>
-        ${presentation.subtitle ? html`<div class="item-subtitle">${presentation.subtitle}</div>` : nothing}
+        <div class="item-title"><bdi dir="auto">${presentation.title}</bdi></div>
+        ${presentation.subtitle
+          ? html`<div class="item-subtitle" dir="ltr">${presentation.subtitle}</div>`
+          : nothing}
       </div>
 
-      ${this.renderBadges(presentation)}
-
-      ${this.renderPrimaryAction(presentation)}
-
+      ${this.renderBadges(presentation)} ${this.renderPrimaryAction(presentation)}
       ${showSecondaryActions ? this.renderActions(entry) : nothing}
     `
   }
 
   private renderWorkbenchStatus(presentation: PMEntryListPresentation) {
-    if (presentation.visibleBadges.length > 0 || presentation.overflowCount > 0) {
+    if (
+      presentation.visibleBadges.length > 0 ||
+      presentation.overflowCount > 0 ||
+      presentation.tagSnippet.desktop.badges.length > 0
+    ) {
       return this.renderBadges(presentation)
     }
 
     return html`<span class="entry-kind-chip">${presentation.kindLabel}</span>`
   }
 
-  private renderWorkbenchContent(entry: Entry, presentation: PMEntryListPresentation, showSecondaryActions: boolean) {
+  private renderWorkbenchContent(
+    entry: Entry,
+    presentation: PMEntryListPresentation,
+    showSecondaryActions: boolean,
+  ) {
     return html`
       <div class="workbench-name-cell">
         ${this.renderIcon(entry, presentation)}
         <div class="item-content">
-          <div class="item-title">${presentation.title}</div>
-          ${presentation.subtitle ? html`<div class="item-subtitle">${presentation.subtitle}</div>` : nothing}
+          <div class="item-title"><bdi dir="auto">${presentation.title}</bdi></div>
+          ${presentation.subtitle
+            ? html`<div class="item-subtitle" dir="ltr">${presentation.subtitle}</div>`
+            : nothing}
         </div>
       </div>
       <div class="workbench-status-cell">${this.renderWorkbenchStatus(presentation)}</div>

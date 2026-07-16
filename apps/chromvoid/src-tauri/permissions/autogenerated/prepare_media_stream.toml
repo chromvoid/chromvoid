@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-prepare-media-stream"
+description = "Enables the prepare_media_stream command without any pre-configured scope."
+commands.allow = ["prepare_media_stream"]
+
+[[permission]]
+identifier = "deny-prepare-media-stream"
+description = "Denies the prepare_media_stream command without any pre-configured scope."
+commands.deny = ["prepare_media_stream"]

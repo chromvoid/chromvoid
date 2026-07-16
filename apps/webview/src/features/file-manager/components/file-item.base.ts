@@ -1,8 +1,6 @@
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {css} from 'lit'
 
-import type {FileItemEventType} from './file-item/handlers'
-
 import {i18n} from 'root/i18n'
 import type {FileItemData, ViewMode} from 'root/shared/contracts/file-manager'
 
@@ -28,6 +26,7 @@ import {
   onTouchMove,
   onTouchStart,
   setupTouchDragDrop,
+  type FileItemEventType,
   type TouchDragDropBinding,
 } from './file-item/handlers'
 import type {FileItemRenderData} from './file-item/render'
@@ -105,6 +104,17 @@ export abstract class FileItemBase extends ReatomLitElement {
 
   protected readonly onDoubleClick = (event: Event) => {
     emitItemDoubleClick(this.item, this.emitEvent, event)
+  }
+
+  protected onSelectionClick(event: MouseEvent) {
+    event.preventDefault()
+    event.stopPropagation()
+    emitItemClick(
+      this.model,
+      this.item,
+      this.emitEvent,
+      new MouseEvent('click', {metaKey: true, shiftKey: event.shiftKey}),
+    )
   }
 
   protected readonly onContextMenu = (event: Event) => {
@@ -282,6 +292,7 @@ export abstract class FileItemBase extends ReatomLitElement {
         onDragOver: this.onDragOver,
         onDragLeave: this.onDragLeave,
         onDrop: this.onDrop,
+        onSelectionClick: this.onSelectionClick,
         onMoreClick: this.onMore,
         onInfoClick: this.onInfo,
         onRenameClick: this.onRename,

@@ -6,18 +6,29 @@ import type {FileDownloadFlow} from '../../src/features/file-manager/download-fl
 import type {FileMediaInspectionFlow} from '../../src/features/file-manager/media-inspection-flow.model'
 import type {FileListModel} from '../../src/features/file-manager/models/file-list.model'
 import type {FileListViewportModel} from '../../src/features/file-manager/models/file-list-viewport.model'
+import type * as SessionSettingsModule from '../../src/core/session/session-settings'
 import {FileActionsModel} from '../../src/features/file-manager/models/file-actions.model'
 import {DEFAULT_SESSION_SETTINGS} from '../../src/core/session/session-settings'
 
 const mocks = vi.hoisted(() => ({
+  emitFileOpenCommand: vi.fn(),
   loadSessionSettings: vi.fn(),
   showCreateFolderDialog: vi.fn(),
   showCreateMarkdownNoteDialog: vi.fn(),
   showDeleteConfirmDialog: vi.fn(),
+  writeAndroidUnlockDebug: vi.fn(),
+}))
+
+vi.mock('root/shared/services/file-command-service', () => ({
+  emitFileOpenCommand: mocks.emitFileOpenCommand,
+}))
+
+vi.mock('root/shared/services/android-unlock-debug', () => ({
+  writeAndroidUnlockDebug: mocks.writeAndroidUnlockDebug,
 }))
 
 vi.mock('root/core/session/session-settings', async () => {
-  const actual = await vi.importActual<typeof import('../../src/core/session/session-settings')>(
+  const actual = await vi.importActual<typeof SessionSettingsModule>(
     '../../src/core/session/session-settings',
   )
 
@@ -64,6 +75,8 @@ function createModel(options: {items?: FileItemData[]; selectedIds?: number[]; d
   const prepareDocumentReturn = vi.fn()
   const markPending = vi.fn()
   const clearPending = vi.fn()
+  const ensureBeforeOpen = vi.fn(async (input: FileItemData) => input)
+  const onFilesDeleted = vi.fn()
 
   const ctx = {
     catalog: {
@@ -87,16 +100,20 @@ function createModel(options: {items?: FileItemData[]; selectedIds?: number[]; d
     isLoading,
     fileList: {
       fileItems: () => items,
+      getFileItemById: (nodeId: number) => items.find((entry) => entry.id === nodeId) ?? null,
     } as unknown as FileListModel,
     viewport: {
       prepareDocumentReturn,
     } as unknown as FileListViewportModel,
-    mediaInspection: {} as FileMediaInspectionFlow,
+    mediaInspection: {
+      ensureBeforeOpen,
+    } as unknown as FileMediaInspectionFlow,
     download: {} as FileDownloadFlow,
     deletionMotion: {
       markPending,
       clearPending,
     },
+    onFilesDeleted,
   })
 
   return {
@@ -104,8 +121,10 @@ function createModel(options: {items?: FileItemData[]; selectedIds?: number[]; d
     createDir,
     deleteNode,
     isLoading,
+    ensureBeforeOpen,
     markPending,
     model,
+    onFilesDeleted,
     prepareDocumentReturn,
     pushNotification,
     refresh,
@@ -120,6 +139,38 @@ describe('FileActionsModel delete confirmation setting', () => {
     mocks.showCreateFolderDialog.mockReset()
     mocks.showCreateMarkdownNoteDialog.mockReset()
     mocks.showDeleteConfirmDialog.mockReset()
+    mocks.emitFileOpenCommand.mockReset()
+    mocks.writeAndroidUnlockDebug.mockReset()
+  })
+
+  it('logs video opens before emitting the file open command', async () => {
+    const video = {
+      ...item,
+      id: 9,
+      name: 'clip.mp4',
+      mimeType: 'video/mp4',
+      mediaInfo: {kind: 'video' as const, audioTracks: 1, videoTracks: 1},
+      size: 123_456,
+    }
+    const {model} = createModel({items: [video], selectedIds: [video.id]})
+
+    await model.handleOpen(video)
+
+    expect(mocks.writeAndroidUnlockDebug).toHaveBeenCalledWith(
+      'media-playback/file-open',
+      'videoFileOpen',
+      {
+        fileId: 9,
+        mimeType: 'video/mp4',
+        mediaInfoKind: 'video',
+        size: 123_456,
+      },
+    )
+    expect(mocks.emitFileOpenCommand).toHaveBeenCalledWith({
+      kind: 'video',
+      fileId: 9,
+      fileName: 'clip.mp4',
+    })
   })
 
   it('deletes without opening confirmation when the setting is disabled', async () => {
@@ -127,12 +178,13 @@ describe('FileActionsModel delete confirmation setting', () => {
       ...DEFAULT_SESSION_SETTINGS,
       confirm_file_deletion: false,
     })
-    const {deleteNode, model} = createModel()
+    const {deleteNode, model, onFilesDeleted} = createModel()
 
     await model.handleDelete(item)
 
     expect(mocks.showDeleteConfirmDialog).not.toHaveBeenCalled()
     expect(deleteNode).toHaveBeenCalledWith(item.id)
+    expect(onFilesDeleted).toHaveBeenCalledWith([item.id])
   })
 
   it('keeps confirmation as a blocking step when the setting is enabled', async () => {
@@ -153,7 +205,7 @@ describe('FileActionsModel delete confirmation setting', () => {
     })
     const first = {...item, id: 1, name: 'a.md'}
     const second = {...item, id: 2, name: 'b.md'}
-    const {deleteNode, model, pushNotification, refresh, setSelectedItems} = createModel({
+    const {deleteNode, model, onFilesDeleted, pushNotification, refresh, setSelectedItems} = createModel({
       items: [first, second],
       selectedIds: [first.id, second.id],
     })
@@ -163,6 +215,7 @@ describe('FileActionsModel delete confirmation setting', () => {
     expect(deleteNode).toHaveBeenCalledWith(first.id)
     expect(deleteNode).toHaveBeenCalledWith(second.id)
     expect(refresh).toHaveBeenCalledTimes(1)
+    expect(onFilesDeleted).toHaveBeenCalledWith([first.id, second.id])
     expect(setSelectedItems).toHaveBeenCalledWith([])
     expect(pushNotification).toHaveBeenCalledWith('success', 'Selected items deleted')
   })
@@ -175,7 +228,7 @@ describe('FileActionsModel delete confirmation setting', () => {
     const first = {...item, id: 1, name: 'a.md'}
     const second = {...item, id: 2, name: 'b.md'}
     const third = {...item, id: 3, name: 'c.md'}
-    const {clearPending, model, pushNotification, setSelectedItems} = createModel({
+    const {clearPending, model, onFilesDeleted, pushNotification, setSelectedItems} = createModel({
       items: [first, second, third],
       selectedIds: [first.id, second.id, third.id],
       deleteNode: async (id) => {
@@ -188,6 +241,7 @@ describe('FileActionsModel delete confirmation setting', () => {
     await model.handleDeleteSelected()
 
     expect(clearPending).toHaveBeenCalledWith([second.id])
+    expect(onFilesDeleted).toHaveBeenCalledWith([first.id, third.id])
     expect(setSelectedItems).toHaveBeenCalledWith([second.id])
     expect(pushNotification).toHaveBeenCalledWith('error', 'Failed to delete b.md: delete failed')
     expect(pushNotification).toHaveBeenCalledWith('warning', '2 deleted, 1 failed')

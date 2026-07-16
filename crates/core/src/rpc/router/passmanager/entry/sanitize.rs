@@ -142,15 +142,12 @@ pub(in crate::rpc::router::passmanager) fn sanitize_entry_meta_for_wire(
         meta.insert("paymentCard".to_string(), payment_card);
     }
     normalize_entry_tags(meta);
+    super::super::ssh::remove_legacy_metadata(meta);
 
     if entry_type == "payment_card" {
         meta.remove("username");
         meta.remove("urls");
         meta.remove("otps");
-        meta.remove("sshKeys");
-        meta.remove("sshKeyType");
-        meta.remove("sshKeyFingerprint");
-        meta.remove("sshKeyComment");
     } else {
         meta.remove("payment_card");
         meta.remove("paymentCard");

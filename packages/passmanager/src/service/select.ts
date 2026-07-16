@@ -113,7 +113,10 @@ export function createEntryFilterMatcher(
       return false
     }
 
-    if (selectedTags.some((tagKey) => !entryHasCredentialTag(entry.tags, tagKey))) {
+    if (
+      selectedTags.length > 0 &&
+      !selectedTags.some((tagKey) => entryHasCredentialTag(entry.tags, tagKey))
+    ) {
       return false
     }
 

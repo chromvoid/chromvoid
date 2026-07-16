@@ -109,6 +109,29 @@ describe('dialogService', () => {
     await expect(resultPromise).resolves.toBe(false)
   })
 
+  it('closes a confirm dialog when its abort signal fires', async () => {
+    const controller = new AbortController()
+    const resultPromise = dialogService.showConfirmDialog({
+      title: 'Confirm',
+      message: 'Abort this request',
+      abortSignal: controller.signal,
+    })
+
+    await waitFor(() => document.querySelector('cv-confirm-dialog') !== null, 'confirm dialog to mount')
+
+    const dialog = document.querySelector('cv-confirm-dialog') as HTMLElement & {shadowRoot: ShadowRoot | null}
+    expect(dialog).not.toBeNull()
+    await waitFor(() => Boolean(dialog.shadowRoot?.querySelector('cv-dialog')), 'confirm dialog shell')
+    const shell = dialog.shadowRoot?.querySelector('cv-dialog')
+    expect(shell).not.toBeNull()
+    ;(dialog as any).handleAfterShow()
+
+    controller.abort()
+    ;(dialog as any).handleAfterHide()
+
+    await expect(resultPromise).resolves.toBe(false)
+  })
+
   it('closes only the top managed dialog for transient back handling', async () => {
     const firstResult = dialogService.showConfirmDialog({
       title: 'First',
@@ -234,7 +257,7 @@ describe('dialogService', () => {
     await expect(confirmResult).resolves.toBe(false)
   })
 
-  it('stabilizes mobile password input dialog and owns autofocus', async () => {
+  it('stabilizes mobile password input dialog without autofocus', async () => {
     setupLayout('mobile')
     setRuntimeCapabilities({
       platform: 'android',
@@ -273,24 +296,54 @@ describe('dialogService', () => {
     input!.focus = focusSpy
 
     await new Promise((resolve) => window.setTimeout(resolve, 160))
-    focusSpy.mockClear()
-    ;(inputDialog as any).clearPendingInputFocus()
 
     inputSheet?.dispatchEvent(new Event('cv-show', {bubbles: true, composed: true}))
     await new Promise((resolve) => window.setTimeout(resolve, 90))
 
-    expect(focusSpy).toHaveBeenCalledTimes(1)
-    expect(focusSpy).toHaveBeenCalledWith({preventScroll: true})
+    expect(focusSpy).not.toHaveBeenCalled()
 
     inputSheet?.dispatchEvent(new Event('cv-after-show', {bubbles: true, composed: true}))
     await new Promise((resolve) => window.setTimeout(resolve, 90))
 
-    expect(focusSpy).toHaveBeenCalledTimes(1)
+    expect(focusSpy).not.toHaveBeenCalled()
 
     inputDialog.close(null)
     inputSheet?.dispatchEvent(new Event('cv-after-hide', {bubbles: true, composed: true}))
     await expect(resultPromise).resolves.toBeNull()
     expect(document.documentElement.hasAttribute(PASSWORD_INPUT_DIALOG_KEYBOARD_STABILIZATION_ATTR)).toBe(false)
+  })
+
+  it('keeps desktop input dialog autofocus during show', async () => {
+    setupLayout('desktop')
+    const resultPromise = dialogService.showInputDialog({
+      title: 'Rename',
+      label: 'Name',
+      required: true,
+    })
+
+    await waitFor(() => document.querySelector('cv-input-dialog') !== null, 'desktop input dialog to mount')
+    const inputDialog = document.querySelector('cv-input-dialog') as HTMLElement & {
+      shadowRoot: ShadowRoot | null
+      close: (value?: string | null) => void
+    }
+
+    await waitFor(() => Boolean(inputDialog.shadowRoot?.querySelector('cv-dialog')), 'desktop input shell')
+
+    const inputSurface = inputDialog.shadowRoot?.querySelector('cv-dialog')
+    const input = inputDialog.shadowRoot?.querySelector('cv-input') as HTMLElement | null
+    expect(input).not.toBeNull()
+
+    const focusSpy = vi.fn()
+    input!.focus = focusSpy
+
+    inputSurface?.dispatchEvent(new Event('cv-show', {bubbles: true, composed: true}))
+    await new Promise((resolve) => window.setTimeout(resolve, 90))
+
+    expect(focusSpy).toHaveBeenCalledWith({preventScroll: true})
+
+    inputDialog.close(null)
+    inputSurface?.dispatchEvent(new Event('cv-after-hide', {bubbles: true, composed: true}))
+    await expect(resultPromise).resolves.toBeNull()
   })
 
   it('does not reserve keyboard space or autofocus the iOS mobile password dialog before a user tap', async () => {

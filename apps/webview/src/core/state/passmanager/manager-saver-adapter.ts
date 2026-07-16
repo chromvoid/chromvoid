@@ -1,10 +1,17 @@
 import {SAVE_KEY} from '@project/passmanager/consts'
 import type {PasswordsRepository, OTPSecretsGateway} from '@project/passmanager/ports'
 import type {
+  CredentialSecurityAuditArtifactV1,
+} from '@project/passmanager/security-audit'
+import type {
   ManagerSaver,
   OTPGetParams,
+  OTPSaveSettings,
   PassManagerSecretSlot,
+  PassManagerSshKey,
   PassManagerSaveEntryMetaPayload,
+  SshKeygenParams,
+  SshKeygenResult,
 } from '@project/passmanager/types'
 import type {Logger} from '../../logger'
 import {defaultLogger} from '../../logger'
@@ -85,14 +92,14 @@ export class ManagerSaverAdapter implements ManagerSaver {
     return this.secrets.removeOTP(id)
   }
 
-  async saveOTP(id: string, secret: string): Promise<boolean> {
+  async saveOTP(id: string, secret: string, settings?: OTPSaveSettings): Promise<boolean> {
     try {
       this.logger.debug('[PassManager][Adapter.saveOTP] begin', {
         id,
         secretLen: typeof secret === 'string' ? secret.length : 0,
       })
     } catch {}
-    const ok = await this.secrets.saveOTP(id, secret)
+    const ok = await this.secrets.saveOTP(id, secret, settings)
     try {
       this.logger.debug('[PassManager][Adapter.saveOTP] result', {id, ok})
     } catch {}
@@ -175,6 +182,26 @@ export class ManagerSaverAdapter implements ManagerSaver {
     return this.removeEntrySecret(entryId, 'note')
   }
 
+  listSshKeys(): Promise<PassManagerSshKey[]> {
+    return this.repo.listSshKeys()
+  }
+
+  updateSshKey(key: PassManagerSshKey): Promise<boolean> {
+    return this.repo.updateSshKey(key)
+  }
+
+  removeSshKey(keyId: string): Promise<boolean> {
+    return this.repo.removeSshKey(keyId)
+  }
+
+  readSshPublicKey(keyId: string): Promise<string | undefined> {
+    return this.repo.readSshPublicKey(keyId)
+  }
+
+  generateSshKey(params: SshKeygenParams): Promise<SshKeygenResult> {
+    return this.repo.generateSshKey(params)
+  }
+
   async readEntrySshPrivateKey(entryId: string, keyId: string): Promise<string | undefined> {
     try {
       this.logger.debug('[PassManager][Adapter.readEntrySshPrivateKey] begin', {entryId, keyId})
@@ -216,6 +243,14 @@ export class ManagerSaverAdapter implements ManagerSaver {
     }
     const out = await this.repo.getIcon(iconRef)
     return out
+  }
+
+  async readCredentialSecurityAudit(): Promise<CredentialSecurityAuditArtifactV1 | undefined> {
+    return this.repo.readCredentialSecurityAudit?.()
+  }
+
+  async saveCredentialSecurityAudit(artifact: CredentialSecurityAuditArtifactV1): Promise<boolean> {
+    return (await this.repo.saveCredentialSecurityAudit?.(artifact)) ?? false
   }
 
   async saveEntrySshPrivateKey(entryId: string, keyId: string, key: string | null): Promise<boolean> {

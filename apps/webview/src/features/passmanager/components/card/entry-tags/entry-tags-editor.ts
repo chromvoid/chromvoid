@@ -4,6 +4,7 @@ import {nothing, type TemplateResult} from 'lit'
 import {i18n} from '@project/passmanager/i18n'
 import {
   credentialTagKey,
+  fallbackCredentialTagColorId,
   normalizeCredentialTags,
   type CredentialTagKey,
   type CredentialTagOption,
@@ -18,20 +19,27 @@ export type PMEntryTagsEditorState = {
   disabled: boolean
   maxTagsVisible?: number
   placeholder?: string
+  showManage?: boolean
 }
 
 export type PMEntryTagsEditorHandlers = {
   onSelectExistingTagIds(event: Event): void
-  onManageTags(event: Event): void
+  onManageTags?(event: Event): void
 }
 
 export function getSelectedTagIdsFromEvent(event: Event): CredentialTagKey[] {
   const detail = (event as CustomEvent<{selectedIds?: unknown}>).detail
   const selectedIds = Array.isArray(detail?.selectedIds) ? detail.selectedIds : []
-  return selectedIds.filter((id): id is string => typeof id === 'string').map(credentialTagKey).filter(Boolean)
+  return selectedIds
+    .filter((id): id is string => typeof id === 'string')
+    .map(credentialTagKey)
+    .filter(Boolean)
 }
 
-function mergeTagOptions(tags: readonly string[], options: readonly CredentialTagOption[]): CredentialTagOption[] {
+function mergeTagOptions(
+  tags: readonly string[],
+  options: readonly CredentialTagOption[],
+): CredentialTagOption[] {
   const normalizedTags = normalizeCredentialTags(tags)
   const merged = new Map<string, CredentialTagOption>()
 
@@ -42,7 +50,7 @@ function mergeTagOptions(tags: readonly string[], options: readonly CredentialTa
   for (const tag of normalizedTags) {
     const key = credentialTagKey(tag)
     if (!key || merged.has(key)) continue
-    merged.set(key, {key, label: tag, count: 0})
+    merged.set(key, {key, label: tag, colorId: fallbackCredentialTagColorId(key), count: 0})
   }
 
   return [...merged.values()]
@@ -83,37 +91,53 @@ export function renderEntryTagsEditor(
             `,
           )}
         </cv-combobox>
-        <cv-button
-          class="entry-tags-manage"
-          type="button"
-          size="small"
-          variant="default"
-          title=${i18n('tags:manage_open' as never)}
-          aria-label=${i18n('tags:manage_open' as never)}
-          ?disabled=${state.disabled}
-          @click=${onManageTags}
-        >
-          <cv-icon name="sliders" aria-hidden="true"></cv-icon>
-        </cv-button>
+        ${state.showManage === false
+          ? nothing
+          : html`
+              <cv-button
+                class="entry-tags-manage"
+                type="button"
+                size="small"
+                variant="default"
+                title=${i18n('tags:manage_open' as never)}
+                aria-label=${i18n('tags:manage_open' as never)}
+                ?disabled=${state.disabled}
+                @click=${onManageTags}
+              >
+                <cv-icon name="sliders" aria-hidden="true"></cv-icon>
+              </cv-button>
+            `}
       </div>
     </div>
   `
 }
 
-export function renderEntryTagsReadOnly(tags: readonly string[]): TemplateResult | typeof nothing {
+export function renderEntryTagsReadOnly(
+  tags: readonly string[],
+  options: readonly CredentialTagOption[] = [],
+): TemplateResult | typeof nothing {
   const normalizedTags = normalizeCredentialTags(tags)
   if (!normalizedTags.length) return nothing
+  const optionsByKey = new Map(options.map((option) => [option.key, option]))
 
   return html`
     <div class="entry-tags-readonly" aria-label=${i18n('tags:title')}>
-      ${normalizedTags.map(
-        (tag) => html`
-          <cv-badge class="entry-tags-chip" size="small" variant="neutral" title=${`${i18n('entry:badge:tag')}: ${tag}`}>
+      ${normalizedTags.map((tag) => {
+        const key = credentialTagKey(tag)
+        const colorId = optionsByKey.get(key)?.colorId ?? fallbackCredentialTagColorId(key)
+        return html`
+          <cv-badge
+            class="entry-tags-chip"
+            size="small"
+            variant="neutral"
+            data-tag-color-id=${colorId}
+            title=${`${i18n('entry:badge:tag')}: ${tag}`}
+          >
             <cv-icon name="tag" slot="prefix" size="xs" aria-hidden="true"></cv-icon>
             ${tag}
           </cv-badge>
-        `,
-      )}
+        `
+      })}
     </div>
   `
 }

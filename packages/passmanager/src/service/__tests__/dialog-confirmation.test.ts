@@ -92,6 +92,53 @@ describe('passmanager destructive confirmations', () => {
     expect(root.entriesList()).toEqual([group])
   })
 
+  it('returns to the entry parent after removing an open entry', async () => {
+    const saver = createMockSaver()
+    const root = new ManagerRoot(saver)
+    const parent = new Group({
+      id: 'group-parent',
+      name: 'Work',
+      entries: [],
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+    })
+    const entry = new Entry(parent, makeEntryData())
+    parent.entries.set([entry])
+    root.entries.set([parent])
+    root.showElement.set(entry)
+    setPassManagerDialogAdapter({confirm: vi.fn(async () => true)})
+
+    await entry.remove()
+
+    expect(root.showElement()).toBe(parent)
+  })
+
+  it('returns to the parent group after removing an open nested group', async () => {
+    const saver = createMockSaver()
+    const root = new ManagerRoot(saver)
+    const parent = new Group({
+      id: 'group-parent',
+      name: 'Work',
+      entries: [],
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+    })
+    const child = new Group({
+      id: 'group-child',
+      name: 'Work/Archive',
+      entries: [],
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+    })
+    root.entries.set([parent, child])
+    root.showElement.set(child)
+    setPassManagerDialogAdapter({confirm: vi.fn(async () => true)})
+
+    await child.remove()
+
+    expect(root.showElement()).toBe(parent)
+  })
+
   it('cancels OTP removal when confirmation is rejected', async () => {
     const saver = createMockSaver()
     const root = new ManagerRoot(saver)

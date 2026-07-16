@@ -4,7 +4,6 @@ import {css} from 'lit'
 
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 
-import {CommandBar} from 'root/features/file-manager/components/command-bar'
 import {NavigationRail} from 'root/features/file-manager/components/navigation-rail'
 
 export class FileAppShellDesktopLayout extends ReatomLitElement {
@@ -14,7 +13,6 @@ export class FileAppShellDesktopLayout extends ReatomLitElement {
       customElements.define(this.elementName, this as unknown as CustomElementConstructor)
     }
     NavigationRail.define()
-    CommandBar.define()
   }
 
   static get properties() {
@@ -44,8 +42,8 @@ export class FileAppShellDesktopLayout extends ReatomLitElement {
         position: relative;
         contain: content;
         container-type: inline-size;
-        background: var(--surface-base, var(--cv-color-bg, #000));
-        color: var(--text-primary, var(--cv-color-text, #fff));
+        background: var(--app-editorial-surface-base, var(--cv-color-bg, #000));
+        color: var(--app-editorial-text-primary, var(--cv-color-text, #fff));
 
         @supports (block-size: 100svh) {
           block-size: 100svh;
@@ -75,8 +73,7 @@ export class FileAppShellDesktopLayout extends ReatomLitElement {
         min-inline-size: 0;
         min-block-size: 0;
         overflow: auto;
-        background: var(--surface-raised, var(--cv-color-surface, #0a0a0a));
-        view-transition-name: shell-content;
+        background: var(--app-editorial-surface-raised, var(--cv-color-surface, #0a0a0a));
         contain: layout style;
       }
 
@@ -113,11 +110,13 @@ export class FileAppShellDesktopLayout extends ReatomLitElement {
         position: fixed;
         inset-block: 0;
         inset-inline-end: 0;
-        inline-size: min(92vw, var(--details-panel-width, 400px));
-        background: var(--surface-overlay, #111);
-        border-inline-start: 1px solid var(--border-subtle, var(--cv-alpha-white-6));
+        inline-size: min(92vw, var(--app-editorial-details-panel-inline-size, 400px));
+        background: var(--app-editorial-surface-overlay, #111);
+        border-inline-start: 1px solid var(--app-editorial-border-subtle, var(--cv-alpha-white-6));
         box-shadow: var(--cv-shadow-xl, 0 16px 48px var(--cv-alpha-black-65));
-        transform: translateX(100%);
+        transform: translateX(
+          calc(100% * var(--app-runtime-inline-end-direction-sign, 1))
+        );
         opacity: 0;
         pointer-events: none;
         visibility: hidden;
@@ -128,7 +127,6 @@ export class FileAppShellDesktopLayout extends ReatomLitElement {
         transition-behavior: allow-discrete;
         z-index: calc(var(--cv-z-overlay, 300) + 1);
         overflow: auto;
-        view-transition-name: details-panel;
       }
 
       :host([data-details-open]) .details {
@@ -159,11 +157,9 @@ export class FileAppShellDesktopLayout extends ReatomLitElement {
         }
       }
 
-      @media (hover: none) and (pointer: coarse) {
-        @container (max-width: 1000px) {
-          .nav {
-            --nav-rail-width-expanded: 200px;
-          }
+      @container (max-width: 1000px) {
+        .nav {
+          --app-editorial-navigation-rail-inline-size-expanded: 200px;
         }
       }
     `,
@@ -182,8 +178,6 @@ export class FileAppShellDesktopLayout extends ReatomLitElement {
 
   protected render() {
     return html`
-      <command-bar></command-bar>
-
       <header class="topbar"><slot name="desktop-topbar"></slot></header>
 
       <nav class="nav"><navigation-rail></navigation-rail></nav>

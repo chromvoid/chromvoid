@@ -98,7 +98,7 @@ export class ImageGalleryViewerModel {
       return
     }
 
-    this.session.primeThumbnailWindow(index, 0)
+    this.session.primeRetainedThumbnail(index)
   }
 
   primeThumbnailWindow(centerIndex: number, visibleRadius: number) {

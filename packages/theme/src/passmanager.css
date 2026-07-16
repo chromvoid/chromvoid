@@ -1,0 +1,176 @@
+:root {
+  --pm-focus-outline: 2px solid var(--cv-color-focus);
+  --pm-focus-outline-outer-offset: 2px;
+  --pm-focus-border-color: var(--cv-color-primary-border-strong);
+  --pm-active-outline: 2px solid var(--cv-color-primary-ring);
+  --pm-active-outline-offset: -2px;
+  --pm-control-border: var(--cv-color-border-strong);
+  --pm-entry-row-background: transparent;
+  --pm-entry-row-border: transparent;
+  --pm-entry-row-shadow: inset 0 -1px 0 var(--cv-color-border-soft);
+  --pm-entry-row-leading-accent: transparent;
+  --pm-entry-row-hover-background: var(--cv-color-primary-surface);
+  --pm-entry-row-hover-border: var(--cv-color-primary-border-strong);
+  --pm-entry-row-hover-leading-accent: var(--cv-color-primary);
+  --pm-entry-row-active-background: var(--cv-color-primary-surface-strong);
+  --pm-entry-row-active-border: var(--cv-color-primary);
+  --pm-entry-row-active-leading-accent: var(--cv-color-primary);
+  --pm-otp-warning-border: var(--cv-color-warning-border-strong);
+  --pm-otp-warning-ring: var(--cv-color-warning-ring);
+  --pm-strength-color-1: var(--cv-color-warning-dark);
+  --pm-strength-color-3: var(--cv-color-success-dark);
+
+  --pm-avatar-list-size: 32px;
+  --pm-avatar-list-compact-size: 28px;
+  --pm-avatar-list-radius: var(--cv-radius-1);
+  --pm-avatar-list-image-padding: 3px;
+  --pm-avatar-list-image-shadow: 0 1px 2px var(--cv-alpha-black-10);
+  --pm-avatar-list-shadow-opacity: 30%;
+  --pm-avatar-list-letter-size: 11px;
+  --pm-avatar-list-active-contrast-bump: 8%;
+  --pm-avatar-list-active-shadow-opacity: 34%;
+  --pm-avatar-list-folder-size: 24px;
+  --pm-avatar-list-folder-image-padding: 4px;
+  --pm-avatar-list-folder-icon-size: 20px;
+  --pm-avatar-header-image-padding: clamp(4px, 12%, 8px);
+  --pm-avatar-header-shadow-opacity: 36%;
+  --pm-avatar-header-letter-size: var(--cv-font-size-lg);
+  --pm-avatar-header-letter-size-compact: var(--cv-font-size-base);
+  --pm-avatar-header-letter-size-md: 1.5rem;
+  --pm-avatar-header-letter-size-lg: 1.75rem;
+  --pm-avatar-picker-radius: 8px;
+  --pm-avatar-picker-preview-size: 28px;
+  --pm-avatar-picker-preview-image-padding: 4px;
+  --pm-avatar-picker-preview-icon-size: 24px;
+  --pm-avatar-picker-dialog-preview-size: 34px;
+  --pm-avatar-picker-dialog-image-padding: 3px;
+  --pm-avatar-picker-dialog-icon-size: 20px;
+  --pm-action-copy-size-inline: 1.8rem;
+  --pm-action-copy-size-compact: 1.65rem;
+  --pm-action-copy-size-dense: 1.55rem;
+  --pm-move-indent-step: 12px;
+  --pm-move-indent-step-mobile: 10px;
+  --pm-mobile-list-row-min-block-size: 60px;
+  --pm-mobile-list-row-padding-block: 8px;
+  --pm-mobile-list-row-padding-inline: 12px;
+  --pm-mobile-list-row-gap: 8px;
+  --pm-mobile-list-row-icon-size: 36px;
+  --pm-mobile-list-row-icon-radius: 9px;
+  --pm-mobile-list-row-icon-image-padding: 4px;
+  --pm-mobile-list-row-icon-letter-size: 14px;
+  --pm-mobile-group-inline-gutter: var(--app-mobile-surface-gutter-inline);
+  --pm-mobile-group-scroll-edge-block-size: 20px;
+  --pm-entry-header-control-size: 40px;
+  --pm-entry-header-control-icon-size: 18px;
+  --pm-entry-mobile-password-action-size: 40px;
+  --pm-toolbar-control-block-size: var(--app-toolbar-control-block-size);
+  --pm-toolbar-control-radius: var(--app-toolbar-control-radius);
+  --pm-toolbar-control-padding-inline: var(--app-toolbar-control-padding-inline);
+  --pm-toolbar-control-font-size: var(--app-toolbar-control-font-size);
+  --pm-toolbar-control-font-weight: var(--app-toolbar-control-font-weight);
+  --pm-toolbar-control-gap: var(--app-toolbar-control-gap);
+  --pm-quick-filter-block-size: 30px;
+  --pm-quick-filter-padding-inline: var(--cv-space-2);
+  --pm-quick-filter-font-size: 0.8125rem;
+  --pm-quick-filter-gap: 6px;
+  --pm-quick-filter-icon-size: 13px;
+  --pm-desktop-list-row-block-size: 48px;
+  --pm-desktop-list-inline-padding: var(--app-surface-gutter-desktop);
+  --pm-desktop-list-row-padding-start: var(--app-surface-gutter-desktop);
+  --pm-desktop-list-row-padding-end: var(--app-surface-gutter-desktop);
+  --pm-desktop-page-content-inset-start: calc(
+    var(--app-surface-gutter-desktop) + var(--app-surface-gutter-desktop)
+  );
+  --pm-desktop-page-content-inset-end: 14px;
+  --pm-entry-status-dot-glow: var(--cv-color-primary-ring);
+  --pm-entry-status-dot-warning-glow: var(--cv-color-warning-ring);
+  --pm-entry-status-dot-danger-glow: var(--cv-color-danger-ring);
+
+  --pm-tag-on-accent: hwb(218 2.7% 92.9%);
+
+  --pm-tag-violet: hwb(259 54.5% 2%);
+  --pm-tag-violet-surface: hwb(259 54.5% 2% / 0.14);
+  --pm-tag-violet-surface-strong: hwb(259 54.5% 2% / 0.22);
+  --pm-tag-violet-border: hwb(259 54.5% 2% / 0.32);
+  --pm-tag-violet-border-strong: hwb(259 54.5% 2% / 0.44);
+  --pm-tag-violet-ring: hwb(259 54.5% 2% / 0.24);
+
+  --pm-tag-green: hwb(158 20.4% 17.3%);
+  --pm-tag-green-surface: hwb(158 20.4% 17.3% / 0.14);
+  --pm-tag-green-surface-strong: hwb(158 20.4% 17.3% / 0.22);
+  --pm-tag-green-border: hwb(158 20.4% 17.3% / 0.32);
+  --pm-tag-green-border-strong: hwb(158 20.4% 17.3% / 0.44);
+  --pm-tag-green-ring: hwb(158 20.4% 17.3% / 0.24);
+
+  --pm-tag-blue: hwb(213 37.6% 2%);
+  --pm-tag-blue-surface: hwb(213 37.6% 2% / 0.14);
+  --pm-tag-blue-surface-strong: hwb(213 37.6% 2% / 0.22);
+  --pm-tag-blue-border: hwb(213 37.6% 2% / 0.32);
+  --pm-tag-blue-border-strong: hwb(213 37.6% 2% / 0.44);
+  --pm-tag-blue-ring: hwb(213 37.6% 2% / 0.24);
+
+  --pm-tag-pink: hwb(329 44.7% 4.3%);
+  --pm-tag-pink-surface: hwb(329 44.7% 4.3% / 0.14);
+  --pm-tag-pink-surface-strong: hwb(329 44.7% 4.3% / 0.22);
+  --pm-tag-pink-border: hwb(329 44.7% 4.3% / 0.32);
+  --pm-tag-pink-border-strong: hwb(329 44.7% 4.3% / 0.44);
+  --pm-tag-pink-ring: hwb(329 44.7% 4.3% / 0.24);
+
+  --pm-tag-amber: hwb(43 14.1% 1.6%);
+  --pm-tag-amber-surface: hwb(43 14.1% 1.6% / 0.14);
+  --pm-tag-amber-surface-strong: hwb(43 14.1% 1.6% / 0.22);
+  --pm-tag-amber-border: hwb(43 14.1% 1.6% / 0.32);
+  --pm-tag-amber-border-strong: hwb(43 14.1% 1.6% / 0.44);
+  --pm-tag-amber-ring: hwb(43 14.1% 1.6% / 0.24);
+
+  --pm-tag-orange: hwb(12 33.3% 6.3%);
+  --pm-tag-orange-surface: hwb(12 33.3% 6.3% / 0.14);
+  --pm-tag-orange-surface-strong: hwb(12 33.3% 6.3% / 0.22);
+  --pm-tag-orange-border: hwb(12 33.3% 6.3% / 0.32);
+  --pm-tag-orange-border-strong: hwb(12 33.3% 6.3% / 0.44);
+  --pm-tag-orange-ring: hwb(12 33.3% 6.3% / 0.24);
+
+  --pm-tag-cyan: hwb(188 13.3% 6.7%);
+  --pm-tag-cyan-surface: hwb(188 13.3% 6.7% / 0.14);
+  --pm-tag-cyan-surface-strong: hwb(188 13.3% 6.7% / 0.22);
+  --pm-tag-cyan-border: hwb(188 13.3% 6.7% / 0.32);
+  --pm-tag-cyan-border-strong: hwb(188 13.3% 6.7% / 0.44);
+  --pm-tag-cyan-ring: hwb(188 13.3% 6.7% / 0.24);
+
+  --pm-payment-card-face-gradient:
+    radial-gradient(circle at 16% 18%, var(--cv-color-primary-surface) 0%, transparent 34%),
+    radial-gradient(circle at 82% 84%, var(--cv-color-primary-surface) 0%, transparent 30%),
+    linear-gradient(
+      145deg,
+      var(--cv-color-surface-2) 0%,
+      var(--cv-color-bg) 50%,
+      var(--cv-color-surface) 100%
+    );
+  --pm-payment-card-orb-primary-gradient: radial-gradient(
+    circle,
+    var(--cv-color-primary-surface) 0%,
+    transparent 70%
+  );
+  --pm-payment-card-orb-secondary-gradient: radial-gradient(
+    circle,
+    var(--cv-color-primary-surface) 0%,
+    transparent 72%
+  );
+  --pm-payment-card-chip-gradient: linear-gradient(
+    135deg,
+    var(--cv-color-warning) 0%,
+    var(--cv-color-warning-dark) 100%
+  );
+  --pm-payment-card-shimmer-gradient: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--cv-color-surface-highlight) 50%,
+    transparent 100%
+  );
+  --pm-payment-card-chip-soft-gradient: linear-gradient(
+    135deg,
+    var(--cv-color-warning) 0%,
+    var(--cv-color-warning-dark) 62%,
+    var(--cv-color-warning-dark) 100%
+  );
+}

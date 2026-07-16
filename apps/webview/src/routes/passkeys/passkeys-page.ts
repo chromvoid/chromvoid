@@ -4,7 +4,6 @@ import {css, nothing} from 'lit'
 import {i18n} from 'root/i18n'
 import {renderGuidanceInline} from 'root/features/guidance/render-guidance-inline'
 import {CvEmptyState} from 'root/shared/ui/empty-state'
-import {renderRouteBackLink} from 'root/shared/ui/route-back-link'
 import {
   hostLayoutPaintContainStyles,
   pageFadeInStyles,
@@ -14,11 +13,7 @@ import {
   sharedStyles,
 } from 'root/shared/ui/shared-styles'
 import {routeCardStyles} from 'root/shared/ui/route-card.styles'
-import {
-  passkeysPageModel,
-  type AndroidPasskeyGroup,
-  type AndroidPasskeySummary,
-} from './passkeys.model'
+import {passkeysPageModel, type PasskeyGroup, type PasskeySummary} from './passkeys.model'
 
 export class PasskeysPage extends ReatomLitElement {
   static elementName = 'passkeys-page'
@@ -29,21 +24,7 @@ export class PasskeysPage extends ReatomLitElement {
     }
   }
 
-  static properties = {
-    hideBackLink: {type: Boolean, attribute: 'hide-back-link'},
-    externalToolbar: {type: Boolean, attribute: 'external-toolbar'},
-  }
-
-  declare hideBackLink: boolean
-  declare externalToolbar: boolean
-
   private readonly model = passkeysPageModel
-
-  constructor() {
-    super()
-    this.hideBackLink = false
-    this.externalToolbar = false
-  }
 
   static styles = [
     sharedStyles,
@@ -55,7 +36,11 @@ export class PasskeysPage extends ReatomLitElement {
     routeCardStyles,
     css`
       .page {
-        max-inline-size: 720px;
+        box-sizing: border-box;
+        inline-size: 100%;
+        max-inline-size: 920px;
+        padding-inline: var(--app-spacing-4);
+        padding-block-end: var(--app-spacing-8);
       }
 
       :host {
@@ -65,10 +50,10 @@ export class PasskeysPage extends ReatomLitElement {
         overflow-y: auto;
         overflow-x: hidden;
         -webkit-overflow-scrolling: touch;
-        --route-card-background: var(--surface-elevated, var(--cv-color-surface-elevated));
-        --route-card-border-color: var(--border-subtle, var(--cv-alpha-white-8));
-        --route-card-radius: var(--cv-radius-lg, 12px);
-        --route-card-padding: var(--app-spacing-4);
+        --app-route-card-background: var(--app-editorial-surface-elevated, var(--cv-color-surface-elevated));
+        --app-route-card-border-color: var(--app-editorial-border-subtle, var(--cv-alpha-white-8));
+        --app-route-card-radius: var(--cv-radius-lg, 12px);
+        --app-route-card-padding: var(--app-spacing-4);
       }
 
       @media (max-width: 767px) {
@@ -76,10 +61,10 @@ export class PasskeysPage extends ReatomLitElement {
           box-sizing: border-box;
           padding-block-start: var(--app-spacing-4);
           padding-block-end: calc(
-            var(--app-spacing-8) + var(--mobile-tab-bar-content-clearance, 64px)
+            var(--app-spacing-8) + var(--app-mobile-shell-tab-bar-content-clearance, 64px)
           );
-          padding-inline-start: max(var(--app-spacing-4), env(safe-area-inset-left));
-          padding-inline-end: max(var(--app-spacing-4), env(safe-area-inset-right));
+          padding-inline-start: max(var(--app-spacing-4), var(--app-runtime-safe-area-inline-start, 0px));
+          padding-inline-end: max(var(--app-spacing-4), var(--app-runtime-safe-area-inline-end, 0px));
         }
       }
 
@@ -117,14 +102,14 @@ export class PasskeysPage extends ReatomLitElement {
 
       .passkey-explainer-title {
         margin: 0;
-        color: var(--text-primary, var(--cv-color-text-strongest));
+        color: var(--app-editorial-text-primary, var(--cv-color-text-strongest));
         font-size: var(--cv-font-size-sm);
         font-weight: var(--cv-font-weight-semibold);
       }
 
       .passkey-explainer-description {
         margin: 0;
-        color: var(--text-tertiary, var(--cv-alpha-white-50));
+        color: var(--app-editorial-text-tertiary, var(--cv-alpha-white-50));
         font-size: var(--cv-font-size-xs);
         overflow-wrap: anywhere;
       }
@@ -147,14 +132,14 @@ export class PasskeysPage extends ReatomLitElement {
 
       .section-title {
         margin: 0;
-        color: var(--text-primary, var(--cv-color-text-strongest));
+        color: var(--app-editorial-text-primary, var(--cv-color-text-strongest));
         font-size: var(--cv-font-size-base);
         font-weight: var(--cv-font-weight-semibold);
       }
 
       .section-description {
         margin: 0;
-        color: var(--text-tertiary, var(--cv-alpha-white-50));
+        color: var(--app-editorial-text-tertiary, var(--cv-alpha-white-50));
         font-size: var(--cv-font-size-xs);
       }
 
@@ -167,9 +152,9 @@ export class PasskeysPage extends ReatomLitElement {
         display: grid;
         gap: var(--app-spacing-3);
         padding: var(--app-spacing-3);
-        border: 1px solid var(--border-subtle, var(--cv-alpha-white-8));
+        border: 1px solid var(--app-editorial-border-subtle, var(--cv-alpha-white-8));
         border-radius: var(--cv-radius-md, 8px);
-        background: var(--surface-muted, var(--cv-color-surface-3));
+        background: var(--app-editorial-surface-muted, var(--cv-color-surface-3));
       }
 
       .passkey-row,
@@ -184,7 +169,7 @@ export class PasskeysPage extends ReatomLitElement {
         display: grid;
         gap: var(--app-spacing-2);
         padding-block-start: var(--app-spacing-3);
-        border-block-start: 1px solid var(--border-subtle, var(--cv-alpha-white-8));
+        border-block-start: 1px solid var(--app-editorial-border-subtle, var(--cv-alpha-white-8));
       }
 
       .passkey-primary {
@@ -194,7 +179,7 @@ export class PasskeysPage extends ReatomLitElement {
       }
 
       .passkey-title {
-        color: var(--text-primary, var(--cv-color-text-strongest));
+        color: var(--app-editorial-text-primary, var(--cv-color-text-strongest));
         font-size: var(--cv-font-size-sm);
         font-weight: var(--cv-font-weight-semibold);
         overflow-wrap: anywhere;
@@ -214,7 +199,7 @@ export class PasskeysPage extends ReatomLitElement {
         padding: 2px var(--app-spacing-2);
         border: 1px solid var(--cv-color-warning-border);
         background: var(--cv-color-warning-surface);
-        color: var(--text-primary, var(--cv-color-text-strongest));
+        color: var(--app-editorial-text-primary, var(--cv-color-text-strongest));
         font-size: var(--cv-font-size-xs);
         font-weight: var(--cv-font-weight-medium, 500);
       }
@@ -232,7 +217,7 @@ export class PasskeysPage extends ReatomLitElement {
 
       .passkey-meta,
       .description {
-        color: var(--text-tertiary, var(--cv-alpha-white-50));
+        color: var(--app-editorial-text-tertiary, var(--cv-alpha-white-50));
         font-size: var(--cv-font-size-xs);
         overflow-wrap: anywhere;
       }
@@ -242,6 +227,17 @@ export class PasskeysPage extends ReatomLitElement {
         flex-wrap: wrap;
         justify-content: flex-end;
         gap: var(--app-spacing-2);
+      }
+
+      @media (min-width: 768px) {
+        .card {
+          gap: var(--app-spacing-5);
+        }
+
+        .passkey-explainer,
+        .passkey-group {
+          padding: var(--app-spacing-4);
+        }
       }
 
       @media (max-width: 560px) {
@@ -272,20 +268,16 @@ export class PasskeysPage extends ReatomLitElement {
 
   handleEvent(event: Event): void {
     if (event.type === 'focus') {
-      void this.model.refreshAndroidPasskeys()
+      void this.model.refreshPasskeys()
       return
     }
 
     if (event.type === 'visibilitychange' && document.visibilityState === 'visible') {
-      void this.model.refreshAndroidPasskeys()
+      void this.model.refreshPasskeys()
     }
   }
 
-  private handleBack() {
-    this.model.goBack()
-  }
-
-  private handleDeleteAndroidPasskey(event: Event) {
+  private handleDeletePasskey(event: Event) {
     const data = (event.currentTarget as HTMLElement | null)?.dataset
     const credentialId = data?.['credentialId']
     if (credentialId) {
@@ -293,14 +285,14 @@ export class PasskeysPage extends ReatomLitElement {
     }
   }
 
-  private handleToggleAndroidPasskeyGroup(event: Event) {
+  private handleTogglePasskeyGroup(event: Event) {
     const groupKey = (event.currentTarget as HTMLElement | null)?.dataset['groupKey']
     if (groupKey) {
-      this.model.toggleAndroidPasskeyGroup(groupKey)
+      this.model.togglePasskeyGroup(groupKey)
     }
   }
 
-  private renderAndroidPasskeySection(groups: AndroidPasskeyGroup[]) {
+  private renderPasskeySection(groups: PasskeyGroup[]) {
     if (groups.length === 0) {
       return nothing
     }
@@ -311,17 +303,15 @@ export class PasskeysPage extends ReatomLitElement {
           <h2 class="section-title">${i18n('passkeys:vault-section-title')}</h2>
           <p class="section-description">${i18n('passkeys:vault-section-description')}</p>
         </div>
-        <div class="passkey-list">
-          ${groups.map((group) => this.renderAndroidPasskeyGroup(group))}
-        </div>
+        <div class="passkey-list">${groups.map((group) => this.renderPasskeyGroup(group))}</div>
       </section>
     `
   }
 
-  private renderAndroidPasskeyGroup(group: AndroidPasskeyGroup) {
+  private renderPasskeyGroup(group: PasskeyGroup) {
     const primary = group.primary
-    const primaryDeleting = this.model.androidPasskeyIsDeleting(primary)
-    const expanded = this.model.isAndroidPasskeyGroupExpanded(group.key)
+    const primaryDeleting = this.model.passkeyIsDeleting(primary)
+    const expanded = this.model.isPasskeyGroupExpanded(group.key)
 
     return html`
       <div class="passkey-group">
@@ -329,9 +319,7 @@ export class PasskeysPage extends ReatomLitElement {
           <div class="passkey-primary">
             <div class="passkey-title-row">
               <span class="passkey-title">${group.accountLabel}</span>
-              <span class="passkey-badge passkey-badge--vault">
-                ${this.model.androidPasskeyStorageLabel()}
-              </span>
+              <span class="passkey-badge passkey-badge--vault"> ${this.model.passkeyStorageLabel()} </span>
               ${group.duplicates.length > 0
                 ? html`
                     <span class="passkey-badge">
@@ -346,17 +334,17 @@ export class PasskeysPage extends ReatomLitElement {
               <span class="passkey-meta">${group.rpId}</span>
               <span class="passkey-meta">
                 ${i18n('passkeys:last-used', {
-                  value: this.model.androidPasskeyLastUsedLabel(primary),
+                  value: this.model.passkeyLastUsedLabel(primary),
                 })}
               </span>
               <span class="passkey-meta">
                 ${i18n('passkeys:created', {
-                  value: this.model.androidPasskeyCreatedLabel(primary),
+                  value: this.model.passkeyCreatedLabel(primary),
                 })}
               </span>
               <span class="passkey-meta">
                 ${i18n('passkeys:sign-count', {
-                  value: this.model.androidPasskeySignCountLabel(primary),
+                  value: this.model.passkeySignCountLabel(primary),
                 })}
               </span>
             </div>
@@ -368,7 +356,7 @@ export class PasskeysPage extends ReatomLitElement {
                     variant="default"
                     data-group-key=${group.key}
                     aria-expanded=${expanded ? 'true' : 'false'}
-                    @click=${this.handleToggleAndroidPasskeyGroup}
+                    @click=${this.handleTogglePasskeyGroup}
                   >
                     ${expanded ? i18n('passkeys:hide-duplicates') : i18n('passkeys:show-duplicates')}
                   </cv-button>
@@ -379,16 +367,16 @@ export class PasskeysPage extends ReatomLitElement {
               data-credential-id=${primary.credentialIdB64Url}
               ?disabled=${primaryDeleting}
               .loading=${primaryDeleting}
-              @click=${this.handleDeleteAndroidPasskey}
+              @click=${this.handleDeletePasskey}
             >
-              ${this.model.androidPasskeyDeleteActionLabel()}
+              ${this.model.passkeyDeleteActionLabel()}
             </cv-button>
           </div>
         </div>
         ${expanded
           ? html`
               <div class="passkey-duplicates">
-                ${group.duplicates.map((duplicate) => this.renderAndroidPasskeyDuplicate(duplicate))}
+                ${group.duplicates.map((duplicate) => this.renderPasskeyDuplicate(duplicate))}
               </div>
             `
           : nothing}
@@ -396,31 +384,31 @@ export class PasskeysPage extends ReatomLitElement {
     `
   }
 
-  private renderAndroidPasskeyDuplicate(duplicate: AndroidPasskeySummary) {
-    const duplicateDeleting = this.model.androidPasskeyIsDeleting(duplicate)
+  private renderPasskeyDuplicate(duplicate: PasskeySummary) {
+    const duplicateDeleting = this.model.passkeyIsDeleting(duplicate)
 
     return html`
       <div class="passkey-duplicate-row">
         <div class="passkey-primary">
           <span class="passkey-title">
             ${i18n('passkeys:local-credential', {
-              id: this.model.androidPasskeyShortCredentialId(duplicate),
+              id: this.model.passkeyShortCredentialId(duplicate),
             })}
           </span>
           <div class="passkey-meta-grid">
             <span class="passkey-meta">
               ${i18n('passkeys:last-used', {
-                value: this.model.androidPasskeyLastUsedLabel(duplicate),
+                value: this.model.passkeyLastUsedLabel(duplicate),
               })}
             </span>
             <span class="passkey-meta">
               ${i18n('passkeys:created', {
-                value: this.model.androidPasskeyCreatedLabel(duplicate),
+                value: this.model.passkeyCreatedLabel(duplicate),
               })}
             </span>
             <span class="passkey-meta">
               ${i18n('passkeys:sign-count', {
-                value: this.model.androidPasskeySignCountLabel(duplicate),
+                value: this.model.passkeySignCountLabel(duplicate),
               })}
             </span>
           </div>
@@ -431,9 +419,9 @@ export class PasskeysPage extends ReatomLitElement {
             data-credential-id=${duplicate.credentialIdB64Url}
             ?disabled=${duplicateDeleting}
             .loading=${duplicateDeleting}
-            @click=${this.handleDeleteAndroidPasskey}
+            @click=${this.handleDeletePasskey}
           >
-            ${this.model.androidPasskeyDeleteActionLabel()}
+            ${this.model.passkeyDeleteActionLabel()}
           </cv-button>
         </div>
       </div>
@@ -441,27 +429,13 @@ export class PasskeysPage extends ReatomLitElement {
   }
 
   protected render() {
-    const androidPasskeyGroups = this.model.androidPasskeyGroups()
-    const hasAndroidPasskeys = androidPasskeyGroups.length > 0
-    const androidPasskeysLoading = this.model.androidPasskeysLoading()
-    const androidPasskeysError = this.model.androidPasskeysError()
+    const passkeyGroups = this.model.passkeyGroups()
+    const hasPasskeys = passkeyGroups.length > 0
+    const passkeysLoading = this.model.passkeysLoading()
+    const passkeysError = this.model.passkeysError()
 
     return html`
       <div class="page">
-        ${this.externalToolbar
-          ? nothing
-          : html`
-              <div class="header">
-                ${renderRouteBackLink({
-                  hidden: this.hideBackLink,
-                  label: i18n('nav:back'),
-                  onBack: this.handleBack,
-                })}
-                <h1 class="title">${i18n('passkeys:title')}</h1>
-                <p class="subtitle">${i18n('passkeys:description')}</p>
-              </div>
-            `}
-
         <section class="card">
           <cv-guidance-anchor anchor-id="passkeys.manage" surface="passkeys" owner="passkeys">
             <div class="passkey-explainer">
@@ -477,30 +451,25 @@ export class PasskeysPage extends ReatomLitElement {
 
           ${this.model.isAvailable()
             ? html`
-                ${androidPasskeysError
+                ${passkeysError
                   ? html`<cv-callout class="passkeys-callout" variant="warning" density="dense" role="alert">
-                      ${androidPasskeysError}
+                      ${passkeysError}
                     </cv-callout>`
                   : nothing}
-
-                ${androidPasskeysLoading
+                ${passkeysLoading
                   ? html`<p class="description">${i18n('passkeys:loading')}</p>`
-                  : !hasAndroidPasskeys
+                  : !hasPasskeys
                     ? html`
                         <cv-empty-state
                           icon="octicons:passkey-fill"
                           icon-fill
                           headline=${i18n('passkeys:empty')}
-                        >
-                          ${renderGuidanceInline('passkeys.manage', 'passkeys')}
-                        </cv-empty-state>
+                          description=${i18n('passkeys:empty-description')}
+                        ></cv-empty-state>
+                        ${renderGuidanceInline('passkeys.manage', 'passkeys')}
                       `
-                    : html`
-                        <div class="passkey-sections">
-                          ${this.renderAndroidPasskeySection(androidPasskeyGroups)}
-                        </div>
-                      `}
-                <p class="description">${i18n('passkeys:delete-note')}</p>
+                    : html` <div class="passkey-sections">${this.renderPasskeySection(passkeyGroups)}</div> `}
+                ${hasPasskeys ? html`<p class="description">${i18n('passkeys:delete-note')}</p>` : nothing}
               `
             : html`<p class="description">${i18n('passkeys:unsupported')}</p>`}
         </section>

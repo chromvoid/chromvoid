@@ -5,7 +5,10 @@ export type WalletSummary = {
   wallet_id: string
   kind: string
   label: string
+  wallet_mode?: string | null
+  mnemonic_standard: string
   supported_networks: Array<WalletNetwork>
+  bitcoin_discovery_pending?: boolean | null
   created_at: number
   updated_at: number
 }

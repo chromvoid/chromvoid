@@ -17,6 +17,7 @@ const LOCKED_PRO_STATES: ModuleAccessState[] = [
   {feature_key: 'mounted-vault', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
   {feature_key: 'credential-provider', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
   {feature_key: 'ssh-agent', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
+  {feature_key: 'env-runtime', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
   {feature_key: 'crypto-wallet', status: 'unsupported', denial_code: 'FEATURE_UNSUPPORTED_ON_PLATFORM'},
   {feature_key: 'emergency-access', status: 'unsupported', denial_code: 'FEATURE_UNSUPPORTED_ON_PLATFORM'},
 ]
@@ -41,6 +42,7 @@ describe('moduleAccessModel runtime support overlay', () => {
     expect(moduleAccessModel.featureAccess('remote').status).toBe('locked_pro')
     expect(moduleAccessModel.featureAccess('mounted-vault').status).toBe('unsupported')
     expect(moduleAccessModel.featureAccess('browser-extension').status).toBe('unsupported')
+    expect(moduleAccessModel.featureAccess('env-runtime').status).toBe('unsupported')
     expect(moduleAccessModel.isSurfaceVisible('remote')).toBe(true)
     expect(moduleAccessModel.isSurfaceVisible('remote-storage')).toBe(false)
     expect(moduleAccessModel.isSurfaceVisible('gateway')).toBe(false)
@@ -58,8 +60,46 @@ describe('moduleAccessModel runtime support overlay', () => {
 
     expect(moduleAccessModel.featureAccess('mounted-vault').status).toBe('locked_pro')
     expect(moduleAccessModel.featureAccess('browser-extension').status).toBe('locked_pro')
+    expect(moduleAccessModel.featureAccess('env-runtime').status).toBe('locked_pro')
     expect(moduleAccessModel.isSurfaceVisible('remote-storage')).toBe(true)
     expect(moduleAccessModel.isSurfaceVisible('gateway')).toBe(true)
+  })
+
+  it('keeps Env Runtime unsupported on non-macOS desktop platforms', () => {
+    moduleAccessModel.rawStates.set(LOCKED_PRO_STATES)
+    setRuntimeCapabilities({
+      platform: 'windows',
+      desktop: true,
+    })
+
+    expect(moduleAccessModel.featureAccess('env-runtime')).toMatchObject({
+      status: 'unsupported',
+      denial_code: 'FEATURE_UNSUPPORTED_ON_PLATFORM',
+    })
+  })
+
+  it('shows wallet as a locked Pro surface when Core reports wallet support', () => {
+    moduleAccessModel.rawStates.set([
+      {feature_key: 'crypto-wallet', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
+    ])
+
+    expect(moduleAccessModel.featureAccess('crypto-wallet').status).toBe('locked_pro')
+    expect(moduleAccessModel.isSurfaceVisible('wallet')).toBe(true)
+    expect(moduleAccessModel.canOpenSurface('wallet')).toBe(false)
+  })
+
+  it('hides wallet when Core reports wallet support is unavailable', () => {
+    moduleAccessModel.rawStates.set([
+      {
+        feature_key: 'crypto-wallet',
+        status: 'unsupported',
+        denial_code: 'FEATURE_UNSUPPORTED_ON_PLATFORM',
+      },
+    ])
+
+    expect(moduleAccessModel.featureAccess('crypto-wallet').status).toBe('unsupported')
+    expect(moduleAccessModel.isSurfaceVisible('wallet')).toBe(false)
+    expect(moduleAccessModel.canOpenSurface('wallet')).toBe(false)
   })
 
   it('recomputes effective access when runtime capabilities change', () => {

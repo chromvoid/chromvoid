@@ -1,7 +1,9 @@
 import {expect, test} from 'vitest'
 
+import type {Browser} from 'playwright'
+import type * as AppContextModule from '../../src/shared/services/app-context'
 declare global {
-  var __E2E_BROWSER__: import('playwright').Browser | undefined
+  var __E2E_BROWSER__: Browser | undefined
 }
 
 const BASE_URL = 'http://localhost:4400/index.html'
@@ -143,7 +145,7 @@ test('mobile Files toolbar overflow item executes from touch coordinates', async
       async (name) => {
         const dynamicImport = new Function('path', 'return import(path)') as (
           path: string,
-        ) => Promise<typeof import('../../src/shared/services/app-context')>
+        ) => Promise<typeof AppContextModule>
         const {getAppContext} = await dynamicImport('/shared/services/app-context.ts')
         const children = getAppContext().catalog.catalog.getChildren('/')
         return Array.isArray(children) && children.some((node) => node?.name === name)

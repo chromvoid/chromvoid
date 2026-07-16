@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mobile-usb-host-reject-pairing"
+description = "Enables the mobile_usb_host_reject_pairing command without any pre-configured scope."
+commands.allow = ["mobile_usb_host_reject_pairing"]
+
+[[permission]]
+identifier = "deny-mobile-usb-host-reject-pairing"
+description = "Denies the mobile_usb_host_reject_pairing command without any pre-configured scope."
+commands.deny = ["mobile_usb_host_reject_pairing"]

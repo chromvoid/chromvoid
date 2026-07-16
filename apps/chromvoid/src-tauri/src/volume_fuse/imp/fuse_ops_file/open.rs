@@ -69,12 +69,33 @@ pub(in crate::volume_fuse::imp) fn handle_open(
 
     let fh = fs.alloc_fh();
     let tmp_path = fs.fh_tmp_path(fh);
+    let mut source_revision = entry.source_revision;
+
+    if writeable {
+        if let Err(e) = fs.acquire_write_lease(entry.catalog_node_id, fh) {
+            reply.error(fuse_errno(e));
+            return;
+        }
+        if source_revision == 0 {
+            match fs.source_revision_for_node(entry.catalog_node_id) {
+                Ok(revision) => {
+                    source_revision = revision;
+                }
+                Err(e) => {
+                    fs.release_write_lease(entry.catalog_node_id, fh);
+                    reply.error(fuse_errno(e));
+                    return;
+                }
+            }
+        }
+    }
 
     // For read-only opens, don't pre-download the entire file.
     // Finder expects open() to be fast and will call read() for content.
     if writeable {
         // Ensure staging dir exists.
         if std::fs::create_dir_all(&fs.staging_dir).is_err() {
+            fs.release_write_lease(entry.catalog_node_id, fh);
             reply.error(fuse_errno(libc::EIO));
             return;
         }
@@ -88,6 +109,7 @@ pub(in crate::volume_fuse::imp) fn handle_open(
                 .open(&tmp_path)
                 .is_err()
             {
+                fs.release_write_lease(entry.catalog_node_id, fh);
                 reply.error(fuse_errno(libc::EIO));
                 return;
             }
@@ -100,6 +122,7 @@ pub(in crate::volume_fuse::imp) fn handle_open(
         } else {
             // Materialize current content to temp file for writable edits.
             if let Err(e) = fs.download_to_path(entry.catalog_node_id, &tmp_path) {
+                fs.release_write_lease(entry.catalog_node_id, fh);
                 reply.error(fuse_errno(e));
                 return;
             }
@@ -109,21 +132,24 @@ pub(in crate::volume_fuse::imp) fn handle_open(
     let mut map = match fs.open_files.lock() {
         Ok(map) => map,
         Err(_) => {
+            fs.release_write_lease(entry.catalog_node_id, fh);
             reply.error(fuse_errno(libc::EIO));
             return;
         }
     };
     map.insert(
         fh,
-        OpenFileState {
+        Arc::new(Mutex::new(OpenFileState {
             ino,
             node_id: entry.catalog_node_id,
             tmp_path,
             writeable,
             dirty: truncate,
+            dirty_ranges: Vec::new(),
+            source_revision,
             read_stream: None,
             read_pos: 0,
-        },
+        })),
     );
 
     reply.opened(fuse_fh(fh), FopenFlags::empty());

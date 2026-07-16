@@ -155,6 +155,12 @@ export const setupPassmanagerReload = (ws: TransportLike, store: Store, backend:
     refreshRevisionAndSchedule()
   })
 
+  // `update:state` can arrive before remoteSessionState flips to ready after adapter swap.
+  subscribeToSignalChanges(store.remoteSessionState, (next, previous) => {
+    if (next !== 'ready' || previous === 'ready') return
+    scheduleReload()
+  })
+
   subscribeToSignalChanges(navigationModel.currentSurface, () => {
     if (!pending || !isPasswordsSurfaceActive()) return
     scheduleReload()

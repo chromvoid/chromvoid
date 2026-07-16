@@ -5,13 +5,13 @@ import {html} from '@chromvoid/uikit/reatom-lit'
 import {Entry} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
 import {navigationModel} from 'root/app/navigation/navigation.model'
-import {hostContainStyles, pageFadeInStyles, pageTransitionStyles} from 'root/shared/ui/shared-styles'
+import {hostContainStyles} from 'root/shared/ui/shared-styles'
 import {ScrollEdgeAffordanceModel} from 'root/shared/ui/scroll-edge-affordance.model'
 import {scrollEdgeAffordanceStyles} from 'root/shared/ui/scroll-edge-affordance.styles'
-import {pmComponentLoaderModel} from '../../models/pm-component-loader.model'
 import {pmSharedStyles} from '../../styles/shared'
 import {PMMobileTagFilterSheet} from '../list/mobile-tag-filter-sheet'
 import {PMOtpQuickView} from '../otp-quick-view'
+import {PMSshKeysView} from '../ssh-keys-view'
 import {PMLayoutBase, type SearchElement} from './password-manager-layout-base'
 import {passwordManagerDesktopLayoutModel} from './password-manager-layout.model'
 import {passwordManagerLayoutStyles} from './password-manager-layout.styles'
@@ -32,13 +32,12 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
       customElements.define(this.elementName, this as unknown as CustomElementConstructor)
     }
     PMOtpQuickView.define()
+    PMSshKeysView.define()
     PMMobileTagFilterSheet.define()
   }
 
   static styles = [
     ...pmSharedStyles,
-    pageTransitionStyles,
-    pageFadeInStyles,
     hostContainStyles,
     scrollEdgeAffordanceStyles,
     passwordManagerLayoutStyles,
@@ -46,7 +45,7 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
       :host {
         padding: var(--app-surface-gutter-desktop);
         background: transparent;
-        --sidebar-width: clamp(248px, 28cqw, 312px);
+        --_pm-layout-sidebar-inline-size: clamp(248px, 28cqw, 312px);
         --pm-credentials-content-inset-start: 8px;
         --pm-credentials-content-inset-end: 10px;
       }
@@ -61,7 +60,7 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
 
       .wrapper {
         display: grid;
-        grid-template-columns: var(--sidebar-width) 14px minmax(0, 1fr);
+        grid-template-columns: var(--_pm-layout-sidebar-inline-size) 14px minmax(0, 1fr);
         block-size: 100%;
         min-block-size: 0;
         min-inline-size: 0;
@@ -84,10 +83,10 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
       .sidebar-tree-scroll-frame {
         block-size: 100%;
         min-block-size: 0;
-        --cv-scroll-edge-block-size: var(--cv-scroll-edge-default-block-size);
-        --cv-scroll-edge-inline-start: var(--pm-credentials-content-inset-start);
-        --cv-scroll-edge-inline-end: var(--pm-credentials-content-inset-end);
-        --cv-scroll-edge-surface: var(--cv-scroll-edge-default-surface);
+        --app-scroll-edge-block-size: var(--app-scroll-edge-default-block-size);
+        --app-scroll-edge-inline-start: var(--pm-credentials-content-inset-start);
+        --app-scroll-edge-inline-end: var(--pm-credentials-content-inset-end);
+        --app-scroll-edge-surface: var(--app-scroll-edge-default-surface);
       }
 
       .sidebar-tree-scroll-frame > group-tree-view.scrollable {
@@ -174,11 +173,11 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
 
       @container (width < 1180px) {
         :host {
-          --sidebar-width: clamp(232px, 30cqw, 288px);
+          --_pm-layout-sidebar-inline-size: clamp(232px, 30cqw, 288px);
         }
 
         .wrapper {
-          grid-template-columns: var(--sidebar-width) 12px minmax(0, 1fr);
+          grid-template-columns: var(--_pm-layout-sidebar-inline-size) 12px minmax(0, 1fr);
         }
 
         .sidebar {
@@ -235,23 +234,19 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
     return html`<pm-otp-quick-view class="card"></pm-otp-quick-view>`
   }
 
-  private renderMotionContent() {
-    const motion = this.model.getMotionRenderState()
-
-    return html`
-      <div
-        class="pm-content"
-        data-motion-kind=${motion.kind}
-        data-motion-direction=${motion.direction}
-        data-motion-target=${motion.target ?? ''}
-        data-reduced-motion=${String(motion.reducedMotion)}
-      >
-        ${this.renderMain()}
-      </div>
-    `
+  private renderSshKeysView() {
+    return html`<pm-ssh-keys-view class="card"></pm-ssh-keys-view>`
   }
 
-  private renderOtpQuickViewPage() {
+  private renderEnvRuntimeView() {
+    return html`<pm-env-runtime-page class="card"></pm-env-runtime-page>`
+  }
+
+  private renderMotionContent() {
+    return html`<div class="pm-content">${this.renderMain()}</div>`
+  }
+
+  private renderDedicatedViewPage() {
     return html`
       <div class="page">
         <div class="content scrollable">${this.renderMotionContent()}</div>
@@ -262,15 +257,15 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
 
   private renderMain() {
     const showElement = this.model.getCurrentShowElement()
+    const sessionStatus = this.model.getSessionStatus()
 
-    if (this.model.isLoading()) {
-      return this.renderLoading()
-    }
+    if (sessionStatus === 'loading') return this.renderSessionUnavailable(true)
+    if (sessionStatus === 'inactive' || sessionStatus === 'error') return this.renderSessionUnavailable()
 
-    const extendedReady = pmComponentLoaderModel.extendedReady()
-    if (pmComponentLoaderModel.requiresExtendedComponents(showElement) && !extendedReady) {
-      void pmComponentLoaderModel.ensureExtendedComponents()
-      return this.renderLoading()
+    if (this.model.requiresExtendedComponents(this.extendedComponentLayout)) {
+      return this.model.getExtendedComponentsLoadError()
+        ? this.renderExtendedComponentsUnavailable()
+        : this.renderLoading()
     }
 
     if (showElement === 'createEntry') {
@@ -291,6 +286,14 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
 
     if (showElement === 'otpView') {
       return this.renderOtpQuickView()
+    }
+
+    if (showElement === 'sshView') {
+      return this.renderSshKeysView()
+    }
+
+    if (showElement === 'envRuntimeView') {
+      return this.renderEnvRuntimeView()
     }
 
     return this.renderGroup()
@@ -367,7 +370,7 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
   }
 
   private applySidebarWidth() {
-    this.style.setProperty('--sidebar-width', this.model.sidebarWidthCss())
+    this.style.setProperty('--_pm-layout-sidebar-inline-size', this.model.sidebarWidthCss())
   }
 
   private stopResizerTracking() {
@@ -396,8 +399,12 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
   }
 
   override render() {
-    if (this.model.getCurrentShowElement() === 'otpView') {
-      return this.renderOtpQuickViewPage()
+    if (
+      this.model.getCurrentShowElement() === 'otpView' ||
+      this.model.getCurrentShowElement() === 'sshView' ||
+      this.model.getCurrentShowElement() === 'envRuntimeView'
+    ) {
+      return this.renderDedicatedViewPage()
     }
 
     const sidebarWidth = this.model.sidebarWidth()

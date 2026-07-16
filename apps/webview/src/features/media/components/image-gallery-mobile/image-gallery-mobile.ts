@@ -39,7 +39,6 @@ import {renderMobileGalleryFooter, renderMobileGalleryInfoSheet} from './image-g
 import {imageGalleryMobileStyles} from './image-gallery-mobile.styles'
 import type {
   MobileGalleryImageMeta,
-  MobileGalleryInfoSheetDetent,
   MobileGalleryRenderActions,
 } from './image-gallery-mobile.types'
 
@@ -295,15 +294,13 @@ export class ImageGalleryMobile extends ImageGalleryBase {
     this.mobileModel.openExternalBrowserUrl(href)
   }
 
-  private handleInfoSheetSurfaceChange(
-    event: CustomEvent<{open: boolean; detent?: MobileGalleryInfoSheetDetent}>,
-  ) {
+  private handleInfoSheetSurfaceChange(event: CustomEvent<{open: boolean; detent?: string}>) {
     if (typeof event.detail.open !== 'boolean') return
     if (!event.detail.open) {
       this.mobileModel.closeInfoSheet()
       return
     }
-    if (event.detail.detent) {
+    if (event.detail.detent === 'expanded') {
       this.mobileModel.setInfoSheetDetent(event.detail.detent)
     }
   }
@@ -517,6 +514,8 @@ export class ImageGalleryMobile extends ImageGalleryBase {
   }
 
   private handleViewerInput(event: CVImageViewerInputEvent) {
+    if (event.target !== event.currentTarget) return
+    if (!Number.isInteger(event.detail.index)) return
     if (event.detail.index === this.displayIndex) {
       return
     }
@@ -554,13 +553,7 @@ export class ImageGalleryMobile extends ImageGalleryBase {
     return mapGalleryImagesToViewerItems({
       images: this.images,
       model: this.model,
-      getMeta: (image, index, total) => [
-        i18n('media:image-position' as any, {
-          current: String(index + 1),
-          total: String(total),
-        }),
-        ...(image.mimeType ? [image.mimeType] : []),
-      ],
+      getMeta: (image) => (image.mimeType ? [image.mimeType] : []),
     })
   }
 
@@ -569,6 +562,7 @@ export class ImageGalleryMobile extends ImageGalleryBase {
 
     return mapGalleryActionsToViewerActions({
       actions: getImageViewerActionButtons({
+        showDownload: !showSaveToGallery,
         showSaveToGallery,
         showShare,
         includeInfo: true,

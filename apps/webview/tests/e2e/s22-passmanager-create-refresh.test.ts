@@ -1,13 +1,14 @@
 import {expect, test} from 'vitest'
 import {clearMockPassmanagerState, writeMockPassmanagerState} from './utils'
 
+import type {Page} from 'playwright'
 declare global {
-  var __E2E_PAGE__: import('playwright').Page | undefined
+  var __E2E_PAGE__: Page | undefined
 }
 
 const BASE_URL = 'http://localhost:4400/index.html?layout=desktop'
 
-async function enablePasswordManager(page: import('playwright').Page): Promise<void> {
+async function enablePasswordManager(page: Page): Promise<void> {
   await page.waitForFunction(
     () => {
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -33,7 +34,7 @@ async function enablePasswordManager(page: import('playwright').Page): Promise<v
   )
 }
 
-async function deepHasText(page: import('playwright').Page, text: string): Promise<boolean> {
+async function deepHasText(page: Page, text: string): Promise<boolean> {
   return page.evaluate((needle) => {
     function walk(root: Document | ShadowRoot): boolean {
       const nodes = root.querySelectorAll('*')

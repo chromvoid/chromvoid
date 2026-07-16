@@ -1,0 +1,68 @@
+use log::LevelFilter;
+use log4rs::Config;
+use log4rs::append::console::{ConsoleAppender, Target};
+use log4rs::config::{Appender, Root};
+use std::sync::Once;
+use std::time::Duration;
+use ton::lite_client::*;
+use ton::net_config::TonNetConfig;
+
+static LOG: Once = Once::new();
+
+pub fn init_logging() {
+    LOG.call_once(|| {
+        let stderr = ConsoleAppender::builder()
+            .target(Target::Stderr)
+            .encoder(Box::new(log4rs::encode::pattern::PatternEncoder::new(
+                "{d(%Y-%m-%d %H:%M:%S%.6f)} {T:>15.15} {h({l:>5.5})} {t}:{L} - {m}{n}",
+            )))
+            .build();
+
+        let config = Config::builder()
+            .appender(Appender::builder().build("stderr", Box::new(stderr)))
+            .build(Root::builder().appender("stderr").build(LevelFilter::Info))
+            .unwrap();
+
+        log4rs::init_config(config).unwrap();
+    })
+}
+
+#[cfg(feature = "tonlibjson")]
+pub(crate) async fn make_tl_client(mainnet: bool, archive_only: bool) -> anyhow::Result<ton::tl_client::TLClient> {
+    init_logging();
+    log::info!("Initializing tl_client with mainnet: {mainnet}, archive_only: {archive_only} ...");
+
+    let node_filter = if archive_only {
+        ton::tl_client::LiteNodeFilter::Archive
+    } else {
+        ton::tl_client::LiteNodeFilter::Healthy
+    };
+
+    let client = ton::tl_client::TLClient::builder()?
+        .with_net_config(&TonNetConfig::new_default(mainnet)?)?
+        .with_connection_check(node_filter)
+        .with_connections_count(2)
+        .with_retry_strategy(ton::tl_client::RetryStrategy {
+            retry_count: 10,
+            retry_waiting: Duration::from_millis(100),
+        })
+        .build()
+        .await?;
+    ton::sys_utils::sys_tonlib_set_verbosity_level(0);
+    Ok(client)
+}
+
+pub async fn make_lite_client(mainnet: bool) -> anyhow::Result<LiteClient> {
+    init_logging();
+    log::info!("initializing lite_client with mainnet={mainnet}...");
+    let req_params = LiteReqParams {
+        retries_count: 20,
+        retry_waiting: Duration::from_millis(200),
+        ..Default::default()
+    };
+    let lite_client = LiteClient::builder()?
+        .with_net_config(TonNetConfig::new_default(mainnet)?)
+        .with_default_req_params(req_params)
+        .build()?;
+    Ok(lite_client)
+}

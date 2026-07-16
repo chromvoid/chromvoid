@@ -25,9 +25,6 @@ export const knownGuidanceAnchors: readonly KnownGuidanceAnchor[] = [
   {id: 'remote-storage.mount', surface: 'remote-storage', owner: 'remote-storage'},
   {id: 'settings.ssh-agent', surface: 'settings', owner: 'settings'},
   {id: 'settings.mobile-autofill', surface: 'settings', owner: 'settings'},
-  {id: 'shell.command-palette', surface: 'files', owner: 'shell'},
-  {id: 'shell.command-palette', surface: 'passwords', owner: 'shell'},
-  {id: 'shell.command-palette', surface: 'notes', owner: 'shell'},
 ]
 
 export function getGuidanceAnchorKey(surface: GuidanceSurfaceId, anchorId: string): string {

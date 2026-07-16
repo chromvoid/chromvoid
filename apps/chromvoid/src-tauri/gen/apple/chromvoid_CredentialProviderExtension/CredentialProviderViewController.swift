@@ -60,11 +60,25 @@ private struct PasskeyAssertionContext {
     let allowedCredentialIDs: [Data]
 }
 
+private struct OneTimeCodeCandidate {
+    let credentialID: String
+    let otpID: String
+    let label: String
+    let domain: String
+}
+
+private enum CredentialListItem {
+    case password(Int)
+    case passkey(Int)
+}
+
 // MARK: - Credential Provider View Controller
 
 final class CredentialProviderViewController: ASCredentialProviderViewController {
     private var candidateCredentials: [[String: Any]] = []
     private var candidatePasskeys: [PasskeyCandidate] = []
+    private var candidateOneTimeCodes: [OneTimeCodeCandidate] = []
+    private var candidateListItems: [CredentialListItem] = []
     private var candidateDomains: [String] = []
     private var activePasskeyAssertionContext: PasskeyAssertionContext?
 
@@ -130,6 +144,13 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     @available(iOS 17.0, macOS 14.0, *)
     override func provideCredentialWithoutUserInteraction(for credentialRequest: ASCredentialRequest) {
+        if #available(iOS 18.0, macOS 15.0, *),
+           let oneTimeCodeRequest = credentialRequest as? ASOneTimeCodeCredentialRequest
+        {
+            provideOneTimeCodeWithoutUserInteraction(for: oneTimeCodeRequest)
+            return
+        }
+
         switch credentialRequest.type {
         case .password:
             guard let identity = credentialRequest.credentialIdentity as? ASPasswordCredentialIdentity else {
@@ -146,6 +167,13 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     @available(iOS 17.0, macOS 14.0, *)
     override func prepareInterfaceToProvideCredential(for credentialRequest: ASCredentialRequest) {
+        if #available(iOS 18.0, macOS 15.0, *),
+           let oneTimeCodeRequest = credentialRequest as? ASOneTimeCodeCredentialRequest
+        {
+            prepareInterfaceToProvideOneTimeCode(for: oneTimeCodeRequest)
+            return
+        }
+
         switch credentialRequest.type {
         case .password:
             guard let identity = credentialRequest.credentialIdentity as? ASPasswordCredentialIdentity else {
@@ -170,7 +198,12 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             clientDataHash: requestParameters.clientDataHash,
             allowedCredentialIDs: requestParameters.allowedCredentials
         )
-        preparePasskeyCredentialList()
+        prepareCombinedCredentialList(domains: serviceIdentifiers.map(\.identifier))
+    }
+
+    @available(iOS 18.0, macOS 15.0, *)
+    override func prepareOneTimeCodeCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
+        prepareOneTimeCodeCredentialList(domains: serviceIdentifiers.map(\.identifier))
     }
 
     @available(iOS 17.0, macOS 14.0, *)
@@ -181,12 +214,10 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     private func preparePasswordCredentialList(domains: [String]) {
-        let deduplicatedDomains = Array(NSOrderedSet(array: domains.compactMap { value in
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        })) as? [String] ?? []
+        let deduplicatedDomains = deduplicatedDomains(from: domains)
         candidateDomains = deduplicatedDomains
         candidatePasskeys = []
+        candidateListItems = []
 
         if let error = ensureProviderReady() {
             presentBridgeError(error)
@@ -237,7 +268,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                 relyingPartyIdentifier: context.relyingPartyIdentifier,
                 credentialID: nil,
                 clientDataHash: context.clientDataHash,
-                allowedCredentialIDs: context.allowedCredentialIDs
+                allowedCredentialIDs: context.allowedCredentialIDs,
+                userVerified: false
             )
         )
 
@@ -256,7 +288,85 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
         candidatePasskeys = passkeys
         candidateCredentials = []
+        candidateListItems = []
         showPasskeyListUI(candidates: passkeys)
+    }
+
+    private func prepareCombinedCredentialList(domains: [String]) {
+        let deduplicatedDomains = deduplicatedDomains(from: domains)
+        candidateDomains = deduplicatedDomains
+        candidateCredentials = []
+        candidatePasskeys = []
+        candidateListItems = []
+
+        guard let context = activePasskeyAssertionContext else {
+            extensionContext.cancelRequest(withError: ASExtensionError(.failed))
+            return
+        }
+
+        if let error = ensureProviderReady() {
+            presentBridgeError(error)
+            return
+        }
+
+        var deferredError: ProviderBridgeError?
+        let web = webContext(for: deduplicatedDomains.first ?? context.relyingPartyIdentifier)
+        let passwordResponse = CredentialProviderIPCChannel.callCore(
+            command: "credential_provider:list",
+            data: ["context": web]
+        )
+        if let result = bridgeResult(from: passwordResponse) {
+            candidateCredentials = result["candidates"] as? [[String: Any]] ?? []
+        } else {
+            deferredError = bridgeError(from: passwordResponse) ?? unavailableError()
+        }
+
+        if let passkeyError = ensurePasskeysLiteReady() {
+            deferredError = deferredError ?? passkeyError
+        } else {
+            let passkeyResponse = CredentialProviderIPCChannel.callCore(
+                command: CredentialIPCBridge.passkeyQueryCommand,
+                data: CredentialIPCBridge.passkeyAssertionPayload(
+                    relyingPartyIdentifier: context.relyingPartyIdentifier,
+                    credentialID: nil,
+                    clientDataHash: context.clientDataHash,
+                    allowedCredentialIDs: context.allowedCredentialIDs,
+                    userVerified: false
+                )
+            )
+            if let result = bridgeResult(from: passkeyResponse) {
+                candidatePasskeys = (result["passkeys"] as? [[String: Any]] ?? [])
+                    .compactMap(PasskeyCandidate.init(payload:))
+            } else {
+                deferredError = deferredError ?? bridgeError(from: passkeyResponse) ?? unavailableError()
+            }
+        }
+
+        if candidateCredentials.isEmpty && candidatePasskeys.isEmpty {
+            if let error = deferredError {
+                presentBridgeError(error)
+            } else {
+                showNoCredentialsUI()
+            }
+            return
+        }
+
+        showCombinedCredentialListUI(
+            credentials: candidateCredentials,
+            passkeys: candidatePasskeys,
+            domains: deduplicatedDomains
+        )
+    }
+
+    private func deduplicatedDomains(from domains: [String]) -> [String] {
+        var seen = Set<String>()
+        return domains.compactMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else {
+                return nil
+            }
+            return trimmed
+        }
     }
 
     /// Called when the user opens the extension settings.
@@ -309,6 +419,213 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         }
 
         return (ASPasswordCredential(user: username, password: password), nil)
+    }
+
+    @available(iOS 18.0, macOS 15.0, *)
+    private func provideOneTimeCodeWithoutUserInteraction(for request: ASOneTimeCodeCredentialRequest) {
+        guard let identity = request.credentialIdentity as? ASOneTimeCodeCredentialIdentity,
+              let recordIdentifier = identity.recordIdentifier,
+              let record = CredentialIPCBridge.decodeOneTimeCodeRecordIdentifier(recordIdentifier)
+        else {
+            extensionContext.cancelRequest(withError: ASExtensionError(.credentialIdentityNotFound))
+            return
+        }
+
+        let outcome = fetchOneTimeCode(
+            credentialID: record.credentialID,
+            otpID: record.otpID,
+            serviceIdentifier: identity.serviceIdentifier.identifier
+        )
+        if let credential = outcome.credential {
+            extensionContext.completeOneTimeCodeRequest(using: credential, completionHandler: nil)
+        } else {
+            cancelAutomaticOneTimeCodeRequest(error: outcome.error)
+        }
+    }
+
+    @available(iOS 18.0, macOS 15.0, *)
+    private func prepareInterfaceToProvideOneTimeCode(for request: ASOneTimeCodeCredentialRequest) {
+        guard let identity = request.credentialIdentity as? ASOneTimeCodeCredentialIdentity,
+              let recordIdentifier = identity.recordIdentifier,
+              let record = CredentialIPCBridge.decodeOneTimeCodeRecordIdentifier(recordIdentifier)
+        else {
+            extensionContext.cancelRequest(withError: ASExtensionError(.credentialIdentityNotFound))
+            return
+        }
+
+        let outcome = fetchOneTimeCode(
+            credentialID: record.credentialID,
+            otpID: record.otpID,
+            serviceIdentifier: identity.serviceIdentifier.identifier
+        )
+        if let credential = outcome.credential {
+            extensionContext.completeOneTimeCodeRequest(using: credential, completionHandler: nil)
+        } else {
+            presentBridgeError(outcome.error ?? unavailableError())
+        }
+    }
+
+    @available(iOS 18.0, macOS 15.0, *)
+    private func prepareOneTimeCodeCredentialList(domains: [String]) {
+        activePasskeyAssertionContext = nil
+        candidateCredentials = []
+        candidatePasskeys = []
+        candidateListItems = []
+        candidateDomains = deduplicatedDomains(from: domains)
+
+        if let error = ensureProviderReady() {
+            presentBridgeError(error)
+            return
+        }
+
+        var data: [String: Any] = ["query": ""]
+        if let domain = candidateDomains.first {
+            data["context"] = webContext(for: domain)
+        }
+        let response = CredentialProviderIPCChannel.callCore(
+            command: "credential_provider:search",
+            data: data
+        )
+        guard let result = bridgeResult(from: response) else {
+            presentBridgeError(bridgeError(from: response) ?? unavailableError())
+            return
+        }
+
+        candidateOneTimeCodes = oneTimeCodeCandidates(
+            from: result["candidates"] as? [[String: Any]] ?? []
+        )
+        guard !candidateOneTimeCodes.isEmpty else {
+            showNoCredentialsUI(message: "No matching verification codes found")
+            return
+        }
+        showOneTimeCodeListUI(candidates: candidateOneTimeCodes)
+    }
+
+    @available(iOS 18.0, macOS 15.0, *)
+    private func fetchOneTimeCode(
+        credentialID: String,
+        otpID: String,
+        serviceIdentifier: String
+    ) -> (credential: ASOneTimeCodeCredential?, error: ProviderBridgeError?) {
+        if let error = ensureProviderReady() {
+            return (nil, error)
+        }
+
+        for attempt in 0 ..< 2 {
+            let sessionResponse = CredentialProviderIPCChannel.callCore(
+                command: "credential_provider:session:open"
+            )
+            guard let sessionResult = bridgeResult(from: sessionResponse),
+                  let providerSession = sessionResult["provider_session"] as? String
+            else {
+                return (nil, bridgeError(from: sessionResponse) ?? unavailableError())
+            }
+
+            let codeResponse = CredentialProviderIPCChannel.callCore(
+                command: CredentialIPCBridge.oneTimeCodeCommand,
+                data: [
+                    "provider_session": providerSession,
+                    "credential_id": credentialID,
+                    "otp_id": otpID,
+                    "context": webContext(for: serviceIdentifier),
+                ]
+            )
+            let _ = CredentialProviderIPCChannel.callCore(
+                command: "credential_provider:session:close",
+                data: ["provider_session": providerSession]
+            )
+
+            if let result = bridgeResult(from: codeResponse) {
+                let nowMilliseconds = Date().timeIntervalSince1970 * 1_000
+                guard CredentialIPCBridge.oneTimeCodeResultIsFresh(
+                    result,
+                    nowMilliseconds: nowMilliseconds
+                ), let code = result["code"] as? String else {
+                    return (
+                        nil,
+                        ProviderBridgeError(
+                            code: "OTP_GENERATE_FAILED",
+                            message: "The verification code expired before AutoFill could use it."
+                        )
+                    )
+                }
+                return (ASOneTimeCodeCredential(code: code), nil)
+            }
+
+            let error = bridgeError(from: codeResponse) ?? unavailableError()
+            if attempt == 0, error.code == "PROVIDER_SESSION_EXPIRED" {
+                continue
+            }
+            return (nil, error)
+        }
+
+        return (nil, unavailableError())
+    }
+
+    private func oneTimeCodeCandidates(from candidates: [[String: Any]]) -> [OneTimeCodeCandidate] {
+        candidates.flatMap { candidate -> [OneTimeCodeCandidate] in
+            guard let credentialID = candidate["credential_id"] as? String,
+                  !credentialID.isEmpty,
+                  let domain = candidate["domain"] as? String,
+                  !domain.isEmpty
+            else {
+                return []
+            }
+
+            let entryLabel = (candidate["label"] as? String)
+                ?? (candidate["username"] as? String)
+                ?? domain
+            let options = candidate["otp_options"] as? [[String: Any]] ?? []
+            return options.compactMap { option in
+                guard let otpID = option["id"] as? String,
+                      !otpID.isEmpty,
+                      let type = option["type"] as? String,
+                      type.caseInsensitiveCompare("TOTP") == .orderedSame
+                else {
+                    return nil
+                }
+                let otpLabel = (option["label"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let label = otpLabel.map { $0.isEmpty ? entryLabel : "\(entryLabel) — \($0)" }
+                    ?? entryLabel
+                return OneTimeCodeCandidate(
+                    credentialID: credentialID,
+                    otpID: otpID,
+                    label: label,
+                    domain: domain
+                )
+            }
+        }
+    }
+
+    @available(iOS 18.0, macOS 15.0, *)
+    private func completeOneTimeCodeCandidate(at index: Int) {
+        guard index < candidateOneTimeCodes.count else {
+            extensionContext.cancelRequest(withError: ASExtensionError(.failed))
+            return
+        }
+        let candidate = candidateOneTimeCodes[index]
+        let outcome = fetchOneTimeCode(
+            credentialID: candidate.credentialID,
+            otpID: candidate.otpID,
+            serviceIdentifier: candidate.domain
+        )
+        if let credential = outcome.credential {
+            extensionContext.completeOneTimeCodeRequest(using: credential, completionHandler: nil)
+        } else {
+            presentBridgeError(outcome.error ?? unavailableError())
+        }
+    }
+
+    private func cancelAutomaticOneTimeCodeRequest(error: ProviderBridgeError?) {
+        switch error?.code {
+        case "NO_MATCH":
+            extensionContext.cancelRequest(withError: ASExtensionError(.credentialIdentityNotFound))
+        case "HOTP_AUTOFILL_UNSUPPORTED", "ACCESS_DENIED", "OTP_GENERATE_FAILED":
+            extensionContext.cancelRequest(withError: ASExtensionError(.failed))
+        default:
+            extensionContext.cancelRequest(withError: ASExtensionError(.userInteractionRequired))
+        }
     }
 
     @available(iOS 17.0, macOS 14.0, *)
@@ -580,10 +897,81 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                 title: "ChromVoid AutoFill is disabled",
                 message: error.message
             )
+        case "PRO_REQUIRED", "ENTITLEMENT_UNAVAILABLE":
+            showProviderUnavailableUI(
+                title: "ChromVoid Pro is required",
+                message: error.message
+            )
+        case "FEATURE_DISABLED_BY_ROLLOUT", "FEATURE_UNSUPPORTED_ON_PLATFORM":
+            showProviderUnavailableUI(
+                title: "Verification code AutoFill is unavailable",
+                message: error.message
+            )
+        case "HOTP_AUTOFILL_UNSUPPORTED":
+            showProviderUnavailableUI(
+                title: "Counter-based codes are not supported",
+                message: error.message
+            )
         case "UNSUPPORTED":
             showProviderUnavailableUI(title: "Passkeys are unavailable", message: error.message)
         default:
             showProviderUnavailableUI(title: "ChromVoid is unavailable", message: error.message)
+        }
+    }
+
+    private func completePasswordCandidate(at index: Int) {
+        guard index < candidateCredentials.count else {
+            extensionContext.cancelRequest(withError: ASExtensionError(.failed))
+            return
+        }
+
+        let candidate = candidateCredentials[index]
+        let credentialID = candidate["credential_id"] as? String ?? ""
+        let domain = candidate["domain"] as? String ?? candidateDomains.first ?? ""
+        let outcome = fetchCredential(recordIdentifier: credentialID, serviceIdentifier: domain)
+
+        if let credential = outcome.credential {
+            extensionContext.completeRequest(withSelectedCredential: credential, completionHandler: nil)
+        } else if let error = outcome.error {
+            presentBridgeError(error)
+        } else {
+            showProviderUnavailableUI(
+                title: "ChromVoid is unavailable",
+                message: "Bring ChromVoid to the foreground and try AutoFill again."
+            )
+        }
+    }
+
+    private func completePasskeyCandidate(at index: Int) {
+        guard index < candidatePasskeys.count else {
+            extensionContext.cancelRequest(withError: ASExtensionError(.failed))
+            return
+        }
+
+        if #available(iOS 17.0, macOS 14.0, *) {
+            completeSelectedPasskeyAssertion(candidatePasskeys[index])
+        } else {
+            presentBridgeError(
+                ProviderBridgeError(
+                    code: "UNSUPPORTED",
+                    message: CredentialIPCBridge.passkeysLiteUnsupportedReason()
+                        ?? "Passkeys are unavailable on this platform."
+                )
+            )
+        }
+    }
+
+    private func completeCombinedCandidate(at index: Int) {
+        guard index < candidateListItems.count else {
+            extensionContext.cancelRequest(withError: ASExtensionError(.failed))
+            return
+        }
+
+        switch candidateListItems[index] {
+        case .password(let credentialIndex):
+            completePasswordCandidate(at: credentialIndex)
+        case .passkey(let passkeyIndex):
+            completePasskeyCandidate(at: passkeyIndex)
         }
     }
 
@@ -730,6 +1118,51 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         ])
     }
 
+    @available(macOS 15.0, *)
+    private func showOneTimeCodeListUI(candidates: [OneTimeCodeCandidate]) {
+        clearUI()
+
+        let titleLabel = NSTextField(labelWithString: "Choose a verification code")
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        var views: [NSView] = [titleLabel]
+        for (index, candidate) in candidates.enumerated() {
+            let button = NSButton(
+                title: "\(candidate.label)  —  \(candidate.domain)",
+                target: self,
+                action: #selector(oneTimeCodeSelected(_:))
+            )
+            button.tag = index
+            button.bezelStyle = .rounded
+            button.translatesAutoresizingMaskIntoConstraints = false
+            views.append(button)
+        }
+
+        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelTapped))
+        cancelButton.translatesAutoresizingMaskIntoConstraints = false
+        views.append(cancelButton)
+
+        let stack = NSStackView(views: views)
+        stack.orientation = .vertical
+        stack.spacing = 8
+        stack.alignment = .centerX
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let scrollView = NSScrollView()
+        scrollView.documentView = stack
+        scrollView.hasVerticalScroller = true
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        view.addSubview(scrollView)
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -12),
+        ])
+    }
+
     private func showPasskeyListUI(candidates: [PasskeyCandidate]) {
         clearUI()
 
@@ -775,48 +1208,91 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         ])
     }
 
-    @objc private func credentialSelected(_ sender: NSButton) {
-        let index = sender.tag
-        guard index < candidateCredentials.count else {
-            extensionContext.cancelRequest(withError: ASExtensionError(.failed))
-            return
-        }
+    private func showCombinedCredentialListUI(
+        credentials: [[String: Any]],
+        passkeys: [PasskeyCandidate],
+        domains: [String]
+    ) {
+        clearUI()
+        candidateListItems = []
 
-        let candidate = candidateCredentials[index]
-        let credentialID = candidate["credential_id"] as? String ?? ""
-        let domain = candidate["domain"] as? String ?? candidateDomains.first ?? ""
-        let outcome = fetchCredential(recordIdentifier: credentialID, serviceIdentifier: domain)
+        let titleLabel = NSTextField(labelWithString: "Choose a credential")
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        if let credential = outcome.credential {
-            extensionContext.completeRequest(withSelectedCredential: credential, completionHandler: nil)
-        } else if let error = outcome.error {
-            presentBridgeError(error)
-        } else {
-            showProviderUnavailableUI(
-                title: "ChromVoid is unavailable",
-                message: "Bring ChromVoid to the foreground and try AutoFill again."
+        var views: [NSView] = [titleLabel]
+
+        for (index, candidate) in credentials.enumerated() {
+            let credentialID = candidate["credential_id"] as? String ?? ""
+            let username = candidate["username"] as? String ?? ""
+            let label = candidate["label"] as? String ?? credentialID
+            let domain = candidate["domain"] as? String ?? domains.first ?? ""
+            candidateListItems.append(.password(index))
+
+            let button = NSButton(
+                title: "\(username) - \(label)",
+                target: self,
+                action: #selector(combinedCredentialSelected(_:))
             )
+            button.tag = candidateListItems.count - 1
+            button.bezelStyle = .rounded
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.toolTip = "\(credentialID)\n\(domain)"
+            views.append(button)
         }
+
+        for (index, candidate) in passkeys.enumerated() {
+            candidateListItems.append(.passkey(index))
+            let button = NSButton(
+                title: "\(candidate.accountLabel) - \(candidate.rpId)",
+                target: self,
+                action: #selector(combinedCredentialSelected(_:))
+            )
+            button.tag = candidateListItems.count - 1
+            button.bezelStyle = .rounded
+            button.translatesAutoresizingMaskIntoConstraints = false
+            views.append(button)
+        }
+
+        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelTapped))
+        cancelButton.translatesAutoresizingMaskIntoConstraints = false
+        views.append(cancelButton)
+
+        let stack = NSStackView(views: views)
+        stack.orientation = .vertical
+        stack.spacing = 8
+        stack.alignment = .centerX
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let scrollView = NSScrollView()
+        scrollView.documentView = stack
+        scrollView.hasVerticalScroller = true
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        view.addSubview(scrollView)
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -12),
+        ])
+    }
+
+    @objc private func credentialSelected(_ sender: NSButton) {
+        completePasswordCandidate(at: sender.tag)
     }
 
     @objc private func passkeySelected(_ sender: NSButton) {
-        let index = sender.tag
-        guard index < candidatePasskeys.count else {
-            extensionContext.cancelRequest(withError: ASExtensionError(.failed))
-            return
-        }
+        completePasskeyCandidate(at: sender.tag)
+    }
 
-        if #available(iOS 17.0, macOS 14.0, *) {
-            completeSelectedPasskeyAssertion(candidatePasskeys[index])
-        } else {
-            presentBridgeError(
-                ProviderBridgeError(
-                    code: "UNSUPPORTED",
-                    message: CredentialIPCBridge.passkeysLiteUnsupportedReason()
-                        ?? "Passkeys are unavailable on this platform."
-                )
-            )
-        }
+    @available(macOS 15.0, *)
+    @objc private func oneTimeCodeSelected(_ sender: NSButton) {
+        completeOneTimeCodeCandidate(at: sender.tag)
+    }
+
+    @objc private func combinedCredentialSelected(_ sender: NSButton) {
+        completeCombinedCandidate(at: sender.tag)
     }
 
     @objc private func cancelTapped() {
@@ -883,6 +1359,54 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
+            stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -16),
+            stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -16),
+            stack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -32),
+        ])
+    }
+
+    @available(iOS 18.0, *)
+    private func showOneTimeCodeListUI(candidates: [OneTimeCodeCandidate]) {
+        clearUI()
+
+        let titleLabel = UILabel()
+        titleLabel.text = "Choose a verification code"
+        titleLabel.font = .preferredFont(forTextStyle: .headline)
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 0
+
+        let stack = UIStackView(arrangedSubviews: [titleLabel])
+        stack.axis = .vertical
+        stack.spacing = 10
+        stack.alignment = .fill
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        for (index, candidate) in candidates.enumerated() {
+            let button = UIButton(type: .system)
+            button.tag = index
+            button.setTitle("\(candidate.label)  •  \(candidate.domain)", for: .normal)
+            button.contentHorizontalAlignment = .left
+            button.addTarget(self, action: #selector(oneTimeCodeSelected(_:)), for: .touchUpInside)
+            stack.addArrangedSubview(button)
+        }
+
+        let cancelButton = UIButton(type: .system)
+        cancelButton.setTitle("Cancel", for: .normal)
+        cancelButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+        stack.addArrangedSubview(cancelButton)
+
+        let scrollView = UIScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(stack)
+        view.addSubview(scrollView)
+
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 16),
             stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 16),
             stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -16),
@@ -974,48 +1498,92 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         ])
     }
 
+    private func showCombinedCredentialListUI(
+        credentials: [[String: Any]],
+        passkeys: [PasskeyCandidate],
+        domains: [String]
+    ) {
+        clearUI()
+        candidateListItems = []
+
+        let titleLabel = UILabel()
+        titleLabel.text = "Choose a credential"
+        titleLabel.font = .preferredFont(forTextStyle: .headline)
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 0
+
+        let stack = UIStackView(arrangedSubviews: [titleLabel])
+        stack.axis = .vertical
+        stack.spacing = 10
+        stack.alignment = .fill
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        for (index, candidate) in credentials.enumerated() {
+            let credentialID = candidate["credential_id"] as? String ?? ""
+            let username = candidate["username"] as? String ?? ""
+            let label = candidate["label"] as? String ?? credentialID
+            let domain = candidate["domain"] as? String ?? domains.first ?? ""
+            candidateListItems.append(.password(index))
+
+            let button = UIButton(type: .system)
+            button.tag = candidateListItems.count - 1
+            button.setTitle("\(username) - \(label)", for: .normal)
+            button.accessibilityHint = domain
+            button.contentHorizontalAlignment = .left
+            button.addTarget(self, action: #selector(combinedCredentialSelected(_:)), for: .touchUpInside)
+            stack.addArrangedSubview(button)
+        }
+
+        for (index, candidate) in passkeys.enumerated() {
+            candidateListItems.append(.passkey(index))
+
+            let button = UIButton(type: .system)
+            button.tag = candidateListItems.count - 1
+            button.setTitle("\(candidate.accountLabel) - \(candidate.rpId)", for: .normal)
+            button.contentHorizontalAlignment = .left
+            button.addTarget(self, action: #selector(combinedCredentialSelected(_:)), for: .touchUpInside)
+            stack.addArrangedSubview(button)
+        }
+
+        let cancelButton = UIButton(type: .system)
+        cancelButton.setTitle("Cancel", for: .normal)
+        cancelButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+        stack.addArrangedSubview(cancelButton)
+
+        let scrollView = UIScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(stack)
+        view.addSubview(scrollView)
+
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -16),
+            stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -16),
+            stack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -32),
+        ])
+    }
+
     @objc private func credentialSelected(_ sender: UIButton) {
-        let index = sender.tag
-        guard index < candidateCredentials.count else {
-            extensionContext.cancelRequest(withError: ASExtensionError(.failed))
-            return
-        }
-
-        let candidate = candidateCredentials[index]
-        let credentialID = candidate["credential_id"] as? String ?? ""
-        let domain = candidate["domain"] as? String ?? candidateDomains.first ?? ""
-        let outcome = fetchCredential(recordIdentifier: credentialID, serviceIdentifier: domain)
-
-        if let credential = outcome.credential {
-            extensionContext.completeRequest(withSelectedCredential: credential, completionHandler: nil)
-        } else if let error = outcome.error {
-            presentBridgeError(error)
-        } else {
-            showProviderUnavailableUI(
-                title: "ChromVoid is unavailable",
-                message: "Bring ChromVoid to the foreground and try AutoFill again."
-            )
-        }
+        completePasswordCandidate(at: sender.tag)
     }
 
     @objc private func passkeySelected(_ sender: UIButton) {
-        let index = sender.tag
-        guard index < candidatePasskeys.count else {
-            extensionContext.cancelRequest(withError: ASExtensionError(.failed))
-            return
-        }
+        completePasskeyCandidate(at: sender.tag)
+    }
 
-        if #available(iOS 17.0, macOS 14.0, *) {
-            completeSelectedPasskeyAssertion(candidatePasskeys[index])
-        } else {
-            presentBridgeError(
-                ProviderBridgeError(
-                    code: "UNSUPPORTED",
-                    message: CredentialIPCBridge.passkeysLiteUnsupportedReason()
-                        ?? "Passkeys are unavailable on this platform."
-                )
-            )
-        }
+    @available(iOS 18.0, *)
+    @objc private func oneTimeCodeSelected(_ sender: UIButton) {
+        completeOneTimeCodeCandidate(at: sender.tag)
+    }
+
+    @objc private func combinedCredentialSelected(_ sender: UIButton) {
+        completeCombinedCandidate(at: sender.tag)
     }
 
     @objc private func cancelTapped() {

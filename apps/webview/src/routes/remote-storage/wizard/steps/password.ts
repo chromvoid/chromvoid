@@ -5,13 +5,15 @@ import {renderRemoteStorageCallout} from '../../render-callout'
 
 type PasswordStepInput = {
   password: string
+  passwordError: string
   onPasswordInput: (e: Event) => void
   onBack: () => void
-  onStartExport: () => void
+  onStartExport: () => Promise<void>
 }
 
 export const renderPasswordStep = ({
   password,
+  passwordError,
   onPasswordInput,
   onBack,
   onStartExport,
@@ -22,17 +24,20 @@ export const renderPasswordStep = ({
   </div>
 
   <div class="wizard-body">
-    <div class="password-field">
-      <label for="master-password">${i18n('welcome:master-password')}</label>
+    <cv-field class="password-field" ?invalid=${Boolean(passwordError)} required>
+      <span slot="label">${i18n('welcome:master-password')}</span>
       <cv-input
         id="master-password"
         type="password"
+        password-toggle
+        autocomplete="current-password"
         placeholder=${i18n('welcome:master-password')}
         .value=${password}
         @cv-input=${onPasswordInput}
         size="large"
       ></cv-input>
-    </div>
+      ${passwordError ? html`<span slot="error">${passwordError}</span>` : ''}
+    </cv-field>
 
     ${renderRemoteStorageCallout({
       variant: 'warning',
@@ -47,7 +52,7 @@ export const renderPasswordStep = ({
       <cv-icon name="arrow-left" slot="prefix"></cv-icon>
       ${i18n('button:back')}
     </cv-button>
-    <cv-button variant="primary" ?disabled=${!password.trim()} @click=${onStartExport}>
+    <cv-button variant="primary" @click=${onStartExport}>
       <cv-icon name="play" slot="prefix"></cv-icon>
       ${i18n('remote-storage:start-export')}
     </cv-button>

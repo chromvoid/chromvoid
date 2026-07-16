@@ -4,8 +4,9 @@ use std::collections::HashMap;
 
 use crate::error::{Error, Result};
 
-use super::node::CatalogNode;
+use super::node::{CatalogNode, CatalogTrashMetadata};
 use super::path::validate_name;
+use super::system_shard::TRASH_SHARD_ID;
 
 /// Manager for catalog CRUD operations
 #[derive(Debug, Clone)]
@@ -23,6 +24,7 @@ pub struct CatalogManager {
 const ROOT_NODE_ID: u64 = 0;
 const PASSMANAGER_NODE_ID: u64 = 1;
 pub(super) const FIRST_USER_NODE_ID: u64 = PASSMANAGER_NODE_ID + 1;
+pub const TRASH_ROOT_PATH: &str = "/.trash";
 
 impl CatalogManager {
     /// Create a new empty catalog
@@ -61,6 +63,18 @@ impl CatalogManager {
     /// Get the root node
     pub fn root(&self) -> &CatalogNode {
         &self.root
+    }
+
+    /// Insert or replace a top-level shard root without changing catalog version.
+    pub(crate) fn upsert_root_child(&mut self, node: CatalogNode) {
+        if let Some(children) = self.root.children_mut() {
+            if let Some(existing) = children.iter_mut().find(|child| child.name == node.name) {
+                *existing = node;
+            } else {
+                children.push(node);
+            }
+        }
+        self.rebuild_index();
     }
 
     /// Get the current catalog version
@@ -472,6 +486,351 @@ impl CatalogManager {
 
         Ok(())
     }
+
+    /// Move a node into the hidden reversible Trash shard.
+    pub fn trash_node(&mut self, node_id: u64) -> Result<CatalogNode> {
+        let snapshot = self.clone();
+        match self.trash_node_inner(node_id) {
+            Ok(node) => Ok(node),
+            Err(error) => {
+                *self = snapshot;
+                Err(error)
+            }
+        }
+    }
+
+    fn trash_node_inner(&mut self, node_id: u64) -> Result<CatalogNode> {
+        if node_id == ROOT_NODE_ID {
+            return Err(Error::CannotModifyRoot);
+        }
+
+        let original_path = self.get_path(node_id).ok_or(Error::NodeNotFound(node_id))?;
+        if original_path == TRASH_ROOT_PATH || original_path.starts_with("/.trash/") {
+            return Err(Error::InvalidPath(original_path));
+        }
+
+        self.ensure_trash_root()?;
+
+        let original_name = self
+            .find_by_id(node_id)
+            .ok_or(Error::NodeNotFound(node_id))?
+            .name
+            .clone();
+        let trash_name = self.unique_trash_name(&original_name, node_id)?;
+        let deleted_at = current_timestamp();
+
+        {
+            let node = self
+                .find_by_id_mut(node_id)
+                .ok_or(Error::NodeNotFound(node_id))?;
+            node.trash = Some(CatalogTrashMetadata {
+                original_path,
+                deleted_at,
+                trash_name: trash_name.clone(),
+            });
+        }
+
+        self.move_node_with_options_inner(node_id, TRASH_ROOT_PATH, Some(&trash_name), false)?;
+        self.find_by_id(node_id)
+            .cloned()
+            .ok_or(Error::NodeNotFound(node_id))
+    }
+
+    /// Return hidden Trash shard children, or an empty list before first Trash use.
+    pub fn list_trash(&self) -> Result<Vec<&CatalogNode>> {
+        match self.find_by_path(TRASH_ROOT_PATH) {
+            Some(node) if node.is_dir() => Ok(node.children().iter().collect()),
+            Some(node) => Err(Error::NotADirectory(node.node_id)),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// Restore a trashed node to its original path or an explicit destination.
+    pub fn restore_trashed_node(
+        &mut self,
+        node_id: u64,
+        restore_parent_path: Option<&str>,
+        restore_name: Option<&str>,
+    ) -> Result<CatalogNode> {
+        let snapshot = self.clone();
+        match self.restore_trashed_node_inner(node_id, restore_parent_path, restore_name) {
+            Ok(node) => Ok(node),
+            Err(error) => {
+                *self = snapshot;
+                Err(error)
+            }
+        }
+    }
+
+    fn restore_trashed_node_inner(
+        &mut self,
+        node_id: u64,
+        restore_parent_path: Option<&str>,
+        restore_name: Option<&str>,
+    ) -> Result<CatalogNode> {
+        if node_id == ROOT_NODE_ID {
+            return Err(Error::CannotModifyRoot);
+        }
+
+        let current_path = self.get_path(node_id).ok_or(Error::NodeNotFound(node_id))?;
+        if current_path == TRASH_ROOT_PATH || !current_path.starts_with("/.trash/") {
+            return Err(Error::InvalidPath(current_path));
+        }
+
+        let trash = self
+            .find_by_id(node_id)
+            .and_then(|node| node.trash.clone())
+            .ok_or_else(|| Error::InvalidPath(current_path.clone()))?;
+        let (original_parent, original_name) = split_parent_and_name(&trash.original_path)
+            .ok_or_else(|| Error::InvalidPath(trash.original_path.clone()))?;
+        let destination_parent = restore_parent_path.unwrap_or(&original_parent);
+        let destination_name = restore_name.unwrap_or(&original_name);
+        validate_name(destination_name)?;
+
+        if self
+            .find_by_path(destination_parent)
+            .ok_or_else(|| Error::InvalidPath(destination_parent.to_string()))?
+            .find_child(destination_name)
+            .is_some()
+        {
+            return Err(Error::NameExists(destination_name.to_string()));
+        }
+
+        {
+            let node = self
+                .find_by_id_mut(node_id)
+                .ok_or(Error::NodeNotFound(node_id))?;
+            node.trash = None;
+        }
+
+        self.move_node_with_options_inner(
+            node_id,
+            destination_parent,
+            Some(destination_name),
+            false,
+        )?;
+        self.find_by_id(node_id)
+            .cloned()
+            .ok_or(Error::NodeNotFound(node_id))
+    }
+
+    /// Permanently remove all nodes currently in the hidden Trash shard.
+    pub fn empty_trash(&mut self) -> Result<Vec<CatalogNode>> {
+        let snapshot = self.clone();
+        match self.empty_trash_inner() {
+            Ok(nodes) => Ok(nodes),
+            Err(error) => {
+                *self = snapshot;
+                Err(error)
+            }
+        }
+    }
+
+    fn empty_trash_inner(&mut self) -> Result<Vec<CatalogNode>> {
+        let node_ids: Vec<u64> = match self.find_by_path(TRASH_ROOT_PATH) {
+            Some(node) if node.is_dir() => {
+                node.children().iter().map(|child| child.node_id).collect()
+            }
+            Some(node) => return Err(Error::NotADirectory(node.node_id)),
+            None => return Ok(Vec::new()),
+        };
+
+        let mut removed = Vec::new();
+        for node_id in node_ids {
+            if let Some(node) = self.find_by_id(node_id).cloned() {
+                removed.push(node);
+            }
+            self.delete(node_id)?;
+        }
+        Ok(removed)
+    }
+
+    /// Atomically exchange the catalog locations of two same-type nodes.
+    pub fn exchange_nodes(&mut self, src_node_id: u64, dst_node_id: u64) -> Result<()> {
+        let snapshot = self.clone();
+        match self.exchange_nodes_inner(src_node_id, dst_node_id) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                *self = snapshot;
+                Err(error)
+            }
+        }
+    }
+
+    fn exchange_nodes_inner(&mut self, src_node_id: u64, dst_node_id: u64) -> Result<()> {
+        if src_node_id == ROOT_NODE_ID || dst_node_id == ROOT_NODE_ID {
+            return Err(Error::CannotModifyRoot);
+        }
+        if src_node_id == dst_node_id {
+            return Ok(());
+        }
+
+        let src_path = self
+            .node_index
+            .get(&src_node_id)
+            .ok_or(Error::NodeNotFound(src_node_id))?
+            .clone();
+        let dst_path = self
+            .node_index
+            .get(&dst_node_id)
+            .ok_or(Error::NodeNotFound(dst_node_id))?
+            .clone();
+
+        if is_path_prefix(&src_path, &dst_path) || is_path_prefix(&dst_path, &src_path) {
+            return Err(Error::InvalidPath(
+                "cannot exchange ancestor and descendant".to_string(),
+            ));
+        }
+
+        let src = self
+            .find_by_id(src_node_id)
+            .ok_or(Error::NodeNotFound(src_node_id))?;
+        let dst = self
+            .find_by_id(dst_node_id)
+            .ok_or(Error::NodeNotFound(dst_node_id))?;
+        if src.node_type != dst.node_type {
+            return Err(Error::InvalidPath(
+                "exchange requires same node type".to_string(),
+            ));
+        }
+
+        let src_parent_path = parent_path_from_index(&src_path)?;
+        let dst_parent_path = parent_path_from_index(&dst_path)?;
+        let src_name = src_path
+            .last()
+            .cloned()
+            .ok_or(Error::NodeNotFound(src_node_id))?;
+        let dst_name = dst_path
+            .last()
+            .cloned()
+            .ok_or(Error::NodeNotFound(dst_node_id))?;
+
+        if src_parent_path == dst_parent_path {
+            let parent = self
+                .find_by_path_mut(&src_parent_path)
+                .ok_or_else(|| Error::InvalidPath(src_parent_path.clone()))?;
+            let parent_node_id = parent.node_id;
+            let children = parent
+                .children_mut()
+                .ok_or(Error::NotADirectory(parent_node_id))?;
+            let src_pos = children
+                .iter()
+                .position(|node| node.node_id == src_node_id)
+                .ok_or(Error::NodeNotFound(src_node_id))?;
+            let dst_pos = children
+                .iter()
+                .position(|node| node.node_id == dst_node_id)
+                .ok_or(Error::NodeNotFound(dst_node_id))?;
+            children[src_pos].name = dst_name;
+            children[src_pos].touch();
+            children[dst_pos].name = src_name;
+            children[dst_pos].touch();
+            parent.touch();
+        } else {
+            let mut src_node = self.detach_child(&src_parent_path, src_node_id)?;
+            let mut dst_node = self.detach_child(&dst_parent_path, dst_node_id)?;
+            src_node.name = dst_name;
+            dst_node.name = src_name;
+            src_node.touch();
+            dst_node.touch();
+            self.attach_child(&dst_parent_path, src_node)?;
+            self.attach_child(&src_parent_path, dst_node)?;
+        }
+
+        self.version += 1;
+        self.rebuild_index();
+        Ok(())
+    }
+
+    fn ensure_trash_root(&mut self) -> Result<u64> {
+        match self.find_by_path(TRASH_ROOT_PATH) {
+            Some(node) if node.is_dir() => return Ok(node.node_id),
+            Some(node) => return Err(Error::NotADirectory(node.node_id)),
+            None => {}
+        }
+
+        self.create_dir("/", TRASH_SHARD_ID)
+    }
+
+    fn unique_trash_name(&self, original_name: &str, node_id: u64) -> Result<String> {
+        let base = format!("{original_name}.{node_id}.trash");
+        validate_name(&base)?;
+        let trash_root = self
+            .find_by_path(TRASH_ROOT_PATH)
+            .ok_or_else(|| Error::InvalidPath(TRASH_ROOT_PATH.to_string()))?;
+        if !trash_root.has_child(&base) {
+            return Ok(base);
+        }
+
+        for counter in 1..=10_000_u64 {
+            let candidate = format!("{base}.{counter}");
+            validate_name(&candidate)?;
+            if !trash_root.has_child(&candidate) {
+                return Ok(candidate);
+            }
+        }
+
+        Err(Error::NameExists(base))
+    }
+
+    fn detach_child(&mut self, parent_path: &str, node_id: u64) -> Result<CatalogNode> {
+        let parent = self
+            .find_by_path_mut(parent_path)
+            .ok_or_else(|| Error::InvalidPath(parent_path.to_string()))?;
+        parent
+            .remove_child(node_id)
+            .ok_or(Error::NodeNotFound(node_id))
+    }
+
+    fn attach_child(&mut self, parent_path: &str, node: CatalogNode) -> Result<()> {
+        let parent = self
+            .find_by_path_mut(parent_path)
+            .ok_or_else(|| Error::InvalidPath(parent_path.to_string()))?;
+        if !parent.is_dir() {
+            return Err(Error::NotADirectory(parent.node_id));
+        }
+        if parent.has_child(&node.name) {
+            return Err(Error::NameExists(node.name));
+        }
+        parent.add_child(node);
+        Ok(())
+    }
+}
+
+fn current_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn split_parent_and_name(path: &str) -> Option<(String, String)> {
+    let parts = path
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    let name = parts.last()?.to_string();
+    let parent = if parts.len() == 1 {
+        "/".to_string()
+    } else {
+        format!("/{}", parts[..parts.len() - 1].join("/"))
+    };
+    Some((parent, name))
+}
+
+fn parent_path_from_index(path: &[String]) -> Result<String> {
+    if path.len() <= 1 {
+        return Err(Error::CannotModifyRoot);
+    }
+    if path.len() == 2 {
+        Ok("/".to_string())
+    } else {
+        Ok(format!("/{}", path[1..path.len() - 1].join("/")))
+    }
+}
+
+fn is_path_prefix(left: &[String], right: &[String]) -> bool {
+    left.len() < right.len() && right.starts_with(left)
 }
 
 impl Default for CatalogManager {

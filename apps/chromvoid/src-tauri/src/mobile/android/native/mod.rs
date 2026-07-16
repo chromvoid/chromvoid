@@ -1,5 +1,6 @@
 mod audio_playback;
 mod biometric;
+mod context;
 mod gallery_save;
 mod image_metadata;
 mod jni;
@@ -182,6 +183,14 @@ pub fn open_url_with_system(url: &str) -> Result<(), String> {
 
 pub fn notify_mobile_usb_accessory_session_ended(session_id: &str, reason_code: &str) {
     mobile_usb_accessory::notify_session_ended(session_id, reason_code);
+}
+
+pub fn notify_mobile_usb_approval_required(kind: &str, attempt_id: &str) {
+    mobile_usb_accessory::notify_approval_required(kind, attempt_id);
+}
+
+pub fn notify_mobile_usb_approval_resolved() {
+    mobile_usb_accessory::notify_approval_resolved();
 }
 
 pub fn share_files_with_system(items: &[(&std::path::Path, Option<&str>)]) -> Result<(), String> {

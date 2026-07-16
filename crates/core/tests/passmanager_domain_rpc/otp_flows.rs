@@ -24,11 +24,176 @@ fn test_passmanager_otp_commands_require_unlocked_vault() {
     ));
     assert_rpc_error_message(&generate, "VAULT_REQUIRED", "Vault not unlocked");
 
+    let preview = router.handle(&RpcRequest::new(
+        "passmanager:otp:preview",
+        serde_json::json!({
+            "secret": "JBSWY3DPEHPK3PXP",
+            "encoding": "base32",
+            "algorithm": "SHA1",
+            "digits": 6,
+            "period": 30,
+        }),
+    ));
+    assert_rpc_error_message(&preview, "VAULT_REQUIRED", "Vault not unlocked");
+
     let remove = router.handle(&RpcRequest::new(
         "passmanager:otp:removeSecret",
         serde_json::json!({"otp_id": "otp-locked"}),
     ));
     assert_rpc_error_message(&remove, "VAULT_REQUIRED", "Vault not unlocked");
+}
+
+#[test]
+fn test_passmanager_otp_preview_generates_without_mutating_sidecar() {
+    let (mut router, _tmp) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "pw"));
+
+    let created_entry = router.handle(&RpcRequest::new(
+        "passmanager:entry:save",
+        serde_json::json!({
+            "title": "PreviewOnly",
+            "otps": [{"id": "otp-preview-only", "label": "Main"}],
+        }),
+    ));
+    assert_rpc_ok(&created_entry);
+
+    let preview = router.handle(&RpcRequest::new(
+        "passmanager:otp:preview",
+        serde_json::json!({
+            "secret": "12345678901234567890",
+            "encoding": "utf-8",
+            "algorithm": "SHA1",
+            "digits": 8,
+            "period": 30,
+            "type": "TOTP",
+            "ts": 59,
+        }),
+    ));
+    assert_rpc_ok(&preview);
+    assert_eq!(
+        preview
+            .result()
+            .and_then(|r| r.get("otp"))
+            .and_then(|v| v.as_str()),
+        Some("94287082"),
+    );
+    assert_eq!(
+        preview
+            .result()
+            .and_then(|r| r.get("period"))
+            .and_then(|v| v.as_u64()),
+        Some(30),
+    );
+    assert_eq!(
+        preview
+            .result()
+            .and_then(|r| r.get("left_seconds"))
+            .and_then(|v| v.as_u64()),
+        Some(1),
+    );
+
+    let generated = router.handle(&RpcRequest::new(
+        "passmanager:otp:generate",
+        serde_json::json!({"otp_id": "otp-preview-only", "ts": 59}),
+    ));
+    assert_rpc_error(&generated, "OTP_SECRET_NOT_FOUND");
+}
+
+#[test]
+fn test_passmanager_otp_save_then_generate_preserves_non_default_settings() {
+    let (mut router, _tmp) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "pw"));
+
+    let created_entry = router.handle(&RpcRequest::new(
+        "passmanager:entry:save",
+        serde_json::json!({
+            "title": "NonDefaultOTP",
+            "otps": [{"id": "otp-non-default", "label": "Main"}],
+        }),
+    ));
+    assert_rpc_ok(&created_entry);
+
+    let set_secret = router.handle(&RpcRequest::new(
+        "passmanager:otp:setSecret",
+        serde_json::json!({
+            "otp_id": "otp-non-default",
+            "secret": "12345678901234567890",
+            "encoding": "utf-8",
+            "algorithm": "SHA1",
+            "digits": 8,
+            "period": 30,
+            "type": "TOTP",
+        }),
+    ));
+    assert_rpc_ok(&set_secret);
+
+    let generated = router.handle(&RpcRequest::new(
+        "passmanager:otp:generate",
+        serde_json::json!({"otp_id": "otp-non-default", "ts": 59}),
+    ));
+    assert_rpc_ok(&generated);
+    assert_eq!(
+        generated
+            .result()
+            .and_then(|r| r.get("otp"))
+            .and_then(|v| v.as_str()),
+        Some("94287082"),
+    );
+}
+
+#[test]
+fn test_passmanager_otp_hotp_generate_uses_counter() {
+    let (mut router, _tmp) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "pw"));
+
+    let created_entry = router.handle(&RpcRequest::new(
+        "passmanager:entry:save",
+        serde_json::json!({
+            "title": "HotpOTP",
+            "otps": [{"id": "otp-hotp", "label": "Counter"}],
+        }),
+    ));
+    assert_rpc_ok(&created_entry);
+
+    let set_secret = router.handle(&RpcRequest::new(
+        "passmanager:otp:setSecret",
+        serde_json::json!({
+            "otp_id": "otp-hotp",
+            "secret": "12345678901234567890",
+            "encoding": "utf-8",
+            "algorithm": "SHA1",
+            "digits": 6,
+            "type": "HOTP",
+            "counter": 0,
+        }),
+    ));
+    assert_rpc_ok(&set_secret);
+
+    let generated_default_counter = router.handle(&RpcRequest::new(
+        "passmanager:otp:generate",
+        serde_json::json!({"otp_id": "otp-hotp"}),
+    ));
+    assert_rpc_ok(&generated_default_counter);
+    assert_eq!(
+        generated_default_counter
+            .result()
+            .and_then(|r| r.get("otp"))
+            .and_then(|v| v.as_str()),
+        Some("755224"),
+    );
+
+    let generated_request_counter = router.handle(&RpcRequest::new(
+        "passmanager:otp:generate",
+        serde_json::json!({"otp_id": "otp-hotp", "counter": 1}),
+    ));
+    assert_rpc_ok(&generated_request_counter);
+    assert_eq!(
+        generated_request_counter
+            .result()
+            .and_then(|r| r.get("otp"))
+            .and_then(|v| v.as_str()),
+        Some("287082"),
+    );
 }
 
 #[test]
@@ -417,6 +582,45 @@ fn test_passmanager_otp_set_secret_rejects_invalid_settings() {
         &invalid_digits,
         "OTP_SETTINGS_INVALID",
         "digits must be 6 or 8",
+    );
+
+    let invalid_encoding = router.handle(&RpcRequest::new(
+        "passmanager:otp:preview",
+        serde_json::json!({
+            "secret": "JBSWY3DPEHPK3PXP",
+            "encoding": "base85",
+        }),
+    ));
+    assert_rpc_error_message(
+        &invalid_encoding,
+        "OTP_SETTINGS_INVALID",
+        "Invalid secret encoding",
+    );
+
+    let invalid_base32_secret = router.handle(&RpcRequest::new(
+        "passmanager:otp:preview",
+        serde_json::json!({
+            "secret": "not-valid-base32!",
+            "encoding": "base32",
+        }),
+    ));
+    assert_rpc_error_message(
+        &invalid_base32_secret,
+        "OTP_SETTINGS_INVALID",
+        "Invalid secret encoding",
+    );
+
+    let invalid_period = router.handle(&RpcRequest::new(
+        "passmanager:otp:preview",
+        serde_json::json!({
+            "secret": "JBSWY3DPEHPK3PXP",
+            "period": 9,
+        }),
+    ));
+    assert_rpc_error_message(
+        &invalid_period,
+        "OTP_SETTINGS_INVALID",
+        "period must be between 10 and 120",
     );
 }
 

@@ -84,6 +84,7 @@ describe('UI component idle warmup', () => {
       'surface:notes',
       'surface:passwords',
       'surface:passkeys',
+      'surface:wallet',
       'surface:settings',
       'surface:remote',
       'surface:gateway',

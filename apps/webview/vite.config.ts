@@ -1,5 +1,5 @@
 import {existsSync} from 'node:fs'
-import {copyFile, cp, mkdir, readFile, writeFile} from 'node:fs/promises'
+import {cp, mkdir, readFile, rm, writeFile} from 'node:fs/promises'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import type {IncomingMessage, ServerResponse} from 'node:http'
@@ -27,8 +27,6 @@ const passmanagerStateFile = join(stateDir, 'passmanager-state.json')
 const sourceHtmlPath = join(srcDir, 'index.html')
 const distHtmlPath = join(distDir, 'index.html')
 const sourceAssetsDir = join(srcDir, 'assets')
-const sourceVendoredFontsCss = join(srcDir, 'styles', 'base', 'fonts.vendored.css')
-const distVendoredFontsCss = join(distAssetsDir, 'fonts.vendored.css')
 const isE2E = process.env.DASHBOARD_E2E === '1'
 type MockTransportLogEntry = {
   channel: 'catalog' | 'passmanager'
@@ -40,9 +38,9 @@ type MockTransportLogEntry = {
 const mockTransportLog: MockTransportLogEntry[] = []
 
 const devHtmlCsp =
-  "default-src 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost; media-src 'self' blob: asset: chromvoid-media: http://asset.localhost; font-src 'self' data:; connect-src 'self' data: ipc: http://ipc.localhost http://chromvoid.local ws://localhost:4400 ws://127.0.0.1:4400 ws://localhost:4410 ws://127.0.0.1:4410 ws://*:4410; worker-src 'self' blob:;"
+  "default-src 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob: asset: chromvoid-preview: http://asset.localhost; media-src 'self' blob: asset: chromvoid-preview: chromvoid-media: http://asset.localhost http://127.0.0.1:*; font-src 'self' data:; connect-src 'self' data: ipc: http://ipc.localhost http://chromvoid.local http://127.0.0.1:* ws://localhost:4400 ws://127.0.0.1:4400 ws://localhost:4410 ws://127.0.0.1:4410 ws://*:4410; worker-src 'self' blob:;"
 const prodHtmlCsp =
-  "default-src 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost; media-src 'self' blob: asset: chromvoid-media: http://asset.localhost; font-src 'self' data:; connect-src 'self' data: ipc: http://ipc.localhost http://chromvoid.local; worker-src 'self' blob:;"
+  "default-src 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob: asset: chromvoid-preview: http://asset.localhost; media-src 'self' blob: asset: chromvoid-preview: chromvoid-media: http://asset.localhost http://127.0.0.1:*; font-src 'self' data:; connect-src 'self' data: ipc: http://ipc.localhost http://chromvoid.local http://127.0.0.1:*; worker-src 'self' blob:;"
 
 function sendText(
   res: ServerResponse,
@@ -108,24 +106,13 @@ function webviewDevContractPlugin(): Plugin {
         if (
           url.pathname !== '/api/mock-state' &&
           url.pathname !== '/api/mock-passmanager-state' &&
-          url.pathname !== '/api/mock-transport-log' &&
-          url.pathname !== '/assets/fonts.vendored.css'
+          url.pathname !== '/api/mock-transport-log'
         ) {
           next()
           return
         }
 
         void (async () => {
-          if (url.pathname === '/assets/fonts.vendored.css') {
-            if (!existsSync(sourceVendoredFontsCss)) {
-              sendText(res, 404, 'Not found', 'text/plain; charset=utf-8')
-              return
-            }
-
-            sendText(res, 200, await readFile(sourceVendoredFontsCss, 'utf8'), 'text/css; charset=utf-8')
-            return
-          }
-
           if (url.pathname === '/api/mock-passmanager-state') {
             if (req.method === 'GET') {
               const persisted = await readPersistedPassmanagerState(passmanagerStateFile)
@@ -250,10 +237,7 @@ function webviewBuildContractPlugin(): Plugin {
 
       if (existsSync(sourceAssetsDir)) {
         await cp(sourceAssetsDir, distAssetsDir, {recursive: true, force: true})
-      }
-
-      if (existsSync(sourceVendoredFontsCss)) {
-        await copyFile(sourceVendoredFontsCss, distVendoredFontsCss)
+        await rm(join(distAssetsDir, 'fonts'), {recursive: true, force: true})
       }
 
       const sourceHtml = await readFile(sourceHtmlPath, 'utf8')
@@ -263,7 +247,7 @@ function webviewBuildContractPlugin(): Plugin {
   }
 }
 
-function getManualChunk(id: string): string | undefined {
+function getChunkGroupName(id: string): string | undefined {
   const normalized = id.split('\\').join('/')
 
   if (normalized.includes('@tauri-apps/')) {
@@ -391,6 +375,14 @@ export default defineConfig(({command}) => {
           replacement: join(workspaceRoot, 'packages/passmanager/src/i18n/format.ts'),
         },
         {
+          find: /^@project\/passmanager\/i18n\/availability$/,
+          replacement: join(workspaceRoot, 'packages/passmanager/src/i18n/availability.ts'),
+        },
+        {
+          find: /^@chromvoid\/password-import\/i18n\/availability$/,
+          replacement: join(workspaceRoot, 'packages/password-import/src/i18n/availability.ts'),
+        },
+        {
           find: /^@project\/passmanager\/password-utils$/,
           replacement: join(workspaceRoot, 'packages/passmanager/src/password-utils.ts'),
         },
@@ -462,10 +454,10 @@ export default defineConfig(({command}) => {
       modulePreload: false,
       outDir: '../dist',
       target: 'es2022',
-      rollupOptions: {
+      rolldownOptions: {
         output: {
           assetFileNames: (assetInfo) => {
-            const name = assetInfo.names?.[0] ?? assetInfo.name ?? ''
+            const name = assetInfo.names[0] ?? ''
             if (name.endsWith('.css')) {
               return 'assets/styles.css'
             }
@@ -473,7 +465,9 @@ export default defineConfig(({command}) => {
           },
           chunkFileNames: 'assets/[name]-[hash].js',
           entryFileNames: 'index.js',
-          manualChunks: getManualChunk,
+          codeSplitting: {
+            groups: [{name: getChunkGroupName}],
+          },
         },
       },
     },

@@ -61,16 +61,22 @@ impl RpcRouter {
     pub(super) fn recover_after_vault_unlock(&mut self) -> RecoveryResult<()> {
         if let Err(error) = self.recover_catalog_file_replace_transaction() {
             self.session = None;
+            self.wallet_auth_runtime.spend_authorizations.clear();
+            self.wallet_mnemonic_drafts.clear();
             return Err(RecoveryError::internal(error.to_string()));
         }
 
         if let Err(error) = super::blob_io::recover_single_blob_write_transaction(self) {
             self.session = None;
+            self.wallet_auth_runtime.spend_authorizations.clear();
+            self.wallet_mnemonic_drafts.clear();
             return Err(RecoveryError::internal(error.to_string()));
         }
 
         if let Err(error) = super::blob_io::recover_single_blob_erase_transaction(self) {
             self.session = None;
+            self.wallet_auth_runtime.spend_authorizations.clear();
+            self.wallet_mnemonic_drafts.clear();
             return Err(RecoveryError::internal(error.to_string()));
         }
 
@@ -80,12 +86,16 @@ impl RpcRouter {
                 session.vault_key(),
             ) {
                 self.session = None;
+                self.wallet_auth_runtime.spend_authorizations.clear();
+                self.wallet_mnemonic_drafts.clear();
                 return Err(RecoveryError::internal(error.to_string()));
             }
         }
 
         if let Err(error) = super::domain_uow::recover_domain_unit_of_work(self) {
             self.session = None;
+            self.wallet_auth_runtime.spend_authorizations.clear();
+            self.wallet_mnemonic_drafts.clear();
             return Err(RecoveryError::internal(error.to_string()));
         }
 
@@ -93,6 +103,8 @@ impl RpcRouter {
 
         if let Err(error) = self.recover_catalog_upload_session_transaction() {
             self.session = None;
+            self.wallet_auth_runtime.spend_authorizations.clear();
+            self.wallet_mnemonic_drafts.clear();
             return Err(RecoveryError::internal(error.to_string()));
         }
 
@@ -102,6 +114,8 @@ impl RpcRouter {
                 session.vault_key(),
             ) {
                 self.session = None;
+                self.wallet_auth_runtime.spend_authorizations.clear();
+                self.wallet_mnemonic_drafts.clear();
                 return Err(RecoveryError::internal(error.to_string()));
             }
         }
@@ -109,6 +123,8 @@ impl RpcRouter {
         if let Some(session) = self.session.as_mut() {
             if let Err(error) = session.recover_rekey_transaction(&self.storage) {
                 self.session = None;
+                self.wallet_auth_runtime.spend_authorizations.clear();
+                self.wallet_mnemonic_drafts.clear();
                 return Err(RecoveryError::internal(error.to_string()));
             }
         }

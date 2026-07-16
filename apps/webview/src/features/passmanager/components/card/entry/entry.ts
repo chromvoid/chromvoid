@@ -28,7 +28,6 @@ import type {PMEntrySecretResource} from './entry-session.model'
 import {entryDesktopStyles, pmEntryCardStyles, pmEntryGenerateStyles} from './styles'
 import {renderPaymentCardFace} from './payment-card-face'
 import {renderPMCopyButton} from '../../pm-copy-button'
-import type {PMEntrySshGenerateEvent} from '../entry-ssh/entry-ssh-generator'
 import {pmCredentialTagsModel} from '../../../models/pm-credential-tags.model'
 import {
   getSelectedTagIdsFromEvent,
@@ -121,8 +120,10 @@ export class PMEntry extends PMEntryBase {
 
     const data = this.model.contracts.getEntryData(card) as PMEntryEditData
     if (data.isEditingEntry) {
-      const saving = card.entryType === 'payment_card' ? this.model.paymentCardSaving() : this.model.inlineSaving()
-      const error = card.entryType === 'payment_card' ? this.model.paymentCardError() : this.model.inlineError()
+      const saving =
+        card.entryType === 'payment_card' ? this.model.paymentCardSaving() : this.model.inlineSaving()
+      const error =
+        card.entryType === 'payment_card' ? this.model.paymentCardError() : this.model.inlineError()
 
       return html`
         <div slot="actions" class="entry-edit-actions-shell">
@@ -322,23 +323,12 @@ export class PMEntry extends PMEntryBase {
     void this.model.removeOtp(otp)
   }
 
-  private handleGenerateSshKeyRequest(_event: PMEntrySshGenerateEvent) {
-    if (!(this.entry instanceof Entry)) return
-    void this.model.generateSshKey(this.entry)
-  }
-
-  private handleSshKeyRemove(event: CustomEvent<{keyId: string}>) {
-    if (!(this.entry instanceof Entry)) return
-
-    void this.model.removeSshKey(this.entry, event.detail.keyId)
-  }
-
   private renderTitleField(card: Entry, data: PMEntryEditData) {
     return html`
       <div class="credential-field">
         <div class="field-content">
           <span class="field-label">${i18n('title')}</span>
-          <span class="field-value ${card.title ? '' : 'empty'}">${data.title}</span>
+          <span class="field-value ${card.title ? '' : 'empty'}"><bdi dir="auto">${data.title}</bdi></span>
         </div>
       </div>
     `
@@ -356,6 +346,7 @@ export class PMEntry extends PMEntryBase {
                   <span slot="label">${i18n('username')}</span>
                   <cv-input
                     class="inline-field-input"
+                    dir="ltr"
                     name="inline-username"
                     data-inline-field="username"
                     .value=${this.model.inlineUsername()}
@@ -369,7 +360,7 @@ export class PMEntry extends PMEntryBase {
           : html`
               <div class="field-content">
                 <span class="field-label">${i18n('username')}</span>
-                <span class="field-value ${card.username ? '' : 'empty'}">${data.username}</span>
+                <span class="field-value ${card.username ? '' : 'empty'}" dir="ltr">${data.username}</span>
               </div>
               <div class="field-actions">
                 ${card.username ? renderPMCopyButton({value: card.username, size: 'small'}) : nothing}
@@ -395,6 +386,7 @@ export class PMEntry extends PMEntryBase {
                     <span slot="label">${i18n('password')}</span>
                     <cv-input
                       class="inline-field-input"
+                      dir="ltr"
                       type="password"
                       password-toggle
                       name="inline-password"
@@ -406,7 +398,8 @@ export class PMEntry extends PMEntryBase {
                     ></cv-input>
                   </cv-field>
                   <div class="password-inline-tools">
-                    <cv-button unstyled
+                    <cv-button
+                      unstyled
                       class="generator-toggle-button"
                       type="button"
                       aria-label=${i18n('password:generator_settings')}
@@ -428,7 +421,9 @@ export class PMEntry extends PMEntryBase {
                     </cv-button>
                   </div>
                   ${renderInlinePasswordStrength(this.model)}
-                  ${renderInlinePasswordGeneratorPanel(this.model, (event) => this.handleInlinePasswordLengthInput(event))}
+                  ${renderInlinePasswordGeneratorPanel(this.model, (event) =>
+                    this.handleInlinePasswordLengthInput(event),
+                  )}
                 </div>
               </div>
             `
@@ -445,6 +440,7 @@ export class PMEntry extends PMEntryBase {
                     ? html`
                         <cv-input
                           class="password-input"
+                          dir="ltr"
                           type="password"
                           password-toggle
                           readonly
@@ -478,6 +474,7 @@ export class PMEntry extends PMEntryBase {
                   <span slot="label">${i18n('website:title')}</span>
                   <cv-input
                     class="inline-field-input"
+                    dir="ltr"
                     name="inline-website"
                     data-inline-field="website"
                     .value=${this.model.inlineWebsite()}
@@ -494,7 +491,11 @@ export class PMEntry extends PMEntryBase {
           : html`
               <div class="field-content">
                 <span class="field-label">${i18n('website')}</span>
-                <div class="urls-list">${data.visibleUrls.length ? this.renderUrlButtons(data.visibleUrls) : html`<span class="field-value empty">—</span>`}</div>
+                <div class="urls-list">
+                  ${data.visibleUrls.length
+                    ? this.renderUrlButtons(data.visibleUrls)
+                    : html`<span class="field-value empty">—</span>`}
+                </div>
               </div>
               <div class="field-actions"></div>
             `}
@@ -539,6 +540,7 @@ export class PMEntry extends PMEntryBase {
         return html`
           <cv-textarea
             class="note-inline-input entry-edit-note-input"
+            dir="auto"
             name="inline-note"
             .value=${this.model.noteDraft()}
             rows="6"
@@ -572,7 +574,9 @@ export class PMEntry extends PMEntryBase {
       }
 
       if (!noteContent) {
-        return html`<div class="empty-state" role="status"><span>${i18n('entry:note:empty_hint')}</span></div>`
+        return html`<div class="empty-state" role="status">
+          <span>${i18n('entry:note:empty_hint')}</span>
+        </div>`
       }
 
       return html`
@@ -582,7 +586,7 @@ export class PMEntry extends PMEntryBase {
           aria-readonly="true"
           tabindex="-1"
           @dblclick=${isReadOnly ? undefined : this.handleStartNoteEntryEdit}
-        >${noteContent}</div>
+        ><bdi dir="auto">${noteContent}</bdi></div>
       `
     }
 
@@ -594,6 +598,7 @@ export class PMEntry extends PMEntryBase {
           <cv-field ?invalid=${Boolean(noteError)}>
             <cv-textarea
               class="note-inline-input"
+              dir="auto"
               name="inline-note"
               .value=${this.model.noteDraft()}
               rows="6"
@@ -668,12 +673,20 @@ export class PMEntry extends PMEntryBase {
 
     if (isEditing) {
       return html`
-        <section class="inline-section-card" aria-label=${i18n('otp')} @keydown=${this.handleSectionSnippetKeyDown}>
+        <section
+          class="inline-section-card"
+          aria-label=${i18n('otp')}
+          @keydown=${this.handleSectionSnippetKeyDown}
+        >
           <div class="section-head">
             <div class="section-title">
               <cv-icon name="shield-check"></cv-icon>
               <span>${i18n('otp')}</span>
-              ${data.otpCount > 0 ? html`<cv-badge class="section-count" size="small" variant="neutral">${data.otpCount}</cv-badge>` : nothing}
+              ${data.otpCount > 0
+                ? html`<cv-badge class="section-count" size="small" variant="neutral"
+                    >${data.otpCount}</cv-badge
+                  >`
+                : nothing}
             </div>
           </div>
           <div class="otp-manage-list">
@@ -713,24 +726,30 @@ export class PMEntry extends PMEntryBase {
             <div class="section-title">
               <cv-icon name="shield-check"></cv-icon>
               <span>${i18n('otp')}</span>
-              ${data.otpCount > 0 ? html`<cv-badge class="section-count" size="small" variant="neutral">${data.otpCount}</cv-badge>` : nothing}
+              ${data.otpCount > 0
+                ? html`<cv-badge class="section-count" size="small" variant="neutral"
+                    >${data.otpCount}</cv-badge
+                  >`
+                : nothing}
             </div>
           </div>
-          <div class="otp-codes">
-            ${otpList.map((otp) => this.renderOtpLabelEditor(otp))}
-          </div>
+          <div class="otp-codes">${otpList.map((otp) => this.renderOtpLabelEditor(otp))}</div>
         </section>
       `
     }
 
     return html`
       <section class="inline-section-card" aria-label=${i18n('otp')}>
-          <div class="section-head">
-            <div class="section-title">
-              <cv-icon name="shield-check"></cv-icon>
-              <span>${i18n('otp')}</span>
-              ${data.otpCount > 0 ? html`<cv-badge class="section-count" size="small" variant="neutral">${data.otpCount}</cv-badge>` : nothing}
-            </div>
+        <div class="section-head">
+          <div class="section-title">
+            <cv-icon name="shield-check"></cv-icon>
+            <span>${i18n('otp')}</span>
+            ${data.otpCount > 0
+              ? html`<cv-badge class="section-count" size="small" variant="neutral"
+                  >${data.otpCount}</cv-badge
+                >`
+              : nothing}
+          </div>
           ${canShowOtpAdd
             ? html`
                 <cv-button
@@ -768,82 +787,17 @@ export class PMEntry extends PMEntryBase {
   }
 
   private renderSshSection(card: Entry, data: PMEntryEditData) {
-    const showGenerator = this.model.sshGeneratorOpen()
-
-    if (!data.hasSshKeys && !data.canStartSshSnippet) {
-      return nothing
-    }
+    if (!data.hasSshKeys) return nothing
 
     return html`
-      <section
-        class="inline-section-card"
-        aria-label=${i18n('ssh:title')}
-        @keydown=${showGenerator ? this.handleSectionSnippetKeyDown : undefined}
-      >
+      <section class="inline-section-card" aria-label=${i18n('ssh:title')}>
         <div class="section-head">
           <div class="section-title">
             <cv-icon name="key"></cv-icon>
             <span>${i18n('ssh:title')}</span>
-            ${data.hasSshKeys ? html`<cv-badge class="section-count" size="small" variant="neutral">${card.sshKeys.length}</cv-badge>` : nothing}
+            <cv-badge class="section-count" size="small" variant="neutral">${card.sshKeys.length}</cv-badge>
           </div>
-          ${data.canStartSshSnippet && !showGenerator
-            ? html`
-                <cv-button
-                  class=${data.hasSshKeys ? 'icon-btn' : 'section-action-button'}
-                  type="button"
-                  ?unstyled=${data.hasSshKeys}
-                  variant="default"
-                  size="small"
-                  @click=${() => this.model.openSshGenerator(card)}
-                  aria-label=${i18n('ssh:add')}
-                >
-                  <cv-icon slot=${data.hasSshKeys ? nothing : 'prefix'} name="plus" aria-hidden="true"></cv-icon>
-                  ${data.hasSshKeys ? nothing : html`<span>${i18n('ssh:add')}</span>`}
-                </cv-button>
-              `
-            : nothing}
         </div>
-        ${data.hasSshKeys
-          ? html`
-              <div class="ssh-readonly-list">
-                  ${card.sshKeys.map(
-                    (key) => html`
-                      <pm-entry-ssh-key
-                        .keyId=${key.id}
-                        .keyType=${key.type}
-                        .fingerprint=${key.fingerprint}
-                        .name=${key.name}
-                        .comment=${key.comment}
-                        .publicKey=${this.model.state.sshPublicKeys()[key.id] ?? ''}
-                        .publicKeyProvider=${async () => (await card.sshPublicKey(key.id)) ?? ''}
-                        .removable=${data.canManageSsh && !data.isEditingEntry}
-                        @pm-entry-ssh-key-remove=${this.handleSshKeyRemove}
-                      ></pm-entry-ssh-key>
-                    `,
-                  )}
-                </div>
-            `
-          : nothing}
-        ${showGenerator
-          ? html`
-              <pm-entry-ssh-generator
-                radio-group="ssh-key-type-desktop"
-                show-cancel
-                allow-copy
-                .keyType=${this.model.sshKeyType()}
-                .comment=${this.model.sshComment()}
-                .generating=${this.model.sshGenerating()}
-                .result=${this.model.sshResult()}
-                @pm-entry-ssh-key-type-change=${(event: CustomEvent<{keyType: string}>) =>
-                  this.model.setSshKeyType(event.detail.keyType as any)}
-                @pm-entry-ssh-comment-input=${(event: CustomEvent<{value: string}>) =>
-                  this.model.setSshComment(event.detail.value)}
-                @pm-entry-ssh-generate=${this.handleGenerateSshKeyRequest}
-                @pm-entry-ssh-cancel=${() => this.model.cancelSshGenerator()}
-              ></pm-entry-ssh-generator>
-            `
-          : nothing}
-        ${this.model.sshError() ? html`<div class="error-text">${this.model.sshError()}</div>` : nothing}
       </section>
     `
   }
@@ -856,7 +810,11 @@ export class PMEntry extends PMEntryBase {
 
     if (isEditing) {
       return html`
-        <section class="inline-section-card" aria-label=${i18n('tags:title')} @keydown=${this.handleSectionSnippetKeyDown}>
+        <section
+          class="inline-section-card"
+          aria-label=${i18n('tags:title')}
+          @keydown=${this.handleSectionSnippetKeyDown}
+        >
           <div class="section-head">
             <div class="section-title">
               <cv-icon name="tag"></cv-icon>
@@ -890,7 +848,11 @@ export class PMEntry extends PMEntryBase {
           <div class="section-title">
             <cv-icon name="tag"></cv-icon>
             <span>${i18n('tags:title')}</span>
-            ${data.tags.length > 0 ? html`<cv-badge class="section-count" size="small" variant="neutral">${data.tags.length}</cv-badge>` : nothing}
+            ${data.tags.length > 0
+              ? html`<cv-badge class="section-count" size="small" variant="neutral"
+                  >${data.tags.length}</cv-badge
+                >`
+              : nothing}
           </div>
           ${data.canEditTags && data.isEditingEntry
             ? html`
@@ -904,14 +866,18 @@ export class PMEntry extends PMEntryBase {
                   @click=${() => this.model.startTagEdit(card)}
                   aria-label=${i18n('tags:add')}
                 >
-                  <cv-icon slot=${data.hasTags ? nothing : 'prefix'} name=${data.hasTags ? 'pencil' : 'plus'} aria-hidden="true"></cv-icon>
+                  <cv-icon
+                    slot=${data.hasTags ? nothing : 'prefix'}
+                    name=${data.hasTags ? 'pencil' : 'plus'}
+                    aria-hidden="true"
+                  ></cv-icon>
                   ${data.hasTags ? nothing : html`<span>${i18n('tags:add')}</span>`}
                 </cv-button>
               `
             : nothing}
         </div>
         ${data.hasTags
-          ? renderEntryTagsReadOnly(data.tags)
+          ? renderEntryTagsReadOnly(data.tags, pmCredentialTagsModel.availableTags())
           : html`<span class="entry-tags-empty">${i18n('tags:empty')}</span>`}
       </section>
     `
@@ -961,7 +927,9 @@ export class PMEntry extends PMEntryBase {
               onToggleCvv: () => this.handleToggleCardCvv(),
             })}
           </section>
-          ${this.model.paymentCardError() ? html`<div class="error-text">${this.model.paymentCardError()}</div>` : nothing}
+          ${this.model.paymentCardError()
+            ? html`<div class="error-text">${this.model.paymentCardError()}</div>`
+            : nothing}
         </form>
       `
     }
@@ -990,7 +958,7 @@ export class PMEntry extends PMEntryBase {
     const data = this.model.contracts.getEntryData(card) as PMEntryEditData
     const editLoginIdentity = data.canEditFields && data.isEditingEntry && card.entryType !== 'payment_card'
 
-    this.style.setProperty('--entry-avatar-bg', data.avatarBg)
+    this.style.setProperty('--pm-entry-avatar-background', data.avatarBg)
 
     return html`
       <article class="wrapper" role="main" aria-label=${data.entryTitleText}>
@@ -1012,30 +980,25 @@ export class PMEntry extends PMEntryBase {
           @pm-icon-change=${this.handleInlineIconChange}
           @keydown=${this.handleInlineEditorKeyDown}
         >
-          ${this.renderHeaderBadges(data.headerBadges)}
-          ${this.renderHeaderActions()}
+          ${this.renderHeaderBadges(data.headerBadges)} ${this.renderHeaderActions()}
         </pm-workspace-header>
         ${card.entryType === 'payment_card'
           ? html`
               <div class="fields-card">${this.renderPaymentCardSection(card, data)}</div>
               <section class="secondary-section">
-                ${this.renderTagsSection(card, data)}
-                ${this.renderNoteDetails()}
+                ${this.renderTagsSection(card, data)} ${this.renderNoteDetails()}
               </section>
             `
           : html`
               <div class="fields-card">
                 ${data.isEditingEntry ? nothing : this.renderTitleField(card, data)}
-                ${this.renderUsernameField(card)}
-                ${this.renderPasswordField(card)}
+                ${this.renderUsernameField(card)} ${this.renderPasswordField(card)}
                 ${this.renderWebsiteField(card, data)}
               </div>
 
               <section class="secondary-section">
-                ${this.renderTagsSection(card, data)}
-                ${this.renderOtpSection(card, data)}
-                ${this.renderSshSection(card, data)}
-                ${this.renderNoteDetails()}
+                ${this.renderTagsSection(card, data)} ${this.renderOtpSection(card, data)}
+                ${this.renderSshSection(card, data)} ${this.renderNoteDetails()}
               </section>
             `}
       </article>

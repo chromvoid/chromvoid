@@ -99,17 +99,13 @@ describe('PMEntryCreateBase form submit behavior', () => {
 
   it('resets scroll position without focusing title on mobile connect', async () => {
     const component = document.createElement('test-entry-create-mobile-scroll') as TestEntryCreateMobileScroll
-    const scrollToSpy = vi.fn()
-
-    Object.defineProperty(component, 'scrollTo', {
-      value: scrollToSpy,
-      configurable: true,
-    })
 
     document.body.append(component)
     await settle()
 
-    expect(scrollToSpy).toHaveBeenCalledWith({top: 0, left: 0})
+    const scroll = component.shadowRoot?.querySelector('.create-scroll') as HTMLElement | null
+    expect(scroll?.scrollTop).toBe(0)
+    expect(scroll?.scrollLeft).toBe(0)
     expect(component.focusCalls).toEqual([])
   })
 

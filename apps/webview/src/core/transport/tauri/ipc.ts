@@ -3,6 +3,9 @@ import {listen} from '@tauri-apps/api/event'
 
 const DEFAULT_INVOKE_TIMEOUT_MS = 60_000
 const LONG_RUNNING_INVOKE_TIMEOUT_MS = 30 * 60_000
+const TAURI_IPC_FAILURE_MARKER = 'TAURI_IPC_FAILURE'
+const TAURI_IPC_DIAGNOSTIC_COMMAND = 'unlock_debug_log'
+const MAX_NATIVE_FAILURE_DIAGNOSTICS = 50
 
 const COMMAND_TIMEOUT_OVERRIDES_MS: Record<string, number> = {
   backup_local_create: LONG_RUNNING_INVOKE_TIMEOUT_MS,
@@ -22,6 +25,15 @@ export type TauriInvokeOptions = {
   timeoutMs?: number
   disableTimeout?: boolean
 }
+
+type TauriInvokeFailureKind = 'command-not-allowed' | 'command-not-found' | 'timeout' | 'invoke-error'
+type TauriInvokeFailureSeverity = 'critical' | 'error'
+
+interface Catchable {
+  catch(onRejected: (error: unknown) => unknown): unknown
+}
+
+const reportedNativeFailureDiagnostics = new Set<string>()
 
 function serializeForTauri(value: unknown): unknown {
   if (typeof value === 'bigint') {
@@ -50,6 +62,88 @@ export function getTauriInvokeTimeoutMs(cmd: string, options?: TauriInvokeOption
   const timeoutMs = options?.timeoutMs ?? COMMAND_TIMEOUT_OVERRIDES_MS[cmd] ?? DEFAULT_INVOKE_TIMEOUT_MS
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return null
   return timeoutMs
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function classifyInvokeFailure(message: string): TauriInvokeFailureKind {
+  const lower = message.toLowerCase()
+  if (lower.includes('timed out')) return 'timeout'
+
+  const looksNotAllowed =
+    lower.includes('not allowed') || lower.includes('permission') || lower.includes('forbidden')
+  if (looksNotAllowed) return 'command-not-allowed'
+
+  if (lower.includes('command not found') || lower.includes('command_not_found')) return 'command-not-found'
+
+  return 'invoke-error'
+}
+
+function invokeFailureSeverity(kind: TauriInvokeFailureKind): TauriInvokeFailureSeverity {
+  return kind === 'invoke-error' ? 'error' : 'critical'
+}
+
+function isCatchable(value: unknown): value is Catchable {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      typeof (value as {catch?: unknown}).catch === 'function',
+  )
+}
+
+function writeNativeFailureDiagnostic(payload: Record<string, unknown>): void {
+  const {cmd} = payload
+  if (cmd === TAURI_IPC_DIAGNOSTIC_COMMAND) return
+
+  const key = `${String(cmd)}:${String(payload['error_kind'])}:${String(payload['error'])}`
+  if (reportedNativeFailureDiagnostics.has(key)) return
+  if (reportedNativeFailureDiagnostics.size >= MAX_NATIVE_FAILURE_DIAGNOSTICS) return
+  reportedNativeFailureDiagnostics.add(key)
+
+  try {
+    const result: unknown = invoke(TAURI_IPC_DIAGNOSTIC_COMMAND, {
+      message: JSON.stringify(payload),
+      reset: false,
+    })
+    if (isCatchable(result)) {
+      result.catch(() => false)
+    }
+  } catch {
+    // Best-effort logging path. The original invoke error must remain the surfaced failure.
+  }
+}
+
+function logInvokeFailure(
+  cmd: string,
+  args: Record<string, unknown> | undefined,
+  error: unknown,
+): void {
+  const message = errorMessage(error)
+  const errorKind = classifyInvokeFailure(message)
+  const severity = invokeFailureSeverity(errorKind)
+  const payload = {
+    arg_keys: args ? Object.keys(args) : [],
+    cmd,
+    error: message,
+    error_kind: errorKind,
+    event: 'invoke-failed',
+    has_tauri_internals: hasTauriInternals(),
+    href: typeof location !== 'undefined' ? location.href : undefined,
+    marker: TAURI_IPC_FAILURE_MARKER,
+    scope: 'tauri-ipc',
+    severity,
+    ts: new Date().toISOString(),
+    visibility_state: typeof document !== 'undefined' ? document.visibilityState : undefined,
+  }
+
+  if (severity === 'critical') {
+    console.error('[dashboard][tauri][TAURI_IPC_FAILURE]', payload)
+  } else {
+    console.warn('[dashboard][tauri][TAURI_IPC_FAILURE]', payload)
+  }
+  writeNativeFailureDiagnostic(payload)
 }
 
 export async function tauriInvoke<T>(
@@ -83,12 +177,8 @@ export async function tauriInvoke<T>(
       if (timeoutId !== undefined) clearTimeout(timeoutId)
     }
   } catch (e) {
-    console.warn('[dashboard][tauri] invoke failed', {
-      cmd,
-      argKeys: args ? Object.keys(args) : [],
-      error: e instanceof Error ? e.message : String(e),
-    })
-    throw e
+    logInvokeFailure(cmd, args, e)
+    throw e instanceof Error ? e : new Error(String(e))
   }
 }
 

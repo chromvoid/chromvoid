@@ -32,9 +32,11 @@ describe('breadcrumbs-nav', () => {
     expect(items[0]?.textContent).toContain('Files')
     expect(items[1]?.getAttribute('value')).toBe('/docs')
     expect(items[1]?.getAttribute('href')).toBe('/docs')
+    expect(items[1]?.querySelector('bdi[dir="auto"]')?.textContent).toBe('docs')
     expect(items[1]?.hasAttribute('current')).toBe(false)
     expect(items[2]?.getAttribute('value')).toBe('/docs/api')
     expect(items[2]?.getAttribute('href')).toBe('/docs/api')
+    expect(items[2]?.querySelector('bdi[dir="auto"]')?.textContent).toBe('api')
     expect(items[2]?.hasAttribute('current')).toBe(true)
   })
 

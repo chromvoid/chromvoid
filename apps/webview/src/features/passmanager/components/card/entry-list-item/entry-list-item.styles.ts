@@ -2,13 +2,14 @@ import {css} from 'lit'
 
 import {listItemStyles} from '../../list/list-item-styles'
 import {pmMobileListRowStyles} from '../../../styles/mobile-list-row'
+import {credentialTagColorStyles} from '../../../styles/credential-tags'
 
 export const pmEntryListItemBaseStyles = [
   listItemStyles,
+  credentialTagColorStyles,
   css`
     :host {
       display: block;
-      --entry-accent: var(--cv-color-primary);
       container-type: inline-size;
       min-inline-size: 0;
     }
@@ -28,15 +29,6 @@ export const pmEntryListItemBaseStyles = [
 
     .list-item * {
       -webkit-user-drag: none;
-    }
-
-    .item-icon {
-      width: 24px;
-      height: 24px;
-      color: var(--pm-entry-row-icon-color, var(--cv-color-primary));
-      background: var(--pm-entry-row-icon-background, var(--cv-color-primary-surface));
-      border-radius: var(--cv-radius-1);
-      padding: 4px;
     }
 
     .entry-icon-shell {
@@ -193,19 +185,21 @@ export const pmEntryListItemBaseStyles = [
       text-overflow: ellipsis;
     }
 
-    .entry-badge-suffix {
-      flex: 0 0 auto;
-    }
-
     .entry-badge cv-icon {
       inline-size: 12px;
       block-size: 12px;
       flex: 0 0 auto;
     }
 
-    .entry-badge-overflow {
+    .entry-badge-overflow,
+    .entry-tag-overflow {
+      flex: 0 0 auto;
       border-style: dashed;
       color: var(--cv-color-text-muted);
+    }
+
+    .entry-tag-overflow {
+      display: none;
     }
 
     .item-actions {
@@ -257,7 +251,6 @@ export const pmEntryListItemBaseStyles = [
         padding: calc(var(--cv-space-2) * 0.75);
       }
 
-      .item-icon,
       .entry-icon-shell,
       .entry-favicon {
         width: var(--pm-avatar-list-compact-size);
@@ -285,8 +278,8 @@ export const pmEntryListItemDesktopStyles = css`
   }
 
   .list-item {
-    block-size: var(--pm-desktop-entry-row-inner-height, auto);
-    min-block-size: var(--pm-desktop-entry-row-inner-height, 44px);
+    block-size: var(--pm-desktop-entry-row-inner-block-size, auto);
+    min-block-size: var(--pm-desktop-entry-row-inner-block-size, 44px);
     padding: var(--pm-entry-row-padding, var(--app-spacing-1) var(--app-spacing-2));
     background: var(--pm-entry-row-background, var(--cv-color-surface));
     border-color: var(--pm-entry-row-border, var(--cv-color-border));
@@ -327,6 +320,10 @@ export const pmEntryListItemDesktopStyles = css`
   .workbench-status-cell .entry-badges {
     justify-content: flex-start;
     max-inline-size: 100%;
+  }
+
+  .entry-tag-overflow[data-tag-limit='3'] {
+    display: inline-flex;
   }
 
   .workbench-modified-cell {
@@ -376,14 +373,8 @@ export const pmEntryListItemDesktopStyles = css`
   }
 
   .list-item:hover {
-    background: var(
-      --pm-entry-row-hover-background,
-      var(--cv-color-primary-surface)
-    );
-    border-color: var(
-      --pm-entry-row-hover-border,
-      var(--cv-color-primary-border-strong)
-    );
+    background: var(--pm-entry-row-hover-background, var(--cv-color-primary-surface));
+    border-color: var(--pm-entry-row-hover-border, var(--cv-color-primary-border-strong));
     box-shadow: none;
   }
 
@@ -393,15 +384,9 @@ export const pmEntryListItemDesktopStyles = css`
 
   .list-item.active-row,
   .list-item.selected {
-    background: var(
-      --pm-entry-row-active-background,
-      var(--cv-color-primary-surface-strong)
-    );
+    background: var(--pm-entry-row-active-background, var(--cv-color-primary-surface-strong));
     border-color: var(--pm-entry-row-active-border, var(--cv-color-primary));
-    outline: var(
-      --pm-active-outline,
-      2px solid var(--cv-color-primary-ring)
-    );
+    outline: var(--pm-active-outline, 2px solid var(--cv-color-primary-ring));
     outline-offset: var(--pm-active-outline-offset, -2px);
     box-shadow: none;
   }
@@ -410,11 +395,6 @@ export const pmEntryListItemDesktopStyles = css`
   .list-item.selected::before {
     background: var(--pm-entry-row-active-leading-accent, var(--cv-color-primary));
     width: 4px;
-  }
-
-  .list-item:hover .item-icon {
-    background: var(--cv-color-primary-surface-strong);
-    transform: scale(1.05);
   }
 
   .list-item:hover .entry-favicon {
@@ -453,16 +433,16 @@ export const pmEntryListItemDesktopStyles = css`
     transform: translateX(0);
   }
 
-  @media (hover: none) and (pointer: coarse) {
-    .item-actions {
-      opacity: 1;
-      visibility: visible;
-      pointer-events: auto;
-      transform: translateX(0);
-    }
-  }
-
   @container (width < 680px) {
+    .entry-tag-badge[data-tag-position='3'],
+    .entry-tag-overflow[data-tag-limit='3'] {
+      display: none;
+    }
+
+    .entry-tag-overflow[data-tag-limit='2'] {
+      display: inline-flex;
+    }
+
     .list-item[data-view-mode='workbench'] {
       grid-template-columns: minmax(0, 1fr) minmax(92px, auto) auto;
     }
@@ -522,9 +502,7 @@ export const pmEntryListItemMobileStyles = css`
   .list-item {
     grid-template-columns: auto minmax(0, 1fr) minmax(0, auto) auto;
     gap: var(--pm-mobile-list-row-gap);
-    padding:
-      var(--pm-mobile-list-row-padding-block)
-      var(--pm-mobile-list-row-padding-inline);
+    padding: var(--pm-mobile-list-row-padding-block) var(--pm-mobile-list-row-padding-inline);
     margin: 0;
   }
 
@@ -604,8 +582,13 @@ export const pmEntryListItemMobileStyles = css`
   }
 
   .entry-badge.entry-type-chip,
-  .entry-badge.entry-badge-overflow {
+  .entry-badge.entry-badge-overflow,
+  .entry-badge.entry-tag-overflow {
     flex: 0 0 auto;
+  }
+
+  .entry-tag-overflow[data-tag-limit='1'] {
+    display: inline-flex;
   }
 
   .entry-badge.entry-type-chip cv-icon {
@@ -622,36 +605,36 @@ export const pmEntryListItemMobileStyles = css`
     align-items: center;
     justify-content: flex-end;
     gap: 4px;
+    inline-size: 36px;
+    block-size: 6px;
     pointer-events: none;
   }
 
   .entry-status-dot {
-    --entry-status-dot-color: var(--cv-color-primary);
-    --entry-status-dot-glow: var(--pm-entry-status-dot-glow);
     inline-size: 6px;
     block-size: 6px;
     border-radius: 50%;
-    background: var(--entry-status-dot-color);
+    background: var(--cv-color-primary);
     box-shadow:
       0 0 0 1px var(--cv-color-surface-2),
-      0 0 6px var(--entry-status-dot-glow);
+      0 0 6px var(--pm-entry-status-dot-glow);
   }
 
   .entry-status-dot[data-severity='warning'],
   .entry-status-dot[data-badge-id='reused_password'],
   .entry-status-dot[data-badge-id='ssh'] {
-    --entry-status-dot-color: var(--cv-color-warning);
-    --entry-status-dot-glow: var(--pm-entry-status-dot-warning-glow);
+    background: var(--cv-color-warning);
+    box-shadow:
+      0 0 0 1px var(--cv-color-surface-2),
+      0 0 6px var(--pm-entry-status-dot-warning-glow);
   }
 
   .entry-status-dot[data-severity='critical'],
   .entry-status-dot[data-badge-id='weak_password'] {
-    --entry-status-dot-color: var(--cv-color-danger);
-    --entry-status-dot-glow: var(--pm-entry-status-dot-danger-glow);
-  }
-
-  .entry-status-dot[data-badge-id='two_factor'] {
-    --entry-status-dot-color: var(--cv-color-primary);
+    background: var(--cv-color-danger);
+    box-shadow:
+      0 0 0 1px var(--cv-color-surface-2),
+      0 0 6px var(--pm-entry-status-dot-danger-glow);
   }
 
   .item-actions {
@@ -694,7 +677,7 @@ export const pmEntryListItemMobileStyles = css`
     position: relative;
     z-index: 1;
     touch-action: pan-y;
-    transform: translateX(var(--pm-entry-swipe-offset-x, 0px));
+    transform: translateX(var(--_pm-entry-swipe-offset-inline, 0px));
   }
 
   .swipe-actions-left,

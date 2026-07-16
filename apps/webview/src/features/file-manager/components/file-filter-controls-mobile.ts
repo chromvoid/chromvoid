@@ -82,7 +82,7 @@ export class FileFilterControlsMobile extends ReatomLitElement {
       align-items: center;
       gap: 8px;
       margin-bottom: 10px;
-      padding-left: 2px;
+      padding-inline-start: 2px;
     }
 
     .section-icon {
@@ -152,9 +152,7 @@ export class FileFilterControlsMobile extends ReatomLitElement {
       display: flex;
       align-items: center;
       gap: 10px;
-      padding-bottom: 16px;
       margin-bottom: 16px;
-      border-bottom: 1px solid var(--cv-color-border-glass);
     }
 
     .direction-toggle {

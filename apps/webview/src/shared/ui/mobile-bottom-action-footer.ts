@@ -13,12 +13,12 @@ export class MobileBottomActionFooter extends ReatomLitElement {
   static styles = css`
     :host {
       position: relative;
-      z-index: var(--cv-mobile-bottom-action-z-index, auto);
+      z-index: auto;
       display: grid;
       flex: 0 0 auto;
       box-sizing: border-box;
       min-inline-size: 0;
-      padding: var(--cv-mobile-bottom-action-padding, var(--cv-space-2) var(--cv-space-3));
+      padding: var(--app-mobile-block-end-action-padding, var(--cv-space-2) var(--cv-space-3));
       border-block-start: 1px solid var(--cv-color-border-faint);
       background: var(--cv-color-bg);
       box-shadow: 0 -16px 24px -16px var(--cv-alpha-black-35);
@@ -26,14 +26,6 @@ export class MobileBottomActionFooter extends ReatomLitElement {
 
     :host([hidden]) {
       display: none;
-    }
-
-    :host([columns='2']) {
-      --cv-mobile-bottom-action-columns: 2;
-    }
-
-    :host([columns='3']) {
-      --cv-mobile-bottom-action-columns: 3;
     }
 
     .container {
@@ -44,7 +36,7 @@ export class MobileBottomActionFooter extends ReatomLitElement {
     .message {
       display: none;
       min-inline-size: 0;
-      margin-block-end: var(--cv-mobile-bottom-action-message-gap, var(--cv-space-2));
+      margin-block-end: var(--cv-space-2);
     }
 
     :host([has-message]) .message {
@@ -53,9 +45,17 @@ export class MobileBottomActionFooter extends ReatomLitElement {
 
     .row {
       display: grid;
-      grid-template-columns: repeat(var(--cv-mobile-bottom-action-columns, 1), minmax(0, 1fr));
+      grid-template-columns: minmax(0, 1fr);
       gap: var(--cv-space-2);
       min-inline-size: 0;
+    }
+
+    :host([columns='2']) .row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    :host([columns='3']) .row {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     slot:not([name])::slotted(*) {

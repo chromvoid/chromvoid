@@ -1,6 +1,7 @@
 export const PASSWORD_INPUT_DIALOG_KEYBOARD_STABILIZATION_ATTR =
   'data-password-input-dialog-keyboard-stabilization'
-export const PASSWORD_INPUT_DIALOG_KEYBOARD_OFFSET_VAR = '--password-input-dialog-keyboard-offset'
+export const PASSWORD_INPUT_DIALOG_KEYBOARD_OFFSET_VAR =
+  '--app-runtime-dialog-password-input-keyboard-offset'
 export const PASSWORD_INPUT_DIALOG_PROVISIONAL_KEYBOARD_OFFSET = 'min(42dvh, 360px)'
 
 export type PasswordInputDialogKeyboardOffsetPhase = 'progress' | 'settled'

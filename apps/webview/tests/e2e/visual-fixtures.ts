@@ -1,4 +1,5 @@
 import type {Page} from 'playwright'
+import type * as AppContextModule from '../../src/shared/services/app-context'
 
 import {clearMockPassmanagerState, writeMockPassmanagerState} from './utils'
 
@@ -354,6 +355,55 @@ export async function seedVisualPassmanagerFixture(): Promise<void> {
   })
 }
 
+export async function seedVisualPassmanagerTagSnippetFixture(): Promise<void> {
+  const tags = ['Work', 'Production', 'Security Audit', 'Emergency Access', 'Operations']
+
+  await clearMockPassmanagerState()
+  await writeMockPassmanagerState({
+    version: 1,
+    revision: 1,
+    nextNodeId: 3,
+    folders: [],
+    foldersMeta: [],
+    tags,
+    tagMeta: {
+      work: {colorId: 'green'},
+      production: {colorId: 'blue'},
+      'security audit': {colorId: 'pink'},
+      'emergency access': {colorId: 'orange'},
+      operations: {colorId: 'cyan'},
+    },
+    entries: [
+      {
+        nodeId: 2,
+        meta: {
+          id: 'visual-tag-snippet',
+          title: 'Infrastructure Admin',
+          username: 'ops@example.test',
+          urls: [{value: 'https://admin.example.test', match: 'base_domain'}],
+          tags,
+          otps: [
+            {
+              id: 'visual-tag-snippet-otp',
+              label: 'Primary',
+              algorithm: 'SHA1',
+              digits: 6,
+              period: 60,
+              encoding: 'base32',
+              type: 'TOTP',
+            },
+          ],
+        },
+      },
+    ],
+    secrets: [['visual-tag-snippet:password', 'CorrectHorseBatteryStaple!2026']],
+    otpSecrets: [
+      ['visual-tag-snippet:Primary', {secret: 'JBSWY3DPEHPK3PXP', digits: 6, period: 60}],
+    ],
+    icons: [],
+  })
+}
+
 export async function openFiles(page: Page, layout: VisualLayout, width?: number): Promise<void> {
   const viewport = layout === 'mobile' ? {width: width ?? 390, height: 844} : {width: 1280, height: 720}
   await page.setViewportSize(viewport)
@@ -539,7 +589,7 @@ export async function selectFirstMobileFile(page: Page): Promise<void> {
 
     const dynamicImport = new Function('path', 'return import(path)') as (
       path: string,
-    ) => Promise<typeof import('../../src/shared/services/app-context')>
+    ) => Promise<typeof AppContextModule>
     const {getAppContext} = await dynamicImport('/shared/services/app-context.ts')
     const store = getAppContext().store
     store.setSelectionMode(true)
@@ -566,7 +616,7 @@ export async function selectFirstDesktopTableRow(page: Page): Promise<void> {
   await page.evaluate(async () => {
     const dynamicImport = new Function('path', 'return import(path)') as (
       path: string,
-    ) => Promise<typeof import('../../src/shared/services/app-context')>
+    ) => Promise<typeof AppContextModule>
     const {getAppContext} = await dynamicImport('/shared/services/app-context.ts')
     const store = getAppContext().store
     store.setSearchFilters({...store.searchFilters(), viewMode: 'table'})

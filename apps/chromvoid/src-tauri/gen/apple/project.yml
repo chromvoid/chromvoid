@@ -101,7 +101,9 @@ targets:
       path: chromvoid_iOS/chromvoid_iOS.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.chromvoid.app.shared
+          - group.com.chromvoid.app.shared.lhwc37d5kt
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.chromvoid.app.shared
     settings:
       base:
         ENABLE_BITCODE: false
@@ -177,7 +179,9 @@ targets:
       path: chromvoid_CredentialProviderExtension/chromvoid_CredentialProviderExtension.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.chromvoid.app.shared
+          - group.com.chromvoid.app.shared.lhwc37d5kt
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.chromvoid.app.shared
         com.apple.developer.authentication-services.autofill-credential-provider: true
     settings:
       base:
@@ -212,7 +216,7 @@ targets:
       path: chromvoid_ShareExtension/chromvoid_ShareExtension.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.chromvoid.app.shared
+          - group.com.chromvoid.app.shared.lhwc37d5kt
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.app.share-extension
@@ -247,7 +251,9 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
-          - group.com.chromvoid.app.shared
+          - group.com.chromvoid.app.shared.lhwc37d5kt
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.chromvoid.app.shared
         com.apple.developer.authentication-services.autofill-credential-provider: true
     settings:
       base:
@@ -285,7 +291,9 @@ targets:
       path: chromvoid_macos/chromvoid_macos.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.chromvoid.app.shared
+          - group.com.chromvoid.app.shared.lhwc37d5kt
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.chromvoid.app.shared
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.app.desktop

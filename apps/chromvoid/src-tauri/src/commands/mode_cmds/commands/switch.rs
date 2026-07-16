@@ -442,11 +442,13 @@ pub(crate) async fn mode_switch(
                     serde_json::json!({ "phase": "starting_io_task" }),
                 );
 
-                let req_tx = state.remote_io_runtime.start_remote_session(
+                let peer_features = crate::remote_data_plane::RemotePeerFeatures::new();
+                let remote_session = state.remote_io_runtime.start_remote_session(
                     app.clone(),
                     crate::remote_data_plane::RemoteIoTaskConfig {
                         transport: noise_transport.0,
                         noise_transport: noise_transport.1,
+                        peer_features: peer_features.clone(),
                     },
                 )?;
 
@@ -455,7 +457,14 @@ pub(crate) async fn mode_switch(
                 };
 
                 let remote_start_result = async {
-                    let mut remote = RemoteCoreAdapter::from_remote_sender(host, req_tx);
+                    let mut remote =
+                        RemoteCoreAdapter::from_remote_sender_with_metrics_generation_and_features(
+                            host,
+                            remote_session.req_tx,
+                            None,
+                            Some(remote_session.generation),
+                            peer_features,
+                        );
                     remote.probe_capabilities();
                     let caps = crate::types::runtime_capabilities_for_current_target();
                     crate::pro::guard_pro_feature_for_adapter(
@@ -544,12 +553,16 @@ pub(crate) async fn mode_switch(
         }
     }
 
-    let (current_mode, remote_core_features) = {
+    let (current_mode, remote_core_features, transport_session_generation) = {
         let adapter = state
             .adapter
             .lock()
             .map_err(|_| "Adapter mutex poisoned".to_string())?;
-        (adapter.mode(), adapter.remote_core_features())
+        (
+            adapter.mode(),
+            adapter.remote_core_features(),
+            adapter.transport_session_generation(),
+        )
     };
 
     // Step 6: Emit mode change event
@@ -557,6 +570,7 @@ pub(crate) async fn mode_switch(
         previous_mode,
         current_mode: current_mode.clone(),
         remote_core_features,
+        transport_session_generation,
         auto_locked,
         drain_completed,
     };
@@ -575,11 +589,18 @@ fn emit_mode_switch_failure_restore(
     drain_completed: bool,
     error: &str,
 ) {
-    let (current_mode, remote_core_features) = match state.adapter.lock() {
-        Ok(adapter) => (adapter.mode(), adapter.remote_core_features()),
+    let (current_mode, remote_core_features, transport_session_generation) = match state
+        .adapter
+        .lock()
+    {
+        Ok(adapter) => (
+            adapter.mode(),
+            adapter.remote_core_features(),
+            adapter.transport_session_generation(),
+        ),
         Err(_) => {
             warn!("mode_switch: adapter mutex poisoned while restoring failed transition state");
-            (previous_mode.clone(), Vec::new())
+            (previous_mode.clone(), Vec::new(), None)
         }
     };
 
@@ -591,6 +612,7 @@ fn emit_mode_switch_failure_restore(
         previous_mode,
         current_mode,
         remote_core_features,
+        transport_session_generation,
         auto_locked,
         drain_completed,
     };
@@ -678,7 +700,7 @@ mod tests {
     fn save_legacy_peer(storage_root: &std::path::Path, peer: crate::network::PairedPeer) {
         let path = storage_root.join("paired_network_peers.json");
         let mut store = crate::network::PairedPeerStore::load(&path);
-        store.upsert(peer);
+        store.upsert(peer).expect("upsert legacy peer");
         store.save().expect("save legacy peer");
     }
 

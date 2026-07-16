@@ -1,105 +1,28 @@
-use std::net::TcpListener as StdTcpListener;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Output, Stdio};
-use std::sync::{Arc, Mutex as StdMutex, OnceLock};
+use std::process::Command;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{oneshot, Notify};
+use tokio::sync::oneshot;
 
 use super::audit::SshAgentAuditLog;
 use super::protocol::{
     build_message, parse_message, SSH_AGENTC_REQUEST_IDENTITIES, SSH_AGENTC_SIGN_REQUEST,
     SSH_AGENT_FAILURE, SSH_AGENT_IDENTITIES_ANSWER, SSH_AGENT_SIGN_RESPONSE,
 };
-use super::server::{ApprovalEventEmitter, SignApprovalEventPayload};
 use super::signing::public_key_blob_from_openssh;
-use super::{stop_shared_state, StopReason};
+use super::test_support::{
+    available_tcp_port, connect_with_retry, current_user_name, env_lock, run_command_with_timeout,
+    shared_state, socket_path_for, stop_process, wait_for_agent_ready, wait_for_sshd_ready,
+    TestApprovalEmitter, XdgConfigGuard,
+};
+use super::{stop_shared_state, SshAgentEntry, StopReason};
 
 const ED25519_PRIVATE_KEY: &str = include_str!("testdata/ed25519");
 const ED25519_PUBLIC_KEY: &str = include_str!("testdata/ed25519.pub");
 const ECDSA_PUBLIC_KEY: &str = include_str!("testdata/ecdsa.pub");
-const OPENSSH_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
-
-#[derive(Default)]
-struct TestApprovalEmitter {
-    events: StdMutex<Vec<SignApprovalEventPayload>>,
-    notify: Notify,
-}
-
-impl TestApprovalEmitter {
-    async fn wait_for_request(&self) -> SignApprovalEventPayload {
-        loop {
-            if let Some(payload) = self.events.lock().expect("events lock").first().cloned() {
-                return payload;
-            }
-            self.notify.notified().await;
-        }
-    }
-
-    async fn wait_for_request_count(&self, count: usize) -> SignApprovalEventPayload {
-        loop {
-            if let Some(payload) = self
-                .events
-                .lock()
-                .expect("events lock")
-                .get(count.saturating_sub(1))
-                .cloned()
-            {
-                return payload;
-            }
-            self.notify.notified().await;
-        }
-    }
-}
-
-impl ApprovalEventEmitter for TestApprovalEmitter {
-    fn emit_sign_request(&self, payload: &SignApprovalEventPayload) -> Result<(), String> {
-        self.events
-            .lock()
-            .expect("events lock")
-            .push(payload.clone());
-        self.notify.notify_waiters();
-        Ok(())
-    }
-}
-
-struct XdgConfigGuard {
-    previous: Option<std::ffi::OsString>,
-}
-
-impl XdgConfigGuard {
-    fn set(path: &std::path::Path) -> Self {
-        let previous = std::env::var_os("XDG_CONFIG_HOME");
-        // SAFETY: env mutation in test fixture; serialised by env_lock() Mutex (line 95) and restored on Drop.
-        unsafe {
-            std::env::set_var("XDG_CONFIG_HOME", path);
-        }
-        Self { previous }
-    }
-}
-
-impl Drop for XdgConfigGuard {
-    fn drop(&mut self) {
-        match self.previous.take() {
-            // SAFETY: env mutation in test fixture; serialised by env_lock() Mutex (line 95) and restored on Drop.
-            Some(value) => unsafe {
-                std::env::set_var("XDG_CONFIG_HOME", value);
-            },
-            // SAFETY: env mutation in test fixture; serialised by env_lock() Mutex (line 95) and restored on Drop.
-            None => unsafe {
-                std::env::remove_var("XDG_CONFIG_HOME");
-            },
-        }
-    }
-}
-
-fn env_lock() -> &'static StdMutex<()> {
-    static LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| StdMutex::new(()))
-}
-
 fn build_sign_request(key_blob: &[u8], data: &[u8], flags: u32) -> Vec<u8> {
     let mut payload = Vec::new();
     payload.extend_from_slice(&(key_blob.len() as u32).to_be_bytes());
@@ -108,22 +31,6 @@ fn build_sign_request(key_blob: &[u8], data: &[u8], flags: u32) -> Vec<u8> {
     payload.extend_from_slice(data);
     payload.extend_from_slice(&flags.to_be_bytes());
     build_message(SSH_AGENTC_SIGN_REQUEST, &payload)
-}
-
-async fn connect_with_retry(socket_path: &PathBuf) -> UnixStream {
-    for _ in 0..50 {
-        match UnixStream::connect(socket_path).await {
-            Ok(stream) => return stream,
-            Err(_) => tokio::time::sleep(Duration::from_millis(20)).await,
-        }
-    }
-
-    panic!("failed to connect to {}", socket_path.display());
-}
-
-async fn wait_for_agent_ready(socket_path: &PathBuf) {
-    let stream = connect_with_retry(socket_path).await;
-    drop(stream);
 }
 
 async fn read_agent_message(stream: &mut UnixStream) -> (u8, Vec<u8>) {
@@ -162,16 +69,18 @@ fn decode_sign_response(payload: &[u8]) -> Vec<u8> {
     payload[4..4 + len].to_vec()
 }
 
-fn single_test_entry(
-    public_key: &str,
-    comment: &str,
-    fingerprint: &str,
-) -> Vec<(String, String, String, String)> {
-    vec![(
-        "entry-a/key-a".to_string(),
+fn public_key_fingerprint(public_key: &str) -> String {
+    ssh_key::PublicKey::from_openssh(public_key)
+        .expect("public key")
+        .fingerprint(ssh_key::HashAlg::Sha256)
+        .to_string()
+}
+
+fn single_test_entry(public_key: &str, comment: &str) -> Vec<SshAgentEntry> {
+    vec![SshAgentEntry::new(
+        "entry-a/key-a",
         public_key.to_string(),
         comment.to_string(),
-        fingerprint.to_string(),
     )]
 }
 
@@ -179,21 +88,9 @@ fn read_audit_log(path: &Path) -> String {
     std::fs::read_to_string(path.join("audit").join("ssh-agent.jsonl")).expect("read audit log")
 }
 
-fn shared_state(
-    agent_state: &Arc<StdMutex<super::SshAgentState>>,
-) -> Arc<tokio::sync::Mutex<super::server::AgentShared>> {
-    let agent = agent_state.lock().expect("agent lock");
-    agent.shared().expect("shared state")
-}
-
-fn socket_path_for(agent_state: &Arc<StdMutex<super::SshAgentState>>) -> PathBuf {
-    let agent = agent_state.lock().expect("agent lock");
-    agent.socket_path().cloned().expect("socket path")
-}
-
 fn start_test_agent(
     approval_emitter: Arc<TestApprovalEmitter>,
-    entries: Vec<(String, String, String, String)>,
+    entries: Vec<SshAgentEntry>,
     audit_log: Option<Arc<SshAgentAuditLog>>,
     upstream_socket_path: Option<PathBuf>,
 ) -> Arc<StdMutex<super::SshAgentState>> {
@@ -201,15 +98,19 @@ fn start_test_agent(
 
     {
         let mut agent = agent_state.lock().expect("agent lock");
-        agent.start(
-            entries,
-            upstream_socket_path,
-            approval_emitter,
-            audit_log,
-            |_identity_key| {
-                Box::pin(async { Some(zeroize::Zeroizing::new(ED25519_PRIVATE_KEY.to_string())) })
-            },
-        );
+        agent
+            .start(
+                entries,
+                upstream_socket_path,
+                approval_emitter,
+                audit_log,
+                |_identity_key| {
+                    Box::pin(async {
+                        Some(zeroize::Zeroizing::new(ED25519_PRIVATE_KEY.to_string()))
+                    })
+                },
+            )
+            .expect("start ssh agent");
     }
 
     agent_state
@@ -242,79 +143,6 @@ async fn start_test_upstream(
     })
 }
 
-fn available_tcp_port() -> u16 {
-    let listener = StdTcpListener::bind("127.0.0.1:0").expect("bind ephemeral tcp port");
-    let port = listener.local_addr().expect("local addr").port();
-    drop(listener);
-    port
-}
-
-fn wait_for_sshd_ready(pid_file: &Path, child: &mut Child) -> bool {
-    for _ in 0..20 {
-        if pid_file.exists() {
-            return true;
-        }
-
-        if let Ok(Some(_status)) = child.try_wait() {
-            return false;
-        }
-
-        std::thread::sleep(Duration::from_millis(250));
-    }
-
-    pid_file.exists()
-}
-
-fn current_user_name() -> String {
-    std::env::var("USER")
-        .ok()
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "unknown".to_string())
-}
-
-fn stop_process(child: &mut Child) {
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
-fn command_output_with_timeout(mut command: Command, label: &str) -> Output {
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = command
-        .spawn()
-        .unwrap_or_else(|error| panic!("{label}: failed to spawn command: {error}"));
-    let started_at = std::time::Instant::now();
-
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => {
-                return child
-                    .wait_with_output()
-                    .unwrap_or_else(|error| panic!("{label}: failed to collect output: {error}"));
-            }
-            Ok(None) if started_at.elapsed() >= OPENSSH_COMMAND_TIMEOUT => {
-                let _ = child.kill();
-                let output = child.wait_with_output().unwrap_or_else(|error| {
-                    panic!("{label}: timed out and failed to collect output: {error}")
-                });
-                panic!(
-                    "{label}: timed out after {:?}: stdout={} stderr={}",
-                    OPENSSH_COMMAND_TIMEOUT,
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr),
-                );
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
-            Err(error) => panic!("{label}: failed to wait on child: {error}"),
-        }
-    }
-}
-
-async fn run_command_with_timeout(command: Command, label: &'static str) -> Output {
-    tokio::task::spawn_blocking(move || command_output_with_timeout(command, label))
-        .await
-        .expect("join command task")
-}
-
 #[tokio::test]
 async fn socket_agent_lists_identities_and_signs_after_approval() {
     let _env_lock = env_lock()
@@ -329,7 +157,7 @@ async fn socket_agent_lists_identities_and_signs_after_approval() {
     ));
     let agent_state = start_test_agent(
         approval_emitter.clone(),
-        single_test_entry(ED25519_PUBLIC_KEY, "deploy", "SHA256:test"),
+        single_test_entry(ED25519_PUBLIC_KEY, "deploy"),
         Some(audit_log),
         None,
     );
@@ -393,21 +221,13 @@ async fn sign_approval_is_per_key_within_one_connection() {
     let approval_emitter = Arc::new(TestApprovalEmitter::default());
     let ed25519_key_blob = public_key_blob_from_openssh(ED25519_PUBLIC_KEY).expect("ed25519 blob");
     let ecdsa_key_blob = public_key_blob_from_openssh(ECDSA_PUBLIC_KEY).expect("ecdsa blob");
+    let ed25519_fingerprint = public_key_fingerprint(ED25519_PUBLIC_KEY);
+    let ecdsa_fingerprint = public_key_fingerprint(ECDSA_PUBLIC_KEY);
     let agent_state = start_test_agent(
         approval_emitter.clone(),
         vec![
-            (
-                "entry-a/key-a".to_string(),
-                ED25519_PUBLIC_KEY.to_string(),
-                "deploy-a".to_string(),
-                "SHA256:key-a".to_string(),
-            ),
-            (
-                "entry-b/key-b".to_string(),
-                ECDSA_PUBLIC_KEY.to_string(),
-                "deploy-b".to_string(),
-                "SHA256:key-b".to_string(),
-            ),
+            SshAgentEntry::new("entry-a/key-a", ED25519_PUBLIC_KEY, "deploy-a"),
+            SshAgentEntry::new("entry-b/key-b", ECDSA_PUBLIC_KEY, "deploy-b"),
         ],
         None,
         None,
@@ -421,7 +241,7 @@ async fn sign_approval_is_per_key_within_one_connection() {
         .await
         .expect("write key-a sign request");
     let approval_a = approval_emitter.wait_for_request().await;
-    assert_eq!(approval_a.fingerprint, "SHA256:key-a");
+    assert_eq!(approval_a.fingerprint, ed25519_fingerprint);
     {
         let shared = shared_state(&agent_state);
         shared
@@ -443,7 +263,7 @@ async fn sign_approval_is_per_key_within_one_connection() {
     )
     .await
     .expect("second key should require its own approval");
-    assert_eq!(approval_b.fingerprint, "SHA256:key-b");
+    assert_eq!(approval_b.fingerprint, ecdsa_fingerprint);
     {
         let shared = shared_state(&agent_state);
         shared
@@ -472,7 +292,7 @@ async fn sign_request_denied_returns_failure_and_never_signs() {
     ));
     let agent_state = start_test_agent(
         approval_emitter.clone(),
-        single_test_entry(ED25519_PUBLIC_KEY, "deploy", "SHA256:test"),
+        single_test_entry(ED25519_PUBLIC_KEY, "deploy"),
         Some(audit_log),
         None,
     );
@@ -520,7 +340,7 @@ async fn sign_request_timeout_fails_closed_and_records_timeout() {
     ));
     let agent_state = start_test_agent(
         approval_emitter.clone(),
-        single_test_entry(ED25519_PUBLIC_KEY, "deploy", "SHA256:test"),
+        single_test_entry(ED25519_PUBLIC_KEY, "deploy"),
         Some(audit_log),
         None,
     );
@@ -549,6 +369,9 @@ async fn sign_request_timeout_fails_closed_and_records_timeout() {
     let (msg_type, payload) = read_agent_message(&mut stream).await;
     assert_eq!(msg_type, SSH_AGENT_FAILURE);
     assert!(payload.is_empty());
+    let expired = approval_emitter.wait_for_expired_request().await;
+    assert_eq!(expired.request_id, approval.request_id);
+    assert_eq!(expired.reason, "cancelled");
 
     stop_shared_state(&agent_state, StopReason::Manual).await;
 
@@ -568,7 +391,7 @@ async fn vault_lock_stop_denies_pending_approval_fail_closed() {
     let approval_emitter = Arc::new(TestApprovalEmitter::default());
     let agent_state = start_test_agent(
         approval_emitter.clone(),
-        single_test_entry(ED25519_PUBLIC_KEY, "deploy", "SHA256:test"),
+        single_test_entry(ED25519_PUBLIC_KEY, "deploy"),
         None,
         None,
     );
@@ -585,6 +408,9 @@ async fn vault_lock_stop_denies_pending_approval_fail_closed() {
     assert!(!approval.request_id.is_empty());
 
     stop_shared_state(&agent_state, StopReason::VaultLock).await;
+    let expired = approval_emitter.wait_for_expired_request().await;
+    assert_eq!(expired.request_id, approval.request_id);
+    assert_eq!(expired.reason, "vault_lock");
 
     let response = tokio::time::timeout(
         Duration::from_millis(250),
@@ -612,7 +438,7 @@ async fn immediate_stop_clears_runtime_state_synchronously() {
     let approval_emitter = Arc::new(TestApprovalEmitter::default());
     let agent_state = start_test_agent(
         approval_emitter,
-        single_test_entry(ED25519_PUBLIC_KEY, "deploy", "SHA256:test"),
+        single_test_entry(ED25519_PUBLIC_KEY, "deploy"),
         None,
         None,
     );
@@ -643,7 +469,7 @@ async fn stop_shared_state_drains_immediate_audit_cleanup() {
     ));
     let agent_state = start_test_agent(
         approval_emitter.clone(),
-        single_test_entry(ED25519_PUBLIC_KEY, "deploy", "SHA256:test"),
+        single_test_entry(ED25519_PUBLIC_KEY, "deploy"),
         Some(audit_log),
         None,
     );
@@ -679,7 +505,7 @@ async fn stale_approval_resolve_is_rejected_after_stop() {
     let approval_emitter = Arc::new(TestApprovalEmitter::default());
     let agent_state = start_test_agent(
         approval_emitter.clone(),
-        single_test_entry(ED25519_PUBLIC_KEY, "deploy", "SHA256:test"),
+        single_test_entry(ED25519_PUBLIC_KEY, "deploy"),
         None,
         None,
     );
@@ -722,7 +548,7 @@ async fn sign_request_for_unknown_key_fails_without_emitting_approval() {
     let approval_emitter = Arc::new(TestApprovalEmitter::default());
     let agent_state = start_test_agent(
         approval_emitter.clone(),
-        single_test_entry(ED25519_PUBLIC_KEY, "deploy", "SHA256:test"),
+        single_test_entry(ED25519_PUBLIC_KEY, "deploy"),
         None,
         None,
     );
@@ -776,7 +602,7 @@ async fn upstream_and_local_identity_merge_is_stable_and_deduplicated() {
     .await;
     let agent_state = start_test_agent(
         approval_emitter,
-        single_test_entry(ED25519_PUBLIC_KEY, "local-first", "SHA256:test"),
+        single_test_entry(ED25519_PUBLIC_KEY, "local-first"),
         None,
         Some(upstream_socket_path),
     );
@@ -816,7 +642,7 @@ async fn manual_and_app_shutdown_keep_graceful_stop_contract() {
     let approval_emitter = Arc::new(TestApprovalEmitter::default());
     let agent_state = start_test_agent(
         approval_emitter,
-        single_test_entry(ED25519_PUBLIC_KEY, "deploy", "SHA256:test"),
+        single_test_entry(ED25519_PUBLIC_KEY, "deploy"),
         Some(audit_log.clone()),
         None,
     );
@@ -828,7 +654,7 @@ async fn manual_and_app_shutdown_keep_graceful_stop_contract() {
     ));
     let second_agent_state = start_test_agent(
         Arc::new(TestApprovalEmitter::default()),
-        single_test_entry(ED25519_PUBLIC_KEY, "deploy", "SHA256:test"),
+        single_test_entry(ED25519_PUBLIC_KEY, "deploy"),
         Some(audit_log),
         None,
     );
@@ -839,6 +665,36 @@ async fn manual_and_app_shutdown_keep_graceful_stop_contract() {
     assert!(audit.contains("\"reason\":\"app_shutdown\""));
     assert!(audit.contains("\"stop_mode\":\"graceful\""));
     assert!(!audit.contains("\"stop_mode\":\"immediate\""));
+}
+
+#[tokio::test]
+async fn start_fails_closed_when_socket_path_cannot_bind() {
+    let _env_lock = env_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let _xdg_guard = XdgConfigGuard::set(tempdir.path());
+    let socket_parent = tempdir.path().join("chromvoid");
+    std::fs::create_dir_all(&socket_parent).expect("socket parent");
+    std::fs::write(socket_parent.join("agent.sock"), b"not a socket").expect("socket blocker");
+
+    let mut agent = super::SshAgentState::new();
+    let error = agent
+        .start(
+            single_test_entry(ED25519_PUBLIC_KEY, "deploy"),
+            None,
+            Arc::new(TestApprovalEmitter::default()),
+            None,
+            |_identity_key| {
+                Box::pin(async { Some(zeroize::Zeroizing::new(ED25519_PRIVATE_KEY.to_string())) })
+            },
+        )
+        .expect_err("non-socket path must fail start");
+
+    assert!(error.contains("refusing to remove non-socket path"));
+    assert!(!agent.is_running());
+    assert!(agent.socket_path().is_none());
+    assert_eq!(agent.identities_count(), 0);
 }
 
 #[tokio::test]
@@ -853,7 +709,7 @@ async fn openssh_cli_can_list_and_sign_against_chromvoid_agent() {
     let approval_emitter = Arc::new(TestApprovalEmitter::default());
     let agent_state = start_test_agent(
         approval_emitter.clone(),
-        single_test_entry(ED25519_PUBLIC_KEY, "deploy", "SHA256:test"),
+        single_test_entry(ED25519_PUBLIC_KEY, "deploy"),
         None,
         None,
     );
@@ -969,7 +825,7 @@ async fn openssh_cli_localhost_login_approve_path_succeeds() {
     let approval_emitter = Arc::new(TestApprovalEmitter::default());
     let agent_state = start_test_agent(
         approval_emitter.clone(),
-        single_test_entry(ED25519_PUBLIC_KEY, "deploy", "SHA256:test"),
+        single_test_entry(ED25519_PUBLIC_KEY, "deploy"),
         None,
         None,
     );
@@ -1118,7 +974,7 @@ async fn openssh_cli_localhost_login_deny_path_fails_closed() {
     let approval_emitter = Arc::new(TestApprovalEmitter::default());
     let agent_state = start_test_agent(
         approval_emitter.clone(),
-        single_test_entry(ED25519_PUBLIC_KEY, "deploy", "SHA256:test"),
+        single_test_entry(ED25519_PUBLIC_KEY, "deploy"),
         None,
         None,
     );

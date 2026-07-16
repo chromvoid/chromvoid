@@ -18,20 +18,6 @@ export class RemotePage extends ReatomLitElement {
     }
   }
 
-  static properties = {
-    hideBackLink: {type: Boolean, attribute: 'hide-back-link'},
-    externalToolbar: {type: Boolean, attribute: 'external-toolbar'},
-  }
-
-  declare hideBackLink: boolean
-  declare externalToolbar: boolean
-
-  constructor() {
-    super()
-    this.hideBackLink = false
-    this.externalToolbar = false
-  }
-
   static styles = [...remotePageStyles]
 
   private readonly model = new RemotePageModel()
@@ -54,11 +40,8 @@ export class RemotePage extends ReatomLitElement {
   protected render() {
     const model = this.model
     return renderRemotePage({
-      hideBackLink: this.hideBackLink,
-      externalToolbar: this.externalToolbar,
       connectionState: model.connectionState,
       remoteStatus: model.remoteStatus,
-      onBack: model.goBack,
       // Mode context
       currentMode: model.currentMode,
       transportType: model.transportType,
@@ -85,6 +68,9 @@ export class RemotePage extends ReatomLitElement {
         onSubmitPairing: model.submitRemotePairing,
         onRefreshPresence: model.refreshRemotePresence,
         onDisconnectTransport: model.disconnectRemoteTransport,
+      },
+      remoteHostsUi: {
+        waitReason: model.remoteWaitReason(),
       },
       // Sync context (Task 13)
       syncSnapshot: model.syncSnapshot,

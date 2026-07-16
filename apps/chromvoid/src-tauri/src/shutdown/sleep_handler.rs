@@ -36,7 +36,9 @@ impl SleepWatcher for VaultSleepHandler {
                         }
                     }
                     _ = tokio::task::yield_now() => {
-                        lock_vault_from_system_sleep(app_handle, vault_background_io_runtime).await;
+                        lock_vault_from_system_sleep(app_handle.clone(), vault_background_io_runtime).await;
+                        #[cfg(desktop)]
+                        crate::mobile_usb::disconnect_mobile_usb_for_system_sleep(&app_handle);
                     }
                 }
                 let _ = done_tx.send(());

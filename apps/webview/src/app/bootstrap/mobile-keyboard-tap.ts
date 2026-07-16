@@ -4,7 +4,6 @@ import {
   setupNativeKeyboardInsetsEventListeners,
   type MobileKeyboardVisibilityPayload,
 } from './mobile-keyboard-insets'
-import {subscribeToSignalChanges} from '../../shared/services/subscribed-signal'
 import {
   getDeepActiveElement,
   getPathElements,
@@ -30,11 +29,11 @@ export {
  * This module detects such taps via pointerdown→pointerup and fires a
  * synthetic `.click()` when the trusted click never arrives.
  */
-export const setupMobileKeyboardTapWorkaround = (store: Store) => {
+export const setupMobileKeyboardTapWorkaround = (_store: Store) => {
   setupNativeKeyboardInsetsEventListeners(document.documentElement)
 
   import('root/core/transport/tauri/ipc')
-    .then(({tauriInvoke, tauriListen}) => {
+    .then(({tauriListen}) => {
       // --- keyboard visibility attribute ---
       tauriListen<MobileKeyboardVisibilityPayload>('keyboard:visibility-changed', (payload) => {
         applyMobileKeyboardVisibilityPayload(document.documentElement, payload)
@@ -196,15 +195,6 @@ export const setupMobileKeyboardTapWorkaround = (store: Store) => {
         {capture: true},
       )
 
-      // --- native gestures setup (deferred until mobile) ---
-      let nativeSetupDone = false
-      const tryNativeSetup = () => {
-        if (nativeSetupDone || !store.isMobile()) return
-        nativeSetupDone = true
-        tauriInvoke('setup_native_gestures').catch(() => {})
-      }
-      tryNativeSetup()
-      subscribeToSignalChanges(store.isMobile, tryNativeSetup)
     })
     .catch(() => {})
 }

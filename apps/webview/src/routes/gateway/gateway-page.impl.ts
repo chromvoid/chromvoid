@@ -61,7 +61,7 @@ export class GatewayPage extends ReatomLitElement {
       return
     }
 
-    progress.style.setProperty('--gateway-pairing-progress', `${progress.dataset['progress'] ?? '0'}%`)
+    progress.style.setProperty('--_gateway-pairing-progress', `${progress.dataset['progress'] ?? '0'}%`)
   }
 
   private onBack = () => {

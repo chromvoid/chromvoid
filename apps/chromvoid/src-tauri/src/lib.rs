@@ -1,5 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(all(feature = "env-runtime-test-probe", not(debug_assertions)))]
+compile_error!(
+    "env-runtime-test-probe exposes test-only process fixtures and must not be enabled in release builds"
+);
+
 #[cfg(desktop)]
 use tauri::{Manager, RunEvent};
 
@@ -13,6 +18,7 @@ mod mobile;
 pub mod mobile_usb;
 pub mod network;
 pub mod remote_data_plane;
+mod remote_stream_lifecycle;
 mod session_settings;
 #[cfg(desktop)]
 mod sleep_watcher;
@@ -34,6 +40,10 @@ mod core_rpc_dispatcher;
 mod credential_provider_bridge;
 mod credential_provider_contract;
 mod credential_provider_passkey;
+#[cfg(desktop)]
+mod env_runtime;
+#[cfg(feature = "env-runtime-test-probe")]
+mod env_runtime_test_support;
 mod helpers;
 #[cfg(desktop)]
 mod host_path_capability;
@@ -44,8 +54,11 @@ mod media_source;
 pub mod media_stream;
 #[cfg(desktop)]
 mod mode_transition_coordinator;
+mod otp_import_handoff;
 mod paired_store_crypto;
 mod pro;
+#[cfg(desktop)]
+mod product_cli_install;
 #[cfg(desktop)]
 mod remote_io_runtime;
 mod rpc_transport_protocol;
@@ -130,22 +143,29 @@ use commands::catalog::{
     catalog_upload_shared_files,
 };
 use commands::catalog::{
-    catalog_download, catalog_file_replace, catalog_image_metadata, catalog_open_external,
-    catalog_preview_image, catalog_save_image_to_gallery, catalog_secret_read,
-    catalog_secret_write_chunk, catalog_share_files, catalog_thumbnail_image, catalog_upload_chunk,
-    prepare_catalog_preview_file, purge_catalog_preview_cache, release_catalog_preview_file,
-    write_text_file,
+    catalog_download, catalog_download_range, catalog_file_replace, catalog_image_metadata,
+    catalog_open_external, catalog_preview_image, catalog_save_image_to_gallery,
+    catalog_secret_read, catalog_secret_write_chunk, catalog_share_files, catalog_thumbnail_image,
+    catalog_upload_chunk, prepare_catalog_preview_file, purge_catalog_preview_cache,
+    release_catalog_preview_file, write_text_file,
 };
 #[cfg(desktop)]
 use commands::catalog::{catalog_download_path, catalog_upload_path, file_stat};
+#[cfg(desktop)]
+use commands::env_runtime_cmds::{
+    env_runtime_cli_install, env_runtime_cli_install_status, env_runtime_desktop_snapshot,
+    env_runtime_preset_delete, env_runtime_preset_save, env_runtime_profile_delete,
+    env_runtime_proposal_resolve, env_runtime_run_approval_resolve, env_runtime_run_stop,
+};
 use commands::external_url::open_url_external;
 #[cfg(desktop)]
 use commands::gateway_cmds::{
     gateway_cancel_pairing, gateway_get_capability_policy, gateway_get_config,
     gateway_issue_action_grant, gateway_issue_site_grant, gateway_list_active_grants,
-    gateway_list_paired, gateway_revoke_all_grants, gateway_revoke_extension,
-    gateway_set_access_duration, gateway_set_capability_policy, gateway_set_enabled,
-    gateway_set_session_duration, gateway_start_pairing,
+    gateway_list_paired, gateway_list_paired_agents, gateway_revoke_agent,
+    gateway_revoke_all_grants, gateway_revoke_extension, gateway_set_access_duration,
+    gateway_set_capability_policy, gateway_set_enabled, gateway_set_session_duration,
+    gateway_start_agent_pairing, gateway_start_pairing,
 };
 #[cfg(desktop)]
 use commands::host_path::{
@@ -153,8 +173,14 @@ use commands::host_path::{
 };
 #[cfg(desktop)]
 use commands::mobile_usb_cmds::{
-    mobile_usb_connect, mobile_usb_disconnect, mobile_usb_list_paired, mobile_usb_pair,
-    mobile_usb_remove_paired, mobile_usb_scan, mobile_usb_status,
+    mobile_usb_confirm_pairing, mobile_usb_connect, mobile_usb_detect, mobile_usb_disconnect,
+    mobile_usb_list_paired, mobile_usb_pair, mobile_usb_remove_paired, mobile_usb_scan,
+    mobile_usb_status,
+};
+use commands::mobile_usb_host_approval_cmds::{
+    mobile_usb_host_approve_pairing, mobile_usb_host_approve_session,
+    mobile_usb_host_pending_pairing_approval, mobile_usb_host_pending_session_approval,
+    mobile_usb_host_reject_pairing, mobile_usb_host_reject_session,
 };
 #[cfg(desktop)]
 use commands::mode_cmds::{mode_get, mode_status, mode_switch};
@@ -204,10 +230,14 @@ use commands::vault::{
     vault_rekey_cancel,
 };
 #[cfg(mobile)]
-use commands::vault::{android_password_save_finish, setup_native_gestures};
+use commands::vault::{android_password_save_finish, configure_native_edge_back};
 #[cfg(desktop)]
 use commands::volume_ops::{volume_get_backends, volume_get_status, volume_mount, volume_unmount};
-use media_stream::{prepare_media_stream, release_media_stream};
+use media_stream::{
+    prepare_media_source, prepare_media_stream, release_media_source, release_media_stream,
+};
+#[cfg(desktop)]
+use otp_import_handoff::{macos_otp_import_clear, macos_otp_import_pending, macos_otp_import_take};
 use pro::{
     license_account_cabinet_handoff, license_activation_code_activate,
     license_current_seat_deactivate, license_seat_status, license_status, module_access_resolve,
@@ -293,6 +323,9 @@ pub fn run() {
         license_current_seat_deactivate,
         module_access_snapshot,
         module_access_resolve,
+        macos_otp_import_pending,
+        macos_otp_import_take,
+        macos_otp_import_clear,
         catalog_upload_chunk,
         catalog_file_replace,
         host_path_pick_upload_files,
@@ -303,9 +336,12 @@ pub fn run() {
         file_stat,
         write_text_file,
         catalog_download,
+        catalog_download_range,
         prepare_catalog_preview_file,
         release_catalog_preview_file,
         purge_catalog_preview_cache,
+        prepare_media_source,
+        release_media_source,
         prepare_media_stream,
         release_media_stream,
         catalog_preview_image,
@@ -336,12 +372,24 @@ pub fn run() {
         restore_local_select_source,
         restore_local_cancel,
         erase_device,
+        env_runtime_desktop_snapshot,
+        env_runtime_preset_save,
+        env_runtime_preset_delete,
+        env_runtime_profile_delete,
+        env_runtime_run_approval_resolve,
+        env_runtime_run_stop,
+        env_runtime_proposal_resolve,
+        env_runtime_cli_install_status,
+        env_runtime_cli_install,
         gateway_get_config,
         gateway_set_enabled,
         gateway_set_access_duration,
         gateway_list_paired,
+        gateway_list_paired_agents,
         gateway_revoke_extension,
+        gateway_revoke_agent,
         gateway_start_pairing,
+        gateway_start_agent_pairing,
         gateway_cancel_pairing,
         gateway_set_session_duration,
         gateway_get_capability_policy,
@@ -416,12 +464,20 @@ pub fn run() {
         mode_switch,
         mode_status,
         mobile_usb_scan,
+        mobile_usb_detect,
         mobile_usb_pair,
+        mobile_usb_confirm_pairing,
         mobile_usb_connect,
         mobile_usb_disconnect,
         mobile_usb_status,
         mobile_usb_list_paired,
         mobile_usb_remove_paired,
+        mobile_usb_host_pending_pairing_approval,
+        mobile_usb_host_approve_pairing,
+        mobile_usb_host_reject_pairing,
+        mobile_usb_host_pending_session_approval,
+        mobile_usb_host_approve_session,
+        mobile_usb_host_reject_session,
         mobile_acceptor_start,
         mobile_acceptor_stop,
         mobile_acceptor_status,
@@ -458,9 +514,12 @@ pub fn run() {
         passmanager_upload_chunk,
         write_text_file,
         catalog_download,
+        catalog_download_range,
         prepare_catalog_preview_file,
         release_catalog_preview_file,
         purge_catalog_preview_cache,
+        prepare_media_source,
+        release_media_source,
         prepare_media_stream,
         release_media_stream,
         catalog_preview_image,
@@ -519,7 +578,7 @@ pub fn run() {
         android_quick_lock_tile_status,
         android_request_quick_lock_tile,
         android_password_save_finish,
-        setup_native_gestures,
+        configure_native_edge_back,
         mobile_acceptor_start,
         mobile_acceptor_stop,
         mobile_acceptor_status,
@@ -531,7 +590,13 @@ pub fn run() {
         mobile_host_start,
         mobile_host_stop,
         mobile_host_status,
-        mobile_host_publish_presence
+        mobile_host_publish_presence,
+        mobile_usb_host_pending_pairing_approval,
+        mobile_usb_host_approve_pairing,
+        mobile_usb_host_reject_pairing,
+        mobile_usb_host_pending_session_approval,
+        mobile_usb_host_approve_session,
+        mobile_usb_host_reject_session
     ]);
 
     let app = match builder.build(tauri::generate_context!()) {
@@ -543,8 +608,13 @@ pub fn run() {
     };
 
     app.run(|app_handle, event| {
+        #[cfg(target_os = "macos")]
+        if let RunEvent::Opened { urls } = &event {
+            otp_import_handoff::handle_opened_urls(app_handle, urls);
+        }
         #[cfg(desktop)]
         if let RunEvent::ExitRequested { api, .. } = event {
+            otp_import_handoff::clear_pending_otp_import();
             let state: tauri::State<'_, AppState> = app_handle.state();
             if !exit_request_should_intercept(&state.exit_in_progress) {
                 return;

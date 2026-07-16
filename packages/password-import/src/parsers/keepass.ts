@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// @ts-expect-error kdbxweb has no type declarations
 import * as kdbxweb from 'kdbxweb'
 import type {ImportResult, ImportedEntry, ImportedFolder, ImportedIcon} from '../types.js'
 
@@ -263,6 +262,14 @@ function normalizeIconKey(value: unknown): string | undefined {
   return undefined
 }
 
+function unwrapCustomIconData(value: unknown): unknown {
+  if (value && typeof value === 'object') {
+    const data = (value as Record<string, unknown>)['data']
+    if (data !== undefined) return data
+  }
+  return value
+}
+
 function extractCustomIconsMap(db: any, warnings: string[]): Map<string, ImportedIcon> {
   const out = new Map<string, ImportedIcon>()
   const maybeMeta = db?.meta
@@ -284,7 +291,7 @@ function extractCustomIconsMap(db: any, warnings: string[]): Map<string, Importe
   if (typeof maybeCustomIcons[Symbol.iterator] === 'function') {
     for (const item of maybeCustomIcons as Iterable<unknown>) {
       if (Array.isArray(item) && item.length >= 2) {
-        addIcon(item[0], item[1])
+        addIcon(item[0], unwrapCustomIconData(item[1]))
         continue
       }
       if (item && typeof item === 'object') {
@@ -299,7 +306,7 @@ function extractCustomIconsMap(db: any, warnings: string[]): Map<string, Importe
     for (const [key, val] of Object.entries(maybeCustomIcons as Record<string, unknown>)) {
       if (val && typeof val === 'object') {
         const rec = val as Record<string, unknown>
-        addIcon(rec['id'] ?? rec['uuid'] ?? key, rec['data'] ?? val)
+        addIcon(rec['id'] ?? rec['uuid'] ?? key, unwrapCustomIconData(val))
       } else {
         addIcon(key, val)
       }

@@ -1,36 +1,27 @@
 import {action, atom, computed, wrap} from '@reatom/core'
 
-import {Entry, OTP} from '@project/passmanager/core'
+import type {Entry, OTP} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
 import {formatPasswordStrengthLabel} from '@project/passmanager/i18n/format'
-import {
-  copyWithAutoWipe,
-  DEFAULT_CLIPBOARD_WIPE_MS,
-  estimatePasswordStrength,
-  generatePasswordWithOptions,
-} from '@project/passmanager/password-utils'
+import {estimatePasswordStrength, generatePasswordWithOptions} from '@project/passmanager/password-utils'
 import {normalizeCredentialTags} from '@project/passmanager/tags'
-import type {SshKeyType, UrlRule} from '@project/passmanager/types'
+import type {UrlRule} from '@project/passmanager/types'
 import {transformUrls, URLValidator} from '@project/passmanager/urls'
-import {passmanagerSshKeygen} from 'root/features/passmanager/service/passmanager-ssh-keygen'
 import {pmEntryEditorModel, type PMEntryEditorSurface} from '../../../models/pm-entry-editor.model'
 import {pmCredentialTagsModel} from '../../../models/pm-credential-tags.model'
 import {isPassmanagerReadOnlyOrMissing} from '../../../models/pm-root.adapter'
-import {toast} from 'root/shared/services/toast-manager'
-import {dialogService} from 'root/shared/services/dialog-service'
 import {
   formatPaymentCardExpYearInput,
   parsePaymentCardExpYearInput,
 } from '../payment-card-expiry'
 import {PMEntryOtpCreateModel} from '../entry-otp-create/entry-otp-create.model'
-import {PMEntrySshCreateModel} from '../entry-ssh/entry-ssh-create.model'
 import type {PMEntryRenderData} from './entry.model'
 import {PMEntryModel} from './entry.model'
 
 export type PMEntryInlineField = 'title' | 'username' | 'password' | 'website'
 export type PMEntryCredentialEditField = 'username' | 'password'
 export type PMEntryEditFocusField = PMEntryCredentialEditField | 'title' | 'note'
-export type PMEntrySectionSnippet = 'note' | 'otp' | 'ssh' | 'tags' | 'payment-card'
+export type PMEntrySectionSnippet = 'note' | 'otp' | 'tags' | 'payment-card'
 export type PMEntryMobilePasswordCharset = 'lowercase' | 'uppercase' | 'digits' | 'symbols'
 export type PMEntryEditFocusRequest = {
   field: PMEntryEditFocusField
@@ -47,11 +38,6 @@ export type PMEntryMobileEditIntent =
       kind: 'section'
       section: 'note'
       mode: 'edit'
-    }
-  | {
-      kind: 'section'
-      section: 'ssh'
-      mode: 'add' | 'manage'
     }
   | {
       kind: 'section'
@@ -79,10 +65,6 @@ export type PMEntryEditData = PMEntryRenderData & {
   canStartOtpSnippet: boolean
   canAddMissingOtpInEntryView: boolean
   canManageOtp: boolean
-  canManageSsh: boolean
-  canAddSsh: boolean
-  canStartSshSnippet: boolean
-  canAddMissingSshInEntryView: boolean
   canEditTags: boolean
   canEditPaymentCard: boolean
   compactMeta: string
@@ -120,6 +102,11 @@ export class PMEntryEditModel extends PMEntryModel {
   private readonly urlValidator = new URLValidator({defaultMatch: 'base_domain'})
   private requestedSurface: PMEntryEditorSurface | null = null
   private requestedSurfaceEntryId: string | null = null
+  private tagEditParentSurface: {
+    entryId: string
+    surface: 'entry' | 'payment-card'
+    sectionSnippet: PMEntrySectionSnippet | null
+  } | null = null
   private entryEditDraftEntryId: string | undefined
   private entryEditTitleBaseline = ''
   private entryEditUsernameBaseline = ''
@@ -185,14 +172,6 @@ export class PMEntryEditModel extends PMEntryModel {
   readonly otpLabelDrafts = atom<Record<string, string>>({}, 'passmanager.entryMobile.otpLabelDrafts')
   readonly otpLabelErrors = atom<Record<string, string>>({}, 'passmanager.entryMobile.otpLabelErrors')
   readonly otpDraft = new PMEntryOtpCreateModel()
-  readonly sshGeneratorOpen = atom(false, 'passmanager.entryMobile.sshGeneratorOpen')
-  readonly sshDraft = new PMEntrySshCreateModel()
-  readonly sshKeyType = this.sshDraft.keyType
-  readonly sshComment = this.sshDraft.comment
-  readonly sshName = this.sshDraft.name
-  readonly sshGenerating = atom(false, 'passmanager.entryMobile.sshGenerating')
-  readonly sshResult = this.sshDraft.result
-  readonly sshError = this.sshDraft.error
   readonly tagDraft = atom<string[]>([], 'passmanager.entryMobile.tagDraft')
   readonly tagError = atom('', 'passmanager.entryMobile.tagError')
   readonly tagSaving = atom(false, 'passmanager.entryMobile.tagSaving')
@@ -344,11 +323,6 @@ export class PMEntryEditModel extends PMEntryModel {
       return
     }
 
-    if (requestedSurface === 'ssh' && sectionSnippet !== 'ssh') {
-      this.beginSshSnippet(entry)
-      return
-    }
-
     if (requestedSurface === 'tags' && sectionSnippet !== 'tags') {
       this.startTagEdit(entry)
       return
@@ -410,7 +384,7 @@ export class PMEntryEditModel extends PMEntryModel {
   async saveOtpSnippet(entry: Entry): Promise<boolean> {
     if (entry.entryType === 'payment_card') return false
     if (this.otpSaving()) return false
-    if (!this.otpDraft.validate()) return false
+    if (!(await this.otpDraft.validateWithCore())) return false
 
     const data = this.otpDraft.getFormData()
 
@@ -458,10 +432,6 @@ export class PMEntryEditModel extends PMEntryModel {
     this.publishEntryEditDirty()
   }
 
-  beginSshSnippet(entry: Entry, _openGenerator = false): void {
-    this.openSshGenerator(entry)
-  }
-
   closeSectionSnippet(closeEditorSurface = true): void {
     if (this.sectionSnippet() === 'otp' && this.otpDraft.qrScannerScanning()) {
       return
@@ -489,20 +459,36 @@ export class PMEntryEditModel extends PMEntryModel {
       this.resetPaymentCardDraftState()
     }
     if (closingSnippet === 'tags') {
+      this.tagEditParentSurface = null
       this.tagDraft.set([])
     }
     if (closingSnippet === 'otp') {
       this.otpDraft.reset()
     }
-    this.sshGeneratorOpen.set(false)
-    this.sshDraft.reset()
   }
 
   startTagEdit(entry: Entry): void {
     if (isPassmanagerReadOnlyOrMissing()) return
-    this.cancelInlineEdit()
+    const activeSurface = pmEntryEditorModel.isActiveForEntry(entry.id)
+      ? pmEntryEditorModel.activeSurface()
+      : null
+    const parentSurface =
+      activeSurface === 'entry' || activeSurface === 'payment-card'
+        ? {
+            entryId: entry.id,
+            surface: activeSurface,
+            sectionSnippet: this.sectionSnippet(),
+          }
+        : null
+
+    if (!parentSurface) {
+      this.cancelInlineEdit()
+    }
     this.clearEditIntent()
-    pmEntryEditorModel.openSurface(entry.id, 'tags')
+    this.tagEditParentSurface = parentSurface
+    if (!parentSurface) {
+      pmEntryEditorModel.openSurface(entry.id, 'tags')
+    }
     this.entryEditFocusRequest.set(null)
     this.sectionSnippet.set('tags')
     this.tagDraft.set(normalizeCredentialTags(entry.tags))
@@ -511,6 +497,15 @@ export class PMEntryEditModel extends PMEntryModel {
     this.tagError.set('')
     this.tagSaving.set(false)
     this.publishEntryEditDirty()
+    pmCredentialTagsModel.openEntryTagSelection(this.tagDraft(), {
+      onConfirm: async (tags) => {
+        this.setTagDraft(tags)
+        if (await this.saveTagEdit(entry)) return
+
+        throw new Error(this.tagError() || i18n('error:save'))
+      },
+      onCancel: () => this.cancelTagEdit(),
+    })
   }
 
   setTagDraft(tags: unknown): void {
@@ -533,7 +528,7 @@ export class PMEntryEditModel extends PMEntryModel {
       await wrap(entry.updateTags(this.tagDraft()))
       await wrap(pmCredentialTagsModel.ensureCatalogTags(this.tagDraft()))
       this.entryEditTagBaseline = normalizeCredentialTags(this.tagDraft())
-      this.closeSectionSnippet()
+      this.finishTagEdit(false)
       return true
     } catch (error) {
       this.tagError.set((error as Error).message || i18n('error:save'))
@@ -543,113 +538,29 @@ export class PMEntryEditModel extends PMEntryModel {
   }
 
   cancelTagEdit(): void {
-    this.closeSectionSnippet()
+    this.finishTagEdit(true)
   }
 
-  openSshGenerator(entry: Entry): void {
-    if (isPassmanagerReadOnlyOrMissing()) return
-    if (entry.entryType === 'payment_card') return
-    if (!this.canOpenSectionSnippet(entry, 'ssh')) return
-    this.cancelInlineEdit()
-    this.clearEditIntent()
-    pmEntryEditorModel.openSurface(entry.id, 'ssh')
-    this.sectionSnippet.set('ssh')
-    this.sshGeneratorOpen.set(true)
-    this.sshDraft.reset({entryTitle: entry.data().title ?? entry.title, username: entry.username})
-  }
+  private finishTagEdit(restoreBaseline: boolean): void {
+    const parentSurface = this.tagEditParentSurface
+    const resumeParent =
+      parentSurface !== null &&
+      pmEntryEditorModel.isActiveForEntry(parentSurface.entryId, parentSurface.surface)
 
-  cancelSshGenerator(): void {
-    this.closeSectionSnippet()
-  }
-
-  setSshKeyType(value: SshKeyType): void {
-    this.sshDraft.setKeyType(value)
-  }
-
-  setSshName(value: string): void {
-    this.sshDraft.setName(value)
-  }
-
-  setSshComment(value: string): void {
-    this.sshDraft.setComment(value)
-  }
-
-  async generateSshKey(entry: Entry): Promise<boolean> {
-    if (entry.entryType === 'payment_card') return false
-    if (this.sshGenerating()) return false
-    if (!this.sshDraft.validate()) return false
-
-    const ssh = this.sshDraft.getFormData()
-
-    this.sshGenerating.set(true)
-    this.sshDraft.setPending()
-
-    try {
-      const result = await wrap(
-        passmanagerSshKeygen({
-          entryId: entry.id,
-          keyType: ssh.keyType,
-          comment: ssh.comment,
-        }),
-      )
-
-      await wrap(
-        entry.updateSshKeys([
-          ...entry.sshKeys,
-          {
-            id: result.key_id,
-            type: result.key_type as SshKeyType,
-            fingerprint: result.fingerprint,
-            name: ssh.name,
-            comment: ssh.comment,
-          },
-        ]),
-      )
-
-      this.sshDraft.setResult({
-        keyId: result.key_id,
-        keyType: result.key_type as SshKeyType,
-        fingerprint: result.fingerprint,
-        publicKey: result.public_key_openssh,
-        name: ssh.name,
-        comment: ssh.comment,
-      })
-      return true
-    } catch (error) {
-      this.sshDraft.setError((error as Error).message || i18n('error:save'))
-      return false
-    } finally {
-      this.sshGenerating.set(false)
+    this.tagEditParentSurface = null
+    if (!resumeParent) {
+      this.closeSectionSnippet()
+      return
     }
-  }
 
-  async copyGeneratedSshPublicKey(): Promise<boolean> {
-    const publicKey = this.sshDraft.result()?.publicKey
-    if (!publicKey) return false
-
-    try {
-      await wrap(copyWithAutoWipe(publicKey, DEFAULT_CLIPBOARD_WIPE_MS))
-      toast.success(i18n('ssh:public_key_copied'))
-      return true
-    } catch (error) {
-      this.sshDraft.setError((error as Error).message || i18n('error:save'))
-      return false
+    if (restoreBaseline) {
+      this.tagDraft.set([...this.entryEditTagBaseline])
     }
-  }
-
-  async removeSshKey(entry: Entry, keyId: string): Promise<void> {
-    if (entry.entryType === 'payment_card') return
-    const confirmed = await wrap(
-      dialogService.showConfirmDialog({
-        title: i18n('ssh:remove:confirm:title'),
-        message: i18n('ssh:remove:confirm:text'),
-        variant: 'warning',
-        confirmVariant: 'danger',
-      }),
-    ).catch(() => false)
-    if (!confirmed) return
-
-    await wrap(entry.removeSshKey(keyId))
+    this.entryEditFocusRequest.set(null)
+    this.sectionSnippet.set(parentSurface.sectionSnippet)
+    this.tagError.set('')
+    this.tagSaving.set(false)
+    this.publishEntryEditDirty()
   }
 
   beginPaymentCardEdit(entry: Entry): void {
@@ -1081,6 +992,7 @@ export class PMEntryEditModel extends PMEntryModel {
   }
 
   private resetEntryEditDraftState(): void {
+    this.tagEditParentSurface = null
     this.inlineTitle.set('')
     this.inlineUsername.set('')
     this.inlinePassword.set('')
@@ -1516,7 +1428,7 @@ export class PMEntryEditModel extends PMEntryModel {
     }
   }
 
-  private canOpenSectionSnippet(entry: Entry, surface: 'otp' | 'ssh'): boolean {
+  private canOpenSectionSnippet(entry: Entry, surface: 'otp'): boolean {
     if (!pmEntryEditorModel.isActiveForEntry(entry.id)) {
       return true
     }
@@ -1592,10 +1504,6 @@ export class PMEntryEditModel extends PMEntryModel {
         canStartOtpSnippet: false,
         canAddMissingOtpInEntryView: false,
         canManageOtp: false,
-        canManageSsh: false,
-        canAddSsh: false,
-        canStartSshSnippet: false,
-        canAddMissingSshInEntryView: false,
         canEditTags: canEdit,
         canEditPaymentCard: canEdit,
         compactMeta: [base.paymentCardExpiryLabel, card.updatedFormatted, card.createdFormatted]
@@ -1622,10 +1530,6 @@ export class PMEntryEditModel extends PMEntryModel {
       canStartOtpSnippet: canEdit && !hasActiveEditorSurface,
       canAddMissingOtpInEntryView: canEdit && !hasActiveEditorSurface && otpCount === 0,
       canManageOtp: canEdit && otpCount > 0,
-      canManageSsh: canEdit && card.sshKeys.length > 0,
-      canAddSsh: canEdit,
-      canStartSshSnippet: canEdit && !hasActiveEditorSurface,
-      canAddMissingSshInEntryView: canEdit && !hasActiveEditorSurface && card.sshKeys.length === 0,
       canEditTags: canEdit,
       canEditPaymentCard: false,
       compactMeta: [card.updatedFormatted, card.createdFormatted].filter(Boolean).join(' • '),

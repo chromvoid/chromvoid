@@ -1,5 +1,5 @@
 import {getAppContext} from 'root/shared/services/app-context'
-import {atom, computed} from '@reatom/core'
+import {atom, computed, wrap} from '@reatom/core'
 import type {UploadStats, UploadTask} from 'root/types/upload-task'
 export {formatFileSize} from 'root/utils/format-file-size'
 
@@ -53,6 +53,9 @@ export class UploadProgressModel {
   })
   readonly hasActiveTransfers = computed(() => this.stats().uploading > 0)
   readonly hasCompletedTasks = computed(() => this.tasks().some((task) => task.status() === 'done'))
+  readonly hasDismissibleOpenExternalTasks = computed(() =>
+    this.tasks().some((task) => task.kind === 'open-external' && task.status() !== 'done'),
+  )
   readonly headerIcon = computed(() => {
     const tasks = this.tasks()
     const transferTasks = tasks.filter((t) => t.kind === 'transfer')
@@ -153,6 +156,14 @@ export class UploadProgressModel {
     } catch {}
   }
 
+  dismissPreparingExternalTasks() {
+    const store = getAppContext().store
+    for (const task of this.tasks()) {
+      if (task.kind !== 'open-external' || task.status() === 'done') continue
+      store.cancelUploadTask(task.id)
+    }
+  }
+
   private canAutoHideCompletedTransfers(): boolean {
     const stats = this.stats()
     return (
@@ -167,11 +178,11 @@ export class UploadProgressModel {
     }
     if (this.autoHideTimer !== null) return
 
-    this.autoHideTimer = setTimeout(() => {
+    this.autoHideTimer = setTimeout(wrap(() => {
       this.autoHideTimer = null
       if (!this.canAutoHideCompletedTransfers()) return
       this.clearCompleted()
-    }, MOBILE_UPLOAD_MINIMIZED_AUTO_HIDE_MS)
+    }), MOBILE_UPLOAD_MINIMIZED_AUTO_HIDE_MS)
   }
 
   cancelAutoHideClear() {

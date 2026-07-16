@@ -1,14 +1,13 @@
 import type {FullChromVoidState} from '@chromvoid/scheme'
 
 import {addOnRuntimeMessageListener, sendRuntimeMessage, sendTabMessage} from './runtime/webextension-api'
-import {getCurrentTab} from './utils'
 
 export type UserData = {
   username: string
   id: string
 }
-export type FillPassword = UserData & {password: string}
-export type FillOTP = UserData & {otp: string}
+export type FillPassword = UserData & {password: string; expectedOrigin: string}
+export type FillOTP = UserData & {otp: string; expectedOrigin: string}
 
 export type SWEventData = {
   isLockLoading: boolean
@@ -98,21 +97,12 @@ const createMessenger = <T extends BackgroundEventBus | InjectableEventBus | Pop
       })
     }
 
-    async sendToActiveTab<K extends keyof T['actions']>(action: K, data: T['actions'][K]) {
-      try {
-        const tab = await getCurrentTab()
-        if (tab?.id) {
-          return sendTabMessage(tab.id, {
-            action,
-            from,
-            data,
-          })
-        }
-
-        return undefined
-      } catch {
-        return undefined
-      }
+    async sendToTab<K extends keyof T['actions']>(tabId: number, action: K, data: T['actions'][K]) {
+      return sendTabMessage(tabId, {
+        action,
+        from,
+        data,
+      })
     }
   }
 

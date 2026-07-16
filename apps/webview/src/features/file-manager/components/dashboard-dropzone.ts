@@ -1,5 +1,6 @@
 import { html, ReatomLitElement } from "@chromvoid/uikit/reatom-lit";
 import { CVDropzone } from "@chromvoid/uikit/components/cv-dropzone";
+import { CVIcon } from "@chromvoid/uikit/components/cv-icon";
 
 import { css } from "lit";
 
@@ -9,6 +10,7 @@ import { sharedStyles } from "root/shared/ui/shared-styles";
 export class DashboardDropzone extends ReatomLitElement {
   static define() {
     CVDropzone.define();
+    CVIcon.define();
     if (!customElements.get("dashboard-dropzone")) {
       customElements.define("dashboard-dropzone", this);
     }
@@ -48,6 +50,15 @@ export class DashboardDropzone extends ReatomLitElement {
         block-size: 100%;
         display: flex;
         flex-direction: column;
+        --cv-dropzone-overlay-padding: var(--app-spacing-4);
+        --cv-dropzone-overlay-border: 2px dashed var(--cv-color-primary-border);
+        --cv-dropzone-overlay-radius: var(--cv-radius-4);
+        --cv-dropzone-overlay-background: color-mix(
+          in oklab,
+          var(--cv-color-primary-surface) 82%,
+          var(--app-editorial-surface-base, var(--cv-color-bg))
+        );
+        --cv-dropzone-overlay-color: var(--cv-color-primary);
       }
 
       cv-dropzone::part(base),
@@ -58,24 +69,30 @@ export class DashboardDropzone extends ReatomLitElement {
       }
 
       cv-dropzone::part(overlay) {
-        z-index: 1000;
-        font-size: 1.2em;
-        backdrop-filter: blur(4px);
-        -webkit-backdrop-filter: blur(4px);
+        inset: var(--app-spacing-2);
+        z-index: 2;
+        font-size: var(--cv-font-size-sm);
+        box-shadow: inset 0 0 0 1px var(--cv-color-primary-ring);
+      }
+
+      cv-dropzone[active]::part(content) {
+        opacity: 1;
       }
 
       cv-dropzone::part(loading-overlay) {
-        z-index: 999;
+        z-index: 1;
       }
 
-      /* dropZonePulse: removed — infinite animation hurt responsiveness */
+      .drop-message {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--app-spacing-2);
+        color: inherit;
+        font-weight: var(--cv-font-weight-semibold);
 
-      /*Touch devices - improved visualization*/
-      @media (hover: none) and (pointer: coarse) {
-        cv-dropzone::part(overlay) {
-          border-width: 4px;
-          font-size: 1.4em;
-          padding-block: var(--app-spacing-4);
+        cv-icon {
+          font-size: 32px;
         }
       }
 
@@ -84,6 +101,13 @@ export class DashboardDropzone extends ReatomLitElement {
         cv-dropzone::part(overlay) {
           font-size: 1.1em;
           padding: var(--app-spacing-3);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        cv-dropzone::part(content),
+        cv-dropzone::part(overlay) {
+          transition-duration: var(--cv-duration-instant, 0ms);
         }
       }
     `,
@@ -100,6 +124,10 @@ export class DashboardDropzone extends ReatomLitElement {
         .message=${message}
         .loadingLabel=${loadingLabel}
       >
+        <div slot="message" class="drop-message">
+          <cv-icon name="upload" aria-hidden="true"></cv-icon>
+          <span>${message}</span>
+        </div>
         <slot></slot>
       </cv-dropzone>
     `;

@@ -80,6 +80,30 @@ fn test_catalog_mutations_survive_fresh_router_without_explicit_save() {
 }
 
 #[test]
+fn test_existing_shard_children_survive_first_reopen_write() {
+    let (mut router, temp_dir, keystore) = create_test_router_with_keystore();
+    assert_rpc_ok(&unlock_vault(&mut router, "test"));
+    assert_rpc_ok(&create_dir(&mut router, "Work"));
+    assert_rpc_ok(&create_dir_at(&mut router, "/Work", "old"));
+    router.save().expect("persist initial catalog");
+    drop(router);
+
+    let storage = Storage::new(temp_dir.path()).expect("storage");
+    let mut reopened = RpcRouter::new(storage).with_keystore(keystore.clone());
+    assert_rpc_ok(&unlock_vault(&mut reopened, "test"));
+    assert_rpc_ok(&create_dir_at(&mut reopened, "/Work", "new"));
+    reopened.save().expect("persist reopened catalog");
+    drop(reopened);
+
+    let storage = Storage::new(temp_dir.path()).expect("storage");
+    let mut reopened_again = RpcRouter::new(storage).with_keystore(keystore);
+    assert_rpc_ok(&unlock_vault(&mut reopened_again, "test"));
+    let work_items = get_items(&list_dir(&mut reopened_again, "/Work"));
+    assert!(find_item_by_name(&work_items, "old").is_some());
+    assert!(find_item_by_name(&work_items, "new").is_some());
+}
+
+#[test]
 fn test_move_directory_basic() {
     let (mut router, _temp_dir) = create_test_router();
     unlock_vault(&mut router, "test");

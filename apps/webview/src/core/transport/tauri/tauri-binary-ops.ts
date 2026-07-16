@@ -13,10 +13,12 @@ import type {
   NativeUploadFile,
   NativeUploadOptions,
   NativeUploadProgress,
-  PreparedAndroidVideoSource,
   PreparedMediaStreamSource,
   PreparedPreviewFileSource,
   PreparedPreviewFileVariant,
+  PreparedVideoDelivery,
+  PreparedVideoProvider,
+  PreparedVideoSource,
   PreviewCachePurgeReason,
   PreviewCachePurgeResult,
 } from '../transport'
@@ -31,10 +33,6 @@ import {
   logAndroidShareDiagnostic,
 } from '../../../features/file-manager/models/android-share-import.diagnostics'
 import {tauriInvoke, tauriListen} from './ipc'
-
-declare module '@tauri-apps/api/core' {
-  export function convertFileSrc(filePath: string, protocol?: string): string
-}
 
 type UploadProgressPayload = {
   uploadId?: string
@@ -106,6 +104,9 @@ type PreparedMediaStreamPayload = {
   stream_id?: string
   streamId?: string
   url: string
+  fallback_url?: string
+  fallbackUrl?: string
+  delivery?: PreparedMediaStreamSource['delivery']
   name: string
   mime_type?: string
   mimeType?: string
@@ -116,14 +117,53 @@ type PreparedMediaStreamPayload = {
   expiresAt?: number
 }
 
-type PreparedAndroidVideoPayload = {
-  started?: boolean
-  token?: string
+type PreparedVideoDeliveryPayload = {
+  delivery?: 'loopback-http' | 'mse' | 'native-video'
+  platform?: 'desktop' | 'mobile'
+  url?: string
+  fetch_url?: string
+  fetchUrl?: string
+  init_segment?: {offset?: number; length?: number}
+  initSegment?: {offset?: number; length?: number}
+  media_segments?: Array<{
+    offset?: number
+    length?: number
+    timestamp_us?: number
+    timestampUs?: number
+  }>
+  mediaSegments?: Array<{
+    offset?: number
+    length?: number
+    timestamp_us?: number
+    timestampUs?: number
+  }>
+  native_source_token?: string
+  nativeSourceToken?: string
+}
+
+type PreparedVideoPayload = {
+  kind?: PreparedVideoSource['kind']
+  stream_id?: string
+  streamId?: string
+  source_token?: string
+  sourceToken?: string
+  platform?: 'desktop' | 'mobile'
+  provider?: PreparedVideoProvider
+  deliveries?: PreparedVideoDeliveryPayload[]
+  name?: string
   mime_type?: string
   mimeType?: string
   size?: number
   source_revision?: number
   sourceRevision?: number
+  media_source_generation?: number
+  mediaSourceGeneration?: number
+  transport_session_generation?: number
+  transportSessionGeneration?: number
+  app_foreground_epoch?: number
+  appForegroundEpoch?: number
+  expires_at?: number
+  expiresAt?: number
 }
 
 type PreparedPreviewFilePayload = {
@@ -745,9 +785,98 @@ async function readBinaryPayloadResult(
   }
 }
 
-export async function downloadFileViaTauri(nodeId: number): Promise<AsyncIterable<Uint8Array>> {
-  const payload = await readBinaryPayloadResult('catalog_download', {nodeId}, 'catalog:download failed')
-  return toChunkedStream(payload.bytes, payload.chunkSize)
+/**
+ * Chunk size for ranged catalog downloads. Each chunk is a separate
+ * `catalog_download_range` IPC call, so consumers that stop iterating (abort,
+ * running-size limits) stop further IPC instead of having the whole file
+ * materialized in a single invoke.
+ */
+export const TAURI_DOWNLOAD_RANGE_CHUNK_BYTES = 2 * 1024 * 1024
+
+type DownloadRangeSource = {
+  size: number
+  sourceRevision: number
+}
+
+type RpcDispatchCommandResultPayload = {
+  command?: string
+  result?: unknown
+}
+
+async function resolveDownloadRangeSource(nodeId: number): Promise<DownloadRangeSource | null> {
+  try {
+    const response = await tauriInvoke<RpcResult<RpcDispatchCommandResultPayload>>('rpc_dispatch', {
+      args: {
+        v: 1,
+        command: 'catalog:source:metadata',
+        data: {node_id: nodeId},
+      },
+    })
+    if (!isSuccess(response)) {
+      return null
+    }
+
+    const payload = response.result?.result
+    if (!payload || typeof payload !== 'object') {
+      return null
+    }
+
+    const record = payload as {size?: unknown; source_revision?: unknown; sourceRevision?: unknown}
+    const size = optionalNumber(record.size)
+    const sourceRevision = optionalNumber(record.sourceRevision ?? record.source_revision)
+    if (size === null || size < 0 || sourceRevision === null) {
+      return null
+    }
+
+    return {size: Math.floor(size), sourceRevision}
+  } catch (error) {
+    console.warn(
+      '[dashboard][tauri] catalog:source:metadata lookup failed; falling back to whole-file download',
+      error,
+    )
+    return null
+  }
+}
+
+function rangedDownloadStream(
+  nodeId: number,
+  source: DownloadRangeSource,
+  chunkBytes: number,
+): AsyncIterable<Uint8Array> {
+  async function* generate(): AsyncIterable<Uint8Array> {
+    for (let offset = 0; offset < source.size; offset += chunkBytes) {
+      const length = Math.min(chunkBytes, source.size - offset)
+      const response = await tauriInvoke<RpcResult<number[]>>('catalog_download_range', {
+        nodeId,
+        offset,
+        length,
+        expectedSourceRevision: source.sourceRevision,
+      })
+      const bytes = unwrapRpcResult(response, 'catalog:downloadRange failed')
+      yield new Uint8Array(bytes)
+    }
+  }
+
+  return generate()
+}
+
+export async function downloadFileViaTauri(
+  nodeId: number,
+  opts?: {rangeChunkBytes?: number},
+): Promise<AsyncIterable<Uint8Array>> {
+  const rangeSource = await resolveDownloadRangeSource(nodeId)
+  if (rangeSource === null) {
+    // Compatibility path: without size/source-revision metadata the ranged
+    // protocol cannot be used, so keep the whole-file transfer.
+    const payload = await readBinaryPayloadResult('catalog_download', {nodeId}, 'catalog:download failed')
+    return toChunkedStream(payload.bytes, payload.chunkSize)
+  }
+
+  const chunkBytes =
+    opts?.rangeChunkBytes && opts.rangeChunkBytes > 0
+      ? Math.floor(opts.rangeChunkBytes)
+      : TAURI_DOWNLOAD_RANGE_CHUNK_BYTES
+  return rangedDownloadStream(nodeId, rangeSource, chunkBytes)
 }
 
 export async function previewImageViaTauri(
@@ -917,6 +1046,8 @@ export async function prepareMediaStreamViaTauri(
   const mimeType = payload.mimeType ?? payload.mime_type
   const sourceRevision = payload.sourceRevision ?? payload.source_revision
   const expiresAt = payload.expiresAt ?? payload.expires_at
+  const fallbackUrl = payload.fallbackUrl ?? payload.fallback_url
+  const delivery = payload.delivery ?? 'custom-scheme'
 
   if (payload.kind !== 'media-stream') {
     throw new Error('prepare_media_stream returned invalid kind')
@@ -933,11 +1064,16 @@ export async function prepareMediaStreamViaTauri(
   if (typeof expiresAt !== 'number') {
     throw new Error('prepare_media_stream returned no expiresAt')
   }
+  if (delivery !== 'custom-scheme' && delivery !== 'loopback-http') {
+    throw new Error('prepare_media_stream returned invalid delivery')
+  }
 
   return {
     kind: 'media-stream',
     streamId,
     url: payload.url,
+    fallbackUrl: typeof fallbackUrl === 'string' && fallbackUrl.length > 0 ? fallbackUrl : undefined,
+    delivery,
     name: payload.name,
     mimeType,
     size: payload.size,
@@ -955,56 +1091,170 @@ export async function releaseMediaStreamViaTauri(source: PreparedMediaStreamSour
   unwrapRpcResult(response, 'release_media_stream failed')
 }
 
-export async function startAndroidVideoViaTauri(
-  nodeId: number,
-  opts: {
-    fileName: string
-    mimeType?: string | null
-    lastModified?: number | null
-  },
-): Promise<PreparedAndroidVideoSource> {
-  const response = await tauriInvoke<RpcResult<PreparedAndroidVideoPayload>>('android_video_start', {
+function normalizePreparedVideoDelivery(
+  delivery: PreparedVideoDeliveryPayload,
+): PreparedVideoDelivery {
+  if (delivery.delivery === 'loopback-http') {
+    if (delivery.platform !== 'desktop') {
+      throw new Error('prepare_media_source returned invalid loopback platform')
+    }
+    if (typeof delivery.url !== 'string' || !delivery.url) {
+      throw new Error('prepare_media_source returned no loopback url')
+    }
+    return {
+      delivery: 'loopback-http',
+      platform: delivery.platform,
+      url: delivery.url,
+    }
+  }
+
+  if (delivery.delivery === 'native-video') {
+    const nativeSourceToken = delivery.nativeSourceToken ?? delivery.native_source_token
+    if (delivery.platform !== 'desktop' && delivery.platform !== 'mobile') {
+      throw new Error('prepare_media_source returned invalid native platform')
+    }
+    if (typeof nativeSourceToken !== 'string' || !nativeSourceToken) {
+      throw new Error('prepare_media_source returned no nativeSourceToken')
+    }
+    return {
+      delivery: 'native-video',
+      platform: delivery.platform,
+      nativeSourceToken,
+    }
+  }
+
+  if (delivery.delivery === 'mse') {
+    const fetchUrl = delivery.fetchUrl ?? delivery.fetch_url
+    const initSegmentPayload = delivery.initSegment ?? delivery.init_segment
+    const mediaSegmentsPayload = delivery.mediaSegments ?? delivery.media_segments
+    return {
+      delivery: 'mse',
+      platform: delivery.platform === 'mobile' ? 'mobile' : 'desktop',
+      ...(typeof fetchUrl === 'string' && fetchUrl ? {fetchUrl} : {}),
+      ...(initSegmentPayload &&
+      typeof initSegmentPayload.offset === 'number' &&
+      typeof initSegmentPayload.length === 'number'
+        ? {initSegment: {offset: initSegmentPayload.offset, length: initSegmentPayload.length}}
+        : {}),
+      ...(Array.isArray(mediaSegmentsPayload)
+        ? {
+            mediaSegments: mediaSegmentsPayload
+              .map((segment) => {
+                const timestampUs = segment.timestampUs ?? segment.timestamp_us
+                return typeof segment.offset === 'number' &&
+                  typeof segment.length === 'number' &&
+                  typeof timestampUs === 'number'
+                  ? {offset: segment.offset, length: segment.length, timestampUs}
+                  : null
+              })
+              .filter((segment): segment is {offset: number; length: number; timestampUs: number} =>
+                segment !== null,
+              ),
+          }
+        : {}),
+    }
+  }
+
+  throw new Error('prepare_media_source returned invalid delivery')
+}
+
+export async function prepareMediaSourceViaTauri(opts: {
+  kind: 'video'
+  nodeId: number
+  sourceRevision?: number | null
+  ownerToken?: string | null
+  fileName?: string | null
+  mimeType?: string | null
+  lastModified?: number | null
+}): Promise<PreparedVideoSource> {
+  const response = await tauriInvoke<RpcResult<PreparedVideoPayload>>('prepare_media_source', {
     args: {
-      nodeId,
-      fileName: opts.fileName,
+      kind: opts.kind,
+      nodeId: opts.nodeId,
+      sourceRevision: opts.sourceRevision ?? null,
+      ownerToken: opts.ownerToken ?? null,
+      fileName: opts.fileName ?? null,
       mimeType: opts.mimeType ?? null,
       lastModified: opts.lastModified ?? null,
     },
   })
-  const payload = unwrapRpcResult(response, 'android_video_start failed')
+  const payload = unwrapRpcResult(response, 'prepare_media_source failed')
+  const streamId = payload.streamId ?? payload.stream_id
+  const sourceToken = payload.sourceToken ?? payload.source_token
   const mimeType = payload.mimeType ?? payload.mime_type
   const sourceRevision = payload.sourceRevision ?? payload.source_revision
+  const mediaSourceGeneration = payload.mediaSourceGeneration ?? payload.media_source_generation
+  const transportSessionGeneration =
+    payload.transportSessionGeneration ?? payload.transport_session_generation
+  const appForegroundEpoch = payload.appForegroundEpoch ?? payload.app_foreground_epoch ?? 1
+  const expiresAt = payload.expiresAt ?? payload.expires_at
 
-  if (!payload.started) {
-    throw new Error('android_video_start did not start playback')
+  if (payload.kind !== 'video-source') {
+    throw new Error('prepare_media_source returned invalid kind')
   }
-  if (!payload.token) {
-    throw new Error('android_video_start returned no token')
+  if (!streamId || !sourceToken) {
+    throw new Error('prepare_media_source returned no source token')
+  }
+  if (payload.platform !== 'desktop' && payload.platform !== 'mobile') {
+    throw new Error('prepare_media_source returned invalid platform')
+  }
+  if (
+    payload.provider !== 'local-catalog' &&
+    payload.provider !== 'mobile-local-catalog' &&
+    payload.provider !== 'remote-usb' &&
+    payload.provider !== 'remote-network' &&
+    payload.provider !== 'mock'
+  ) {
+    throw new Error('prepare_media_source returned invalid provider')
   }
   if (!mimeType) {
-    throw new Error('android_video_start returned no mimeType')
+    throw new Error('prepare_media_source returned no mimeType')
   }
   if (typeof payload.size !== 'number') {
-    throw new Error('android_video_start returned no size')
+    throw new Error('prepare_media_source returned no size')
   }
   if (typeof sourceRevision !== 'number') {
-    throw new Error('android_video_start returned no sourceRevision')
+    throw new Error('prepare_media_source returned no sourceRevision')
+  }
+  if (typeof mediaSourceGeneration !== 'number') {
+    throw new Error('prepare_media_source returned no mediaSourceGeneration')
+  }
+  if (typeof appForegroundEpoch !== 'number') {
+    throw new Error('prepare_media_source returned invalid appForegroundEpoch')
+  }
+  if (typeof expiresAt !== 'number') {
+    throw new Error('prepare_media_source returned no expiresAt')
+  }
+  if (!Array.isArray(payload.deliveries) || payload.deliveries.length === 0) {
+    throw new Error('prepare_media_source returned no deliveries')
   }
 
   return {
-    kind: 'android-native-video',
-    token: payload.token,
+    kind: 'video-source',
+    streamId,
+    sourceToken,
+    platform: payload.platform,
+    provider: payload.provider,
+    deliveries: payload.deliveries.map(normalizePreparedVideoDelivery),
+    name: payload.name ?? '',
     mimeType,
     size: payload.size,
     sourceRevision,
+    mediaSourceGeneration,
+    ...(typeof transportSessionGeneration === 'number' ? {transportSessionGeneration} : {}),
+    appForegroundEpoch,
+    expiresAt,
   }
 }
 
-export async function stopAndroidVideoViaTauri(source: PreparedAndroidVideoSource): Promise<void> {
-  const response = await tauriInvoke<RpcResult<unknown>>('android_video_stop', {
-    token: source.token,
+export async function releaseMediaSourceViaTauri(source: PreparedVideoSource): Promise<void> {
+  const response = await tauriInvoke<RpcResult<unknown>>('release_media_source', {
+    args: {
+      streamId: source.streamId,
+      sourceToken: source.sourceToken,
+    },
   })
-  unwrapRpcResult(response, 'android_video_stop failed')
+  unwrapRpcResult(response, 'release_media_source failed')
 }
 
 export async function sendAndroidAudioCommandViaTauri(

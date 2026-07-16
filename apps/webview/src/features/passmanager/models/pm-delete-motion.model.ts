@@ -1,6 +1,6 @@
 import {atom} from '@reatom/core'
 
-import {Entry, Group} from '@project/passmanager/core'
+import type {Entry, Group} from '@project/passmanager/core'
 import type {PMGroupRow} from './pm-root-search-projection'
 
 export type PMDeleteVisibleRow = {

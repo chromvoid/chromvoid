@@ -6,8 +6,8 @@ import {PMIconPickerBase, pmIconPickerBaseStyles} from './pm-icon-picker.base'
 
 const pmIconPickerMobileStyles = css`
   .icon-trigger {
-    inline-size: var(--pm-icon-picker-trigger-inline-size, 48px);
-    block-size: var(--pm-icon-picker-trigger-block-size, 48px);
+    inline-size: var(--pm-icon-picker-trigger-size, 48px);
+    block-size: var(--pm-icon-picker-trigger-size, 48px);
     border-radius: var(--cv-radius-2);
   }
 

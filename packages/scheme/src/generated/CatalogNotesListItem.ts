@@ -10,4 +10,8 @@ export type CatalogNotesListItem = {
   source_revision: number
   created_at: number
   updated_at: number
+  heading: string | null
+  excerpt: string | null
+  preview_words: number | null
+  preview_truncated: boolean | null
 }

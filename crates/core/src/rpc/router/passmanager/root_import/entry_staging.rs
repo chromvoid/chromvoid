@@ -99,14 +99,7 @@ pub(super) fn stage_entry(
             meta.insert("payment_card".to_string(), payment_card);
         }
     } else {
-        for key in [
-            "username",
-            "urls",
-            "sshKeys",
-            "sshKeyType",
-            "sshKeyFingerprint",
-            "sshKeyComment",
-        ] {
+        for key in ["username", "urls"] {
             if let Some(value) = entry_obj.get(key) {
                 meta.insert(key.to_string(), value.clone());
             }

@@ -55,22 +55,24 @@ impl Vault {
         super::rekey::recover_rekey_marker_for_key(storage, &vault_key)?;
 
         let repair_service = CatalogRepairService::new(storage, &vault_key);
-        let mut repair = None;
+        let diagnosis = repair_service.diagnose_for_unlock_preflight()?;
+        match diagnosis.status {
+            CatalogRepairStatus::Clean | CatalogRepairStatus::LosslessRepaired => {}
+            CatalogRepairStatus::LosslessRequired | CatalogRepairStatus::LossyRequired => {
+                let repair_id = diagnosis.repair_id.unwrap_or_else(|| "unknown".to_string());
+                return Err(Error::CatalogRepairRequired(repair_id));
+            }
+        }
+
         let catalog = match Self::load_catalog_for_unlock(storage, &vault_key) {
-            Ok(catalog) => match repair_service.repair_lossless()? {
-                Some(outcome) => {
-                    repair = Some(outcome);
-                    Self::load_catalog_for_unlock(storage, &vault_key)?
-                }
-                None => catalog,
-            },
+            Ok(catalog) => catalog,
             Err(Error::CatalogDeltaReplayFailed(_)) => {
                 let diagnosis = repair_service.diagnose()?;
                 match diagnosis.status {
                     CatalogRepairStatus::Clean | CatalogRepairStatus::LosslessRepaired => {
                         Self::load_catalog_for_unlock(storage, &vault_key)?
                     }
-                    CatalogRepairStatus::LossyRequired => {
+                    CatalogRepairStatus::LosslessRequired | CatalogRepairStatus::LossyRequired => {
                         let repair_id =
                             diagnosis.repair_id.unwrap_or_else(|| "unknown".to_string());
                         return Err(Error::CatalogRepairRequired(repair_id));
@@ -89,7 +91,7 @@ impl Vault {
                 pending_deltas: HashMap::new(),
                 decrypted_chunk_cache: Arc::new(DecryptedChunkCache::new_default()),
             },
-            repair,
+            repair: None,
         })
     }
 
@@ -208,6 +210,15 @@ impl VaultSession {
     pub fn catalog_mut(&mut self) -> &mut CatalogManager {
         self.dirty = true;
         &mut self.catalog
+    }
+
+    pub(crate) fn ensure_shard_loaded(&mut self, storage: &Storage, shard_id: &str) -> Result<()> {
+        let Some(shard) = Vault::load_shard_from_storage(storage, &self.vault_key, shard_id)?
+        else {
+            return Ok(());
+        };
+        self.catalog.upsert_root_child(shard.root);
+        Ok(())
     }
 
     pub fn record_delta(&mut self, shard_id: &str, delta: crate::catalog::DeltaEntry) {

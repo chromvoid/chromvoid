@@ -16,7 +16,7 @@ const pmEntryCreateBaseStyles = css`
   }
 
   @supports (-webkit-touch-callout: none) {
-    @media (hover: none) and (pointer: coarse) {
+    @media (max-width: 768px) {
       cv-input::part(input),
       cv-textarea::part(textarea),
       cv-select::part(trigger) {
@@ -304,7 +304,7 @@ const pmEntryCreateDesktopStyles = css`
   pm-icon-picker {
     --pm-icon-picker-trigger-size: 58px;
     --pm-icon-picker-trigger-radius: var(--cv-radius-2);
-    --pm-icon-picker-trigger-bg: var(--cv-color-primary-surface);
+    --pm-icon-picker-trigger-background: var(--cv-color-primary-surface);
     --pm-icon-picker-trigger-border: var(--cv-color-primary-border-strong);
     --pm-icon-picker-trigger-hover-border: var(--cv-color-primary);
   }
@@ -795,39 +795,6 @@ export class PMEntryCreateDesktop extends PMEntryCreateBase {
     `
   }
 
-  private renderSshSection(): TemplateResult {
-    return html`
-      <div class="section advanced-section">
-        <cv-switch
-          size="small"
-          @cv-change=${this.onSshSwitchChange}
-          class="switch-otp"
-          ?checked=${this.model.useSsh()}
-        >
-          <div class="otp-switch-label">
-            <cv-icon name="key"></cv-icon>
-            <span>${i18n('ssh:title')}</span>
-          </div>
-        </cv-switch>
-        ${this.model.showSshGenerator()
-          ? html`
-              <pm-entry-ssh-generator
-                radio-group="ssh-key-type-create"
-                hide-generate-when-result
-                .keyType=${this.model.sshGenKeyType()}
-                .comment=${this.model.sshGenComment()}
-                .generating=${this.model.sshGenerating()}
-                .result=${this.model.sshGenResult()}
-                @pm-entry-ssh-key-type-change=${this.onSshKeyTypeChange}
-                @pm-entry-ssh-comment-input=${this.onSshGenCommentInput}
-                @pm-entry-ssh-generate=${this.onSshGenerateRequest}
-              ></pm-entry-ssh-generator>
-            `
-          : nothing}
-      </div>
-    `
-  }
-
   private renderFormFooter(): TemplateResult | typeof nothing {
     const disabled = isPassmanagerReadOnlyOrMissing() || this.model.isSubmitting()
 
@@ -860,7 +827,6 @@ export class PMEntryCreateDesktop extends PMEntryCreateBase {
             ${this.renderCredentialsSection()}
             ${this.renderTagsSection()}
             ${this.renderAdvancedSection()}
-            ${this.renderSshSection()}
             ${this.renderDetailsSection()}
           `}
       ${this.renderSubmitSection()} ${this.renderFormFooter()}

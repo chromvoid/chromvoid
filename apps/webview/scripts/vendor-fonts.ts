@@ -1,194 +1,156 @@
-import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs'
-import {writeFile} from 'node:fs/promises'
-import {dirname, extname, join} from 'node:path'
 import {createHash} from 'node:crypto'
+import {existsSync} from 'node:fs'
+import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
+import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
+import {unzipSync} from 'fflate'
+import {compress as compressWoff2} from 'wawoff2'
 
-type FontVendorSource = {
-  id: string
-  cssUrl: string
+type FontAsset = {
+  archive?: {
+    path: string
+    sha256: string
+  }
+  output: string
+  sha256: string
+  transform?: 'woff2'
+  url: string
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const projectRoot = join(__dirname, '..')
-const srcDir = join(projectRoot, 'src')
-const assetsDir = join(srcDir, 'assets')
-const outFontsDir = join(assetsDir, 'fonts/vendor')
-const outCssPath = join(srcDir, 'styles/base/fonts.vendored.css')
-const indexHtmlPath = join(srcDir, 'index.html')
+const assetsDir = join(__dirname, '../src/assets')
+const fontsDir = join(assetsDir, 'fonts')
+const isForce = process.argv.includes('--force')
 
-const sources: FontVendorSource[] = [
+const assets: FontAsset[] = [
   {
-    id: 'inter',
-    cssUrl:
-      'https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap',
+    output: 'inter/InterVariable.woff2',
+    sha256: '693b77d4f32ee9b8bfc995589b5fad5e99adf2832738661f5402f9978429a8e3',
+    url: 'https://raw.githubusercontent.com/rsms/inter/v4.1/docs/font-files/InterVariable.woff2',
   },
   {
-    id: 'jetbrains-mono',
-    cssUrl: 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap',
+    output: 'inter/InterVariable-Italic.woff2',
+    sha256: 'e564f652916db6c139570fefb9524a77c4d48f30c92928de9db19b6b5c7a262a',
+    url: 'https://raw.githubusercontent.com/rsms/inter/v4.1/docs/font-files/InterVariable-Italic.woff2',
   },
   {
-    id: 'satoshi',
-    cssUrl: 'https://api.fontshare.com/v2/css?f[]=satoshi@700,500,400&display=swap',
+    output: 'inter/LICENSE.txt',
+    sha256: '262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a',
+    url: 'https://raw.githubusercontent.com/rsms/inter/v4.1/LICENSE.txt',
+  },
+  {
+    output: 'jetbrains-mono/JetBrainsMonoVariable.ttf',
+    sha256: '662a196d58f1183bf2d77428b6d5283fe3f45161ab021bea4036bc98e5cac016',
+    url: 'https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/fonts/variable/JetBrainsMono%5Bwght%5D.ttf',
+  },
+  {
+    output: 'jetbrains-mono/OFL.txt',
+    sha256: '30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad',
+    url: 'https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/OFL.txt',
+  },
+  {
+    archive: {
+      path: 'NotoSansArabic/full/slim-variable-ttf/NotoSansArabic[wght].ttf',
+      sha256: '1301aceaea84c501cf2e6dcfb3182e2328c8eae5725817fcb239672bda7154f1',
+    },
+    output: 'noto-sans-arabic/NotoSansArabicVariable.woff2',
+    sha256: 'b060ee09f0388b7c2ab70f0272d949b20286146d082623f37ae5fa3dc86cc083',
+    transform: 'woff2',
+    url: 'https://github.com/notofonts/arabic/releases/download/NotoSansArabic-v2.013/NotoSansArabic-v2.013.zip',
+  },
+  {
+    archive: {
+      path: 'OFL.txt',
+      sha256: '1301aceaea84c501cf2e6dcfb3182e2328c8eae5725817fcb239672bda7154f1',
+    },
+    output: 'noto-sans-arabic/OFL.txt',
+    sha256: 'a7a5a25eb188bf1cd96982030d53e23c33485c69b1044a562254226857ee13af',
+    url: 'https://github.com/notofonts/arabic/releases/download/NotoSansArabic-v2.013/NotoSansArabic-v2.013.zip',
   },
 ]
 
-const isForce = process.argv.includes('--force')
+const downloads = new Map<string, Promise<Uint8Array>>()
 
-function ensureDir(path: string) {
-  mkdirSync(path, {recursive: true})
+function sha256(data: Uint8Array): string {
+  return createHash('sha256').update(data).digest('hex')
 }
 
-function sha256Short(input: string) {
-  return createHash('sha256').update(input).digest('hex').slice(0, 12)
-}
-
-function sanitizeBaseName(name: string) {
-  return name.replace(/[^a-zA-Z0-9._-]/g, '_')
-}
-
-function urlToFileParts(url: string): {base: string; ext: string} {
-  // Strip query/hash and keep a stable filename.
-  const withoutHash = url.split('#')[0] ?? url
-  const clean = withoutHash.split('?')[0] ?? withoutHash
-  const parts = clean.split('/')
-  const last = parts[parts.length - 1] || 'font'
-  const ext = extname(last) || '.bin'
-  const base = sanitizeBaseName(last.slice(0, last.length - ext.length) || 'font')
-  return {base, ext}
-}
-
-async function fetchText(url: string) {
-  const res = await fetch(url, {
-    headers: {
-      // Some providers adjust response based on UA.
-      'User-Agent': 'Mozilla/5.0 (vendor-fonts; ChromVoid)',
-      Accept: 'text/css,*/*;q=0.1',
-    },
-  })
-  if (!res.ok) {
-    throw new Error(`Failed to fetch CSS: ${url} (${res.status} ${res.statusText})`)
+function verifyAsset(asset: FontAsset, data: Uint8Array): void {
+  const actual = sha256(data)
+  if (actual !== asset.sha256) {
+    throw new Error(`Checksum mismatch for ${asset.output}: expected ${asset.sha256}, received ${actual}`)
   }
-  return await res.text()
 }
 
-async function fetchBinary(url: string) {
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (vendor-fonts; ChromVoid)',
-    },
-  })
-  if (!res.ok) {
-    throw new Error(`Failed to fetch font: ${url} (${res.status} ${res.statusText})`)
-  }
-  const buf = await res.arrayBuffer()
-  return new Uint8Array(buf)
-}
+async function download(url: string): Promise<Uint8Array> {
+  const cached = downloads.get(url)
+  if (cached !== undefined) return cached
 
-function extractRemoteUrls(css: string) {
-  const urls = new Set<string>()
-
-  // url('https://...') / url("https://...") / url(https://...)
-  // url('//cdn.example.com/...') (protocol-relative)
-  const re = /url\(\s*(['"]?)((?:https?:)?\/\/[^'"\)\s]+)\1\s*\)/gi
-  let m: RegExpExecArray | null
-  while ((m = re.exec(css))) {
-    const found = m[2]
-    if (typeof found === 'string' && found.length > 0) {
-      urls.add(found.startsWith('//') ? `https:${found}` : found)
+  const pending = (async () => {
+    const response = await fetch(url, {
+      headers: {'User-Agent': 'ChromVoid font vendor'},
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`)
     }
-  }
-  return Array.from(urls)
+    return new Uint8Array(await response.arrayBuffer())
+  })()
+  downloads.set(url, pending)
+  return pending
 }
 
-async function writeBinaryIfNeeded(absPath: string, data: Uint8Array) {
-  if (!isForce && existsSync(absPath)) {
+async function fetchAsset(asset: FontAsset): Promise<Uint8Array> {
+  const downloaded = await download(asset.url)
+  if (asset.archive === undefined) return downloaded
+
+  const archiveChecksum = sha256(downloaded)
+  if (archiveChecksum !== asset.archive.sha256) {
+    throw new Error(
+      `Checksum mismatch for archive ${asset.url}: expected ${asset.archive.sha256}, received ${archiveChecksum}`,
+    )
+  }
+
+  const entry = unzipSync(downloaded)[asset.archive.path]
+  if (entry === undefined) {
+    throw new Error(`Missing ${asset.archive.path} in archive ${asset.url}`)
+  }
+  return entry
+}
+
+async function vendorAsset(asset: FontAsset): Promise<void> {
+  const outputPath = join(fontsDir, asset.output)
+  if (!isForce && existsSync(outputPath)) {
+    verifyAsset(asset, await readFile(outputPath))
     return
   }
-  ensureDir(dirname(absPath))
-  await writeFile(absPath, data)
+
+  const source = await fetchAsset(asset)
+  const data = asset.transform === 'woff2' ? await compressWoff2(source) : source
+  verifyAsset(asset, data)
+  await mkdir(dirname(outputPath), {recursive: true})
+  await writeFile(outputPath, data)
 }
 
-async function main() {
-  ensureDir(outFontsDir)
-
-  const urlToLocalPublicPath = new Map<string, string>()
-
-  const cssBlocks: string[] = []
-  for (const source of sources) {
-    const css = await fetchText(source.cssUrl)
-    cssBlocks.push(`/* Source: ${source.cssUrl} */\n${css.trim()}\n`)
+async function main(): Promise<void> {
+  for (const asset of assets) {
+    await vendorAsset(asset)
   }
 
-  const combinedCss = cssBlocks.join('\n\n')
-  const remoteUrls = extractRemoteUrls(combinedCss)
-
-  console.log(`Found ${remoteUrls.length} remote font URLs`) // eslint-disable-line no-console
-
-  for (const remoteUrl of remoteUrls) {
-    const {base, ext} = urlToFileParts(remoteUrl)
-    const hash = sha256Short(remoteUrl)
-    const fileName = `${base}.${hash}${ext}`
-
-    // Keep fonts grouped by their original provider source.
-    const host = new URL(remoteUrl).hostname
-    const hostDir = sanitizeBaseName(host)
-    const localRel = `fonts/vendor/${hostDir}/${fileName}`
-    const localAbs = join(assetsDir, localRel)
-    // Fonts are stored under src/assets/, so their public URLs must be rooted at /assets/.
-    // This keeps both dev server and production dist (dist/assets/...) working.
-    const publicPath = `/assets/${localRel.replace(/\\/g, '/')}`
-
-    urlToLocalPublicPath.set(remoteUrl, publicPath)
-
-    if (!isForce && existsSync(localAbs)) {
-      continue
-    }
-
-    const data = await fetchBinary(remoteUrl)
-    await writeBinaryIfNeeded(localAbs, data)
+  for (const obsoleteAsset of [
+    'jetbrains-mono/JetBrainsMono-Regular.woff2',
+    'jetbrains-mono/JetBrainsMono-Medium.woff2',
+    'jetbrains-mono/JetBrainsMono-SemiBold.woff2',
+    'jetbrains-mono/JetBrainsMono-Bold.woff2',
+    'noto-sans-arabic/NotoSansArabicVariable.ttf',
+  ]) {
+    await rm(join(fontsDir, obsoleteAsset), {force: true})
   }
-
-  const rewrittenCss = combinedCss.replace(
-    /url\(\s*(['"]?)((?:https?:)?\/\/[^'"\)\s]+)\1\s*\)/gi,
-    (full, quote, rawUrl: string) => {
-      const normalized = rawUrl.startsWith('//') ? `https:${rawUrl}` : rawUrl
-      const mapped = urlToLocalPublicPath.get(normalized)
-      if (!mapped) return full
-      return `url(${quote || ''}${mapped}${quote || ''})`
-    },
-  )
-
-  const remoteUrlRe = /url\(\s*["']?(?:https?:)?\/\//i
-  const remoteImportRe = /@import\s+url\(\s*["']?(?:https?:)?\/\//i
-  if (remoteUrlRe.test(rewrittenCss) || remoteImportRe.test(rewrittenCss)) {
-    throw new Error('Vendored CSS still contains remote url()/@import after rewrite')
-  }
-
-  const out = `/*
- * Vendored web fonts.
- *
- * Generated by: bun run --cwd apps/webview vendor:fonts
- *
- * NOTE: This file is intended to be committed so dashboard builds stay offline.
- */\n\n${rewrittenCss.trim()}\n`
-  writeFileSync(outCssPath, out)
-  console.log(`Wrote ${outCssPath}`) // eslint-disable-line no-console
-
-  // Ensure index.html does not reference external font providers.
-  const html = readFileSync(indexHtmlPath, 'utf-8')
-  const cleaned = html
-    .replace(/\s*<!--\s*External fonts[\s\S]*?-->\s*\n?/g, '')
-    .replace(/\s*<link[^>]+href=["']https:\/\/fonts\.googleapis\.com\/[^"']+["'][^>]*>\s*\n?/gi, '')
-    .replace(/\s*<link[^>]+href=["']https:\/\/api\.fontshare\.com\/[^"']+["'][^>]*>\s*\n?/gi, '')
-
-  if (cleaned !== html) {
-    writeFileSync(indexHtmlPath, cleaned)
-    console.log(`Updated ${indexHtmlPath}`) // eslint-disable-line no-console
-  }
+  await rm(join(fontsDir, 'vendor'), {recursive: true, force: true})
+  await rm(join(assetsDir, 'lato'), {recursive: true, force: true})
+  console.log(`Verified ${assets.length} vendored font assets`) // eslint-disable-line no-console
 }
 
-main().catch((e) => {
-  console.error(e) // eslint-disable-line no-console
+main().catch((error: unknown) => {
+  console.error(error) // eslint-disable-line no-console
   process.exit(1)
 })

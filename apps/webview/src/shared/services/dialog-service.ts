@@ -136,15 +136,23 @@ export class DialogService implements DialogServiceInterface {
   }
 
   async showConfirmDialog(options: ConfirmDialogOptions): Promise<ConfirmDialogResult> {
+    if (options.abortSignal?.aborted) return false
+
     const dialog = new CvConfirmDialog()
     dialog.configure(options)
-    const result = await this.dialogController.present({
-      element: dialog,
-      title: options.title || i18n('dialogs:confirm-title'),
-      show: () => dialog.show(),
-      close: () => dialog.close(),
-    })
-    return result ?? false
+    const closeOnAbort = () => dialog.close(false)
+    options.abortSignal?.addEventListener('abort', closeOnAbort, {once: true})
+    try {
+      const result = await this.dialogController.present({
+        element: dialog,
+        title: options.title || i18n('dialogs:confirm-title'),
+        show: () => dialog.show(),
+        close: () => dialog.close(),
+      })
+      return result ?? false
+    } finally {
+      options.abortSignal?.removeEventListener('abort', closeOnAbort)
+    }
   }
 
   async showAlertDialog(options: AlertDialogOptions): Promise<void> {

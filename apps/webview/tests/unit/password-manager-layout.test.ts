@@ -1,4 +1,4 @@
-import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 import {resolveLayoutMode} from '../../src/app/layout/layout-mode'
@@ -6,36 +6,15 @@ import type {LayoutMode} from '../../src/app/layout/layout-mode'
 import {pmModel} from '../../src/features/passmanager/password-manager.model'
 import {atom} from '@reatom/core'
 import {Entry, Group, ManagerRoot} from '@project/passmanager'
+import {filterValue, selectedCredentialTagFilters} from '@project/passmanager/select'
 import {
-  PasswordManagerLayoutModel,
   PasswordManagerDesktopLayout,
   PasswordManagerMobileLayout,
 } from '../../src/features/passmanager/components/password-manager-layout'
-import {
-  PASSMANAGER_NO_MOTION_INTENT,
-  pmMotionModel,
-} from '../../src/features/passmanager/models/pm-motion.model'
+import {PMGroupMobile} from '../../src/features/passmanager/components/group/group'
 import {pmCredentialTagsModel} from '../../src/features/passmanager/models/pm-credential-tags.model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
-
-const originalMatchMedia = window.matchMedia
-
-function setReducedMotion(matches: boolean): void {
-  Object.defineProperty(window, 'matchMedia', {
-    configurable: true,
-    writable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
-      matches: query === '(prefers-reduced-motion: reduce)' ? matches : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    })),
-  })
-}
+import {groupBy, sortField} from '../../src/features/passmanager/components/list/sort-controls'
 
 function createGroup(id: string, name: string) {
   return new Group({
@@ -47,22 +26,24 @@ function createGroup(id: string, name: string) {
   } as any)
 }
 
-function createEntry(parent: Group, id: string, title: string) {
+function createEntry(parent: Group, id: string, title: string, tags: readonly string[] = []) {
   return new Entry(parent, {
     id,
     title,
     urls: [],
     username: '',
+    tags,
     createdTs: Date.now(),
     updatedTs: Date.now(),
     otps: [],
   } as any)
 }
 
-function createRootFixture() {
+function createRootFixture(entryTags: readonly string[] = []) {
   const root = new ManagerRoot({} as any)
   const group = createGroup('group-layout-motion', 'Group Layout Motion')
-  const entry = createEntry(group, 'entry-layout-motion', 'Entry Layout Motion')
+  const entry = createEntry(group, 'entry-layout-motion', 'Entry Layout Motion', entryTags)
+  root.credentialTags.set([...entryTags])
   group.entries.set([entry])
   root.entries.set([group])
   return {root, group, entry}
@@ -90,17 +71,13 @@ describe('password-manager layout selection', () => {
       .querySelectorAll('password-manager-desktop-layout, password-manager-mobile-layout')
       .forEach((element) => element.remove())
     setPassmanagerRoot(undefined)
+    filterValue.set('')
+    selectedCredentialTagFilters.set([])
+    sortField.set('name')
+    groupBy.set('none')
     pmCredentialTagsModel.closeSheet()
-    pmMotionModel.reset()
-    Object.defineProperty(window, 'matchMedia', {
-      configurable: true,
-      writable: true,
-      value: originalMatchMedia,
-    })
     clearAppContext()
-    if (pmModel.alive()) {
-      pmModel.cleanup()
-    }
+    pmModel.disposeSession()
     vi.restoreAllMocks()
   })
 
@@ -237,6 +214,7 @@ describe('password-manager layout selection', () => {
       expect(element.shadowRoot?.querySelector('.wrapper')).toBeNull()
       expect(element.shadowRoot?.querySelector('.sidebar')).toBeNull()
       expect(element.shadowRoot?.querySelector('.resizer')).toBeNull()
+      expect(element.shadowRoot?.querySelector('cv-spinner')).toBeNull()
     })
 
     it('mobile layout renders the OTP quick view for otpView state', async () => {
@@ -254,6 +232,32 @@ describe('password-manager layout selection', () => {
 
       expect(element.shadowRoot?.querySelector('pm-otp-quick-view-mobile')).not.toBeNull()
       expect(element.shadowRoot?.querySelector('pm-group-mobile')).toBeNull()
+      expect(element.shadowRoot?.querySelector('mobile-surface-layout')?.getAttribute('scroll')).toBe('external')
+      expect(element.shadowRoot?.querySelector('cv-spinner')).toBeNull()
+    })
+  })
+
+  describe('session state rendering', () => {
+    it.each([
+      ['desktop', PasswordManagerDesktopLayout, 'password-manager-desktop-layout'],
+      ['mobile', PasswordManagerMobileLayout, 'password-manager-mobile-layout'],
+    ] as const)('renders a retryable unavailable state without a page spinner on %s', async (_mode, Layout, tagName) => {
+      const root = new ManagerRoot({} as any)
+      setPassmanagerRoot(root)
+      pmModel.sessionStatus.set('error')
+      Layout.define()
+      const retry = vi.spyOn(pmModel, 'retrySessionLoad').mockResolvedValue('ready')
+
+      const element = document.createElement(tagName) as PasswordManagerDesktopLayout | PasswordManagerMobileLayout
+      document.body.appendChild(element)
+      await element.updateComplete
+
+      const unavailable = element.shadowRoot?.querySelector('cv-empty-state.session-unavailable')
+      expect(unavailable).not.toBeNull()
+      expect(element.shadowRoot?.querySelector('.spinner-wrapper')).toBeNull()
+
+      ;(unavailable?.querySelector('button.session-retry') as HTMLButtonElement | null)?.click()
+      expect(retry).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -284,7 +288,7 @@ describe('password-manager layout selection', () => {
         resolveShowElement: (fixture: ReturnType<typeof createRootFixture>) => fixture.entry,
       },
     ])('renders one tag management sheet host for $name', async ({tagName, define, resolveShowElement}) => {
-      const fixture = createRootFixture()
+      const fixture = createRootFixture(['Work'])
       fixture.root.showElement.set(resolveShowElement(fixture) as never)
       setPassmanagerRoot(fixture.root)
       define()
@@ -299,7 +303,7 @@ describe('password-manager layout selection', () => {
     })
 
     it('keeps mobile create entry tag sheet outside search and opens it from the tag model', async () => {
-      const fixture = createRootFixture()
+      const fixture = createRootFixture(['Work'])
       fixture.root.showElement.set('createEntry' as never)
       setPassmanagerRoot(fixture.root)
       PasswordManagerMobileLayout.define()
@@ -323,9 +327,186 @@ describe('password-manager layout selection', () => {
 
       const sheetShadowRoot = sheet!.shadowRoot
       expect(sheetShadowRoot).not.toBeNull()
-      const bottomSheet = sheetShadowRoot!.querySelector('cv-bottom-sheet') as ({open?: boolean} & HTMLElement) | null
+      const bottomSheet = sheetShadowRoot!.querySelector('cv-bottom-sheet') as
+        | ({initialFocusId?: string; open?: boolean} & HTMLElement)
+        | null
       expect(bottomSheet).not.toBeNull()
       expect(bottomSheet!.open).toBe(true)
+      expect(bottomSheet!.initialFocusId).toBe('pm-tag-done')
+
+      pmCredentialTagsModel.openCreateTag()
+      await settle(sheet!)
+      expect(bottomSheet!.initialFocusId).toBe('')
+      let swatches = Array.from(sheetShadowRoot!.querySelectorAll<HTMLButtonElement>('.color-swatch'))
+      expect(swatches).toHaveLength(7)
+      expect(swatches.map((button) => button.dataset['colorId'])).toEqual([
+        'violet',
+        'green',
+        'blue',
+        'pink',
+        'amber',
+        'orange',
+        'cyan',
+      ])
+      expect(swatches[0]?.getAttribute('aria-label')).toBe('Violet')
+      expect(swatches[0]?.getAttribute('aria-pressed')).toBe('true')
+      swatches[3]?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
+      expect(pmCredentialTagsModel.tagDraftColorId()).toBe('pink')
+      await settle(sheet!)
+      swatches = Array.from(sheetShadowRoot!.querySelectorAll<HTMLButtonElement>('.color-swatch'))
+      expect(swatches[3]?.getAttribute('aria-pressed')).toBe('true')
+
+      pmCredentialTagsModel.openRenameTag('work')
+      await settle(sheet!)
+      expect(bottomSheet!.initialFocusId).toBe('')
+
+      pmCredentialTagsModel.openDeleteTag('work')
+      await settle(sheet!)
+      expect(bottomSheet!.initialFocusId).toBe('pm-tag-delete-cancel')
+    })
+
+    it('renders mobile Credentials header controls without the legacy sort trigger', async () => {
+      const fixture = createRootFixture(['Work'])
+      fixture.root.showElement.set(fixture.root as never)
+      setPassmanagerRoot(fixture.root)
+      PasswordManagerMobileLayout.define()
+      PMGroupMobile.define()
+
+      const element = document.createElement(
+        'password-manager-mobile-layout',
+      ) as PasswordManagerMobileLayout
+      document.body.appendChild(element)
+      await settle(element)
+
+      const group = element.shadowRoot?.querySelector('pm-group-mobile') as
+        | (HTMLElement & {updateComplete: Promise<unknown>})
+        | null
+      expect(group).not.toBeNull()
+      await settle(group!)
+      expect(group!.shadowRoot).not.toBeNull()
+
+      const header = group!.shadowRoot!.querySelector('workspace-dashboard-header') as
+        | (HTMLElement & {
+            clear(): void
+            updateComplete: Promise<unknown>
+            shadowRoot: ShadowRoot | null
+          })
+        | null
+
+      expect(header).not.toBeNull()
+      await header!.updateComplete
+      const countActionsSlot = header!.shadowRoot?.querySelector<HTMLSlotElement>('slot[name="count-actions"]')
+      const searchInput = header!.shadowRoot?.querySelector('cv-input.search-box') as HTMLElement | null
+      const manageTagsButton = header!.shadowRoot?.querySelector(
+        '[data-filter-action="tags-manage"]',
+      ) as HTMLElement | null
+      const tagFilterGroup = header!.shadowRoot?.querySelector('cv-chip-group.workspace-filter-chips') as
+        | HTMLElement
+        | null
+      const sortButton = header!.shadowRoot?.querySelector('.workspace-sort-control') as HTMLElement | null
+      const groupRadioGroup = header!.shadowRoot?.querySelector('cv-radio-group.workspace-view-switch')
+      const countActionElements = countActionsSlot?.assignedElements() ?? []
+      const summary = header!.shadowRoot?.querySelector('.workspace-summary')
+      const summaryItems = Array.from(
+        header!.shadowRoot?.querySelectorAll<HTMLElement>('.workspace-summary__item') ?? [],
+      )
+
+      expect(header?.getAttribute('surface')).toBe('passwords')
+      expect(header?.hasAttribute('embedded')).toBe(true)
+      expect(header!.querySelector('pm-credentials-sort-group-controls')).toBeNull()
+      expect(group!.shadowRoot!.querySelector('pm-mobile-tag-filter-row')).toBeNull()
+      expect(header!.querySelector('pm-mobile-tag-filter-row')).toBeNull()
+      expect(tagFilterGroup).not.toBeNull()
+      expect(tagFilterGroup?.getAttribute('selection-mode')).toBe('multiple')
+      expect(
+        Array.from(header!.shadowRoot?.querySelectorAll('cv-chip.workspace-filter-chip') ?? []).map((chip) =>
+          chip.getAttribute('value'),
+        ),
+      ).toEqual([pmCredentialTagsModel.allFilterChipValue(), 'work'])
+      expect(countActionElements).toHaveLength(0)
+      expect(summary?.getAttribute('aria-label')).toContain('1 group')
+      expect(summary?.getAttribute('aria-label')).toContain('1 entry')
+      expect(summaryItems.map((item) => item.dataset['summaryId'])).toEqual(['groups', 'entries'])
+      expect(summaryItems.map((item) => item.querySelector('cv-icon')?.getAttribute('name'))).toEqual([
+        'folder',
+        'key',
+      ])
+      expect(summaryItems.map((item) => item.querySelector('.workspace-summary__value')?.textContent)).toEqual([
+        '1',
+        '1',
+      ])
+      expect(manageTagsButton).not.toBeNull()
+      expect(manageTagsButton?.nextElementSibling).toBe(tagFilterGroup)
+      expect(manageTagsButton?.textContent?.trim()).toBe('')
+      expect(manageTagsButton?.getAttribute('aria-label')).toBe('Manage tags')
+      expect(manageTagsButton?.querySelector('cv-icon')?.getAttribute('name')).toBe('sliders')
+      expect(group!.shadowRoot?.querySelector('pm-search-mobile')).toBeNull()
+      expect(group!.shadowRoot?.querySelector('.sort-group-trigger')).toBeNull()
+      const groupIcons = Array.from(
+        header!.shadowRoot?.querySelectorAll('cv-radio[data-display-mode] cv-icon.workspace-view-icon') ?? [],
+      ).map((icon) => icon.getAttribute('name'))
+      const groupLabels = Array.from(header!.shadowRoot?.querySelectorAll('cv-radio[data-display-mode]') ?? []).map(
+        (radio) => radio.getAttribute('aria-label'),
+      )
+      expect(sortButton).not.toBeNull()
+      expect(header!.shadowRoot?.querySelector('pm-credentials-sort-group-controls')).toBeNull()
+      expect(sortButton?.querySelector('cv-icon')?.getAttribute('name')).toBe('arrow-up-down')
+      expect(sortButton?.querySelector('.workspace-sort-label')?.textContent).toBe('Name')
+      expect(groupRadioGroup).not.toBeNull()
+      expect(groupIcons).toEqual(['circle-minus', 'globe', 'calendar-clock', 'shield-check'])
+      expect(groupLabels).toEqual(['None', 'Websites', 'Modified', 'Security'])
+      expect(header!.shadowRoot?.querySelector('.direction-button')).toBeNull()
+
+      tagFilterGroup?.dispatchEvent(
+        new CustomEvent('cv-input', {
+          detail: {
+            value: [pmCredentialTagsModel.allFilterChipValue(), 'work'],
+            changedValue: 'work',
+            selected: true,
+            source: 'click',
+          },
+          bubbles: true,
+          composed: true,
+        }),
+      )
+      expect(selectedCredentialTagFilters()).toEqual(['work'])
+
+      tagFilterGroup?.dispatchEvent(
+        new CustomEvent('cv-input', {
+          detail: {
+            value: [pmCredentialTagsModel.allFilterChipValue()],
+            changedValue: pmCredentialTagsModel.allFilterChipValue(),
+            selected: true,
+            source: 'click',
+          },
+          bubbles: true,
+          composed: true,
+        }),
+      )
+      expect(selectedCredentialTagFilters()).toEqual([])
+
+      manageTagsButton?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
+      expect(pmCredentialTagsModel.filterSheetOpen()).toBe(true)
+      expect(pmCredentialTagsModel.sheetMode()).toBe('manage')
+
+      sortButton?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
+      groupRadioGroup?.dispatchEvent(
+        new CustomEvent('cv-input', {
+          detail: {value: 'website', activeId: 'website'},
+          bubbles: true,
+          composed: true,
+        }),
+      )
+      expect(sortField()).toBe('username')
+      expect(groupBy()).toBe('website')
+
+      searchInput?.dispatchEvent(
+        new CustomEvent('cv-input', {detail: {value: 'vault'}, bubbles: true, composed: true}),
+      )
+      expect(filterValue()).toBe('vault')
+
+      header?.clear()
+      expect(filterValue()).toBe('')
     })
   })
 
@@ -357,31 +538,7 @@ describe('password-manager layout selection', () => {
     })
   })
 
-  describe('motion render boundary', () => {
-    it('model reads Password Manager motion intent without becoming the direction source', () => {
-      setReducedMotion(true)
-      pmMotionModel.setIntent({
-        kind: 'surface-change',
-        direction: 'forward',
-        target: 'entry:entry-layout-motion',
-      })
-
-      const model = new PasswordManagerLayoutModel()
-
-      expect(model.getMotionRenderState()).toEqual({
-        kind: 'surface-change',
-        direction: 'forward',
-        target: 'entry:entry-layout-motion',
-        reducedMotion: true,
-      })
-
-      pmMotionModel.reset()
-      expect(model.getMotionRenderState()).toEqual({
-        ...PASSMANAGER_NO_MOTION_INTENT,
-        reducedMotion: true,
-      })
-    })
-
+  describe('content render boundary', () => {
     it.each([
       ['root', (fixture: ReturnType<typeof createRootFixture>) => fixture.root],
       ['group', (fixture: ReturnType<typeof createRootFixture>) => fixture.group],
@@ -426,38 +583,6 @@ describe('password-manager layout selection', () => {
       await element.updateComplete
 
       expect(element.shadowRoot?.querySelectorAll('.pm-content')).toHaveLength(1)
-    })
-
-    it('desktop and mobile layouts render motion attributes from pmMotionModel', async () => {
-      const fixture = createRootFixture()
-      fixture.root.showElement.set(fixture.entry)
-      setPassmanagerRoot(fixture.root)
-      pmMotionModel.setIntent({
-        kind: 'surface-change',
-        direction: 'forward',
-        target: `entry:${fixture.entry.id}`,
-      })
-      PasswordManagerDesktopLayout.define()
-      PasswordManagerMobileLayout.define()
-
-      const desktop = document.createElement(
-        'password-manager-desktop-layout',
-      ) as PasswordManagerDesktopLayout
-      const mobile = document.createElement(
-        'password-manager-mobile-layout',
-      ) as PasswordManagerMobileLayout
-      document.body.append(desktop, mobile)
-      await desktop.updateComplete
-      await mobile.updateComplete
-
-      for (const element of [desktop, mobile]) {
-        const content = element.shadowRoot?.querySelector('.pm-content') as HTMLElement | null
-        expect(content).not.toBeNull()
-        expect(content?.getAttribute('data-motion-kind')).toBe('surface-change')
-        expect(content?.getAttribute('data-motion-direction')).toBe('forward')
-        expect(content?.getAttribute('data-motion-target')).toBe(`entry:${fixture.entry.id}`)
-        expect(content?.getAttribute('data-reduced-motion')).toBe('false')
-      }
     })
 
   })
@@ -533,8 +658,8 @@ describe('password-manager layout selection', () => {
 
     it('double init is idempotent', () => {
       pmModel.alive.set(true)
-      const initSpy = vi.fn()
-      const origInit = pmModel.init.bind(pmModel)
+      const _initSpy = vi.fn()
+      const _origInit = pmModel.init.bind(pmModel)
 
       pmModel.init()
 

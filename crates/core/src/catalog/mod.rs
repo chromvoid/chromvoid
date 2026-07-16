@@ -17,19 +17,23 @@ pub mod system_shard;
 mod traversal;
 
 pub use manager::CatalogManager;
-pub use node::{CatalogMediaInfo, CatalogMediaKind, CatalogNode};
+pub use node::{
+    CatalogMediaByteRange, CatalogMediaInfo, CatalogMediaKind, CatalogMediaSegmentRange,
+    CatalogMediaStreamingMetadata, CatalogNode, CatalogTrashMetadata,
+};
 pub use serialize::{deserialize_catalog, serialize_catalog};
 
 pub use delta::{
     apply_delta, apply_deltas, CatalogDeltaReplayFailure, CatalogReplayReason, DeltaApplyOutcome,
     DeltaEntry, DeltaLog, DeltaOp, PartialNode, MAX_DELTAS, MAX_DELTA_SIZE,
 };
-pub use shard::{LoadStrategy, RootIndex, Shard, ShardMeta};
+pub use shard::{LoadStrategy, RootIndex, Shard, ShardMeta, ShardRootSummary};
 pub use sharded::{
     create_root_index_from_shards, merge_shards_to_catalog, split_into_shards,
     ShardedCatalogManager,
 };
 pub use system_shard::{
     eager_system_shard_ids, is_eager_system_shard_id, is_system_path, is_system_shard_id,
-    shard_id_from_path, PASSKEYS_SHARD_ID, PASSMANAGER_SHARD_ID, WALLET_SHARD_ID,
+    shard_id_from_path, ENV_RUNTIME_SHARD_ID, PASSKEYS_SHARD_ID, PASSMANAGER_SHARD_ID,
+    TRASH_SHARD_ID, WALLET_SHARD_ID,
 };

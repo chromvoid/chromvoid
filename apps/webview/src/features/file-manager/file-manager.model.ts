@@ -1,7 +1,9 @@
-import {atom} from '@reatom/core'
+import {atom, computed} from '@reatom/core'
 
+import {navigationModel} from 'root/app/navigation/navigation.model'
 import type {AppContext} from 'root/shared/services/app-context'
 import {getAppContext} from 'root/shared/services/app-context'
+import {normalizeFileMediaInfo} from 'root/core/catalog/media-info'
 import type {HostPathTokenGrant} from 'root/core/transport/transport'
 import {writeAndroidUnlockDebug} from 'root/shared/services/android-unlock-debug'
 import {
@@ -24,6 +26,7 @@ import {
   createDefaultFileSearchFilters,
   createFileSearchFilterActions,
   hasNonDefaultFileSearchFilters,
+  type MobileQuickFilterChip,
 } from './models/file-search-filters.model'
 import type {FileManagerActionDescriptor} from './models/file-action-descriptors'
 import {
@@ -37,9 +40,58 @@ import type {
   FileListViewportSnapshot,
   SearchFilters,
 } from 'root/shared/contracts/file-manager'
+import {i18n} from 'root/i18n'
 
 let sharedFileManagerModel: FileManagerModel | undefined
 let sharedFileManagerCtx: AppContext | undefined
+
+type CatalogNodeLike = {
+  nodeId?: unknown
+  name?: unknown
+  isDir?: unknown
+  path?: unknown
+  size?: unknown
+  lastModified?: unknown
+  modtime?: unknown
+  sourceRevision?: unknown
+  source_revision?: unknown
+  mimeType?: unknown
+  mediaInfo?: unknown
+  media_info?: unknown
+}
+
+function toOptionalFiniteNumber(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  return value
+}
+
+function toFileItemDataFromCatalogNode(node: unknown): FileItemData | null {
+  if (!node || typeof node !== 'object') return null
+
+  const candidate = node as CatalogNodeLike
+  const id = toOptionalFiniteNumber(candidate.nodeId)
+  const name = typeof candidate.name === 'string' ? candidate.name : ''
+  if (id === undefined || !name) return null
+
+  const path = typeof candidate.path === 'string' && candidate.path.length > 0 ? candidate.path : `/${name}`
+  const size = toOptionalFiniteNumber(candidate.size)
+  const lastModified = toOptionalFiniteNumber(candidate.modtime ?? candidate.lastModified)
+  const sourceRevision = toOptionalFiniteNumber(candidate.sourceRevision ?? candidate.source_revision)
+  const mimeType = typeof candidate.mimeType === 'string' ? candidate.mimeType : undefined
+  const mediaInfo = normalizeFileMediaInfo(candidate.mediaInfo ?? candidate.media_info)
+
+  return {
+    id,
+    path,
+    name,
+    isDir: Boolean(candidate.isDir),
+    ...(size !== undefined ? {size} : {}),
+    ...(lastModified !== undefined ? {lastModified} : {}),
+    ...(sourceRevision !== undefined ? {sourceRevision} : {}),
+    ...(mimeType ? {mimeType} : {}),
+    ...(mediaInfo ? {mediaInfo} : {}),
+  }
+}
 
 export class FileManagerModel {
   readonly isLoading = atom(false)
@@ -58,7 +110,46 @@ export class FileManagerModel {
   readonly renderItems: FileListModel['renderItems']
   readonly totalCount: FileListModel['totalCount']
   readonly filteredCount: FileListModel['filteredCount']
+  readonly visibleCount: FileListModel['visibleCount']
+  readonly displayTotalCount: FileListModel['displayTotalCount']
   readonly selectedCount: FileListModel['selectedCount']
+  readonly canDownloadSelection = computed(() => {
+    const selectedIds = new Set(this.selectedItems())
+    return this.fileItems().some((item) => selectedIds.has(item.id) && !item.isDir)
+  }, 'fileManager.canDownloadSelection')
+  readonly mobileQuickFilterChips = computed<MobileQuickFilterChip[]>(() => {
+    const filters = this.searchFilters()
+
+    const chips: MobileQuickFilterChip[] = [
+      {
+        key: 'all',
+        label: i18n('file-manager:quick-filter:all'),
+        active: filters.fileTypes.length === 0,
+      },
+      {
+        key: 'markdown',
+        label: i18n('file-manager:type:markdown'),
+        active: filters.fileTypes.includes('markdown'),
+      },
+      {
+        key: 'images',
+        label: i18n('file-manager:type:images'),
+        active: filters.fileTypes.includes('images'),
+      },
+    ]
+    return chips
+  }, 'fileManager.mobileQuickFilterChips')
+  readonly mobileEffectiveViewMode = computed<SearchFilters['viewMode']>(() => {
+    return this.searchFilters().viewMode === 'grid' ? 'grid' : 'list'
+  }, 'fileManager.mobileEffectiveViewMode')
+  readonly mobileListFilters = computed<SearchFilters>(() => {
+    const filters = this.searchFilters()
+    return {
+      ...filters,
+      fileTypes: [...filters.fileTypes],
+      viewMode: this.mobileEffectiveViewMode(),
+    }
+  }, 'fileManager.mobileListFilters')
   readonly searchFilterActions = createFileSearchFilterActions({
     read: () => this.searchFilters(),
     write: (next) => this.commitSearchFilters(next),
@@ -78,6 +169,8 @@ export class FileManagerModel {
     this.renderItems = this.fileList.renderItems
     this.totalCount = this.fileList.totalCount
     this.filteredCount = this.fileList.filteredCount
+    this.visibleCount = this.fileList.visibleCount
+    this.displayTotalCount = this.fileList.displayTotalCount
     this.selectedCount = this.fileList.selectedCount
     this.fileMove = new FileMoveModel(ctx, {
       fileList: this.fileList,
@@ -95,6 +188,7 @@ export class FileManagerModel {
       fileMove: this.fileMove,
       deletionMotion: this.deletionMotion,
       openMoveDialogForItem: (item) => this.openMoveDialogForItem(item),
+      onFilesDeleted: (fileIds) => navigationModel.forgetDeletedFiles(fileIds),
     })
     this.mobileToolbar = new FileManagerMobileToolbarModel(this.fileList, this.actions, {
       selectionMode: () => this.ctx.store.selectionMode(),
@@ -219,6 +313,10 @@ export class FileManagerModel {
     void this.fileList.ensureVisibleRangeLoaded(range)
   }
 
+  prewarmVisibleThumbnails(): Promise<void> {
+    return this.fileList.prewarmVisibleThumbnails()
+  }
+
   hasActiveSearchFilters(filters: SearchFilters = this.searchFilters()): boolean {
     return hasNonDefaultFileSearchFilters(filters, this.getDefaultSearchFilters())
   }
@@ -268,6 +366,14 @@ export class FileManagerModel {
 
   getFileItemById(nodeId: number): FileItemData | null {
     return this.fileList.getFileItemById(nodeId)
+  }
+
+  private getCatalogFileItemById(nodeId: number): FileItemData | null {
+    try {
+      return toFileItemDataFromCatalogNode(this.ctx.catalog.catalog.getNode(nodeId))
+    } catch {
+      return null
+    }
   }
 
   getDisabledMoveTargetPaths(items: FileItemData[]): string[] {
@@ -403,12 +509,20 @@ export class FileManagerModel {
     return this.mobileToolbar.actions()
   }
 
+  getMobileSelectionBarActions(): FileManagerMobileToolbarAction[] {
+    return this.mobileToolbar.selectionBarActions()
+  }
+
   executeMobileCommand(actionId: string): boolean {
     return this.mobileToolbar.executeCommand(actionId)
   }
 
   registerToolbarUploadTrigger(trigger: () => void): () => void {
     return this.upload.registerToolbarUploadTrigger(trigger)
+  }
+
+  handleToolbarUpload(): Promise<void> {
+    return this.upload.handleToolbarUpload()
   }
 
   openDetailsPanel(item: FileItemData): void {
@@ -421,6 +535,16 @@ export class FileManagerModel {
 
   executeFileAction(actionId: string, item: FileItemData): boolean {
     return this.actions.executeAction(actionId, item)
+  }
+
+  executeFileActionById(actionId: string, fileId: number): boolean {
+    const item = this.getFileItemById(fileId) ?? this.getCatalogFileItemById(fileId)
+    if (!item) {
+      this.ctx.store.pushNotification('warning', i18n('file-manager:action-file-unavailable'))
+      return false
+    }
+
+    return this.executeFileAction(actionId, item)
   }
 
   private onFileManagerCommand(command: FileManagerCommand): void {
@@ -447,10 +571,6 @@ export class FileManagerModel {
     if (command.kind === 'native-upload') {
       void this.handleNativeUpload()
     }
-  }
-
-  private handleToolbarUpload(): Promise<void> {
-    return this.upload.handleToolbarUpload()
   }
 
   private isMobileLayout(): boolean {

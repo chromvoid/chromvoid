@@ -41,6 +41,7 @@ export interface ConfirmDialogOptions extends BaseDialogOptions {
   confirmText?: string
   cancelText?: string
   confirmVariant?: 'primary' | 'danger' | 'success'
+  abortSignal?: AbortSignal
 }
 
 export interface AlertDialogOptions extends BaseDialogOptions {

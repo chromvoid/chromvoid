@@ -66,6 +66,7 @@ export class FileActionsModel {
       fileMove: FileMoveModel
       deletionMotion: FileDeletionMotionModel
       openMoveDialogForItem: (item: FileItemData) => Promise<boolean>
+      onFilesDeleted: (fileIds: readonly number[]) => void
     },
   ) {}
 
@@ -179,7 +180,7 @@ export class FileActionsModel {
     if (!item.isDir) return
 
     const currentPath = this.currentPath()
-    const newPath = this.buildDirectoryPath(currentPath, item.name)
+    const newPath = item.path ? this.ensureDirectoryPath(item.path) : this.buildDirectoryPath(currentPath, item.name)
     if (newPath === currentPath) return
 
     try {
@@ -204,12 +205,23 @@ export class FileActionsModel {
         return
       case 'document':
         this.prepareDocumentReturnViewport(resolvedItem.id)
-        emitFileOpenCommand({kind: 'document', mode: format.openBehavior.mode, fileId: resolvedItem.id})
+        emitFileOpenCommand({
+          kind: 'document',
+          mode: format.openBehavior.mode,
+          fileId: resolvedItem.id,
+          source: this.markdownDocumentSource(resolvedItem),
+        })
         return
       case 'gallery':
         emitFileOpenCommand({kind: 'gallery', fileId: resolvedItem.id})
         return
       case 'video':
+        traceMediaFileOpen('videoFileOpen', {
+          fileId: resolvedItem.id,
+          mimeType: resolvedItem.mimeType ?? null,
+          mediaInfoKind: resolvedItem.mediaInfo?.kind ?? null,
+          size: resolvedItem.size ?? null,
+        })
         emitFileOpenCommand({kind: 'video', fileId: resolvedItem.id, fileName: resolvedItem.name})
         return
       case 'audio':
@@ -355,6 +367,7 @@ export class FileActionsModel {
     try {
       this.deps.isLoading.set(true)
       await wrap(catalog.api.delete(item.id))
+      this.deps.onFilesDeleted([item.id])
       await wrap(this.refreshCatalogBestEffort())
       try {
         store.setSelectedItems([])
@@ -398,9 +411,11 @@ export class FileActionsModel {
     }
     this.deps.deletionMotion.markPending(items)
     const failedIds: number[] = []
+    const deletedIds: number[] = []
     for (const item of items) {
       try {
         await wrap(catalog.api.delete(item.id))
+        deletedIds.push(item.id)
       } catch (error) {
         failedIds.push(item.id)
         this.showNotification(
@@ -411,6 +426,9 @@ export class FileActionsModel {
           }),
         )
       }
+    }
+    if (deletedIds.length > 0) {
+      this.deps.onFilesDeleted(deletedIds)
     }
     this.deps.deletionMotion.clearPending(failedIds)
     await wrap(this.refreshCatalogBestEffort())
@@ -475,13 +493,26 @@ export class FileActionsModel {
 
     try {
       this.deps.isLoading.set(true)
-      const uploaded = await wrap(catalog.api.upload({parentPath: currentPath === '/' ? undefined : currentPath, name}, 0, emptyByteSource(), {
+      const parentPath = currentPath === '/' ? undefined : currentPath
+      const uploaded = await wrap(catalog.api.upload({parentPath, name}, 0, emptyByteSource(), {
         name,
         type: MARKDOWN_MIME_TYPE,
       }))
       await wrap(this.refreshCatalogBestEffort())
       this.prepareDocumentReturnViewport(uploaded.nodeId)
-      emitFileOpenCommand({kind: 'document', mode: 'markdown', fileId: uploaded.nodeId})
+      emitFileOpenCommand({
+        kind: 'document',
+        mode: 'markdown',
+        fileId: uploaded.nodeId,
+        viewMode: 'edit',
+        source: {
+          path: this.buildDirectoryPath(currentPath, name).replace(/\/$/, ''),
+          ...(parentPath ? {parentPath} : {}),
+          fileName: name,
+          size: 0,
+          mimeType: MARKDOWN_MIME_TYPE,
+        },
+      })
       this.showNotification('success', i18n('file-manager:note-created', {name}))
     } catch (error) {
       this.showNotification(
@@ -547,6 +578,29 @@ export class FileActionsModel {
     const basePath = currentPath.endsWith('/') ? currentPath : currentPath + '/'
     const newPath = basePath + itemName + '/'
     return newPath.replace(/\/+/g, '/')
+  }
+
+  private ensureDirectoryPath(path: string): string {
+    return (path.endsWith('/') ? path : path + '/').replace(/\/+/g, '/')
+  }
+
+  private parentPath(path: string): string {
+    const normalized = path.replace(/\/+/g, '/').replace(/\/$/, '')
+    const index = normalized.lastIndexOf('/')
+    return index <= 0 ? '/' : normalized.slice(0, index)
+  }
+
+  private markdownDocumentSource(item: FileItemData) {
+    const path = item.path || this.buildDirectoryPath(this.currentPath(), item.name).replace(/\/$/, '')
+    return {
+      path,
+      parentPath: this.parentPath(path),
+      fileName: item.name,
+      ...(typeof item.size === 'number' ? {size: item.size} : {}),
+      ...(item.mimeType ? {mimeType: item.mimeType} : {}),
+      ...(typeof item.lastModified === 'number' ? {lastModified: item.lastModified} : {}),
+      ...(typeof item.sourceRevision === 'number' ? {sourceRevision: item.sourceRevision} : {}),
+    }
   }
 
   private showNotification(type: NotificationKind, message: string): void {

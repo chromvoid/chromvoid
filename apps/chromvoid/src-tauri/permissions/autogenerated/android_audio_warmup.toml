@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-android-audio-warmup"
+description = "Enables the android_audio_warmup command without any pre-configured scope."
+commands.allow = ["android_audio_warmup"]
+
+[[permission]]
+identifier = "deny-android-audio-warmup"
+description = "Denies the android_audio_warmup command without any pre-configured scope."
+commands.deny = ["android_audio_warmup"]

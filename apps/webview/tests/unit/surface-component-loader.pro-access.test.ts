@@ -8,6 +8,10 @@ vi.mock('root/routes/remote-storage.route', () => {
   throw new Error('remote-storage surface should not be imported')
 })
 
+vi.mock('root/routes/wallet/wallet-page', () => {
+  throw new Error('wallet surface should not be imported')
+})
+
 import {ensureDashboardSurfaceComponents} from '../../src/app/bootstrap/surface-component-loader'
 import {
   moduleAccessModel,
@@ -21,6 +25,7 @@ import {
 const LOCKED_PRO_STATES: ModuleAccessState[] = [
   {feature_key: 'browser-extension', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
   {feature_key: 'mounted-vault', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
+  {feature_key: 'crypto-wallet', status: 'unsupported', denial_code: 'FEATURE_UNSUPPORTED_ON_PLATFORM'},
 ]
 
 afterEach(() => {
@@ -29,7 +34,7 @@ afterEach(() => {
 })
 
 describe('surface component loader Pro access gating', () => {
-  it('does not import unsupported gateway and remote-storage surfaces', async () => {
+  it('does not import unsupported gateway, remote-storage, and wallet surfaces', async () => {
     moduleAccessModel.rawStates.set(LOCKED_PRO_STATES)
     setRuntimeCapabilities({
       platform: 'android',
@@ -40,5 +45,6 @@ describe('surface component loader Pro access gating', () => {
 
     await expect(ensureDashboardSurfaceComponents('gateway')).resolves.toBeUndefined()
     await expect(ensureDashboardSurfaceComponents('remote-storage')).resolves.toBeUndefined()
+    await expect(ensureDashboardSurfaceComponents('wallet')).resolves.toBeUndefined()
   })
 })

@@ -1,6 +1,7 @@
+import type {Page} from 'playwright'
 const BASE_URL = 'http://localhost:4400'
 
-export async function waitForWSConnected(page: import('playwright').Page) {
+export async function waitForWSConnected(page: Page) {
   await page.waitForFunction(
     () => {
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -24,7 +25,7 @@ export async function waitForWSConnected(page: import('playwright').Page) {
   )
 }
 
-export async function waitForAuthenticated(page: import('playwright').Page) {
+export async function waitForAuthenticated(page: Page) {
   await page.waitForFunction(
     () => {
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -55,7 +56,7 @@ export async function waitForAuthenticated(page: import('playwright').Page) {
   )
 }
 
-export async function waitForCatalogReady(page: import('playwright').Page) {
+export async function waitForCatalogReady(page: Page) {
   await page.waitForFunction(
     () => {
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -82,14 +83,14 @@ export async function waitForCatalogReady(page: import('playwright').Page) {
   )
 }
 
-export async function openFilesRoot(page: import('playwright').Page) {
+export async function openFilesRoot(page: Page) {
   await page.goto(`${BASE_URL}/index.html?surface=files&path=%2F`, {waitUntil: 'domcontentloaded'})
   await waitForAuthenticated(page)
   await waitForCatalogReady(page)
   await waitForCurrentPath(page, '/')
 }
 
-export async function waitForCurrentPath(page: import('playwright').Page, path: string) {
+export async function waitForCurrentPath(page: Page, path: string) {
   await page.waitForFunction(
     (nextPath) => {
       return new URL(window.location.href).searchParams.get('path') === nextPath
@@ -100,7 +101,7 @@ export async function waitForCurrentPath(page: import('playwright').Page, path: 
 }
 
 export async function waitForCatalogItem(
-  page: import('playwright').Page,
+  page: Page,
   name: string,
   options: {exists?: boolean; path?: string} = {},
 ) {
@@ -139,7 +140,7 @@ export async function waitForCatalogItem(
   )
 }
 
-export async function waitForRoute(page: import('playwright').Page, route: string) {
+export async function waitForRoute(page: Page, route: string) {
   await page.waitForFunction(
     (r) => {
       const url = new URL(window.location.href)
@@ -153,30 +154,30 @@ export async function waitForRoute(page: import('playwright').Page, route: strin
   )
 }
 
-export async function mockCreateFolderDialog(page: import('playwright').Page, name: string) {
+export async function mockCreateFolderDialog(page: Page, name: string) {
   await page.evaluate((nextName) => {
     ;(window as any).dialogService.showCreateFolderDialog = async () => nextName
   }, name)
 }
 
-export async function mockRenameFolderDialog(page: import('playwright').Page, name: string) {
+export async function mockRenameFolderDialog(page: Page, name: string) {
   await page.evaluate((nextName) => {
     ;(window as any).dialogService.showRenameFolderDialog = async () => nextName
   }, name)
 }
 
-export async function mockDeleteConfirmDialog(page: import('playwright').Page, confirmed: boolean) {
+export async function mockDeleteConfirmDialog(page: Page, confirmed: boolean) {
   await page.evaluate((nextConfirmed) => {
     ;(window as any).dialogService.showDeleteConfirmDialog = async () => nextConfirmed
   }, confirmed)
 }
 
-export async function createFolder(page: import('playwright').Page, name: string) {
+export async function createFolder(page: Page, name: string) {
   await mockCreateFolderDialog(page, name)
   await page.keyboard.press('Control+Shift+N')
 }
 
-export async function dispatchFileAction(page: import('playwright').Page, name: string, action: string) {
+export async function dispatchFileAction(page: Page, name: string, action: string) {
   await page.evaluate(
     ({itemName, nextAction}) => {
       function deepCollect(root: Document | ShadowRoot, selector: string, acc: Element[] = []): Element[] {

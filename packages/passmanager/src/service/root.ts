@@ -1,4 +1,5 @@
-import {atom, computed, peek, wrap} from '@reatom/core'
+import {sha256} from '@project/utils'
+import {action, atom, computed, peek, withAsync, wrap} from '@reatom/core'
 
 import {v4} from 'uuid'
 
@@ -15,12 +16,22 @@ import {OTP} from './otp'
 import type {Icon} from './icon'
 import {notify} from './notify'
 import {
+  parseCredentialSecurityAuditArtifact,
+  type CredentialSecurityAuditArtifactV1,
+} from './security-audit'
+import {
   createEntryFilterMatcher,
   filterValue,
   getEffectiveSelectedCredentialTagFilters,
   quickFilters,
 } from './select'
-import {normalizeCredentialTagCatalog, normalizeCredentialTags} from './tags'
+import {
+  normalizeCredentialTagCatalog,
+  normalizeCredentialTagCatalogMeta,
+  normalizeCredentialTags,
+  pruneCredentialTagCatalogMeta,
+  type CredentialTagCatalogMeta,
+} from './tags'
 import type {
   Algorithm,
   Encoding,
@@ -36,9 +47,12 @@ import type {
   PassManagerRootV3,
   PassManagerRootV3Encoding,
   PassManagerRootV3Entry,
+  PassManagerRootV4,
+  PassManagerSshKey,
   PaymentCardMeta,
   OTPOptions,
   TGroupActions,
+  SshKeygenParams,
 } from './types'
 
 const GROUP_PATH_LIMITS = {
@@ -107,17 +121,84 @@ function normalizePaymentCardMeta(value: unknown): PaymentCardMeta | undefined {
   }
 }
 
+function isValidSshKeyId(id: string): boolean {
+  return id.length > 0 && id.length <= 64 && /^[A-Za-z0-9_-]+$/.test(id)
+}
+
+function normalizeSshKey(
+  value: unknown,
+  sourceEntryId?: string,
+  forcedId?: string,
+): PassManagerSshKey | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  const id = forcedId ?? (typeof raw['id'] === 'string' ? raw['id'].trim() : '')
+  const type = raw['type']
+  const fingerprint = typeof raw['fingerprint'] === 'string' ? raw['fingerprint'].trim() : ''
+  if (!isValidSshKeyId(id) || !['ed25519', 'rsa', 'ecdsa'].includes(String(type)) || !fingerprint) {
+    return undefined
+  }
+  const optionalString = (key: string, alias?: string) => {
+    const candidate = raw[key] ?? (alias ? raw[alias] : undefined)
+    return typeof candidate === 'string' && candidate.trim() ? candidate.trim() : undefined
+  }
+  const optionalTimestamp = (key: string, alias: string) => {
+    const candidate = raw[key] ?? raw[alias]
+    return typeof candidate === 'number' && Number.isFinite(candidate) && candidate > 0
+      ? Math.floor(candidate)
+      : undefined
+  }
+  return {
+    id,
+    type: type as PassManagerSshKey['type'],
+    fingerprint,
+    name: optionalString('name'),
+    comment: optionalString('comment'),
+    sourceEntryId: optionalString('sourceEntryId', 'source_entry_id') ?? sourceEntryId,
+    createdTs: optionalTimestamp('createdTs', 'created_ts'),
+    updatedTs: optionalTimestamp('updatedTs', 'updated_ts'),
+  }
+}
+
+async function normalizeRootSshKeys(
+  root: PassManagerRootV2 | PassManagerRootV3 | PassManagerRootV4,
+): Promise<PassManagerSshKey[]> {
+  const keys: PassManagerSshKey[] = []
+  const usedIds = new Set<string>()
+  const rootKeys = root.version === 4 && Array.isArray(root.sshKeys) ? root.sshKeys : []
+  for (const value of rootKeys) {
+    const key = normalizeSshKey(value)
+    if (!key || usedIds.has(key.id)) {
+      throw new Error('Invalid or duplicate root SSH key metadata')
+    }
+    usedIds.add(key.id)
+    keys.push(key)
+  }
+
+  for (const entry of root.entries) {
+    const raw = entry as PassManagerRootV3Entry & {sshKeys?: unknown}
+    if (!Array.isArray(raw.sshKeys)) continue
+    for (const value of raw.sshKeys) {
+      if (!value || typeof value !== 'object') continue
+      const rawId = typeof (value as {id?: unknown}).id === 'string' ? (value as {id: string}).id.trim() : ''
+      const id = isValidSshKeyId(rawId) && !usedIds.has(rawId)
+        ? rawId
+        : `migrated-${(await sha256(`${entry.id}:${rawId}`)).slice(0, 32)}`
+      const key = normalizeSshKey(value, entry.id, id)
+      if (!key || usedIds.has(key.id)) {
+        throw new Error('Invalid legacy SSH key metadata')
+      }
+      usedIds.add(key.id)
+      keys.push(key)
+    }
+  }
+  return keys
+}
+
 export const ALGORITHMS: Array<Algorithm> = [
   'SHA1',
-  'SHA224',
   'SHA256',
-  'SHA384',
   'SHA512',
-  'SHA3224',
-  'SHA3224',
-  'SHA3256',
-  'SHA3384',
-  'SHA3512',
 ]
 
 export const ENCODINGS: Array<Encoding> = ['base16', 'base32', 'base64', 'utf-8']
@@ -214,11 +295,27 @@ export class ManagerRoot implements TGroupActions {
   isReadOnly = atom(false)
   isEditMode = atom(false)
   showElement = atom<
-    ManagerRoot | Group | Entry | 'createGroup' | 'createEntry' | 'importDialog' | 'otpView'
+    ManagerRoot | Group | Entry | 'createGroup' | 'createEntry' | 'importDialog' | 'otpView' | 'sshView' | 'envRuntimeView'
   >(this)
   updatedTs = atom(Date.now())
   createdTs = atom(Date.now())
   credentialTags = atom<string[]>([], 'passmanager.root.credentialTags')
+  credentialTagMeta = atom<CredentialTagCatalogMeta>({}, 'passmanager.root.credentialTagMeta')
+  credentialSecurityAudit = atom<CredentialSecurityAuditArtifactV1 | undefined>(
+    undefined,
+    'passmanager.root.credentialSecurityAudit',
+  )
+  sshKeys = atom<PassManagerSshKey[]>([], 'passmanager.root.sshKeys')
+  sshKeysBySourceEntryId = computed(() => {
+    const result = new Map<string, PassManagerSshKey[]>()
+    for (const key of this.sshKeys()) {
+      if (!key.sourceEntryId) continue
+      const current = result.get(key.sourceEntryId) ?? []
+      current.push(key)
+      result.set(key.sourceEntryId, current)
+    }
+    return result
+  }, 'passmanager.root.sshKeysBySourceEntryId')
   salt = v4().replaceAll('-', '').slice(0, 16)
 
   private createTarget: Group | undefined = undefined
@@ -306,7 +403,7 @@ export class ManagerRoot implements TGroupActions {
   )
 
   setShowElement(
-    item: ManagerRoot | Group | Entry | 'createGroup' | 'createEntry' | 'importDialog' | 'otpView',
+    item: ManagerRoot | Group | Entry | 'createGroup' | 'createEntry' | 'importDialog' | 'otpView' | 'sshView' | 'envRuntimeView',
     target?: Group,
   ) {
     this.createTarget = target
@@ -335,6 +432,49 @@ export class ManagerRoot implements TGroupActions {
     Entry.root = this
     ManagerRoot.root = this
   }
+
+  sshKeysForEntry(entryId: string): PassManagerSshKey[] {
+    return this.sshKeysBySourceEntryId().get(entryId) ?? []
+  }
+
+  sshKeyById(keyId: string): PassManagerSshKey | undefined {
+    return this.sshKeys().find((key) => key.id === keyId)
+  }
+
+  readonly refreshSshKeys = action(async () => {
+    if (!this.managerSaver.listSshKeys) return this.sshKeys()
+    const keys = await wrap(this.managerSaver.listSshKeys())
+    this.sshKeys.set(keys)
+    return keys
+  }, 'passmanager.root.refreshSshKeys').extend(withAsync())
+
+  readonly updateSshKey = action(async (key: PassManagerSshKey) => {
+    if (!this.managerSaver.updateSshKey) throw new Error('SSH key repository is unavailable')
+    const saved = await wrap(this.managerSaver.updateSshKey(key))
+    if (!saved) throw new Error('Failed to update SSH key')
+    this.sshKeys.set([...this.sshKeys().filter((item) => item.id !== key.id), key])
+    return true
+  }, 'passmanager.root.updateSshKey').extend(withAsync())
+
+  readonly removeSshKey = action(async (keyId: string) => {
+    if (!this.managerSaver.removeSshKey) throw new Error('SSH key repository is unavailable')
+    const removed = await wrap(this.managerSaver.removeSshKey(keyId))
+    if (!removed) throw new Error('Failed to remove SSH key')
+    this.sshKeys.set(this.sshKeys().filter((key) => key.id !== keyId))
+    return true
+  }, 'passmanager.root.removeSshKey').extend(withAsync())
+
+  readonly readSshPublicKey = action(async (keyId: string) => {
+    if (!this.managerSaver.readSshPublicKey) throw new Error('SSH key repository is unavailable')
+    return await wrap(this.managerSaver.readSshPublicKey(keyId))
+  }, 'passmanager.root.readSshPublicKey').extend(withAsync())
+
+  readonly generateSshKey = action(async (params: SshKeygenParams) => {
+    if (!this.managerSaver.generateSshKey) throw new Error('SSH key generation is unavailable')
+    const result = await wrap(this.managerSaver.generateSshKey(params))
+    await wrap(this.refreshSshKeys())
+    return result
+  }, 'passmanager.root.generateSshKey').extend(withAsync())
   removeEntry(_entry: Entry): void {
     throw new Error('Method not implemented.')
   }
@@ -496,13 +636,19 @@ export class ManagerRoot implements TGroupActions {
     this.save()
   }
 
-  setCredentialTagCatalog(tags: unknown): void {
-    this.credentialTags.set(normalizeCredentialTagCatalog(tags))
+  setCredentialTagCatalog(tags: unknown, meta?: unknown): void {
+    const catalogTags = normalizeCredentialTagCatalog(tags)
+    this.credentialTags.set(catalogTags)
+    this.credentialTagMeta.set(
+      meta === undefined
+        ? pruneCredentialTagCatalogMeta(this.credentialTagMeta(), catalogTags)
+        : normalizeCredentialTagCatalogMeta(meta, catalogTags),
+    )
     this.updatedTs.set(Date.now())
   }
 
-  async saveCredentialTagCatalog(tags: unknown): Promise<boolean> {
-    this.setCredentialTagCatalog(tags)
+  async saveCredentialTagCatalog(tags: unknown, meta?: unknown): Promise<boolean> {
+    this.setCredentialTagCatalog(tags, meta)
     return Boolean(await this.save())
   }
 
@@ -595,7 +741,6 @@ export class ManagerRoot implements TGroupActions {
             folderPath,
             iconRef: entry.data().iconRef,
             tags: entry.tags,
-            ...(entry.sshKeys.length > 0 ? {sshKeys: entry.sshKeys} : {}),
           })
         }
 
@@ -638,14 +783,18 @@ export class ManagerRoot implements TGroupActions {
       }
       const folders = Array.from(folderPrefixes).sort()
 
-      const payload: PassManagerRootV3 = {
-        version: 3,
+      const catalogTags = normalizeCredentialTagCatalog([...this.credentialTags(), ...assignedTagLabels])
+      const tagMeta = pruneCredentialTagCatalogMeta(this.credentialTagMeta(), catalogTags)
+      const payload: PassManagerRootV4 = {
+        version: 4,
         createdTs: this.createdTs(),
         updatedTs: now,
         folders,
         foldersMeta: Array.from(folderMetaByPath.values()),
-        tags: normalizeCredentialTagCatalog([...this.credentialTags(), ...assignedTagLabels]),
+        tags: catalogTags,
+        ...(Object.keys(tagMeta).length > 0 ? {tagMeta} : {}),
         entries,
+        sshKeys: this.sshKeys(),
       }
 
       const text = JSON.stringify(payload)
@@ -694,23 +843,37 @@ export class ManagerRoot implements TGroupActions {
       }
       dataReceived = true
 
-      let parsed: PassManagerRootV2 | PassManagerRootV3 | undefined = undefined
+      let parsed: PassManagerRootV2 | PassManagerRootV3 | PassManagerRootV4 | undefined = undefined
+      let credentialSecurityAudit: CredentialSecurityAuditArtifactV1 | undefined
       if (typeof data === 'string') {
-        parsed = JSON.parse(data || '{"version":3,"folders":[],"entries":[],"createdTs":0,"updatedTs":0}')
+        parsed = JSON.parse(data || '{"version":4,"folders":[],"entries":[],"sshKeys":[],"createdTs":0,"updatedTs":0}')
       } else if (typeof data === 'object' && data) {
-        parsed = data as PassManagerRootV2 | PassManagerRootV3
+        parsed = data as PassManagerRootV2 | PassManagerRootV3 | PassManagerRootV4
+        credentialSecurityAudit = parseCredentialSecurityAuditArtifact(
+          (data as Record<string, unknown>)['credentialSecurityAudit'],
+        )
       }
 
-      if (!parsed || (parsed.version !== 2 && parsed.version !== 3)) {
-        throw new Error('Unsupported PassManager root payload: expected version 2 or 3')
+      if (!parsed || (parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4)) {
+        throw new Error('Unsupported PassManager root payload: expected version 2, 3, or 4')
       }
+
+      const fallbackSshKeys = await wrap(normalizeRootSshKeys(parsed))
+      const sshKeys = this.managerSaver.listSshKeys
+        ? await wrap(this.managerSaver.listSshKeys())
+        : fallbackSshKeys
+      this.sshKeys.set(sshKeys)
 
       const createdTs = normalizeTimestampMs(parsed.createdTs || Date.now())
       const updatedTs = normalizeTimestampMs(parsed.updatedTs || Date.now())
       const parsedCatalogTags = normalizeCredentialTagCatalog(
         (parsed as PassManagerRootV3 & {tags?: unknown}).tags,
       )
+      const parsedTagMetaRaw =
+        (parsed as PassManagerRootV3 & {tagMeta?: unknown}).tagMeta ??
+        (parsed as PassManagerRootV3 & {tag_meta?: unknown}).tag_meta
       const entryCatalogTags: string[] = []
+      this.credentialSecurityAudit.set(credentialSecurityAudit)
       this.createdTs.set(createdTs)
       this.updatedTs.set(updatedTs)
 
@@ -878,9 +1041,7 @@ export class ManagerRoot implements TGroupActions {
                     type: o.type,
                     counter: o.counter,
                   })),
-                sshKeys: Array.isArray(rawItem['sshKeys'])
-                  ? (rawItem['sshKeys'] as IEntry['sshKeys'])
-                  : [],
+                sshKeys: [],
               }
 
         let entry: Entry
@@ -938,7 +1099,9 @@ export class ManagerRoot implements TGroupActions {
         }
       }
       this._allowEmptyOverwrite = false
-      this.credentialTags.set(normalizeCredentialTagCatalog([...parsedCatalogTags, ...entryCatalogTags]))
+      const catalogTags = normalizeCredentialTagCatalog([...parsedCatalogTags, ...entryCatalogTags])
+      this.credentialTags.set(catalogTags)
+      this.credentialTagMeta.set(normalizeCredentialTagCatalogMeta(parsedTagMetaRaw, catalogTags))
       this.entries.set(newEntries)
     } catch (e) {
       dataReceived = true
@@ -956,6 +1119,9 @@ export class ManagerRoot implements TGroupActions {
   clean() {
     this.entries.set([])
     this.credentialTags.set([])
+    this.credentialTagMeta.set({})
+    this.credentialSecurityAudit.set(undefined)
+    this.sshKeys.set([])
     this.createTarget = undefined
     this.showElement.set(this)
   }
@@ -991,7 +1157,8 @@ export class ManagerRoot implements TGroupActions {
         'version' in parsed &&
         ((parsed as {version?: unknown}).version === 1 ||
           (parsed as {version?: unknown}).version === 2 ||
-          (parsed as {version?: unknown}).version === 3)
+          (parsed as {version?: unknown}).version === 3 ||
+          (parsed as {version?: unknown}).version === 4)
       ) {
         const ok = await this.managerSaver.save(SAVE_KEY, createJsonFile(rawData, SAVE_KEY))
         if (!ok) {

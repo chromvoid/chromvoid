@@ -3,6 +3,7 @@ import { CVBottomSheet } from "@chromvoid/uikit/components/cv-bottom-sheet";
 import { CVOperationQueue } from "@chromvoid/uikit/components/cv-operation-queue";
 import { html } from "@chromvoid/uikit/reatom-lit";
 
+import { isolateLtrText } from "@project/i18n/pure";
 import { i18n } from "root/i18n";
 import { transientBackModel } from "root/shared/services/transient-back.model";
 import { sharedStyles } from "root/shared/ui/shared-styles";
@@ -37,21 +38,34 @@ export class UploadProgressMobile extends UploadProgressBase {
       .minimized-bar {
         inline-size: 100%;
         display: grid;
-        grid-template-columns: auto minmax(0, 1fr) auto auto;
+        grid-template-columns: minmax(0, 1fr) auto;
         grid-template-rows: minmax(0, 1fr) auto;
         align-items: center;
         box-sizing: border-box;
-        column-gap: 10px;
+        column-gap: 2px;
         row-gap: 5px;
         block-size: 48px;
         padding-block: 6px 5px;
-        padding-inline: 12px 10px;
+        padding-inline: 12px 8px;
         border-block: 1px solid var(--cv-color-border);
         border-inline: 0;
         border-radius: 0;
         background: var(--cv-color-surface);
         box-shadow: var(--cv-shadow-2);
         color: var(--cv-color-text);
+      }
+
+      .minimized-main {
+        min-inline-size: 0;
+        block-size: 30px;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto auto;
+        align-items: center;
+        gap: 10px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
         cursor: pointer;
         font: inherit;
         text-align: start;
@@ -67,7 +81,8 @@ export class UploadProgressMobile extends UploadProgressBase {
         border-block-color: var(--cv-color-danger-surface-strong);
       }
 
-      .minimized-bar:focus-visible {
+      .minimized-main:focus-visible,
+      .minimized-close-btn:focus-visible {
         outline: 2px solid var(--cv-color-primary);
         outline-offset: 2px;
       }
@@ -145,8 +160,29 @@ export class UploadProgressMobile extends UploadProgressBase {
         flex-shrink: 0;
       }
 
+      .minimized-close-btn {
+        grid-column: 2;
+        grid-row: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        inline-size: 36px;
+        block-size: 36px;
+        padding: 0;
+        border: 0;
+        border-radius: var(--cv-radius-1);
+        background: transparent;
+        color: var(--cv-color-text-muted);
+        cursor: pointer;
+
+        &:hover {
+          background: var(--cv-color-surface-2);
+        }
+      }
+
       .minimized-progress-bar {
         grid-column: 1 / -1;
+        grid-row: 2;
         inline-size: 100%;
         --cv-progress-height: 3px;
       }
@@ -401,6 +437,11 @@ export class UploadProgressMobile extends UploadProgressBase {
     this.model.clearCompleted();
   }
 
+  private onDismissPreparingClick(e: Event) {
+    e.stopPropagation();
+    this.model.dismissPreparingExternalTasks();
+  }
+
   private onCollapseClick() {
     this.model.collapse();
   }
@@ -423,7 +464,9 @@ export class UploadProgressMobile extends UploadProgressBase {
 
   private getSummaryLabel(summary: UploadHudSummary): string {
     if (summary.state === "failed") {
-      return i18n("file-manager:transfer-summary:failed", { failed: String(summary.failed) });
+      return i18n("file-manager:transfer-summary:failed", {
+        failed: isolateLtrText(String(summary.failed)),
+      });
     }
 
     if (summary.state === "complete") {
@@ -436,7 +479,9 @@ export class UploadProgressMobile extends UploadProgressBase {
       mixed: "file-manager:transfer-summary:mixed-active",
       external: "file-manager:transfer-summary:external-active",
     } as const;
-    return i18n(keyByDirection[summary.direction], { count: String(summary.total) });
+    return i18n(keyByDirection[summary.direction], {
+      count: isolateLtrText(String(summary.total)),
+    });
   }
 
   private getBytesLabel(loadedBytes: number, totalBytes: number): string {
@@ -463,38 +508,56 @@ export class UploadProgressMobile extends UploadProgressBase {
     const bytesLabel = this.getBytesLabel(displayedLoadedBytes, summary.totalBytes);
     const progressTone = this.getProgressTone(summary.tone);
     const queueTone = summary.tone === "active" ? "info" : summary.tone;
+    const transferLabel = i18n("file-manager:transfers", {
+      total: isolateLtrText(String(stats.total)),
+    });
+    const completedLabel = i18n("file-manager:completed-of-total", {
+      completed: isolateLtrText(String(summary.completed)),
+      total: isolateLtrText(String(summary.total)),
+    });
     const ariaLabel = i18n("file-manager:transfer-details-aria", {
       label: summaryLabel,
-      progress: progressLabel,
-      bytes: bytesLabel,
+      progress: isolateLtrText(progressLabel),
+      bytes: isolateLtrText(bytesLabel),
     });
 
     return html`
       ${
         !expanded
           ? html`
-            <button
-              class="minimized-bar"
-              data-tone=${summary.tone}
-              type="button"
-              @click=${this.onBarClick}
-              title=${i18n("file-manager:transfer-details-open")}
-              aria-label=${ariaLabel}
-              aria-live="polite"
-            >
-              <cv-icon class="bar-icon" name=${summary.icon}></cv-icon>
-              <span class="bar-copy">
-                <span class="bar-title">${summaryLabel}</span>
-                <span class="bar-meta">
-                  ${i18n("file-manager:completed-of-total", {
-                    completed: String(summary.completed),
-                    total: String(summary.total),
-                  })}
-                  · ${bytesLabel}
+            <div class="minimized-bar" data-tone=${summary.tone} aria-live="polite">
+              <button
+                class="minimized-main"
+                type="button"
+                @click=${this.onBarClick}
+                title=${i18n("file-manager:transfer-details-open")}
+                aria-label=${ariaLabel}
+              >
+                <cv-icon class="bar-icon" name=${summary.icon}></cv-icon>
+                <span class="bar-copy">
+                  <span class="bar-title">${summaryLabel}</span>
+                  <span class="bar-meta">
+                    ${completedLabel} · <bdi dir="ltr">${bytesLabel}</bdi>
+                  </span>
                 </span>
-              </span>
-              <span class="bar-progress">${progressLabel}%</span>
-              <cv-icon class="bar-chevron" name="chevron-up"></cv-icon>
+                <span class="bar-progress"><bdi dir="ltr">${progressLabel}%</bdi></span>
+                <cv-icon class="bar-chevron" name="chevron-up"></cv-icon>
+              </button>
+              ${
+                m.hasDismissibleOpenExternalTasks()
+                  ? html`
+                    <cv-button
+                      unstyled
+                      class="minimized-close-btn"
+                      @click=${this.onDismissPreparingClick}
+                      title=${i18n("button:close")}
+                      aria-label=${i18n("button:close")}
+                    >
+                      <cv-icon name="x"></cv-icon>
+                    </cv-button>
+                  `
+                  : nothing
+              }
               <cv-progress
                 class="minimized-progress-bar"
                 tone=${progressTone}
@@ -502,7 +565,7 @@ export class UploadProgressMobile extends UploadProgressBase {
                 ?indeterminate=${summary.indeterminate}
                 aria-label=${i18n("file-manager:transfers-progress")}
               ></cv-progress>
-            </button>
+            </div>
           `
           : nothing
       }
@@ -511,16 +574,16 @@ export class UploadProgressMobile extends UploadProgressBase {
         <cv-operation-queue
           class="sheet-queue"
           density="compact"
-          .label=${i18n("file-manager:transfers", { total: String(stats.total) })}
+          .label=${transferLabel}
           .busy=${m.hasActiveTransfers()}
           .tone=${queueTone}
         >
           <div slot="summary" class="sheet-title" data-tone=${summary.tone}>
             <div class="sheet-title-main">
               <cv-icon name=${summary.icon}></cv-icon>
-              <span>${i18n("file-manager:transfers", { total: String(stats.total) })}</span>
+              <span>${transferLabel}</span>
             </div>
-            <span class="sheet-status">${summaryLabel} · ${bytesLabel}</span>
+            <span class="sheet-status">${summaryLabel} · <bdi dir="ltr">${bytesLabel}</bdi></span>
             ${
               m.hasActiveTransfers()
                 ? html`<cv-spinner
@@ -557,12 +620,7 @@ export class UploadProgressMobile extends UploadProgressBase {
           <div slot="footer" class="sheet-footer" data-tone=${summary.tone}>
             <div class="footer-stats">
               <span class="footer-progress-label">${summaryLabel}</span>
-              <span class="footer-count"
-                >${i18n("file-manager:completed-of-total", {
-                  completed: String(summary.completed),
-                  total: String(summary.total),
-                })}</span
-              >
+              <span class="footer-count">${completedLabel}</span>
             </div>
             <cv-progress
               class="footer-progress-bar"
@@ -571,7 +629,7 @@ export class UploadProgressMobile extends UploadProgressBase {
               ?indeterminate=${summary.indeterminate}
               aria-label=${i18n("file-manager:transfers-progress")}
             ></cv-progress>
-            <div class="footer-size">${bytesLabel}</div>
+            <div class="footer-size"><bdi dir="ltr">${bytesLabel}</bdi></div>
           </div>
         </cv-operation-queue>
       </cv-bottom-sheet>

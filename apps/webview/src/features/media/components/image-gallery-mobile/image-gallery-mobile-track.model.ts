@@ -569,11 +569,12 @@ export class ImageGalleryMobileTrackModel {
 
   private clampIndex(index: number) {
     if (this.state.imageCount() === 0) return 0
-    return Math.max(0, Math.min(index, this.state.imageCount() - 1))
+    if (!Number.isFinite(index)) return 0
+    return Math.max(0, Math.min(Math.trunc(index), this.state.imageCount() - 1))
   }
 
   private normalizeImageIndex(index: number) {
-    if (index < 0 || index >= this.state.imageCount()) {
+    if (!Number.isInteger(index) || index < 0 || index >= this.state.imageCount()) {
       return null
     }
 

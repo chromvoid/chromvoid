@@ -1,8 +1,10 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
-import {Secret, TOTP} from 'otpauth'
 
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
-import {PMEntryOtpCreateModel} from '../../src/features/passmanager/components/card/entry-otp-create/entry-otp-create.model'
+import {
+  PMEntryOtpCreateModel,
+  type PMEntryOtpDraftPreviewPort,
+} from '../../src/features/passmanager/components/card/entry-otp-create/entry-otp-create.model'
 import {
   OtpQrNativeScanError,
   type OtpQrScannerPort,
@@ -17,10 +19,36 @@ function createScannerPort(overrides: Partial<OtpQrScannerPort> = {}): OtpQrScan
   }
 }
 
+function createPreviewPort(
+  impl: PMEntryOtpDraftPreviewPort['previewOTP'] = async (data) => ({
+    otp: data.digits === 8 ? '12345678' : '123456',
+    period: data.period ?? 30,
+    leftSeconds: 12,
+  }),
+): PMEntryOtpDraftPreviewPort & {previewOTP: ReturnType<typeof vi.fn>} {
+  return {
+    previewOTP: vi.fn(impl),
+  } as PMEntryOtpDraftPreviewPort & {previewOTP: ReturnType<typeof vi.fn>}
+}
+
+function createModelWithPreview(port = createPreviewPort()): PMEntryOtpCreateModel {
+  return new PMEntryOtpCreateModel(undefined, undefined, port)
+}
+
 describe('PMEntryOtpCreateModel', () => {
   afterEach(() => {
     resetRuntimeCapabilities()
     vi.useRealTimers()
+  })
+
+  it('owns advanced screen navigation and resets it with the form', () => {
+    const model = new PMEntryOtpCreateModel()
+
+    model.actions.openAdvanced()
+    expect(model.view()).toBe('advanced')
+
+    model.reset()
+    expect(model.view()).toBe('main')
   })
 
   it('groups base32 secret for display and keeps normalized save value', () => {
@@ -311,46 +339,90 @@ describe('PMEntryOtpCreateModel', () => {
     expect(model.getFormData().label).toBe('OpenAI')
   })
 
-  it('generates a TOTP preview for valid setup', () => {
-    const model = new PMEntryOtpCreateModel()
+  it('generates a TOTP preview for valid setup', async () => {
+    const model = createModelWithPreview()
     model.reset({label: 'OpenAI'})
     model.setSecret('JBSWY3DPEHPK3PXP')
 
+    await expect(model.validateWithCore()).resolves.toBe(true)
     const preview = model.preview()
 
     expect(model.canSubmit()).toBe(true)
     expect(preview).not.toBeNull()
     expect(preview?.label).toBe('OpenAI')
-    expect(preview?.code).toMatch(/^\d{3} \d{3}$/)
-    expect(preview?.leftSeconds).toBeGreaterThanOrEqual(1)
-    expect(preview?.leftSeconds).toBeLessThanOrEqual(30)
+    expect(preview?.code).toBe('123 456')
+    expect(preview?.leftSeconds).toBe(12)
   })
 
-  it('uses the same custom encoded secret for validation, preview, and save data', () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'))
+  it('uses the same custom encoded secret for validation, preview, and save data', async () => {
     const secret = '3132333435363738393031323334353637383930'
-    const model = new PMEntryOtpCreateModel()
+    const port = createPreviewPort(async (data) => ({
+      otp: '94287082',
+      period: data.period ?? 30,
+      leftSeconds: 1,
+    }))
+    const model = createModelWithPreview(port)
 
     model.setPreset('custom')
     model.setEncoding('base16')
     model.setSecret(secret)
 
+    await expect(model.validateWithCore()).resolves.toBe(true)
     const form = model.getFormData()
-    const expected = new TOTP({
-      issuer: '',
-      label: form.label || 'OTP',
-      secret: Secret.fromHex(secret),
-      algorithm: form.algorithm,
-      digits: form.digits,
-      period: form.period,
-    }).generate({timestamp: Date.now()})
 
     expect(model.secretValidation().status).toBe('valid')
-    expect(model.preview()?.code.replace(/\s+/g, '')).toBe(expected)
+    expect(model.preview()?.code.replace(/\s+/g, '')).toBe('94287082')
+    expect(port.previewOTP).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        secret,
+        encoding: 'base16',
+        algorithm: form.algorithm,
+        digits: form.digits,
+        period: form.period,
+        type: 'TOTP',
+      }),
+    )
     expect(form).toMatchObject({
       secret,
       encoding: 'base16',
     })
+  })
+
+  it('tracks pending and Core validation errors', async () => {
+    const port = createPreviewPort(
+      async () => {
+        throw new Error('Invalid secret encoding')
+      },
+    )
+    const model = createModelWithPreview(port)
+
+    model.setSecret('JBSWY3DPEHPK3PXP')
+    expect(model.secretValidation().status).toBe('pending')
+
+    await vi.waitFor(() => {
+      expect(model.secretValidation().status).toBe('error')
+    })
+    expect(model.canSubmit()).toBe(false)
+  })
+
+  it('uses latest Core preview response after stale validation resolves', async () => {
+    const deferred: Array<{resolve(value: {otp: string; period: number; leftSeconds: number}): void}> = []
+    const port = createPreviewPort(
+      () =>
+        new Promise((resolve) => {
+          deferred.push({resolve})
+        }),
+    )
+    const model = createModelWithPreview(port)
+
+    model.setSecret('JBSWY3DPEHPK3PXP')
+    model.setSecret('JBSWY3DPEHPK3PXQ')
+
+    deferred[0]?.resolve({otp: '111111', period: 30, leftSeconds: 11})
+    deferred[1]?.resolve({otp: '222222', period: 30, leftSeconds: 22})
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(model.preview()?.code).toBe('222 222')
   })
 })

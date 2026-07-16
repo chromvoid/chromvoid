@@ -20,28 +20,28 @@ export const pmEntryTOTPItemSharedStyles = [
       position: relative;
       display: block;
       container-type: inline-size;
-      --totp-color: var(--cv-color-success);
-      --totp-color-soft: var(--cv-color-success-surface-strong);
-      --arc-offset: 0;
+      --_pm-totp-color: var(--cv-color-accent);
+      --_pm-totp-color-soft: var(--cv-color-accent-surface);
+      --_pm-totp-item-arc-offset: 0;
       --pm-otp-action-size: 32px;
     }
 
     .totp-card {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) var(--totp-timer-size, 72px);
-      grid-template-areas: var(--totp-card-template-areas, 'main timer' 'main actions');
+      grid-template-columns: minmax(0, 1fr) var(--pm-totp-timer-size, 72px);
+      grid-template-areas: var(--pm-totp-card-template-areas, 'main timer' 'main actions');
       gap: var(--cv-space-3) var(--cv-space-4);
       align-items: center;
-      padding: var(--totp-card-padding, var(--cv-space-4));
+      padding: var(--pm-totp-card-padding, var(--cv-space-4));
       font-family: var(--cv-font-family-sans, sans-serif);
       position: relative;
       overflow: hidden;
       min-inline-size: 0;
-      border: var(--totp-card-border-width, 1px) solid
-        var(--totp-card-border-color, var(--totp-color, var(--cv-color-success)));
+      border: var(--pm-totp-card-border-width, 1px) solid
+        var(--pm-totp-card-border-color, var(--_pm-totp-color, var(--cv-color-accent)));
       border-radius: var(--cv-radius-3);
-      background: var(--totp-card-background, var(--cv-color-surface-2));
-      box-shadow: var(--totp-card-shadow, var(--cv-shadow-sm));
+      background: var(--pm-totp-card-background, var(--cv-color-surface-2));
+      box-shadow: var(--pm-totp-card-shadow, var(--cv-shadow-sm));
       cursor: pointer;
       user-select: none;
       transition:
@@ -52,8 +52,8 @@ export const pmEntryTOTPItemSharedStyles = [
     }
 
     .totp-card:hover {
-      background: var(--totp-card-background, var(--cv-color-surface-2));
-      box-shadow: var(--totp-card-hover-shadow, var(--cv-shadow-md));
+      background: var(--pm-totp-card-background, var(--cv-color-surface-2));
+      box-shadow: var(--pm-totp-card-hover-shadow, var(--cv-shadow-md));
     }
 
     .totp-card:active {
@@ -61,7 +61,7 @@ export const pmEntryTOTPItemSharedStyles = [
     }
 
     .totp-card:focus-visible {
-      outline: 2px solid var(--totp-focus-color, var(--totp-accent-color, var(--totp-color, var(--cv-color-success))));
+      outline: 2px solid var(--pm-totp-focus-color, var(--_pm-totp-color, var(--cv-color-accent)));
       outline-offset: 2px;
     }
 
@@ -74,10 +74,10 @@ export const pmEntryTOTPItemSharedStyles = [
     }
 
     .totp-label {
-      display: var(--totp-label-display, block);
+      display: var(--pm-totp-label-display, block);
       font-size: 0.6875rem;
       font-weight: var(--cv-font-weight-semibold);
-      color: var(--totp-label-color, var(--cv-color-text-muted));
+      color: var(--pm-totp-label-color, var(--cv-color-text-muted));
       min-inline-size: 0;
       text-overflow: ellipsis;
       overflow: hidden;
@@ -89,11 +89,12 @@ export const pmEntryTOTPItemSharedStyles = [
     .totp-code {
       display: flex;
       align-items: center;
-      gap: var(--totp-code-group-gap, var(--cv-space-5));
+      gap: var(--pm-totp-code-group-gap, var(--cv-space-5));
       min-inline-size: 0;
       font-family: var(--cv-font-family-code, monospace);
+      font-variant-ligatures: none;
       font-variant-numeric: tabular-nums;
-      color: var(--totp-code-color, var(--cv-color-text));
+      color: var(--pm-totp-code-color, var(--cv-color-text));
     }
 
     .totp-code-placeholder {
@@ -113,25 +114,35 @@ export const pmEntryTOTPItemSharedStyles = [
       align-items: center;
       justify-content: center;
       min-inline-size: 1.08ch;
-      font-size: var(--totp-code-font-size, 3.25rem);
+      font-size: var(--pm-totp-code-font-size, 3.25rem);
       line-height: 1;
       font-weight: var(--cv-font-weight-semibold);
     }
 
     .totp-feedback {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-block-size: 22px;
       margin-block-start: var(--cv-space-1);
       font-size: var(--cv-font-size-sm);
       font-weight: var(--cv-font-weight-semibold);
-      color: var(--totp-feedback-color, var(--totp-accent-color, var(--totp-color, var(--cv-color-success))));
+      color: var(--pm-totp-feedback-color, var(--_pm-totp-color, var(--cv-color-accent)));
+    }
+
+    .totp-feedback-icon {
+      flex: 0 0 auto;
+      inline-size: 16px;
+      block-size: 16px;
     }
 
     .totp-arc-timer {
       grid-area: timer;
       position: relative;
-      width: var(--totp-timer-size, 72px);
-      height: var(--totp-timer-size, 72px);
+      width: var(--pm-totp-timer-size, 72px);
+      height: var(--pm-totp-timer-size, 72px);
       flex-shrink: 0;
-      align-self: var(--totp-timer-align-self, center);
+      align-self: center;
       justify-self: center;
 
       svg {
@@ -141,17 +152,17 @@ export const pmEntryTOTPItemSharedStyles = [
 
       .arc-track {
         fill: none;
-        stroke: var(--totp-arc-track-color, var(--cv-color-border-muted));
-        stroke-width: var(--totp-arc-stroke-width, 3.25);
+        stroke: var(--pm-totp-arc-track-color, var(--cv-color-border-muted));
+        stroke-width: var(--pm-totp-arc-stroke-width, 3.25);
       }
 
       .arc-indicator {
         fill: none;
-        stroke: var(--totp-accent-color, var(--totp-color, var(--cv-color-success)));
-        stroke-width: var(--totp-arc-stroke-width, 3.25);
+        stroke: var(--_pm-totp-color, var(--cv-color-accent));
+        stroke-width: var(--pm-totp-arc-stroke-width, 3.25);
         stroke-linecap: round;
         stroke-dasharray: ${ARC_CIRCUMFERENCE};
-        stroke-dashoffset: var(--arc-offset, 0);
+        stroke-dashoffset: var(--_pm-totp-item-arc-offset, 0);
         transform: rotate(-90deg);
         transform-origin: center;
         transition: stroke-dashoffset 1s linear;
@@ -166,17 +177,17 @@ export const pmEntryTOTPItemSharedStyles = [
         justify-content: center;
         font-weight: var(--cv-font-weight-bold);
         font-variant-numeric: tabular-nums;
-        color: var(--totp-accent-color, var(--totp-color, var(--cv-color-success)));
+        color: var(--_pm-totp-color, var(--cv-color-accent));
       }
 
       .arc-seconds {
-        font-size: var(--totp-timer-seconds-font-size, 1.35rem);
+        font-size: var(--pm-totp-timer-seconds-font-size, 1.35rem);
         line-height: 1;
       }
 
       .arc-unit {
         margin-block-start: 2px;
-        font-size: var(--totp-timer-unit-font-size, 0.625rem);
+        font-size: var(--pm-totp-timer-unit-font-size, 0.625rem);
         line-height: 1;
         color: var(--cv-color-text-muted);
       }
@@ -184,7 +195,7 @@ export const pmEntryTOTPItemSharedStyles = [
 
     .totp-actions {
       grid-area: actions;
-      display: var(--totp-actions-display, flex);
+      display: var(--pm-totp-actions-display, flex);
       gap: var(--cv-space-1);
       justify-content: flex-end;
       align-items: center;
@@ -203,10 +214,10 @@ export const pmEntryTOTPItemSharedStyles = [
 
     @container (width < 400px) {
       .totp-card {
-        grid-template-columns: minmax(0, 1fr) var(--totp-timer-size-compact, 66px);
-        grid-template-areas: var(--totp-card-template-areas-compact, var(--totp-card-template-areas, 'main timer' 'main actions'));
+        grid-template-columns: minmax(0, 1fr) var(--pm-totp-timer-size-compact, 66px);
+        grid-template-areas: var(--pm-totp-card-template-areas, 'main timer' 'main actions');
         column-gap: var(--cv-space-3);
-        padding: var(--totp-card-padding, var(--cv-space-3));
+        padding: var(--pm-totp-card-padding, var(--cv-space-3));
       }
 
       .totp-code {
@@ -214,12 +225,12 @@ export const pmEntryTOTPItemSharedStyles = [
       }
 
       .totp-digit {
-        font-size: var(--totp-code-font-size-compact, 2.85rem);
+        font-size: var(--pm-totp-code-font-size-compact, 2.85rem);
       }
 
       .totp-arc-timer {
-        width: var(--totp-timer-size-compact, 66px);
-        height: var(--totp-timer-size-compact, 66px);
+        width: var(--pm-totp-timer-size-compact, 66px);
+        height: var(--pm-totp-timer-size-compact, 66px);
       }
 
       .totp-arc-timer .arc-seconds {

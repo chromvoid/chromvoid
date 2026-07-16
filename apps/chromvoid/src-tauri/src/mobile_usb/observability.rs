@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+
+use chromvoid_protocol::TransportType;
 
 use super::types::{
     HostId, MobileUsbBridgeKind, MobileUsbErrorCode, MobileUsbOperationKind, MobileUsbSessionState,
@@ -38,6 +40,181 @@ pub(crate) struct MobileUsbTimelineEvent<'a> {
     pub(crate) bridge_kind: Option<MobileUsbBridgeKind>,
     pub(crate) stop_reason: Option<&'a str>,
     pub(crate) error_code: Option<MobileUsbErrorCode>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TransportSessionContext {
+    inner: Arc<Mutex<TransportSessionContextFields>>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct TransportSessionContextFields {
+    generation: Option<u64>,
+    trace_id: Option<String>,
+    usb_session_id: Option<String>,
+    host_id: Option<String>,
+    peer_id: Option<String>,
+    bridge_kind: Option<MobileUsbBridgeKind>,
+    transport_type: Option<TransportType>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TransportSessionContextSnapshot {
+    generation: Option<u64>,
+    trace_id: Option<String>,
+    usb_session_id: Option<String>,
+    host_id: Option<String>,
+    peer_id: Option<String>,
+    bridge_kind: Option<MobileUsbBridgeKind>,
+    transport_type: Option<TransportType>,
+}
+
+impl TransportSessionContext {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn snapshot(&self) -> TransportSessionContextSnapshot {
+        match self.inner.lock() {
+            Ok(fields) => TransportSessionContextSnapshot {
+                generation: fields.generation,
+                trace_id: fields.trace_id.clone(),
+                usb_session_id: fields.usb_session_id.clone(),
+                host_id: fields.host_id.clone(),
+                peer_id: fields.peer_id.clone(),
+                bridge_kind: fields.bridge_kind,
+                transport_type: fields.transport_type,
+            },
+            Err(_) => {
+                tracing::warn!("mobile_usb: transport session context mutex poisoned");
+                TransportSessionContextSnapshot::default()
+            }
+        }
+    }
+
+    pub(crate) fn set_generation(&self, generation: u64) {
+        self.update(|fields| fields.generation = Some(generation));
+    }
+
+    pub(crate) fn set_host_id(&self, host_id: impl Into<String>) {
+        self.update(|fields| fields.host_id = Some(host_id.into()));
+    }
+
+    pub(crate) fn with_trace_id(self, trace_id: impl Into<String>) -> Self {
+        self.update(|fields| fields.trace_id = Some(trace_id.into()));
+        self
+    }
+
+    pub(crate) fn with_usb_session_id(self, usb_session_id: impl Into<String>) -> Self {
+        self.update(|fields| fields.usb_session_id = Some(usb_session_id.into()));
+        self
+    }
+
+    pub(crate) fn with_host_id(self, host_id: impl Into<String>) -> Self {
+        self.update(|fields| fields.host_id = Some(host_id.into()));
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_peer_id(self, peer_id: impl Into<String>) -> Self {
+        self.update(|fields| fields.peer_id = Some(peer_id.into()));
+        self
+    }
+
+    pub(crate) fn with_bridge_kind(self, bridge_kind: MobileUsbBridgeKind) -> Self {
+        self.update(|fields| fields.bridge_kind = Some(bridge_kind));
+        self
+    }
+
+    pub(crate) fn with_transport_type(self, transport_type: TransportType) -> Self {
+        self.update(|fields| fields.transport_type = Some(transport_type));
+        self
+    }
+
+    fn update(&self, update: impl FnOnce(&mut TransportSessionContextFields)) {
+        match self.inner.lock() {
+            Ok(mut fields) => update(&mut fields),
+            Err(_) => tracing::warn!("mobile_usb: transport session context mutex poisoned"),
+        }
+    }
+}
+
+impl TransportSessionContextSnapshot {
+    pub(crate) fn generation_label(&self) -> String {
+        self.generation
+            .map(|generation| generation.to_string())
+            .unwrap_or_else(|| "none".to_string())
+    }
+
+    pub(crate) fn trace_id_label(&self) -> String {
+        redacted_identifier(self.trace_id.as_deref())
+    }
+
+    pub(crate) fn usb_session_id_label(&self) -> String {
+        redacted_identifier(self.usb_session_id.as_deref())
+    }
+
+    pub(crate) fn host_id_label(&self) -> String {
+        redacted_identifier(self.host_id.as_deref())
+    }
+
+    pub(crate) fn peer_id_label(&self) -> String {
+        redacted_identifier(self.peer_id.as_deref())
+    }
+
+    pub(crate) fn bridge_kind_label(&self) -> &'static str {
+        self.bridge_kind.map(bridge_kind_name).unwrap_or("none")
+    }
+
+    pub(crate) fn transport_type_label(&self) -> String {
+        self.transport_type
+            .map(|transport_type| format!("{transport_type:?}"))
+            .unwrap_or_else(|| "none".to_string())
+    }
+
+    pub(crate) fn diagnostic_fields_label(&self) -> String {
+        format!(
+            "bridge_kind={} transport_type={} session_generation={} trace_id={} usb_session_id={} host_id={} peer_id={}",
+            self.bridge_kind_label(),
+            self.transport_type_label(),
+            self.generation_label(),
+            self.trace_id_label(),
+            self.usb_session_id_label(),
+            self.host_id_label(),
+            self.peer_id_label(),
+        )
+    }
+}
+
+#[cfg(test)]
+mod transport_session_context_tests {
+    use super::*;
+
+    #[test]
+    fn diagnostic_fields_label_redacts_session_identifiers() {
+        let context = TransportSessionContext::new()
+            .with_trace_id("trace-secret")
+            .with_usb_session_id("usb-session-secret")
+            .with_host_id("host-secret")
+            .with_peer_id("peer-secret")
+            .with_bridge_kind(MobileUsbBridgeKind::AndroidAoa)
+            .with_transport_type(TransportType::UsbMobile);
+        context.set_generation(77);
+
+        let label = context.snapshot().diagnostic_fields_label();
+
+        assert!(label.contains("session_generation=77"));
+        assert!(label.contains("bridge_kind=android_aoa"));
+        assert!(label.contains("transport_type=UsbMobile"));
+        assert!(label.contains("trace_id=redacted:"));
+        assert!(label.contains("usb_session_id=redacted:"));
+        assert!(label.contains("host_id=redacted:"));
+        assert!(label.contains("peer_id=redacted:"));
+        assert!(!label.contains("trace-secret"));
+        assert!(!label.contains("usb-session-secret"));
+        assert!(!label.contains("host-secret"));
+        assert!(!label.contains("peer-secret"));
+    }
 }
 
 impl Default for MobileUsbTimelineEvent<'_> {
@@ -118,6 +295,7 @@ pub(crate) fn mobile_usb_operation_name(operation: MobileUsbOperationKind) -> &'
     match operation {
         MobileUsbOperationKind::Scan => "scan",
         MobileUsbOperationKind::Pair => "pair",
+        MobileUsbOperationKind::PairConfirm => "pair_confirm",
         MobileUsbOperationKind::Connect => "connect",
     }
 }
@@ -240,7 +418,9 @@ fn session_state_name(state: MobileUsbSessionState) -> &'static str {
         MobileUsbSessionState::IdleUsbMobile => "idle_usb_mobile",
         MobileUsbSessionState::ScanningUsbMobile => "scanning_usb_mobile",
         MobileUsbSessionState::PairingUsbMobile => "pairing_usb_mobile",
+        MobileUsbSessionState::PairingApprovalRequired => "pairing_approval_required",
         MobileUsbSessionState::ConnectingUsbMobile => "connecting_usb_mobile",
+        MobileUsbSessionState::SessionApprovalRequired => "session_approval_required",
         MobileUsbSessionState::TransportReadyHostLocked => "transport_ready_host_locked",
         MobileUsbSessionState::RemoteDashboardOpen => "remote_dashboard_open",
         MobileUsbSessionState::Disconnected => "disconnected",

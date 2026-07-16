@@ -92,13 +92,6 @@ type UploadTaskRetrySource =
   | {kind: 'browser-file'; currentPath: string; file: File}
   | {kind: 'host-path'; currentPath: string; file: HostPathTokenGrant}
 
-type VaultLockSource = 'manual' | 'system'
-
-type VaultLockedOptions = {
-  reason?: string
-  source?: VaultLockSource
-}
-
 function nativeUploadErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
   if (error && typeof error === 'object') {
@@ -135,7 +128,7 @@ function logAndroidShareStore(event: string, details: Record<string, unknown> = 
 
 // Unified status dictionary aligned with i18n `status:*
 export type Status = 'unknown' | 'not-inited' | 'stopped' | 'locking' | 'unlocking' | 'locked' | 'unlocked'
-export type RemoteSessionState = 'inactive' | 'waiting_host_unlock' | 'ready'
+export type RemoteSessionState = 'inactive' | 'waiting_host_unlock' | 'waiting_phone_approval' | 'ready'
 
 export class Store {
   private readonly uploadTaskAutoRemoveTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -180,6 +173,7 @@ export class Store {
   showSettingsPage = atom(false)
   remoteSessionState = atom<RemoteSessionState>('inactive')
   remoteSessionPeerId = atom<string | null>(null)
+  remoteSessionGeneration = atom<number | null>(null)
   bootstrapFatalError = atom<string | null>(null)
 
   // Dual-pane mode for tablets
@@ -386,6 +380,11 @@ export class Store {
     this.remoteSessionState.set('waiting_host_unlock')
   }
 
+  setRemoteSessionPhoneApproval(peerId: string | null) {
+    this.remoteSessionPeerId.set(peerId)
+    this.remoteSessionState.set('waiting_phone_approval')
+  }
+
   setRemoteSessionReady(peerId: string | null) {
     this.remoteSessionPeerId.set(peerId)
     this.remoteSessionState.set('ready')
@@ -393,6 +392,7 @@ export class Store {
 
   resetRemoteSession() {
     this.remoteSessionPeerId.set(null)
+    this.remoteSessionGeneration.set(null)
     this.remoteSessionState.set('inactive')
   }
 
@@ -615,7 +615,7 @@ export class Store {
     return this.uploadTasks().find((item) => item.id === taskId)?.status() === 'done'
   }
 
-  handleVaultLocked(options: VaultLockedOptions = {}) {
+  handleVaultLocked() {
     this.finishVaultLockRequest()
 
     // Clear volatile state that assumes an unlocked vault.
@@ -631,16 +631,6 @@ export class Store {
     this.showRemotePage.set(false)
     this.showSettingsPage.set(false)
     this.resetRemoteSession()
-
-    const message = options.reason
-      ? i18n('notification:vault-locked-reason', {reason: options.reason})
-      : i18n('notification:vault-locked')
-    if (options.source === 'manual') {
-      toast.success(message)
-      return
-    }
-
-    toast.warning(message)
   }
 
   handleRemoteHostLocked() {

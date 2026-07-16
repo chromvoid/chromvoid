@@ -57,6 +57,7 @@ struct ScriptedDerivativeState {
 struct ScriptedDerivativeAdapter {
     source: StreamOut,
     state: Arc<Mutex<ScriptedDerivativeState>>,
+    mode: crate::core_adapter::CoreMode,
 }
 
 impl ScriptedDerivativeAdapter {
@@ -81,7 +82,7 @@ impl ScriptedDerivativeAdapter {
 
 impl crate::CoreAdapter for ScriptedDerivativeAdapter {
     fn mode(&self) -> crate::core_adapter::CoreMode {
-        crate::core_adapter::CoreMode::Local
+        self.mode.clone()
     }
 
     fn is_unlocked(&self) -> bool {
@@ -264,13 +265,42 @@ fn scripted_adapter(
     Arc<Mutex<Box<dyn crate::CoreAdapter>>>,
     Arc<Mutex<ScriptedDerivativeState>>,
 ) {
+    scripted_adapter_with_mode(source, crate::core_adapter::CoreMode::Local)
+}
+
+fn scripted_adapter_with_mode(
+    source: StreamOut,
+    mode: crate::core_adapter::CoreMode,
+) -> (
+    Arc<Mutex<Box<dyn crate::CoreAdapter>>>,
+    Arc<Mutex<ScriptedDerivativeState>>,
+) {
     let state = Arc::new(Mutex::new(ScriptedDerivativeState::default()));
     state.lock().expect("state lock").source_revision = 1;
     let adapter: Box<dyn crate::CoreAdapter> = Box::new(ScriptedDerivativeAdapter {
         source,
         state: state.clone(),
+        mode,
     });
     (Arc::new(Mutex::new(adapter)), state)
+}
+
+fn remote_usb_mode_for_tests() -> crate::core_adapter::CoreMode {
+    crate::core_adapter::CoreMode::Remote {
+        host: crate::core_adapter::RemoteHost::MobileUsb {
+            host_id: "host-a".to_string(),
+            label: Some("Android".to_string()),
+            platform: "android".to_string(),
+        },
+    }
+}
+
+fn remote_wss_mode_for_tests() -> crate::core_adapter::CoreMode {
+    crate::core_adapter::CoreMode::Remote {
+        host: crate::core_adapter::RemoteHost::TauriRemoteWss {
+            peer_id: "peer-a".to_string(),
+        },
+    }
 }
 
 #[test]
@@ -681,6 +711,73 @@ fn core_backed_derivative_hit_skips_regeneration() {
 }
 
 #[test]
+fn core_backed_remote_derivative_hit_uses_host_cache() {
+    let source = stream_out("photo.jpg", "image/jpeg", build_jpeg_source(4000, 2500));
+    let (adapter, state) = scripted_adapter_with_mode(source, remote_wss_mode_for_tests());
+    let image_preview_runtime = crate::image_preview::ImagePreviewRuntimeState::new();
+    let prebuilt = stream_out(
+        "photo.jpg",
+        crate::image_preview::JPEG_PREVIEW_MIME,
+        b"cached".to_vec(),
+    );
+
+    state.lock().expect("state lock").derivatives.insert(
+        format!(
+            "21:1:preview:{}",
+            crate::image_preview::DERIVATIVE_STORAGE_VERSION
+        ),
+        StoredDerivative {
+            meta: RpcStreamMeta {
+                name: prebuilt.meta.name.clone(),
+                mime_type: prebuilt.meta.mime_type.clone(),
+                size: prebuilt.meta.size,
+                chunk_size: prebuilt.meta.chunk_size,
+            },
+            bytes: prebuilt.bytes.clone(),
+        },
+    );
+
+    let result = build_core_backed_image_derivative_stream(
+        &adapter,
+        &image_preview_runtime,
+        21,
+        "photo.jpg",
+        Some("image/jpeg"),
+        crate::image_preview::ImageDerivativeTier::DisplayPreview,
+    )
+    .expect("stored remote derivative should load");
+
+    let state = state.lock().expect("state lock");
+    assert_eq!(state.download_calls, 0);
+    assert_eq!(state.derivative_write_calls, 0);
+    assert_eq!(result.bytes, b"cached");
+}
+
+#[test]
+fn core_backed_remote_image_derivative_cache_miss_skips_source_download() {
+    let source = stream_out("photo.jpg", "image/jpeg", build_jpeg_source(4000, 2500));
+    let (adapter, state) = scripted_adapter_with_mode(source, remote_wss_mode_for_tests());
+    let image_preview_runtime = crate::image_preview::ImagePreviewRuntimeState::new();
+
+    let error = build_core_backed_image_derivative_stream(
+        &adapter,
+        &image_preview_runtime,
+        32,
+        "photo.jpg",
+        Some("image/jpeg"),
+        crate::image_preview::ImageDerivativeTier::DisplayPreview,
+    )
+    .expect_err("remote image derivative cache miss should not download source");
+
+    assert_eq!(error.1.as_deref(), Some("DERIVATIVE_UNAVAILABLE"));
+    let state = state.lock().expect("state lock");
+    assert_eq!(state.download_calls, 0);
+    assert_eq!(state.range_calls, 0);
+    assert_eq!(state.derivative_write_calls, 0);
+    assert!(state.derivatives.is_empty());
+}
+
+#[test]
 fn core_backed_derivative_miss_persists_and_invalidates_by_source_version() {
     let source = stream_out("photo.jpg", "image/jpeg", build_jpeg_source(4000, 2500));
     let (adapter, state) = scripted_adapter(source);
@@ -865,6 +962,47 @@ fn core_backed_audio_without_artwork_returns_unsupported_without_cache_write() {
     assert!(state.derivatives.is_empty());
 }
 
+fn assert_remote_audio_artwork_cache_miss_skips_range_probe(mode: crate::core_adapter::CoreMode) {
+    let source = stream_out(
+        "song.mp3",
+        "audio/mpeg",
+        build_mp3_source_with_picture(
+            build_jpeg_source(320, 320),
+            lofty::picture::MimeType::Jpeg,
+            lofty::picture::PictureType::CoverFront,
+        ),
+    );
+    let (adapter, state) = scripted_adapter_with_mode(source, mode);
+    let image_preview_runtime = crate::image_preview::ImagePreviewRuntimeState::new();
+
+    let error = build_core_backed_image_derivative_stream(
+        &adapter,
+        &image_preview_runtime,
+        54,
+        "song.mp3",
+        Some("audio/mpeg"),
+        crate::image_preview::ImageDerivativeTier::DisplayPreview,
+    )
+    .expect_err("remote audio artwork cache miss should not probe source ranges");
+
+    assert_eq!(error.1.as_deref(), Some("DERIVATIVE_UNAVAILABLE"));
+    let state = state.lock().expect("state lock");
+    assert_eq!(state.download_calls, 0);
+    assert_eq!(state.range_calls, 0);
+    assert_eq!(state.derivative_write_calls, 0);
+    assert!(state.derivatives.is_empty());
+}
+
+#[test]
+fn core_backed_remote_usb_audio_artwork_cache_miss_skips_range_probe() {
+    assert_remote_audio_artwork_cache_miss_skips_range_probe(remote_usb_mode_for_tests());
+}
+
+#[test]
+fn core_backed_remote_wss_audio_artwork_cache_miss_skips_range_probe() {
+    assert_remote_audio_artwork_cache_miss_skips_range_probe(remote_wss_mode_for_tests());
+}
+
 #[test]
 fn core_backed_audio_corrupt_artwork_returns_preview_decode_without_cache_write() {
     let source = stream_out(
@@ -969,6 +1107,37 @@ fn image_metadata_miss_persists_and_second_call_uses_cache() {
         .derivatives
         .keys()
         .any(|key| key == "41:1:metadata:10"));
+}
+
+#[test]
+fn image_metadata_remote_cache_miss_skips_source_download() {
+    let source = stream_out("photo.png", "image/png", build_png_source(12, 7));
+    let (adapter, state) = scripted_adapter_with_mode(source, remote_wss_mode_for_tests());
+
+    let metadata = super::image_metadata::load_catalog_image_metadata(
+        &adapter,
+        PreviewImageArgs {
+            node_id: 41,
+            file_name: "photo.png".to_string(),
+            mime_type: Some("image/png".to_string()),
+            refresh_derivative_cache: false,
+        },
+    )
+    .expect("remote metadata cache miss should return empty metadata without source download");
+
+    assert_eq!(metadata.source_revision, Some(1));
+    assert_eq!(metadata.width, None);
+    assert_eq!(metadata.height, None);
+    assert_eq!(
+        metadata
+            .gps_diagnostic
+            .as_ref()
+            .map(|diagnostic| diagnostic.status.as_str()),
+        Some("remote_cache_miss"),
+    );
+    let state = state.lock().expect("state lock");
+    assert_eq!(state.download_calls, 0);
+    assert_eq!(state.derivative_write_calls, 0);
 }
 
 #[test]

@@ -117,7 +117,7 @@ describe('lockVaultFromUi', () => {
     expect(store.vaultLockPending()).toBe(false)
     expect(stateData().StorageOpened).toBe(false)
     expect(selectedNodeIds()).toEqual([])
-    expect(store.handleVaultLocked).toHaveBeenCalledWith({source: 'manual'})
+    expect(store.handleVaultLocked.mock.calls).toEqual([[]])
     expect(store.pushNotification).not.toHaveBeenCalledWith('success', 'Vault locked')
   })
 
@@ -192,7 +192,7 @@ describe('lockVaultFromUi', () => {
     expect(selectedNodeIds()).toEqual([])
     expect(uploadTasks()).toEqual([])
     expect(currentPath()).toBe('/')
-    expect(store.handleVaultLocked).toHaveBeenCalledWith({source: 'manual'})
+    expect(store.handleVaultLocked.mock.calls).toEqual([[]])
     expect(store.pushNotification).toHaveBeenCalledWith('warning', 'IPC timeout')
   })
 })

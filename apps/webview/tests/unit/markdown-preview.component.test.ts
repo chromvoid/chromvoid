@@ -21,6 +21,10 @@ async function settle(element: HTMLElement & {updateComplete?: Promise<unknown>}
   await Promise.resolve()
 }
 
+async function nextFrame(): Promise<void> {
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+}
+
 function readyState(overrides: Partial<MarkdownPreviewReadyState> = {}): MarkdownPreviewReadyState {
   const source = overrides.source ?? '# Notes'
   const baseline = overrides.baseline ?? '# Notes'
@@ -53,7 +57,13 @@ function readyState(overrides: Partial<MarkdownPreviewReadyState> = {}): Markdow
 
 function createPointerEvent(
   type: string,
-  options: {clientX?: number; clientY?: number; pointerId?: number; pointerType?: string; button?: number} = {},
+  options: {
+    clientX?: number
+    clientY?: number
+    pointerId?: number
+    pointerType?: string
+    button?: number
+  } = {},
 ): PointerEvent {
   const event = new Event(type, {bubbles: true, cancelable: true, composed: true}) as PointerEvent
   Object.defineProperties(event, {
@@ -103,44 +113,12 @@ function createDropEvent(files: File[]): DragEvent {
   return event
 }
 
-function stubCaretRangeFromPoint(range: Range): () => void {
-  const documentWithCaret = document as Document & {
-    caretRangeFromPoint?: (x: number, y: number) => Range | null
+function getSourceEditorContent(editor: HTMLElement): HTMLElement {
+  const content = editor.shadowRoot?.querySelector<HTMLElement>('.cm-content')
+  if (!content) {
+    throw new Error('CodeMirror content not found')
   }
-  const descriptor = Object.getOwnPropertyDescriptor(documentWithCaret, 'caretRangeFromPoint')
-  Object.defineProperty(documentWithCaret, 'caretRangeFromPoint', {
-    configurable: true,
-    value: vi.fn(() => range),
-  })
-
-  return () => {
-    if (descriptor) {
-      Object.defineProperty(documentWithCaret, 'caretRangeFromPoint', descriptor)
-    } else {
-      delete documentWithCaret.caretRangeFromPoint
-    }
-  }
-}
-
-function stubDocumentSelection(range: Range): () => void {
-  const descriptor = Object.getOwnPropertyDescriptor(document, 'getSelection')
-  Object.defineProperty(document, 'getSelection', {
-    configurable: true,
-    value: vi.fn(() => ({
-      isCollapsed: false,
-      rangeCount: 1,
-      getRangeAt: vi.fn(() => range),
-      removeAllRanges: vi.fn(),
-    })),
-  })
-
-  return () => {
-    if (descriptor) {
-      Object.defineProperty(document, 'getSelection', descriptor)
-    } else {
-      delete (document as Document & {getSelection?: () => Selection | null}).getSelection
-    }
-  }
+  return content
 }
 
 function stubDocumentSelectionObject(selection: Partial<Selection>): () => void {
@@ -159,39 +137,19 @@ function stubDocumentSelectionObject(selection: Partial<Selection>): () => void 
   }
 }
 
-function stubRangeClientRectsForTextNode(textNode: Text, options: {charWidth: number; top: number; height: number}): () => void {
-  const descriptor = Object.getOwnPropertyDescriptor(Range.prototype, 'getClientRects')
-  Object.defineProperty(Range.prototype, 'getClientRects', {
+function stubCaretRangeFromPoint(range: Range | null): () => void {
+  const descriptor = Object.getOwnPropertyDescriptor(document, 'caretRangeFromPoint')
+  Object.defineProperty(document, 'caretRangeFromPoint', {
     configurable: true,
-    value(this: Range) {
-      if (this.startContainer !== textNode || this.endContainer !== textNode) {
-        return [] as unknown as DOMRectList
-      }
-
-      const left = this.startOffset * options.charWidth
-      return [
-        {
-          bottom: options.top + options.height,
-          height: options.height,
-          left,
-          right: left + options.charWidth,
-          top: options.top,
-          width: options.charWidth,
-          x: left,
-          y: options.top,
-          toJSON() {
-            return this
-          },
-        },
-      ] as unknown as DOMRectList
-    },
+    value: vi.fn(() => range),
   })
 
   return () => {
     if (descriptor) {
-      Object.defineProperty(Range.prototype, 'getClientRects', descriptor)
+      Object.defineProperty(document, 'caretRangeFromPoint', descriptor)
     } else {
-      delete (Range.prototype as Range & {getClientRects?: () => DOMRectList}).getClientRects
+      delete (document as Document & {caretRangeFromPoint?: (x: number, y: number) => Range | null})
+        .caretRangeFromPoint
     }
   }
 }
@@ -203,12 +161,19 @@ function createElementWithState(state: MarkdownPreviewReadyState): MarkdownPrevi
   return element
 }
 
+function clickModeButton(element: MarkdownPreview, label: string): void {
+  Array.from(element.shadowRoot?.querySelectorAll<HTMLElement>('.mode-button') ?? [])
+    .find((button) => button.textContent?.includes(label))
+    ?.click()
+}
+
 describe('markdown-preview component', () => {
   afterEach(() => {
     document.getSelection()?.removeAllRanges()
     document.body.innerHTML = ''
     markdownDocumentRenameModel.reset()
     markdownPreviewModel.cleanup()
+    markdownPreviewModel.clearViewportAnchorMemory()
     resetRuntimeCapabilities()
     vi.useRealTimers()
     vi.restoreAllMocks()
@@ -270,6 +235,258 @@ describe('markdown-preview component', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 
+  it('captures the top visible Markdown source position instead of a scroll percentage', async () => {
+    ensureDefined()
+    const source = ['One', 'Two', 'Three'].join('\n')
+    const element = createElementWithState(
+      readyState({
+        fileId: 42,
+        source,
+        baseline: source,
+        renderedHtml: [0, 1, 2]
+          .map(
+            (line) =>
+              `<p data-source-line-start="${line}" data-source-line-end="${line + 1}">Line ${line + 1}</p>`,
+          )
+          .join(''),
+      }),
+    )
+    await settle(element)
+
+    const preview = element.shadowRoot?.querySelector<HTMLElement>('.rendered-markdown')
+    const blocks = preview?.querySelectorAll<HTMLElement>('[data-source-line-start]') ?? []
+    vi.spyOn(preview!, 'getBoundingClientRect').mockReturnValue({
+      top: 100,
+      bottom: 300,
+      left: 0,
+      right: 400,
+      width: 400,
+      height: 200,
+      x: 0,
+      y: 100,
+      toJSON: () => ({}),
+    })
+    Array.from(blocks).forEach((block, index) => {
+      const top = 30 + index * 50
+      vi.spyOn(block, 'getBoundingClientRect').mockReturnValue({
+        top,
+        bottom: top + 50,
+        left: 0,
+        right: 400,
+        width: 400,
+        height: 50,
+        x: 0,
+        y: top,
+        toJSON: () => ({}),
+      })
+    })
+
+    preview!.dispatchEvent(new Event('scroll', {bubbles: true, composed: true}))
+    await nextFrame()
+
+    expect(markdownPreviewModel.getViewportAnchor(42)).toMatchObject({
+      sourceLine: 1.4,
+      viewportOffset: 0,
+      kind: 'viewport-top',
+    })
+  })
+
+  it('remembers the visible text viewport instead of a focused preview element while scrolling', async () => {
+    ensureDefined()
+    const source = ['One', 'Two', 'Three'].join('\n')
+    const element = createElementWithState(
+      readyState({
+        fileId: 44,
+        source,
+        baseline: source,
+        renderedHtml: [0, 1, 2]
+          .map(
+            (line) =>
+              `<p data-source-line-start="${line}" data-source-line-end="${line + 1}"><a href="#">Line ${line + 1}</a></p>`,
+          )
+          .join(''),
+      }),
+    )
+    await settle(element)
+
+    const preview = element.shadowRoot?.querySelector<HTMLElement>('.rendered-markdown')
+    const blocks = preview?.querySelectorAll<HTMLElement>('[data-source-line-start]') ?? []
+    const focusedLink = blocks[0]?.querySelector<HTMLAnchorElement>('a')
+    vi.spyOn(preview!, 'getBoundingClientRect').mockReturnValue({
+      top: 100,
+      bottom: 300,
+      left: 0,
+      right: 400,
+      width: 400,
+      height: 200,
+      x: 0,
+      y: 100,
+      toJSON: () => ({}),
+    })
+    Array.from(blocks).forEach((block, index) => {
+      const top = 30 + index * 50
+      vi.spyOn(block, 'getBoundingClientRect').mockReturnValue({
+        top,
+        bottom: top + 50,
+        left: 0,
+        right: 400,
+        width: 400,
+        height: 50,
+        x: 0,
+        y: top,
+        toJSON: () => ({}),
+      })
+    })
+    focusedLink?.focus({preventScroll: true})
+
+    preview!.dispatchEvent(new Event('scroll', {bubbles: true, composed: true}))
+    await nextFrame()
+
+    expect(markdownPreviewModel.getViewportAnchor(44)).toMatchObject({
+      sourceLine: 1.4,
+      viewportOffset: 0,
+      kind: 'viewport-top',
+    })
+  })
+
+  it('transfers a focused preview element at its viewport offset when switching modes', async () => {
+    ensureDefined()
+    const source = ['One', 'Two', 'Three'].join('\n')
+    const element = createElementWithState(
+      readyState({
+        fileId: 43,
+        source,
+        baseline: source,
+        renderedHtml:
+          '<p data-source-line-start="2" data-source-line-end="3"><a href="#" tabindex="0">Three</a></p>',
+      }),
+    )
+    await settle(element)
+
+    const preview = element.shadowRoot?.querySelector<HTMLElement>('.rendered-markdown')
+    const link = preview?.querySelector<HTMLAnchorElement>('a')
+    vi.spyOn(preview!, 'getBoundingClientRect').mockReturnValue({
+      top: 100,
+      bottom: 300,
+      left: 0,
+      right: 400,
+      width: 400,
+      height: 200,
+      x: 0,
+      y: 100,
+      toJSON: () => ({}),
+    })
+    vi.spyOn(link!, 'getBoundingClientRect').mockReturnValue({
+      top: 164,
+      bottom: 184,
+      left: 0,
+      right: 80,
+      width: 80,
+      height: 20,
+      x: 0,
+      y: 164,
+      toJSON: () => ({}),
+    })
+    link!.focus({preventScroll: true})
+
+    clickModeButton(element, 'Edit')
+    await settle(element)
+
+    expect(markdownPreviewModel.getViewportAnchor(43)).toEqual({
+      sourceLine: 2,
+      sourceOffset: 8,
+      viewportOffset: 64,
+      kind: 'focused-element',
+    })
+  })
+
+  it('routes rendered task list checkbox activation through the Markdown model', async () => {
+    ensureDefined()
+    const toggleTaskListItemAtLine = vi
+      .spyOn(markdownPreviewModel, 'toggleTaskListItemAtLine')
+      .mockReturnValue(true)
+    const element = createElementWithState(
+      readyState({
+        source: '- [ ] Todo',
+        baseline: '- [ ] Todo',
+        renderedHtml:
+          '<ul data-source-line-start="0" data-source-line-end="1"><li><span class="cv-markdown-task-checkbox" role="checkbox" tabindex="0" data-cv-task-line="0" aria-checked="false"></span>Todo</li></ul>',
+      }),
+    )
+    await settle(element)
+
+    const checkbox = element.shadowRoot?.querySelector<HTMLElement>('.cv-markdown-task-checkbox')
+    const click = new MouseEvent('click', {bubbles: true, cancelable: true, composed: true})
+    checkbox?.dispatchEvent(click)
+
+    expect(click.defaultPrevented).toBe(true)
+    expect(toggleTaskListItemAtLine).toHaveBeenCalledWith(0)
+
+    const keydown = new KeyboardEvent('keydown', {key: ' ', bubbles: true, cancelable: true, composed: true})
+    checkbox?.dispatchEvent(keydown)
+
+    expect(keydown.defaultPrevented).toBe(true)
+    expect(toggleTaskListItemAtLine).toHaveBeenCalledTimes(2)
+  })
+
+  it('syncs rendered task checkbox state without replacing the list item DOM', async () => {
+    ensureDefined()
+    const element = createElementWithState(
+      readyState({
+        source: '- [ ] Todo',
+        baseline: '- [ ] Todo',
+        renderedHtml:
+          '<ul data-source-line-start="0" data-source-line-end="1"><li><span class="cv-markdown-task-checkbox" role="checkbox" tabindex="0" data-cv-task-line="0" data-cv-task-checked="false" aria-checked="false" aria-label="Incomplete task"></span>Todo</li></ul>',
+      }),
+    )
+    await settle(element)
+
+    const checkbox = element.shadowRoot?.querySelector<HTMLElement>('.cv-markdown-task-checkbox')
+    const row = checkbox?.closest('li')
+    expect(checkbox).not.toBeNull()
+    expect(row).not.toBeNull()
+
+    expect(markdownPreviewModel.toggleTaskListItemAtLine(0)).toBe(true)
+    await settle(element)
+
+    const nextCheckbox = element.shadowRoot?.querySelector<HTMLElement>('.cv-markdown-task-checkbox')
+    expect(nextCheckbox).toBe(checkbox)
+    expect(nextCheckbox?.closest('li')).toBe(row)
+    expect(nextCheckbox?.getAttribute('aria-checked')).toBe('true')
+    expect(nextCheckbox?.getAttribute('data-cv-task-checked')).toBe('true')
+    expect(nextCheckbox?.getAttribute('aria-label')).toBe('Completed task')
+  })
+
+  it('routes rendered note-link activation through the Markdown model', async () => {
+    ensureDefined()
+    const activateNoteLink = vi.spyOn(markdownPreviewModel, 'activateNoteLink').mockReturnValue(true)
+    const element = createElementWithState(
+      readyState({
+        renderedHtml:
+          '<p><span class="cv-markdown-note-link" role="link" tabindex="0" data-cv-note-link-id="note-link-0" data-cv-note-link-state="resolved">Sibling</span></p>',
+      }),
+    )
+    await settle(element)
+
+    const link = element.shadowRoot?.querySelector<HTMLElement>('[data-cv-note-link-id="note-link-0"]')
+    const click = new MouseEvent('click', {bubbles: true, cancelable: true, composed: true})
+    link?.dispatchEvent(click)
+
+    expect(click.defaultPrevented).toBe(true)
+    expect(activateNoteLink).toHaveBeenCalledWith('note-link-0')
+
+    const keydown = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    })
+    link?.dispatchEvent(keydown)
+
+    expect(keydown.defaultPrevented).toBe(true)
+    expect(activateNoteLink).toHaveBeenCalledTimes(2)
+  })
+
   it('renders source editor and sends edits to the model', async () => {
     ensureDefined()
     const updateSource = vi.spyOn(markdownPreviewModel, 'updateSource').mockImplementation(() => {})
@@ -292,6 +509,18 @@ describe('markdown-preview component', () => {
       selectionStart: editor!.selectionStart,
       selectionEnd: editor!.selectionEnd,
     })
+  })
+
+  it('opts CodeMirror out of the global mobile keyboard focus-scroll coordinator', async () => {
+    ensureDefined()
+    const element = createElementWithState(readyState({mode: 'edit'}))
+    await settle(element)
+
+    const editor = element.shadowRoot?.querySelector<HTMLElement>('.source-editor')
+    expect(editor).not.toBeNull()
+    const content = getSourceEditorContent(editor!)
+
+    expect(content.getAttribute('data-mobile-keyboard-scroll')).toBe('off')
   })
 
   it('opens an image-only picker from the editor toolbar with the current selection', async () => {
@@ -319,6 +548,175 @@ describe('markdown-preview component', () => {
       selectionStart: 2,
       selectionEnd: 5,
     })
+  })
+
+  it('opens file-link completion from the editor toolbar with the current selection', async () => {
+    ensureDefined()
+    const requestFileLinkInsertion = vi
+      .spyOn(markdownPreviewModel, 'requestFileLinkInsertion')
+      .mockReturnValue(true)
+    const element = createElementWithState(readyState({mode: 'edit'}))
+    await settle(element)
+
+    const editor = element.shadowRoot?.querySelector<HTMLElement>('.source-editor') as HTMLElement & {
+      setSelectionRange(start: number, end: number): void
+      openFileLinkCompletion(): void
+    }
+    const openFileLinkCompletion = vi.spyOn(editor, 'openFileLinkCompletion').mockImplementation(() => {})
+    const button = element.shadowRoot?.querySelector<HTMLElement>('[aria-label="Insert file link"]')
+
+    editor.setSelectionRange(2, 5)
+    button?.click()
+    await settle(element)
+
+    expect(requestFileLinkInsertion).toHaveBeenCalledWith({selectionStart: 2, selectionEnd: 5})
+    expect(openFileLinkCompletion).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders the mobile editor quick action bar in edit mode', async () => {
+    ensureDefined()
+    let element = createElementWithState(readyState())
+    await settle(element)
+
+    expect(element.shadowRoot?.querySelector('.editor-quick-bar')).toBeNull()
+
+    element.remove()
+    element = createElementWithState(readyState({mode: 'edit'}))
+    await settle(element)
+
+    const quickBar = element.shadowRoot?.querySelector<HTMLElement>('.editor-quick-bar')
+    expect(quickBar?.getAttribute('aria-label')).toBe('Markdown quick actions')
+    expect(quickBar?.querySelector('[aria-label="Insert image"]')).not.toBeNull()
+    expect(quickBar?.querySelector('[aria-label="Insert file link"]')).not.toBeNull()
+    expect(quickBar?.querySelector('[aria-label="Insert table"]')).not.toBeNull()
+    expect(quickBar?.querySelector('[aria-label="Bold"]')).not.toBeNull()
+    expect(quickBar?.querySelector('[aria-label="Italic"]')).not.toBeNull()
+    expect(quickBar?.querySelector('[aria-label="Strikethrough"]')).not.toBeNull()
+    expect(quickBar?.querySelector('[aria-label="Markdown quick actions"]')).not.toBeNull()
+
+    element.remove()
+    element = createElementWithState(
+      readyState({mode: 'edit', readOnlyReasonKey: 'markdown:read-only:save-unavailable'}),
+    )
+    await settle(element)
+    expect(element.shadowRoot?.querySelector('.editor-quick-bar')).toBeNull()
+  })
+
+  it('routes quick text actions through the Markdown model with editor selection', async () => {
+    ensureDefined()
+    const applyMarkdownQuickAction = vi
+      .spyOn(markdownPreviewModel, 'applyMarkdownQuickAction')
+      .mockReturnValue(true)
+    const element = createElementWithState(readyState({mode: 'edit'}))
+    await settle(element)
+
+    const editor = element.shadowRoot?.querySelector<HTMLTextAreaElement>('.source-editor')
+    const boldButton = element.shadowRoot?.querySelector<HTMLElement>(
+      '.editor-quick-bar [aria-label="Bold"]',
+    )
+
+    editor!.setSelectionRange(2, 5)
+    boldButton?.click()
+
+    expect(applyMarkdownQuickAction).toHaveBeenCalledWith('bold', {selectionStart: 2, selectionEnd: 5})
+  })
+
+  it('preserves editor focus when quick action buttons are pressed', async () => {
+    ensureDefined()
+    const element = createElementWithState(readyState({mode: 'edit'}))
+    await settle(element)
+
+    const boldButton = element.shadowRoot?.querySelector<HTMLElement>(
+      '.editor-quick-bar [aria-label="Bold"]',
+    )
+    const event = createPointerEvent('pointerdown')
+    boldButton?.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('activates quick text actions on touch pointerup without duplicating the follow-up click', async () => {
+    ensureDefined()
+    const applyMarkdownQuickAction = vi
+      .spyOn(markdownPreviewModel, 'applyMarkdownQuickAction')
+      .mockReturnValue(true)
+    const element = createElementWithState(readyState({mode: 'edit'}))
+    await settle(element)
+
+    const editor = element.shadowRoot?.querySelector<HTMLTextAreaElement>('.source-editor')
+    const boldButton = element.shadowRoot?.querySelector<HTMLElement>(
+      '.editor-quick-bar [aria-label="Bold"]',
+    )
+    const pointerDown = createPointerEvent('pointerdown')
+    const pointerUp = createPointerEvent('pointerup')
+
+    editor!.setSelectionRange(2, 5)
+    boldButton?.dispatchEvent(pointerDown)
+    boldButton?.dispatchEvent(pointerUp)
+    boldButton?.click()
+
+    expect(pointerDown.defaultPrevented).toBe(true)
+    expect(pointerUp.defaultPrevented).toBe(true)
+    expect(applyMarkdownQuickAction).toHaveBeenCalledTimes(1)
+    expect(applyMarkdownQuickAction).toHaveBeenCalledWith('bold', {selectionStart: 2, selectionEnd: 5})
+  })
+
+  it('routes quick overflow actions through the Markdown model and history controls', async () => {
+    ensureDefined()
+    const applyMarkdownQuickAction = vi
+      .spyOn(markdownPreviewModel, 'applyMarkdownQuickAction')
+      .mockReturnValue(true)
+    const undo = vi.spyOn(markdownPreviewModel, 'undo').mockReturnValue(true)
+    const redo = vi.spyOn(markdownPreviewModel, 'redo').mockReturnValue(true)
+    vi.spyOn(markdownPreviewModel, 'canUndo').mockReturnValue(true)
+    vi.spyOn(markdownPreviewModel, 'canRedo').mockReturnValue(true)
+    const element = createElementWithState(readyState({mode: 'edit', source: '# Local', dirty: true}))
+    await settle(element)
+
+    const editor = element.shadowRoot?.querySelector<HTMLTextAreaElement>('.source-editor')
+    const menu = element.shadowRoot?.querySelector<HTMLElement>('.editor-quick-overflow')
+
+    editor!.setSelectionRange(2, 5)
+    menu?.dispatchEvent(
+      new CustomEvent('cv-input', {
+        detail: {value: 'heading-h2', open: false},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    menu?.dispatchEvent(
+      new CustomEvent('cv-input', {
+        detail: {value: 'undo', open: false},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    menu?.dispatchEvent(
+      new CustomEvent('cv-input', {
+        detail: {value: 'redo', open: false},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+
+    expect(applyMarkdownQuickAction).toHaveBeenCalledWith('heading-h2', {
+      selectionStart: 2,
+      selectionEnd: 5,
+    })
+    expect(undo).toHaveBeenCalledTimes(1)
+    expect(redo).toHaveBeenCalledTimes(1)
+  })
+
+  it('disables quick text actions while the Markdown note is busy', async () => {
+    ensureDefined()
+    const element = createElementWithState(readyState({mode: 'edit', saving: true}))
+    await settle(element)
+
+    const boldButton = element.shadowRoot?.querySelector<HTMLButtonElement>(
+      '.editor-quick-bar [aria-label="Bold"]',
+    )
+
+    expect(boldButton?.disabled).toBe(true)
   })
 
   it('routes selected picker images to the Markdown model and resets the input', async () => {
@@ -400,7 +798,7 @@ describe('markdown-preview component', () => {
     })
   })
 
-  it('focuses the source editor when entering edit mode from controls', async () => {
+  it('enters edit mode from controls without focusing the source editor', async () => {
     ensureDefined()
 
     let element = createElementWithState(readyState())
@@ -413,7 +811,8 @@ describe('markdown-preview component', () => {
 
     let editor = element.shadowRoot?.querySelector<HTMLTextAreaElement>('.source-editor')
     expect(editor).not.toBeNull()
-    expect(element.shadowRoot?.activeElement).toBe(editor)
+    expect(element.shadowRoot?.activeElement).not.toBe(editor)
+    expect(markdownPreviewModel.editorFocusRequest()).toBeNull()
 
     element.remove()
     markdownPreviewModel.cleanup()
@@ -425,10 +824,42 @@ describe('markdown-preview component', () => {
 
     editor = element.shadowRoot?.querySelector<HTMLTextAreaElement>('.source-editor')
     expect(editor).not.toBeNull()
-    expect(element.shadowRoot?.activeElement).toBe(editor)
+    expect(element.shadowRoot?.activeElement).not.toBe(editor)
+    expect(markdownPreviewModel.editorFocusRequest()).toBeNull()
   })
 
-  it('double-taps preview text into edit mode at the tapped word occurrence', async () => {
+  it('double-taps preview text into edit mode and focuses the source line', async () => {
+    vi.useFakeTimers()
+    ensureDefined()
+    const source = '# First repeat\n\nSecond repeat word'
+    const element = createElementWithState(
+      readyState({
+        source,
+        baseline: source,
+        renderedHtml:
+          '<h1 data-source-line-start="0" data-source-line-end="1">First repeat</h1><p data-source-line-start="2" data-source-line-end="3">Second repeat word</p>',
+      }),
+    )
+    await settle(element)
+
+    const paragraph = element.shadowRoot?.querySelector('.rendered-markdown p')
+
+    paragraph?.dispatchEvent(createPointerEvent('pointerdown', {clientX: 40, clientY: 40}))
+    paragraph?.dispatchEvent(createPointerEvent('pointerup', {clientX: 40, clientY: 40}))
+    vi.advanceTimersByTime(120)
+    paragraph?.dispatchEvent(createPointerEvent('pointerdown', {clientX: 40, clientY: 40}))
+    paragraph?.dispatchEvent(createPointerEvent('pointerup', {clientX: 40, clientY: 40}))
+    await settle(element)
+
+    const editor = element.shadowRoot?.querySelector<HTMLTextAreaElement>('.source-editor')
+    expect(markdownPreviewModel.mode()).toBe('edit')
+    expect(editor).not.toBeNull()
+    expect(markdownPreviewModel.editorFocusRequest()).toMatchObject({
+      selectionStart: source.indexOf('Second'),
+    })
+  })
+
+  it('focuses the tapped preview word when the caret point resolves text', async () => {
     vi.useFakeTimers()
     ensureDefined()
     const source = '# First repeat\n\nSecond repeat word'
@@ -445,26 +876,27 @@ describe('markdown-preview component', () => {
     const paragraph = element.shadowRoot?.querySelector('.rendered-markdown p')
     const textNode = paragraph?.firstChild
     expect(textNode).toBeInstanceOf(Text)
-    const range = document.createRange()
-    range.setStart(textNode!, 'Second re'.length)
-    range.setEnd(textNode!, 'Second re'.length)
-    const restoreCaretRange = stubCaretRangeFromPoint(range)
 
-    paragraph?.dispatchEvent(createPointerEvent('pointerdown', {clientX: 40, clientY: 40}))
-    paragraph?.dispatchEvent(createPointerEvent('pointerup', {clientX: 40, clientY: 40}))
-    vi.advanceTimersByTime(120)
-    paragraph?.dispatchEvent(createPointerEvent('pointerdown', {clientX: 40, clientY: 40}))
-    paragraph?.dispatchEvent(createPointerEvent('pointerup', {clientX: 40, clientY: 40}))
-    await settle(element)
+    const caretRange = document.createRange()
+    caretRange.setStart(textNode!, 'Second '.length)
+    caretRange.setEnd(textNode!, 'Second '.length)
+    const restoreCaret = stubCaretRangeFromPoint(caretRange)
 
-    const editor = element.shadowRoot?.querySelector<HTMLTextAreaElement>('.source-editor')
-    const expectedSelectionStart = source.indexOf('Second repeat') + 'Second re'.length
-    expect(markdownPreviewModel.mode()).toBe('edit')
-    expect(editor).not.toBeNull()
-    expect(element.shadowRoot?.activeElement).toBe(editor)
-    expect(editor?.selectionStart).toBe(expectedSelectionStart)
+    try {
+      paragraph?.dispatchEvent(createPointerEvent('pointerdown', {clientX: 70, clientY: 40}))
+      paragraph?.dispatchEvent(createPointerEvent('pointerup', {clientX: 70, clientY: 40}))
+      vi.advanceTimersByTime(120)
+      paragraph?.dispatchEvent(createPointerEvent('pointerdown', {clientX: 70, clientY: 40}))
+      paragraph?.dispatchEvent(createPointerEvent('pointerup', {clientX: 70, clientY: 40}))
+      await settle(element)
 
-    restoreCaretRange()
+      expect(markdownPreviewModel.mode()).toBe('edit')
+      expect(markdownPreviewModel.editorFocusRequest()).toMatchObject({
+        selectionStart: source.indexOf('repeat', source.indexOf('Second')),
+      })
+    } finally {
+      restoreCaret()
+    }
   })
 
   it('uses touch-generated native dblclick as the mobile double-tap fallback', async () => {
@@ -480,12 +912,6 @@ describe('markdown-preview component', () => {
     await settle(element)
 
     const heading = element.shadowRoot?.querySelector('.rendered-markdown h1')
-    const textNode = heading?.firstChild
-    expect(textNode).toBeInstanceOf(Text)
-    const range = document.createRange()
-    range.setStart(textNode!, 'First re'.length)
-    range.setEnd(textNode!, 'First re'.length)
-    const restoreCaretRange = stubCaretRangeFromPoint(range)
 
     const mouseDoubleClick = createDoubleClickEvent({clientX: 40, clientY: 40})
     heading?.dispatchEvent(mouseDoubleClick)
@@ -501,54 +927,7 @@ describe('markdown-preview component', () => {
     expect(markdownPreviewModel.mode()).toBe('edit')
     expect(touchDoubleClick.defaultPrevented).toBe(true)
     expect(editor).not.toBeNull()
-    expect(element.shadowRoot?.activeElement).toBe(editor)
-    expect(editor?.selectionStart).toBe(source.indexOf('First repeat') + 'First re'.length)
-
-    restoreCaretRange()
-  })
-
-  it('prefers the word selected in preview over a misleading caret position', async () => {
-    ensureDefined()
-    const source = '# First repeat\n\nSecond repeat word'
-    const element = createElementWithState(
-      readyState({
-        source,
-        baseline: source,
-        renderedHtml:
-          '<h1 data-source-line-start="0" data-source-line-end="1">First repeat</h1><p data-source-line-start="2" data-source-line-end="3">Second repeat word</p>',
-      }),
-    )
-    await settle(element)
-
-    const paragraph = element.shadowRoot?.querySelector('.rendered-markdown p')
-    const textNode = paragraph?.firstChild
-    expect(textNode).toBeInstanceOf(Text)
-
-    const wrongCaretRange = document.createRange()
-    wrongCaretRange.setStart(textNode!, 0)
-    wrongCaretRange.setEnd(textNode!, 0)
-    const restoreCaretRange = stubCaretRangeFromPoint(wrongCaretRange)
-
-    const selectionRange = document.createRange()
-    const selectedWordStart = 'Second '.length
-    const selectedWordEnd = 'Second repeat'.length
-    selectionRange.setStart(textNode!, selectedWordStart)
-    selectionRange.setEnd(textNode!, selectedWordEnd)
-    const restoreSelection = stubDocumentSelection(selectionRange)
-
-    try {
-      paragraph?.dispatchEvent(createDoubleClickEvent({clientX: 90, clientY: 30, firesTouchEvents: true}))
-      await settle(element)
-
-      const editor = element.shadowRoot?.querySelector<HTMLTextAreaElement>('.source-editor')
-      const repeatStart = source.indexOf('Second repeat') + selectedWordStart
-      expect(markdownPreviewModel.mode()).toBe('edit')
-      expect(editor).not.toBeNull()
-      expect(editor?.selectionStart).toBe(repeatStart)
-    } finally {
-      restoreSelection()
-      restoreCaretRange()
-    }
+    expect(markdownPreviewModel.editorFocusRequest()).toMatchObject({selectionStart: 0})
   })
 
   it('prevents native selection as soon as the second tap starts', async () => {
@@ -625,191 +1004,12 @@ describe('markdown-preview component', () => {
       expect(markdownPreviewModel.mode()).toBe('edit')
       expect(removeAllRanges).toHaveBeenCalled()
       expect(editor).not.toBeNull()
-      expect(element.shadowRoot?.activeElement).toBe(editor)
-      expect(editor?.selectionStart).toBe(source.indexOf('repeat'))
+      expect(markdownPreviewModel.editorFocusRequest()).toMatchObject({
+        selectionStart: source.indexOf('repeat'),
+      })
     } finally {
       restoreSelection()
     }
-  })
-
-  it('maps preview selection through link labels without counting hidden link URLs', async () => {
-    ensureDefined()
-    const source = '[visible](https://example.com/visible) visible'
-    const element = createElementWithState(
-      readyState({
-        source,
-        baseline: source,
-        renderedHtml:
-          '<p data-source-line-start="0" data-source-line-end="1"><a href="https://example.com/visible">visible</a> visible</p>',
-      }),
-    )
-    await settle(element)
-
-    const paragraph = element.shadowRoot?.querySelector('.rendered-markdown p')
-    const tailTextNode = paragraph?.lastChild
-    expect(tailTextNode).toBeInstanceOf(Text)
-
-    const selectionRange = document.createRange()
-    selectionRange.setStart(tailTextNode!, 1)
-    selectionRange.setEnd(tailTextNode!, ' visible'.length)
-    const restoreSelection = stubDocumentSelection(selectionRange)
-
-    try {
-      paragraph?.dispatchEvent(createDoubleClickEvent({clientX: 90, clientY: 30, firesTouchEvents: true}))
-      await settle(element)
-
-      const editor = element.shadowRoot?.querySelector<HTMLTextAreaElement>('.source-editor')
-      expect(markdownPreviewModel.mode()).toBe('edit')
-      expect(editor).not.toBeNull()
-      expect(editor?.selectionStart).toBe(source.lastIndexOf('visible'))
-    } finally {
-      restoreSelection()
-    }
-  })
-
-  it('maps preview selection through markdown block prefixes', async () => {
-    ensureDefined()
-    const source = '## Heading target'
-    const element = createElementWithState(
-      readyState({
-        source,
-        baseline: source,
-        renderedHtml: '<h2 data-source-line-start="0" data-source-line-end="1">Heading target</h2>',
-      }),
-    )
-    await settle(element)
-
-    const heading = element.shadowRoot?.querySelector('.rendered-markdown h2')
-    const textNode = heading?.firstChild
-    expect(textNode).toBeInstanceOf(Text)
-
-    const selectionRange = document.createRange()
-    selectionRange.setStart(textNode!, 'Heading '.length)
-    selectionRange.setEnd(textNode!, 'Heading target'.length)
-    const restoreSelection = stubDocumentSelection(selectionRange)
-
-    try {
-      heading?.dispatchEvent(createDoubleClickEvent({clientX: 90, clientY: 30, firesTouchEvents: true}))
-      await settle(element)
-
-      const editor = element.shadowRoot?.querySelector<HTMLTextAreaElement>('.source-editor')
-      expect(markdownPreviewModel.mode()).toBe('edit')
-      expect(editor).not.toBeNull()
-      expect(editor?.selectionStart).toBe(source.indexOf('target'))
-    } finally {
-      restoreSelection()
-    }
-  })
-
-  it('maps preview selection through markdown task list prefixes', async () => {
-    ensureDefined()
-    const source = '- [x] done target'
-    const element = createElementWithState(
-      readyState({
-        source,
-        baseline: source,
-        renderedHtml:
-          '<ul data-source-line-start="0" data-source-line-end="1"><li>done target</li></ul>',
-      }),
-    )
-    await settle(element)
-
-    const item = element.shadowRoot?.querySelector('.rendered-markdown li')
-    const textNode = item?.firstChild
-    expect(textNode).toBeInstanceOf(Text)
-
-    const selectionRange = document.createRange()
-    selectionRange.setStart(textNode!, 'done '.length)
-    selectionRange.setEnd(textNode!, 'done target'.length)
-    const restoreSelection = stubDocumentSelection(selectionRange)
-
-    try {
-      item?.dispatchEvent(createDoubleClickEvent({clientX: 90, clientY: 30, firesTouchEvents: true}))
-      await settle(element)
-
-      const editor = element.shadowRoot?.querySelector<HTMLTextAreaElement>('.source-editor')
-      expect(markdownPreviewModel.mode()).toBe('edit')
-      expect(editor).not.toBeNull()
-      expect(editor?.selectionStart).toBe(source.indexOf('target'))
-    } finally {
-      restoreSelection()
-    }
-  })
-
-  it('maps preview selection across soft line breaks instead of textarea visual rows', async () => {
-    ensureDefined()
-    const source = 'repeat on first raw line\nwrapped lower repeat word'
-    const element = createElementWithState(
-      readyState({
-        source,
-        baseline: source,
-        renderedHtml:
-          '<p data-source-line-start="0" data-source-line-end="2">repeat on first raw line\nwrapped lower repeat word</p>',
-      }),
-    )
-    await settle(element)
-
-    const paragraph = element.shadowRoot?.querySelector('.rendered-markdown p')
-    const textNode = paragraph?.firstChild
-    expect(textNode).toBeInstanceOf(Text)
-
-    const secondRepeatStart = 'repeat on first raw line\nwrapped lower '.length
-    const selectionRange = document.createRange()
-    selectionRange.setStart(textNode!, secondRepeatStart)
-    selectionRange.setEnd(textNode!, secondRepeatStart + 'repeat'.length)
-    const restoreSelection = stubDocumentSelection(selectionRange)
-
-    try {
-      paragraph?.dispatchEvent(createDoubleClickEvent({clientX: 150, clientY: 55, firesTouchEvents: true}))
-      await settle(element)
-
-      const editor = element.shadowRoot?.querySelector<HTMLTextAreaElement>('.source-editor')
-      expect(markdownPreviewModel.mode()).toBe('edit')
-      expect(editor).not.toBeNull()
-      expect(editor?.selectionStart).toBe(source.lastIndexOf('repeat'))
-    } finally {
-      restoreSelection()
-    }
-  })
-
-  it('uses rendered text geometry when browser caret APIs do not resolve preview text', async () => {
-    vi.useFakeTimers()
-    ensureDefined()
-    const source = '# First repeat\n\nSecond repeat word'
-    const element = createElementWithState(
-      readyState({
-        source,
-        baseline: source,
-        renderedHtml:
-          '<h1 data-source-line-start="0" data-source-line-end="1">First repeat</h1><p data-source-line-start="2" data-source-line-end="3">Second repeat word</p>',
-      }),
-    )
-    await settle(element)
-
-    const paragraph = element.shadowRoot?.querySelector('.rendered-markdown p')
-    const textNode = paragraph?.firstChild
-    expect(textNode).toBeInstanceOf(Text)
-    const restoreRangeRects = stubRangeClientRectsForTextNode(textNode as Text, {
-      charWidth: 10,
-      top: 20,
-      height: 20,
-    })
-
-    paragraph?.dispatchEvent(createPointerEvent('pointerdown', {clientX: 86, clientY: 30}))
-    paragraph?.dispatchEvent(createPointerEvent('pointerup', {clientX: 86, clientY: 30}))
-    vi.advanceTimersByTime(120)
-    paragraph?.dispatchEvent(createPointerEvent('pointerdown', {clientX: 86, clientY: 30}))
-    paragraph?.dispatchEvent(createPointerEvent('pointerup', {clientX: 86, clientY: 30}))
-    await settle(element)
-
-    const editor = element.shadowRoot?.querySelector<HTMLTextAreaElement>('.source-editor')
-    const repeatStart = source.indexOf('Second repeat') + 'Second '.length
-    expect(markdownPreviewModel.mode()).toBe('edit')
-    expect(editor).not.toBeNull()
-    expect(editor?.selectionStart).toBeGreaterThan(repeatStart)
-    expect(editor?.selectionStart).toBeLessThanOrEqual(repeatStart + 'repeat'.length)
-
-    restoreRangeRects()
   })
 
   it('keeps long press and single taps in preview mode', async () => {
@@ -864,6 +1064,9 @@ describe('markdown-preview component', () => {
   it('routes mode buttons and toolbar actions through the model', async () => {
     ensureDefined()
     const setMode = vi.spyOn(markdownPreviewModel, 'setMode').mockImplementation(() => {})
+    const requestFileLinkInsertion = vi
+      .spyOn(markdownPreviewModel, 'requestFileLinkInsertion')
+      .mockReturnValue(true)
     const undo = vi.spyOn(markdownPreviewModel, 'undo').mockReturnValue(true)
     const redo = vi.spyOn(markdownPreviewModel, 'redo').mockReturnValue(true)
     vi.spyOn(markdownPreviewModel, 'canUndo').mockReturnValue(true)
@@ -886,12 +1089,14 @@ describe('markdown-preview component', () => {
       'Markdown mode',
     )
     buttons.find((button) => button.textContent?.includes('Edit'))?.click()
+    buttons.find((button) => button.textContent?.includes('Insert file link'))?.click()
     buttons.find((button) => button.textContent?.includes('Undo'))?.click()
     buttons.find((button) => button.textContent?.includes('Redo'))?.click()
     buttons.find((button) => button.textContent?.includes('Format'))?.click()
     buttons.find((button) => button.textContent?.includes('Rename'))?.click()
 
     expect(setMode).toHaveBeenCalledWith('edit')
+    expect(requestFileLinkInsertion).toHaveBeenCalledTimes(1)
     expect(undo).toHaveBeenCalledTimes(1)
     expect(redo).toHaveBeenCalledTimes(1)
     expect(formatDocument).toHaveBeenCalledTimes(1)
@@ -1068,8 +1273,8 @@ describe('markdown-preview component', () => {
 
     expect(element.shadowRoot?.textContent).toContain('Saving is unavailable in this runtime')
     expect(
-      Array.from(element.shadowRoot?.querySelectorAll<HTMLButtonElement>('cv-button') ?? []).find(
-        (button) => button.textContent?.includes('Save unavailable'),
+      Array.from(element.shadowRoot?.querySelectorAll<HTMLButtonElement>('cv-button') ?? []).find((button) =>
+        button.textContent?.includes('Save unavailable'),
       ),
     ).toBeUndefined()
   })
@@ -1087,7 +1292,9 @@ describe('markdown-preview component', () => {
     markdownPreviewModel.pendingCloseIntent.set({kind: 'close'})
     await settle(element)
 
-    const sheet = element.shadowRoot?.querySelector<HTMLElement & {open: boolean}>('cv-bottom-sheet.dirty-sheet')
+    const sheet = element.shadowRoot?.querySelector<HTMLElement & {open: boolean}>(
+      'cv-bottom-sheet.dirty-sheet',
+    )
     expect(sheet).not.toBeNull()
     expect(sheet?.open).toBe(true)
     expect(sheet?.getAttribute('aria-label')).toBe('Unsaved Markdown changes')
@@ -1115,7 +1322,9 @@ describe('markdown-preview component', () => {
     markdownPreviewModel.pendingCloseIntent.set({kind: 'close'})
     await settle(element)
 
-    const sheet = element.shadowRoot?.querySelector<HTMLElement & {open: boolean}>('cv-bottom-sheet.dirty-sheet')
+    const sheet = element.shadowRoot?.querySelector<HTMLElement & {open: boolean}>(
+      'cv-bottom-sheet.dirty-sheet',
+    )
     expect(sheet?.open).toBe(true)
     expect(transientBackModel.consumeBack()).toBe(true)
     await settle(element)
@@ -1141,5 +1350,4 @@ describe('markdown-preview component', () => {
 
     expect(element.shadowRoot?.textContent).toContain('Markdown notes must be UTF-8 text')
   })
-
 })

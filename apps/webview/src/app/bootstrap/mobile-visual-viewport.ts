@@ -6,9 +6,7 @@ import {
   setMobileKeyboardOccluding,
 } from './mobile-keyboard/keyboard-occlusion.model'
 import {
-  ANDROID_NATIVE_KEYBOARD_INSETS_ATTR,
   applyMobileKeyboardCssOffsets,
-  IOS_NATIVE_KEYBOARD_INSETS_ATTR,
   MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR,
   NATIVE_KEYBOARD_INSETS_ATTR,
   NATIVE_SAFE_AREA_BOTTOM_ATTR,
@@ -192,10 +190,8 @@ export const setupMobileVisualViewportSync = () => {
       bottomInset,
     })
     const nativeKeyboardInset = Number.parseFloat(
-      getComputedStyle(root).getPropertyValue('--native-keyboard-bottom-inset'),
+      getComputedStyle(root).getPropertyValue('--app-runtime-keyboard-native-inset-block-end'),
     )
-    const usesAndroidNativeInset = root.hasAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR)
-    const usesIOSNativeInset = root.hasAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR)
     const usesNativeResize = root.hasAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR)
     const preferNativeKeyboardInset = root.hasAttribute(NATIVE_KEYBOARD_INSETS_ATTR)
     const effectiveKeyboardInset = resolveEffectiveKeyboardInset({
@@ -203,18 +199,13 @@ export const setupMobileVisualViewportSync = () => {
       nativeKeyboardInset,
       preferNativeKeyboardInset,
     })
-    const cssOffsetSource = usesIOSNativeInset
-      ? 'ios-native'
-      : usesAndroidNativeInset
-        ? 'android-native'
-        : 'visual-viewport'
     const cssViewportMode = usesNativeResize ? 'native-resize' : 'overlay'
     const runtimeCaps = getRuntimeCapabilities()
     const safeAreaEnvInset = Number.parseFloat(
-      getComputedStyle(root).getPropertyValue('--safe-area-bottom-env'),
+      getComputedStyle(root).getPropertyValue('--app-runtime-safe-area-block-end-environment'),
     )
     const nativeSafeAreaBottomInset = Number.parseFloat(
-      getComputedStyle(root).getPropertyValue('--safe-area-bottom-native'),
+      getComputedStyle(root).getPropertyValue('--app-runtime-safe-area-block-end-native'),
     )
     const hasNativeSafeAreaBottom = root.hasAttribute(NATIVE_SAFE_AREA_BOTTOM_ATTR)
     const resolvedSafeAreaInset = resolveSafeAreaBottomFallback({
@@ -231,16 +222,16 @@ export const setupMobileVisualViewportSync = () => {
     })
 
     root.style.setProperty(
-      '--visual-viewport-bottom-inset',
+      '--app-runtime-visual-viewport-inset-block-end',
       `${usesNativeResize ? 0 : effectiveKeyboardInset}px`,
     )
     if (visualViewportBlockSize > 0) {
-      root.style.setProperty('--visual-viewport-block-size', `${visualViewportBlockSize}px`)
+      root.style.setProperty('--app-runtime-visual-viewport-block-size', `${visualViewportBlockSize}px`)
     } else {
-      root.style.removeProperty('--visual-viewport-block-size')
+      root.style.removeProperty('--app-runtime-visual-viewport-block-size')
     }
-    applyMobileKeyboardCssOffsets(root, effectiveKeyboardInset, cssOffsetSource, cssViewportMode)
-    root.style.setProperty('--safe-area-bottom-fallback', `${resolvedSafeAreaInset}px`)
+    applyMobileKeyboardCssOffsets(root, effectiveKeyboardInset, cssViewportMode)
+    root.style.setProperty('--app-runtime-safe-area-block-end-fallback', `${resolvedSafeAreaInset}px`)
     const visualViewportShrunken = effectiveKeyboardInset > 0
     root.toggleAttribute(VISUAL_VIEWPORT_SHRUNK_ATTR, visualViewportShrunken)
     setMobileKeyboardOccluding(root.hasAttribute(MOBILE_KEYBOARD_EXPANDED_ATTR) || visualViewportShrunken)

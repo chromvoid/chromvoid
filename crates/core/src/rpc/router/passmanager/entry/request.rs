@@ -20,10 +20,6 @@ pub(super) struct EntrySaveRequest {
     pub(super) import_source: Option<serde_json::Value>,
     pub(super) tags: Option<Vec<String>>,
     pub(super) icon_ref: Option<String>,
-    pub(super) ssh_keys: Option<Vec<serde_json::Value>>,
-    pub(super) ssh_key_type: Option<String>,
-    pub(super) ssh_key_fingerprint: Option<String>,
-    pub(super) ssh_key_comment: Option<String>,
 }
 
 pub(super) struct EntryIdRequest {
@@ -74,16 +70,6 @@ pub(super) fn parse_entry_save_request(
             .cloned(),
         tags: data.get("tags").map(normalize_credential_tags),
         icon_ref: optional_str_any(data, "iconRef", &["icon_ref"]).map(ToString::to_string),
-        ssh_keys: data
-            .get("sshKeys")
-            .and_then(|value| value.as_array())
-            .cloned(),
-        ssh_key_type: optional_str_any(data, "sshKeyType", &["ssh_key_type"])
-            .map(ToString::to_string),
-        ssh_key_fingerprint: optional_str_any(data, "sshKeyFingerprint", &["ssh_key_fingerprint"])
-            .map(ToString::to_string),
-        ssh_key_comment: optional_str_any(data, "sshKeyComment", &["ssh_key_comment"])
-            .map(ToString::to_string),
     })
 }
 

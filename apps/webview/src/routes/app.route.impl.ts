@@ -3,7 +3,10 @@ import type {CVMenuButtonInputEvent} from '@chromvoid/uikit/components/cv-menu-b
 import {nothing, type PropertyValues, type TemplateResult} from 'lit'
 
 import {navigationModel} from 'root/app/navigation/navigation.model'
-import type {SurfaceId} from 'root/app/navigation/navigation.types'
+import type {NavigationMotionPlan} from 'root/app/navigation/navigation-motion.model'
+import type {NavigationSnapshot, SurfaceId} from 'root/app/navigation/navigation.types'
+import {mobileKeyboardOccluding} from 'root/app/bootstrap/mobile-keyboard/keyboard-occlusion.model'
+import {prepareDashboardSurfaceForPresentation} from 'root/app/bootstrap/surface-component-loader'
 import {markStartupContentReadyWhenStable} from 'root/app/bootstrap/startup-readiness'
 import {markStartupTimeline} from 'root/app/bootstrap/startup-timeline'
 import {
@@ -16,11 +19,9 @@ import {guidanceCompletionBridge, guidanceModel} from 'root/core/guidance'
 import {i18n} from 'root/i18n'
 import type {HostPathTokenGrant} from 'root/core/transport/transport'
 import {getAppContext, getRouter} from 'root/shared/services/app-context'
-import {openCommandPalette} from 'root/shared/services/command-palette'
 import {renderRouteBackLink} from 'root/shared/ui/route-back-link'
 import {subscribeAfterInitial} from 'root/shared/services/subscribed-signal'
 import {
-  emitFileActionCommand,
   subscribeFileCommand,
   type FileCommand,
   type FileOpenCommand,
@@ -28,6 +29,8 @@ import {
 import type {Routes} from 'root/app/router/router'
 import type {SearchFilters} from 'root/shared/contracts/file-manager'
 import {getFileManagerModel} from 'root/features/file-manager/file-manager.model'
+import {WorkspaceDashboardHeader} from 'root/features/file-manager/components/workspace-dashboard-header'
+import {notesQuickViewHeaderControlsModel} from 'root/features/file-manager/components/notes-quick-view/notes-quick-view-base'
 import {
   definePasswordManagerDesktopToolbarContent,
   executePasswordManagerDesktopToolbarButtonEvent,
@@ -35,8 +38,15 @@ import {
   renderPasswordManagerDesktopToolbarContent,
 } from 'root/features/passmanager/components/password-manager-layout/password-manager-desktop-toolbar-content'
 import {passwordManagerDesktopLayoutModel} from 'root/features/passmanager/components/password-manager-layout/password-manager-layout.model'
+import {pmCredentialsIconPreloadModel} from 'root/features/passmanager/models/pm-credentials-icon-preload.model'
+import {
+  pmMotionModel,
+  type PassmanagerMotionIntent,
+} from 'root/features/passmanager/models/pm-motion.model'
+import {pmModel} from 'root/features/passmanager/password-manager.model'
 import {remoteStorageModel} from './remote-storage/remote-storage.model'
-import {viewTransition} from 'root/utils/view-transitions'
+import {viewTransitionCoordinator} from 'root/utils/view-transitions'
+import {viewTransitionTargets} from 'root/utils/view-transition-targets'
 
 import {FileAppShell} from 'root/features/shell/components/file-app-shell'
 import {StatusBar} from 'root/features/shell/components/status-bar'
@@ -45,10 +55,16 @@ import type {GalleryCloseDetail} from 'root/features/media/components/image-gall
 import {MediaPlaybackHost} from 'root/features/media/components/media-playback-host'
 import {mediaPlaybackModel} from 'root/features/media/models/media-playback.model'
 import {AppGuidanceHost} from 'root/features/guidance'
+import {MobileUsbHostApproval} from 'root/features/mobile-usb-host/mobile-usb-host-approval'
+import {OtpImportReview} from 'root/features/passmanager/components/otp-import-review/otp-import-review'
 import {BiometricAppGate} from './biometric-app-gate/biometric-app-gate'
 import {biometricAppGateModel} from './biometric-app-gate/biometric-app-gate.model'
 import {appRouteStyles} from './app.route.styles'
-import {ChromVoidAppModel, type MobileToolbarState} from './app.route.model'
+import {
+  ChromVoidAppModel,
+  type AppRouteTransitionPlan,
+  type MobileToolbarState,
+} from './app.route.model'
 
 const STARTUP_ROUTE_READINESS_SETTLE_MS = 360
 
@@ -79,7 +95,10 @@ export class ChromVoidApp extends ReatomLitElement {
     AudioPlayer.define()
     MediaPlaybackHost.define()
     AppGuidanceHost.define()
+    MobileUsbHostApproval.define()
+    OtpImportReview.define()
     BiometricAppGate.define()
+    WorkspaceDashboardHeader.define()
     definePasswordManagerDesktopToolbarContent()
   }
   static styles = appRouteStyles
@@ -87,6 +106,8 @@ export class ChromVoidApp extends ReatomLitElement {
   private readonly model = new ChromVoidAppModel()
   private unsubscribeFileCommand?: () => void
   private unbindRouteTransition?: () => void
+  private unbindNavigationPresenter?: () => void
+  private unbindPassmanagerMotionPresenter?: () => void
   private startupRouteReadinessTimerId = 0
 
   connectedCallback(): void {
@@ -103,6 +124,10 @@ export class ChromVoidApp extends ReatomLitElement {
     this.uninstallGuidanceE2EBridge()
     this.unbindRouteTransition?.()
     this.unbindRouteTransition = undefined
+    this.unbindNavigationPresenter?.()
+    this.unbindNavigationPresenter = undefined
+    this.unbindPassmanagerMotionPresenter?.()
+    this.unbindPassmanagerMotionPresenter = undefined
     window.clearTimeout(this.startupRouteReadinessTimerId)
     this.unsubscribeFileCommand?.()
     this.unsubscribeFileCommand = undefined
@@ -115,6 +140,107 @@ export class ChromVoidApp extends ReatomLitElement {
   protected override firstUpdated(changedProperties: PropertyValues): void {
     super.firstUpdated(changedProperties)
     this.scheduleStartupReadinessForRoute(getRouter().route())
+    this.unbindNavigationPresenter = navigationModel.registerCommitPresenter((request) =>
+      this.presentNavigationCommit(request),
+    )
+    this.unbindPassmanagerMotionPresenter = pmMotionModel.registerPresenter(({intent, commit}) =>
+      this.presentPassmanagerCommit(intent, commit),
+    )
+  }
+
+  private async presentNavigationCommit(request: {
+    plan: NavigationMotionPlan
+    next: NavigationSnapshot
+    signal: AbortSignal
+    commit: () => void
+  }): Promise<void> {
+    const {plan, next, signal, commit} = request
+    if (next.surface === 'passwords' && !(await this.prepareCredentialsForPresentation(signal))) {
+      return
+    }
+
+    const {store} = getAppContext()
+    if (store.layoutMode() === 'mobile' && !mobileKeyboardOccluding()) {
+      const targetNames = ['mobile-page', 'mobile-toolbar'] as const
+      await viewTransitionCoordinator.run({
+        presentation: {
+          scope: plan.kind === 'surface' ? 'mobile-surface' : 'mobile-page',
+          direction: plan.direction,
+        },
+        targets: viewTransitionTargets.resolve(targetNames),
+        update: commit,
+        settle: async () => {
+          await this.updateComplete
+          await viewTransitionTargets.settle(targetNames)
+        },
+      })
+      return
+    }
+
+    if (plan.kind !== 'surface') {
+      commit()
+      return
+    }
+
+    const routeContent = this.renderRoot.querySelector<HTMLElement>('.route-content')
+    await viewTransitionCoordinator.run({
+      presentation: {scope: 'route', direction: plan.direction},
+      targets: [{element: routeContent, name: 'route-content'}],
+      update: commit,
+      settle: async () => {
+        await this.updateComplete
+      },
+    })
+  }
+
+  private prepareCredentialsForPresentation(signal: AbortSignal): Promise<boolean> {
+    if (signal.aborted) return Promise.resolve(false)
+
+    return new Promise<boolean>((resolve, reject) => {
+      const finish = (ready: boolean) => {
+        signal.removeEventListener('abort', handleAbort)
+        resolve(ready)
+      }
+      const handleAbort = () => finish(false)
+      signal.addEventListener('abort', handleAbort, {once: true})
+
+      void prepareDashboardSurfaceForPresentation('passwords').then(
+        () => finish(!signal.aborted),
+        (error) => {
+          signal.removeEventListener('abort', handleAbort)
+          reject(error)
+        },
+      )
+    })
+  }
+
+  private async presentPassmanagerCommit(
+    intent: Exclude<PassmanagerMotionIntent, {kind: 'none'}>,
+    commit: () => void,
+  ): Promise<void> {
+    await pmCredentialsIconPreloadModel.prepareIntent(intent)
+    const {store} = getAppContext()
+    if (store.layoutMode() !== 'mobile' || mobileKeyboardOccluding()) {
+      commit()
+      return
+    }
+
+    const direction =
+      intent.direction === 'forward' || intent.direction === 'open'
+        ? 'forward'
+        : intent.direction === 'back' || intent.direction === 'close'
+          ? 'back'
+          : 'replace'
+    const targetNames = ['pm-page', 'mobile-toolbar'] as const
+    await viewTransitionCoordinator.run({
+      presentation: {scope: 'pm-page', direction},
+      targets: viewTransitionTargets.resolve(targetNames),
+      update: commit,
+      settle: async () => {
+        await this.updateComplete
+        await viewTransitionTargets.settle(targetNames)
+      },
+    })
   }
 
   private installGuidanceE2EBridge(): void {
@@ -134,11 +260,14 @@ export class ChromVoidApp extends ReatomLitElement {
   private renderShellDetails() {
     const data = this.model.getShellDetailsData()
     if (!data) return nothing
-    const externalOpenPending = getFileManagerModel(getAppContext()).isExternalOpenPending(data.id)
+    const appContext = getAppContext()
+    const externalOpenPending = getFileManagerModel(appContext).isExternalOpenPending(data.id)
+    const mobile = appContext.store.layoutMode() === 'mobile'
 
     return html`<file-details-panel
       slot="details"
       open
+      .mobile=${mobile}
       .externalOpenPending=${externalOpenPending}
       .data=${{
         mode: 'single' as const,
@@ -177,10 +306,7 @@ export class ChromVoidApp extends ReatomLitElement {
       }
 
       if (surface === 'remote') {
-        return html`<remote-page
-          .hideBackLink=${hideMobileBackLinks}
-          .externalToolbar=${!hideMobileBackLinks}
-        ></remote-page>`
+        return html`<remote-page></remote-page>`
       }
       if (surface === 'gateway') {
         return html`<gateway-page
@@ -195,16 +321,16 @@ export class ChromVoidApp extends ReatomLitElement {
         ></remote-storage-page>`
       }
       if (surface === 'settings') {
-        return html`<settings-page
-          .hideBackLink=${hideMobileBackLinks}
-          .externalToolbar=${!hideMobileBackLinks}
-        ></settings-page>`
+        return html`<settings-page></settings-page>`
       }
       if (surface === 'passkeys') {
-        return html`<passkeys-page
+        return html`<passkeys-page></passkeys-page>`
+      }
+      if (surface === 'wallet') {
+        return html`<wallet-page
           .hideBackLink=${hideMobileBackLinks}
-          .externalToolbar=${!hideMobileBackLinks}
-        ></passkeys-page>`
+          .externalToolbar=${true}
+        ></wallet-page>`
       }
       if (surface === 'passwords') {
         return html`<password-manager></password-manager>`
@@ -247,6 +373,7 @@ export class ChromVoidApp extends ReatomLitElement {
         : access.status === 'locked_pro'
           ? i18n('pro-access:locked-pro')
           : access.denial_code || access.feature_key
+    const guidanceSurface = this.getProAccessGuidanceSurface(surface)
 
     const content = html`
       <section class="pro-access-state" aria-live="polite">
@@ -257,19 +384,22 @@ export class ChromVoidApp extends ReatomLitElement {
           <button class="pro-access-state__button" @click=${this.handleOpenSettings}>
             ${i18n('navigation:settings')}
           </button>
-          <button
-            class="pro-access-state__button pro-access-state__button--secondary"
-            data-surface=${surface}
-            data-feature=${access.feature_key}
-            data-status=${access.status}
-            @click=${this.handleBlockedAccessHelp}
-          >
-            ${i18n('guidance:actions:open-help')}
-          </button>
+          ${guidanceSurface
+            ? html`
+                <button
+                  class="pro-access-state__button pro-access-state__button--secondary"
+                  data-surface=${surface}
+                  data-feature=${access.feature_key}
+                  data-status=${access.status}
+                  @click=${this.handleBlockedAccessHelp}
+                >
+                  ${i18n('guidance:actions:open-help')}
+                </button>
+              `
+            : nothing}
         </div>
       </section>
     `
-    const guidanceSurface = this.getProAccessGuidanceSurface(surface)
     if (!guidanceSurface) return content
 
     return html`
@@ -308,7 +438,10 @@ export class ChromVoidApp extends ReatomLitElement {
       <mobile-top-toolbar
         slot="mobile-topbar"
         .title=${state.title}
+        .titleAction=${state.titleAction ?? null}
         .subtitle=${state.subtitle ?? ''}
+        .meta=${state.meta ?? []}
+        .metaLabel=${state.metaLabel ?? ''}
         .status=${state.status ?? null}
         .leading=${state.leading}
         .menuOpen=${getAppContext().store.sidebarOpen()}
@@ -316,10 +449,7 @@ export class ChromVoidApp extends ReatomLitElement {
         .maxVisible=${state.maxVisible}
         .overflowFromIndex=${state.overflowFromIndex}
         ?back-disabled=${state.backDisabled}
-        ?show-command=${state.showCommand}
-        ?command-active=${Boolean(state.commandActive)}
         @mobile-toolbar-leading=${this.onMobileToolbarLeading}
-        @mobile-toolbar-command=${this.onMobileToolbarCommand}
         @mobile-toolbar-action=${this.onMobileToolbarAction}
       >
       </mobile-top-toolbar>
@@ -358,6 +488,13 @@ export class ChromVoidApp extends ReatomLitElement {
         return {
           title: i18n('passkeys:title'),
           subtitle: i18n('passkeys:description'),
+          backLabel: i18n('nav:back'),
+          onBack: this.handleDesktopNavigationBack,
+        }
+      case 'wallet':
+        return {
+          title: i18n('wallet:title'),
+          subtitle: i18n('wallet:subtitle'),
           backLabel: i18n('nav:back'),
           onBack: this.handleDesktopNavigationBack,
         }
@@ -403,49 +540,149 @@ export class ChromVoidApp extends ReatomLitElement {
     const model = getFileManagerModel(getAppContext())
 
     return html`
-      <dashboard-header
+      <workspace-dashboard-header
         slot="desktop-topbar"
+        surface="files"
         .currentPath=${model.currentPath()}
         .filters=${model.searchFilters()}
         .filterActions=${model.searchFilterActions}
-        .totalFiles=${model.totalCount()}
-        .filteredFiles=${model.filteredCount()}
+        .totalFiles=${model.displayTotalCount()}
+        .filteredFiles=${model.visibleCount()}
         .selectedCount=${model.selectedCount()}
+        .canDownloadSelection=${model.canDownloadSelection()}
         @navigate=${this.handleDesktopFilesNavigate}
         @filters-change=${this.handleDesktopFilesFiltersChange}
         @create-dir=${this.handleDesktopFilesCreateDir}
+        @create-note=${this.handleDesktopFilesCreateNote}
         @upload-requested=${this.handleDesktopFilesUploadRequested}
         @upload-paths-requested=${this.handleDesktopFilesUploadPathsRequested}
         @native-upload-requested=${this.handleDesktopFilesNativeUploadRequested}
+        @move-selected=${this.handleDesktopFilesMoveSelected}
+        @download-selected=${this.handleDesktopFilesDownloadSelected}
         @delete-selected=${this.handleDesktopFilesDeleteSelected}
         @clear-selection=${this.handleDesktopFilesClearSelection}
         @selection-mode-requested=${this.handleDesktopFilesSelectionModeRequested}
-      ></dashboard-header>
+      ></workspace-dashboard-header>
     `
   }
 
   private renderNotesDesktopTopbar(): TemplateResult {
     return html`
-      <desktop-shell-toolbar slot="desktop-topbar">
+      <workspace-dashboard-header
+        slot="desktop-topbar"
+        surface="notes"
+        .controlsModel=${notesQuickViewHeaderControlsModel}
+      >
         <span slot="title">${i18n('navigation:notes' as never)}</span>
         <span slot="subtitle">${i18n('notes:quick_view:subtitle' as never)}</span>
-        <notes-quick-view-controls slot="center"></notes-quick-view-controls>
-      </desktop-shell-toolbar>
+      </workspace-dashboard-header>
     `
   }
 
   private renderPasswordsDesktopTopbar(): TemplateResult {
     return html`
-      <desktop-shell-toolbar
+      <workspace-dashboard-header
         slot="desktop-topbar"
         class="passwords-desktop-toolbar"
-        ?two-row=${passwordManagerDesktopLayoutModel.getCurrentShowElement() !== 'otpView'}
+        surface="passwords"
+        ?two-row=${
+          passwordManagerDesktopLayoutModel.getCurrentShowElement() !== 'otpView' &&
+          passwordManagerDesktopLayoutModel.getCurrentShowElement() !== 'envRuntimeView'
+        }
       >
         ${renderPasswordManagerDesktopToolbarContent({
           model: passwordManagerDesktopLayoutModel,
           onToolbarButtonClick: this.handlePasswordManagerToolbarButtonClick,
           onActionsMenuInput: this.handlePasswordManagerActionsMenuInput,
         })}
+      </workspace-dashboard-header>
+    `
+  }
+
+  private renderWalletDesktopToolbar(): TemplateResult {
+    const context = this.model.walletToolbarContext()
+    if (!context.ready) {
+      return this.renderDesktopTitleToolbar(this.getDesktopTitleToolbarOptions('wallet'))
+    }
+
+    const subtitle = `${context.networkLabel} · ${context.accountLabel}`
+
+    return html`
+      <desktop-shell-toolbar slot="desktop-topbar" class="wallet-desktop-toolbar" single-row>
+        <div slot="leading">
+          ${renderRouteBackLink({label: i18n('nav:back'), onBack: this.handleDesktopNavigationBack})}
+        </div>
+        <span slot="title">${i18n('wallet:title')}</span>
+        <div slot="start" class="wallet-desktop-context">
+          ${context.walletCount > 1
+            ? html`
+                <cv-button
+                  type="button"
+                  size="small"
+                  variant="default"
+                  class="wallet-desktop-context-button"
+                  data-action="switch-wallet"
+                  ?disabled=${!context.canSwitchWallet}
+                  aria-haspopup="dialog"
+                  aria-expanded=${String(context.switcherOpen)}
+                  @click=${this.handleWalletToolbarButtonClick}
+                >
+                  <cv-icon slot="prefix" name="wallet" size="s"></cv-icon>
+                  <span class="wallet-desktop-context-label">${context.walletLabel}</span>
+                  <cv-icon slot="suffix" name="chevron-down" size="xs"></cv-icon>
+                </cv-button>
+              `
+            : html`
+                <span class="wallet-desktop-context-static">
+                  <cv-icon name="wallet" size="s"></cv-icon>
+                  <span class="wallet-desktop-context-label">${context.walletLabel}</span>
+                </span>
+              `}
+          <span class="wallet-desktop-summary">${subtitle}</span>
+        </div>
+        <div slot="actions" class="wallet-desktop-actions">
+          <cv-button
+            type="button"
+            size="small"
+            variant="primary"
+            data-action="send"
+            ?disabled=${!context.canSend}
+            aria-pressed=${String(context.sendActive)}
+            @click=${this.handleWalletToolbarButtonClick}
+          >
+            <cv-icon slot="prefix" name="arrow-up-right" size="s"></cv-icon>
+            ${i18n('wallet:send:title')}
+          </cv-button>
+          <cv-button
+            type="button"
+            size="small"
+            variant="default"
+            data-action="receive"
+            ?disabled=${!context.canReceive}
+            @click=${this.handleWalletToolbarButtonClick}
+          >
+            <cv-icon slot="prefix" name="arrow-down-left" size="s"></cv-icon>
+            ${i18n('wallet:receive:title')}
+          </cv-button>
+          <cv-menu-button
+            class="wallet-desktop-overflow"
+            variant="ghost"
+            preset="icon-overflow"
+            aria-label=${i18n('button:more_actions' as never)}
+            @cv-input=${this.handleWalletToolbarMenuInput}
+          >
+            <cv-icon slot="prefix" name="three-dots"></cv-icon>
+            <span class="sr-only">${i18n('button:more_actions' as never)}</span>
+            <cv-menu-item
+              slot="menu"
+              value="refresh"
+              ?disabled=${!context.canRefresh}
+            >
+              <cv-icon slot="prefix" name="refresh-cw"></cv-icon>
+              ${i18n('wallet:action:refresh')}
+            </cv-menu-item>
+          </cv-menu-button>
+        </div>
       </desktop-shell-toolbar>
     `
   }
@@ -469,6 +706,8 @@ export class ChromVoidApp extends ReatomLitElement {
         return this.renderNotesDesktopTopbar()
       case 'passwords':
         return this.renderPasswordsDesktopTopbar()
+      case 'wallet':
+        return this.renderWalletDesktopToolbar()
       case 'passkeys':
       case 'settings':
       case 'remote':
@@ -502,6 +741,10 @@ export class ChromVoidApp extends ReatomLitElement {
     void getFileManagerModel(getAppContext()).handleCreateDir()
   }
 
+  private handleDesktopFilesCreateNote() {
+    void getFileManagerModel(getAppContext()).handleCreateMarkdownNote()
+  }
+
   private handleDesktopFilesUploadRequested(event: CustomEvent<{files?: FileList}>) {
     const files = event.detail?.files
     if (files && files.length > 0) {
@@ -518,6 +761,14 @@ export class ChromVoidApp extends ReatomLitElement {
 
   private handleDesktopFilesNativeUploadRequested() {
     void getFileManagerModel(getAppContext()).handleNativeUpload()
+  }
+
+  private handleDesktopFilesMoveSelected() {
+    void getFileManagerModel(getAppContext()).openMoveDialogForSelectedItems()
+  }
+
+  private handleDesktopFilesDownloadSelected() {
+    void getFileManagerModel(getAppContext()).handleDownloadSelected()
   }
 
   private handleDesktopFilesDeleteSelected() {
@@ -540,6 +791,34 @@ export class ChromVoidApp extends ReatomLitElement {
     executePasswordManagerDesktopToolbarMenuInput(passwordManagerDesktopLayoutModel, event)
   }
 
+  private handleWalletToolbarButtonClick(event: Event): void {
+    const button = event.currentTarget as HTMLElement | null
+    const actionId = button?.dataset['action']
+    if (!actionId || button?.hasAttribute('disabled')) return
+    this.model.executeWalletToolbarAction(actionId)
+  }
+
+  private handleWalletToolbarMenuInput(event: CVMenuButtonInputEvent): void {
+    const menu = event.currentTarget as HTMLElementTagNameMap['cv-menu-button']
+    if (event.detail.open) {
+      this.resetWalletToolbarMenu(menu)
+      return
+    }
+
+    const actionId = event.detail.value
+    menu.open = false
+    this.resetWalletToolbarMenu(menu)
+    if (actionId) this.model.executeWalletToolbarAction(actionId)
+  }
+
+  private resetWalletToolbarMenu(menu: HTMLElementTagNameMap['cv-menu-button']): void {
+    menu.value = ''
+    for (const item of menu.querySelectorAll<HTMLElementTagNameMap['cv-menu-item']>('cv-menu-item')) {
+      item.selected = false
+      item.active = false
+    }
+  }
+
   private renderShell(
     route: Routes,
     routeContent: TemplateResult | '',
@@ -548,6 +827,7 @@ export class ChromVoidApp extends ReatomLitElement {
   ): TemplateResult {
     const {store} = getAppContext()
     const contentScrollMode = this.model.getMobileShellContentScrollMode()
+    const showStatusBar = route !== 'dashboard' || navigationModel.currentSurface() !== 'files'
 
     return html`
       <file-app-shell
@@ -566,7 +846,7 @@ export class ChromVoidApp extends ReatomLitElement {
       >
         ${this.renderMobileTopToolbar(mobileToolbar)}
         ${this.renderDesktopTopbar(route)}
-        <status-bar slot="statusbar"></status-bar>
+        ${showStatusBar ? html`<status-bar slot="statusbar"></status-bar>` : nothing}
         ${routeContent} ${this.renderShellDetails()}
       </file-app-shell>
     `
@@ -581,7 +861,7 @@ export class ChromVoidApp extends ReatomLitElement {
 
   private onDetailsPanelAction(e: CustomEvent) {
     const {action, fileId} = e.detail
-    emitFileActionCommand({kind: 'action', action: String(action), fileId: Number(fileId)})
+    getFileManagerModel(getAppContext()).executeFileActionById(String(action), Number(fileId))
   }
 
   private handleOpenGallery(e: CustomEvent) {
@@ -615,7 +895,15 @@ export class ChromVoidApp extends ReatomLitElement {
   private handleFileOpenCommand(command: FileOpenCommand) {
     switch (command.kind) {
       case 'document':
-        this.model.openMarkdownDocument(command.fileId)
+        this.model.openMarkdownDocument(
+          command.fileId,
+          command.source || command.viewMode
+            ? {
+                ...(command.source ? {source: command.source} : {}),
+                ...(command.viewMode ? {viewMode: command.viewMode} : {}),
+              }
+            : undefined,
+        )
         return
       case 'gallery':
         this.model.openGallery({fileId: command.fileId})
@@ -801,13 +1089,24 @@ export class ChromVoidApp extends ReatomLitElement {
     this.model.handleMobileBack()
   }
 
-  private onMobileToolbarCommand() {
-    openCommandPalette({mode: 'search', source: 'mobile-toolbar'})
-  }
-
   private setupRouteTransitions(): void {
     this.unbindRouteTransition?.()
-    this.model.initializeRenderedRoute(getRouter().route())
+    const initialRoute = getRouter().route()
+    if (
+      initialRoute === 'dashboard' &&
+      navigationModel.currentSurface() === 'passwords' &&
+      pmModel.sessionStatus() === 'loading'
+    ) {
+      this.model.resetRenderedRouteTransition()
+      void this.presentRouteTransition(
+        this.model.planRenderedRouteTransition(
+          initialRoute,
+          biometricAppGateModel.shouldBlockSurface(),
+        ),
+      )
+    } else {
+      this.model.initializeRenderedRoute(initialRoute)
+    }
     this.unbindRouteTransition = subscribeAfterInitial(getRouter().route, () => {
       const newRoute = getRouter().route()
       this.scheduleStartupReadinessForRoute(newRoute)
@@ -815,11 +1114,30 @@ export class ChromVoidApp extends ReatomLitElement {
       const plan = this.model.planRenderedRouteTransition(newRoute, biometricAppGateModel.shouldBlockSurface())
 
       if (plan.intent.kind === 'surface-change') {
-        void viewTransition(async () => {
-          this.model.commitRenderedRouteTransition(plan)
-          await this.updateComplete
-        })
+        void this.presentRouteTransition(plan)
       }
+    })
+  }
+
+  private async presentRouteTransition(plan: AppRouteTransitionPlan): Promise<void> {
+    if (plan.route === 'dashboard' && navigationModel.currentSurface() === 'passwords') {
+      try {
+        await prepareDashboardSurfaceForPresentation('passwords')
+      } catch (error) {
+        console.warn('[dashboard] failed to prepare Credentials before route transition', error)
+      }
+    }
+
+    const routeContent = this.renderRoot.querySelector<HTMLElement>('.route-content')
+    await viewTransitionCoordinator.run({
+      presentation: {scope: 'route', direction: plan.intent.direction},
+      targets: [{element: routeContent, name: 'route-content'}],
+      update: () => {
+        this.model.commitRenderedRouteTransition(plan)
+      },
+      settle: async () => {
+        await this.updateComplete
+      },
     })
   }
 
@@ -899,7 +1217,7 @@ export class ChromVoidApp extends ReatomLitElement {
   }
 
   private focusDashboardCreateDirActionTarget(): boolean {
-    const shellHeader = this.renderRoot?.querySelector('dashboard-header[slot="desktop-topbar"]') as
+    const shellHeader = this.renderRoot?.querySelector('workspace-dashboard-header[slot="desktop-topbar"]') as
       | (HTMLElement & {focusCreateDirActionTarget?: () => boolean})
       | null
     if (shellHeader?.focusCreateDirActionTarget?.()) {
@@ -944,7 +1262,10 @@ export class ChromVoidApp extends ReatomLitElement {
   }
 
   render() {
-    return this.renderContent()
+    return html`
+      ${this.renderContent()} <mobile-usb-host-approval></mobile-usb-host-approval>
+      <otp-import-review></otp-import-review>
+    `
   }
 }
 

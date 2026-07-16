@@ -300,6 +300,22 @@ describe('NavigationModel overlay resolution', () => {
     expect(window.location.search).toContain('overlay=preview')
   })
 
+  it('opens file overlays against an explicit parent path', async () => {
+    catalog.setPath('/Docs', [
+      {nodeId: 5, name: 'guide.pdf', isDir: false, path: '/Docs/guide.pdf', mimeType: 'application/pdf'},
+    ])
+
+    navigationModel.openPreview(5, 'push', {parentPath: '/Docs'})
+    await Promise.resolve()
+
+    expect(navigationModel.snapshot().files?.path).toBe('/Docs')
+    expect(navigationModel.resolvedOverlay()).toMatchObject({
+      kind: 'preview',
+      fileId: 5,
+      fileName: 'guide.pdf',
+    })
+  })
+
   it('canonicalizes legacy Markdown preview deep links to document routes', async () => {
     catalog.syncing.set(true)
 
@@ -322,7 +338,7 @@ describe('NavigationModel overlay resolution', () => {
       overlay: {kind: 'none'},
     })
     expect(navigationModel.resolvedOverlay()).toEqual({kind: 'closed'})
-    expect(navigationModel.resolvedDocument()).toEqual({
+    expect(navigationModel.resolvedDocument()).toMatchObject({
       kind: 'markdown',
       fileId: 5,
       fileName: 'notes.md',
@@ -350,7 +366,7 @@ describe('NavigationModel overlay resolution', () => {
     catalog.syncing.set(false)
     await Promise.resolve()
 
-    expect(navigationModel.resolvedDocument()).toEqual({
+    expect(navigationModel.resolvedDocument()).toMatchObject({
       kind: 'markdown',
       fileId: 5,
       fileName: 'notes.markdown',
@@ -367,6 +383,7 @@ describe('NavigationModel overlay resolution', () => {
     navigationModel.navigateToSurface('notes')
 
     navigationModel.openMarkdownDocument(21, 'push', {
+      viewMode: 'edit',
       source: {
         path: '/Projects/Retro.md',
         fileName: 'Retro.md',
@@ -393,11 +410,12 @@ describe('NavigationModel overlay resolution', () => {
             lastModified: 1_717_171_717,
             sourceRevision: 9,
           },
+          viewMode: 'edit',
         },
       },
       overlay: {kind: 'none'},
     })
-    expect(navigationModel.resolvedDocument()).toEqual({
+    expect(navigationModel.resolvedDocument()).toMatchObject({
       kind: 'markdown',
       fileId: 21,
       fileName: 'Retro.md',
@@ -405,8 +423,10 @@ describe('NavigationModel overlay resolution', () => {
       mimeType: 'text/markdown',
       lastModified: 1_717_171_717,
       sourceRevision: 9,
+      viewMode: 'edit',
       mode: 'markdown',
     })
+    expect(window.location.search).toContain('docView=edit')
   })
 
   it('prefers catalog node metadata over stale Markdown document source metadata', () => {
@@ -431,7 +451,7 @@ describe('NavigationModel overlay resolution', () => {
       },
     })
 
-    expect(navigationModel.resolvedDocument()).toEqual({
+    expect(navigationModel.resolvedDocument()).toMatchObject({
       kind: 'markdown',
       fileId: 21,
       fileName: 'Renamed.md',

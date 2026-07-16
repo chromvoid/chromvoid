@@ -35,13 +35,6 @@ export class FilePreview extends ReatomLitElement {
     css`
       :host {
         display: block;
-        --file-preview-overlay-padding-top: max(var(--app-spacing-4), var(--safe-area-top, 0px));
-        --file-preview-overlay-padding-right: max(var(--app-spacing-4), var(--safe-area-right, 0px));
-        --file-preview-overlay-padding-bottom: max(
-          var(--app-spacing-4),
-          var(--safe-area-bottom-active, var(--safe-area-bottom, 0px))
-        );
-        --file-preview-overlay-padding-left: max(var(--app-spacing-4), var(--safe-area-left, 0px));
       }
 
       .overlay {
@@ -52,8 +45,22 @@ export class FilePreview extends ReatomLitElement {
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: var(--file-preview-overlay-padding-top) var(--file-preview-overlay-padding-right)
-          var(--file-preview-overlay-padding-bottom) var(--file-preview-overlay-padding-left);
+        padding-block-start: max(
+          var(--app-spacing-4),
+          var(--app-runtime-safe-area-block-start, 0px)
+        );
+        padding-block-end: max(
+          var(--app-spacing-4),
+          var(--app-runtime-safe-area-block-end-active, var(--app-runtime-safe-area-block-end, 0px))
+        );
+        padding-inline-start: max(
+          var(--app-spacing-4),
+          var(--app-runtime-safe-area-inline-start, 0px)
+        );
+        padding-inline-end: max(
+          var(--app-spacing-4),
+          var(--app-runtime-safe-area-inline-end, 0px)
+        );
         background: var(--cv-alpha-black-85);
         backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
@@ -222,7 +229,7 @@ export class FilePreview extends ReatomLitElement {
           linear-gradient(180deg, var(--cv-alpha-white-10), transparent),
           var(--cv-alpha-black-75);
         box-shadow: 0 18px 48px var(--cv-alpha-black-35);
-        color: var(--cv-color-text-inverse, #fff);
+        color: var(--file-preview-overlay-foreground);
         font-size: var(--cv-font-size-sm);
         font-weight: var(--cv-font-weight-semibold);
       }
@@ -271,15 +278,18 @@ export class FilePreview extends ReatomLitElement {
       }
 
       @media (max-width: 720px) {
-        :host {
-          --file-preview-overlay-padding-top: max(var(--app-spacing-4), var(--safe-area-top, 0px));
-          --file-preview-overlay-padding-right: var(--safe-area-right, 0px);
-          --file-preview-overlay-padding-bottom: var(--safe-area-bottom-active, var(--safe-area-bottom, 0px));
-          --file-preview-overlay-padding-left: var(--safe-area-left, 0px);
-        }
-
         .overlay {
           align-items: stretch;
+          padding-block-start: max(
+            var(--app-spacing-4),
+            var(--app-runtime-safe-area-block-start, 0px)
+          );
+          padding-block-end: var(
+            --app-runtime-safe-area-block-end-active,
+            var(--app-runtime-safe-area-block-end, 0px)
+          );
+          padding-inline-start: var(--app-runtime-safe-area-inline-start, 0px);
+          padding-inline-end: var(--app-runtime-safe-area-inline-end, 0px);
         }
 
         .panel {

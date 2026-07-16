@@ -8,9 +8,9 @@ use tracing::{debug, info, warn};
 
 use crate::task_lifecycle::{ManagedTaskName, TaskLifecycleRuntime, TaskShutdownReason};
 
-use super::handshake::perform_handshake;
+use super::handshake::{perform_handshake, GatewayWsRoute};
 use super::rate_limit::ConnectionTracker;
-use super::session::handle_extension_session;
+use super::session::{handle_agent_session, handle_extension_session};
 
 pub const GATEWAY_BIND_V4: &str = "127.0.0.1:8003";
 pub const GATEWAY_BIND_V6: &str = "[::1]:8003";
@@ -152,11 +152,35 @@ async fn run_accept_loop(
                     };
 
                     info!(
-                        "[gateway] handshake success from peer {peer_ip}, extension_id={}",
-                        hs.ext_id
+                        "[gateway] handshake success from peer {peer_ip}, route={:?}, actor_id={}",
+                        hs.route, hs.actor_id
                     );
 
-                    handle_extension_session(hs.transport, hs.ext_id, app_handle, hs.write, hs.read).await;
+                    match hs.route {
+                        GatewayWsRoute::Extension => {
+                            handle_extension_session(
+                                hs.transport,
+                                hs.actor_id,
+                                app_handle,
+                                hs.write,
+                                hs.read,
+                            )
+                            .await;
+                        }
+                        GatewayWsRoute::Agent => {
+                            handle_agent_session(
+                                hs.transport,
+                                hs.actor_id,
+                                app_handle,
+                                hs.write,
+                                hs.read,
+                            )
+                            .await;
+                        }
+                        GatewayWsRoute::Pair => {
+                            warn!("[gateway] pairing handshake returned unresolved route");
+                        }
+                    }
                 });
             }
             join_result = connections.join_next(), if !connections.is_empty() => {

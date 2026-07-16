@@ -10,13 +10,24 @@ async function main() {
   const packageJson = JSON.parse(await readFile(path.join(packageRoot, 'package.json'), 'utf8'))
   const rootTypesPath = path.join(packageRoot, packageJson.exports['.'].types)
   const rootModulePath = path.join(packageRoot, packageJson.exports['.'].import)
+  const pureTypesPath = path.join(packageRoot, packageJson.exports['./pure'].types)
+  const pureModulePath = path.join(packageRoot, packageJson.exports['./pure'].import)
 
   await access(rootTypesPath)
+  await access(pureTypesPath)
   console.log(`[exports] types: ${rootTypesPath}`)
+  console.log(`[exports] types: ${pureTypesPath}`)
 
   const rootModule = await import(pathToFileURL(rootModulePath).href)
   if (typeof rootModule.createI18n !== 'function') {
     throw new Error('Root export smoke failed: createI18n export is missing')
+  }
+  const pureModule = await import(pathToFileURL(pureModulePath).href)
+  if (
+    typeof pureModule.createTranslationStore !== 'function' ||
+    typeof pureModule.resolveTextDirection !== 'function'
+  ) {
+    throw new Error('Pure export smoke failed: expected helpers are missing')
   }
 
   console.log('[exports] package export smoke passed')

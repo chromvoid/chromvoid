@@ -1,6 +1,13 @@
 import {atom, computed} from '@reatom/core'
 
 import {runtimeCapabilitiesAtom} from './runtime-capabilities'
+import {
+  desktopNativeVideoProbeAllows,
+  loopbackHttpProbeAllows,
+  mobileNativeVideoProbeAllows,
+  mseControllerProbeAllows,
+  runtimeMediaProbeStateAtom,
+} from './runtime-media-probes'
 
 export type RuntimeRemoteHost = {
   type: string
@@ -12,6 +19,7 @@ export type RuntimeCoreMode = 'local' | 'switching' | {remote: {host: RuntimeRem
 export type RuntimeModeSwitchResult = {
   current_mode?: RuntimeCoreMode
   remote_core_features?: unknown
+  transport_session_generation?: unknown
 }
 
 export type NativeMediaStreamOptions = {
@@ -35,6 +43,10 @@ function normalizeRemoteCoreFeatures(value: unknown): readonly string[] {
     : []
 }
 
+function normalizeTransportSessionGeneration(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null
+}
+
 class RuntimeModeModel {
   readonly coreMode = atom<RuntimeCoreMode>('local', 'runtime.coreMode')
   readonly nativeMediaStreamDisabledForRuntimeSession = atom(
@@ -54,6 +66,7 @@ class RuntimeModeModel {
     'runtime.androidNativeAudioDisabledReasonForRuntimeSession',
   )
   readonly remoteCoreFeatures = atom<readonly string[]>([], 'runtime.remoteCoreFeatures')
+  readonly transportSessionGeneration = atom<number | null>(null, 'runtime.transportSessionGeneration')
 
   readonly supportsMediaStreamProtocol = computed<boolean>(() =>
     Boolean(runtimeCapabilitiesAtom().supports_media_stream_protocol),
@@ -61,6 +74,22 @@ class RuntimeModeModel {
 
   readonly supportsNativeVideoPlayback = computed<boolean>(() =>
     Boolean(runtimeCapabilitiesAtom().supports_native_video_playback),
+  )
+
+  readonly supportsMediaHttpStream = computed<boolean>(() =>
+    Boolean(runtimeCapabilitiesAtom().supports_media_http_stream),
+  )
+
+  readonly supportsMseVideoPlayback = computed<boolean>(() =>
+    Boolean(runtimeCapabilitiesAtom().supports_mse_video_playback),
+  )
+
+  readonly supportsDesktopNativeVideoPlayback = computed<boolean>(() =>
+    Boolean(runtimeCapabilitiesAtom().supports_desktop_native_video_playback),
+  )
+
+  readonly supportsMobileNativeVideoPlayback = computed<boolean>(() =>
+    Boolean(runtimeCapabilitiesAtom().supports_mobile_native_video_playback),
   )
 
   readonly supportsNativeAudioPlayback = computed<boolean>(() =>
@@ -93,28 +122,83 @@ class RuntimeModeModel {
   readonly nativeMediaStreamAvailable = computed<boolean>(
     () =>
       this.supportsMediaStreamProtocol() &&
-      this.localCoreMode() &&
+      (this.localCoreMode() || this.remoteCoreMode()) &&
       !this.nativeMediaStreamDisabledForRuntimeSession(),
   )
 
+  readonly httpVideoSourceAvailable = computed<boolean>(() => {
+    const capabilities = runtimeCapabilitiesAtom()
+    const mediaProbes = runtimeMediaProbeStateAtom()
+    return (
+      capabilities.desktop &&
+      this.supportsMediaHttpStream() &&
+      loopbackHttpProbeAllows(mediaProbes) &&
+      (this.localCoreMode() || this.remoteCoreMode()) &&
+      !this.nativeMediaStreamDisabledForRuntimeSession()
+    )
+  })
+
+  readonly mseVideoPlaybackAvailable = computed<boolean>(
+    () =>
+      this.supportsMseVideoPlayback() &&
+      mseControllerProbeAllows(runtimeMediaProbeStateAtom()) &&
+      this.httpVideoSourceAvailable(),
+  )
+
+  readonly desktopNativeVideoSourceAvailable = computed<boolean>(() => {
+    const capabilities = runtimeCapabilitiesAtom()
+    const mediaProbes = runtimeMediaProbeStateAtom()
+    return (
+      capabilities.desktop &&
+      this.supportsNativeVideoPlayback() &&
+      this.supportsDesktopNativeVideoPlayback() &&
+      desktopNativeVideoProbeAllows(mediaProbes) &&
+      (this.localCoreMode() || this.remoteCoreMode()) &&
+      !this.androidNativeVideoDisabledForRuntimeSession()
+    )
+  })
+
+  readonly mobileNativeVideoSourceAvailable = computed<boolean>(() => {
+    const capabilities = runtimeCapabilitiesAtom()
+    const mediaProbes = runtimeMediaProbeStateAtom()
+    return (
+      capabilities.mobile &&
+      this.supportsNativeVideoPlayback() &&
+      (this.supportsMobileNativeVideoPlayback() || this.supportsAndroidNativeVideo()) &&
+      mobileNativeVideoProbeAllows(mediaProbes) &&
+      (this.localCoreMode() || this.remoteCoreMode()) &&
+      !this.androidNativeVideoDisabledForRuntimeSession()
+    )
+  })
+
   readonly androidNativeVideoAvailable = computed<boolean>(
     () =>
-      this.supportsAndroidNativeVideo() &&
-      this.localCoreMode() &&
+      (this.supportsAndroidNativeVideo() || this.supportsMobileNativeVideoPlayback()) &&
+      mobileNativeVideoProbeAllows(runtimeMediaProbeStateAtom()) &&
+      (this.localCoreMode() || this.remoteCoreMode()) &&
       !this.androidNativeVideoDisabledForRuntimeSession(),
   )
 
-  readonly nativeVideoPlaybackAvailable = computed<boolean>(
-    () =>
+  readonly nativeVideoPlaybackAvailable = computed<boolean>(() => {
+    const capabilities = runtimeCapabilitiesAtom()
+    const mediaProbes = runtimeMediaProbeStateAtom()
+    const nativeProbeAllowed = capabilities.mobile
+      ? mobileNativeVideoProbeAllows(mediaProbes)
+      : capabilities.desktop
+        ? desktopNativeVideoProbeAllows(mediaProbes)
+        : true
+    return (
       this.supportsNativeVideoPlayback() &&
-      this.localCoreMode() &&
-      !this.androidNativeVideoDisabledForRuntimeSession(),
-  )
+      nativeProbeAllowed &&
+      (this.localCoreMode() || this.remoteCoreMode()) &&
+      !this.androidNativeVideoDisabledForRuntimeSession()
+    )
+  })
 
   readonly nativeAudioPlaybackAvailable = computed<boolean>(
     () =>
       this.supportsNativeAudioPlayback() &&
-      this.localCoreMode() &&
+      (this.localCoreMode() || this.remoteCoreMode()) &&
       !this.androidNativeAudioDisabledForRuntimeSession(),
   )
 
@@ -124,18 +208,22 @@ class RuntimeModeModel {
       capabilities.platform === 'android' &&
       capabilities.mobile &&
       this.androidNativeAudioRolloutEnabled() &&
-      this.localCoreMode() &&
+      (this.localCoreMode() || this.remoteCoreMode()) &&
       !this.androidNativeAudioDisabledForRuntimeSession()
     )
   })
 
-  setCoreMode(mode: unknown, remoteCoreFeatures: unknown = []): void {
+  setCoreMode(
+    mode: unknown,
+    remoteCoreFeatures: unknown = [],
+    transportSessionGeneration: unknown = null,
+  ): void {
     const nextMode = isRuntimeCoreMode(mode) ? mode : 'switching'
+    const isRemote = typeof nextMode === 'object' && nextMode !== null && 'remote' in nextMode
     this.coreMode.set(nextMode)
-    this.remoteCoreFeatures.set(
-      typeof nextMode === 'object' && nextMode !== null && 'remote' in nextMode
-        ? normalizeRemoteCoreFeatures(remoteCoreFeatures)
-        : [],
+    this.remoteCoreFeatures.set(isRemote ? normalizeRemoteCoreFeatures(remoteCoreFeatures) : [])
+    this.transportSessionGeneration.set(
+      isRemote ? normalizeTransportSessionGeneration(transportSessionGeneration) : null,
     )
   }
 
@@ -148,12 +236,41 @@ class RuntimeModeModel {
       typeof result === 'object' && result !== null && 'remote_core_features' in result
         ? (result as RuntimeModeSwitchResult).remote_core_features
         : []
-    this.setCoreMode(nextMode, remoteCoreFeatures)
+    const transportSessionGeneration =
+      typeof result === 'object' && result !== null && 'transport_session_generation' in result
+        ? (result as RuntimeModeSwitchResult).transport_session_generation
+        : null
+    this.setCoreMode(nextMode, remoteCoreFeatures, transportSessionGeneration)
   }
 
   canUseNativeMediaStream(options: NativeMediaStreamOptions = {}): boolean {
     if (options.transportKind && options.transportKind !== 'tauri') return false
     return this.nativeMediaStreamAvailable()
+  }
+
+  canUseMediaStreamSource(options: NativeMediaStreamOptions = {}): boolean {
+    if (options.transportKind && options.transportKind !== 'tauri') return false
+    return !this.nativeMediaStreamDisabledForRuntimeSession()
+  }
+
+  canUseHttpVideoSource(options: NativeMediaStreamOptions = {}): boolean {
+    if (options.transportKind && options.transportKind !== 'tauri') return false
+    return this.httpVideoSourceAvailable()
+  }
+
+  canUseMseVideoPlayback(options: NativeMediaStreamOptions = {}): boolean {
+    if (options.transportKind && options.transportKind !== 'tauri') return false
+    return this.mseVideoPlaybackAvailable()
+  }
+
+  canUseDesktopNativeVideoSource(options: NativeMediaStreamOptions = {}): boolean {
+    if (options.transportKind && options.transportKind !== 'tauri') return false
+    return this.desktopNativeVideoSourceAvailable()
+  }
+
+  canUseMobileNativeVideoSource(options: NativeMediaStreamOptions = {}): boolean {
+    if (options.transportKind && options.transportKind !== 'tauri') return false
+    return this.mobileNativeVideoSourceAvailable()
   }
 
   canUseAndroidNativeVideo(options: NativeMediaStreamOptions = {}): boolean {
@@ -209,6 +326,7 @@ class RuntimeModeModel {
   handleTransportDisconnect(): void {
     this.coreMode.set('local')
     this.remoteCoreFeatures.set([])
+    this.transportSessionGeneration.set(null)
     this.resetNativeMediaStreamForRuntimeSession()
     this.resetAndroidNativeVideoForRuntimeSession()
     this.resetAndroidNativeAudioForRuntimeSession()

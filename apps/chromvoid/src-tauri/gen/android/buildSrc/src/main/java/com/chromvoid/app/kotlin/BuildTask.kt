@@ -4,9 +4,9 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import javax.inject.Inject
 import org.apache.tools.ant.taskdefs.condition.Os
-import org.gradle.api.file.FileCollection
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.logging.LogLevel
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
@@ -35,42 +35,13 @@ abstract class BuildTask @Inject constructor(
     @get:Input
     val licensePublicKey: String
         get() = readLicensePublicKey()
-    @get:Input
-    val productionWebviewDebug: Boolean
-        get() = shouldUseProductionWebviewDebug()
+    @Input
+    var skipFreshTauriPrebuild: Boolean = false
+    @Input
+    var productionWebviewDebug: Boolean = false
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
-    val rustInputFiles: FileCollection
-        get() {
-            val root = resolveProjectRoot()
-            val workspaceRoot = File(root, "../../..").canonicalFile
-            return project.files(
-                project.fileTree(root).matching {
-                    include("Cargo.toml")
-                    include("Cargo.lock")
-                    include("build.rs")
-                    include("src/**/*.rs")
-                    include("capabilities/**")
-                    include("permissions/**")
-                    include("tauri*.conf.json")
-                    exclude("target/**")
-                    exclude("gen/**")
-                },
-                project.fileTree(File(workspaceRoot, "apps/webview/dist")).matching {
-                    include("**/*")
-                    exclude(".chromvoid-build-cache.json")
-                },
-                project.fileTree(File(workspaceRoot, "crates/core")).matching {
-                    include("Cargo.toml")
-                    include("build.rs")
-                    include("src/**/*.rs")
-                },
-                project.fileTree(File(workspaceRoot, "crates/protocol")).matching {
-                    include("Cargo.toml")
-                    include("src/**/*.rs")
-                },
-            )
-        }
+    abstract val rustInputFiles: ConfigurableFileCollection
     @get:OutputFile
     val outputLibrary: File
         get() {
@@ -249,11 +220,11 @@ abstract class BuildTask @Inject constructor(
     }
 
     private fun shouldSkipFreshTauriPrebuild(): Boolean {
-        return project.findProperty(SKIP_FRESH_TAURI_PREBUILD_PROPERTY)?.toString() == "true"
+        return skipFreshTauriPrebuild
     }
 
     private fun shouldUseProductionWebviewDebug(): Boolean {
-        return release != true && project.findProperty(PRODUCTION_WEBVIEW_DEBUG_PROPERTY)?.toString() == "true"
+        return release != true && productionWebviewDebug
     }
 
     private fun isOutputFreshFromTauriPrebuild(): Boolean {

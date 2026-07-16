@@ -35,6 +35,8 @@ fn admin_restore_v2(
         .map_err(RestoreCommandError::from)?;
 
     router.session = None;
+    router.wallet_auth_runtime.spend_authorizations.clear();
+    router.wallet_mnemonic_drafts.clear();
 
     Err(RestoreCommandError::no_stream())
 }
@@ -63,6 +65,8 @@ fn admin_restore_stream(
         .map_err(RestoreCommandError::from)?;
 
     router.session = None;
+    router.wallet_auth_runtime.spend_authorizations.clear();
+    router.wallet_mnemonic_drafts.clear();
 
     let existing_chunks = router.storage.list_chunks().map_err(|error| {
         RestoreCommandError::internal(format!("Failed to check storage state: {}", error))

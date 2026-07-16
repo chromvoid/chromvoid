@@ -13,14 +13,54 @@ type SshAgentSignRequestPayload = {
   host_hint?: string
 }
 
+type SshAgentSignRequestExpiredPayload = {
+  request_id: string
+  reason?: string
+}
+
+const staleApprovalErrorNeedles = [
+  'stale request_id',
+  'requires a running SSH agent',
+]
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function isStaleApprovalError(error: unknown): boolean {
+  const message = errorMessage(error).toLowerCase()
+  return staleApprovalErrorNeedles.some((needle) => message.includes(needle))
+}
+
 /**
  * Handle SSH agent sign requests: show a confirmation dialog and resolve approval.
  */
 export const setupSshAgentHandler = (ws: TransportLike) => {
+  const pendingApprovals = new Map<string, AbortController>()
+
+  ws.on('ssh-agent:sign-request-expired', (_message, payload) => {
+    const data = payload as Partial<SshAgentSignRequestExpiredPayload> | null
+    const requestId = typeof data?.request_id === 'string' ? data.request_id : ''
+    if (!requestId) return
+
+    const controller = pendingApprovals.get(requestId)
+    if (!controller) return
+
+    pendingApprovals.delete(requestId)
+    console.info('[ssh-agent] sign request expired', {
+      requestId,
+      reason: typeof data?.reason === 'string' ? data.reason : undefined,
+    })
+    controller.abort()
+  })
+
   ws.on('ssh-agent:sign-request', (_message, payload) => {
     const data = payload as Partial<SshAgentSignRequestPayload> | null
     const requestId = typeof data?.request_id === 'string' ? data.request_id : ''
     if (!requestId) return
+    pendingApprovals.get(requestId)?.abort()
+    const approvalController = new AbortController()
+    pendingApprovals.set(requestId, approvalController)
 
     const fingerprint =
       typeof data?.fingerprint === 'string' ? data.fingerprint : i18n('ssh-agent:unknown-fingerprint')
@@ -39,6 +79,9 @@ export const setupSshAgentHandler = (ws: TransportLike) => {
     const hostLine = hostHint ? i18n('ssh-agent:host-line', {host: hostHint}) : ''
 
     const resolveApproval = async (approved: boolean) => {
+      if (approvalController.signal.aborted) return
+      pendingApprovals.delete(requestId)
+
       const args = {requestId, approved}
       console.info('[ssh-agent] resolving approval', {
         requestId,
@@ -51,12 +94,27 @@ export const setupSshAgentHandler = (ws: TransportLike) => {
         console.info('[ssh-agent] approval resolved', {requestId, approved})
         return
       } catch (error) {
+        if (isStaleApprovalError(error)) {
+          console.info('[ssh-agent] approval was already closed by backend', {
+            requestId,
+            error: errorMessage(error),
+          })
+          return
+        }
         console.warn('[ssh-agent] failed to resolve sign approval, retrying once', error)
       }
+      if (approvalController.signal.aborted) return
       try {
         await tauriInvoke<void>('ssh_agent_sign_approval_resolve', args)
         console.info('[ssh-agent] approval resolved after retry', {requestId, approved})
       } catch (error) {
+        if (isStaleApprovalError(error)) {
+          console.info('[ssh-agent] approval was already closed by backend after retry', {
+            requestId,
+            error: errorMessage(error),
+          })
+          return
+        }
         console.warn('[ssh-agent] failed to resolve sign approval after retry', error)
       }
     }
@@ -85,8 +143,16 @@ export const setupSshAgentHandler = (ws: TransportLike) => {
         confirmVariant: 'danger',
         variant: 'warning',
         size: 'm',
+        abortSignal: approvalController.signal,
       })
-      .then((approved) => resolveApproval(approved))
-      .catch(() => resolveApproval(false))
+      .then((approved) => {
+        if (approvalController.signal.aborted) return
+        return resolveApproval(approved)
+      })
+      .catch((error) => {
+        if (approvalController.signal.aborted) return
+        console.warn('[ssh-agent] approval dialog failed closed', error)
+        return resolveApproval(false)
+      })
   })
 }

@@ -58,6 +58,7 @@ function createManagerSaver(overrides: Partial<ManagerSaver> = {}): ManagerSaver
     removeEntryNote: vi.fn(async () => true),
     readEntrySshPrivateKey: vi.fn(async () => undefined),
     readEntrySshPublicKey: vi.fn(async () => undefined),
+    readSshPublicKey: vi.fn(async () => undefined),
     saveEntrySshPrivateKey: vi.fn(async () => true),
     saveEntrySshPublicKey: vi.fn(async () => true),
     removeEntrySshPrivateKey: vi.fn(async () => true),
@@ -330,7 +331,7 @@ describe('PMEntrySessionModel', () => {
         return true
       }),
       getOTP: vi.fn(async () => (moved ? '123456' : undefined)),
-      readEntrySshPublicKey: vi.fn(async () => (moved ? 'ssh-ed25519 AAAA moved@test' : undefined)),
+      readSshPublicKey: vi.fn(async () => (moved ? 'ssh-ed25519 AAAA moved@test' : undefined)),
     })
     const root = new ManagerRoot(saver)
     const target = new Group({
@@ -365,6 +366,7 @@ describe('PMEntrySessionModel', () => {
     )
 
     root.entries.set([target, entry])
+    root.sshKeys.set([{id: 'k1', type: 'ed25519', fingerprint: 'SHA256:test', sourceEntryId: entry.id}])
 
     const model = new PMEntrySessionModel()
     const movePromise = entry.move(target, {silent: true})

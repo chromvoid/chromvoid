@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-macos-otp-import-pending"
+description = "Enables the macos_otp_import_pending command without any pre-configured scope."
+commands.allow = ["macos_otp_import_pending"]
+
+[[permission]]
+identifier = "deny-macos-otp-import-pending"
+description = "Denies the macos_otp_import_pending command without any pre-configured scope."
+commands.deny = ["macos_otp_import_pending"]

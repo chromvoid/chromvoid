@@ -73,13 +73,6 @@
     "forceConsistentCasingInFileNames": true /* Disallow inconsistently-cased references to the same file. */,
     "resolveJsonModule": true,
     "verbatimModuleSyntax": true,
-    "allowUnreachableCode": true,
-
-    "plugins": [
-      {
-        "name": "ts-lit-plugin",
-        "strict": true
-      }
-    ]
+    "allowUnreachableCode": true
   }
 }

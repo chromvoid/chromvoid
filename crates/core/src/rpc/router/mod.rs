@@ -5,7 +5,7 @@ mod backup_pack;
 mod blob_finalize;
 pub(in crate::rpc) mod blob_io;
 mod blob_range_reader;
-mod blob_reader;
+pub(crate) mod blob_reader;
 mod catalog_derivative_write;
 mod catalog_media_inspect;
 mod catalog_streams;
@@ -16,6 +16,7 @@ mod derivative_store;
 mod dispatch;
 mod domain_read;
 mod domain_uow;
+mod env_runtime;
 mod events;
 mod master_material;
 mod master_rekey;
@@ -23,6 +24,7 @@ mod otp_sidecar;
 mod passkeys;
 mod passmanager;
 mod plain_blob_read;
+mod reauth;
 mod recovery;
 mod restore;
 mod session_lifecycle;
@@ -45,6 +47,12 @@ pub use derivative_store::{
     CatalogDerivativeWriteRequest, CatalogDerivativeWriteResult, CatalogDerivativeWriteSnapshot,
 };
 pub use state::RpcRouter;
+pub use wallet::balance::{
+    execute_wallet_balance_snapshot, WalletBalanceExecution, WalletBalanceSnapshot,
+};
+pub use wallet::history::{
+    execute_wallet_history_snapshot, WalletHistoryExecution, WalletHistorySnapshot,
+};
 
 #[cfg(test)]
 #[path = "router_tests/mod.rs"]

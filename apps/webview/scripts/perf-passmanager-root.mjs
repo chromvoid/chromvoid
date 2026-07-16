@@ -154,9 +154,6 @@ const startup = await page.evaluate(`
         },
         jsChunks: topResources(jsChunks).map(toSummary),
         mockState: mockStateResources.map(toSummary),
-        fontStylesheet: toSummary(
-          findResource((entry) => entry.name.endsWith('/assets/fonts.vendored.css')),
-        ),
         fontTotals: {
           count: fontFiles.length,
           transferSize: sumField(fontFiles, 'transferSize'),

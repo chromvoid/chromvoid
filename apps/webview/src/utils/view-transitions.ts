@@ -20,8 +20,11 @@
 
 export type ViewTransitionRunState =
   | 'applied'
+  | 'joined-active'
   | 'skipped-reduced-motion'
   | 'skipped-unsupported'
+  | 'skipped-hidden'
+  | 'skipped-missing-target'
   | 'cancelled'
 
 export type ViewTransitionResult = {
@@ -31,6 +34,33 @@ export type ViewTransitionResult = {
 type ViewTransitionError = {
   name?: unknown
   message?: unknown
+}
+
+export type ViewTransitionDirection = 'none' | 'forward' | 'back' | 'replace'
+
+export type ViewTransitionPresentation = {
+  scope: 'route' | 'mobile-page' | 'mobile-surface' | 'pm-page'
+  direction: ViewTransitionDirection
+}
+
+export type ViewTransitionTarget = {
+  element: HTMLElement | null
+  name: string
+  required?: boolean
+}
+
+export type ViewTransitionRequest = {
+  update: () => void | Promise<void>
+  settle?: () => void | Promise<void>
+  targets?: readonly ViewTransitionTarget[]
+  presentation?: ViewTransitionPresentation
+}
+
+type ViewTransitionHandle = {
+  ready: Promise<void>
+  updateCallbackDone: Promise<void>
+  finished: Promise<void>
+  skipTransition?: () => void
 }
 
 /** Check if View Transition API is available */
@@ -48,6 +78,7 @@ function isSkippedViewTransition(error: unknown): boolean {
   const value = error as ViewTransitionError | null
   return (
     value?.name === 'AbortError' ||
+    value?.name === 'InvalidStateError' ||
     (typeof value?.message === 'string' && value.message.includes('Transition was skipped'))
   )
 }
@@ -63,53 +94,181 @@ function isSkippedViewTransition(error: unknown): boolean {
  * 3. Snapshot the new state
  * 4. Animate between the two states
  */
-export async function viewTransition(
+class ViewTransitionCoordinator {
+  private activeTransition: ViewTransitionHandle | null = null
+  private readonly pendingRuns: Array<{
+    request: ViewTransitionRequest
+    resolve: (result: ViewTransitionResult) => void
+    reject: (error: unknown) => void
+  }> = []
+  private busy = false
+  private insideUpdateCallback = false
+
+  run(request: ViewTransitionRequest): Promise<ViewTransitionResult> {
+    if (this.insideUpdateCallback) {
+      return this.runJoined(request)
+    }
+
+    const fallbackState = this.getFallbackState(request)
+    if (fallbackState) {
+      return this.runFallback(request, fallbackState)
+    }
+
+    if (!this.busy) {
+      this.busy = true
+      return this.executeAndDrain(request)
+    }
+
+    this.activeTransition?.skipTransition?.()
+    return new Promise<ViewTransitionResult>((resolve, reject) => {
+      this.pendingRuns.push({request, resolve, reject})
+    })
+  }
+
+  private executeAndDrain(request: ViewTransitionRequest): Promise<ViewTransitionResult> {
+    const run = this.execute(request)
+    void run.then(
+      () => this.drainQueue(),
+      () => this.drainQueue(),
+    )
+    return run
+  }
+
+  private drainQueue(): void {
+    const next = this.pendingRuns.shift()
+    if (!next) {
+      this.busy = false
+      return
+    }
+
+    const run = this.execute(next.request)
+    void run.then(next.resolve, next.reject).then(
+      () => this.drainQueue(),
+      () => this.drainQueue(),
+    )
+  }
+
+  private async runJoined(request: ViewTransitionRequest): Promise<ViewTransitionResult> {
+    await request.update()
+    await request.settle?.()
+    return {state: 'joined-active'}
+  }
+
+  private getFallbackState(request: ViewTransitionRequest): ViewTransitionRunState | null {
+    if (prefersReducedMotion()) return 'skipped-reduced-motion'
+    if (!supportsViewTransitions()) return 'skipped-unsupported'
+    if (document.visibilityState === 'hidden') return 'skipped-hidden'
+    if ((request.targets ?? []).some((target) => target.required !== false && !target.element)) {
+      return 'skipped-missing-target'
+    }
+    return null
+  }
+
+  private async runFallback(
+    request: ViewTransitionRequest,
+    state: ViewTransitionRunState,
+  ): Promise<ViewTransitionResult> {
+    await this.runUpdate(request)
+    return {state}
+  }
+
+  private async execute(request: ViewTransitionRequest): Promise<ViewTransitionResult> {
+    const targets = request.targets ?? []
+
+    const restorePresentation = this.applyPresentation(request.presentation, targets)
+
+    try {
+      const transition = document.startViewTransition(async () => {
+        this.insideUpdateCallback = true
+        try {
+          await this.runUpdate(request)
+        } finally {
+          this.insideUpdateCallback = false
+        }
+      }) as ViewTransitionHandle
+      this.activeTransition = transition
+
+      const updateCallbackResult = transition.updateCallbackDone.then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+      const readyResult = transition.ready.then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+      const finishedResult = transition.finished.then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+
+      const readyError = await readyResult
+      const updateCallbackError = await updateCallbackResult
+      if (updateCallbackError) throw updateCallbackError
+      if (readyError && !isSkippedViewTransition(readyError)) throw readyError
+
+      const finishedError = await finishedResult
+      if (finishedError) {
+        if (!isSkippedViewTransition(finishedError)) throw finishedError
+        return {state: 'cancelled'}
+      }
+
+      return {state: readyError ? 'cancelled' : 'applied'}
+    } finally {
+      this.activeTransition = null
+      restorePresentation()
+    }
+  }
+
+  private async runUpdate(request: ViewTransitionRequest): Promise<void> {
+    await request.update()
+    await request.settle?.()
+  }
+
+  private applyPresentation(
+    presentation: ViewTransitionPresentation | undefined,
+    targets: readonly ViewTransitionTarget[],
+  ): () => void {
+    const root = document.documentElement
+    const previousScope = root.dataset['vtScope']
+    const previousDirection = root.dataset['vtDirection']
+    const targetStyles = targets.flatMap((target) => {
+      if (!target.element) return []
+      const previousName = target.element.style.viewTransitionName
+      target.element.style.viewTransitionName = target.name
+      return [{element: target.element, previousName}]
+    })
+
+    if (presentation) {
+      root.dataset['vtScope'] = presentation.scope
+      root.dataset['vtDirection'] = presentation.direction
+    }
+
+    return () => {
+      for (const {element, previousName} of targetStyles) {
+        element.style.viewTransitionName = previousName
+      }
+
+      if (previousScope === undefined) {
+        delete root.dataset['vtScope']
+      } else {
+        root.dataset['vtScope'] = previousScope
+      }
+
+      if (previousDirection === undefined) {
+        delete root.dataset['vtDirection']
+      } else {
+        root.dataset['vtDirection'] = previousDirection
+      }
+    }
+  }
+}
+
+export const viewTransitionCoordinator = new ViewTransitionCoordinator()
+
+export function viewTransition(
   updateCallback: () => void | Promise<void>,
 ): Promise<ViewTransitionResult> {
-  // Skip transitions when reduced motion is preferred
-  if (prefersReducedMotion()) {
-    await updateCallback()
-    return {state: 'skipped-reduced-motion'}
-  }
-
-  // Fallback for browsers without View Transition API
-  if (!supportsViewTransitions()) {
-    await updateCallback()
-    return {state: 'skipped-unsupported'}
-  }
-
-  // Call startViewTransition on document directly to preserve `this` context
-  const transition = document.startViewTransition(async () => {
-    await updateCallback()
-  })
-  const updateCallbackResult = transition.updateCallbackDone.then(
-    () => undefined,
-    (error: unknown) => error,
-  )
-  const readyResult = transition.ready.then(
-    () => undefined,
-    (error: unknown) => error,
-  )
-  const finishedResult = transition.finished.then(
-    () => undefined,
-    (error: unknown) => error,
-  )
-
-  const readyError = await readyResult
-  const updateCallbackError = await updateCallbackResult
-  if (updateCallbackError) throw updateCallbackError
-
-  if (readyError) {
-    if (!isSkippedViewTransition(readyError)) throw readyError
-  }
-
-  const finishedError = await finishedResult
-  if (finishedError) {
-    if (!isSkippedViewTransition(finishedError)) throw finishedError
-    return {state: 'cancelled'}
-  }
-
-  return {state: readyError ? 'cancelled' : 'applied'}
+  return viewTransitionCoordinator.run({update: updateCallback})
 }
 
 /**
@@ -190,11 +349,8 @@ export async function withViewTransitionName(
     return viewTransition(callback)
   }
 
-  setViewTransitionName(element, name)
-
-  try {
-    return await viewTransition(callback)
-  } finally {
-    setViewTransitionName(element, null)
-  }
+  return viewTransitionCoordinator.run({
+    update: callback,
+    targets: [{element, name}],
+  })
 }

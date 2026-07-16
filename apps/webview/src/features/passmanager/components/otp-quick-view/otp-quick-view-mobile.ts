@@ -28,7 +28,8 @@ export class PMOtpQuickViewMobile extends PMOtpQuickViewBase {
       .quick-view__summary-rail {
         z-index: 1;
         max-inline-size: none;
-        margin-block-end: 1px;
+        box-sizing: border-box;
+        padding: var(--cv-space-2) var(--cv-space-4) max(var(--cv-space-2), env(safe-area-inset-bottom, 0px));
         background: var(--cv-color-bg);
       }
 

@@ -2,6 +2,8 @@
 
 export type WalletTransactionsListRequest = {
   wallet_id?: string | null
+  account_id?: string | null
   status?: string | null
   limit?: number | null
+  cursor?: string | null
 }

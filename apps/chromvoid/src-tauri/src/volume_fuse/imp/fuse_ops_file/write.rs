@@ -14,16 +14,20 @@ pub(in crate::volume_fuse::imp) fn handle_write(
 ) {
     trace!(target: "chromvoid_lib::volume_fuse::imp", ino, fh, offset, len = data.len(), "FUSE write");
 
-    let mut map = match fs.open_files.lock() {
-        Ok(m) => m,
+    let handle = match fs.open_file_handle(fh) {
+        Ok(handle) => handle,
         Err(_) => {
             reply.error(fuse_errno(libc::EIO));
             return;
         }
     };
-    let st = match map.get_mut(&fh) {
-        Some(s) => s,
-        None => {
+    let Some(handle) = handle else {
+        reply.error(fuse_errno(libc::EIO));
+        return;
+    };
+    let mut st = match handle.lock() {
+        Ok(st) => st,
+        Err(_) => {
             reply.error(fuse_errno(libc::EIO));
             return;
         }
@@ -53,7 +57,7 @@ pub(in crate::volume_fuse::imp) fn handle_write(
         reply.error(fuse_errno(libc::EIO));
         return;
     }
-    st.dirty = true;
+    st.mark_dirty_range(off, data.len() as u64);
 
     // Keep inode size monotonic in cache.
     if let Some(mut entry) = fs.inode_table.get(ino) {

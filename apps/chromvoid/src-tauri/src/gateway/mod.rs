@@ -14,11 +14,14 @@ mod server;
 mod session;
 
 #[cfg(desktop)]
-pub(crate) use config_persistence::save_config_snapshot_best_effort;
+pub(crate) use config_persistence::{revoke_agent_durably, save_config_snapshot_best_effort};
 #[cfg(desktop)]
 pub(crate) use server::spawn_gateway_server;
+#[cfg(feature = "env-runtime-test-probe")]
+#[allow(unused_imports)]
+pub(crate) use session::resolve_and_start_run;
 pub use state::{hex_encode, GatewayConfig, GatewayState};
 pub use types::{
-    AccessDuration, ActionGrant, AllowedCommands, CapabilityPolicy, CommandCategory, GrantStore,
-    PairedExtension, SiteGrant,
+    AccessDuration, ActionGrant, AllowedCommands, CapabilityPolicy, CommandCategory,
+    GatewayActorKind, GrantStore, PairedAgent, PairedExtension, SiteGrant,
 };

@@ -1,0 +1,170 @@
+:root {
+  --app-border-radius: var(--cv-radius-md);
+  --app-spacing-1: var(--cv-space-1);
+  --app-spacing-2: var(--cv-space-2);
+  --app-spacing-3: var(--cv-space-3);
+  --app-spacing-4: var(--cv-space-4);
+  --app-spacing-5: var(--cv-space-5);
+  --app-spacing-6: var(--cv-space-6);
+  --app-spacing-7: var(--cv-space-7);
+  --app-spacing-8: var(--cv-space-8);
+  --app-surface-gutter-desktop: var(--app-spacing-2);
+  --app-surface-gutter-mobile: var(--app-spacing-3);
+  --app-surface-gutter-compact: var(--app-spacing-2);
+  --app-toolbar-min-block-size: 64px;
+  --app-toolbar-padding-block: var(--app-spacing-4);
+  --app-toolbar-padding-inline: var(--app-spacing-4);
+  --app-toolbar-padding-inline-wide: var(--app-spacing-6);
+  --app-toolbar-row-gap: var(--app-spacing-3);
+  --app-toolbar-column-gap: var(--app-spacing-4);
+  --app-toolbar-two-row-row-gap: var(--app-spacing-4);
+  --app-toolbar-two-row-column-gap: var(--app-spacing-6);
+  --app-toolbar-border-color: var(--cv-color-border-glass);
+  --app-toolbar-control-block-size: 40px;
+  --app-toolbar-control-radius: var(--cv-radius-3);
+  --app-toolbar-control-padding-inline: var(--cv-space-3);
+  --app-toolbar-control-font-size: var(--cv-font-size-sm);
+  --app-toolbar-control-font-weight: var(--cv-font-weight-medium);
+  --app-toolbar-control-gap: var(--cv-space-2);
+  --app-dashboard-header-control-block-size: var(--app-toolbar-control-block-size);
+  --app-dashboard-header-control-radius: var(--app-toolbar-control-radius);
+  --app-dashboard-header-control-padding-inline: var(--app-toolbar-control-padding-inline);
+  --app-dashboard-header-control-font-size: var(--app-toolbar-control-font-size);
+  --app-dashboard-header-control-font-weight: var(--app-toolbar-control-font-weight);
+  --app-dashboard-header-control-gap: var(--app-toolbar-control-gap);
+  --app-mobile-action-bar-control-size: 36px;
+  --app-mobile-action-bar-icon-size: 18px;
+  --app-mobile-action-bar-control-radius: 8px;
+  --app-motion-fade-up-animation: fadeInUp 0.35s var(--cv-easing-standard) both;
+  --app-motion-page-reveal-animation: reveal 0.4s var(--cv-easing-spring) both;
+  --app-motion-spin-duration: 1s;
+  --app-mobile-topbar-block-size: 56px;
+  --app-mobile-tabbar-block-size: 64px;
+  --app-mobile-surface-gutter-inline: var(--app-surface-gutter-mobile);
+  --app-mobile-surface-gutter-block-start: var(--app-surface-gutter-mobile);
+  --app-mobile-surface-gutter-block-end: 0px;
+  --app-mobile-surface-gap: var(--cv-space-2, var(--app-spacing-2));
+  --app-mobile-surface-scroll-padding-block-start: var(--cv-space-2, var(--app-spacing-2));
+  --app-mobile-surface-scroll-padding-block-end: var(--cv-space-3, var(--app-spacing-3));
+
+  --app-touch-target-min: var(--cv-size-control-height);
+  --app-touch-target-comfortable: 52px;
+  --app-touch-target-large: 60px;
+  --app-touch-spacing: var(--cv-space-3);
+  --app-touch-spacing-compact: var(--cv-space-2);
+  --app-touch-gap: var(--cv-space-4);
+  --app-swipe-area-block-size: 64px;
+  --app-toast-inset-block-start: 56px;
+  --app-toast-inset-block-end: var(--app-runtime-safe-area-block-end);
+
+  --app-bars-background: var(--cv-color-surface-2);
+  --app-bars-foreground: var(--cv-color-text);
+  --app-overlay-background: var(--cv-color-overlay);
+  --app-glass-background: var(--cv-color-surface-glass);
+  --app-glass-border: var(--cv-color-border-glass);
+  --app-glass-shadow: var(--cv-shadow-glass);
+  --app-glass-glow: var(--cv-shadow-glow);
+
+  --app-scroll-edge-default-block-size: 44px;
+  --app-scroll-edge-default-inline-start: 0px;
+  --app-scroll-edge-default-inline-end: 0px;
+  --app-scroll-edge-default-surface: var(--cv-color-surface);
+  --app-scroll-edge-default-surface-fade: var(--cv-color-surface);
+  --app-scroll-edge-list-block-size: 52px;
+  --app-scroll-edge-list-inline-end: 12px;
+  --app-scroll-edge-group-block-size: 46px;
+  --app-scroll-edge-mask-gradient-block-end: linear-gradient(
+    to bottom,
+    var(--cv-color-text) 0%,
+    var(--cv-color-text) calc(100% - var(--app-scroll-edge-mask-block-size, 88px)),
+    var(--cv-color-text-muted) calc(100% - var(--app-scroll-edge-mask-soft-stop, 48px)),
+    var(--cv-color-text-subtle) calc(100% - var(--app-scroll-edge-mask-subtle-stop, 22px)),
+    transparent 100%
+  );
+  --app-scroll-edge-mask-gradient-block-start: linear-gradient(
+    to bottom,
+    transparent 0%,
+    var(--cv-color-text-subtle) var(--app-scroll-edge-mask-subtle-stop, 22px),
+    var(--cv-color-text-muted) var(--app-scroll-edge-mask-soft-stop, 48px),
+    var(--cv-color-text) var(--app-scroll-edge-mask-block-size, 88px),
+    var(--cv-color-text) 100%
+  );
+  --app-scroll-edge-mask-gradient-block-both: linear-gradient(
+    to bottom,
+    transparent 0%,
+    var(--cv-color-text-subtle) var(--app-scroll-edge-mask-subtle-stop, 22px),
+    var(--cv-color-text-muted) var(--app-scroll-edge-mask-soft-stop, 48px),
+    var(--cv-color-text) var(--app-scroll-edge-mask-block-size, 88px),
+    var(--cv-color-text) calc(100% - var(--app-scroll-edge-mask-block-size, 88px)),
+    var(--cv-color-text-muted) calc(100% - var(--app-scroll-edge-mask-soft-stop, 48px)),
+    var(--cv-color-text-subtle) calc(100% - var(--app-scroll-edge-mask-subtle-stop, 22px)),
+    transparent 100%
+  );
+
+  --file-media-spectrum-list-inline-size: 22px;
+  --file-media-spectrum-list-block-size: 22px;
+  --file-media-spectrum-list-bar-inline-size: 4px;
+  --file-media-spectrum-list-gap: 3px;
+  --file-media-spectrum-default-inline-size: 24px;
+  --file-media-spectrum-default-block-size: 24px;
+  --file-media-spectrum-default-bar-inline-size: 4px;
+  --file-media-spectrum-default-gap: 4px;
+  --file-media-spectrum-grid-inline-size: 40px;
+  --file-media-spectrum-grid-block-size: 40px;
+  --file-media-spectrum-grid-bar-inline-size: 5px;
+  --file-media-spectrum-grid-gap: 5px;
+  --file-item-mobile-surface: linear-gradient(
+    180deg,
+    var(--cv-color-surface-2) 0%,
+    var(--cv-color-surface) 100%
+  );
+  --file-item-mobile-shadow: 0 10px 24px var(--cv-alpha-black-6);
+  --file-search-fab-size: 44px;
+  --file-search-fab-icon-size: 20px;
+  --file-dashboard-compact-control-block-size: 32px;
+  --file-dashboard-compact-control-radius: var(--cv-radius-2);
+  --file-dashboard-compact-control-padding-inline: 11px;
+  --file-dashboard-compact-control-font-size: var(--cv-font-size-xs);
+  --file-dashboard-compact-control-font-weight: var(--cv-font-weight-medium);
+  --file-dashboard-view-switch-block-size: 34px;
+  --file-dashboard-view-switch-item-inline-size: 30px;
+  --file-dashboard-view-switch-item-block-size: 26px;
+  --file-dashboard-view-switch-border: var(--cv-color-border-muted);
+  --file-dashboard-view-switch-background: var(--cv-color-surface-2);
+  --file-dashboard-view-switch-selected-border: var(--cv-color-accent-border);
+  --file-dashboard-view-switch-selected-background: var(--cv-color-accent-surface-strong);
+  --file-dashboard-mobile-shell-background: linear-gradient(
+    180deg,
+    var(--cv-color-surface-2) 0%,
+    var(--cv-color-surface) 100%
+  );
+  --file-dashboard-mobile-selection-background: var(--cv-color-surface-secondary-glass-strong);
+  --file-markdown-preview-fab-size: 56px;
+  --file-markdown-editor-quick-bar-block-size: 52px;
+  --file-preview-overlay-foreground: hwb(0 100% 0%);
+
+  --cv-dialog-width-s: min(320px, calc(100vw - 32px));
+  --cv-dialog-width-m: min(480px, calc(100vw - 32px));
+  --cv-dialog-width-l: min(640px, calc(100vw - 32px));
+  --cv-dialog-width-xl: min(800px, calc(100vw - 32px));
+  --cv-dialog-max-height: calc(100dvh - 32px);
+  --cv-dialog-border-radius: var(--cv-radius-2, 12px);
+  --cv-dialog-title-font-size: var(--cv-font-size-lg, 1.125rem);
+  --cv-dialog-safe-area-block-start: var(--app-runtime-safe-area-block-start);
+  --cv-dialog-safe-area-inline-end: var(--app-runtime-safe-area-inline-end);
+  --cv-dialog-safe-area-block-end: var(--app-runtime-safe-area-block-end-active);
+  --cv-dialog-safe-area-inline-start: var(--app-runtime-safe-area-inline-start);
+  --cv-dialog-keyboard-inset: var(--app-runtime-visual-viewport-inset-block-end);
+
+  --cv-bottom-sheet-z-index: calc(var(--cv-z-overlay, 300) + 34);
+  --cv-bottom-sheet-overlay-color: var(--cv-alpha-black-50);
+  --cv-bottom-sheet-max-height: 100dvh;
+  --cv-bottom-sheet-border-radius: 18px 18px 0 0;
+  --cv-bottom-sheet-grabber-color: var(--cv-color-primary-border-strong);
+  --cv-bottom-sheet-safe-top: var(--app-runtime-safe-area-block-start);
+  --cv-bottom-sheet-safe-bottom: var(--app-runtime-safe-area-block-end-active);
+  --cv-bottom-sheet-keyboard-inset: var(--app-runtime-visual-viewport-inset-block-end);
+  --cv-bottom-sheet-viewport-block-size: var(--app-runtime-visual-viewport-block-size);
+
+  --cv-image-viewer-safe-area-block-start: var(--app-runtime-safe-area-block-start);
+}

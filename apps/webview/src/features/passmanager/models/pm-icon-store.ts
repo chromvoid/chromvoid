@@ -1,5 +1,7 @@
-import {deriveIconBackgroundColorFromBase64, normalizeIconFromFile} from '../service/icon-normalizer'
+import {action, atom, wrap} from '@reatom/core'
+
 import {getAppContext} from 'root/shared/services/app-context'
+import {deriveIconBackgroundColorFromBase64, normalizeIconFromFile} from '../service/icon-normalizer'
 
 const HEX_PREFIX = String.fromCharCode(35)
 
@@ -8,6 +10,11 @@ type IconGetResult = {
   mime_type?: unknown
   background_color?: unknown
   content_base64?: unknown
+}
+
+type IconGetManyResult = {
+  icons?: unknown
+  missing_icon_refs?: unknown
 }
 
 type IconListRecord = {
@@ -42,76 +49,143 @@ export type PMIconUploadOptions = {
   onPhase?: (phase: PMIconUploadPhase) => void
 }
 
+type PMIconCacheSnapshot = {
+  url: string
+  backgroundColor: string
+}
+
+type PreparedIconPayload = {
+  iconRef: string
+  url: string
+  backgroundColor: string
+  contentBase64: string
+  mimeType: string
+}
+
 type DomainEnvelope<T> = {
   ok?: boolean
   result?: T
   error?: unknown
 }
 
+const EMPTY_ICON_CACHE_SNAPSHOT: PMIconCacheSnapshot = {url: '', backgroundColor: ''}
 const ICON_MISS_CACHE_TTL_MS = 60_000
+const ICON_BATCH_MAX_REFS = 64
+const ICON_SINGLE_FALLBACK_CONCURRENCY = 4
+
+function createIconCacheState(iconRef: string) {
+  return atom<PMIconCacheSnapshot>(EMPTY_ICON_CACHE_SNAPSHOT, `passmanager.iconCache.${iconRef}`)
+}
+
+type IconCacheState = ReturnType<typeof createIconCacheState>
 
 class PMIconStore {
-  private readonly urlByRef = new Map<string, string>()
-  private readonly backgroundColorByRef = new Map<string, string>()
+  private readonly stateByRef = new Map<string, IconCacheState>()
   private readonly pendingByRef = new Map<string, Promise<string | undefined>>()
   private readonly missingByRef = new Map<string, number>()
   private readonly pendingBackgroundBackfillByRef = new Map<string, Promise<void>>()
   private readonly attemptedBackgroundBackfillByRef = new Set<string>()
-  private readonly listeners = new Set<() => void>()
+  private generation = 0
 
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener)
-    return () => {
-      this.listeners.delete(listener)
+  private readonly applyPreparedPayloads = action((payloads: readonly PreparedIconPayload[]) => {
+    for (const payload of payloads) {
+      const state = this.getOrCreateState(payload.iconRef)
+      const current = state()
+      if (current.url && current.url !== payload.url) {
+        URL.revokeObjectURL(current.url)
+      }
+      state.set({url: payload.url, backgroundColor: payload.backgroundColor})
     }
+  }, 'passmanager.iconCache.applyPayloads')
+
+  private readonly applyBackgroundColor = action((iconRef: string, backgroundColor: string) => {
+    const state = this.getOrCreateState(iconRef)
+    const current = state()
+    if (current.backgroundColor === backgroundColor) return
+    state.set({...current, backgroundColor})
+  }, 'passmanager.iconCache.applyBackgroundColor')
+
+  private readonly clearStates = action((states: readonly IconCacheState[]) => {
+    for (const state of states) {
+      state.set(EMPTY_ICON_CACHE_SNAPSHOT)
+    }
+  }, 'passmanager.iconCache.clear')
+
+  private getSnapshot(iconRef: string | undefined): PMIconCacheSnapshot {
+    const normalized = this.normalizeIconRef(iconRef)
+    if (!normalized) return EMPTY_ICON_CACHE_SNAPSHOT
+    return this.getOrCreateState(normalized)()
   }
 
   getCachedUrl(iconRef: string | undefined): string | undefined {
-    if (!iconRef) return undefined
-    return this.urlByRef.get(iconRef)
+    const normalized = this.normalizeIconRef(iconRef)
+    if (!normalized) return undefined
+    return this.getSnapshot(normalized).url || undefined
   }
 
   getCachedBackgroundColor(iconRef: string | undefined): string | undefined {
-    if (!iconRef) return undefined
-    return this.backgroundColorByRef.get(iconRef)
+    const normalized = this.normalizeIconRef(iconRef)
+    if (!normalized) return undefined
+    return this.getSnapshot(normalized).backgroundColor || undefined
   }
 
   async loadIconUrl(iconRef: string | undefined): Promise<string | undefined> {
-    if (!iconRef) return undefined
-    const cached = this.urlByRef.get(iconRef)
+    const normalized = this.normalizeIconRef(iconRef)
+    if (!normalized) return undefined
+
+    const cached = this.getCachedUrl(normalized)
     if (cached) return cached
+    if (this.isRecentMissing(normalized)) return undefined
 
-    if (this.isRecentMissing(iconRef)) {
-      return undefined
-    }
-
-    const pending = this.pendingByRef.get(iconRef)
+    const pending = this.pendingByRef.get(normalized)
     if (pending) return pending
 
-    const request = this.fetchIconUrl(iconRef)
+    const generation = this.generation
+    const request = this.fetchSingleIconUrl(normalized, generation)
       .then((url) => {
-        if (!url) {
-          this.rememberMissing(iconRef)
-          return undefined
-        }
-        this.missingByRef.delete(iconRef)
+        if (!url && generation === this.generation) this.rememberMissing(normalized)
+        else if (url) this.missingByRef.delete(normalized)
         return url
       })
       .catch(() => {
-        this.rememberMissing(iconRef)
+        if (generation === this.generation) this.rememberMissing(normalized)
         return undefined
       })
       .finally(() => {
-        this.pendingByRef.delete(iconRef)
+        if (this.pendingByRef.get(normalized) === request) {
+          this.pendingByRef.delete(normalized)
+        }
       })
 
-    this.pendingByRef.set(iconRef, request)
+    this.pendingByRef.set(normalized, request)
     return request
   }
 
+  async preloadIconUrls(iconRefs: Iterable<string | undefined>): Promise<void> {
+    const refs = this.normalizeUniqueRefs(iconRefs)
+    if (refs.length === 0) return
+
+    const pending = new Set<Promise<string | undefined>>()
+    const uncached: string[] = []
+    for (const iconRef of refs) {
+      if (this.getCachedUrl(iconRef) || this.isRecentMissing(iconRef)) continue
+      const existing = this.pendingByRef.get(iconRef)
+      if (existing) pending.add(existing)
+      else uncached.push(iconRef)
+    }
+
+    const batches: Promise<void>[] = []
+    for (let offset = 0; offset < uncached.length; offset += ICON_BATCH_MAX_REFS) {
+      batches.push(this.preloadBatch(uncached.slice(offset, offset + ICON_BATCH_MAX_REFS)))
+    }
+
+    await wrap(Promise.allSettled([...pending, ...batches]))
+  }
+
   async uploadIcon(file: File, options?: PMIconUploadOptions): Promise<string> {
+    const generation = this.generation
     options?.onPhase?.('preparing')
-    const normalized = await normalizeIconFromFile(file)
+    const normalized = await wrap(normalizeIconFromFile(file))
     options?.onPhase?.('uploading')
     const payload: Record<string, unknown> = {
       content_base64: normalized.contentBase64,
@@ -120,14 +194,30 @@ class PMIconStore {
     if (normalized.backgroundColor) {
       payload['background_color'] = normalized.backgroundColor
     }
-    const raw = await this.sendDomain<{icon_ref?: unknown; background_color?: unknown}>(
-      'passmanager:icon:put',
-      payload,
+    const raw = await wrap(
+      this.sendDomain<{icon_ref?: unknown; background_color?: unknown}>('passmanager:icon:put', payload),
     )
     const iconRef = typeof raw?.icon_ref === 'string' ? raw.icon_ref : ''
     if (!iconRef) throw new Error('passmanager:icon:put did not return icon_ref')
-    this.cacheBackgroundColor(iconRef, raw?.background_color ?? normalized.backgroundColor)
-    this.missingByRef.delete(iconRef)
+
+    if (generation === this.generation && !this.getCachedUrl(iconRef)) {
+      const prepared = this.preparePayload(
+        {
+          icon_ref: iconRef,
+          mime_type: normalized.mimeType,
+          background_color: raw?.background_color ?? normalized.backgroundColor,
+          content_base64: normalized.contentBase64,
+        },
+        generation,
+      )
+      if (prepared) {
+        this.applyPreparedPayloads([prepared])
+        this.scheduleBackgroundEnrichment(prepared, generation)
+      }
+    }
+    if (generation === this.generation) {
+      this.missingByRef.delete(iconRef)
+    }
     return iconRef
   }
 
@@ -136,7 +226,7 @@ class PMIconStore {
   }
 
   async listIcons(): Promise<PMStoredIcon[]> {
-    const raw = await this.sendDomain<IconListResult>('passmanager:icon:list', {})
+    const raw = await wrap(this.sendDomain<IconListResult>('passmanager:icon:list', {}))
     const icons = raw?.icons
     if (!Array.isArray(icons)) return []
 
@@ -146,67 +236,152 @@ class PMIconStore {
   }
 
   async setGroupIcon(path: string, iconRef: string | null): Promise<void> {
-    await this.sendDomain('passmanager:group:setMeta', {
-      path,
-      icon_ref: iconRef,
-    })
+    await wrap(
+      this.sendDomain('passmanager:group:setMeta', {
+        path,
+        icon_ref: iconRef,
+      }),
+    )
   }
 
   dispose(): void {
-    for (const url of this.urlByRef.values()) {
-      URL.revokeObjectURL(url)
+    this.generation += 1
+    const states = Array.from(this.stateByRef.values())
+    for (const state of states) {
+      const url = state().url
+      if (url) URL.revokeObjectURL(url)
     }
-    this.urlByRef.clear()
-    this.backgroundColorByRef.clear()
+    this.clearStates(states)
+    this.stateByRef.clear()
     this.pendingByRef.clear()
     this.missingByRef.clear()
     this.pendingBackgroundBackfillByRef.clear()
     this.attemptedBackgroundBackfillByRef.clear()
-    this.listeners.clear()
   }
 
-  private notify(): void {
-    for (const listener of this.listeners) {
-      try {
-        listener()
-      } catch {}
-    }
-  }
-
-  private async fetchIconUrl(iconRef: string): Promise<string | undefined> {
-    const raw = await this.sendDomain<IconGetResult>('passmanager:icon:get', {
-      icon_ref: iconRef,
+  private async preloadBatch(iconRefs: string[]): Promise<void> {
+    const generation = this.generation
+    const batchWork = this.fetchIconBatch(iconRefs, generation).catch(async () => {
+      if (generation !== this.generation) return
+      await this.fetchSingleFallback(iconRefs, generation)
     })
-    const contentBase64 = typeof raw?.content_base64 === 'string' ? raw.content_base64 : ''
-    const mimeType = typeof raw?.mime_type === 'string' ? raw.mime_type : 'image/png'
-    if (!contentBase64) return undefined
 
-    const backgroundColor =
-      this.cacheBackgroundColor(iconRef, raw?.background_color) ??
-      (await deriveIconBackgroundColorFromBase64(contentBase64, mimeType))
-    if (backgroundColor) {
-      this.cacheBackgroundColor(iconRef, backgroundColor)
-      if (!this.parseBackgroundColor(raw?.background_color)) {
-        this.backfillBackgroundColor(iconRef, backgroundColor)
+    const pendingEntries = iconRefs.map((iconRef) => {
+      const pending = batchWork.then(() => this.getCachedUrl(iconRef))
+      this.pendingByRef.set(iconRef, pending)
+      return {iconRef, pending}
+    })
+
+    try {
+      await wrap(batchWork)
+    } finally {
+      for (const {iconRef, pending} of pendingEntries) {
+        if (this.pendingByRef.get(iconRef) === pending) {
+          this.pendingByRef.delete(iconRef)
+        }
       }
     }
+  }
+
+  private async fetchIconBatch(iconRefs: string[], generation: number): Promise<void> {
+    const raw = await wrap(
+      this.sendDomain<IconGetManyResult>('passmanager:icon:getMany', {icon_refs: iconRefs}),
+    )
+    if (generation !== this.generation) return
+    if (!Array.isArray(raw?.icons) || !Array.isArray(raw?.missing_icon_refs)) {
+      throw new Error('passmanager:icon:getMany returned an invalid payload')
+    }
+
+    const prepared = raw.icons
+      .map((payload) => this.preparePayload(payload as IconGetResult, generation))
+      .filter((payload): payload is PreparedIconPayload => payload !== undefined)
+    if (generation !== this.generation) {
+      for (const payload of prepared) URL.revokeObjectURL(payload.url)
+      return
+    }
+
+    this.applyPreparedPayloads(prepared)
+    for (const payload of prepared) {
+      this.missingByRef.delete(payload.iconRef)
+      this.scheduleBackgroundEnrichment(payload, generation)
+    }
+    for (const missing of raw.missing_icon_refs) {
+      const iconRef = this.normalizeIconRef(missing)
+      if (iconRef) this.rememberMissing(iconRef)
+    }
+  }
+
+  private async fetchSingleFallback(iconRefs: string[], generation: number): Promise<void> {
+    let nextIndex = 0
+    const workerCount = Math.min(ICON_SINGLE_FALLBACK_CONCURRENCY, iconRefs.length)
+    const workers = Array.from({length: workerCount}, async () => {
+      while (generation === this.generation) {
+        const iconRef = iconRefs[nextIndex++]
+        if (!iconRef) return
+        try {
+          const url = await wrap(this.fetchSingleIconUrl(iconRef, generation))
+          if (url) this.missingByRef.delete(iconRef)
+          else if (generation === this.generation) this.rememberMissing(iconRef)
+        } catch {
+          if (generation === this.generation) this.rememberMissing(iconRef)
+        }
+      }
+    })
+    await wrap(Promise.all(workers))
+  }
+
+  private async fetchSingleIconUrl(iconRef: string, generation: number): Promise<string | undefined> {
+    const raw = await wrap(
+      this.sendDomain<IconGetResult>('passmanager:icon:get', {
+        icon_ref: iconRef,
+      }),
+    )
+    const prepared = this.preparePayload(raw, generation)
+    if (!prepared) return undefined
+
+    this.applyPreparedPayloads([prepared])
+    this.scheduleBackgroundEnrichment(prepared, generation)
+    return prepared.url
+  }
+
+  private preparePayload(raw: IconGetResult, generation: number): PreparedIconPayload | undefined {
+    if (generation !== this.generation) return undefined
+    const iconRef = this.normalizeIconRef(raw?.icon_ref)
+    const contentBase64 = typeof raw?.content_base64 === 'string' ? raw.content_base64 : ''
+    const mimeType = typeof raw?.mime_type === 'string' ? raw.mime_type : 'image/png'
+    if (!iconRef || !contentBase64) return undefined
 
     const bytes = this.base64ToBytes(contentBase64)
     const blob = new Blob([this.toArrayBuffer(bytes)], {type: mimeType})
     const url = URL.createObjectURL(blob)
-    this.urlByRef.set(iconRef, url)
-    this.notify()
-    return url
+    const backgroundColor =
+      this.parseBackgroundColor(raw?.background_color) ?? this.getCachedBackgroundColor(iconRef) ?? ''
+    return {iconRef, url, backgroundColor, contentBase64, mimeType}
+  }
+
+  private scheduleBackgroundEnrichment(payload: PreparedIconPayload, generation: number): void {
+    if (payload.backgroundColor) return
+    void this.enrichBackgroundColor(payload, generation)
+  }
+
+  private async enrichBackgroundColor(payload: PreparedIconPayload, generation: number): Promise<void> {
+    try {
+      const backgroundColor = await wrap(
+        deriveIconBackgroundColorFromBase64(payload.contentBase64, payload.mimeType),
+      )
+      if (!backgroundColor || generation !== this.generation) return
+      this.applyBackgroundColor(payload.iconRef, backgroundColor)
+      this.backfillBackgroundColor(payload.iconRef, backgroundColor, generation)
+    } catch {}
   }
 
   private parseStoredIcon(raw: unknown): PMStoredIcon | undefined {
     const icon = raw as IconListRecord
-    const iconRef = typeof icon?.icon_ref === 'string' ? icon.icon_ref.trim() : ''
+    const iconRef = this.normalizeIconRef(icon?.icon_ref)
     if (!iconRef) return undefined
 
     const mimeType =
       typeof icon?.mime_type === 'string' && icon.mime_type.trim().length > 0 ? icon.mime_type : 'image/png'
-
     const backgroundColor = this.cacheBackgroundColor(iconRef, icon?.background_color)
 
     return {
@@ -224,7 +399,7 @@ class PMIconStore {
   private cacheBackgroundColor(iconRef: string, value: unknown): string | undefined {
     const backgroundColor = this.parseBackgroundColor(value)
     if (!backgroundColor) return undefined
-    this.backgroundColorByRef.set(iconRef, backgroundColor)
+    this.applyBackgroundColor(iconRef, backgroundColor)
     return backgroundColor
   }
 
@@ -242,7 +417,7 @@ class PMIconStore {
     return (code >= 48 && code <= 57) || (code >= 97 && code <= 102)
   }
 
-  private backfillBackgroundColor(iconRef: string, backgroundColor: string): void {
+  private backfillBackgroundColor(iconRef: string, backgroundColor: string, generation: number): void {
     if (
       this.attemptedBackgroundBackfillByRef.has(iconRef) ||
       this.pendingBackgroundBackfillByRef.has(iconRef)
@@ -258,9 +433,37 @@ class PMIconStore {
       .catch(() => undefined)
       .then(() => undefined)
       .finally(() => {
-        this.pendingBackgroundBackfillByRef.delete(iconRef)
+        if (generation === this.generation) {
+          this.pendingBackgroundBackfillByRef.delete(iconRef)
+        }
       })
     this.pendingBackgroundBackfillByRef.set(iconRef, request)
+  }
+
+  private getOrCreateState(iconRef: string): IconCacheState {
+    let state = this.stateByRef.get(iconRef)
+    if (!state) {
+      state = createIconCacheState(iconRef)
+      this.stateByRef.set(iconRef, state)
+    }
+    return state
+  }
+
+  private normalizeUniqueRefs(iconRefs: Iterable<string | undefined>): string[] {
+    const refs: string[] = []
+    const seen = new Set<string>()
+    for (const value of iconRefs) {
+      const iconRef = this.normalizeIconRef(value)
+      if (iconRef && !seen.has(iconRef)) {
+        seen.add(iconRef)
+        refs.push(iconRef)
+      }
+    }
+    return refs
+  }
+
+  private normalizeIconRef(value: unknown): string {
+    return typeof value === 'string' ? value.trim() : ''
   }
 
   private isRecentMissing(iconRef: string): boolean {
@@ -310,8 +513,8 @@ class PMIconStore {
   private base64ToBytes(base64: string): Uint8Array {
     const binary = atob(base64)
     const bytes = new Uint8Array(binary.length)
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i)
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index)
     }
     return bytes
   }
@@ -319,8 +522,7 @@ class PMIconStore {
   private toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
     const start = bytes.byteOffset
     const end = bytes.byteOffset + bytes.byteLength
-    const sliced = bytes.buffer.slice(start, end)
-    return sliced as ArrayBuffer
+    return bytes.buffer.slice(start, end) as ArrayBuffer
   }
 }
 

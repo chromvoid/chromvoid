@@ -112,7 +112,8 @@ export class VirtualFileListViewportModel {
     }
 
     const safeScrollTop = Math.max(0, virtualScrollTop)
-    const startIndex = Math.floor(safeScrollTop / itemHeight)
+    const maxStartIndex = Math.max(0, totalItemsCount - 1)
+    const startIndex = Math.min(maxStartIndex, Math.floor(safeScrollTop / itemHeight))
     const endIndex = Math.min(totalItemsCount, startIndex + Math.ceil(viewportHeight / itemHeight) + 2)
     return {startIndex, endIndex}
   }
@@ -128,15 +129,20 @@ export class VirtualFileListViewportModel {
     if (viewMode === 'grid') {
       const safeColumns = Math.max(1, gridColumns)
       const safeRowHeight = Math.max(1, gridRowHeight)
-      const startRow = this.getVisibleGridStartRow(virtualScrollTop, safeRowHeight)
+      const totalRows = Math.ceil(totalItemsCount / safeColumns)
+      const startRow = Math.min(
+        Math.max(0, totalRows - 1),
+        this.getVisibleGridStartRow(virtualScrollTop, safeRowHeight),
+      )
       return {
-        totalHeight: Math.ceil(totalItemsCount / safeColumns) * safeRowHeight,
+        totalHeight: totalRows * safeRowHeight,
         offsetY: startRow * safeRowHeight,
       }
     }
 
     const safeScrollTop = Math.max(0, virtualScrollTop)
-    const startIndex = Math.floor(safeScrollTop / itemHeight)
+    const maxStartIndex = Math.max(0, totalItemsCount - 1)
+    const startIndex = Math.min(maxStartIndex, Math.floor(safeScrollTop / itemHeight))
     return {
       totalHeight: Math.max(0, totalItemsCount * itemHeight),
       offsetY: startIndex * itemHeight,
@@ -170,9 +176,12 @@ export class VirtualFileListViewportModel {
   ): {startIndex: number; endIndex: number} {
     const safeColumns = Math.max(1, gridColumns)
     const safeRowHeight = Math.max(1, gridRowHeight)
-    const startRow = this.getVisibleGridStartRow(virtualScrollTop, safeRowHeight)
-    const visibleRows = Math.ceil(Math.max(1, viewportHeight) / safeRowHeight)
     const endRow = Math.ceil(totalItemsCount / safeColumns)
+    const startRow = Math.min(
+      Math.max(0, endRow - 1),
+      this.getVisibleGridStartRow(virtualScrollTop, safeRowHeight),
+    )
+    const visibleRows = Math.ceil(Math.max(1, viewportHeight) / safeRowHeight)
     const cappedEndRow = Math.min(endRow, startRow + visibleRows + GRID_OVERSCAN_ROWS * 2 + 1)
 
     return {

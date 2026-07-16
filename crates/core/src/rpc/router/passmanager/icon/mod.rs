@@ -12,7 +12,10 @@ use super::super::domain_uow::DomainUnitOfWork;
 use crate::error::ErrorCode;
 use crate::vault::VaultSession;
 
-use self::request::{parse_icon_get_request, parse_icon_put_request, parse_icon_set_meta_request};
+use self::request::{
+    parse_icon_get_many_request, parse_icon_get_request, parse_icon_put_request,
+    parse_icon_set_meta_request,
+};
 pub(super) use self::store::load_icon_index;
 pub(super) use self::types::PASSMANAGER_ICONS_ENABLED;
 
@@ -81,6 +84,26 @@ pub(super) fn handle_get(
     };
 
     match service::get_icon(s, storage, request) {
+        Ok(result) => RpcResponse::success(result),
+        Err(error) => error.into_rpc_response(),
+    }
+}
+
+pub(super) fn handle_get_many(
+    s: &VaultSession,
+    storage: &crate::storage::Storage,
+    data: &serde_json::Value,
+) -> RpcResponse {
+    if !PASSMANAGER_ICONS_ENABLED {
+        return passmanager_icons_disabled_response();
+    }
+
+    let request = match parse_icon_get_many_request(data) {
+        Ok(request) => request,
+        Err(error) => return error.into_rpc_response(),
+    };
+
+    match service::get_icons(s, storage, request) {
         Ok(result) => RpcResponse::success(result),
         Err(error) => error.into_rpc_response(),
     }

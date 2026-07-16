@@ -10,7 +10,7 @@ const logger = {
   error: vi.fn(),
 }
 
-describe('tauri catalog command dispatcher passmanager icons payloads', () => {
+describe('tauri catalog command dispatcher passmanager payloads', () => {
   const iconRef = `sha256:${'a'.repeat(64)}`
 
   it('passes through passmanager:icon:put payload to rpcDispatch', async () => {
@@ -68,6 +68,23 @@ describe('tauri catalog command dispatcher passmanager icons payloads', () => {
     expect(rpcDispatch).toHaveBeenCalledWith('passmanager:icon:list', {})
   })
 
+  it('passes through passmanager:icon:getMany payload to rpcDispatch', async () => {
+    const result = {icons: [], missing_icon_refs: [iconRef]}
+    const rpcDispatch = vi.fn(async () => ({ok: true, result}))
+
+    const out = await dispatchTauriCatalogCommand({
+      command: 'passmanager:icon:getMany',
+      data: {icon_refs: [iconRef]},
+      logger,
+      rpc: vi.fn(async () => ({}) as never),
+      rpcDispatch,
+      rpcDispatchRaw: vi.fn(async () => ({ok: true, result: null})),
+    })
+
+    expect(out).toEqual({ok: true, result: {ok: true, result}})
+    expect(rpcDispatch).toHaveBeenCalledWith('passmanager:icon:getMany', {icon_refs: [iconRef]})
+  })
+
   it('passes through passmanager:icon:setMeta payload to rpcDispatch', async () => {
     const rpcDispatch = vi.fn(async () => ({ok: true, result: null}))
 
@@ -85,5 +102,28 @@ describe('tauri catalog command dispatcher passmanager icons payloads', () => {
       icon_ref: iconRef,
       background_color: '#102030',
     })
+  })
+
+  it('passes through credential security audit payloads to rpcDispatch', async () => {
+    const artifact = {
+      version: 1,
+      algorithmVersion: 1,
+      revision: 'loaded:entry',
+      generatedAt: 1,
+      entries: {},
+      failedEntryIds: [],
+    }
+    const rpcDispatch = vi.fn(async () => ({ok: true, result: null}))
+
+    await dispatchTauriCatalogCommand({
+      command: 'passmanager:securityAudit:set',
+      data: {artifact},
+      logger,
+      rpc: vi.fn(async () => ({}) as never),
+      rpcDispatch,
+      rpcDispatchRaw: vi.fn(async () => ({ok: true, result: null})),
+    })
+
+    expect(rpcDispatch).toHaveBeenCalledWith('passmanager:securityAudit:set', {artifact})
   })
 })

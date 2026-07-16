@@ -9,9 +9,8 @@ import {defaultLogger} from 'root/core/logger'
 const ARC_RADIUS = 17.5
 const ARC_CIRCUMFERENCE = 2 * Math.PI * ARC_RADIUS
 const TOTP_DANGER_SECONDS = 5
-const TOTP_WARNING_SECONDS = 10
 
-export type PMEntryTOTPCountdownLevel = 'safe' | 'warning' | 'danger'
+export type PMEntryTOTPCountdownLevel = 'safe' | 'danger'
 
 type VisibleCodeState = {
   key: string
@@ -38,31 +37,20 @@ function getCountdownLevel(leftSeconds: number): PMEntryTOTPCountdownLevel {
     return 'danger'
   }
 
-  if (leftSeconds <= TOTP_WARNING_SECONDS) {
-    return 'warning'
-  }
-
   return 'safe'
 }
 
 function getCountdownColors(level: PMEntryTOTPCountdownLevel): {baseColor: string; lightColor: string} {
   if (level === 'danger') {
     return {
-      baseColor: 'var(--cv-color-danger-dark)',
+      baseColor: 'var(--cv-color-danger)',
       lightColor: 'var(--cv-color-danger-surface)',
     }
   }
 
-  if (level === 'warning') {
-    return {
-      baseColor: 'var(--cv-color-warning-dark)',
-      lightColor: 'var(--cv-color-warning-surface)',
-    }
-  }
-
   return {
-    baseColor: 'var(--cv-color-success-dark)',
-    lightColor: 'var(--cv-color-success-surface)',
+    baseColor: 'var(--cv-color-accent)',
+    lightColor: 'var(--cv-color-accent-surface)',
   }
 }
 
@@ -221,13 +209,13 @@ export class PMEntryTOTPItemModel {
 
       this.copyFeedbackState.set('copied')
       this.clearCopyFeedbackTimeout()
-      this.copyFeedbackTimerId = window.setTimeout(() => {
+      this.copyFeedbackTimerId = window.setTimeout(wrap(() => {
         if (this.otpState() === otp) {
           this.copyFeedbackState.set('idle')
         }
 
         this.copyFeedbackTimerId = undefined
-      }, 1500)
+      }), 1500)
     }, 'passmanager.entryTotp.copyCode'),
   }
 
@@ -319,14 +307,14 @@ export class PMEntryTOTPItemModel {
       const elapsedMs = Date.now() % periodMs
       const delayMs = Math.max(50, periodMs - elapsedMs + 50)
 
-      this.pollTimerId = window.setTimeout(() => {
+      this.pollTimerId = window.setTimeout(wrap(() => {
         if (!this.isPollingActive(version, otp)) {
           return
         }
 
         void this.refreshVisibleCodeAction(otp, version)
         scheduleNextRefresh()
-      }, delayMs)
+      }), delayMs)
     }
 
     void this.refreshVisibleCodeAction(otp, version)

@@ -2,8 +2,9 @@ import {expect, test} from 'vitest'
 
 import {waitForAuthenticated} from './utils'
 
+import type {Page} from 'playwright'
 declare global {
-  var __E2E_PAGE__: import('playwright').Page | undefined
+  var __E2E_PAGE__: Page | undefined
 }
 
 test('S10: Uploading a file via input', async () => {
@@ -27,7 +28,7 @@ test('S10: Uploading a file via input', async () => {
       return null
     }
 
-    return Boolean(queryDeep('dashboard-header'))
+    return Boolean(queryDeep('workspace-dashboard-header'))
   })
 
   const fileName = `sample-${Date.now()}.txt`
@@ -75,9 +76,9 @@ test('S10: Uploading a file via input', async () => {
       return null
     }
 
-    const header = queryDeep('dashboard-header')
+    const header = queryDeep('workspace-dashboard-header')
     if (!header) {
-      throw new Error('dashboard-header is unavailable')
+      throw new Error('workspace-dashboard-header is unavailable')
     }
 
     const transfer = new DataTransfer()

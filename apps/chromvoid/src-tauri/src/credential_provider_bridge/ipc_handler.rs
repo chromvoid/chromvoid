@@ -35,6 +35,8 @@ impl RunLoopHandle {
     }
 }
 
+unsafe extern "C" fn run_loop_keepalive_perform(_info: *mut c_void) {}
+
 /// Spawn background thread that listens for Darwin notifications from the Extension.
 pub fn spawn_credential_provider_listener(
     adapter: Arc<Mutex<Box<dyn CoreAdapter>>>,
@@ -79,6 +81,31 @@ pub fn spawn_credential_provider_listener(
                     return;
                 }
                 let run_loop = ffi::CFRunLoopGetCurrent();
+                let mut source_context = ffi::CFRunLoopSourceContext {
+                    version: 0,
+                    info: std::ptr::null_mut(),
+                    retain: None,
+                    release: None,
+                    copy_description: None,
+                    equal: None,
+                    hash: None,
+                    schedule: None,
+                    cancel: None,
+                    perform: Some(run_loop_keepalive_perform),
+                };
+                let keepalive_source =
+                    ffi::CFRunLoopSourceCreate(std::ptr::null(), 0, &mut source_context);
+                if keepalive_source.is_null() {
+                    listener_readiness.mark_not_ready();
+                    ffi::CFRelease(cf_name);
+                    let _ = Box::from_raw(context);
+                    let _ = run_loop_tx.send(Err(
+                        "credential_provider_bridge: failed to create run loop source".to_string(),
+                    ));
+                    error!("credential_provider_bridge: failed to create run loop source");
+                    return;
+                }
+                ffi::CFRunLoopAddSource(run_loop, keepalive_source, ffi::kCFRunLoopDefaultMode);
 
                 ffi::CFNotificationCenterAddObserver(
                     center,
@@ -104,6 +131,8 @@ pub fn spawn_credential_provider_listener(
                     cf_name,
                     std::ptr::null(),
                 );
+                ffi::CFRunLoopRemoveSource(run_loop, keepalive_source, ffi::kCFRunLoopDefaultMode);
+                ffi::CFRelease(keepalive_source);
                 ffi::CFRelease(cf_name);
                 let _ = Box::from_raw(context);
                 info!("credential_provider_bridge: Darwin notification listener stopped");
@@ -188,12 +217,14 @@ fn handle_extension_request(adapter: Option<&Arc<Mutex<Box<dyn CoreAdapter>>>>) 
 
     // Clear consumed request
     clear_app_group_key(REQUEST_KEY);
+    super::secret_store::clear_secret_ref(&request_id);
 
     // Dispatch to the shared local Core adapter.
     let response = match adapter {
         Some(adapter) => super::dispatch_provider_rpc(adapter, &command, data),
         None => super::provider_bridge_unavailable_response(),
     };
+    let response = response_for_user_defaults(&command, &request_id, response);
 
     // Build response envelope
     let response_payload = match response {
@@ -218,4 +249,43 @@ fn handle_extension_request(adapter: Option<&Arc<Mutex<Box<dyn CoreAdapter>>>>) 
         "credential_provider_bridge: response sent for command={} request_id={}",
         command, request_id
     );
+}
+
+fn response_for_user_defaults(
+    command: &str,
+    request_id: &str,
+    response: RpcResponse,
+) -> RpcResponse {
+    match response {
+        RpcResponse::Success { ok: _, result } if is_secret_bearing_command(command) => {
+            match super::secret_store::secret_ref_result_for_response(request_id, result) {
+                Ok(secret_ref_result) => RpcResponse::success(secret_ref_result),
+                Err(error) => RpcResponse::error(error, Some("INTERNAL".to_string())),
+            }
+        }
+        other => other,
+    }
+}
+
+fn is_secret_bearing_command(command: &str) -> bool {
+    matches!(
+        command,
+        "credential_provider:getSecret" | "credential_provider:getOneTimeCode"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn only_secret_bearing_provider_responses_use_keychain_transport() {
+        assert!(super::is_secret_bearing_command(
+            "credential_provider:getSecret"
+        ));
+        assert!(super::is_secret_bearing_command(
+            "credential_provider:getOneTimeCode"
+        ));
+        assert!(!super::is_secret_bearing_command(
+            "credential_provider:search"
+        ));
+    }
 }

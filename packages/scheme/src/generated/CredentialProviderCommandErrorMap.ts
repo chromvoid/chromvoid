@@ -7,6 +7,7 @@ export type CredentialProviderCommandErrorMap = {
   'credential_provider:list': Array<string>
   'credential_provider:search': Array<string>
   'credential_provider:getSecret': Array<string>
+  'credential_provider:getOneTimeCode': Array<string>
   'credential_provider:recordUse': Array<string>
   'credential_provider:passkey:create': Array<string>
   'credential_provider:passkey:get': Array<string>

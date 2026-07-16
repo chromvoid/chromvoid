@@ -9,17 +9,50 @@ import {
 import {isPlayableVideoMediaFile} from 'root/utils/file-format-registry'
 import type {FileMediaInfo} from 'root/core/catalog/media-info'
 import {runtimeModeModel} from 'root/core/runtime/runtime-mode.model'
-import type {MediaStreamErrorEvent} from 'root/core/transport/transport'
-import {MEDIA_STREAM_LOADABILITY_TIMEOUT_MS} from 'root/features/media/models/media-stream-loadability'
+import type {AndroidVideoPlayerEvent, MediaStreamErrorEvent} from 'root/core/transport/transport'
+import {getMediaStreamLoadabilityTimeoutMs} from 'root/features/media/models/media-stream-loadability'
 import {
+  registerInFlightMediaStreamLoad,
   registerMediaStreamOwner,
+  type AndroidVideoSourceIdentity,
   type MediaStreamLifecycleReleaseContext,
   type MediaStreamLifecycleReleaseReason,
   type MediaStreamOwner,
 } from 'root/features/media/models/media-stream-owner-registry'
+import {areFileMediaInfosEquivalent} from 'root/features/media/models/media-info-identity'
+import {
+  MseVideoSourceController,
+  isMseVideoSourceAbortError,
+} from 'root/features/media/models/mse-video-source-controller'
+import {
+  consumeHandedOffVideoSourceRelease,
+  isHandoffSafeVideoSource,
+  offerVideoSourceHandoff,
+  revokeVideoSourceHandoff,
+} from 'root/features/media/models/video-source-handoff'
+import {
+  failedVideoSourceState,
+  idleVideoSourceState,
+  loadingVideoSourceState,
+  readyVideoSourceState,
+  videoSourceStateFromLoadError,
+  videoSourceStateFromNativeErrorCode,
+  type VideoSourceFailureReason,
+  type VideoSourceState,
+} from 'root/features/media/models/video-source-state'
 
 export type LoadingState = 'idle' | 'loading' | 'loaded' | 'fallback-limited' | 'error'
-export type VideoSourceKind = 'none' | 'blob' | 'media-stream' | 'android-native-video'
+export type VideoSourceKind = 'none' | 'blob' | 'video-source' | 'media-stream'
+export type VideoSourceDelivery =
+  | 'custom-scheme'
+  | 'loopback-http'
+  | 'mse'
+  | 'native-video'
+  | null
+type NativeStreamFailureReason = 'element-error' | 'loadability-timeout' | 'range-required'
+
+const MEDIA_ERR_DECODE = 3
+const MEDIA_ERR_SRC_NOT_SUPPORTED = 4
 
 export type VideoPreviewSourceMetadata = {
   mimeType?: string | null
@@ -34,12 +67,17 @@ export class VideoPreviewModel implements MediaStreamOwner {
   readonly errorMessage = atom('', 'videoPreview.errorMessage')
   readonly playable = atom(false, 'videoPreview.playable')
   readonly sourceKind = atom<VideoSourceKind>('none', 'videoPreview.sourceKind')
+  readonly sourceDelivery = atom<VideoSourceDelivery>(null, 'videoPreview.sourceDelivery')
   readonly sourceStreamId = atom<string | null>(null, 'videoPreview.sourceStreamId')
+  readonly sourceState = atom<VideoSourceState>(idleVideoSourceState(), 'videoPreview.sourceState')
 
   private abortController: AbortController | null = null
   private retryTimer: ReturnType<typeof setTimeout> | null = null
   private loadabilityTimer: ReturnType<typeof setTimeout> | null = null
   private currentSource: FileSourceLoadResult | null = null
+  private mseController: MseVideoSourceController | null = null
+  private pendingMsePlaybackPositionSeconds: number | null = null
+  private mseBufferingPlaybackPosition = false
   private unregisterStreamOwner: (() => void) | undefined
   private loadSessionId = 0
   private retryCount = 0
@@ -57,11 +95,13 @@ export class VideoPreviewModel implements MediaStreamOwner {
     const mediaInfo = metadata.mediaInfo ?? null
     const lastModified = metadata.lastModified
     const sourceSize = metadata.sourceSize ?? null
+    // Structural mediaInfo comparison: catalog refreshes rebuild node objects,
+    // and an identity check here would restart playback for unchanged content.
     if (
       this.fileId === fileId &&
       this.fileName === fileName &&
       this.mimeType === mimeType &&
-      this.mediaInfo === mediaInfo &&
+      areFileMediaInfosEquivalent(this.mediaInfo, mediaInfo) &&
       this.lastModified === lastModified &&
       this.sourceSize === sourceSize
     ) {
@@ -80,6 +120,7 @@ export class VideoPreviewModel implements MediaStreamOwner {
       void this.loadVideo()
     } else {
       this.loadingState.set('error')
+      this.sourceState.set({state: 'unsupported', reason: 'unsupported-container'})
       this.errorMessage.set(i18n('media:video-format-unsupported' as any))
     }
   }
@@ -94,7 +135,9 @@ export class VideoPreviewModel implements MediaStreamOwner {
     this.sourceSize = null
     this.videoUrl.set(null)
     this.sourceKind.set('none')
+    this.sourceDelivery.set(null)
     this.sourceStreamId.set(null)
+    this.sourceState.set(idleVideoSourceState())
     this.loadingState.set('idle')
     this.errorMessage.set('')
     this.playable.set(false)
@@ -119,33 +162,80 @@ export class VideoPreviewModel implements MediaStreamOwner {
     void this.loadVideo()
   }
 
-  handleVideoElementReady() {
+  handleVideoElementReady(video?: HTMLVideoElement) {
     this.clearLoadabilityTimer()
+    if (video) {
+      this.ensureMseBufferedNearPlayback(video)
+    }
   }
 
-  handleVideoElementError() {
+  handleVideoElementError(video?: HTMLVideoElement) {
+    // Decode / unsupported-source errors are file-scoped: fail only this file
+    // with the typed unsupported state and never quarantine the native media
+    // stream stack for the runtime session. Only network-class errors (or
+    // errors without a code) go through the loadability path.
+    const mediaErrorCode = video?.error?.code ?? null
+    if (mediaErrorCode === MEDIA_ERR_DECODE || mediaErrorCode === MEDIA_ERR_SRC_NOT_SUPPORTED) {
+      this.failCurrentSourceUnsupported()
+      return
+    }
+
     const streamId = this.sourceStreamId()
-    if (this.sourceKind() === 'media-stream' && streamId) {
-      this.handleNativeStreamLoadabilityFailure(streamId)
+    if ((this.sourceKind() === 'media-stream' || this.sourceKind() === 'video-source') && streamId) {
+      this.handleNativeStreamLoadabilityFailure(streamId, 'element-error')
       return
     }
 
     this.failCurrentSource()
+    this.releaseCurrentSource()
   }
 
   handleNativeStreamError(event: MediaStreamErrorEvent): void {
     if (!event.streamId || event.streamId !== this.sourceStreamId()) return
 
     if (event.code === 'ERR_MEDIA_RANGE_REQUIRED') {
-      this.handleNativeStreamLoadabilityFailure(event.streamId)
+      this.handleNativeStreamLoadabilityFailure(event.streamId, 'range-required')
       return
     }
 
     this.failCurrentSource()
   }
 
-  handleNativeStreamLoadabilityFailure(streamId: string): void {
+  handleAndroidVideoPlayerEvent(event: AndroidVideoPlayerEvent): void {
+    const source = this.currentSource
+    const eventToken = event.nativeSourceToken ?? event.token
+    if (!source || this.nativeVideoToken(source) !== eventToken) return
+
+    if (event.event === 'error') {
+      this.failCurrentSource(sourceFailureReason(videoSourceStateFromNativeErrorCode(event.error)))
+      return
+    }
+
+    if (event.event === 'released') {
+      this.invalidateCurrentLoad({resetRetryCount: false})
+    }
+  }
+
+  handleVideoPlaybackEvent(video: HTMLVideoElement): void {
+    this.ensureMseBufferedNearPlayback(video)
+  }
+
+  handleNativeStreamLoadabilityFailure(
+    streamId: string,
+    reason: NativeStreamFailureReason = 'range-required',
+  ): void {
     if (!streamId || streamId !== this.sourceStreamId()) return
+
+    if (runtimeModeModel.remoteCoreMode()) {
+      if (reason === 'loadability-timeout') return
+      this.failCurrentSource()
+      return
+    }
+
+    if (this.sourceKind() === 'video-source' && reason === 'loadability-timeout') {
+      this.failCurrentSource('source-starved')
+      return
+    }
 
     runtimeModeModel.disableNativeMediaStreamForRuntimeSession()
     void this.reloadVideoAfterNativeFallback()
@@ -156,7 +246,12 @@ export class VideoPreviewModel implements MediaStreamOwner {
     context: MediaStreamLifecycleReleaseContext = {},
   ): void {
     if (context.nodeId !== undefined && context.nodeId !== this.fileId) return
-    if (this.sourceKind() !== 'media-stream') return
+    if (
+      this.sourceKind() !== 'media-stream' &&
+      this.sourceKind() !== 'video-source'
+    ) {
+      return
+    }
 
     this.failCurrentSource()
   }
@@ -176,9 +271,16 @@ export class VideoPreviewModel implements MediaStreamOwner {
     }
 
     this.loadingState.set('loading')
+    this.sourceState.set(loadingVideoSourceState())
     this.errorMessage.set('')
     const controller = new AbortController()
     this.abortController = controller
+    // Lifecycle releases (vault lock, background, transport loss) must be able
+    // to cancel a prepare that is still in flight, before an owner exists.
+    const unregisterInFlightLoad = registerInFlightMediaStreamLoad(controller, {
+      owner: this,
+      nodeId: this.fileId,
+    })
     const fileId = this.fileId
     const fileName = this.fileName
 
@@ -194,7 +296,10 @@ export class VideoPreviewModel implements MediaStreamOwner {
         }),
       )
 
-      if (!this.isCurrentSession(sessionId)) {
+      if (!this.isCurrentSession(sessionId) || controller.signal.aborted) {
+        // A lifecycle release aborted this load while the backend prepare was
+        // already resolving; release the freshly created stream instead of
+        // attaching it post-lock.
         this.releaseSource(source)
         return
       }
@@ -215,6 +320,7 @@ export class VideoPreviewModel implements MediaStreamOwner {
 
       if (isMediaBlobFallbackLimitError(error)) {
         this.loadingState.set('fallback-limited')
+        this.sourceState.set(videoSourceStateFromLoadError(error))
         this.errorMessage.set(i18n('media:fallback-limited-title' as any))
         return
       }
@@ -222,6 +328,7 @@ export class VideoPreviewModel implements MediaStreamOwner {
       const errorMsg = error instanceof Error ? error.message : String(error)
       if (errorMsg.includes('File bytes not found')) {
         this.loadingState.set('error')
+        this.sourceState.set({state: 'failed', reason: 'provider-unavailable'})
         this.errorMessage.set(i18n('media:preview-desktop-only' as any))
         return
       }
@@ -232,8 +339,10 @@ export class VideoPreviewModel implements MediaStreamOwner {
       }
 
       this.loadingState.set('error')
+      this.sourceState.set(videoSourceStateFromLoadError(error))
       this.errorMessage.set(i18n('media:video-load-failed' as any))
     } finally {
+      unregisterInFlightLoad()
       if (this.abortController === controller) {
         this.abortController = null
       }
@@ -245,47 +354,106 @@ export class VideoPreviewModel implements MediaStreamOwner {
     await this.loadVideoForSession(sessionId)
   }
 
-  private failCurrentSource() {
+  private failCurrentSource(reason: VideoSourceFailureReason = 'playback-backend-failure') {
     this.invalidateCurrentLoad({resetRetryCount: false})
     this.loadingState.set('error')
+    this.sourceState.set(failedVideoSourceState(reason))
+    this.errorMessage.set(i18n('media:video-load-failed' as any))
+  }
+
+  private failCurrentSourceUnsupported(reason: VideoSourceFailureReason = 'unsupported-codec') {
+    this.invalidateCurrentLoad({resetRetryCount: false})
+    this.loadingState.set('error')
+    this.sourceState.set({state: 'unsupported', reason})
     this.errorMessage.set(i18n('media:video-load-failed' as any))
   }
 
   private attachSource(source: FileSourceLoadResult) {
     this.releaseCurrentSource()
     this.currentSource = source
-    const streamId = source.kind === 'media-stream' ? source.streamId ?? null : null
-
-    this.sourceKind.set(
+    const streamId =
+      source.kind === 'media-stream' || source.kind === 'video-source'
+        ? source.streamId ?? null
+        : null
+    const nativeVideoToken = this.nativeVideoToken(source)
+    const ownerId =
       source.kind === 'media-stream'
-        ? 'media-stream'
-        : source.kind === 'android-native-video'
-          ? 'android-native-video'
-          : 'blob',
-    )
-    this.sourceStreamId.set(streamId)
+        ? streamId
+        : source.kind === 'video-source'
+          ? source.delivery === 'native-video'
+            ? nativeVideoToken
+            : streamId
+          : null
+    const sourceKind: VideoSourceKind =
+      source.kind === 'video-source'
+        ? 'video-source'
+        : source.kind === 'media-stream'
+          ? 'media-stream'
+          : 'blob'
+    const sourceDelivery: VideoSourceDelivery =
+      source.kind === 'media-stream' || source.kind === 'video-source'
+        ? source.delivery ?? 'custom-scheme'
+        : null
 
-    if (source.kind === 'media-stream' && streamId) {
-      this.unregisterStreamOwner = registerMediaStreamOwner(streamId, this)
+    this.sourceKind.set(sourceKind)
+    this.sourceDelivery.set(sourceDelivery)
+    this.sourceStreamId.set(streamId)
+    this.sourceState.set(readyVideoSourceState({
+      sourceKind,
+      delivery: sourceDelivery,
+      provider: source.provider ?? null,
+    }))
+
+    if (ownerId) {
+      this.unregisterStreamOwner = registerMediaStreamOwner(
+        ownerId,
+        this,
+        this.androidVideoSourceIdentity(source),
+      )
+    }
+
+    if (isHandoffSafeVideoSource(source)) {
+      // Let the full player take over this prepared source for the same node
+      // instead of preparing a second one on its open critical path.
+      offerVideoSourceHandoff({nodeId: this.fileId, lastModified: this.lastModified}, source)
+    }
+
+    if (
+      (source.kind === 'media-stream' || source.kind === 'video-source') &&
+      streamId &&
+      sourceDelivery !== 'native-video' &&
+      sourceDelivery !== 'mse'
+    ) {
       this.startLoadabilityTimer(streamId)
     }
 
-    this.videoUrl.set(source.kind === 'android-native-video' ? null : source.url)
+    if (sourceDelivery === 'mse' && source.mse) {
+      const controller = new MseVideoSourceController(source.mse)
+      this.mseController = controller
+      const sessionId = this.loadSessionId
+      void controller.start().catch(wrap((error) => {
+        this.handleMseControllerError(controller, sessionId, error)
+      }))
+      this.videoUrl.set(controller.url)
+      return
+    }
+
+    this.videoUrl.set(sourceDelivery === 'native-video' ? null : source.url)
   }
 
   private startLoadabilityTimer(streamId: string) {
     this.clearLoadabilityTimer()
-    this.loadabilityTimer = setTimeout(() => {
+    this.loadabilityTimer = setTimeout(wrap(() => {
       this.loadabilityTimer = null
-      this.handleNativeStreamLoadabilityFailure(streamId)
-    }, MEDIA_STREAM_LOADABILITY_TIMEOUT_MS)
+      this.handleNativeStreamLoadabilityFailure(streamId, 'loadability-timeout')
+    }), getMediaStreamLoadabilityTimeoutMs())
   }
 
   private scheduleRetry(sessionId: number) {
     this.retryCount++
     const delay = 1000 * this.retryCount
     this.clearRetryTimer()
-    this.retryTimer = setTimeout(() => {
+    this.retryTimer = setTimeout(wrap(() => {
       this.retryTimer = null
       if (!this.isCurrentSession(sessionId)) {
         return
@@ -293,7 +461,7 @@ export class VideoPreviewModel implements MediaStreamOwner {
 
       const nextSessionId = this.beginLoadAttempt({resetRetryCount: false})
       void this.loadVideoForSession(nextSessionId)
-    }, delay)
+    }), delay)
   }
 
   private beginLoadAttempt(options: {resetRetryCount: boolean}): number {
@@ -308,7 +476,9 @@ export class VideoPreviewModel implements MediaStreamOwner {
     this.releaseCurrentSource()
     this.videoUrl.set(null)
     this.sourceKind.set('none')
+    this.sourceDelivery.set(null)
     this.sourceStreamId.set(null)
+    this.sourceState.set(idleVideoSourceState())
     if (this.abortController) {
       this.abortController.abort()
       this.abortController = null
@@ -341,6 +511,7 @@ export class VideoPreviewModel implements MediaStreamOwner {
   }
 
   private releaseCurrentSource() {
+    this.releaseMseController()
     this.unregisterStreamOwner?.()
     this.unregisterStreamOwner = undefined
 
@@ -353,7 +524,66 @@ export class VideoPreviewModel implements MediaStreamOwner {
     this.releaseSource(source)
   }
 
+  private releaseMseController() {
+    this.pendingMsePlaybackPositionSeconds = null
+    this.mseBufferingPlaybackPosition = false
+    this.mseController?.release()
+    this.mseController = null
+  }
+
+  private ensureMseBufferedNearPlayback(video: HTMLVideoElement) {
+    const controller = this.mseController
+    if (!controller || this.sourceDelivery() !== 'mse') return
+    if (!Number.isFinite(video.currentTime) || video.currentTime < 0) return
+
+    this.pendingMsePlaybackPositionSeconds = video.currentTime
+    if (this.mseBufferingPlaybackPosition) return
+
+    this.mseBufferingPlaybackPosition = true
+    const sessionId = this.loadSessionId
+    void this.flushMsePlaybackBuffer(controller, sessionId)
+  }
+
+  private async flushMsePlaybackBuffer(
+    controller: MseVideoSourceController,
+    sessionId: number,
+  ) {
+    try {
+      while (
+        this.pendingMsePlaybackPositionSeconds !== null &&
+        this.isCurrentSession(sessionId) &&
+        this.mseController === controller
+      ) {
+        const currentTimeSeconds = this.pendingMsePlaybackPositionSeconds
+        this.pendingMsePlaybackPositionSeconds = null
+        await controller.ensureBufferedForPlaybackPosition(currentTimeSeconds)
+      }
+    } catch (error) {
+      this.handleMseControllerError(controller, sessionId, error)
+    } finally {
+      if (this.mseController === controller) {
+        this.mseBufferingPlaybackPosition = false
+      }
+    }
+  }
+
+  private handleMseControllerError(
+    controller: MseVideoSourceController,
+    sessionId: number,
+    error: unknown,
+  ) {
+    if (!this.isCurrentSession(sessionId) || this.mseController !== controller) return
+    if (isMseVideoSourceAbortError(error)) return
+    this.failCurrentSource(sourceFailureReason(videoSourceStateFromLoadError(error)))
+  }
+
   private releaseSource(source: FileSourceLoadResult) {
+    if (consumeHandedOffVideoSourceRelease(source)) {
+      // The full player claimed this source; release responsibility moved with
+      // it, so releasing here would tear the stream down under the new owner.
+      return
+    }
+    revokeVideoSourceHandoff(source)
     try {
       void Promise.resolve(source.release()).catch((error) => {
         console.warn('Failed to release video preview source:', error)
@@ -362,4 +592,32 @@ export class VideoPreviewModel implements MediaStreamOwner {
       console.warn('Failed to release video preview source:', error)
     }
   }
+
+  private nativeVideoToken(source: FileSourceLoadResult): string | null {
+    if (source.kind === 'video-source' && source.delivery === 'native-video') {
+      return source.nativeSourceToken ?? source.sourceToken ?? null
+    }
+    return null
+  }
+
+  private androidVideoSourceIdentity(source: FileSourceLoadResult): AndroidVideoSourceIdentity | undefined {
+    if (
+      source.kind !== 'video-source' ||
+      source.delivery !== 'native-video' ||
+      source.mediaSourceGeneration == null ||
+      source.sourceRevision == null
+    ) {
+      return undefined
+    }
+    return {
+      mediaSourceGeneration: source.mediaSourceGeneration,
+      sourceRevision: source.sourceRevision,
+      transportSessionGeneration: source.transportSessionGeneration,
+      appForegroundEpoch: source.appForegroundEpoch,
+    }
+  }
+}
+
+function sourceFailureReason(state: VideoSourceState): VideoSourceFailureReason {
+  return 'reason' in state ? state.reason : 'playback-backend-failure'
 }

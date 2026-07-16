@@ -8,6 +8,25 @@ fn test_request_serialization() {
 
     assert!(json.contains("\"v\":1"));
     assert!(json.contains("\"command\":\"ping\""));
+    assert!(!json.contains("transport_features"));
+}
+
+#[test]
+fn rpc_request_transport_features_are_optional_and_backward_compatible() {
+    let legacy = r#"{"v":1,"command":"ping","data":{}}"#;
+    let request: RpcRequest = serde_json::from_str(legacy).expect("legacy request parses");
+    assert_eq!(request.transport_features, None);
+
+    let request =
+        request.with_transport_features(vec![CORE_FEATURE_REMOTE_STREAM_CONTROL_V1.into()]);
+    let json = serde_json::to_value(&request).expect("request serializes");
+    assert_eq!(
+        json.get("transport_features")
+            .and_then(|value| value.as_array())
+            .and_then(|features| features.first())
+            .and_then(|value| value.as_str()),
+        Some(CORE_FEATURE_REMOTE_STREAM_CONTROL_V1)
+    );
 }
 
 #[test]
@@ -56,6 +75,8 @@ fn rpc_types_include_lazy_catalog_contracts() {
             filter: Some(CatalogFolderFilter {
                 query: Some("report".to_string()),
                 include_hidden: Some(false),
+                recursive: Some(true),
+                include_text_content: Some(true),
                 file_types: vec!["documents".to_string()],
             }),
         }],
@@ -85,4 +106,14 @@ fn rpc_types_include_lazy_catalog_contracts() {
         json.get("command").and_then(|value| value.as_str()),
         Some("catalog:sync:manifest")
     );
+}
+
+#[test]
+fn core_capabilities_include_fuse_audit_contracts() {
+    let features = core_capability_features();
+
+    assert!(features.contains(&CORE_FEATURE_CATALOG_TRASH_V1.to_string()));
+    assert!(features.contains(&CORE_FEATURE_CATALOG_EXCHANGE_V1.to_string()));
+    assert!(features.contains(&CORE_FEATURE_CATALOG_PATCH_V1.to_string()));
+    assert!(features.contains(&CORE_FEATURE_CATALOG_LIST_SOURCE_REVISION_V1.to_string()));
 }

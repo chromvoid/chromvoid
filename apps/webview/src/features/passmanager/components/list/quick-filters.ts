@@ -25,17 +25,6 @@ export class PMQuickFilters extends ReatomLitElement {
       min-inline-size: 0;
       contain: layout style;
       container-type: inline-size;
-      --pm-toolbar-control-height: var(--app-toolbar-control-height, 40px);
-      --pm-toolbar-control-radius: var(--app-toolbar-control-radius, var(--cv-radius-2));
-      --pm-toolbar-control-padding-inline: var(--app-toolbar-control-padding-inline, var(--cv-space-3));
-      --pm-toolbar-control-font-size: var(--app-toolbar-control-font-size, var(--cv-font-size-sm));
-      --pm-toolbar-control-font-weight: var(--app-toolbar-control-font-weight, var(--cv-font-weight-medium));
-      --pm-toolbar-control-gap: var(--app-toolbar-control-gap, var(--cv-space-2));
-      --pm-quick-filter-height: 30px;
-      --pm-quick-filter-padding-inline: var(--cv-space-2);
-      --pm-quick-filter-font-size: 0.8125rem;
-      --pm-quick-filter-gap: 6px;
-      --pm-quick-filter-icon-size: 13px;
     }
 
     .quick-filters {
@@ -57,7 +46,7 @@ export class PMQuickFilters extends ReatomLitElement {
     }
 
     .quick-filters cv-button {
-      --cv-button-min-height: var(--pm-toolbar-control-height);
+      --cv-button-min-height: var(--pm-toolbar-control-block-size);
       --cv-button-border-radius: var(--pm-toolbar-control-radius);
       --cv-button-padding-block: 0;
       --cv-button-padding-inline: var(--pm-toolbar-control-padding-inline);
@@ -69,7 +58,7 @@ export class PMQuickFilters extends ReatomLitElement {
     }
 
     .quick-filters cv-button.quick-filter-button {
-      --cv-button-min-height: var(--pm-quick-filter-height);
+      --cv-button-min-height: var(--pm-quick-filter-block-size);
       --cv-button-border-radius: var(--cv-radius-pill, 999px);
       --cv-button-padding-inline: var(--pm-quick-filter-padding-inline);
       --cv-button-font-size: var(--pm-quick-filter-font-size);
@@ -77,11 +66,11 @@ export class PMQuickFilters extends ReatomLitElement {
     }
 
     .quick-filters cv-button::part(base) {
-      min-block-size: var(--pm-toolbar-control-height);
+      min-block-size: var(--pm-toolbar-control-block-size);
     }
 
     .quick-filters cv-button.quick-filter-button::part(base) {
-      min-block-size: var(--pm-quick-filter-height);
+      min-block-size: var(--pm-quick-filter-block-size);
     }
 
     .quick-filters cv-button.quick-filter-button::part(label) {
@@ -140,7 +129,7 @@ export class PMQuickFilters extends ReatomLitElement {
     }
 
     .tag-filter-combobox::part(input-wrapper) {
-      min-block-size: var(--pm-toolbar-control-height);
+      min-block-size: var(--pm-toolbar-control-block-size);
       padding-inline: var(--pm-toolbar-control-padding-inline);
       border-color: var(--cv-color-border);
       border-radius: var(--pm-toolbar-control-radius);
@@ -155,7 +144,7 @@ export class PMQuickFilters extends ReatomLitElement {
 
     .tag-filter-combobox::part(input) {
       min-inline-size: 52px;
-      min-block-size: calc(var(--pm-toolbar-control-height) - 2px);
+      min-block-size: calc(var(--pm-toolbar-control-block-size) - 2px);
       font-size: var(--pm-toolbar-control-font-size);
     }
 
@@ -187,31 +176,13 @@ export class PMQuickFilters extends ReatomLitElement {
     }
 
     .tag-manage-button::part(base) {
-      min-block-size: var(--pm-toolbar-control-height);
+      min-block-size: var(--pm-toolbar-control-block-size);
       padding: 0 var(--pm-toolbar-control-padding-inline);
       border-radius: var(--pm-toolbar-control-radius);
     }
 
     .tag-manage-button:hover {
       color: var(--cv-color-primary);
-    }
-
-    @media (hover: none) and (pointer: coarse) {
-      .quick-filters cv-button.quick-filter-button {
-        --cv-button-min-height: var(--pm-toolbar-control-height);
-        --cv-button-padding-inline: var(--pm-toolbar-control-padding-inline);
-        --cv-button-font-size: var(--pm-toolbar-control-font-size);
-        --cv-button-gap: var(--pm-toolbar-control-gap);
-      }
-
-      .quick-filters cv-button::part(base) {
-        min-block-size: var(--pm-toolbar-control-height);
-      }
-
-      .quick-filters cv-button.quick-filter-button cv-icon {
-        inline-size: 14px;
-        block-size: 14px;
-      }
     }
 
     @container (width < 480px) {

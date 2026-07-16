@@ -12,6 +12,7 @@ export const PRO_FEATURE_KEYS = [
   'remote',
   'credential-provider',
   'ssh-agent',
+  'env-runtime',
   'crypto-wallet',
   'emergency-access',
   'browser-extension',
@@ -72,6 +73,7 @@ const PRO_SURFACE_FEATURES: Partial<Record<SurfaceId, ProFeatureKey>> = {
   remote: 'remote',
   gateway: 'browser-extension',
   'remote-storage': 'mounted-vault',
+  wallet: 'crypto-wallet',
 }
 
 const DEFAULT_STATES: ModuleAccessState[] = [
@@ -82,6 +84,7 @@ const DEFAULT_STATES: ModuleAccessState[] = [
     denial_code: 'ENTITLEMENT_UNAVAILABLE',
   },
   {feature_key: 'ssh-agent', status: 'entitlement_unavailable', denial_code: 'ENTITLEMENT_UNAVAILABLE'},
+  {feature_key: 'env-runtime', status: 'entitlement_unavailable', denial_code: 'ENTITLEMENT_UNAVAILABLE'},
   {feature_key: 'crypto-wallet', status: 'unsupported', denial_code: 'FEATURE_UNSUPPORTED_ON_PLATFORM'},
   {
     feature_key: 'emergency-access',
@@ -360,7 +363,14 @@ function isFeatureSupportedByRuntime(
       return capabilities.supports_autofill
     case 'ssh-agent':
       return capabilities.desktop && !capabilities.mobile
+    case 'env-runtime':
+      return (
+        capabilities.desktop &&
+        !capabilities.mobile &&
+        (capabilities.platform === 'macos' || capabilities.platform === 'darwin')
+      )
     case 'crypto-wallet':
+      return true
     case 'emergency-access':
       return false
   }

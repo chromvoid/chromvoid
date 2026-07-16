@@ -5,7 +5,7 @@ vi.mock('@project/utils', () => ({sha256: vi.fn(async (s: string) => `hash:${s}`
 import {Entry} from '../entry'
 import {Group} from '../group'
 import {ManagerRoot} from '../root'
-import type {ManagerSaver, IEntry, OTPOptions, SshKeyEntry} from '../types'
+import type {ManagerSaver, IEntry, OTPOptions} from '../types'
 
 type LoginEntryData = Extract<IEntry, {entryType?: 'login'}>
 
@@ -52,14 +52,6 @@ function makeEntryData(overrides: Partial<LoginEntryData> = {}): LoginEntryData 
     otps: [],
     sshKeys: [],
     ...overrides,
-  }
-}
-
-function makeSshKey(id: string): SshKeyEntry {
-  return {
-    id,
-    type: 'ed25519',
-    fingerprint: `SHA256:${id}`,
   }
 }
 
@@ -143,26 +135,6 @@ describe('Entry rollback paths', () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(entry.otps()).toHaveLength(0)
-  })
-
-  it('rolls back SSH metadata updates when meta persistence fails', async () => {
-    const originalKeys = [makeSshKey('k1')]
-    const entry = new Entry(root, makeEntryData({sshKeys: originalKeys}))
-
-    ;(saver.saveEntryMeta as Mock).mockRejectedValueOnce(new Error('meta failed'))
-
-    await expect(entry.updateSshKeys([makeSshKey('k2')])).rejects.toThrow('meta failed')
-    expect(entry.sshKeys).toEqual(originalKeys)
-  })
-
-  it('rolls back SSH key removal when a storage step fails', async () => {
-    const originalKeys = [makeSshKey('k1'), makeSshKey('k2')]
-    const entry = new Entry(root, makeEntryData({sshKeys: originalKeys}))
-
-    ;(saver.removeEntrySshPrivateKey as Mock).mockRejectedValueOnce(new Error('ssh remove failed'))
-
-    await expect(entry.removeSshKey('k1')).rejects.toThrow('ssh remove failed')
-    expect(entry.sshKeys).toEqual(originalKeys)
   })
 
   it('rolls back OTP removal when meta persistence fails after clean', async () => {

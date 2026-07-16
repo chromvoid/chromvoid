@@ -1,0 +1,29 @@
+{
+  "name": "@project/theme",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "exports": {
+    "./foundation.css": "./src/foundation.css",
+    "./shell.css": "./src/shell.css",
+    "./passmanager.css": "./src/passmanager.css",
+    "./media.css": "./src/media.css",
+    "./welcome.css": "./src/welcome.css",
+    "./splash.css": "./src/splash.css",
+    "./remote.css": "./src/remote.css",
+    "./webview.css": "./src/webview.css",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "test": "bun ./scripts/check-exports.mjs"
+  },
+  "dependencies": {
+    "@chromvoid/uikit": "workspace:*"
+  },
+  "devDependencies": {
+    "vite": "^8.1.4"
+  }
+}

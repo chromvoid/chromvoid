@@ -15,11 +15,15 @@ pub fn query_candidates(
     let allow_credentials = allow_credential_ids(request)?;
     let mut candidates: Vec<PasskeyCredentialSource> = sources
         .iter()
-        .filter(|source| source.rp_id == rp_id)
+        .filter(|source| source.rp_id.eq_ignore_ascii_case(&rp_id))
         .filter(|source| {
             allow_credentials.is_empty() || allow_credentials.contains(&source.credential_id_b64url)
         })
         .cloned()
+        .map(|mut source| {
+            source.rp_id = rp_id.clone();
+            source
+        })
         .collect();
     candidates.sort_by(|a, b| {
         b.last_used_epoch_ms

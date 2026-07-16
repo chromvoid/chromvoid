@@ -228,9 +228,12 @@ fn map_audio_range_error(error: LocalMediaRangeError) -> &'static str {
         LocalMediaRangeError::StreamStale | LocalMediaRangeError::StreamNotFound => {
             "ERR_NATIVE_AUDIO_SOURCE_STALE"
         }
-        LocalMediaRangeError::SourceLoadFailed | LocalMediaRangeError::RangeReadFailed => {
-            "ERR_NATIVE_AUDIO_SOURCE_READ"
-        }
+        LocalMediaRangeError::SourceLoadFailed
+        | LocalMediaRangeError::RangeReadFailed
+        | LocalMediaRangeError::ProviderUnavailable
+        | LocalMediaRangeError::Timeout
+        | LocalMediaRangeError::Aborted
+        | LocalMediaRangeError::SourceStarved => "ERR_NATIVE_AUDIO_SOURCE_READ",
     }
 }
 
@@ -462,6 +465,22 @@ mod tests {
         );
         assert_eq!(
             map_audio_range_error(LocalMediaRangeError::RangeReadFailed),
+            "ERR_NATIVE_AUDIO_SOURCE_READ"
+        );
+        assert_eq!(
+            map_audio_range_error(LocalMediaRangeError::ProviderUnavailable),
+            "ERR_NATIVE_AUDIO_SOURCE_READ"
+        );
+        assert_eq!(
+            map_audio_range_error(LocalMediaRangeError::Timeout),
+            "ERR_NATIVE_AUDIO_SOURCE_READ"
+        );
+        assert_eq!(
+            map_audio_range_error(LocalMediaRangeError::Aborted),
+            "ERR_NATIVE_AUDIO_SOURCE_READ"
+        );
+        assert_eq!(
+            map_audio_range_error(LocalMediaRangeError::SourceStarved),
             "ERR_NATIVE_AUDIO_SOURCE_READ"
         );
     }

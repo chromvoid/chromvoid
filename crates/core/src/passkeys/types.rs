@@ -13,6 +13,7 @@ pub struct PasskeyInvocationContext {
     pub origin: String,
     pub client_data_hash: Option<Vec<u8>>,
     pub selected_credential_id: Option<String>,
+    pub user_verified: bool,
 }
 
 impl std::fmt::Debug for PasskeyInvocationContext {
@@ -22,6 +23,7 @@ impl std::fmt::Debug for PasskeyInvocationContext {
             .field("platform", &self.platform)
             .field("platform_version_major", &self.platform_version_major)
             .field("origin", &self.origin)
+            .field("user_verified", &self.user_verified)
             .field(
                 "client_data_hash",
                 &self

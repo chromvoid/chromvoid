@@ -60,8 +60,22 @@ impl CredentialProviderCommandError {
         Self::new("HOTP autofill is unsupported", ErrorCode::OtpGenerateFailed)
     }
 
+    pub(in crate::rpc::router) fn hotp_one_time_code_unsupported() -> Self {
+        Self::new(
+            "HOTP autofill is unsupported",
+            ErrorCode::HotpAutofillUnsupported,
+        )
+    }
+
     pub(in crate::rpc::router) fn internal(message: impl Into<String>) -> Self {
         Self::new(message, ErrorCode::InternalError)
+    }
+
+    pub(in crate::rpc::router) fn invalid_secret_encoding() -> Self {
+        Self::new(
+            "Credential password secret is not valid UTF-8",
+            "INVALID_SECRET_ENCODING",
+        )
     }
 
     pub(in crate::rpc::router) fn into_rpc_response(self) -> RpcResponse {

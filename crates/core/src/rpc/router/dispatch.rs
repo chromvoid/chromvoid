@@ -7,9 +7,7 @@ use crate::rpc::commands::{
     handle_catalog_shard_load_request, handle_catalog_shard_sync_request, *,
 };
 use crate::rpc::stream::{RpcInputStream, RpcReply};
-use crate::rpc::types::{
-    core_capability_features, CoreCapabilitiesResponse, RpcRequest, RpcResponse, PROTOCOL_VERSION,
-};
+use crate::rpc::types::{CoreCapabilitiesResponse, RpcRequest, RpcResponse, PROTOCOL_VERSION};
 
 use super::state::RpcRouter;
 use crate::rpc::request_parse::{optional_value, required_str, required_u64};
@@ -68,6 +66,61 @@ impl RpcRouter {
             );
         }
 
+        if request.command.starts_with("wallet:") {
+            let started_at = std::time::Instant::now();
+            let response = match request.command.as_str() {
+                "wallet:status" => self.handle_wallet_status(&request.data),
+                "wallet:list" => self.handle_wallet_list(&request.data),
+                "wallet:hd:generateMnemonic" => {
+                    self.handle_wallet_hd_generate_mnemonic(&request.data)
+                }
+                "wallet:hd:create" => self.handle_wallet_hd_create(&request.data),
+                "wallet:import:create" => self.handle_wallet_import_create(&request.data),
+                "wallet:accounts:list" => self.handle_wallet_accounts_list(&request.data),
+                "wallet:accounts:derive" => self.handle_wallet_accounts_derive(&request.data),
+                "wallet:addresses:derive" => self.handle_wallet_addresses_derive(&request.data),
+                "wallet:balance:get" => self.handle_wallet_balance_get(&request.data),
+                "wallet:transaction:quote" => self.handle_wallet_transaction_quote(&request.data),
+                "wallet:transaction:prepare" => {
+                    self.handle_wallet_transaction_prepare(&request.data)
+                }
+                "wallet:transaction:confirm" => {
+                    self.handle_wallet_transaction_confirm(&request.data)
+                }
+                "wallet:transaction:cancel" => self.handle_wallet_transaction_cancel(&request.data),
+                "wallet:transaction:rebroadcast" => {
+                    self.handle_wallet_transaction_rebroadcast(&request.data)
+                }
+                "wallet:transactions:list" => self.handle_wallet_transactions_list(&request.data),
+                "wallet:transactions:refresh" => {
+                    self.handle_wallet_transactions_refresh(&request.data)
+                }
+                "wallet:transactions:sync" => self.handle_wallet_transactions_sync(&request.data),
+                "wallet:backup:export" => self.handle_wallet_backup_export(&request.data),
+                "wallet:spendAuthorization:create" => {
+                    self.handle_wallet_spend_authorization_create(&request.data)
+                }
+                "wallet:spendAuthorization:revoke" => {
+                    self.handle_wallet_spend_authorization_revoke(&request.data)
+                }
+                "wallet:addressBook:list" => self.handle_wallet_address_book_list(&request.data),
+                "wallet:addressBook:create" => {
+                    self.handle_wallet_address_book_create(&request.data)
+                }
+                "wallet:addressBook:update" => {
+                    self.handle_wallet_address_book_update(&request.data)
+                }
+                "wallet:addressBook:delete" => {
+                    self.handle_wallet_address_book_delete(&request.data)
+                }
+                _ => RpcResponse::error(
+                    format!("Unknown command: {}", request.command),
+                    Some(ErrorCode::InternalError),
+                ),
+            };
+            return self.observe_wallet_rpc_response(&request.command, started_at, response);
+        }
+
         // Route command
         match request.command.as_str() {
             // System commands (no vault required)
@@ -75,7 +128,7 @@ impl RpcRouter {
             "pong" => handle_pong(&request.data),
             "core:capabilities" => RpcResponse::success(CoreCapabilitiesResponse {
                 protocol_version: PROTOCOL_VERSION,
-                features: core_capability_features(),
+                features: self.core_capability_features(),
             }),
             "license:fingerprint" => match &self.license_store {
                 Some(store) => match store.device_fingerprint() {
@@ -137,22 +190,19 @@ impl RpcRouter {
             "vault:rekey" => self.handle_vault_rekey(&request.data, &|| false, &mut |_| {}),
             "master:rekey" => self.handle_master_rekey(&request.data),
 
-            // Wallet domain commands (SPEC-217): scoped access to /.wallet only.
-            "wallet:status" => self.handle_wallet_status(),
-            "wallet:list" => self.handle_wallet_list(),
-            "wallet:hd:generateMnemonic" => self.handle_wallet_hd_generate_mnemonic(&request.data),
-            "wallet:hd:create" => self.handle_wallet_hd_create(&request.data),
-            "wallet:import:create" => self.handle_wallet_import_create(&request.data),
-            "wallet:accounts:list" => self.handle_wallet_accounts_list(&request.data),
-            "wallet:accounts:derive" => self.handle_wallet_accounts_derive(&request.data),
-            "wallet:addresses:derive" => self.handle_wallet_addresses_derive(&request.data),
-            "wallet:balance:get" => self.handle_wallet_balance_get(&request.data),
-            "wallet:transaction:prepare" => self.handle_wallet_transaction_prepare(&request.data),
-            "wallet:transaction:confirm" => self.handle_wallet_transaction_confirm(&request.data),
-            "wallet:transaction:cancel" => self.handle_wallet_transaction_cancel(&request.data),
-            "wallet:transactions:list" => self.handle_wallet_transactions_list(&request.data),
-            "wallet:transactions:refresh" => self.handle_wallet_transactions_refresh(&request.data),
-            "wallet:backup:export" => self.handle_wallet_backup_export(&request.data),
+            // Portable Vault Env Runtime domain. Resolved env values are never
+            // exposed here; spawn resolution is a typed local-only method.
+            "env_runtime:status" => self.handle_env_runtime_status(&request.data),
+            "env_runtime:secret:list" => self.handle_env_runtime_secret_list(&request.data),
+            "env_runtime:secret:create" => self.handle_env_runtime_secret_create(&request.data),
+            "env_runtime:secret:update" => self.handle_env_runtime_secret_update(&request.data),
+            "env_runtime:secret:delete" => self.handle_env_runtime_secret_delete(&request.data),
+            "env_runtime:secret:reveal" => self.handle_env_runtime_secret_reveal(&request.data),
+            "env_runtime:profile:list" => self.handle_env_runtime_profile_list(&request.data),
+            "env_runtime:profile:get" => self.handle_env_runtime_profile_get(&request.data),
+            "env_runtime:profile:create" => self.handle_env_runtime_profile_create(&request.data),
+            "env_runtime:profile:update" => self.handle_env_runtime_profile_update(&request.data),
+            "env_runtime:profile:delete" => self.handle_env_runtime_profile_delete(&request.data),
 
             // Vault export (ADR-004/ADR-012)
             "vault:export:start" => self.handle_vault_export_start(&request.data),
@@ -167,7 +217,10 @@ impl RpcRouter {
             "vault:export:finish" => self.handle_vault_export_finish(&request.data),
 
             // Catalog commands (vault required)
-            "catalog:list" => self.with_session(|s| handle_catalog_list(s, &request.data)),
+            "catalog:list" => {
+                let storage = self.storage.clone();
+                self.with_session_mut(|s| handle_catalog_list(s, &request.data, &storage))
+            }
             "catalog:sync:manifest" => {
                 let storage = self.storage.clone();
                 self.with_session(|s| {
@@ -175,12 +228,23 @@ impl RpcRouter {
                 })
             }
             "catalog:folder:list" => {
-                self.with_session(|s| handle_catalog_folder_list(s, &request.data))
+                let storage = self.storage.clone();
+                self.with_session(|s| handle_catalog_folder_list(s, &storage, &request.data))
             }
             "catalog:folder:batch" => {
-                self.with_session(|s| handle_catalog_folder_batch(s, &request.data))
+                let storage = self.storage.clone();
+                self.with_session(|s| handle_catalog_folder_batch(s, &storage, &request.data))
             }
-            "catalog:notes:list" => self.with_session(handle_catalog_notes_list),
+            "catalog:notes:list" => {
+                let storage = self.storage.clone();
+                self.with_session(|s| handle_catalog_notes_list(s, &storage))
+            }
+            "catalog:file-links:complete" => {
+                self.with_session(|s| handle_catalog_file_links_complete(s, &request.data))
+            }
+            "catalog:file-links:resolve" => {
+                self.with_session(|s| handle_catalog_file_links_resolve(s, &request.data))
+            }
             "catalog:createDir" => {
                 self.commit_catalog_mutation(|s| handle_catalog_create_dir(s, &request.data))
             }
@@ -207,6 +271,36 @@ impl RpcRouter {
                     );
                 },
             ),
+            "catalog:trash" => {
+                let storage = self.storage.clone();
+                self.commit_catalog_mutation(|s| handle_catalog_trash(s, &request.data, &storage))
+            }
+            "catalog:trash:list" => {
+                let storage = self.storage.clone();
+                self.with_session_mut(|s| handle_catalog_trash_list(s, &storage))
+            }
+            "catalog:trash:restore" => {
+                let storage = self.storage.clone();
+                self.commit_catalog_mutation(|s| {
+                    handle_catalog_trash_restore(s, &request.data, &storage)
+                })
+            }
+            "catalog:trash:empty" => {
+                let storage = self.storage.clone();
+                self.commit_catalog_mutation_with_output(
+                    |s| handle_catalog_trash_empty_with_cleanup(s, &request.data, &storage),
+                    |session, storage, derivative_index_state, cleanup| {
+                        let _ = cleanup.cleanup_derivatives(
+                            storage,
+                            session.vault_key(),
+                            derivative_index_state,
+                        );
+                    },
+                )
+            }
+            "catalog:exchange" => {
+                self.commit_catalog_mutation(|s| handle_catalog_exchange(s, &request.data))
+            }
             "catalog:source:metadata" => {
                 self.commit_catalog_mutation(|s| handle_catalog_source_metadata(s, &request.data))
             }
@@ -239,6 +333,14 @@ impl RpcRouter {
             "passmanager:secret:save" => self.handle_passmanager_secret_save(&request.data),
             "passmanager:secret:read" => self.handle_passmanager_secret_read(&request.data),
             "passmanager:secret:delete" => self.handle_passmanager_secret_delete(&request.data),
+            "passmanager:ssh:list" => self.handle_passmanager_ssh_list(&request.data),
+            "passmanager:ssh:key:update" => self.handle_passmanager_ssh_key_update(&request.data),
+            "passmanager:ssh:key:delete" => self.handle_passmanager_ssh_key_delete(&request.data),
+            "passmanager:ssh:secret:read" => self.handle_passmanager_ssh_secret_read(&request.data),
+            "passmanager:ssh:secret:save" => self.handle_passmanager_ssh_secret_save(&request.data),
+            "passmanager:ssh:secret:delete" => {
+                self.handle_passmanager_ssh_secret_delete(&request.data)
+            }
             "passmanager:group:ensure" => self.handle_passmanager_group_ensure(&request.data),
             "passmanager:group:setMeta" => self.handle_passmanager_group_set_meta(&request.data),
             "passmanager:group:list" => self.handle_passmanager_group_list(&request.data),
@@ -250,11 +352,19 @@ impl RpcRouter {
             "passmanager:root:export" => self.handle_passmanager_root_export(&request.data),
             "passmanager:icon:put" => self.handle_passmanager_icon_put(&request.data),
             "passmanager:icon:get" => self.handle_passmanager_icon_get(&request.data),
+            "passmanager:icon:getMany" => self.handle_passmanager_icon_get_many(&request.data),
             "passmanager:icon:list" => self.handle_passmanager_icon_list(&request.data),
             "passmanager:icon:setMeta" => self.handle_passmanager_icon_set_meta(&request.data),
             "passmanager:icon:gc" => self.handle_passmanager_icon_gc(&request.data),
+            "passmanager:securityAudit:get" => {
+                self.handle_passmanager_security_audit_get(&request.data)
+            }
+            "passmanager:securityAudit:set" => {
+                self.handle_passmanager_security_audit_set(&request.data)
+            }
             "passmanager:otp:setSecret" => self.handle_passmanager_otp_set_secret(&request.data),
             "passmanager:otp:generate" => self.handle_passmanager_otp_generate(&request.data),
+            "passmanager:otp:preview" => self.handle_passmanager_otp_preview(&request.data),
             "passmanager:otp:removeSecret" => {
                 self.handle_passmanager_otp_remove_secret(&request.data)
             }
@@ -307,6 +417,7 @@ impl RpcRouter {
                 }
                 RpcResponse::error("No incoming stream", Some(ErrorCode::NoStream))
             }),
+            "catalog:file:patch" => self.handle_catalog_file_patch(&request.data),
 
             // ADR-004: catalog:download is STREAM
             "catalog:download" => self.with_session(|s| {
@@ -435,6 +546,9 @@ impl RpcRouter {
             "credential_provider:getSecret" => self
                 .require_pro_feature(crate::license::PRO_FEATURE_CREDENTIAL_PROVIDER)
                 .unwrap_or_else(|| self.credential_provider_get_secret(&request.data)),
+            "credential_provider:getOneTimeCode" => self
+                .require_pro_feature(crate::license::PRO_FEATURE_CREDENTIAL_PROVIDER)
+                .unwrap_or_else(|| self.credential_provider_get_one_time_code(&request.data)),
             "credential_provider:recordUse" => self
                 .require_pro_feature(crate::license::PRO_FEATURE_CREDENTIAL_PROVIDER)
                 .unwrap_or_else(|| self.credential_provider_record_use(&request.data)),
@@ -505,6 +619,9 @@ impl RpcRouter {
             "passmanager:icon:get" => {
                 RpcReply::Json(self.handle_passmanager_icon_get(&request.data))
             }
+            "passmanager:icon:getMany" => {
+                RpcReply::Json(self.handle_passmanager_icon_get_many(&request.data))
+            }
             "passmanager:icon:list" => {
                 RpcReply::Json(self.handle_passmanager_icon_list(&request.data))
             }
@@ -512,6 +629,12 @@ impl RpcRouter {
                 RpcReply::Json(self.handle_passmanager_icon_set_meta(&request.data))
             }
             "passmanager:icon:gc" => RpcReply::Json(self.handle_passmanager_icon_gc(&request.data)),
+            "passmanager:securityAudit:get" => {
+                RpcReply::Json(self.handle_passmanager_security_audit_get(&request.data))
+            }
+            "passmanager:securityAudit:set" => {
+                RpcReply::Json(self.handle_passmanager_security_audit_set(&request.data))
+            }
             "admin:backup" => self.handle_admin_backup_stream(&request.data),
             "admin:restore" => self.handle_admin_restore_stream(&request.data, stream),
             "backup:local:downloadPack" => self.handle_backup_local_download_pack(&request.data),

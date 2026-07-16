@@ -53,6 +53,52 @@ class PasskeyComponentsTest {
     }
 
     @Test
+    fun buildCoreGetPayload_usesCallingAppOriginForBrowserQuery() {
+        val option =
+            BeginGetPublicKeyCredentialOption(
+                Bundle(),
+                "option-1",
+                GET_REQUEST_JSON,
+                byteArrayOf(0x01, 0x02, 0x03),
+            )
+
+        val payload =
+            PasskeyPreflightPayloadFactory.buildCoreGet(
+                option,
+                callingAppInfo(
+                    packageName = "com.android.chrome",
+                    origin = "https://browser.example",
+                ),
+                originResolver = { "https://browser.example" },
+            )
+
+        assertEquals(GET_REQUEST_JSON, payload.requestJson)
+        assertEquals("https://browser.example", payload.origin)
+        assertEquals("AQID", payload.clientDataHashB64Url)
+        assertFalse(payload.userVerified)
+    }
+
+    @Test
+    fun buildCoreGetPayload_usesApkOriginWhenBrowserOriginIsUnavailable() {
+        val option =
+            BeginGetPublicKeyCredentialOption(
+                Bundle(),
+                "option-1",
+                GET_REQUEST_JSON,
+                byteArrayOf(0x01, 0x02, 0x03),
+            )
+
+        val payload =
+            PasskeyPreflightPayloadFactory.buildCoreGet(
+                option,
+                callingAppInfo(origin = null),
+            )
+
+        assertEquals("android:apk-key-hash:unknown", payload.origin)
+        assertFalse(payload.userVerified)
+    }
+
+    @Test
     fun buildCreatePreflightPayload_keepsAlgorithmsAndExcludeList() {
         val request =
             BeginCreatePublicKeyCredentialRequest(

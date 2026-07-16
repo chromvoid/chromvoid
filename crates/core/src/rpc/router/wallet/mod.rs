@@ -6,24 +6,39 @@ use serde_json::Value;
 use crate::error::ErrorCode;
 use crate::rpc::types::{
     RpcResponse, WalletAccountMeta, WalletAccountsDeriveRequest, WalletAccountsDeriveResponse,
-    WalletAccountsListRequest, WalletAccountsListResponse, WalletAddressesDeriveRequest,
-    WalletAddressesDeriveResponse, WalletBackupExportRequest, WalletBackupExportResponse,
-    WalletBalanceGetRequest, WalletBalanceGetResponse, WalletHdCreateRequest,
+    WalletAccountsListRequest, WalletAccountsListResponse, WalletAddressBookCreateRequest,
+    WalletAddressBookCreateResponse, WalletAddressBookDeleteRequest,
+    WalletAddressBookDeleteResponse, WalletAddressBookEntry, WalletAddressBookListRequest,
+    WalletAddressBookListResponse, WalletAddressBookUpdateRequest, WalletAddressBookUpdateResponse,
+    WalletAddressesDeriveRequest, WalletBackupExportRequest, WalletBackupExportResponse,
+    WalletBalanceGetRequest, WalletBalanceGetResponse, WalletConfirmStatus, WalletHdCreateRequest,
     WalletHdCreateResponse, WalletHdGenerateMnemonicRequest, WalletHdGenerateMnemonicResponse,
-    WalletImportCreateRequest, WalletImportCreateResponse, WalletListResponse, WalletNetwork,
-    WalletStatusResponse, WalletTransactionCancelRequest, WalletTransactionCancelResponse,
+    WalletImportCreateRequest, WalletImportCreateResponse, WalletListRequest, WalletListResponse,
+    WalletNetwork, WalletSpendAuthorizationCreateRequest, WalletSpendAuthorizationCreateResponse,
+    WalletSpendAuthorizationRevokeRequest, WalletSpendAuthorizationRevokeResponse,
+    WalletSpendAuthorizationScope, WalletStatusRequest, WalletStatusResponse,
+    WalletTransactionCancelRequest, WalletTransactionCancelResponse,
     WalletTransactionConfirmRequest, WalletTransactionConfirmResponse, WalletTransactionEntry,
     WalletTransactionPrepareRequest, WalletTransactionPrepareResponse,
+    WalletTransactionQuoteRequest, WalletTransactionQuoteResponse,
+    WalletTransactionRebroadcastRequest, WalletTransactionRebroadcastResponse,
     WalletTransactionsListRequest, WalletTransactionsListResponse,
     WalletTransactionsRefreshRequest, WalletTransactionsRefreshResponse,
+    WalletTransactionsSyncRequest, WalletTransactionsSyncResponse,
 };
 use crate::storage::Storage;
 use crate::vault::VaultSession;
 use crate::wallet::{
-    account_summary_from_meta, derive_address, derive_public_key, hash_hex, new_account_id,
-    new_preparation_id, new_secret_id, new_tx_ref, new_wallet_id, now_ms, AllocatedAddressV1,
-    PreparationRecordV1, PreparedIntentV1, SecretBlobV1, SecretPayloadV1, WalletBroadcastOutcome,
-    WalletMetaV1, PREPARATION_TTL_MS, WALLET_ROOT, WALLET_SCHEMA_VERSION,
+    account_summary_from_meta, hash_hex, hex_string, new_account_id, new_address_book_entry_id,
+    new_mnemonic_draft_id, new_preparation_id, new_secret_id, new_tx_ref, new_wallet_id, now_ms,
+    parse_hex, BroadcastArtifactV2, BroadcastSubmitAttemptV1, PreparationRecordV1,
+    PreparationStateV1, PreparedIntentV1, SecretBlobV1, SecretPayloadV1,
+    WalletHdAccountMaterializeInput, WalletImportedAccountMaterializeInput, WalletMetaV1,
+    WalletOperationIdempotencyRecordV1, WalletProviderObservationOutcomeV1,
+    WalletProviderObservationV1, WalletReconciliationEvidenceV1, WalletTelemetryEvent,
+    WalletTelemetryMetric, WalletTxStatus, BIP39_ENGLISH_WORDLIST, BIP39_MNEMONIC_STANDARD,
+    MNEMONIC_DRAFT_TTL_MS, MULTICHAIN_WALLET_MODE, PREPARATION_TTL_MS,
+    TON_NATIVE_MNEMONIC_STANDARD, TON_ONLY_WALLET_MODE, WALLET_ROOT, WALLET_SCHEMA_VERSION,
 };
 
 use super::state::RpcRouter;
@@ -34,10 +49,13 @@ const SECRET_MIME: &str = "application/octet-stream";
 
 mod account_handlers;
 mod accounts;
+mod address_book;
+mod auth;
 mod backup;
-mod balance;
+pub(in crate::rpc::router) mod balance;
 mod error;
 mod hd;
+pub(in crate::rpc::router) mod history;
 mod import;
 mod lifecycle;
 mod overview;
@@ -45,37 +63,44 @@ mod parse;
 mod paths;
 mod preparations;
 mod provider;
+mod secrets;
 mod store;
 mod transaction_handlers;
 mod transactions;
 
 use accounts::{
-    backfill_bitcoin_discovery, bitcoin_account_addresses, hd_seed_from_secret,
-    materialize_hd_account,
+    materialize_profile_account, materialize_profile_accounts, materialize_profile_addresses,
+    restore_hd_secret_material,
 };
 use error::{WalletCommandError, WalletResult};
 use parse::{
-    has_disallowed_prepare_fields, has_duplicate_networks, mnemonic_word, parse,
-    reject_unsupported_network, reject_unsupported_supported_networks,
+    has_balance_freshness, has_disallowed_fee_policy_fields, has_disallowed_prepare_fields,
+    has_duplicate_networks, parse, ton_prepare_boundary_error,
 };
 use paths::{
-    address_file_path, bitcoin_derivation_path, imported_derivation_path, preparation_path,
-    secret_filename, secret_path, tx_path,
+    address_book_entry_path, address_file_path, balance_cache_path, broadcast_artifact_path,
+    preparation_path, secret_filename, secret_path, tx_path, wallet_meta_path,
 };
 use preparations::{
-    cancel_preparation, cleanup_expired_preparations, create_preparation, load_active_preparation,
-    stage_complete_preparation, PreparedTransactionInput,
+    cancel_preparation, cleanup_expired_preparations, create_preparation,
+    load_confirmable_preparation, load_preparation_by_tx_ref, stage_mark_preparation_consumed,
+    stage_mark_preparation_in_flight, stage_supersede_ready_sibling_preparations,
+    PreparedTransactionInput,
 };
-use provider::{invalid_input, provider_error, provider_unavailable};
+use provider::invalid_input;
+use secrets::{
+    ensure_ton_native_secret_words_for_account, ensure_ton_native_secret_words_for_wallet,
+};
 use store::{
     begin_wallet_uow, commit_wallet_uow, delete_path, ensure_wallet_dirs,
-    ensure_wallet_wallet_dirs, load_account_by_id, load_accounts, load_index, load_secret,
-    load_transaction, load_transactions, load_wallet, load_wallets, save_account, save_index,
-    write_json,
+    ensure_wallet_wallet_dirs, load_account_addresses, load_account_by_id, load_accounts,
+    load_balance_caches, load_broadcast_artifact, load_idempotency_record, load_index,
+    load_live_preparations, load_reconciliation_evidence, load_secret,
+    load_signed_broadcast_artifact_from_record, load_transaction, load_transactions, load_wallet,
+    load_wallets, payload_digest, read_json, save_account, save_idempotency_record, save_index,
+    save_reconciliation_evidence, write_json,
 };
-use transactions::{
-    prepare_bitcoin, prepare_ethereum, revalidate_preconditions, sum_outputs, validate_outputs,
-};
+use transactions::{sum_outputs, validate_outputs};
 
 fn result_response<T: Serialize>(result: WalletResult<T>) -> RpcResponse {
     match result {

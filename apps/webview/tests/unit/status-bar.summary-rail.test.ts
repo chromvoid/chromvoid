@@ -165,23 +165,17 @@ describe('status-bar contextual summary rail', () => {
     clearAppContext()
   })
 
-  it('renders the file manager summary from desktop shell state', async () => {
-    const {store} = setupContext({
+  it('does not render a contextual summary rail for files', async () => {
+    setupContext({
       files: [
         {nodeId: 1, name: 'A.txt', path: '/A.txt', isDir: false, size: 10, modtime: 1, sourceRevision: 1},
         {nodeId: 2, name: 'B.txt', path: '/B.txt', isDir: false, size: 20, modtime: 1, sourceRevision: 1},
       ],
     })
-    store.setSelectedItems([1])
 
     const element = await renderStatusBar()
-    const summary = getSummary(element)
 
-    expect(summary?.getAttribute('data-summary-context')).toBe('files')
-    expect(summary?.parentElement?.classList.contains('status-summary-slot')).toBe(true)
-    expect(element.shadowRoot?.querySelector('.status-indicators pm-summary-rail.status-context-summary')).toBeNull()
-    expect(summary?.shadowRoot?.querySelector('[data-summary-id="items"]')?.textContent).toContain('2')
-    expect(summary?.shadowRoot?.querySelector('[data-summary-id="selected"]')?.textContent).toContain('1')
+    expect(getSummary(element)).toBeNull()
   })
 
   it('renders the notes summary from the notes quick-view model', async () => {

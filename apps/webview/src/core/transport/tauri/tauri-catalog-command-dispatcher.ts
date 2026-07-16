@@ -196,7 +196,7 @@ export async function dispatchTauriCatalogCommand(input: DispatchCatalogCommandI
       const new_parent_path = String(data['new_parent_path'] ?? data['newParentPath'] ?? '')
       const new_name =
         (data['new_name'] as string | null | undefined) ?? (data['newName'] as string | undefined) ?? null
-      const result = await rpc('catalog:move', {node_id, new_parent_path, new_name})
+      const result = await rpc('catalog:move', {node_id, new_parent_path, new_name, replace_existing: null})
       return {ok: true, result}
     }
 
@@ -271,14 +271,77 @@ export async function dispatchTauriCatalogCommand(input: DispatchCatalogCommandI
       const ha = (data['ha'] as string | null | undefined) ?? null
       const period = (data['period'] as number | null | undefined) ?? null
       const digits = (data['digits'] as number | null | undefined) ?? null
+      const typeRaw = data['type']
+      const type = typeRaw === undefined || typeRaw === null ? null : String(typeRaw).trim() || null
       const tsRaw = data['ts'] as unknown
       const ts = tsRaw === undefined || tsRaw === null ? null : toU64(tsRaw, 'ts')
+      const counterRaw = data['counter'] as unknown
+      const counter =
+        counterRaw === undefined || counterRaw === null ? null : toU64(counterRaw, 'counter')
       const result = await rpcDispatch('passmanager:otp:generate', {
         otp_id,
         entry_id,
         ha,
         period,
         digits,
+        ts,
+        type,
+        counter,
+      })
+      return {ok: true, result}
+    }
+
+    case 'passmanager:otp:preview': {
+      const secretRaw = data['secret']
+      const secret = secretRaw === undefined || secretRaw === null ? null : String(secretRaw)
+      if (!secret?.trim()) {
+        throw new Error('Invalid passmanager:otp:preview payload: non-empty secret is required')
+      }
+
+      const encodingRaw = data['encoding']
+      const encoding =
+        encodingRaw === undefined || encodingRaw === null ? null : String(encodingRaw).trim() || null
+      if (!encoding) {
+        throw new Error('Invalid passmanager:otp:preview payload: encoding is required')
+      }
+      const algorithmRaw = data['algorithm']
+      const algorithm =
+        algorithmRaw === undefined || algorithmRaw === null ? null : String(algorithmRaw).trim() || null
+      if (!algorithm) {
+        throw new Error('Invalid passmanager:otp:preview payload: algorithm is required')
+      }
+      const typeRaw = data['type']
+      const type = typeRaw === undefined || typeRaw === null ? null : String(typeRaw).trim() || null
+      if (!type) {
+        throw new Error('Invalid passmanager:otp:preview payload: type is required')
+      }
+
+      const digitsRaw = data['digits'] as unknown
+      if (digitsRaw === undefined || digitsRaw === null) {
+        throw new Error('Invalid passmanager:otp:preview payload: digits is required')
+      }
+      const digits = toU64(digitsRaw, 'digits')
+
+      const periodRaw = data['period'] as unknown
+      if (periodRaw === undefined || periodRaw === null) {
+        throw new Error('Invalid passmanager:otp:preview payload: period is required')
+      }
+      const period = toU64(periodRaw, 'period')
+
+      const counterRaw = data['counter'] as unknown
+      const counter =
+        counterRaw === undefined || counterRaw === null ? null : toU64(counterRaw, 'counter')
+      const tsRaw = data['ts'] as unknown
+      const ts = tsRaw === undefined || tsRaw === null ? null : toU64(tsRaw, 'ts')
+
+      const result = await rpcDispatch('passmanager:otp:preview', {
+        secret,
+        encoding,
+        algorithm,
+        digits,
+        period,
+        type,
+        counter,
         ts,
       })
       return {ok: true, result}
@@ -299,14 +362,19 @@ export async function dispatchTauriCatalogCommand(input: DispatchCatalogCommandI
       const label = labelRaw === undefined || labelRaw === null ? null : String(labelRaw).trim() || null
 
       const secretRaw = data['secret']
-      const secret = secretRaw === undefined || secretRaw === null ? null : String(secretRaw).trim()
-      if (!secret) {
+      const secret = secretRaw === undefined || secretRaw === null ? null : String(secretRaw)
+      if (!secret?.trim()) {
         throw new Error('Invalid passmanager:otp:setSecret payload: non-empty secret is required')
       }
       const encoding = (data['encoding'] as string | null | undefined) ?? null
       const algorithm = (data['algorithm'] as string | null | undefined) ?? null
       const digits = (data['digits'] as number | null | undefined) ?? null
       const period = (data['period'] as number | null | undefined) ?? null
+      const typeRaw = data['type']
+      const type = typeRaw === undefined || typeRaw === null ? null : String(typeRaw).trim() || null
+      const counterRaw = data['counter'] as unknown
+      const counter =
+        counterRaw === undefined || counterRaw === null ? null : toU64(counterRaw, 'counter')
       const result = await rpcDispatch('passmanager:otp:setSecret', {
         otp_id,
         entry_id,
@@ -316,6 +384,8 @@ export async function dispatchTauriCatalogCommand(input: DispatchCatalogCommandI
         algorithm,
         digits,
         period,
+        type,
+        counter,
       })
       return {ok: true, result}
     }
@@ -388,6 +458,9 @@ export async function dispatchTauriCatalogCommand(input: DispatchCatalogCommandI
       if (secret_type === null) {
         throw new Error('Invalid passmanager:secret:save payload: secret_type is required')
       }
+      if (!['password', 'note', 'card_pan', 'card_cvv'].includes(secret_type)) {
+        throw new Error('Invalid passmanager:secret:save payload: unsupported web secret_type')
+      }
 
       if (!Object.prototype.hasOwnProperty.call(data, 'value')) {
         throw new Error('Invalid passmanager:secret:save payload: value is required')
@@ -415,14 +488,17 @@ export async function dispatchTauriCatalogCommand(input: DispatchCatalogCommandI
       return {ok: true, result}
     }
 
-    case 'passmanager:ssh:keygen': {
-      const entry_id_raw = data['entry_id'] ?? data['entryId']
-      const entry_id =
-        entry_id_raw === undefined || entry_id_raw === null ? null : String(entry_id_raw).trim() || null
-      if (entry_id === null) {
-        throw new Error('Invalid passmanager:ssh:keygen payload: entry_id is required')
+    case 'passmanager:secret:read':
+    case 'passmanager:secret:delete': {
+      const secretType = String(data['secret_type'] ?? data['secretType'] ?? data['type'] ?? '').trim()
+      if (!['password', 'note', 'card_pan', 'card_cvv'].includes(secretType)) {
+        throw new Error(`Invalid ${command} payload: unsupported web secret_type`)
       }
+      const result = await rpcDispatch(command, data)
+      return {ok: true, result}
+    }
 
+    case 'passmanager:ssh:keygen': {
       const key_type_raw = data['key_type'] ?? data['keyType']
       const key_type =
         key_type_raw === undefined || key_type_raw === null ? null : String(key_type_raw).trim() || null
@@ -432,16 +508,33 @@ export async function dispatchTauriCatalogCommand(input: DispatchCatalogCommandI
 
       const comment_raw = data['comment']
       const comment = comment_raw === undefined || comment_raw === null ? '' : String(comment_raw)
+      const nameRaw = data['name']
+      const name = nameRaw === undefined || nameRaw === null ? null : String(nameRaw).trim() || null
+      const sourceEntryIdRaw = data['source_entry_id'] ?? data['sourceEntryId']
+      const sourceEntryId =
+        sourceEntryIdRaw === undefined || sourceEntryIdRaw === null
+          ? null
+          : String(sourceEntryIdRaw).trim() || null
       const result = await tauriInvoke<{
         key_id: string
         public_key_openssh: string
         fingerprint: string
         key_type: string
       }>('ssh_keygen', {
-        entryId: entry_id,
         keyType: key_type,
+        name,
         comment,
+        sourceEntryId,
       })
+      return {ok: true, result}
+    }
+
+    case 'passmanager:ssh:secret:read': {
+      const secretType = String(data['secret_type'] ?? data['secretType'] ?? '').trim()
+      if (secretType !== 'ssh_public_key') {
+        throw new Error('Invalid passmanager:ssh:secret:read payload: private key access is native-only')
+      }
+      const result = await rpcDispatch(command, data)
       return {ok: true, result}
     }
 
@@ -451,17 +544,21 @@ export async function dispatchTauriCatalogCommand(input: DispatchCatalogCommandI
     case 'passmanager:entry:move':
     case 'passmanager:entry:rename':
     case 'passmanager:entry:list':
-    case 'passmanager:secret:read':
-    case 'passmanager:secret:delete':
+    case 'passmanager:ssh:list':
+    case 'passmanager:ssh:key:update':
+    case 'passmanager:ssh:key:delete':
     case 'passmanager:group:ensure':
     case 'passmanager:group:setMeta':
     case 'passmanager:group:list':
     case 'passmanager:group:delete':
     case 'passmanager:icon:put':
     case 'passmanager:icon:get':
+    case 'passmanager:icon:getMany':
     case 'passmanager:icon:list':
     case 'passmanager:icon:setMeta':
     case 'passmanager:icon:gc':
+    case 'passmanager:securityAudit:get':
+    case 'passmanager:securityAudit:set':
     case 'passmanager:tags:setCatalog':
     case 'passmanager:root:import':
     case 'passmanager:root:export': {

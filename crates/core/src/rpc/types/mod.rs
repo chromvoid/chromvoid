@@ -3,6 +3,7 @@
 mod catalog;
 mod command;
 mod credential_provider;
+mod env_runtime;
 mod otp;
 mod passkeys;
 mod result;
@@ -13,6 +14,7 @@ mod wallet;
 pub use catalog::*;
 pub use command::*;
 pub use credential_provider::*;
+pub use env_runtime::*;
 pub use otp::*;
 pub use passkeys::*;
 pub use result::*;
@@ -33,9 +35,17 @@ pub const CORE_FEATURE_MEDIA_INSPECTION_CACHE_V1: &str = "media_inspection_cache
 pub const CORE_FEATURE_REMOTE_MEDIA_INSPECTION_SPLIT_V1: &str = "remote_media_inspection_split_v1";
 pub const CORE_FEATURE_REMOTE_RPC_JSON_MULTIPLEX_V1: &str = "remote_rpc_json_multiplex_v1";
 pub const CORE_FEATURE_REMOTE_RPC_PRIORITY_LOCK_V1: &str = "remote_rpc_priority_lock_v1";
+pub const CORE_FEATURE_REMOTE_STREAM_CONTROL_V1: &str = "remote_stream_control_v1";
 pub const CORE_FEATURE_PRO_ENTITLEMENTS_SNAPSHOT_V1: &str = "pro_entitlements_snapshot_v1";
+pub const CORE_FEATURE_WALLET_DOMAIN_BASE_V1: &str = "wallet_domain_base_v1";
 pub const CORE_FEATURE_WALLET_CORE_BTC_ETH_V1: &str = "wallet_core_btc_eth_v1";
+pub const CORE_FEATURE_WALLET_CORE_TON_V1: &str = "wallet_core_ton_v1";
 pub const CORE_FEATURE_CATALOG_REPAIR_V1: &str = "catalog_repair_v1";
+pub const CORE_FEATURE_CATALOG_TRASH_V1: &str = "catalog_trash_v1";
+pub const CORE_FEATURE_CATALOG_EXCHANGE_V1: &str = "catalog_exchange_v1";
+pub const CORE_FEATURE_CATALOG_PATCH_V1: &str = "catalog_patch_v1";
+pub const CORE_FEATURE_CATALOG_LIST_SOURCE_REVISION_V1: &str = "catalog_list_source_revision_v1";
+pub const CORE_FEATURE_ENV_RUNTIME_V1: &str = "env_runtime_v1";
 
 pub fn core_capability_features() -> Vec<String> {
     vec![
@@ -43,9 +53,14 @@ pub fn core_capability_features() -> Vec<String> {
         CORE_FEATURE_REMOTE_MEDIA_INSPECTION_SPLIT_V1.to_string(),
         CORE_FEATURE_REMOTE_RPC_JSON_MULTIPLEX_V1.to_string(),
         CORE_FEATURE_REMOTE_RPC_PRIORITY_LOCK_V1.to_string(),
+        CORE_FEATURE_REMOTE_STREAM_CONTROL_V1.to_string(),
         CORE_FEATURE_PRO_ENTITLEMENTS_SNAPSHOT_V1.to_string(),
-        CORE_FEATURE_WALLET_CORE_BTC_ETH_V1.to_string(),
         CORE_FEATURE_CATALOG_REPAIR_V1.to_string(),
+        CORE_FEATURE_CATALOG_TRASH_V1.to_string(),
+        CORE_FEATURE_CATALOG_EXCHANGE_V1.to_string(),
+        CORE_FEATURE_CATALOG_PATCH_V1.to_string(),
+        CORE_FEATURE_CATALOG_LIST_SOURCE_REVISION_V1.to_string(),
+        CORE_FEATURE_ENV_RUNTIME_V1.to_string(),
     ]
 }
 
@@ -68,6 +83,10 @@ pub struct RpcRequest {
     pub command: String,
     /// Command data
     pub data: Value,
+    /// Optional transport-level feature hints for this request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts-bindings", ts(optional))]
+    pub transport_features: Option<Vec<String>>,
 }
 
 impl RpcRequest {
@@ -77,7 +96,13 @@ impl RpcRequest {
             v: PROTOCOL_VERSION,
             command: command.into(),
             data,
+            transport_features: None,
         }
+    }
+
+    pub fn with_transport_features(mut self, features: Vec<String>) -> Self {
+        self.transport_features = (!features.is_empty()).then_some(features);
+        self
     }
 }
 

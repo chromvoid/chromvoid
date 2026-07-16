@@ -4,7 +4,7 @@ import {css} from 'lit'
 
 import {getAppContext} from 'root/shared/services/app-context'
 
-import {CommandBar} from 'root/features/file-manager/components/command-bar'
+import {DashboardHeader} from './dashboard-header'
 import {DesktopShellToolbar} from './desktop-shell-toolbar'
 import {FileAppShellDesktopLayout} from './file-app-shell-desktop-layout'
 import {
@@ -24,7 +24,7 @@ export class FileAppShell extends ReatomLitElement {
     NavigationRail.define()
     MobileTabBar.define()
     MobileTopToolbar.define()
-    CommandBar.define()
+    DashboardHeader.define()
     DesktopShellToolbar.define()
     FileAppShellMobileLayout.define()
     FileAppShellDesktopLayout.define()

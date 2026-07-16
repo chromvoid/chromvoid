@@ -10,5 +10,9 @@ mod import_export_flows;
 mod otp_flows;
 #[path = "passmanager_domain_rpc/secret_flows.rs"]
 mod secret_flows;
+#[path = "passmanager_domain_rpc/security_audit_flows.rs"]
+mod security_audit_flows;
+#[path = "passmanager_domain_rpc/ssh_flows.rs"]
+mod ssh_flows;
 #[path = "passmanager_domain_rpc/support.rs"]
 mod support;

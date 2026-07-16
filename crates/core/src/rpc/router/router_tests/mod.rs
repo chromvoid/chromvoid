@@ -13,6 +13,7 @@ mod cache_invalidation;
 mod catalog_crud;
 mod derivatives;
 mod download_range;
+mod file_patch;
 mod file_replace;
 mod fixtures;
 mod media_inspect;

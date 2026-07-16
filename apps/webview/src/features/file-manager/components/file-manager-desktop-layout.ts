@@ -26,7 +26,9 @@ export class FileManagerDesktopLayout extends ReatomLitElement {
         display: flex;
         flex-direction: column;
         height: 100%;
-        padding: var(--app-spacing-2);
+        min-inline-size: 0;
+        overflow: hidden;
+        background: var(--cv-color-surface);
       }
 
       :host([data-pm-open]) .dashboard-wrapper {
@@ -74,6 +76,12 @@ export class FileManagerDesktopLayout extends ReatomLitElement {
       ::slotted([slot='upload-progress']) {
         display: block;
       }
+
+      ::slotted([slot='status']) {
+        display: block;
+        flex: 0 0 auto;
+        min-inline-size: 0;
+      }
     `,
   ]
 
@@ -88,6 +96,8 @@ export class FileManagerDesktopLayout extends ReatomLitElement {
             </div>
           </div>
         </div>
+
+        <slot name="status"></slot>
 
         <slot name="context-menu"></slot>
         <slot name="upload-progress"></slot>

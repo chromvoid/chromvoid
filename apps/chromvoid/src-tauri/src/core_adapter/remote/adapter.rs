@@ -1,5 +1,3 @@
-use std::sync::{Arc, Mutex};
-
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 use chromvoid_core::rpc::{RpcInputStream, RpcReply};
 use chromvoid_protocol::TransportMetrics;
@@ -10,6 +8,8 @@ use zeroize::Zeroize;
 use crate::core_adapter::types::{
     ConnectionState, CoreAdapter, CoreMode, RemoteHost, RemoteJsonClientHandle, RemoteRpcPriority,
 };
+use crate::core_adapter::DeferredReply;
+use crate::remote_data_plane::RemotePeerFeatures;
 
 use super::io_sender::IoSender;
 
@@ -17,8 +17,10 @@ pub struct RemoteCoreAdapter {
     host: RemoteHost,
     sender: IoSender,
     unlocked: bool,
-    features: Arc<Mutex<Vec<String>>>,
+    features: RemotePeerFeatures,
     transport_metrics: Option<TransportMetrics>,
+    transport_session_generation: Option<u64>,
+    mobile_usb_session_approved: bool,
 }
 
 impl RemoteCoreAdapter {
@@ -35,12 +37,40 @@ impl RemoteCoreAdapter {
         req_tx: mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>,
         transport_metrics: Option<TransportMetrics>,
     ) -> Self {
+        Self::from_remote_sender_with_metrics_and_generation(host, req_tx, transport_metrics, None)
+    }
+
+    pub fn from_remote_sender_with_metrics_and_generation(
+        host: RemoteHost,
+        req_tx: mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>,
+        transport_metrics: Option<TransportMetrics>,
+        transport_session_generation: Option<u64>,
+    ) -> Self {
+        Self::from_remote_sender_with_metrics_generation_and_features(
+            host,
+            req_tx,
+            transport_metrics,
+            transport_session_generation,
+            RemotePeerFeatures::new(),
+        )
+    }
+
+    pub fn from_remote_sender_with_metrics_generation_and_features(
+        host: RemoteHost,
+        req_tx: mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>,
+        transport_metrics: Option<TransportMetrics>,
+        transport_session_generation: Option<u64>,
+        features: RemotePeerFeatures,
+    ) -> Self {
+        let mobile_usb_session_approved = !matches!(&host, RemoteHost::MobileUsb { .. });
         Self {
             host,
             sender: IoSender::new(req_tx),
             unlocked: false,
-            features: Arc::new(Mutex::new(Vec::new())),
+            features,
             transport_metrics,
+            transport_session_generation,
+            mobile_usb_session_approved,
         }
     }
 
@@ -158,9 +188,17 @@ pub(crate) fn parse_capability_features(response: &RpcResponse) -> Vec<String> {
     parsed
 }
 
+/// Commands whose replies mutate adapter-local state via
+/// `apply_json_state_transition`; they must stay on the synchronous path so
+/// the transition is applied while the adapter is still borrowed mutably.
+fn is_state_transition_command(command: &str) -> bool {
+    matches!(command, "vault:unlock" | "vault:lock" | "vault:status")
+}
+
 fn priority_for_request(req: &RpcRequest) -> RemoteRpcPriority {
     match req.command.as_str() {
         "vault:lock" | "catalog:media:inspect:cancel" => RemoteRpcPriority::High,
+        "catalog:downloadRange" => RemoteRpcPriority::Media,
         "catalog:media:inspect" => RemoteRpcPriority::Low,
         _ => RemoteRpcPriority::Normal,
     }
@@ -185,12 +223,34 @@ impl CoreAdapter for RemoteCoreAdapter {
         self.remote_client_handle().features()
     }
 
+    fn transport_session_generation(&self) -> Option<u64> {
+        self.transport_session_generation
+    }
+
+    fn mobile_usb_session_requires_approval(&self) -> bool {
+        matches!(&self.host, RemoteHost::MobileUsb { .. }) && !self.mobile_usb_session_approved
+    }
+
+    fn mark_mobile_usb_session_approved(&mut self) {
+        if matches!(&self.host, RemoteHost::MobileUsb { .. }) {
+            self.mobile_usb_session_approved = true;
+        }
+    }
+
+    fn transport_metrics(&self) -> Option<TransportMetrics> {
+        self.transport_metrics.clone()
+    }
+
     fn remote_json_client(&self) -> Option<RemoteJsonClientHandle> {
         Some(self.remote_client_handle())
     }
 
     fn is_unlocked(&self) -> bool {
         self.unlocked
+    }
+
+    fn mark_remote_locked(&mut self) {
+        self.unlocked = false;
     }
 
     fn handle(&mut self, req: &RpcRequest) -> RpcResponse {
@@ -278,6 +338,46 @@ impl CoreAdapter for RemoteCoreAdapter {
                 code: Some("DISCONNECTED".to_string()),
             }),
         }
+    }
+
+    fn begin_with_stream(
+        &mut self,
+        req: &RpcRequest,
+        stream: Option<RpcInputStream>,
+    ) -> DeferredReply {
+        if is_state_transition_command(&req.command) {
+            return DeferredReply::Immediate(self.handle_with_stream(req, stream));
+        }
+
+        if self.sender.is_closed() {
+            return DeferredReply::Immediate(RpcReply::Json(RpcResponse::Error {
+                ok: false,
+                error: "Not connected to remote device".to_string(),
+                code: Some("DISCONNECTED".to_string()),
+            }));
+        }
+
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+
+        if self
+            .sender
+            .blocking_send(
+                req.clone(),
+                stream,
+                reply_tx,
+                priority_for_request(req),
+                None,
+            )
+            .is_err()
+        {
+            return DeferredReply::Immediate(RpcReply::Json(RpcResponse::Error {
+                ok: false,
+                error: "Remote I/O task closed".to_string(),
+                code: Some("DISCONNECTED".to_string()),
+            }));
+        }
+
+        DeferredReply::Pending(reply_rx)
     }
 
     fn save(&mut self) -> Result<(), String> {

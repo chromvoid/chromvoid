@@ -15,12 +15,21 @@ const settle = async (component: PMEntryCreateDesktop) => {
 function installTagRoot({
   catalog = [],
   readOnly = false,
+  overrides = {},
 }: {
   catalog?: readonly string[]
   readOnly?: boolean
+  overrides?: Record<string, unknown>
 } = {}) {
   let rootCatalog = [...catalog]
   const root = {
+    id: 'root',
+    name: 'Vault',
+    entriesList: vi.fn(() => []),
+    getEntry: vi.fn(() => undefined),
+    getGroup: vi.fn(() => undefined),
+    setShowElement: vi.fn(),
+    showElement: vi.fn(() => 'createEntry'),
     allEntries: [],
     credentialTags: () => rootCatalog,
     isReadOnly: () => readOnly,
@@ -28,6 +37,7 @@ function installTagRoot({
       rootCatalog = Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === 'string') : []
       return true
     }),
+    ...overrides,
   }
   setPassmanagerRoot(root as never)
   return root
@@ -39,10 +49,6 @@ describe('PMEntryCreate desktop layout', () => {
   beforeEach(() => {
     previousPassmanager = window.passmanager
     installTagRoot()
-    window.passmanager = {
-      isReadOnly: vi.fn(() => false),
-      showElement: () => null,
-    } as unknown as typeof window.passmanager
 
     CVInput.define()
     CVTextarea.define()
@@ -127,9 +133,13 @@ describe('PMEntryCreate desktop layout', () => {
     document.body.append(component)
     await settle(component)
 
-    const paymentCardTab = component.shadowRoot?.querySelectorAll('.entry-type-option')[1] as HTMLElement | undefined
-    expect(paymentCardTab).not.toBeUndefined()
-    paymentCardTab!.click()
+    component.shadowRoot?.querySelector('.entry-type-switch')?.dispatchEvent(
+      new CustomEvent('cv-change', {
+        detail: {value: 'payment_card'},
+        bubbles: true,
+        composed: true,
+      }),
+    )
     await settle(component)
 
     const expYearInput = component.shadowRoot?.querySelector('cv-input[name="cardExpYear"]') as CVInput | null
@@ -141,11 +151,7 @@ describe('PMEntryCreate desktop layout', () => {
 
   it('submits the title entered through the details field', async () => {
     const createEntry = vi.fn()
-    window.passmanager = {
-      isReadOnly: vi.fn(() => false),
-      createEntry,
-      showElement: () => null,
-    } as unknown as typeof window.passmanager
+    installTagRoot({overrides: {createEntry}})
 
     const component = document.createElement('pm-entry-create-desktop') as PMEntryCreateDesktop
     document.body.append(component)
@@ -179,11 +185,7 @@ describe('PMEntryCreate desktop layout', () => {
 
   it('keeps create enabled for invalid form state and shows inline validation errors on submit', async () => {
     const createEntry = vi.fn()
-    window.passmanager = {
-      isReadOnly: vi.fn(() => false),
-      createEntry,
-      showElement: () => null,
-    } as unknown as typeof window.passmanager
+    installTagRoot({overrides: {createEntry}})
 
     const component = document.createElement('pm-entry-create-desktop') as PMEntryCreateDesktop
     document.body.append(component)
@@ -198,7 +200,7 @@ describe('PMEntryCreate desktop layout', () => {
 
     const titleInput = component.shadowRoot?.querySelector('cv-input[name="title"]') as CVInput | null
     expect(titleInput?.invalid).toBe(true)
-    expect(titleInput?.textContent?.trim()).not.toBe('')
+    expect(component.shadowRoot?.querySelector('.section-desktop-details .field-error')?.textContent?.trim()).not.toBe('')
     expect(createEntry).not.toHaveBeenCalled()
 
     titleInput?.dispatchEvent(
@@ -212,51 +214,18 @@ describe('PMEntryCreate desktop layout', () => {
 
     const usernameInput = component.shadowRoot?.querySelector('cv-input[name="username"]') as CVInput | null
     expect(usernameInput?.invalid).toBe(true)
-    expect(usernameInput?.textContent?.trim()).not.toBe('')
+    expect(component.shadowRoot?.querySelector('.section-desktop-credentials .field-error')?.textContent?.trim()).not.toBe('')
     expect(createEntry).not.toHaveBeenCalled()
   })
 
-  it('routes SSH generator events through the create model', async () => {
+  it('does not render create-specific SSH controls', async () => {
     const component = document.createElement('pm-entry-create-desktop') as PMEntryCreateDesktop
     document.body.append(component)
     await settle(component)
 
-    const model = (component as any).model
-    model.setUseSsh(true)
-    await settle(component)
-
-    const generator = component.shadowRoot?.querySelector('pm-entry-ssh-generator') as HTMLElement | null
-    expect(generator).not.toBeNull()
-
-    generator?.dispatchEvent(
-      new CustomEvent('pm-entry-ssh-key-type-change', {
-        detail: {keyType: 'rsa'},
-        bubbles: true,
-        composed: true,
-      }),
-    )
-    generator?.dispatchEvent(
-      new CustomEvent('pm-entry-ssh-comment-input', {
-        detail: {value: 'root@example'},
-        bubbles: true,
-        composed: true,
-      }),
-    )
-    generator?.dispatchEvent(
-      new CustomEvent('pm-entry-ssh-generate', {
-        detail: {},
-        bubbles: true,
-        composed: true,
-      }),
-    )
-
-    expect(model.sshGenKeyType()).toBe('rsa')
-    expect(model.sshGenComment()).toBe('root@example')
-    expect(model.sshGenResult()).toEqual(expect.objectContaining({
-      fingerprint: '',
-      keyType: 'rsa',
-      pending: true,
-    }))
+    expect(component.shadowRoot?.querySelector('pm-entry-ssh-generator')).toBeNull()
+    expect(component.shadowRoot?.querySelector('pm-entry-ssh-create-sheet')).toBeNull()
+    expect(component.shadowRoot?.textContent?.toLowerCase()).not.toContain('ssh')
   })
 
   it('updates draft tags from combobox selectedIds and opens tag management', async () => {

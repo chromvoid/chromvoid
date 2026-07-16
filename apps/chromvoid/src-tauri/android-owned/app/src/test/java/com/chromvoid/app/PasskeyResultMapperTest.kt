@@ -22,8 +22,10 @@ class PasskeyResultMapperTest {
     @Test
     fun getException_mapsUnsupportedToNoCredential() {
         val exception = PasskeyResultMapper.getException(response("UNSUPPORTED", "unsupported"))
+        val noMatch = PasskeyResultMapper.getException(response("NO_MATCH", "No matching passkey"))
 
         assertTrue(exception is NoCredentialException)
+        assertTrue(noMatch is NoCredentialException)
     }
 
     @Test

@@ -1,10 +1,186 @@
 use serde::Serialize;
 use serde_json::Value;
+use std::io::Read;
+use std::time::{Duration, Instant};
 
-use chromvoid_core::rpc::types::RpcResponse;
-use chromvoid_protocol::MAX_PAYLOAD_SIZE;
+use chromvoid_core::rpc::types::{RpcResponse, PROTOCOL_VERSION};
+use chromvoid_protocol::{
+    error_codes, frame_from_error, Frame, FrameType, TransportType, MAX_FRAME_PAYLOAD_SIZE,
+    MAX_PAYLOAD_SIZE,
+};
 
 pub(crate) const MAX_FULL_UPLOAD_STREAM_BYTES: usize = MAX_PAYLOAD_SIZE;
+pub(crate) const NOISE_STREAM_CHUNK_SIZE: usize = MAX_FRAME_PAYLOAD_SIZE;
+pub(crate) const DEFAULT_STREAM_CHUNK_SIZE: usize = NOISE_STREAM_CHUNK_SIZE;
+pub(crate) const USB_MOBILE_STREAM_CHUNK_SIZE: usize = NOISE_STREAM_CHUNK_SIZE;
+pub(crate) const DEFAULT_STREAM_CHUNK_READ_TIMEOUT: Duration = Duration::from_secs(15);
+pub(crate) const USB_MOBILE_STREAM_CHUNK_READ_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const DEFAULT_TRANSIENT_EIO_DIAGNOSTIC_INTERVAL: Duration = Duration::from_secs(5);
+pub(crate) const USB_TRANSIENT_EIO_DIAGNOSTIC_INTERVAL: Duration = Duration::from_secs(1);
+const STREAM_READ_FAILED_MESSAGE: &str = "remote stream read failed";
+const STREAM_CANCELLED_MESSAGE: &str = "remote stream cancelled";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StreamControlUnsupportedAction {
+    LocalCleanup,
+    ControlledDisconnect,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct TransportPolicy {
+    pub(crate) transport_type: TransportType,
+    pub(crate) stream_chunk_size: usize,
+    pub(crate) stream_read_timeout: Duration,
+    pub(crate) heartbeat_enabled: bool,
+    pub(crate) stream_control_unsupported_action: StreamControlUnsupportedAction,
+    pub(crate) transient_eio_diagnostic_interval: Duration,
+}
+
+impl TransportPolicy {
+    pub(crate) fn for_transport(transport_type: TransportType) -> Self {
+        let is_usb = matches!(transport_type, TransportType::UsbMobile);
+        Self {
+            transport_type,
+            stream_chunk_size: if is_usb {
+                USB_MOBILE_STREAM_CHUNK_SIZE
+            } else {
+                DEFAULT_STREAM_CHUNK_SIZE
+            },
+            stream_read_timeout: if is_usb {
+                USB_MOBILE_STREAM_CHUNK_READ_TIMEOUT
+            } else {
+                DEFAULT_STREAM_CHUNK_READ_TIMEOUT
+            },
+            heartbeat_enabled: !is_usb,
+            stream_control_unsupported_action: StreamControlUnsupportedAction::ControlledDisconnect,
+            transient_eio_diagnostic_interval: if is_usb {
+                USB_TRANSIENT_EIO_DIAGNOSTIC_INTERVAL
+            } else {
+                DEFAULT_TRANSIENT_EIO_DIAGNOSTIC_INTERVAL
+            },
+        }
+    }
+
+    pub(crate) fn stream_read_policy(self) -> RemoteStreamReadPolicy {
+        RemoteStreamReadPolicy {
+            timeout: self.stream_read_timeout,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RemoteStreamReadPolicy {
+    pub(crate) timeout: Duration,
+}
+
+pub(crate) struct SupervisedStreamRead {
+    pub(crate) reader: Box<dyn Read + Send>,
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) duration: Duration,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum SupervisedStreamReadError {
+    Io(String),
+    Join(String),
+    Timeout { timeout: Duration },
+}
+
+impl std::fmt::Display for SupervisedStreamReadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(error) => write!(f, "{error}"),
+            Self::Join(error) => write!(f, "stream read task join: {error}"),
+            Self::Timeout { timeout } => {
+                write!(f, "stream_read_timeout after {}ms", timeout.as_millis())
+            }
+        }
+    }
+}
+
+pub(crate) async fn read_stream_chunk_supervised(
+    reader: Box<dyn Read + Send>,
+    chunk_size: usize,
+    policy: RemoteStreamReadPolicy,
+) -> Result<SupervisedStreamRead, SupervisedStreamReadError> {
+    let started = Instant::now();
+    let read_task = tokio::task::spawn_blocking(move || {
+        let mut reader = reader;
+        let mut buf = vec![0u8; chunk_size];
+        let n = reader
+            .read(&mut buf)
+            .map_err(|error| SupervisedStreamReadError::Io(format!("stream read: {error}")))?;
+        buf.truncate(n);
+        Ok::<_, SupervisedStreamReadError>((reader, buf))
+    });
+
+    let (reader, bytes) = match tokio::time::timeout(policy.timeout, read_task).await {
+        Ok(Ok(Ok(result))) => result,
+        Ok(Ok(Err(error))) => return Err(error),
+        Ok(Err(error)) => return Err(SupervisedStreamReadError::Join(error.to_string())),
+        Err(_) => {
+            return Err(SupervisedStreamReadError::Timeout {
+                timeout: policy.timeout,
+            })
+        }
+    };
+
+    Ok(SupervisedStreamRead {
+        reader,
+        bytes,
+        duration: started.elapsed(),
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RemoteStreamControl {
+    ReadFailed { message: String },
+    Cancelled { message: String },
+}
+
+impl RemoteStreamControl {
+    pub(crate) fn message(&self) -> &str {
+        match self {
+            Self::ReadFailed { message } | Self::Cancelled { message } => message,
+        }
+    }
+}
+
+pub(crate) fn frame_stream_read_failed(message_id: u64, command: &str, error: &str) -> Frame {
+    frame_from_error(
+        message_id,
+        error_codes::STREAM_READ_FAILED,
+        &format!("{STREAM_READ_FAILED_MESSAGE}: command={command}: {error}"),
+        PROTOCOL_VERSION,
+    )
+}
+
+pub(crate) fn frame_stream_cancelled(message_id: u64, command: &str) -> Frame {
+    frame_from_error(
+        message_id,
+        error_codes::STREAM_CANCELLED,
+        &format!("{STREAM_CANCELLED_MESSAGE}: command={command}"),
+        PROTOCOL_VERSION,
+    )
+}
+
+pub(crate) fn parse_stream_control_frame(frame: &Frame) -> Option<RemoteStreamControl> {
+    if frame.frame_type != FrameType::Error {
+        return None;
+    }
+    let payload = serde_json::from_slice::<Value>(&frame.payload).ok()?;
+    let code = payload.get("error_code").and_then(|value| value.as_u64())?;
+    let message = payload
+        .get("error_message")
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .to_string();
+    match code as u16 {
+        error_codes::STREAM_READ_FAILED => Some(RemoteStreamControl::ReadFailed { message }),
+        error_codes::STREAM_CANCELLED => Some(RemoteStreamControl::Cancelled { message }),
+        _ => None,
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct UploadStreamMetadata {
@@ -102,4 +278,78 @@ pub(crate) fn append_full_upload_stream_chunk(
     }
     body.extend_from_slice(chunk);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    struct BlockingReader {
+        release_rx: mpsc::Receiver<()>,
+    }
+
+    impl Read for BlockingReader {
+        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+            let _ = self.release_rx.recv();
+            Ok(0)
+        }
+    }
+
+    #[test]
+    fn stream_chunk_fits_one_noise_record() {
+        assert_eq!(NOISE_STREAM_CHUNK_SIZE, MAX_FRAME_PAYLOAD_SIZE);
+    }
+
+    #[test]
+    fn stream_chunk_size_uses_noise_limit_for_data_plane_transports() {
+        assert_eq!(
+            TransportPolicy::for_transport(TransportType::UsbMobile).stream_chunk_size,
+            NOISE_STREAM_CHUNK_SIZE
+        );
+        assert_eq!(
+            TransportPolicy::for_transport(TransportType::WssRelay).stream_chunk_size,
+            NOISE_STREAM_CHUNK_SIZE
+        );
+    }
+
+    #[test]
+    fn transport_policy_keeps_usb_and_network_liveness_distinct() {
+        let usb = TransportPolicy::for_transport(TransportType::UsbMobile);
+        let wss = TransportPolicy::for_transport(TransportType::WssRelay);
+
+        assert!(!usb.heartbeat_enabled);
+        assert!(wss.heartbeat_enabled);
+        assert!(usb.stream_read_timeout < wss.stream_read_timeout);
+        assert_eq!(
+            usb.stream_control_unsupported_action,
+            StreamControlUnsupportedAction::ControlledDisconnect
+        );
+        assert_eq!(
+            wss.stream_control_unsupported_action,
+            StreamControlUnsupportedAction::ControlledDisconnect
+        );
+        assert!(usb.transient_eio_diagnostic_interval < wss.transient_eio_diagnostic_interval);
+    }
+
+    #[tokio::test]
+    async fn supervised_stream_read_times_out() {
+        let (release_tx, release_rx) = mpsc::channel();
+        let result = read_stream_chunk_supervised(
+            Box::new(BlockingReader { release_rx }),
+            8,
+            RemoteStreamReadPolicy {
+                timeout: Duration::from_millis(10),
+            },
+        )
+        .await;
+
+        assert_eq!(
+            result.err(),
+            Some(SupervisedStreamReadError::Timeout {
+                timeout: Duration::from_millis(10)
+            })
+        );
+        drop(release_tx);
+    }
 }

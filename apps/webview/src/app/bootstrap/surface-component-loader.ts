@@ -8,6 +8,7 @@ import {
 } from 'root/app/navigation/navigation.types'
 import type {Routes} from 'root/app/router/router'
 import {moduleAccessModel} from 'root/core/pro/module-access.model'
+import {pmModel, type PassmanagerSessionStatus} from 'root/features/passmanager/password-manager.model'
 import {writeAndroidUnlockDebug} from 'root/shared/services/android-unlock-debug'
 
 type LoaderDeps = {
@@ -140,6 +141,13 @@ function ensurePasskeysSurfaceComponents(): Promise<void> {
   })
 }
 
+function ensureWalletSurfaceComponents(): Promise<void> {
+  return once('surface:wallet', async () => {
+    const module = await import('root/routes/wallet/wallet-page')
+    module.WalletPage.define()
+  })
+}
+
 function ensureRemoteSurfaceComponents(): Promise<void> {
   return once('surface:remote', async () => {
     const module = await import('root/routes/remote/remote-page')
@@ -252,6 +260,11 @@ export async function ensureDashboardSurfaceComponents(surface: SurfaceId): Prom
       return
     }
 
+    case 'wallet': {
+      await ensureWalletSurfaceComponents()
+      return
+    }
+
     case 'remote': {
       await ensureRemoteSurfaceComponents()
       return
@@ -271,4 +284,23 @@ export async function ensureDashboardSurfaceComponents(surface: SurfaceId): Prom
       return
     }
   }
+}
+
+export async function prepareDashboardSurfaceForPresentation(
+  surface: SurfaceId,
+): Promise<PassmanagerSessionStatus> {
+  await ensureDashboardSurfaceComponents(surface)
+  if (surface === 'files') {
+    const {getFileManagerModel} = await import('root/features/file-manager/file-manager.model')
+    void getFileManagerModel().prewarmVisibleThumbnails()
+    return 'ready'
+  }
+  if (surface !== 'passwords') return 'ready'
+  const status = await pmModel.whenSessionSettled()
+  if (status === 'ready') {
+    const {pmCredentialsIconPreloadModel} =
+      await import('root/features/passmanager/models/pm-credentials-icon-preload.model')
+    await pmCredentialsIconPreloadModel.prepareCurrentSurface()
+  }
+  return status
 }

@@ -4,11 +4,10 @@ import {Entry, Group, ManagerRoot} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
 import {filterValue, quickFilters} from '@project/passmanager/select'
 import {defaultLogger} from 'root/core/logger'
+import {runtimeCapabilitiesAtom} from 'root/core/runtime/runtime-capabilities'
 import {keyboardShortcutsModel} from 'root/shared/keyboard'
-import {openCommandPalette} from 'root/shared/services/command-palette'
-import {prefersReducedMotion} from 'root/utils/view-transitions'
 import {pmEntryEditorModel} from '../../models/pm-entry-editor.model'
-import {pmMotionModel, type PassmanagerMotionIntent} from '../../models/pm-motion.model'
+import {pmComponentLoaderModel, type PMExtendedComponentLayout} from '../../models/pm-component-loader.model'
 import {
   getPassmanagerRoot,
   getPassmanagerShowElement,
@@ -20,6 +19,8 @@ import {pmModel} from '../../password-manager.model'
 import type {PMDesktopToolbarActionSpec} from '../desktop-toolbar'
 import {PMGroupModel} from '../group/group/group.model'
 import {groupBy, sortDirection, sortField} from '../list/sort-controls'
+import {pmSshKeysViewModel} from '../ssh-keys-view/ssh-keys-view.model'
+import {envRuntimeI18n} from '../env-runtime/env-runtime.i18n'
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'pm-sidebar-width'
 const MIN_SIDEBAR_WIDTH = 200
@@ -82,6 +83,9 @@ export type PMDesktopToolbarContext = {
   canCreateGroup: boolean
   canCreateEntry: boolean
   canOpenOtpView: boolean
+  canOpenSshView: boolean
+  showEnvRuntimeView: boolean
+  canOpenEnvRuntimeView: boolean
 }
 
 export type PMDesktopToolbarActionId =
@@ -89,20 +93,16 @@ export type PMDesktopToolbarActionId =
   | 'pm-export'
   | 'pm-clean'
   | 'pm-otp-view'
+  | 'pm-ssh-view'
+  | 'pm-env-runtime-view'
   | 'pm-create-group'
   | 'pm-create-entry'
+  | 'pm-create-ssh-key'
 
 export type PMDesktopToolbarSection = {
   label: string
   state?: 'active' | 'inactive'
   actions: readonly PMDesktopToolbarActionSpec<PMDesktopToolbarActionId>[]
-}
-
-export type PasswordManagerMotionRenderState = {
-  kind: PassmanagerMotionIntent['kind']
-  direction: PassmanagerMotionIntent['direction']
-  target: string | null
-  reducedMotion: boolean
 }
 
 function describeDesktopToolbarContext(context: PMDesktopToolbarContext) {
@@ -111,6 +111,9 @@ function describeDesktopToolbarContext(context: PMDesktopToolbarContext) {
     canCreateGroup: context.canCreateGroup,
     canCreateEntry: context.canCreateEntry,
     canOpenOtpView: context.canOpenOtpView,
+    canOpenSshView: context.canOpenSshView,
+    showEnvRuntimeView: context.showEnvRuntimeView,
+    canOpenEnvRuntimeView: context.canOpenEnvRuntimeView,
   }
 }
 
@@ -138,6 +141,23 @@ export class PasswordManagerLayoutModel {
     return isPassmanagerLoading()
   }
 
+  getSessionStatus() {
+    const status = pmModel.sessionStatus()
+    const root = getPassmanagerRoot()
+    if (
+      status === 'inactive' &&
+      root &&
+      (typeof root.entries !== 'function' || root.entries() !== undefined)
+    ) {
+      return 'ready'
+    }
+    return status
+  }
+
+  retrySessionLoad(): void {
+    void pmModel.retrySessionLoad()
+  }
+
   isReadOnly(): boolean {
     return isPassmanagerReadOnly()
   }
@@ -160,14 +180,23 @@ export class PasswordManagerLayoutModel {
     return getPassmanagerShowElement()
   }
 
-  getMotionRenderState(): PasswordManagerMotionRenderState {
-    const intent = pmMotionModel.intent()
-    return {
-      kind: intent.kind,
-      direction: intent.direction,
-      target: intent.target,
-      reducedMotion: prefersReducedMotion(),
-    }
+  requiresExtendedComponents(layout: PMExtendedComponentLayout): boolean {
+    const showElement = this.getCurrentShowElement()
+    return !pmComponentLoaderModel.isReadyFor(showElement, layout)
+  }
+
+  getExtendedComponentsLoadError(): string | null {
+    return pmComponentLoaderModel.extendedLoadError()
+  }
+
+  requestExtendedComponents(layout: PMExtendedComponentLayout): void {
+    const showElement = this.getCurrentShowElement()
+    void pmComponentLoaderModel.requestExtendedComponents(showElement, layout)
+  }
+
+  retryExtendedComponents(layout: PMExtendedComponentLayout): void {
+    const showElement = this.getCurrentShowElement()
+    void pmComponentLoaderModel.retryExtendedComponents(showElement, layout)
   }
 
   getGroupViewKey(): string {
@@ -207,14 +236,31 @@ export class PasswordManagerLayoutModel {
     pmModel.openOtpView()
   }
 
+  openSshView(): void {
+    pmModel.openSshView()
+  }
+
+  openEnvRuntimeView(): void {
+    if (!this.getDesktopToolbarContext().canOpenEnvRuntimeView) return
+    pmModel.openEnvRuntimeView()
+  }
+
+  createSshKey(): void {
+    if (this.getCurrentShowElement() !== 'sshView' || this.isReadOnly()) return
+    pmSshKeysViewModel.openCreate()
+  }
+
   isDesktopToolbarAction(value: string | undefined): value is PMDesktopToolbarActionId {
     return (
       value === 'pm-import' ||
       value === 'pm-export' ||
       value === 'pm-clean' ||
       value === 'pm-otp-view' ||
+      value === 'pm-ssh-view' ||
+      value === 'pm-env-runtime-view' ||
       value === 'pm-create-group' ||
-      value === 'pm-create-entry'
+      value === 'pm-create-entry' ||
+      value === 'pm-create-ssh-key'
     )
   }
 
@@ -238,11 +284,20 @@ export class PasswordManagerLayoutModel {
       case 'pm-otp-view':
         this.openOtpView()
         return
+      case 'pm-ssh-view':
+        this.openSshView()
+        return
+      case 'pm-env-runtime-view':
+        this.openEnvRuntimeView()
+        return
       case 'pm-create-group':
         this.createGroup()
         return
       case 'pm-create-entry':
         this.createEntry()
+        return
+      case 'pm-create-ssh-key':
+        this.createSshKey()
         return
     }
   }
@@ -261,10 +316,6 @@ export class PasswordManagerLayoutModel {
 
   copyCurrentPassword(): Promise<void> {
     return pmModel.copyCurrentPassword()
-  }
-
-  openSearchPalette(): void {
-    openCommandPalette({mode: 'search', source: 'keyboard'})
   }
 
   registerDesktopToolbarSearchElement(search: PMSearchElement): () => void {
@@ -362,12 +413,17 @@ export class PasswordManagerLayoutModel {
 
   getDesktopToolbarContext(): PMDesktopToolbarContext {
     const readOnly = this.isReadOnly()
+    const capabilities = runtimeCapabilitiesAtom()
+    const showEnvRuntimeView = capabilities.desktop && !capabilities.mobile
 
     const context: PMDesktopToolbarContext = {
       readOnly,
       canCreateGroup: !readOnly,
       canCreateEntry: !readOnly,
       canOpenOtpView: Boolean(getPassmanagerRoot()) && !this.isLoading(),
+      canOpenSshView: Boolean(getPassmanagerRoot()) && !this.isLoading(),
+      showEnvRuntimeView,
+      canOpenEnvRuntimeView: showEnvRuntimeView && Boolean(getPassmanagerRoot()) && !this.isLoading(),
     }
 
     this.logger.debug('[PassManager][DesktopToolbar] context', {
@@ -392,6 +448,22 @@ export class PasswordManagerLayoutModel {
             label: i18n('otp:quick_view:title' as never),
             disabled: !context.canOpenOtpView,
           },
+          {
+            id: 'pm-ssh-view',
+            icon: 'key',
+            label: i18n('ssh:keys_view:title' as never),
+            disabled: !context.canOpenSshView,
+          },
+          ...(context.showEnvRuntimeView
+            ? [
+                {
+                  id: 'pm-env-runtime-view' as const,
+                  icon: 'terminal',
+                  label: envRuntimeI18n('title'),
+                  disabled: !context.canOpenEnvRuntimeView,
+                },
+              ]
+            : []),
           {id: 'pm-clean', icon: 'trash', label: i18n('clean'), danger: true},
         ],
       },
@@ -410,6 +482,16 @@ export class PasswordManagerLayoutModel {
             label: i18n('enrty:create'),
             disabled: !context.canCreateEntry,
           },
+          ...(this.getCurrentShowElement() === 'sshView'
+            ? [
+                {
+                  id: 'pm-create-ssh-key' as const,
+                  icon: 'key',
+                  label: i18n('ssh:add'),
+                  disabled: context.readOnly,
+                },
+              ]
+            : []),
         ],
       },
     ]
@@ -506,7 +588,6 @@ export class PasswordManagerLayoutModel {
     this.sidebarWidth.set(clampedWidth)
     globalThis.localStorage?.setItem(SIDEBAR_WIDTH_STORAGE_KEY, clampedWidth.toString())
   }
-
 }
 
 export const passwordManagerDesktopLayoutModel = new PasswordManagerLayoutModel()

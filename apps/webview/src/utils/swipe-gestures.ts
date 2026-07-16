@@ -238,15 +238,3 @@ export function addSwipeNavigation(
   swipe.on('right', onRight)
   return swipe
 }
-
-/**Checks support for touch gestures on the device
-*/
-export function isTouchDevice(): boolean {
-  return 'ontouchstart' in window || navigator.maxTouchPoints > 0
-}
-
-/*** Checks the mobile device for the characteristics of the screen
-*/
-export function isMobileDevice(): boolean {
-  return window.matchMedia('(hover: none) and (pointer: coarse)').matches
-}

@@ -14,6 +14,8 @@ pub(crate) struct AppState {
     pub(crate) license_root: std::path::PathBuf,
     #[cfg(desktop)]
     pub(crate) gateway: Arc<Mutex<crate::gateway::GatewayState>>,
+    #[cfg(desktop)]
+    pub(crate) env_runtime: Arc<crate::env_runtime::EnvRuntimeState>,
     pub(crate) session_settings: Arc<Mutex<session_settings::SessionSettings>>,
     pub(crate) mobile_is_foreground: Arc<Mutex<bool>>,
     pub(crate) last_activity: Arc<Mutex<std::time::Instant>>,
@@ -28,6 +30,8 @@ pub(crate) struct AppState {
     pub(crate) prepared_preview_runtime: Arc<crate::commands::catalog::PreparedPreviewRuntimeState>,
     pub(crate) media_streams: Arc<crate::media_source::LocalMediaSourceManager>,
     pub(crate) media_protocol_runtime: Arc<crate::media_stream::MediaProtocolRuntimeState>,
+    #[cfg(desktop)]
+    pub(crate) media_http_stream_runtime: Arc<crate::media_stream::MediaHttpStreamRuntimeState>,
     #[cfg(desktop)]
     pub(crate) network_pairing_runtime: Arc<crate::network::pairing::NetworkPairingRuntimeState>,
     #[cfg(desktop)]

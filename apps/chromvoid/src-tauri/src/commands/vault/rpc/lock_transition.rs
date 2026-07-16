@@ -28,6 +28,21 @@ pub(crate) fn handle_lock_transition_with_reason(
     lock_reason: &str,
 ) {
     if was_unlocked && !now_unlocked {
+        #[cfg(target_os = "android")]
+        stop_mobile_usb_host_sessions_for_vault_lock();
+        #[cfg(desktop)]
+        {
+            let usb_teardown_reason = if lock_reason == "system_sleep" {
+                "system_sleep"
+            } else {
+                "vault_lock"
+            };
+            crate::mobile_usb::disconnect_mobile_usb_and_restore_local(
+                app,
+                state,
+                usb_teardown_reason,
+            );
+        }
         crate::commands::vault::release_mobile_native_sessions(app, state, lock_reason);
         let invalidated = crate::mobile::android::invalidate_all_password_save_requests(
             &state.android_password_save_runtime,
@@ -38,9 +53,33 @@ pub(crate) fn handle_lock_transition_with_reason(
         }
         #[cfg(desktop)]
         {
-            match state.gateway.lock() {
-                Ok(mut gw) => gw.revoke_all_grants(),
+            // Active processes keep running after lock, but all unresolved
+            // proposals and run approvals fail closed immediately.
+            let revoke_gateway_access = || match state.gateway.lock() {
+                Ok(mut gw) => {
+                    if gw.pairing.as_ref().is_some_and(|pairing| {
+                        pairing.actor_kind == crate::gateway::GatewayActorKind::CliAgent
+                    }) {
+                        gw.cancel_pairing();
+                    }
+                    gw.revoke_all_grants();
+                }
                 Err(_) => tracing::warn!("vault lock transition: gateway mutex poisoned"),
+            };
+            match state.env_runtime.commit_guard() {
+                Ok(_commit_guard) => {
+                    state.env_runtime.cancel_pending_for_lock();
+                    revoke_gateway_access();
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        code = %error.code,
+                        "vault lock transition: Env Runtime commit gate unavailable"
+                    );
+                    // Vault lock still invalidates Gateway authority even if
+                    // the Env Runtime serialization gate was poisoned.
+                    revoke_gateway_access();
+                }
             }
             match state.ssh_agent.lock() {
                 Ok(mut agent) => {
@@ -56,10 +95,12 @@ pub(crate) fn handle_lock_transition_with_reason(
             perform_volume_teardown(app, &state.volume_manager);
         }
         // Clear credential identities from ASCredentialIdentityStore on vault lock
-        crate::credential_provider_bridge::on_vault_locked();
+        crate::credential_provider_bridge::on_vault_locked(app);
         let _ = crate::commands::catalog::purge_catalog_preview_cache_for_app(app, "vault-lock");
         let _ = app.emit("vault:locked", serde_json::json!({"reason": lock_reason}));
     } else if !was_unlocked && now_unlocked {
+        #[cfg(target_os = "android")]
+        state.mobile_acceptor_runtime.notify_vault_unlocked();
         #[cfg(desktop)]
         {
             match state.volume_manager.lock() {
@@ -94,6 +135,18 @@ pub(crate) fn handle_lock_transition_with_reason(
     }
 
     crate::commands::vault::sync_android_vault_quick_lock_with_unlocked(app, state, now_unlocked);
+}
+
+#[cfg(target_os = "android")]
+pub(crate) fn stop_mobile_usb_host_sessions_for_vault_lock() {
+    let stopped_sessions = crate::mobile::android::shared_android_usb_accessory_runtime()
+        .stop_all_sessions(crate::mobile::android::AndroidMobileUsbHostStopReason::VaultLocked);
+    if stopped_sessions > 0 {
+        tracing::info!(
+            stopped_sessions,
+            "vault lock transition: stopped active mobile USB host sessions"
+        );
+    }
 }
 
 #[cfg(desktop)]

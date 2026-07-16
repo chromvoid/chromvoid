@@ -11,6 +11,7 @@ pub mod catalog;
 pub mod crypto;
 pub(crate) mod durable_file;
 pub(crate) mod durable_tx;
+pub mod env_runtime;
 pub mod error;
 pub mod license;
 pub mod media_inspector;
@@ -69,18 +70,60 @@ mod ts_bindings {
             .expect("Failed to export WalletTransactionOutput");
         crate::rpc::types::WalletWarning::export_all_to(&out_dir)
             .expect("Failed to export WalletWarning");
+        crate::rpc::types::TonTransactionPreviewV1::export_all_to(&out_dir)
+            .expect("Failed to export TonTransactionPreviewV1");
+        crate::rpc::types::EthereumTransactionPreviewV1::export_all_to(&out_dir)
+            .expect("Failed to export EthereumTransactionPreviewV1");
+        crate::wallet::evm::EvmRiskLevel::export_all_to(&out_dir)
+            .expect("Failed to export EvmRiskLevel");
+        crate::wallet::evm::EvmActionKind::export_all_to(&out_dir)
+            .expect("Failed to export EvmActionKind");
+        crate::wallet::evm::EvmRiskFindingV1::export_all_to(&out_dir)
+            .expect("Failed to export EvmRiskFindingV1");
+        crate::wallet::evm::EvmPermissionEffectV1::export_all_to(&out_dir)
+            .expect("Failed to export EvmPermissionEffectV1");
+        crate::wallet::evm::EvmVerificationV1::export_all_to(&out_dir)
+            .expect("Failed to export EvmVerificationV1");
+        crate::wallet::evm::EvmRiskSummaryV1::export_all_to(&out_dir)
+            .expect("Failed to export EvmRiskSummaryV1");
+        crate::wallet::evm::EvmAdvancedEvidenceV1::export_all_to(&out_dir)
+            .expect("Failed to export EvmAdvancedEvidenceV1");
+        crate::wallet::evm::EvmBaselinePreviewV1::export_all_to(&out_dir)
+            .expect("Failed to export EvmBaselinePreviewV1");
+        crate::wallet::evm::EvmTransactionEvaluationInputV1::export_all_to(&out_dir)
+            .expect("Failed to export EvmTransactionEvaluationInputV1");
         crate::rpc::types::WalletPreview::export_all_to(&out_dir)
             .expect("Failed to export WalletPreview");
         crate::rpc::types::WalletBalance::export_all_to(&out_dir)
             .expect("Failed to export WalletBalance");
         crate::rpc::types::WalletSummary::export_all_to(&out_dir)
             .expect("Failed to export WalletSummary");
+        crate::rpc::types::ImportedAccountMetaV1::export_all_to(&out_dir)
+            .expect("Failed to export ImportedAccountMetaV1");
+        crate::rpc::types::DerivedAccountMetaV1::export_all_to(&out_dir)
+            .expect("Failed to export DerivedAccountMetaV1");
         crate::rpc::types::WalletAccountMeta::export_all_to(&out_dir)
             .expect("Failed to export WalletAccountMeta");
+        crate::rpc::types::WalletConfirmStatus::export_all_to(&out_dir)
+            .expect("Failed to export WalletConfirmStatus");
         crate::rpc::types::WalletTransactionEntry::export_all_to(&out_dir)
             .expect("Failed to export WalletTransactionEntry");
+        crate::rpc::types::WalletTransactionDirection::export_all_to(&out_dir)
+            .expect("Failed to export WalletTransactionDirection");
+        crate::rpc::types::WalletStatusRequest::export_all_to(&out_dir)
+            .expect("Failed to export WalletStatusRequest");
+        crate::rpc::types::WalletProviderStatus::export_all_to(&out_dir)
+            .expect("Failed to export WalletProviderStatus");
+        crate::rpc::types::WalletCapabilityState::export_all_to(&out_dir)
+            .expect("Failed to export WalletCapabilityState");
+        crate::rpc::types::WalletCapabilityStatus::export_all_to(&out_dir)
+            .expect("Failed to export WalletCapabilityStatus");
+        crate::rpc::types::WalletNetworkStatus::export_all_to(&out_dir)
+            .expect("Failed to export WalletNetworkStatus");
         crate::rpc::types::WalletStatusResponse::export_all_to(&out_dir)
             .expect("Failed to export WalletStatusResponse");
+        crate::rpc::types::WalletListRequest::export_all_to(&out_dir)
+            .expect("Failed to export WalletListRequest");
         crate::rpc::types::WalletListResponse::export_all_to(&out_dir)
             .expect("Failed to export WalletListResponse");
         crate::rpc::types::WalletHdGenerateMnemonicRequest::export_all_to(&out_dir)
@@ -123,6 +166,10 @@ mod ts_bindings {
             .expect("Failed to export WalletTransactionCancelRequest");
         crate::rpc::types::WalletTransactionCancelResponse::export_all_to(&out_dir)
             .expect("Failed to export WalletTransactionCancelResponse");
+        crate::rpc::types::WalletTransactionRebroadcastRequest::export_all_to(&out_dir)
+            .expect("Failed to export WalletTransactionRebroadcastRequest");
+        crate::rpc::types::WalletTransactionRebroadcastResponse::export_all_to(&out_dir)
+            .expect("Failed to export WalletTransactionRebroadcastResponse");
         crate::rpc::types::WalletTransactionsListRequest::export_all_to(&out_dir)
             .expect("Failed to export WalletTransactionsListRequest");
         crate::rpc::types::WalletTransactionsListResponse::export_all_to(&out_dir)
@@ -131,6 +178,10 @@ mod ts_bindings {
             .expect("Failed to export WalletTransactionsRefreshRequest");
         crate::rpc::types::WalletTransactionsRefreshResponse::export_all_to(&out_dir)
             .expect("Failed to export WalletTransactionsRefreshResponse");
+        crate::rpc::types::WalletTransactionsSyncRequest::export_all_to(&out_dir)
+            .expect("Failed to export WalletTransactionsSyncRequest");
+        crate::rpc::types::WalletTransactionsSyncResponse::export_all_to(&out_dir)
+            .expect("Failed to export WalletTransactionsSyncResponse");
         crate::rpc::types::WalletBackupExportRequest::export_all_to(&out_dir)
             .expect("Failed to export WalletBackupExportRequest");
         crate::rpc::types::WalletBackupExportResponse::export_all_to(&out_dir)
@@ -153,6 +204,18 @@ mod ts_bindings {
             .expect("Failed to export CatalogFolderPageResponse");
         crate::rpc::types::CatalogFolderBatchResponse::export_all_to(&out_dir)
             .expect("Failed to export CatalogFolderBatchResponse");
+        crate::rpc::types::CatalogFileLinksCompleteRequest::export_all_to(&out_dir)
+            .expect("Failed to export CatalogFileLinksCompleteRequest");
+        crate::rpc::types::CatalogFileLinksResolveRequest::export_all_to(&out_dir)
+            .expect("Failed to export CatalogFileLinksResolveRequest");
+        crate::rpc::types::CatalogFileLinkItem::export_all_to(&out_dir)
+            .expect("Failed to export CatalogFileLinkItem");
+        crate::rpc::types::CatalogFileLinkResolveResult::export_all_to(&out_dir)
+            .expect("Failed to export CatalogFileLinkResolveResult");
+        crate::rpc::types::CatalogFileLinksCompleteResponse::export_all_to(&out_dir)
+            .expect("Failed to export CatalogFileLinksCompleteResponse");
+        crate::rpc::types::CatalogFileLinksResolveResponse::export_all_to(&out_dir)
+            .expect("Failed to export CatalogFileLinksResolveResponse");
         crate::rpc::types::NodeCreatedResponse::export_all_to(&out_dir)
             .expect("Failed to export NodeCreatedResponse");
         crate::rpc::types::RpcCommand::export_all_to(&out_dir)

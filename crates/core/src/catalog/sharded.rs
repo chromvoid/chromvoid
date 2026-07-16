@@ -174,6 +174,7 @@ pub fn create_root_index_from_shards(shards: &[Shard]) -> RootIndex {
 
         let mut meta = ShardMeta::new(&shard.shard_id, strategy);
         meta.update_stats(shard.node_count(), shard.size());
+        meta.update_root_summary(&shard.root);
         meta.version = shard.version;
         meta.base_version = shard.base_version;
 

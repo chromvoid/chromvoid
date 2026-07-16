@@ -165,8 +165,13 @@ impl Read for CatalogBlobRangeReader {
                 continue;
             };
             let available = self.buf_len.saturating_sub(self.pos);
-            let requested = (self.end - self.cursor) as usize;
-            let to_copy = std::cmp::min(out.len() - written, std::cmp::min(available, requested));
+            // Compare the remaining range in u64: casting `end - cursor` to
+            // usize truncates for > 4 GiB remainders on 32-bit targets. The
+            // step is bounded by the output/chunk sizes, so the final min
+            // always fits in usize.
+            let remaining = self.end.saturating_sub(self.cursor);
+            let step = std::cmp::min(out.len() - written, available) as u64;
+            let to_copy = std::cmp::min(step, remaining) as usize;
             if to_copy == 0 {
                 break;
             }

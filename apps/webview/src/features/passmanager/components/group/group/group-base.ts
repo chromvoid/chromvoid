@@ -14,6 +14,7 @@ import type {PMWorkspaceContextItem, PMWorkspaceHeaderDensity} from '../../card/
 import type {PMSummaryRailItem, PMSummaryRailTone} from '../../summary-rail'
 import type {PMEntryListItemViewMode} from '../../card/entry-list-item'
 import {pmEntryMoveModel, type PMDragPayload} from '../../../models/pm-entry-move-model'
+import {pmListViewportModel} from '../../../models/pm-list-viewport.model'
 import {
   pmDeleteMotionModel,
   type PMDeleteMotionRow,
@@ -62,6 +63,12 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
   private pointerDrag: PMPointerDragState | null = null
   private renderedEditMode = false
   private rangeVirtualizer: HTMLElement | null = null
+  private rangeVirtualizerContextKey: string | null = null
+  private renderedListContextKey: string | null = null
+  private scrollSaveFrame: number | null = null
+  private pendingScrollSnapshot: {contextKey: string; scrollTop: number} | null = null
+  private scrollRestoreFrame: number | null = null
+  private restoringScrollContextKey: string | null = null
   private lastVirtualRows: PMDeleteMotionRow[] = []
   private lastVirtualRange: {first: number; last: number} | null = null
 
@@ -76,6 +83,10 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
 
   protected usesBlockStartScrollEdge(): boolean {
     return false
+  }
+
+  protected getScrollEdgeTreatment(): 'mask' | 'shadow' {
+    return 'mask'
   }
 
   protected getWorkspaceHeaderDensity(): PMWorkspaceHeaderDensity {
@@ -131,6 +142,15 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     const entry = event instanceof CustomEvent ? event.detail : null
     if (entry instanceof Entry) {
       this.model.deleteEntry(entry)
+    }
+  }
+
+  protected handleGroupDelete(event: Event): void {
+    event.stopPropagation()
+
+    const group = event instanceof CustomEvent ? event.detail : null
+    if (group instanceof Group) {
+      this.model.deleteGroup(group)
     }
   }
 
@@ -233,6 +253,8 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
   }
 
   public override disconnectedCallback(): void {
+    this.flushScheduledVirtualizerScrollSave()
+    this.cancelScheduledVirtualizerScrollRestore()
     this.afterRenderScheduler.cancel()
     this.model.exitEditMode()
     super.disconnectedCallback()
@@ -244,7 +266,9 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     this.cleanupPointerListeners()
     if (this.rangeVirtualizer) {
       this.rangeVirtualizer.removeEventListener('rangeChanged', this)
+      this.rangeVirtualizer.removeEventListener('scroll', this)
       this.rangeVirtualizer = null
+      this.rangeVirtualizerContextKey = null
     }
     this.scrollEdge.dispose()
   }
@@ -267,17 +291,114 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
 
     if (event.type === 'rangeChanged') {
       this.onVirtualRangeChanged(event)
+      return
+    }
+
+    if (event.type === 'scroll') {
+      this.scheduleVirtualizerScrollSave()
     }
   }
 
   private syncVirtualizerRangeListener(): void {
     const next = this.renderRoot.querySelector('lit-virtualizer') as HTMLElement | null
-    if (next === this.rangeVirtualizer) return
+    const nextContextKey = this.renderedListContextKey
+    if (next === this.rangeVirtualizer && nextContextKey === this.rangeVirtualizerContextKey) return
 
+    this.flushScheduledVirtualizerScrollSave()
+    this.cancelScheduledVirtualizerScrollRestore()
     this.rangeVirtualizer?.removeEventListener('rangeChanged', this)
+    this.rangeVirtualizer?.removeEventListener('scroll', this)
     this.rangeVirtualizer = next
+    this.rangeVirtualizerContextKey = nextContextKey
     this.rangeVirtualizer?.addEventListener('rangeChanged', this)
+    this.rangeVirtualizer?.addEventListener('scroll', this, {passive: true})
     this.scrollEdge.bindScroller(this.rangeVirtualizer)
+
+    if (next && nextContextKey) {
+      this.restoreVirtualizerScroll(next, nextContextKey)
+    }
+  }
+
+  private saveVirtualizerScroll(): void {
+    if (!this.rangeVirtualizer || !this.rangeVirtualizerContextKey) return
+    if (this.rangeVirtualizerContextKey === this.restoringScrollContextKey) return
+
+    pmListViewportModel.saveScrollTop(
+      this.rangeVirtualizerContextKey,
+      this.rangeVirtualizer.scrollTop,
+    )
+  }
+
+  private scheduleVirtualizerScrollSave(): void {
+    if (!this.rangeVirtualizer || !this.rangeVirtualizerContextKey) return
+    if (this.rangeVirtualizerContextKey === this.restoringScrollContextKey) return
+
+    this.pendingScrollSnapshot = {
+      contextKey: this.rangeVirtualizerContextKey,
+      scrollTop: this.rangeVirtualizer.scrollTop,
+    }
+    if (this.scrollSaveFrame !== null) return
+
+    this.scrollSaveFrame = requestAnimationFrame(() => {
+      this.scrollSaveFrame = null
+      const snapshot = this.pendingScrollSnapshot
+      this.pendingScrollSnapshot = null
+      if (snapshot) {
+        pmListViewportModel.saveScrollTop(snapshot.contextKey, snapshot.scrollTop)
+      }
+    })
+  }
+
+  private flushScheduledVirtualizerScrollSave(): void {
+    if (this.scrollSaveFrame !== null) {
+      cancelAnimationFrame(this.scrollSaveFrame)
+      this.scrollSaveFrame = null
+    }
+    const snapshot = this.pendingScrollSnapshot
+    this.pendingScrollSnapshot = null
+    if (snapshot) {
+      pmListViewportModel.saveScrollTop(snapshot.contextKey, snapshot.scrollTop)
+    }
+  }
+
+  private restoreVirtualizerScroll(virtualizer: HTMLElement, contextKey: string): void {
+    const scrollTop = pmListViewportModel.getScrollTop(contextKey)
+    if (scrollTop === null) return
+
+    this.restoringScrollContextKey = contextKey
+    let attempts = 0
+    const applyScrollTop = () => {
+      this.scrollRestoreFrame = null
+      if (
+        virtualizer !== this.rangeVirtualizer ||
+        contextKey !== this.rangeVirtualizerContextKey ||
+        !virtualizer.isConnected
+      ) {
+        this.restoringScrollContextKey = null
+        return
+      }
+
+      attempts += 1
+      virtualizer.scrollTop = scrollTop
+      this.scrollEdge.scheduleMeasure()
+      if (attempts >= 2 && (Math.abs(virtualizer.scrollTop - scrollTop) <= 1 || attempts >= 12)) {
+        this.restoringScrollContextKey = null
+        this.saveVirtualizerScroll()
+        return
+      }
+
+      this.scrollRestoreFrame = requestAnimationFrame(applyScrollTop)
+    }
+
+    this.scrollRestoreFrame = requestAnimationFrame(applyScrollTop)
+  }
+
+  private cancelScheduledVirtualizerScrollRestore(): void {
+    if (this.scrollRestoreFrame !== null) {
+      cancelAnimationFrame(this.scrollRestoreFrame)
+      this.scrollRestoreFrame = null
+    }
+    this.restoringScrollContextKey = null
   }
 
   private getRowElementForIndex(index: number): HTMLElement | null {
@@ -1136,6 +1257,8 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     const previousVisibleRows = this.getPreviousVisibleRows()
     pmDeleteMotionModel.syncVisibleExits(items, previousVisibleRows, this.lastVirtualRange)
     const renderItems = pmDeleteMotionModel.decorateRows(items)
+    const contextKey = this.model.getListContextKey(group, items.length)
+    this.renderedListContextKey = contextKey
 
     if (!items.length && !renderItems.length) {
       this.model.resetKeyboardState()
@@ -1144,7 +1267,6 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     }
 
     const shouldPreserveListFocus = this.shouldPreserveListFocus()
-    const contextKey = this.model.getListContextKey(group, items.length)
     const {restoredIndex, activeIndex, contextChanged} = this.model.syncKeyboardState(
       items,
       contextKey,
@@ -1166,6 +1288,7 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     return html`
       <div
         class="scroll-edge-frame pm-group-scroll-edge"
+        data-scroll-edge-treatment=${this.getScrollEdgeTreatment()}
         data-scroll-block-start=${String(hasScrollBlockStart)}
         data-scroll-block-end=${String(hasScrollBlockEnd)}
       >

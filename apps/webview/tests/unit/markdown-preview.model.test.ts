@@ -8,6 +8,10 @@ import {
 } from '../../src/features/file-manager/models/markdown-preview.model'
 import {FileLoadError, type FileTextLoadResult} from '../../src/features/file-manager/services/text-file-io'
 import {renderMarkdownSource as renderRealMarkdownSource} from '../../src/features/file-manager/services/markdown-renderer'
+import type {
+  MarkdownNoteLinkIndexLike,
+  MarkdownNoteLinkResolution,
+} from '../../src/features/file-manager/models/markdown-note-link-index.model'
 
 const PREVIEW_DATA: MarkdownPreviewData = {
   fileId: 7,
@@ -32,6 +36,18 @@ const DEFAULT_SAVE_RESULT = {
   mimeType: 'text/markdown',
   modtime: 456,
   sourceRevision: 12,
+}
+
+const GUIDE_FILE_LINK_ITEM = {
+  node_id: 42,
+  name: 'Guide.pdf',
+  path: '/Docs/Guide.pdf',
+  parent_path: '/Docs',
+  size: 128,
+  mime_type: 'application/pdf',
+  source_revision: 4,
+  created_at: 100,
+  updated_at: 200,
 }
 
 const DEFAULT_SESSION_SETTINGS = {
@@ -62,12 +78,17 @@ function createModel(options?: {
   renderMarkdownSource?: MarkdownPreviewModelDeps['renderMarkdownSource']
   imageAssetService?: MarkdownPreviewModelDeps['imageAssetService']
   loadSessionSettings?: MarkdownPreviewModelDeps['loadSessionSettings']
+  noteLinkIndex?: MarkdownPreviewModelDeps['noteLinkIndex']
+  noteNavigation?: MarkdownPreviewModelDeps['noteNavigation']
+  fileLinkCatalog?: MarkdownPreviewModelDeps['fileLinkCatalog']
+  fileNavigation?: MarkdownPreviewModelDeps['fileNavigation']
+  documentNavigation?: MarkdownPreviewModelDeps['documentNavigation']
 }) {
   const loadTextFileById = vi.fn(async () => options?.loadResult ?? DEFAULT_LOAD_RESULT)
   const saveTextFileById = vi.fn(async () => DEFAULT_SAVE_RESULT)
   const renderMarkdownSource =
     options?.renderMarkdownSource ??
-    vi.fn((source: string) => ({html: `<p>${source}</p>`, imageRefs: []}))
+    vi.fn((source: string) => ({html: `<p>${source}</p>`, imageRefs: [], fileLinks: [], noteLinks: []}))
   const formatMarkdownSource = vi.fn(async (source: string) => source)
 
   const model = new MarkdownPreviewModel({
@@ -76,6 +97,11 @@ function createModel(options?: {
     renderMarkdownSource: renderMarkdownSource as MarkdownPreviewModelDeps['renderMarkdownSource'],
     formatMarkdownSource: formatMarkdownSource as MarkdownPreviewModelDeps['formatMarkdownSource'],
     imageAssetService: options?.imageAssetService,
+    noteLinkIndex: options?.noteLinkIndex,
+    noteNavigation: options?.noteNavigation,
+    fileLinkCatalog: options?.fileLinkCatalog,
+    fileNavigation: options?.fileNavigation,
+    documentNavigation: options?.documentNavigation,
     clipboardTextReader: options?.clipboardTextReader,
     loadSessionSettings: options?.loadSessionSettings,
     renderDebounceMs: options?.renderDebounceMs ?? 20,
@@ -115,6 +141,17 @@ async function loadReady(model: MarkdownPreviewModel): Promise<MarkdownPreviewRe
   model.setPreview(PREVIEW_DATA)
   await flushAsync()
   return expectReady(model)
+}
+
+function createStaticNoteLinkIndex(
+  resolve: MarkdownNoteLinkIndexLike['resolve'],
+  completions: MarkdownNoteLinkIndexLike['completions'] = () => [],
+): MarkdownNoteLinkIndexLike {
+  return {
+    loadNotes: vi.fn(async () => {}),
+    resolve,
+    completions,
+  }
 }
 
 describe('MarkdownPreviewModel', () => {
@@ -159,6 +196,333 @@ describe('MarkdownPreviewModel', () => {
     })
     expect(model.dirty()).toBe(false)
     expect(model.canSave()).toBe(false)
+  })
+
+  it('loads Markdown documents with the requested view mode', async () => {
+    const {model} = createModel()
+
+    model.setPreview({...PREVIEW_DATA, viewMode: 'edit'})
+    await flushAsync()
+
+    expect(model.mode()).toBe('edit')
+  })
+
+  it('stores note-link candidates and resolved DOM states from the resolver', async () => {
+    const target = {
+      id: '2',
+      fileId: 2,
+      fileName: 'Sibling.md',
+      path: '/Docs/Sibling.md',
+      parentPath: '/Docs',
+      mimeType: 'text/markdown',
+      anchor: null,
+    }
+    const noteLinkIndex = createStaticNoteLinkIndex((_, candidate): MarkdownNoteLinkResolution => ({
+      kind: 'resolved',
+      candidateId: candidate.id,
+      target,
+    }))
+    const {model} = createModel({
+      loadResult: {
+        text: 'See [[Sibling]]',
+        size: 15,
+        mimeType: 'text/markdown',
+        sourceRevision: 11,
+      },
+      renderMarkdownSource: renderRealMarkdownSource,
+      noteLinkIndex,
+    })
+
+    model.setPreview({
+      ...PREVIEW_DATA,
+      path: '/Docs/Current.md',
+      parentPath: '/Docs',
+    })
+    await flushAsync()
+
+    const state = expectReady(model)
+    expect(noteLinkIndex.loadNotes).toHaveBeenCalledTimes(1)
+    expect(state.noteLinks).toEqual([
+      expect.objectContaining({id: 'note-link-0', targetPath: 'Sibling'}),
+    ])
+    expect(state.noteLinkResolutions?.['note-link-0']).toMatchObject({
+      kind: 'resolved',
+      target: {fileId: 2, path: '/Docs/Sibling.md'},
+    })
+    expect(state.renderedHtml).toContain('data-cv-note-link-id="note-link-0"')
+    expect(state.renderedHtml).toContain('data-cv-note-link-state="resolved"')
+    expect(state.renderedHtml).not.toContain('aria-disabled="true"')
+  })
+
+  it('resolves rendered catalog file links through the catalog resolver', async () => {
+    const resolveFileLinks = vi.fn(async () => ({
+      version: 1,
+      results: [{target: '/Docs/Guide.pdf', item: GUIDE_FILE_LINK_ITEM}],
+    }))
+    const {model} = createModel({
+      loadResult: {
+        text: '[Guide](/Docs/Guide.pdf)',
+        size: 24,
+        mimeType: 'text/markdown',
+        sourceRevision: 11,
+      },
+      renderMarkdownSource: renderRealMarkdownSource,
+      fileLinkCatalog: {resolveFileLinks, completeFileLinks: vi.fn()},
+    })
+
+    model.setPreview({
+      ...PREVIEW_DATA,
+      path: '/Docs/Current.md',
+      parentPath: '/Docs',
+    })
+    await flushAsync()
+    await flushAsync()
+
+    const state = expectReady(model)
+    expect(resolveFileLinks).toHaveBeenCalledWith({targets: ['/Docs/Guide.pdf']})
+    expect(state.fileLinks).toEqual([
+      expect.objectContaining({id: 'file-link-0', targetPath: '/Docs/Guide.pdf'}),
+    ])
+    expect(state.fileLinkResolutions?.['file-link-0']).toMatchObject({
+      kind: 'resolved',
+      target: {node_id: 42, path: '/Docs/Guide.pdf'},
+    })
+    expect(state.renderedHtml).toContain('data-cv-file-link-id="file-link-0"')
+    expect(state.renderedHtml).toContain('data-cv-file-link-state="resolved"')
+    expect(state.renderedHtml).not.toContain('aria-disabled="true"')
+  })
+
+  it('opens resolved file links with the target parent path', () => {
+    const openPreview = vi.fn()
+    const {model} = createModel({
+      fileNavigation: {
+        openMarkdownDocument: vi.fn(),
+        openGallery: vi.fn(),
+        openVideo: vi.fn(),
+        openAudio: vi.fn(),
+        openPreview,
+      },
+    })
+    model.state.set({
+      kind: 'ready',
+      fileId: 1,
+      fileName: 'Current.md',
+      path: '/Docs/Current.md',
+      parentPath: '/Docs',
+      size: 7,
+      mimeType: 'text/markdown',
+      source: '[Guide](/Docs/Guide.pdf)',
+      baseline: '[Guide](/Docs/Guide.pdf)',
+      sourceRevision: 11,
+      baselineSourceRevision: 11,
+      mode: 'preview',
+      dirty: false,
+      saving: false,
+      formatting: false,
+      stale: false,
+      renderedHtml: '',
+      imageAssets: {},
+      fileLinkResolutions: {
+        'file-link-0': {kind: 'resolved', candidateId: 'file-link-0', target: GUIDE_FILE_LINK_ITEM},
+      },
+      errorKey: null,
+      readOnlyReasonKey: null,
+      lastSavedAt: null,
+      autosavePending: false,
+      lastAutosaveAttemptAt: null,
+    })
+
+    expect(model.activateFileLink('file-link-0')).toBe(true)
+
+    expect(openPreview).toHaveBeenCalledWith(42, 'push', {parentPath: '/Docs'})
+  })
+
+  it('requests file-link completions for the current document parent path', async () => {
+    const completeFileLinks = vi.fn(async () => ({
+      version: 1,
+      items: [GUIDE_FILE_LINK_ITEM],
+    }))
+    const {model} = createModel({
+      fileLinkCatalog: {resolveFileLinks: vi.fn(), completeFileLinks},
+    })
+    model.state.set({
+      kind: 'ready',
+      fileId: 1,
+      fileName: 'Current.md',
+      path: '/Docs/Current.md',
+      parentPath: '/Docs',
+      size: 7,
+      mimeType: 'text/markdown',
+      source: '[Guide](',
+      baseline: '[Guide](',
+      sourceRevision: 11,
+      baselineSourceRevision: 11,
+      mode: 'edit',
+      dirty: false,
+      saving: false,
+      formatting: false,
+      stale: false,
+      renderedHtml: '',
+      imageAssets: {},
+      errorKey: null,
+      readOnlyReasonKey: null,
+      lastSavedAt: null,
+      autosavePending: false,
+      lastAutosaveAttemptAt: null,
+    })
+
+    await expect(model.completeFileLinks('/Docs/Gui')).resolves.toEqual([GUIDE_FILE_LINK_ITEM])
+
+    expect(completeFileLinks).toHaveBeenCalledWith({
+      query: '/Docs/Gui',
+      limit: 20,
+      current_path: '/Docs',
+    })
+  })
+
+  it('activates resolved note links through app navigation when the note is clean', async () => {
+    const openMarkdownDocument = vi.fn()
+    const target = {
+      id: '2',
+      fileId: 2,
+      fileName: 'Sibling.md',
+      path: '/Docs/Sibling.md',
+      parentPath: '/Docs',
+      mimeType: 'text/markdown',
+      sourceRevision: 8,
+      anchor: 'intro',
+    }
+    const {model} = createModel({
+      noteNavigation: {openMarkdownDocument},
+    })
+    model.state.set({
+      ...DEFAULT_LOAD_RESULT,
+      kind: 'ready',
+      fileId: 1,
+      fileName: 'Current.md',
+      path: '/Docs/Current.md',
+      parentPath: '/Docs',
+      source: '# Current',
+      baseline: '# Current',
+      sourceRevision: 11,
+      baselineSourceRevision: 11,
+      mode: 'preview',
+      dirty: false,
+      saving: false,
+      formatting: false,
+      stale: false,
+      renderedHtml: '',
+      imageAssets: {},
+      noteLinkResolutions: {
+        'note-link-0': {kind: 'resolved', candidateId: 'note-link-0', target},
+      },
+      errorKey: null,
+      readOnlyReasonKey: null,
+      lastSavedAt: null,
+      autosavePending: false,
+      lastAutosaveAttemptAt: null,
+    })
+
+    expect(model.activateNoteLink('note-link-0')).toBe(true)
+
+    expect(openMarkdownDocument).toHaveBeenCalledWith(2, 'push', {
+      parentPath: '/Docs',
+      source: expect.objectContaining({
+        path: '/Docs/Sibling.md',
+        parentPath: '/Docs',
+        fileName: 'Sibling.md',
+        sourceRevision: 8,
+        anchor: 'intro',
+      }),
+    })
+  })
+
+  it('defers resolved note-link navigation behind the dirty guard', () => {
+    const openMarkdownDocument = vi.fn()
+    const target = {
+      id: '2',
+      fileId: 2,
+      fileName: 'Sibling.md',
+      path: '/Docs/Sibling.md',
+      parentPath: '/Docs',
+      mimeType: 'text/markdown',
+      anchor: null,
+    }
+    const {model} = createModel({
+      noteNavigation: {openMarkdownDocument},
+    })
+    model.state.set({
+      kind: 'ready',
+      fileId: 1,
+      fileName: 'Current.md',
+      path: '/Docs/Current.md',
+      parentPath: '/Docs',
+      size: 7,
+      mimeType: 'text/markdown',
+      source: '# Local',
+      baseline: '# Saved',
+      sourceRevision: 11,
+      baselineSourceRevision: 11,
+      mode: 'preview',
+      dirty: true,
+      saving: false,
+      formatting: false,
+      stale: false,
+      renderedHtml: '',
+      imageAssets: {},
+      noteLinkResolutions: {
+        'note-link-0': {kind: 'resolved', candidateId: 'note-link-0', target},
+      },
+      errorKey: null,
+      readOnlyReasonKey: null,
+      lastSavedAt: null,
+      autosavePending: false,
+      lastAutosaveAttemptAt: null,
+    })
+
+    expect(model.activateNoteLink('note-link-0')).toBe(true)
+
+    expect(openMarkdownDocument).not.toHaveBeenCalled()
+    expect(model.pendingCloseIntent()).toMatchObject({kind: 'note-link', fileId: 2})
+
+    model.discardPendingCloseIntent()
+
+    expect(openMarkdownDocument).toHaveBeenCalledTimes(1)
+  })
+
+  it('activates same-note anchors as local preview scroll requests', () => {
+    const {model} = createModel()
+    model.state.set({
+      kind: 'ready',
+      fileId: 1,
+      fileName: 'Current.md',
+      path: '/Docs/Current.md',
+      parentPath: '/Docs',
+      size: 7,
+      mimeType: 'text/markdown',
+      source: '# Intro',
+      baseline: '# Intro',
+      sourceRevision: 11,
+      baselineSourceRevision: 11,
+      mode: 'preview',
+      dirty: false,
+      saving: false,
+      formatting: false,
+      stale: false,
+      renderedHtml: '',
+      imageAssets: {},
+      noteLinkResolutions: {
+        'note-link-0': {kind: 'same-note-anchor', candidateId: 'note-link-0', anchor: 'intro'},
+      },
+      errorKey: null,
+      readOnlyReasonKey: null,
+      lastSavedAt: null,
+      autosavePending: false,
+      lastAutosaveAttemptAt: null,
+    })
+
+    expect(model.activateNoteLink('note-link-0')).toBe(true)
+    expect(model.anchorScrollRequest()).toMatchObject({anchor: 'intro'})
   })
 
   it('resolves catalog Markdown image refs into model-generated image sources', async () => {
@@ -340,7 +704,12 @@ describe('MarkdownPreviewModel', () => {
       .mockReturnValueOnce(firstLoad.promise)
       .mockReturnValueOnce(secondLoad.promise)
     const saveTextFileById = vi.fn(async () => DEFAULT_SAVE_RESULT)
-    const renderMarkdownSource = vi.fn((source: string) => ({html: `<p>${source}</p>`, imageRefs: []}))
+    const renderMarkdownSource = vi.fn((source: string) => ({
+      html: `<p>${source}</p>`,
+      imageRefs: [],
+      fileLinks: [],
+      noteLinks: [],
+    }))
     const model = new MarkdownPreviewModel({
       loadTextFileById: loadTextFileById as MarkdownPreviewModelDeps['loadTextFileById'],
       saveTextFileById: saveTextFileById as MarkdownPreviewModelDeps['saveTextFileById'],
@@ -382,12 +751,12 @@ describe('MarkdownPreviewModel', () => {
     await loadReady(model)
     renderMarkdownSource.mockClear()
 
-    model.setMode('edit', {selectionStart: 3})
+    model.setMode('edit')
     model.updateSource('# Changed')
 
     let state = expectReady(model)
     expect(model.mode()).toBe('edit')
-    expect(model.editorFocusRequest()).toEqual({id: 1, selectionStart: 3})
+    expect(model.editorFocusRequest()).toBeNull()
     expect(state.dirty).toBe(true)
     expect(state.renderedHtml).toBe('<p># Notes</p>')
     expect(renderMarkdownSource).not.toHaveBeenCalled()
@@ -400,6 +769,40 @@ describe('MarkdownPreviewModel', () => {
     expect(renderMarkdownSource).toHaveBeenCalledWith('# Changed')
     expect(state.renderedHtml).toBe('<p># Changed</p>')
     expect(model.canSave()).toBe(true)
+  })
+
+  it('remembers the current semantic viewport anchor while switching modes', async () => {
+    const {model} = createModel()
+    await loadReady(model)
+    const anchor = {
+      sourceLine: 12.5,
+      sourceOffset: 128,
+      viewportOffset: 96,
+      kind: 'selection' as const,
+    }
+
+    model.setMode('edit', {viewportAnchor: anchor})
+
+    expect(model.getViewportAnchor(PREVIEW_DATA.fileId)).toEqual(anchor)
+  })
+
+  it('normalizes invalid viewport geometry before remembering it', async () => {
+    const {model} = createModel()
+    await loadReady(model)
+
+    model.rememberViewportAnchor(PREVIEW_DATA.fileId, {
+      sourceLine: Number.NaN,
+      sourceOffset: -8,
+      viewportOffset: Number.POSITIVE_INFINITY,
+      kind: 'viewport-top',
+    })
+
+    expect(model.getViewportAnchor(PREVIEW_DATA.fileId)).toEqual({
+      sourceLine: 0,
+      sourceOffset: 0,
+      viewportOffset: 0,
+      kind: 'viewport-top',
+    })
   })
 
   it('uploads image files, inserts Markdown links, and schedules normal dirty/autosave flow', async () => {
@@ -498,6 +901,96 @@ describe('MarkdownPreviewModel', () => {
     state = expectReady(model)
     expect(state.source).toBe('# Notes')
     expect(state.dirty).toBe(false)
+  })
+
+  it('applies inline quick actions at the editor selection and keeps undo history', async () => {
+    const {model} = createModel()
+    await loadReady(model)
+
+    expect(model.applyMarkdownQuickAction('bold', {selectionStart: 2, selectionEnd: 7})).toBe(true)
+
+    let state = expectReady(model)
+    expect(state.mode).toBe('edit')
+    expect(state.source).toBe('# **Notes**')
+    expect(state.dirty).toBe(true)
+    expect(model.editorFocusRequest()?.selectionStart).toBe('# **Notes**'.length)
+    expect(model.canUndo()).toBe(true)
+
+    expect(model.undo()).toBe(true)
+    state = expectReady(model)
+    expect(state.source).toBe('# Notes')
+    expect(state.dirty).toBe(false)
+  })
+
+  it('inserts paired inline markers for empty quick action selections', async () => {
+    const {model} = createModel()
+    await loadReady(model)
+
+    expect(
+      model.applyMarkdownQuickAction('italic', {
+        selectionStart: '# Notes'.length,
+        selectionEnd: '# Notes'.length,
+      }),
+    ).toBe(true)
+
+    expect(expectReady(model).source).toBe('# Notes**')
+    expect(model.editorFocusRequest()?.selectionStart).toBe('# Notes*'.length)
+  })
+
+  it('applies block quick actions at the selected lines', async () => {
+    const {model} = createModel({
+      loadResult: {
+        ...DEFAULT_LOAD_RESULT,
+        text: 'Alpha\nBeta',
+      },
+    })
+    await loadReady(model)
+
+    expect(model.applyMarkdownQuickAction('numbered-list', {selectionStart: 0, selectionEnd: 10})).toBe(
+      true,
+    )
+
+    let state = expectReady(model)
+    expect(state.source).toBe('1. Alpha\n2. Beta')
+    expect(model.editorFocusRequest()?.selectionStart).toBe('1. Alpha\n2. Beta'.length)
+
+    expect(model.undo()).toBe(true)
+    state = expectReady(model)
+    expect(state.source).toBe('Alpha\nBeta')
+  })
+
+  it('inserts quick action tables as Markdown blocks', async () => {
+    const {model} = createModel()
+    await loadReady(model)
+
+    expect(
+      model.applyMarkdownQuickAction('table', {
+        selectionStart: '# Notes'.length,
+        selectionEnd: '# Notes'.length,
+      }),
+    ).toBe(true)
+
+    const expectedSource = '# Notes\n| Column 1 | Column 2 |\n| --- | --- |\n|  |  |'
+    expect(expectReady(model).source).toBe(expectedSource)
+    expect(model.editorFocusRequest()?.selectionStart).toBe(expectedSource.length)
+    expect(model.canUndo()).toBe(true)
+  })
+
+  it('does not apply quick actions while the note is read-only or busy', async () => {
+    const {model} = createModel()
+    const ready = await loadReady(model)
+
+    model.state.set({...ready, saving: true})
+    expect(model.canApplyMarkdownQuickAction()).toBe(false)
+    expect(model.applyMarkdownQuickAction('bold', {selectionStart: 0, selectionEnd: 1})).toBe(false)
+
+    model.state.set({...ready, formatting: true})
+    expect(model.canApplyMarkdownQuickAction()).toBe(false)
+    expect(model.applyMarkdownQuickAction('bold', {selectionStart: 0, selectionEnd: 1})).toBe(false)
+
+    model.state.set({...ready, readOnlyReasonKey: 'markdown:read-only:save-unavailable'})
+    expect(model.canApplyMarkdownQuickAction()).toBe(false)
+    expect(model.applyMarkdownQuickAction('bold', {selectionStart: 0, selectionEnd: 1})).toBe(false)
   })
 
   it('does not change the Markdown source when clipboard text is empty or unavailable', async () => {
@@ -734,6 +1227,32 @@ describe('MarkdownPreviewModel', () => {
     expect(expectReady(model).source).toBe('# Notes')
   })
 
+  it('toggles rendered preview task list items through model-owned source changes', async () => {
+    const {model} = createModel({
+      loadResult: {
+        ...DEFAULT_LOAD_RESULT,
+        text: '- [ ] Todo\n- [x] Done',
+      },
+    })
+    await loadReady(model)
+    const renderedBeforeToggle = expectReady(model).renderedHtml
+
+    expect(model.toggleTaskListItemAtLine(0)).toBe(true)
+
+    let state = expectReady(model)
+    expect(state.source).toBe('- [x] Todo\n- [x] Done')
+    expect(state.renderedHtml).toBe(renderedBeforeToggle)
+    expect(state.dirty).toBe(true)
+    expect(model.canUndo()).toBe(true)
+    expect(model.getTaskListItemCheckedAtLine(0)).toBe(true)
+
+    expect(model.toggleTaskListItemAtLine(1)).toBe(true)
+    state = expectReady(model)
+    expect(state.source).toBe('- [x] Todo\n- [ ] Done')
+    expect(state.renderedHtml).toBe(renderedBeforeToggle)
+    expect(model.getTaskListItemCheckedAtLine(1)).toBe(false)
+  })
+
   it('resets undo and redo across reload, discard, cleanup, and file switch', async () => {
     const {model, loadTextFileById} = createModel()
     loadTextFileById
@@ -793,26 +1312,44 @@ describe('MarkdownPreviewModel', () => {
     expect(model.canUndo()).toBe(false)
   })
 
-  it('creates bounded editor focus requests and resets them across previews', async () => {
+  it('does not focus on plain edit mode switches and bounds explicit focus requests', async () => {
     const {model} = createModel()
     await loadReady(model)
 
-    model.setMode('edit', {selectionStart: 99})
+    model.setMode('edit')
+    expect(model.mode()).toBe('edit')
+    expect(model.editorFocusRequest()).toBeNull()
+
+    model.setMode('edit', {focusEditor: true, selectionStart: 99})
     expect(model.editorFocusRequest()).toEqual({id: 1, selectionStart: '# Notes'.length})
 
-    model.setMode('edit')
+    model.setMode('edit', {focusEditor: true})
     expect(model.editorFocusRequest()).toEqual({id: 2, selectionStart: null})
 
     model.setMode('preview')
     expect(model.editorFocusRequest()).toBeNull()
 
-    model.setMode('edit', {selectionStart: -1})
+    model.setMode('edit', {focusEditor: true, selectionStart: -1})
     expect(model.editorFocusRequest()).toEqual({id: 3, selectionStart: 0})
 
     model.setPreview({...PREVIEW_DATA, fileId: 8, fileName: 'other.md'})
     expect(model.editorFocusRequest()).toBeNull()
     await flushAsync()
     expectReady(model)
+  })
+
+  it('syncs Markdown view mode changes to document navigation', async () => {
+    const documentNavigation = {
+      updateCurrentMarkdownDocumentViewMode: vi.fn(),
+    }
+    const {model} = createModel({documentNavigation})
+    await loadReady(model)
+
+    model.setMode('edit')
+    model.setMode('preview')
+
+    expect(documentNavigation.updateCurrentMarkdownDocumentViewMode).toHaveBeenNthCalledWith(1, 7, 'edit')
+    expect(documentNavigation.updateCurrentMarkdownDocumentViewMode).toHaveBeenNthCalledWith(2, 7, 'preview')
   })
 
   it('formats source through the formatter and refreshes rendered preview', async () => {

@@ -3,8 +3,10 @@ const {connectLoggerMock, logMock} = vi.hoisted(() => ({
   logMock: vi.fn(),
 }))
 
+import type * as ReatomCoreModule from '@reatom/core'
+
 vi.mock('@reatom/core', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@reatom/core')>()
+  const actual = await importOriginal<typeof ReatomCoreModule>()
   return {
     ...actual,
     connectLogger: connectLoggerMock,

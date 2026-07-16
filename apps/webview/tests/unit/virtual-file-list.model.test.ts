@@ -42,6 +42,20 @@ describe('virtual file list model', () => {
     })
   })
 
+  it('clamps stale scroll positions to non-empty visible ranges', () => {
+    const model = new VirtualFileListModel()
+    model.setGridViewportMetrics({columns: 4, rowHeight: 216})
+
+    expect(model.getVisibleRange(3, 'list', 80, 80 * 200, 400)).toEqual({
+      startIndex: 2,
+      endIndex: 3,
+    })
+    expect(model.getVisibleRange(3, 'grid', 80, 216 * 200, 432, 4, 216)).toEqual({
+      startIndex: 0,
+      endIndex: 3,
+    })
+  })
+
   it('maps unloaded slots to visible skeleton placeholders only', () => {
     const model = new VirtualFileListModel()
     const slots: Array<FileListItem | null> = Array.from({length: 10_000}, () => null)

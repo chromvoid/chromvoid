@@ -35,7 +35,7 @@ export interface VirtualFileListHandlerContext {
   afterUpdate: (callback: () => void) => void
 }
 
-export type KeyboardSortableColumn = 'name' | 'size' | 'date'
+export type KeyboardSortableColumn = 'name' | 'type' | 'size' | 'date'
 
 export const NAV_KEYS = [
   'ArrowDown',

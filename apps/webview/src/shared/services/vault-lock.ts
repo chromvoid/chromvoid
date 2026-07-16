@@ -19,7 +19,7 @@ type VaultLockStore = {
   vaultLockPending?: () => boolean
   beginVaultLockRequest?: () => void
   finishVaultLockRequest?: () => void
-  handleVaultLocked?: (options: {source: 'manual'}) => void
+  handleVaultLocked?: () => void
   pushNotification?: (type: 'success' | 'error' | 'warning' | 'info', message: string) => void
 }
 
@@ -52,7 +52,7 @@ export async function lockVaultFromUi(): Promise<void> {
     }
 
     state.update?.({StorageOpened: false})
-    store.handleVaultLocked?.({source: 'manual'})
+    store.handleVaultLocked?.()
     writeAndroidUnlockDebug('vault-lock', 'request:done', {
       dt_ms: Math.round(performance.now() - t0),
     })
@@ -62,7 +62,7 @@ export async function lockVaultFromUi(): Promise<void> {
       store.pushNotification?.('error', error.message || i18n('error:lock-failed'))
     } else {
       state.update?.({StorageOpened: false})
-      store.handleVaultLocked?.({source: 'manual'})
+      store.handleVaultLocked?.()
       store.pushNotification?.(
         'warning',
         error instanceof Error ? error.message : i18n('error:lock-failed'),

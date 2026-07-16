@@ -61,10 +61,12 @@ export class FileDetailsPanel extends ReatomLitElement {
   static get properties() {
     return {
       data: { type: Object },
+      mobile: { type: Boolean, reflect: true },
       externalOpenPending: { type: Boolean, attribute: "external-open-pending" },
     };
   }
   declare data: FileDetails | null;
+  declare mobile: boolean;
   declare externalOpenPending: boolean;
 
   private readonly model = new FileDetailsPanelModel();
@@ -72,6 +74,7 @@ export class FileDetailsPanel extends ReatomLitElement {
   constructor() {
     super();
     this.data = null;
+    this.mobile = false;
     this.externalOpenPending = false;
   }
 
@@ -90,27 +93,26 @@ export class FileDetailsPanel extends ReatomLitElement {
         flex-direction: column;
         block-size: 100%;
         contain: content;
-        background: var(--glass-bg, var(--cv-color-overlay));
+        background: var(--app-glass-background, var(--cv-color-overlay));
         backdrop-filter: blur(20px) saturate(1.2);
         -webkit-backdrop-filter: blur(20px) saturate(1.2);
-        border-inline-start: 1px solid var(--glass-border, var(--cv-alpha-white-10));
+        border-inline-start: 1px solid var(--app-glass-border, var(--cv-alpha-white-10));
         box-shadow:
-          var(--glass-shadow, -4px 0 32px var(--cv-alpha-black-35)),
+          var(--app-glass-shadow, -4px 0 32px var(--cv-alpha-black-35)),
           inset 1px 0 0 var(--cv-alpha-white-4);
         opacity: 0;
-        transform: translateX(16px) scale(0.96);
+        transform: translateX(calc(16px * var(--app-runtime-inline-end-direction-sign, 1))) scale(0.96);
         transition:
           transform var(--cv-duration-normal) var(--cv-easing-decelerate),
-          opacity var(--cv-duration-normal) var(--cv-easing-decelerate),
-          box-shadow var(--cv-duration-normal) var(--cv-easing-standard);
+          opacity var(--cv-duration-normal) var(--cv-easing-decelerate);
       }
 
       :host([open]) {
         opacity: 1;
         transform: translateX(0) scale(1);
         box-shadow:
-          var(--glass-shadow, -4px 0 32px var(--cv-alpha-black-35)),
-          var(--glass-glow, 0 0 40px var(--cv-color-accent-ring)),
+          var(--app-glass-shadow, -4px 0 32px var(--cv-alpha-black-35)),
+          var(--app-glass-glow, 0 0 40px var(--cv-color-accent-ring)),
           inset 1px 0 0 var(--cv-alpha-white-4);
       }
 
@@ -313,9 +315,150 @@ export class FileDetailsPanel extends ReatomLitElement {
         word-break: break-all;
       }
 
+      :host(:not([mobile])) {
+        min-block-size: 0;
+        background: var(--app-editorial-surface-overlay, var(--cv-color-surface));
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        border-inline-start-color: var(--app-editorial-border-subtle, var(--cv-color-border-muted));
+        box-shadow: none;
+        color: var(--app-editorial-text-primary, var(--cv-color-text));
+        opacity: 1;
+        transform: none;
+        transition: none;
+      }
+
+      :host(:not([mobile])) .panel-header {
+        flex: 0 0 52px;
+        padding: 0 var(--app-spacing-4);
+        border-block-end-color: var(--app-editorial-border-subtle, var(--cv-color-border-muted));
+        background: var(--app-editorial-surface-overlay, var(--cv-color-surface));
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+      }
+
+      :host(:not([mobile])) .panel-title {
+        font-size: var(--cv-font-size-xs);
+        letter-spacing: 0.08em;
+      }
+
+      :host(:not([mobile])) .close-btn {
+        inline-size: 32px;
+        block-size: 32px;
+        padding: 0;
+      }
+
+      :host(:not([mobile])) .close-btn:focus-visible,
+      :host(:not([mobile])) .action-btn:focus-visible {
+        outline: 2px solid var(--cv-color-accent);
+        outline-offset: 2px;
+      }
+
+      :host(:not([mobile])) .preview-area {
+        flex: 0 0 auto;
+        block-size: clamp(160px, 24vh, 220px);
+        padding: var(--app-spacing-4);
+        overflow: hidden;
+        background: var(--app-editorial-surface-base, var(--cv-color-bg));
+        border-block-end-color: var(--app-editorial-border-subtle, var(--cv-color-border-muted));
+      }
+
+      :host(:not([mobile])) .preview-icon {
+        inline-size: 72px;
+        block-size: 72px;
+        border-radius: var(--cv-radius-3);
+        background: var(--app-editorial-surface-muted, var(--cv-color-surface-2));
+        border: 1px solid var(--app-editorial-border-subtle, var(--cv-color-border-muted));
+        font-size: 34px;
+      }
+
+      :host(:not([mobile])) .details-audio-artwork {
+        max-inline-size: 280px;
+        block-size: 100%;
+      }
+
+      :host(:not([mobile])) .file-info {
+        text-align: center;
+        border-block-end-color: var(--app-editorial-border-subtle, var(--cv-color-border-muted));
+      }
+
+      :host(:not([mobile])) .file-meta {
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+
+      :host(:not([mobile])) .file-type-badge {
+        padding: 0;
+        border-radius: 0;
+        background: transparent;
+      }
+
+      :host(:not([mobile])) .details-section {
+        flex: 0 0 auto;
+        border-block-end: 1px solid
+          var(--app-editorial-border-subtle, var(--cv-color-border-muted));
+      }
+
+      :host(:not([mobile])) .details-list {
+        gap: 0;
+        overflow: hidden;
+        border: 1px solid var(--app-editorial-border-subtle, var(--cv-color-border-muted));
+        border-radius: var(--cv-radius-3);
+      }
+
+      :host(:not([mobile])) .detail-row {
+        grid-template-columns: minmax(76px, 0.8fr) minmax(0, 1.2fr);
+        padding: var(--app-spacing-2) var(--app-spacing-3);
+        background: var(--app-editorial-surface-muted, var(--cv-color-surface-2));
+        font-size: var(--cv-font-size-xs);
+      }
+
+      :host(:not([mobile])) .detail-row + .detail-row {
+        border-block-start: 1px solid
+          var(--app-editorial-border-subtle, var(--cv-color-border-muted));
+      }
+
+      :host(:not([mobile])) .detail-value {
+        text-align: end;
+      }
+
+      :host(:not([mobile])) .actions-section {
+        padding: var(--app-spacing-4) var(--app-spacing-4) var(--app-spacing-5);
+        border-block-end: 0;
+      }
+
+      :host(:not([mobile])) .action-btn {
+        justify-content: flex-start;
+        min-block-size: 36px;
+        padding: var(--app-spacing-2) var(--app-spacing-3);
+        background: var(--app-editorial-surface-muted, var(--cv-color-surface-2));
+        border-radius: var(--cv-radius-2);
+      }
+
+      :host(:not([mobile])) .action-btn:not(:disabled):hover {
+        background: var(--cv-color-hover);
+        border-color: var(--cv-color-border);
+      }
+
       @media (max-width: 480px) {
         .actions-grid {
           grid-template-columns: 1fr;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        :host {
+          transform: none;
+          transition: opacity var(--cv-duration-fast, 120ms) var(--cv-easing-standard);
+        }
+
+        :host([open]) {
+          transform: none;
+        }
+
+        :host(:not([mobile])) .close-btn,
+        :host(:not([mobile])) .action-btn {
+          transition-duration: var(--cv-duration-instant, 0ms);
         }
       }
     `,
@@ -333,8 +476,7 @@ export class FileDetailsPanel extends ReatomLitElement {
     const showImagePreview = format.openBehavior.kind === "gallery";
     const showVideoPreview = format.openBehavior.kind === "video";
     const showAudioArtworkPreview = !d.isDir && isAudioFile(d.name, d.mimeType);
-    const isMobile = getRuntimeCapabilities().mobile;
-    const platform = getRuntimeCapabilities().platform;
+    const { mobile: isMobile, platform } = getRuntimeCapabilities();
     const primaryOpenUsesSystem =
       format.openBehavior.kind === "preview" &&
       format.openBehavior.mode === "fallback" &&
@@ -349,72 +491,7 @@ export class FileDetailsPanel extends ReatomLitElement {
       : i18n("action:open-external");
     const openExternalShortcutLabel = keyboardShortcutsModel.label("files.openExternal");
 
-    return html`
-      <div class="panel-header">
-        <span class="panel-title">${i18n("details:title")}</span>
-        <cv-button unstyled class="close-btn" @click=${this.handleClose} aria-label=${i18n("button:close")}>
-          <cv-icon name="x" size="s"></cv-icon>
-        </cv-button>
-      </div>
-
-      <div class="preview-area">
-        ${
-          showImagePreview
-            ? html`
-              <image-preview
-                .fileId=${d.id}
-                .fileName=${d.name}
-                .mimeType=${d.mimeType}
-                .lastModified=${d.lastModified}
-                @dimensions-loaded=${this.handleDimensionsLoaded}
-                @click=${this.handleImageDoubleClick}
-                @dblclick=${this.handleImageDoubleClick}
-              ></image-preview>
-            `
-            : showVideoPreview
-              ? html`
-                <video-preview
-                  .fileId=${d.id}
-                  .fileName=${d.name}
-                  .mimeType=${d.mimeType}
-                  .mediaInfo=${d.mediaInfo}
-                  .lastModified=${d.lastModified}
-                  .sourceSize=${d.size}
-                  @open-video=${this.handleVideoOpen}
-                ></video-preview>
-              `
-              : showAudioArtworkPreview
-                ? html`
-                  <audio-artwork-preview
-                    class="details-audio-artwork"
-                    .fileId=${d.id}
-                    .fileName=${d.name}
-                    .mimeType=${d.mimeType}
-                    .lastModified=${d.lastModified}
-                    .sourceSize=${d.size}
-                    .sourceRevision=${d.sourceRevision}
-                    variant="preview-image"
-                    .fallbackIcon=${icon}
-                  ></audio-artwork-preview>
-                `
-                : html`
-                <div class="preview-icon">
-                  <cv-icon name=${icon}></cv-icon>
-                </div>
-              `
-        }
-      </div>
-
-      <div class="file-info">
-        <div class="file-name">${d.name}</div>
-        <div class="file-meta">
-          ${ext ? html`<span class="file-type-badge">${ext}</span>` : ""}
-          <span>${fileType}</span>
-          <span>•</span>
-          <span>${this.formatSize(d.size)}</span>
-        </div>
-      </div>
-
+    const actionsSection = html`
       <div class="actions-section">
         <div class="section-label">${i18n("details:actions")}</div>
         <div class="actions-grid">
@@ -485,20 +562,21 @@ export class FileDetailsPanel extends ReatomLitElement {
           }
         </div>
       </div>
-
+    `;
+    const metadataSection = html`
       <div class="details-section">
         <div class="section-label">${i18n("details:metadata")}</div>
         <div class="details-list">
           <div class="detail-row">
             <span class="detail-label">${i18n("details:path")}</span>
-            <span class="detail-value">${d.path}</span>
+            <span class="detail-value" dir="ltr">${d.path}</span>
           </div>
           ${
             d.lastModified
               ? html`
                 <div class="detail-row">
                   <span class="detail-label">${i18n("details:modified")}</span>
-                  <span class="detail-value">${this.formatDate(d.lastModified)}</span>
+                  <span class="detail-value"><bdi dir="auto">${this.formatDate(d.lastModified)}</bdi></span>
                 </div>
               `
               : ""
@@ -509,7 +587,9 @@ export class FileDetailsPanel extends ReatomLitElement {
                 <div class="detail-row">
                   <span class="detail-label">${i18n("details:size")}</span>
                   <span class="detail-value"
-                    >${this.formatSize(d.size)} (${d.size.toLocaleString(getLang())}
+                    ><bdi dir="ltr">${this.formatSize(d.size)}</bdi> (<bdi dir="ltr"
+                      >${d.size.toLocaleString(getLang())}</bdi
+                    >
                     ${i18n("details:bytes")})</span
                   >
                 </div>
@@ -522,7 +602,9 @@ export class FileDetailsPanel extends ReatomLitElement {
                 <div class="detail-row">
                   <span class="detail-label">${i18n("details:dimensions")}</span>
                   <span class="detail-value"
-                    >${this.model.imageDimensions()!.width} × ${this.model.imageDimensions()!.height}</span
+                    ><bdi dir="ltr"
+                      >${this.model.imageDimensions()!.width} × ${this.model.imageDimensions()!.height}</bdi
+                    ></span
                   >
                 </div>
               `
@@ -530,6 +612,78 @@ export class FileDetailsPanel extends ReatomLitElement {
           }
         </div>
       </div>
+    `;
+    const sections = this.mobile
+      ? [actionsSection, metadataSection]
+      : [metadataSection, actionsSection];
+
+    return html`
+      <div class="panel-header">
+        <span class="panel-title">${i18n("details:title")}</span>
+        <cv-button unstyled class="close-btn" @click=${this.handleClose} aria-label=${i18n("button:close")}>
+          <cv-icon name="x" size="s"></cv-icon>
+        </cv-button>
+      </div>
+
+      <div class="preview-area">
+        ${
+          showImagePreview
+            ? html`
+              <image-preview
+                .fileId=${d.id}
+                .fileName=${d.name}
+                .mimeType=${d.mimeType}
+                .lastModified=${d.lastModified}
+                @dimensions-loaded=${this.handleDimensionsLoaded}
+                @click=${this.handleImageDoubleClick}
+                @dblclick=${this.handleImageDoubleClick}
+              ></image-preview>
+            `
+            : showVideoPreview
+              ? html`
+                <video-preview
+                  .fileId=${d.id}
+                  .fileName=${d.name}
+                  .mimeType=${d.mimeType}
+                  .mediaInfo=${d.mediaInfo}
+                  .lastModified=${d.lastModified}
+                  .sourceSize=${d.size}
+                  @open-video=${this.handleVideoOpen}
+                ></video-preview>
+              `
+              : showAudioArtworkPreview
+                ? html`
+                  <audio-artwork-preview
+                    class="details-audio-artwork"
+                    .fileId=${d.id}
+                    .fileName=${d.name}
+                    .mimeType=${d.mimeType}
+                    .lastModified=${d.lastModified}
+                    .sourceSize=${d.size}
+                    .sourceRevision=${d.sourceRevision}
+                    variant="preview-image"
+                    .fallbackIcon=${icon}
+                  ></audio-artwork-preview>
+                `
+                : html`
+                <div class="preview-icon">
+                  <cv-icon name=${icon}></cv-icon>
+                </div>
+              `
+        }
+      </div>
+
+      <div class="file-info">
+        <div class="file-name"><bdi dir="auto">${d.name}</bdi></div>
+        <div class="file-meta">
+          ${ext ? html`<span class="file-type-badge"><bdi dir="ltr">${ext}</bdi></span>` : ""}
+          <span>${fileType}</span>
+          <span>•</span>
+          <span><bdi dir="ltr">${this.formatSize(d.size)}</bdi></span>
+        </div>
+      </div>
+
+      ${sections}
     `;
   }
 

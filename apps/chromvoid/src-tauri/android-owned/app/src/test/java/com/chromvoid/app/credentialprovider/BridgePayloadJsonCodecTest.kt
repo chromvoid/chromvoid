@@ -1,5 +1,6 @@
 package com.chromvoid.app.credentialprovider
 
+import com.chromvoid.app.PasskeyCoreRequestPayload
 import com.chromvoid.app.passkey.CreatePasskeyPreflightPayload
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -51,5 +52,27 @@ class BridgePayloadJsonCodecTest {
             "example.com",
             encoded.getJSONObject(BridgeContractVersion.PAYLOAD_FIELD).getString("rp_id"),
         )
+    }
+
+    @Test
+    fun encodePasskeyCoreRequest_includesTrustedContext() {
+        val encoded =
+            JSONObject(
+                BridgePayloadJsonCodec.encodePasskeyCoreRequest(
+                    PasskeyCoreRequestPayload(
+                        requestJson = """{"challenge":"abc","rpId":"example.com"}""",
+                        origin = "https://example.com",
+                        clientDataHashB64Url = "hash-b64",
+                        selectedCredentialId = "cred-1",
+                        userVerified = true,
+                    ),
+                ),
+            )
+
+        val payload = encoded.getJSONObject(BridgeContractVersion.PAYLOAD_FIELD)
+        assertEquals("https://example.com", payload.getString("origin"))
+        assertEquals("hash-b64", payload.getString("client_data_hash"))
+        assertEquals("cred-1", payload.getString("selected_credential_id"))
+        assertEquals(true, payload.getBoolean("user_verified"))
     }
 }

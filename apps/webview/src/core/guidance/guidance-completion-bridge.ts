@@ -220,7 +220,7 @@ function createDefaultProductStateBindings(
       read: () => readPasswordEntryCount() > 0,
       subscribe: subscribePasswordEntryCount,
     },
-    signalBinding('passkeys.has_credentials', passkeysPageModel.androidPasskeys, (items) => items.length > 0),
+    signalBinding('passkeys.has_credentials', passkeysPageModel.passkeys, (items) => items.length > 0),
     signalBinding(
       'ssh_agent.started',
       settingsPageModel.sshAgentStatus,
@@ -228,7 +228,7 @@ function createDefaultProductStateBindings(
     ),
     signalBinding(
       'credential_provider.enabled',
-      settingsPageModel.androidAutofillProviderSelected,
+      settingsPageModel.credentialProviderSelected,
       (selected) => selected === true,
     ),
   ]

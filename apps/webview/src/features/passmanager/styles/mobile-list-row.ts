@@ -2,20 +2,11 @@ import {css} from 'lit'
 
 export const pmMobileListRowStyles = css`
   .mobile-list-row-surface {
-    --pm-mobile-list-row-min-height: 60px;
-    --pm-mobile-list-row-padding-block: 8px;
-    --pm-mobile-list-row-padding-inline: 12px;
-    --pm-mobile-list-row-gap: 8px;
-    --pm-mobile-list-row-icon-size: 36px;
-    --pm-mobile-list-row-icon-radius: 9px;
-    --pm-mobile-list-row-icon-image-padding: 4px;
-    --pm-mobile-list-row-icon-letter-size: 14px;
-    --pm-mobile-list-row-divider: var(--cv-color-border-soft);
-    min-block-size: var(--pm-mobile-list-row-min-height);
+    min-block-size: var(--pm-mobile-list-row-min-block-size);
     background: transparent;
     border: 1px solid transparent;
     border-radius: 12px;
-    box-shadow: inset 0 -1px 0 var(--pm-mobile-list-row-divider);
+    box-shadow: inset 0 -1px 0 var(--cv-color-border-soft);
     transition:
       background-color var(--cv-duration-fast) var(--cv-easing-standard),
       border-color var(--cv-duration-fast) var(--cv-easing-standard),

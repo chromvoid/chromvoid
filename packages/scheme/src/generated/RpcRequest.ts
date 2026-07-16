@@ -17,4 +17,8 @@ export type RpcRequest = {
    * Command data
    */
   data: JsonValue
+  /**
+   * Optional transport-level feature hints for this request.
+   */
+  transport_features?: Array<string>
 }

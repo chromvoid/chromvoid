@@ -1,13 +1,21 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {Entry, Group, ManagerRoot} from '@project/passmanager/core'
+import {
+  CREDENTIAL_SECURITY_AUDIT_ALGORITHM_VERSION,
+  CREDENTIAL_SECURITY_AUDIT_ARTIFACT_VERSION,
+  type CredentialSecurityAuditArtifactV1,
+} from '@project/passmanager/security-audit'
 import type {ManagerSaver} from '@project/passmanager/types'
 
 import {PMCredentialSecurityAuditModel} from '../../src/features/passmanager/models/pm-credential-security-audit.model'
 
 type PasswordValue = string | undefined | Promise<string | undefined>
 
-function createMockSaver(passwords: Map<string, PasswordValue> = new Map()): ManagerSaver {
+function createMockSaver(
+  passwords: Map<string, PasswordValue> = new Map(),
+  overrides: Partial<ManagerSaver> = {},
+): ManagerSaver {
   return {
     save: vi.fn(async () => true),
     read: vi.fn(async () => undefined),
@@ -37,6 +45,8 @@ function createMockSaver(passwords: Map<string, PasswordValue> = new Map()): Man
     saveEntryMeta: vi.fn(async () => true),
     moveEntryToGroup: vi.fn(async () => true),
     removeEntry: vi.fn(async () => true),
+    saveCredentialSecurityAudit: vi.fn(async () => true),
+    ...overrides,
   }
 }
 
@@ -147,6 +157,165 @@ describe('PMCredentialSecurityAuditModel', () => {
     })
 
     expect(JSON.stringify(Array.from(model.entries().entries()))).not.toContain('same-password')
+  })
+
+  it('uses a matching loaded artifact without reading entry passwords', async () => {
+    const now = Date.now()
+    const rootPayload = {
+      version: 3 as const,
+      createdTs: now,
+      updatedTs: now,
+      folders: ['Work'],
+      entries: [
+        {
+          id: 'cached-entry-a',
+          entryType: 'login' as const,
+          createdTs: now,
+          updatedTs: now,
+          title: 'Cached entry A',
+          username: 'cached',
+          urls: [],
+          otps: [],
+          folderPath: 'Work',
+        },
+        {
+          id: 'cached-entry-b',
+          entryType: 'login' as const,
+          createdTs: now,
+          updatedTs: now,
+          title: 'Cached entry B',
+          username: 'cached',
+          urls: [],
+          otps: [],
+          folderPath: 'Work',
+        },
+      ],
+    }
+
+    let savedArtifact: CredentialSecurityAuditArtifactV1 | undefined
+    const initialSaver = createMockSaver(
+      new Map([
+        ['cached-entry-a', 'abc'],
+        ['cached-entry-b', 'abc'],
+      ]),
+      {
+      read: vi.fn(async () => rootPayload),
+      saveCredentialSecurityAudit: vi.fn(async (artifact) => {
+        savedArtifact = artifact
+        return true
+      }),
+      },
+    )
+    const initialRoot = new ManagerRoot(initialSaver)
+    const initialModel = new PMCredentialSecurityAuditModel()
+    initialModel.attachRoot(initialRoot)
+    await initialRoot.load()
+    await flushAudit()
+
+    expect(savedArtifact).toBeDefined()
+    initialModel.dispose()
+
+    const cachedSaver = createMockSaver(
+      new Map([
+        ['cached-entry-a', 'must-not-be-read'],
+        ['cached-entry-b', 'must-not-be-read'],
+      ]),
+      {
+        read: vi.fn(async () => ({
+          ...rootPayload,
+          updatedTs: now + 1_000,
+          credentialSecurityAudit: savedArtifact,
+        })),
+      },
+    )
+    const cachedRoot = new ManagerRoot(cachedSaver)
+    const cachedModel = new PMCredentialSecurityAuditModel()
+    cachedModel.attachRoot(cachedRoot)
+    await cachedRoot.load()
+
+    expect(cachedModel.status()).toBe('ready')
+    expect(cachedModel.getEntryState(cachedRoot.allEntries[0]!)).toMatchObject({
+      weakPassword: true,
+      reusedPassword: true,
+    })
+    const cachedGroup = cachedRoot.entriesList().find((item): item is Group => item instanceof Group)
+    expect(cachedGroup).toBeDefined()
+    expect(cachedModel.summarizeGroup(cachedGroup!)).toMatchObject({
+      reusedPasswordCount: 2,
+      weakPasswordCount: 2,
+    })
+    expect(cachedSaver.readEntryPassword).not.toHaveBeenCalled()
+  })
+
+  it('ignores a stale loaded artifact, scans secrets, and saves a replacement', async () => {
+    const now = Date.now()
+    const staleArtifact: CredentialSecurityAuditArtifactV1 = {
+      version: CREDENTIAL_SECURITY_AUDIT_ARTIFACT_VERSION,
+      algorithmVersion: CREDENTIAL_SECURITY_AUDIT_ALGORITHM_VERSION,
+      revision: 'stale-revision',
+      generatedAt: now,
+      entries: {
+        entry: {
+          entryId: 'entry',
+          weakPassword: false,
+          reusedPassword: false,
+          hasTwoFactor: false,
+          strengthScore: 4,
+        },
+      },
+      failedEntryIds: [],
+    }
+    const saver = createMockSaver(new Map([['entry', 'abc']]), {
+      read: vi.fn(async () => ({
+        version: 3,
+        createdTs: now,
+        updatedTs: now,
+        folders: [],
+        entries: [
+          {
+            id: 'entry',
+            entryType: 'login',
+            createdTs: now,
+            updatedTs: now,
+            title: 'Entry',
+            username: '',
+            urls: [],
+            otps: [],
+            folderPath: null,
+          },
+        ],
+        credentialSecurityAudit: staleArtifact,
+      })),
+    })
+    const root = new ManagerRoot(saver)
+    const model = new PMCredentialSecurityAuditModel()
+    model.attachRoot(root)
+    await root.load()
+    await flushAudit()
+
+    expect(model.status()).toBe('ready')
+    expect(model.getEntryState(root.allEntries[0]!)).toMatchObject({weakPassword: true})
+    expect(saver.readEntryPassword).toHaveBeenCalledWith('entry')
+    expect(saver.saveCredentialSecurityAudit).toHaveBeenCalledWith(
+      expect.objectContaining({revision: model.revision()}),
+    )
+  })
+
+  it('keeps audit state ready when artifact persistence fails', async () => {
+    const saver = createMockSaver(new Map([['entry', 'abc']]), {
+      saveCredentialSecurityAudit: vi.fn(async () => {
+        throw new Error('write failed')
+      }),
+    })
+    const root = new ManagerRoot(saver)
+    const entry = createLoginEntry(root, 'entry')
+    const model = new PMCredentialSecurityAuditModel()
+    model.attachRoot(root)
+    root.entries.set([entry])
+    await flushAudit()
+
+    expect(model.status()).toBe('ready')
+    expect(model.getEntryState(entry)).toMatchObject({weakPassword: true})
   })
 
   it('summarizes root entries separately from grouped entries', async () => {

@@ -7,11 +7,14 @@ import type {CatalogMediaInfo} from './CatalogMediaInfo'
 export type CatalogListItem = {
   node_id: number
   name: string
+  path: string | null
+  parent_path: string | null
   is_dir: boolean
   size: number | null
   mime_type: string | null
   media_info: CatalogMediaInfo | null
   media_inspected_revision: number
+  source_revision: number
   created_at: number
   updated_at: number
 }

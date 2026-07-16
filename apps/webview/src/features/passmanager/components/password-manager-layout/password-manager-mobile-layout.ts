@@ -1,4 +1,4 @@
-import {css, nothing} from 'lit'
+import {css, type PropertyValues} from 'lit'
 import {keyed} from 'lit/directives/keyed.js'
 import {html} from '@chromvoid/uikit/reatom-lit'
 
@@ -9,17 +9,16 @@ import {MobileActionBar} from 'root/shared/ui/mobile-action-bar'
 import {mobileActionBarButtonStyles} from 'root/shared/ui/mobile-action-bar.styles'
 import {MobileSurfaceLayout} from 'root/shared/ui/mobile-surface-layout'
 import {mobileSurfaceLayoutFlexFillStyles} from 'root/shared/ui/mobile-surface-layout.styles'
+import {viewTransitionTargets} from 'root/utils/view-transition-targets'
 import {
   hostContainStyles,
-  pageFadeInStyles,
-  pageTransitionStyles,
 } from 'root/shared/ui/shared-styles'
-import {pmComponentLoaderModel} from '../../models/pm-component-loader.model'
 import {pmMobileChromeModel} from '../../models/pm-mobile-chrome.model'
 import {pmSharedStyles} from '../../styles/shared'
 import {PMMobileSortGroupSheet} from '../list/mobile-sort-group-sheet'
 import {PMMobileTagFilterSheet} from '../list/mobile-tag-filter-sheet'
 import {PMOtpQuickViewMobile} from '../otp-quick-view'
+import {PMSshKeysViewMobile} from '../ssh-keys-view'
 import {PMLayoutBase, type SearchElement} from './password-manager-layout-base'
 import {passwordManagerMobileLayoutModel} from './password-manager-mobile-layout.model'
 import {passwordManagerLayoutStyles} from './password-manager-layout.styles'
@@ -34,14 +33,13 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
     MobileActionBar.define()
     MobileSurfaceLayout.define()
     PMOtpQuickViewMobile.define()
+    PMSshKeysViewMobile.define()
     PMMobileSortGroupSheet.define()
     PMMobileTagFilterSheet.define()
   }
 
   static styles = [
     ...pmSharedStyles,
-    pageTransitionStyles,
-    pageFadeInStyles,
     hostContainStyles,
     passwordManagerLayoutStyles,
     mobileActionBarButtonStyles,
@@ -72,6 +70,11 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
         overflow: hidden;
       }
 
+      .pm-content pm-group-create-mobile.card {
+        padding: 0;
+        overflow: hidden;
+      }
+
       .pm-content pm-group-mobile.card {
         padding: var(--app-mobile-surface-gutter-block-start) 0
           var(--app-mobile-surface-gutter-block-end);
@@ -82,18 +85,29 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
         overflow: hidden;
       }
 
+      .pm-content pm-ssh-keys-view-mobile.card {
+        overflow: hidden;
+      }
+
       slot[name='buttons'] {
         display: none;
       }
 
     `,
   ]
+  private unregisterPageTransitionTarget?: () => void
 
   private unregisterBackHandler?: () => void
 
+  protected override get extendedComponentLayout() {
+    return 'mobile' as const
+  }
+
   protected getSearchElement(): SearchElement | null {
     const group = this.shadowRoot?.querySelector('pm-group-mobile') as HTMLElement | null
-    return group?.shadowRoot?.querySelector('pm-search-mobile') as SearchElement | null
+    return group?.shadowRoot?.querySelector(
+      'workspace-dashboard-header, pm-search-mobile',
+    ) as SearchElement | null
   }
 
   private renderEntry(entry: Entry, editing: boolean) {
@@ -122,17 +136,21 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
     return html`<pm-otp-quick-view-mobile class="card"></pm-otp-quick-view-mobile>`
   }
 
+  private renderSshKeysView() {
+    return html`<pm-ssh-keys-view-mobile class="card"></pm-ssh-keys-view-mobile>`
+  }
+
   private renderMain() {
     const showElement = this.model.getCurrentShowElement()
+    const sessionStatus = this.model.getSessionStatus()
 
-    if (this.model.isLoading()) {
-      return this.renderLoading()
-    }
+    if (sessionStatus === 'loading') return this.renderSessionUnavailable(true)
+    if (sessionStatus === 'inactive' || sessionStatus === 'error') return this.renderSessionUnavailable()
 
-    const extendedReady = pmComponentLoaderModel.extendedReady()
-    if (pmComponentLoaderModel.requiresExtendedComponents(showElement) && !extendedReady) {
-      void pmComponentLoaderModel.ensureExtendedComponents()
-      return this.renderLoading()
+    if (this.model.requiresExtendedComponents(this.extendedComponentLayout)) {
+      return this.model.getExtendedComponentsLoadError()
+        ? this.renderExtendedComponentsUnavailable()
+        : this.renderLoading()
     }
 
     if (showElement === 'createEntry') {
@@ -155,6 +173,10 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
       return this.renderOtpQuickView()
     }
 
+    if (showElement === 'sshView') {
+      return this.renderSshKeysView()
+    }
+
     return this.renderGroup()
   }
 
@@ -163,7 +185,19 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
     this.unregisterBackHandler = navigationModel.registerSurfaceBackHandler('passwords', () => pmMobileChromeModel.handleBack())
   }
 
+  protected override firstUpdated(changedProperties: PropertyValues): void {
+    super.firstUpdated(changedProperties)
+    this.unregisterPageTransitionTarget = viewTransitionTargets.register('pm-page', {
+      getElement: () => this.renderRoot.querySelector<HTMLElement>('.pm-content'),
+      settle: async () => {
+        await this.updateComplete
+      },
+    })
+  }
+
   override disconnectedCallback(): void {
+    this.unregisterPageTransitionTarget?.()
+    this.unregisterPageTransitionTarget = undefined
     this.unregisterBackHandler?.()
     this.unregisterBackHandler = undefined
     passwordManagerMobileLayoutModel.cancelLongPress()
@@ -172,20 +206,11 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
 
   override render() {
     const selectionStateKey = `${passwordManagerMobileLayoutModel.selection.active() ? '1' : '0'}:${passwordManagerMobileLayoutModel.selection.selectedCount()}`
-    const motion = this.model.getMotionRenderState()
 
     return html`
       <div class="wrapper" data-selection-state=${selectionStateKey}>
-        <mobile-surface-layout variant="flush" scroll="owned">
-          <div
-            class="pm-content"
-            data-motion-kind=${motion.kind}
-            data-motion-direction=${motion.direction}
-            data-motion-target=${motion.target ?? ''}
-            data-reduced-motion=${String(motion.reducedMotion)}
-          >
-            ${this.renderMain()}
-          </div>
+        <mobile-surface-layout variant="flush" scroll="external">
+          <div class="pm-content">${this.renderMain()}</div>
         </mobile-surface-layout>
         <pm-mobile-sort-group-sheet></pm-mobile-sort-group-sheet>
         <pm-mobile-tag-filter-sheet></pm-mobile-tag-filter-sheet>

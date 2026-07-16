@@ -7,6 +7,7 @@ import type {CVIcon} from '@chromvoid/uikit/components/cv-icon'
 import {i18n} from '@project/passmanager/i18n'
 
 import {
+  type PMGroupTargetPickerModel,
   PMEntryMovePickerModel,
   type PMEntryMoveOption,
   type PMEntryMoveViewState,
@@ -23,7 +24,12 @@ function escapeCssIdentifier(value: string): string {
 }
 
 export class PMEntryMoveBase extends ReatomLitElement {
-  protected readonly model = new PMEntryMovePickerModel()
+  protected readonly model: PMGroupTargetPickerModel
+
+  constructor(model: PMGroupTargetPickerModel = new PMEntryMovePickerModel()) {
+    super()
+    this.model = model
+  }
 
   private readonly pickerId = ++pickerSequence
 
@@ -77,8 +83,14 @@ export class PMEntryMoveBase extends ReatomLitElement {
     option?.scrollIntoView?.({block: 'nearest'})
   }
 
-  private dispatchMoveSelected(id: string): void {
-    this.dispatchEvent(new CustomEvent('move-selected', {detail: {id}, bubbles: true, composed: true}))
+  protected getSelectionEventName(): string {
+    return 'move-selected'
+  }
+
+  private dispatchSelected(id: string): void {
+    this.dispatchEvent(
+      new CustomEvent(this.getSelectionEventName(), {detail: {id}, bubbles: true, composed: true}),
+    )
   }
 
   private handleSearchInput(event: Event): void {
@@ -116,7 +128,7 @@ export class PMEntryMoveBase extends ReatomLitElement {
     }
 
     if (result.selectedId) {
-      this.dispatchMoveSelected(result.selectedId)
+      this.dispatchSelected(result.selectedId)
     }
   }
 
@@ -129,7 +141,7 @@ export class PMEntryMoveBase extends ReatomLitElement {
     const selectedId = this.model.selectTarget(optionId)
     if (!selectedId) return
 
-    this.dispatchMoveSelected(selectedId)
+    this.dispatchSelected(selectedId)
   }
 
   private handleRowMouseEnter(event: Event): void {
@@ -155,7 +167,7 @@ export class PMEntryMoveBase extends ReatomLitElement {
     const selectedId = this.model.selectTarget(targetId)
     if (!selectedId) return
 
-    this.dispatchMoveSelected(selectedId)
+    this.dispatchSelected(selectedId)
   }
 
   private renderIndent(depth: number): TemplateResult | typeof nothing {

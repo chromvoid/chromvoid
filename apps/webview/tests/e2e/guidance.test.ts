@@ -2,10 +2,11 @@ import {expect, test} from 'vitest'
 
 import {waitForAuthenticated} from './utils'
 
+import type {Page} from 'playwright'
 const BASE_URL = 'http://localhost:4400'
 
 declare global {
-  var __E2E_PAGE__: import('playwright').Page | undefined
+  var __E2E_PAGE__: Page | undefined
 }
 
 type BlockedStatus = 'unsupported' | 'locked_pro' | 'entitlement_unavailable'
@@ -39,7 +40,7 @@ type GuidanceE2EBridge = {
   }
 }
 
-async function openApp(page: import('playwright').Page, surface = 'files', layout?: 'desktop' | 'mobile') {
+async function openApp(page: Page, surface = 'files', layout?: 'desktop' | 'mobile') {
   const params = new URLSearchParams({surface})
   params.set('e2eGuidance', '1')
   if (layout) params.set('layout', layout)
@@ -47,7 +48,7 @@ async function openApp(page: import('playwright').Page, surface = 'files', layou
   await waitForAuthenticated(page)
 }
 
-async function waitForDeepSelector(page: import('playwright').Page, selector: string) {
+async function waitForDeepSelector(page: Page, selector: string) {
   await page.waitForFunction(
     (targetSelector) => {
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -69,7 +70,7 @@ async function waitForDeepSelector(page: import('playwright').Page, selector: st
   )
 }
 
-async function queryDeepText(page: import('playwright').Page, selector: string): Promise<string | null> {
+async function queryDeepText(page: Page, selector: string): Promise<string | null> {
   return page.evaluate((targetSelector) => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -87,7 +88,7 @@ async function queryDeepText(page: import('playwright').Page, selector: string):
   }, selector)
 }
 
-async function queryDeepCount(page: import('playwright').Page, selector: string): Promise<number> {
+async function queryDeepCount(page: Page, selector: string): Promise<number> {
   return page.evaluate((targetSelector) => {
     function deepCollect(root: Document | ShadowRoot, selector: string, acc: Element[] = []): Element[] {
       acc.push(...root.querySelectorAll(selector))
@@ -101,7 +102,7 @@ async function queryDeepCount(page: import('playwright').Page, selector: string)
   }, selector)
 }
 
-async function waitForDeepCount(page: import('playwright').Page, selector: string, expectedCount: number) {
+async function waitForDeepCount(page: Page, selector: string, expectedCount: number) {
   await page.waitForFunction(
     ({targetSelector, count}) => {
       function deepCollect(root: Document | ShadowRoot, selector: string, acc: Element[] = []): Element[] {
@@ -119,7 +120,7 @@ async function waitForDeepCount(page: import('playwright').Page, selector: strin
   )
 }
 
-async function clickDeep(page: import('playwright').Page, selector: string) {
+async function clickDeep(page: Page, selector: string) {
   await page.evaluate((targetSelector) => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -141,7 +142,7 @@ async function clickDeep(page: import('playwright').Page, selector: string) {
   }, selector)
 }
 
-async function waitForDeepText(page: import('playwright').Page, selector: string, expectedText: string) {
+async function waitForDeepText(page: Page, selector: string, expectedText: string) {
   await page.waitForFunction(
     ({targetSelector, text}) => {
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -163,7 +164,7 @@ async function waitForDeepText(page: import('playwright').Page, selector: string
   )
 }
 
-async function resetGuidanceState(page: import('playwright').Page) {
+async function resetGuidanceState(page: Page) {
   await page.evaluate(() => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
       .__chromvoidGuidanceE2E
@@ -185,7 +186,7 @@ async function resetGuidanceState(page: import('playwright').Page) {
 }
 
 async function registerGuidanceAnchor(
-  page: import('playwright').Page,
+  page: Page,
   input: {anchorId: string; surface: string; elementId: string; text: string},
 ) {
   await page.evaluate(({anchorId, surface, elementId, text}) => {
@@ -214,7 +215,7 @@ async function registerGuidanceAnchor(
   }, input)
 }
 
-async function configureMissingAnchorGuidance(page: import('playwright').Page) {
+async function configureMissingAnchorGuidance(page: Page) {
   await resetGuidanceState(page)
   await page.evaluate(() => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
@@ -240,7 +241,7 @@ async function configureMissingAnchorGuidance(page: import('playwright').Page) {
   })
 }
 
-async function configureIntrusiveGuidance(page: import('playwright').Page) {
+async function configureIntrusiveGuidance(page: Page) {
   await resetGuidanceState(page)
   await page.evaluate(() => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
@@ -272,7 +273,7 @@ async function configureIntrusiveGuidance(page: import('playwright').Page) {
   })
 }
 
-async function configureManualHelpGuidance(page: import('playwright').Page) {
+async function configureManualHelpGuidance(page: Page) {
   await resetGuidanceState(page)
   await page.evaluate(() => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
@@ -311,7 +312,7 @@ async function configureManualHelpGuidance(page: import('playwright').Page) {
   })
 }
 
-async function configureInlineGuidance(page: import('playwright').Page) {
+async function configureInlineGuidance(page: Page) {
   await resetGuidanceState(page)
   await page.evaluate(() => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
@@ -335,7 +336,7 @@ async function configureInlineGuidance(page: import('playwright').Page) {
   })
 }
 
-async function renderInlineGuidanceFixture(page: import('playwright').Page, anchorId: string, surface: string) {
+async function renderInlineGuidanceFixture(page: Page, anchorId: string, surface: string) {
   await page.evaluate(
     ({targetAnchorId, targetSurface}) => {
       const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
@@ -368,7 +369,7 @@ async function renderInlineGuidanceFixture(page: import('playwright').Page, anch
   )
 }
 
-async function configureExplicitBottomSheetGuidance(page: import('playwright').Page) {
+async function configureExplicitBottomSheetGuidance(page: Page) {
   await resetGuidanceState(page)
   await page.evaluate(() => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
@@ -393,7 +394,7 @@ async function configureExplicitBottomSheetGuidance(page: import('playwright').P
   })
 }
 
-async function configurePasswordImportManualHelp(page: import('playwright').Page) {
+async function configurePasswordImportManualHelp(page: Page) {
   await resetGuidanceState(page)
   await page.evaluate(() => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
@@ -438,7 +439,7 @@ async function configurePasswordImportManualHelp(page: import('playwright').Page
   })
 }
 
-async function openPasswordImportDialog(page: import('playwright').Page, layout: 'desktop' | 'mobile') {
+async function openPasswordImportDialog(page: Page, layout: 'desktop' | 'mobile') {
   await openApp(page, 'passwords', layout)
   await page.waitForFunction(
     () => Boolean((window as typeof window & {passmanager?: {showElement?: {set?: (value: unknown) => void}}}).passmanager?.showElement?.set),
@@ -458,7 +459,7 @@ async function openPasswordImportDialog(page: import('playwright').Page, layout:
   await waitForDeepSelector(page, 'pm-import-dialog')
 }
 
-async function openBlockedRemoteGuidance(page: import('playwright').Page, status: BlockedStatus) {
+async function openBlockedRemoteGuidance(page: Page, status: BlockedStatus) {
   await resetGuidanceState(page)
   await page.evaluate((nextStatus) => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})

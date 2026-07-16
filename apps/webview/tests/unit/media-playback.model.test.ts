@@ -444,6 +444,334 @@ describe('mediaPlaybackModel', () => {
     expect(runtimeModeModel.canUseNativeMediaStream({transportKind: 'tauri'})).toBe(false)
   })
 
+  it('loads remote USB audio through a media stream when blob fallback is too large', async () => {
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+      supports_media_stream_protocol: false,
+    })
+    runtimeModeModel.setCoreMode({remote: {host: {host_id: 'host-1', type: 'mobile_usb'}}})
+    const prepareMediaStream = vi.fn().mockResolvedValue({
+      kind: 'media-stream',
+      streamId: 'stream-15',
+      url: 'chromvoid-media://localhost/stream-15',
+      name: 'remote-track.mp3',
+      mimeType: 'audio/mpeg',
+      size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1,
+      sourceRevision: 1780561243303,
+      expiresAt: 123456,
+    })
+    const releaseMediaStream = vi.fn().mockResolvedValue(undefined)
+    const download = vi.fn().mockImplementation(async () => streamOf(new TextEncoder().encode('fallback')))
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaStream,
+          releaseMediaStream,
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    await mediaPlaybackModel.startAudioSession(
+      [
+        {
+          id: 15,
+          name: 'remote-track.mp3',
+          mimeType: 'audio/mpeg',
+          size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1,
+          sourceRevision: 1780561243303,
+        },
+      ],
+      0,
+    )
+
+    expect(mediaPlaybackModel.driverKind()).toBe('web-audio-element')
+    expect(mediaPlaybackModel.loadingState()).toBe('loaded')
+    expect(mediaPlaybackModel.sourceKind()).toBe('media-stream')
+    expect(mediaPlaybackModel.sourceStreamId()).toBe('stream-15')
+    expect(mediaPlaybackModel.sourceUrl()).toBe('chromvoid-media://localhost/stream-15')
+    expect(mediaPlaybackModel.playbackIssue()).toBeNull()
+    expect(prepareMediaStream).toHaveBeenCalledWith(15, {
+      fileName: 'remote-track.mp3',
+      mimeType: 'audio/mpeg',
+      lastModified: null,
+    })
+    expect(download).not.toHaveBeenCalled()
+
+    await mediaPlaybackModel.stopSession()
+    expect(releaseMediaStream).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays fallback-limited when remote stream transport and Android native playback are unavailable', async () => {
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+      supports_media_stream_protocol: false,
+    })
+    runtimeModeModel.setCoreMode({remote: {host: {host_id: 'host-1', type: 'mobile_usb'}}})
+    const download = vi.fn().mockImplementation(async () => streamOf(new TextEncoder().encode('fallback')))
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    await mediaPlaybackModel.startAudioSession(
+      [
+        {
+          id: 14,
+          name: 'remote-broken.mp3',
+          mimeType: 'audio/mpeg',
+          size: 9_990_144,
+          sourceRevision: 1_780_561_242_976,
+        },
+      ],
+      0,
+      {autoplay: true},
+    )
+
+    expect(mediaPlaybackModel.driverKind()).toBe('web-audio-element')
+    expect(mediaPlaybackModel.loadingState()).toBe('fallback-limited')
+    expect(mediaPlaybackModel.sourceKind()).toBe('none')
+    expect(mediaPlaybackModel.sourceUrl()).toBeNull()
+    expect(mediaPlaybackModel.playbackState()).toBe('paused')
+    expect(mediaPlaybackModel.playbackIntent()).toBe('pause')
+    expect(mediaPlaybackModel.playbackIssue()).toMatchObject({
+      kind: 'blob-fallback-limited',
+      trackId: 14,
+      sourceSize: 9_990_144,
+      fallbackLimitBytes: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES,
+    })
+    expect(download).not.toHaveBeenCalled()
+  })
+
+  it('plays oversized remote USB audio through Android Media3 when native playback is available', async () => {
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+      supports_media_stream_protocol: false,
+      android_native_audio_playback_rollout_enabled: true,
+    })
+    runtimeModeModel.setCoreMode({remote: {host: {host_id: 'host-1', type: 'mobile_usb'}}})
+    const sendAndroidAudioCommand = vi.fn().mockResolvedValue({
+      accepted: true,
+      tracks: [
+        {
+          trackId: 14,
+          mimeType: 'audio/mpeg',
+          size: 9_990_144,
+          sourceRevision: 1_780_561_242_976,
+        },
+      ],
+    })
+    const download = vi.fn().mockImplementation(async () => streamOf(new TextEncoder().encode('fallback')))
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          sendAndroidAudioCommand,
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    await mediaPlaybackModel.startAudioSession(
+      [
+        {
+          id: 14,
+          name: 'remote-fixed.mp3',
+          mimeType: 'audio/mpeg',
+          size: 9_990_144,
+          sourceRevision: 1_780_561_242_976,
+        },
+      ],
+      0,
+      {autoplay: true},
+    )
+
+    expect(mediaPlaybackModel.driverKind()).toBe('android-media3')
+    expect(mediaPlaybackModel.loadingState()).toBe('loading')
+    expect(mediaPlaybackModel.sourceKind()).toBe('android-media3')
+    expect(mediaPlaybackModel.sourceUrl()).toBeNull()
+    expect(mediaPlaybackModel.playbackState()).toBe('buffering')
+    expect(mediaPlaybackModel.playbackIntent()).toBe('play')
+    expect(mediaPlaybackModel.playbackIssue()).toBeNull()
+    expect(sendAndroidAudioCommand).toHaveBeenCalledWith({
+      command: 'startSession',
+      nativeSessionId: expect.any(String),
+      tracks: [
+        {
+          trackId: 14,
+          systemTitle: 'ChromVoid audio',
+          mimeType: 'audio/mpeg',
+          size: 9_990_144,
+          sourceRevision: 1_780_561_242_976,
+        },
+      ],
+      index: 0,
+      autoplay: true,
+    })
+    expect(download).not.toHaveBeenCalled()
+    expect(runtimeModeModel.canUseAndroidNativeAudio({transportKind: 'tauri'})).toBe(true)
+  })
+
+  it('keeps remote USB audio streaming available after stream failures', async () => {
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+      supports_media_stream_protocol: false,
+    })
+    runtimeModeModel.setCoreMode({remote: {host: {host_id: 'host-1', type: 'mobile_usb'}}})
+    const prepareMediaStream = vi
+      .fn()
+      .mockResolvedValueOnce({
+        kind: 'media-stream',
+        streamId: 'stream-15',
+        url: 'chromvoid-media://localhost/stream-15',
+        name: 'remote-track-15.mp3',
+        mimeType: 'audio/mpeg',
+        size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1,
+        sourceRevision: 1780561243303,
+        expiresAt: 123456,
+      })
+      .mockResolvedValueOnce({
+        kind: 'media-stream',
+        streamId: 'stream-16',
+        url: 'chromvoid-media://localhost/stream-16',
+        name: 'remote-track-16.mp3',
+        mimeType: 'audio/mpeg',
+        size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1,
+        sourceRevision: 1780561244303,
+        expiresAt: 123456,
+      })
+      .mockResolvedValueOnce({
+        kind: 'media-stream',
+        streamId: 'stream-17',
+        url: 'chromvoid-media://localhost/stream-17',
+        name: 'remote-track-17.mp3',
+        mimeType: 'audio/mpeg',
+        size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1,
+        sourceRevision: 1780561245303,
+        expiresAt: 123456,
+      })
+    const releaseMediaStream = vi.fn().mockResolvedValue(undefined)
+    const download = vi.fn().mockImplementation(async () => streamOf(new TextEncoder().encode('fallback')))
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaStream,
+          releaseMediaStream,
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    await mediaPlaybackModel.startAudioSession(
+      [
+        {
+          id: 15,
+          name: 'remote-track-15.mp3',
+          mimeType: 'audio/mpeg',
+          size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1,
+          sourceRevision: 1780561243303,
+        },
+      ],
+      0,
+    )
+
+    expect(mediaPlaybackModel.sourceKind()).toBe('media-stream')
+    expect(mediaPlaybackModel.sourceStreamId()).toBe('stream-15')
+
+    mediaPlaybackModel.handleNativeStreamLoadabilityFailure('stream-15')
+
+    await waitFor(() => mediaPlaybackModel.loadingState() === 'error')
+
+    expect(mediaPlaybackModel.sourceKind()).toBe('none')
+    expect(runtimeModeModel.canUseMediaStreamSource({transportKind: 'tauri'})).toBe(true)
+    expect(download).not.toHaveBeenCalled()
+
+    await mediaPlaybackModel.startAudioSession(
+      [
+        {
+          id: 16,
+          name: 'remote-track-16.mp3',
+          mimeType: 'audio/mpeg',
+          size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1,
+          sourceRevision: 1780561244303,
+        },
+      ],
+      0,
+    )
+
+    expect(mediaPlaybackModel.loadingState()).toBe('loaded')
+    expect(mediaPlaybackModel.sourceKind()).toBe('media-stream')
+    expect(mediaPlaybackModel.sourceStreamId()).toBe('stream-16')
+    expect(mediaPlaybackModel.sourceUrl()).toBe('chromvoid-media://localhost/stream-16')
+    expect(mediaPlaybackModel.playbackIssue()).toBeNull()
+
+    dispatchMediaStreamError({
+      streamId: 'stream-16',
+      code: 'ERR_MEDIA_RANGE_REQUIRED',
+      httpStatus: 416,
+      nodeId: 16,
+      sourceRevision: 1780561244303,
+    })
+
+    await waitFor(() => mediaPlaybackModel.loadingState() === 'error')
+
+    expect(mediaPlaybackModel.sourceKind()).toBe('none')
+    expect(runtimeModeModel.canUseMediaStreamSource({transportKind: 'tauri'})).toBe(true)
+    expect(download).not.toHaveBeenCalled()
+
+    await mediaPlaybackModel.startAudioSession(
+      [
+        {
+          id: 17,
+          name: 'remote-track-17.mp3',
+          mimeType: 'audio/mpeg',
+          size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1,
+          sourceRevision: 1780561245303,
+        },
+      ],
+      0,
+    )
+
+    expect(mediaPlaybackModel.loadingState()).toBe('loaded')
+    expect(mediaPlaybackModel.sourceKind()).toBe('media-stream')
+    expect(mediaPlaybackModel.sourceStreamId()).toBe('stream-17')
+    expect(mediaPlaybackModel.sourceUrl()).toBe('chromvoid-media://localhost/stream-17')
+    expect(mediaPlaybackModel.playbackIssue()).toBeNull()
+    expect(prepareMediaStream).toHaveBeenCalledTimes(3)
+    expect(releaseMediaStream).toHaveBeenCalledTimes(2)
+    expect(download).not.toHaveBeenCalled()
+  })
+
   it('selects Android Media3 playback when local Android native audio is available', async () => {
     enableAndroidNativeAudio()
     const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)

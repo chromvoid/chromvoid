@@ -24,6 +24,8 @@ export interface VirtualFileListItemHandlers {
   onTableRowClick: (e: Event) => void
   onTableRowDblClick: (e: Event) => void
   onTableRowContextMenu: (e: Event) => void
+  onTableSelectAll: (e: Event) => void
+  onTableInfoButtonClick: (e: Event) => void
   onMoreButtonClick: (e: Event) => void
   onTableCheckboxClick: (e: Event) => void
   onContainerBackgroundClick: (e: MouseEvent) => void
@@ -47,14 +49,7 @@ export interface VirtualFileListItemHandlersDeps {
 }
 
 export const createItemHandlers = (deps: VirtualFileListItemHandlersDeps): VirtualFileListItemHandlers => {
-  const {
-    pointerState,
-    selectionState,
-    context,
-    focusItemById,
-    getItems,
-    emitItemAction,
-  } = deps
+  const {pointerState, selectionState, context, focusItemById, getItems, emitItemAction} = deps
 
   const handleMobileContextMenuSelection = (item: FileListItem, event: Event) => {
     if (!context.isMobileLayout()) {
@@ -102,10 +97,7 @@ export const createItemHandlers = (deps: VirtualFileListItemHandlersDeps): Virtu
   }
 
   const isMobileSelectionActive = () => {
-    return (
-      context.isMobileLayout() &&
-      (context.isSelectionMode() || context.getSelectedItems().length > 0)
-    )
+    return context.isMobileLayout() && (context.isSelectionMode() || context.getSelectedItems().length > 0)
   }
 
   return {
@@ -183,12 +175,11 @@ export const createItemHandlers = (deps: VirtualFileListItemHandlersDeps): Virtu
       if (mouse.shiftKey || mouse.ctrlKey || mouse.metaKey) {
         handleItemSelect(context, selectionState, item, mouse)
       } else if (context.isSelectionMode() || isMobileSelectionActive()) {
-        handleItemSelect(
-          context,
-          selectionState,
-          item,
-          {ctrlKey: true, metaKey: false, shiftKey: false} as MouseEvent,
-        )
+        handleItemSelect(context, selectionState, item, {
+          ctrlKey: true,
+          metaKey: false,
+          shiftKey: false,
+        } as MouseEvent)
       } else if (isTouchActivationForItem(pointerState, item.id)) {
         emitItemAction('open', item, mouse)
         focusItemById(item.id)
@@ -217,6 +208,27 @@ export const createItemHandlers = (deps: VirtualFileListItemHandlersDeps): Virtu
       emitItemAction('context-menu', item, e)
       focusItemById(item.id)
     },
+    onTableSelectAll: (e: Event) => {
+      e.stopPropagation()
+      const ids = getItems().map((item) => item.id)
+      const selected = new Set(context.getSelectedItems())
+      const allSelected = ids.length > 0 && ids.every((id) => selected.has(id))
+
+      if (!allSelected && !context.isSelectionMode()) {
+        context.emitSelectionModeRequested(true)
+      }
+      context.emitSelectionChange(allSelected ? [] : ids)
+    },
+    onTableInfoButtonClick: (e: Event) => {
+      e.stopPropagation()
+      const target = e.currentTarget as HTMLElement
+      const id = Number(target.getAttribute('data-id'))
+      const item = getItems().find((candidate) => candidate.id === id)
+      if (item) {
+        emitItemAction('info', item)
+        focusItemById(item.id)
+      }
+    },
     onMoreButtonClick: (e: Event) => {
       e.stopPropagation()
       const target = e.currentTarget as HTMLElement
@@ -233,7 +245,14 @@ export const createItemHandlers = (deps: VirtualFileListItemHandlersDeps): Virtu
       const id = Number(target.getAttribute('data-id'))
       const item = getItems().find((i) => i.id === id)
       if (!item) return
-      handleItemSelect(context, selectionState, item, {ctrlKey: true, metaKey: false, shiftKey: false} as MouseEvent)
+      if (!context.isSelectionMode()) {
+        context.emitSelectionModeRequested(true)
+      }
+      handleItemSelect(context, selectionState, item, {
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: false,
+      } as MouseEvent)
       focusItemById(item.id)
     },
     onContainerBackgroundClick: (e: MouseEvent) => {

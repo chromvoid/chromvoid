@@ -2,11 +2,8 @@
  * This file is the single entrypoint for LightningCSS bundling.
  */
 
-/* ChromVoid design tokens (CV source of truth + app primitives). */
-@import './tokens/chromvoid.css';
-
-/* Editorial design tokens (shared variables + keyframes). */
-@import './tokens/editorial.css';
+/* UIKit foundation + ChromVoid product theme. */
+@import '@project/theme/webview.css';
 
 /* Fonts + font-related custom properties. */
 @import './base/fonts.css';
@@ -17,5 +14,5 @@
 /* Inline loading screen (moved from index.html for CSP). */
 @import './base/loading.css';
 
-/* App-specific custom properties (spacing, easing, radii, z-index, etc.). */
-@import './tokens/app.css';
+/* Webview runtime environment properties. */
+@import './tokens/runtime.css';

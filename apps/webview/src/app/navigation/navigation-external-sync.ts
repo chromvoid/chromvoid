@@ -14,12 +14,18 @@ import {
   snapshotsEqual,
   shouldReplaceTransientPasswordsHistoryEntry,
 } from './navigation-snapshot'
-import type {HistoryMode, NavigationSnapshot, OverlayRoute, PassmanagerRoute} from './navigation.types'
+import type {
+  HistoryMode,
+  NavigationApplyResult,
+  NavigationSnapshot,
+  OverlayRoute,
+  PassmanagerRoute,
+} from './navigation.types'
 
 type NavigationExternalSyncOptions = {
   logger: Logger
   getSnapshot: () => NavigationSnapshot
-  applySnapshot: (snapshot: NavigationSnapshot, historyMode: HistoryMode) => void
+  applySnapshot: (snapshot: NavigationSnapshot, historyMode: HistoryMode) => NavigationApplyResult
   withSuppressedExternalSync: <T>(fn: () => T) => T
   isExternalSyncSuppressed: () => boolean
   incrementCatalogRevision: () => void

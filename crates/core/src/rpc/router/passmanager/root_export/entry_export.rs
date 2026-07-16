@@ -20,6 +20,7 @@ pub(super) fn collect_exported_entries(session: &VaultSession, storage: &Storage
 fn export_entry(session: &VaultSession, storage: &Storage, node_id: u64) -> Option<Value> {
     let mut meta = entry::read_entry_meta_json(session, storage, node_id)?;
     let meta_obj = meta.as_object_mut()?;
+    super::super::ssh::remove_legacy_metadata(meta_obj);
     let path = session
         .catalog()
         .get_path(node_id)

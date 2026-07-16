@@ -219,6 +219,13 @@ export class Group implements TGroupActions {
   async remove(silent = false) {
     // Collect subgroups whose path starts with this.name + '/'
     const rootEntries = Group.root.entriesList()
+    const parentSeparator = this.name.lastIndexOf('/')
+    const parentPath = parentSeparator >= 0 ? this.name.slice(0, parentSeparator) : ''
+    const parent = parentPath
+      ? rootEntries.find(
+          (item): item is Group => item instanceof Group && item.name === parentPath,
+        ) ?? Group.root
+      : Group.root
     const subgroups = rootEntries.filter(
       (item) => item instanceof Group && item.name.startsWith(this.name + '/'),
     ) as Group[]
@@ -246,7 +253,7 @@ export class Group implements TGroupActions {
 
     // save() → saveRoot() → removeObsoleteEntries() deletes orphaned directories
     await wrap(Group.root.save())
-    Group.root.showElement.set(Group.root)
+    Group.root.showElement.set(parent)
 
     try {
       notify.success(i18n('notify:remove:success'))

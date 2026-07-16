@@ -8,13 +8,17 @@ pub mod protocol;
 pub mod server;
 pub mod signing;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod socket_tests;
+#[cfg(all(test, unix))]
+mod test_support;
+#[cfg(all(test, unix))]
+mod verification_tests;
 
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use tokio::sync::{watch, Mutex};
@@ -22,13 +26,36 @@ use tokio::time::{timeout, Duration};
 use tracing::{info, warn};
 
 use audit::{SshAgentAuditEvent, SshAgentAuditLog};
-use server::{load_identities, AgentShared, ApprovalEmitterHandle, ReadPrivateKeyFuture};
+use server::{
+    load_identities, AgentShared, ApprovalEmitterHandle, ReadPrivateKeyFuture, SocketFileIdentity,
+};
 
 const GRACEFUL_STOP_TIMEOUT: Duration = Duration::from_secs(1);
 const CLEANUP_TASK_DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
 const AUDIT_WRITER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
 type CleanupFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SshAgentEntry {
+    pub(crate) key_id: String,
+    pub(crate) public_key_openssh: String,
+    pub(crate) comment: String,
+}
+
+impl SshAgentEntry {
+    pub(crate) fn new(
+        key_id: impl Into<String>,
+        public_key_openssh: impl Into<String>,
+        comment: impl Into<String>,
+    ) -> Self {
+        Self {
+            key_id: key_id.into(),
+            public_key_openssh: public_key_openssh.into(),
+            comment: comment.into(),
+        }
+    }
+}
 
 struct DeferredCleanup {
     label: &'static str,
@@ -77,13 +104,22 @@ impl StopReason {
 pub struct SshAgentUpdater {
     shared: Arc<Mutex<AgentShared>>,
     identities_count: Arc<AtomicUsize>,
+    active: Arc<AtomicBool>,
 }
 
 impl SshAgentUpdater {
-    pub async fn update_identities(&self, entries: &[(String, String, String, String)]) {
+    pub async fn update_identities(&self, entries: &[SshAgentEntry]) {
+        if !self.active.load(Ordering::Acquire) {
+            return;
+        }
+
         let new_identities = load_identities(entries);
         let next_count = new_identities.len();
         let mut guard = self.shared.lock().await;
+        if !self.active.load(Ordering::Acquire) {
+            return;
+        }
+
         guard.identities = new_identities;
         self.identities_count.store(next_count, Ordering::Relaxed);
     }
@@ -93,14 +129,17 @@ struct StopExecution {
     reason: StopReason,
     task_handle: Option<tokio::task::JoinHandle<()>>,
     socket_path: Option<PathBuf>,
+    socket_identity: Option<SocketFileIdentity>,
     shutdown_tx: Option<watch::Sender<bool>>,
     shared: Option<Arc<Mutex<AgentShared>>>,
     identities_count: Arc<AtomicUsize>,
+    active: Option<Arc<AtomicBool>>,
     audit_log: Option<Arc<SshAgentAuditLog>>,
 }
 
 impl StopExecution {
     fn finish_immediate(mut self) -> Option<DeferredCleanup> {
+        self.mark_inactive();
         let cleanup = self.take_immediate_cleanup();
         self.abort_listener_and_remove_socket();
         self.identities_count.store(0, Ordering::Relaxed);
@@ -109,9 +148,16 @@ impl StopExecution {
     }
 
     fn finish_immediate_without_cleanup(mut self) {
+        self.mark_inactive();
         self.abort_listener_and_remove_socket();
         self.identities_count.store(0, Ordering::Relaxed);
         info!("ssh-agent: stopped ({})", self.reason.label());
+    }
+
+    fn mark_inactive(&mut self) {
+        if let Some(active) = &self.active {
+            active.store(false, Ordering::Release);
+        }
     }
 
     fn take_immediate_cleanup(&mut self) -> Option<DeferredCleanup> {
@@ -131,7 +177,16 @@ impl StopExecution {
                 let rejected = match shared {
                     Some(shared) => {
                         let mut guard = shared.lock().await;
-                        guard.reject_all_pending()
+                        let approval_emitter = guard.approval_emitter.clone();
+                        let rejected = guard.reject_all_pending();
+                        for pending in &rejected {
+                            server::emit_sign_request_expired(
+                                &approval_emitter,
+                                pending,
+                                reason.label(),
+                            );
+                        }
+                        rejected
                     }
                     None => Vec::new(),
                 };
@@ -184,17 +239,27 @@ impl StopExecution {
         }
 
         if let Some(path) = self.socket_path.take() {
-            let _ = std::fs::remove_file(path);
+            server::remove_socket_if_matches(&path, self.socket_identity);
         }
     }
 
     async fn finish_graceful(mut self) {
+        self.mark_inactive();
         let identities_count = self.identities_count.load(Ordering::Relaxed);
         let socket_path_for_audit = self.socket_path.clone();
         if let Some(shared) = self.shared.take() {
             let rejected = {
                 let mut guard = shared.lock().await;
-                guard.reject_all_pending()
+                let approval_emitter = guard.approval_emitter.clone();
+                let rejected = guard.reject_all_pending();
+                for pending in &rejected {
+                    server::emit_sign_request_expired(
+                        &approval_emitter,
+                        pending,
+                        self.reason.label(),
+                    );
+                }
+                rejected
             };
 
             if !rejected.is_empty() {
@@ -252,7 +317,7 @@ impl StopExecution {
         }
 
         if let Some(path) = self.socket_path.take() {
-            let _ = std::fs::remove_file(path);
+            server::remove_socket_if_matches(&path, self.socket_identity);
         }
 
         self.identities_count.store(0, Ordering::Relaxed);
@@ -274,9 +339,11 @@ impl StopExecution {
 pub struct SshAgentState {
     task_handle: Option<tokio::task::JoinHandle<()>>,
     socket_path: Option<PathBuf>,
+    socket_identity: Option<SocketFileIdentity>,
     shutdown_tx: Option<watch::Sender<bool>>,
     shared: Option<Arc<Mutex<AgentShared>>>,
     identities_count: Arc<AtomicUsize>,
+    active: Option<Arc<AtomicBool>>,
     audit_log: Option<Arc<SshAgentAuditLog>>,
     cleanup_tasks: Vec<tokio::task::JoinHandle<()>>,
 }
@@ -286,9 +353,11 @@ impl SshAgentState {
         Self {
             task_handle: None,
             socket_path: None,
+            socket_identity: None,
             shutdown_tx: None,
             shared: None,
             identities_count: Arc::new(AtomicUsize::new(0)),
+            active: None,
             audit_log: None,
             cleanup_tasks: Vec::new(),
         }
@@ -318,25 +387,28 @@ impl SshAgentState {
 
     /// Start the SSH agent.
     ///
-    /// `entries`: list of (entry_id, public_key_openssh, comment) for all SSH keys.
-    /// `read_private_key`: async callback to read a private key PEM from the vault by entry_id.
+    /// `entries`: all SSH public keys exposed by the agent.
+    /// `read_private_key`: async callback to read a private key PEM from the vault by key id.
     pub fn start(
         &mut self,
-        entries: Vec<(String, String, String, String)>,
+        entries: Vec<SshAgentEntry>,
         upstream_socket_path: Option<PathBuf>,
         approval_emitter: ApprovalEmitterHandle,
         audit_log: Option<Arc<SshAgentAuditLog>>,
         read_private_key: impl Fn(&str) -> ReadPrivateKeyFuture + Send + Sync + 'static,
-    ) {
+    ) -> Result<(), String> {
         if let Some(stop) = self.take_stop_execution(StopReason::Restart) {
             warn!("ssh-agent: already running, stopping first");
             self.finish_immediate_tracked(stop);
         }
         self.prune_finished_cleanup_tasks();
 
-        let socket_path = default_socket_path();
+        let socket_path = default_socket_path()?;
         let identities = load_identities(&entries);
         let identities_count = identities.len();
+        let bound_listener = server::bind_agent_listener(&socket_path)?;
+        let socket_identity = bound_listener.socket_identity();
+        let active = Arc::new(AtomicBool::new(true));
 
         let shared = Arc::new(Mutex::new(AgentShared {
             identities,
@@ -353,14 +425,16 @@ impl SshAgentState {
         let path = socket_path.clone();
         let shared_clone = shared.clone();
         let handle = tokio::spawn(async move {
-            server::run_agent(path, shared_clone, shutdown_rx).await;
+            server::run_agent(bound_listener, path, shared_clone, shutdown_rx).await;
         });
 
         self.task_handle = Some(handle);
         self.socket_path = Some(socket_path.clone());
+        self.socket_identity = socket_identity;
         self.shutdown_tx = Some(shutdown_tx);
         self.shared = Some(shared);
         self.audit_log = audit_log.clone();
+        self.active = Some(active);
         self.identities_count
             .store(identities_count, Ordering::Relaxed);
 
@@ -380,6 +454,7 @@ impl SshAgentState {
             "ssh-agent: started with {identities_count} identities on {}",
             socket_path.display()
         );
+        Ok(())
     }
 
     pub fn shared(&self) -> Option<Arc<Mutex<AgentShared>>> {
@@ -387,10 +462,16 @@ impl SshAgentState {
     }
 
     pub fn updater(&self) -> Option<SshAgentUpdater> {
-        self.shared.as_ref().map(|shared| SshAgentUpdater {
-            shared: shared.clone(),
-            identities_count: self.identities_count.clone(),
-        })
+        match (&self.shared, &self.active) {
+            (Some(shared), Some(active)) if active.load(Ordering::Acquire) => {
+                Some(SshAgentUpdater {
+                    shared: shared.clone(),
+                    identities_count: self.identities_count.clone(),
+                    active: active.clone(),
+                })
+            }
+            _ => None,
+        }
     }
 
     pub fn audit_log(&self) -> Option<Arc<SshAgentAuditLog>> {
@@ -417,6 +498,7 @@ impl SshAgentState {
     fn take_stop_execution(&mut self, reason: StopReason) -> Option<StopExecution> {
         let has_state = self.task_handle.is_some()
             || self.socket_path.is_some()
+            || self.socket_identity.is_some()
             || self.shutdown_tx.is_some()
             || self.shared.is_some();
 
@@ -428,9 +510,11 @@ impl SshAgentState {
             reason,
             task_handle: self.task_handle.take(),
             socket_path: self.socket_path.take(),
+            socket_identity: self.socket_identity.take(),
             shutdown_tx: self.shutdown_tx.take(),
             shared: self.shared.take(),
             identities_count: self.identities_count.clone(),
+            active: self.active.take(),
             audit_log: self.audit_log.take(),
         })
     }
@@ -567,8 +651,8 @@ async fn drain_cleanup_tasks(
 }
 
 /// Get the default socket path for the current platform.
-fn default_socket_path() -> PathBuf {
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+fn default_socket_path() -> Result<PathBuf, String> {
+    #[cfg(unix)]
     {
         let config_dir = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
@@ -577,36 +661,45 @@ fn default_socket_path() -> PathBuf {
                     .map(PathBuf::from)
                     .map(|home| home.join(".config"))
             })
-            .unwrap_or_else(|| PathBuf::from("/tmp"));
+            .ok_or_else(|| {
+                "cannot resolve SSH agent socket path: XDG_CONFIG_HOME and HOME are unset"
+                    .to_string()
+            })?;
 
-        return config_dir.join("chromvoid").join("agent.sock");
+        return Ok(config_dir.join("chromvoid").join("agent.sock"));
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(not(unix))]
     {
-        PathBuf::from(r"\\.\pipe\chromvoid-ssh-agent")
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    {
-        PathBuf::from("/tmp/chromvoid-agent.sock")
+        Err("SSH agent listener is only supported on Unix platforms in this build".to_string())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{default_socket_path, StopReason};
+    #[cfg(unix)]
+    use super::default_socket_path;
+    use super::StopReason;
+    #[cfg(unix)]
+    use std::sync::{Mutex, OnceLock};
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(unix)]
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[cfg(unix)]
     #[test]
     fn default_socket_path_prefers_xdg_config_home() {
+        let _env_lock = env_lock().lock().expect("env lock");
         let original = std::env::var_os("XDG_CONFIG_HOME");
         // SAFETY: test-only fixture, single-threaded #[test] runner; original value restored at the end of this test.
         unsafe {
             std::env::set_var("XDG_CONFIG_HOME", "/tmp/chromvoid-test-config");
         }
 
-        let resolved = default_socket_path();
+        let resolved = default_socket_path().expect("socket path");
         assert_eq!(
             resolved,
             std::path::PathBuf::from("/tmp/chromvoid-test-config")

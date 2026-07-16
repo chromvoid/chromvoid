@@ -92,7 +92,7 @@ export class ToastContainer extends ReatomLitElement {
         cv-toast-region[position='bottom-center'],
         cv-toast-region[position='bottom-end'] {
           bottom: calc(
-            56px + var(--safe-area-bottom-active, var(--safe-area-bottom, 0px)) +
+            56px + var(--app-runtime-safe-area-block-end-active, var(--app-runtime-safe-area-block-end, 0px)) +
               var(--cv-toast-region-inset, 8px)
           );
         }

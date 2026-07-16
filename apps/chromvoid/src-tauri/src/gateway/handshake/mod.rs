@@ -17,7 +17,8 @@ use tracing::{info, warn};
 /// Outcome of a successful WebSocket + Noise handshake.
 pub(super) struct HandshakeResult {
     pub transport: snow::TransportState,
-    pub ext_id: String,
+    pub actor_id: String,
+    pub route: GatewayWsRoute,
     pub write: futures_util::stream::SplitSink<
         tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
         Message,
@@ -81,6 +82,7 @@ pub(super) async fn perform_handshake(
     let route = match path.as_str() {
         "/pair" => GatewayWsRoute::Pair,
         "/extension" | "/ws" => GatewayWsRoute::Extension,
+        "/agent" => GatewayWsRoute::Agent,
         _ => {
             warn!("[gateway] unexpected websocket path after accept: {path}");
             return None;
@@ -90,7 +92,10 @@ pub(super) async fn perform_handshake(
     match route {
         GatewayWsRoute::Pair => pair::perform_pair_handshake(ws_stream, app_handle).await,
         GatewayWsRoute::Extension => {
-            extension::perform_extension_handshake(ws_stream, app_handle).await
+            extension::perform_actor_handshake(ws_stream, app_handle, route).await
+        }
+        GatewayWsRoute::Agent => {
+            extension::perform_actor_handshake(ws_stream, app_handle, route).await
         }
     }
 }

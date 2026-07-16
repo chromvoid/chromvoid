@@ -37,10 +37,16 @@ describe('file format registry', () => {
     const format = resolveFileFormat({name: 'download.bin', mimeType: 'text/markdown; charset=utf-8'})
 
     expect(format.openBehavior).toEqual({kind: 'document', mode: 'markdown'})
-    expect(format.filterGroups).toEqual(['documents'])
+    expect(format.filterGroups).toEqual(['markdown', 'documents'])
     expect(isMarkdownFile('download.bin', 'text/markdown')).toBe(true)
     expect(isTextPreviewFile('download.bin', 'text/markdown')).toBe(false)
     expect(getOpenActionPresentation(format)).toEqual({icon: 'eye', labelKey: 'button:preview'})
+  })
+
+  it('keeps Markdown files filterable as both Notes and documents', () => {
+    expect(resolveFileFormat({name: 'readme.md'}).filterGroups).toEqual(['markdown', 'documents'])
+    expect(resolveFileFormat({name: 'readme.markdown'}).filterGroups).toEqual(['markdown', 'documents'])
+    expect(resolveFileFormat({name: 'readme.txt'}).filterGroups).toEqual(['documents'])
   })
 
   it('keeps generic text MIME and text extensions in read-only text preview mode', () => {

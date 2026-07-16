@@ -4,8 +4,8 @@ export const entrySkeletonStyles = css`
   .note-skeleton {
     display: flex;
     flex-direction: column;
-    gap: var(--pm-entry-note-skeleton-gap, 8px);
-    padding: var(--pm-entry-note-skeleton-padding, 4px 0);
+    gap: var(--cv-space-2);
+    padding: var(--cv-space-1) 0;
   }
 
   .skeleton-line {
@@ -16,6 +16,6 @@ export const entrySkeletonStyles = css`
   }
 
   .skeleton-line.short {
-    inline-size: var(--pm-entry-note-skeleton-short-width, 40%);
+    inline-size: 40%;
   }
 `

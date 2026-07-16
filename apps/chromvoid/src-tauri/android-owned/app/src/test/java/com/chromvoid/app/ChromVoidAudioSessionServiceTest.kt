@@ -130,19 +130,17 @@ class ChromVoidAudioSessionServiceTest {
         val events = mutableListOf<JSONObject>()
         AudioPlaybackNativeShell.setAudioPlayerEventEmitterForTests { events.add(JSONObject(it)) }
 
-        withService { service ->
-            service.onStartCommand(commandIntent(startSessionJson()), 0, 1)
-            events.clear()
+        val controller = Robolectric.buildService(ChromVoidAudioSessionService::class.java).create()
+        controller.get().onStartCommand(commandIntent(startSessionJson()), 0, 1)
+        events.clear()
 
-            service.onDestroy()
-            service.onDestroy()
+        controller.destroy()
 
-            val released = events.filter { it.optString("event") == "released" }
-            assertEquals(1, released.size)
-            assertEquals("service_destroyed", released.single().getString("reason"))
-            assertEquals(41L, released.single().getLong("trackId"))
-            assertEquals(77L, released.single().getLong("sourceRevision"))
-        }
+        val released = events.filter { it.optString("event") == "released" }
+        assertEquals(1, released.size)
+        assertEquals("service_destroyed", released.single().getString("reason"))
+        assertEquals(41L, released.single().getLong("trackId"))
+        assertEquals(77L, released.single().getLong("sourceRevision"))
     }
 
     @Test

@@ -10,9 +10,17 @@ export interface VirtualFileListKeyboardHandlers {
 export interface VirtualFileListKeyboardHandlersDeps {
   getItems: () => FileListItem[]
   getSelectedItems: () => number[]
+  isSelectionMode: () => boolean
+  emitSelectionModeRequested: (enabled: boolean) => void
   emitSelectionChange: (selectedItems: number[]) => void
   emitNavigate: (path: string) => void
-  emitItemAction: (action: string, item?: FileListItem, event?: Event, source?: FileListItem, target?: FileListItem) => void
+  emitItemAction: (
+    action: string,
+    item?: FileListItem,
+    event?: Event,
+    source?: FileListItem,
+    target?: FileListItem,
+  ) => void
   getActiveItemId: () => number | null
   getSelectionAnchorId: () => number | null
   getKeyboardAnchorId: () => number | null
@@ -61,10 +69,27 @@ export const getKeyboardCurrentIndex = (
   return 0
 }
 
-export const createKeyboardHandlers = (deps: VirtualFileListKeyboardHandlersDeps): VirtualFileListKeyboardHandlers => {
+export const createKeyboardHandlers = (
+  deps: VirtualFileListKeyboardHandlersDeps,
+): VirtualFileListKeyboardHandlers => {
   const isNavKey = (value: string): value is NavKey => {
     return (NAV_KEYS as readonly string[]).includes(value)
   }
+
+  const isInteractiveOrigin = (event: KeyboardEvent): boolean =>
+    event.composedPath().some((target) => {
+      if (!(target instanceof HTMLElement)) return false
+      if (target.matches('button, input, select, textarea, a[href], cv-button, cv-checkbox')) return true
+      return target.isContentEditable || target.getAttribute('role') === 'button'
+    })
+
+  const isTextEditingOrigin = (event: KeyboardEvent): boolean =>
+    event.composedPath().some((target) => {
+      if (!(target instanceof HTMLElement)) return false
+      if (target.matches('textarea, [contenteditable="true"]')) return true
+      if (!(target instanceof HTMLInputElement)) return false
+      return !['button', 'checkbox', 'radio', 'reset', 'submit'].includes(target.type)
+    })
 
   const getCurrentIndex = (filtered: FileListItem[]) =>
     getKeyboardCurrentIndex(filtered, {
@@ -79,11 +104,19 @@ export const createKeyboardHandlers = (deps: VirtualFileListKeyboardHandlersDeps
       const navKey = isNavKey(key) ? key : null
 
       if (keyboardShortcutsModel.matches('files.selectAll', e)) {
+        if (isTextEditingOrigin(e)) return
         e.preventDefault()
         const ids = deps.getItems().map((item) => item.id)
-        deps.emitSelectionChange(ids)
+        const selected = new Set(deps.getSelectedItems())
+        const allSelected = ids.length > 0 && ids.every((id) => selected.has(id))
+        if (!allSelected && !deps.isSelectionMode()) {
+          deps.emitSelectionModeRequested(true)
+        }
+        deps.emitSelectionChange(allSelected ? [] : ids)
         return
       }
+
+      if (isInteractiveOrigin(e)) return
 
       if (key === 'ContextMenu' || (key === 'F10' && e.shiftKey)) {
         const filtered = deps.getItems()
@@ -189,15 +222,18 @@ export const createKeyboardHandlers = (deps: VirtualFileListKeyboardHandlersDeps
         if (e.shiftKey) {
           const selectionAnchorId = deps.getSelectionAnchorId()
           const anchorIndex =
-            selectionAnchorId != null ? filtered.findIndex((candidate) => candidate.id === selectionAnchorId) : -1
+            selectionAnchorId != null
+              ? filtered.findIndex((candidate) => candidate.id === selectionAnchorId)
+              : -1
           const anchor = anchorIndex >= 0 ? anchorIndex : currentIndex
           const start = Math.min(anchor, currentIndex)
           const end = Math.max(anchor, currentIndex)
-          updatedSelection = []
+          const range: number[] = []
           for (let i = start; i <= end; i++) {
             const candidate = filtered[i]
-            if (candidate) updatedSelection.push(candidate.id)
+            if (candidate) range.push(candidate.id)
           }
+          updatedSelection = Array.from(new Set([...updatedSelection, ...range]))
           if (selectionAnchorId == null || anchorIndex < 0) {
             deps.setSelectionAnchorId(filtered[anchor]?.id ?? currentId)
           }
@@ -211,6 +247,9 @@ export const createKeyboardHandlers = (deps: VirtualFileListKeyboardHandlersDeps
           deps.setSelectionAnchorId(currentId)
         }
         deps.setKeyboardAnchorId(currentId)
+        if (!deps.isSelectionMode()) {
+          deps.emitSelectionModeRequested(true)
+        }
         deps.emitSelectionChange(updatedSelection)
         e.preventDefault()
         return

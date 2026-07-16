@@ -73,6 +73,7 @@ describe('MockTransport', () => {
               folders: ['Work'],
               foldersMeta: [],
               tags: ['Zero Use'],
+              tagMeta: {'zero-use': {colorId: 'cyan'}},
               entries: [{nodeId: 9, meta: {id: 'entry-1', title: 'Entry 1', folderPath: 'Work'}}],
               secrets: [],
               otpSecrets: [],
@@ -91,6 +92,7 @@ describe('MockTransport', () => {
       expect(exported.ok).toBe(true)
       expect(exported.result.root.folders).toEqual(['Work'])
       expect(exported.result.root.tags).toEqual(['Zero Use'])
+      expect(exported.result.root.tagMeta).toEqual({'zero-use': {colorId: 'cyan'}})
       expect(exported.result.root.entries).toEqual([
         expect.objectContaining({
           id: 'entry-1',
@@ -130,17 +132,27 @@ describe('MockTransport', () => {
     it('round-trips zero-use tags through setCatalog and root export', async () => {
       await t.sendPassmanager('passmanager:tags:setCatalog', {
         tags: ['Zero Use', ' #Work ', 'work'],
+        tag_meta: {
+          'zero-use': {colorId: 'pink'},
+          work: {color_id: 'green'},
+          stale: {colorId: 'cyan'},
+        },
       })
 
       const exported = (await t.sendPassmanager('passmanager:root:export', {})) as any
 
       expect(exported.ok).toBe(true)
       expect(exported.result.root.tags).toEqual(['Zero Use', 'Work'])
+      expect(exported.result.root.tagMeta).toEqual({
+        'zero-use': {colorId: 'pink'},
+        work: {colorId: 'green'},
+      })
     })
 
     it('preserves zero-use tags through root import/export', async () => {
       await t.sendPassmanager('passmanager:root:import', {
         tags: ['Zero Use', 'Client A'],
+        tagMeta: {'zero-use': {colorId: 'amber'}, 'client-a': {colorId: 'blue'}},
         entries: [{id: 'entry-1', title: 'Entry 1', tags: ['Client A']}],
       })
 
@@ -148,6 +160,10 @@ describe('MockTransport', () => {
 
       expect(exported.ok).toBe(true)
       expect(exported.result.root.tags).toEqual(['Client A', 'Zero Use'])
+      expect(exported.result.root.tagMeta).toEqual({
+        'client-a': {colorId: 'blue'},
+        'zero-use': {colorId: 'amber'},
+      })
     })
 
     it('persists passmanager mutations to dedicated mock endpoint', async () => {
@@ -178,6 +194,43 @@ describe('MockTransport', () => {
       expect(calls.some((call) => call.url === '/api/mock-passmanager-state' && call.method === 'POST')).toBe(
         true,
       )
+    })
+
+    it('round-trips a credential security audit without changing the visible revision', async () => {
+      const getRevision = () =>
+        (t as unknown as {passmanagerRevision: number}).passmanagerRevision
+      const beforeRevision = getRevision()
+      const artifact = {
+        version: 1,
+        algorithmVersion: 1,
+        revision: 'loaded:entry',
+        generatedAt: Date.now(),
+        entries: {},
+        failedEntryIds: [],
+      }
+
+      const set = (await t.sendPassmanager('passmanager:securityAudit:set', {artifact})) as any
+      const get = (await t.sendPassmanager('passmanager:securityAudit:get', {})) as any
+
+      expect(set.ok).toBe(true)
+      expect(get).toEqual({ok: true, result: {artifact}})
+      expect(getRevision()).toBe(beforeRevision)
+    })
+
+    it('rejects secret-bearing credential security audit payloads', async () => {
+      const result = (await t.sendPassmanager('passmanager:securityAudit:set', {
+        artifact: {
+          version: 1,
+          algorithmVersion: 1,
+          revision: 'loaded:entry',
+          generatedAt: Date.now(),
+          entries: {},
+          failedEntryIds: [],
+          password: 'must-not-store',
+        },
+      })) as any
+
+      expect(result.ok).toBe(false)
     })
   })
 
@@ -244,8 +297,8 @@ describe('MockTransport', () => {
     })
 
     it('move relocates node', async () => {
-      const dir1 = (await t.sendCatalog('catalog:createDir', {parentPath: '/', name: 'src'})) as any
-      const dir2 = (await t.sendCatalog('catalog:createDir', {parentPath: '/', name: 'dst'})) as any
+      await t.sendCatalog('catalog:createDir', {parentPath: '/', name: 'src'})
+      await t.sendCatalog('catalog:createDir', {parentPath: '/', name: 'dst'})
       const child = (await t.sendCatalog('catalog:createDir', {
         parentPath: '/src',
         name: 'child',
@@ -263,6 +316,100 @@ describe('MockTransport', () => {
       const dstList = (await t.sendCatalog('catalog:list', {path: '/dst'})) as any
       expect(dstList.result.items).toHaveLength(1)
       expect(dstList.result.items[0].name).toBe('child')
+    })
+
+    it('counts folder page quick filters recursively while keeping direct items', async () => {
+      await t.sendCatalog('catalog:createDir', {parentPath: '/', name: 'docs'})
+      await t.sendCatalog('catalog:createDir', {parentPath: '/docs', name: 'nested'})
+      await t.uploadFile(
+        {parentPath: '/docs/nested', name: 'daily.md'},
+        new File(['# Daily'], 'daily.md', {type: 'text/markdown'}),
+      )
+      await t.uploadFile(
+        {parentPath: '/docs', name: 'photo.jpg'},
+        new File([new Uint8Array([1, 2, 3])], 'photo.jpg', {type: 'image/jpeg'}),
+      )
+
+      const page = (await t.sendCatalog('catalog:folder:list', {
+        path: '/docs',
+        offset: 0,
+        limit: 20,
+        filter: {include_hidden: false, file_types: []},
+      })) as any
+
+      expect(page.ok).toBe(true)
+      expect(page.result.items.map((item: any) => item.name)).toEqual(['nested', 'photo.jpg'])
+      expect(page.result.filter_counts).toEqual({all: 2, markdown: 1, images: 1})
+    })
+
+    it('completes visible catalog file links with current folder ranking and limit', async () => {
+      await t.sendCatalog('catalog:createDir', {parentPath: '/', name: 'docs'})
+      await t.sendCatalog('catalog:createDir', {parentPath: '/', name: 'archive'})
+      await t.sendCatalog('catalog:createDir', {parentPath: '/', name: '.private'})
+      await t.uploadFile(
+        {parentPath: '/docs', name: 'report.md'},
+        new File(['# Report'], 'report.md', {type: 'text/markdown'}),
+      )
+      await t.uploadFile(
+        {parentPath: '/archive', name: 'report.md'},
+        new File(['# Old Report'], 'report.md', {type: 'text/markdown'}),
+      )
+      await t.uploadFile(
+        {parentPath: '/docs', name: 'photo.jpg'},
+        new File([new Uint8Array([1, 2, 3])], 'photo.jpg', {type: 'image/jpeg'}),
+      )
+      await t.uploadFile(
+        {parentPath: '/.private', name: 'report.md'},
+        new File(['hidden'], 'report.md', {type: 'text/markdown'}),
+      )
+
+      const ranked = (await t.sendCatalog('catalog:file-links:complete', {
+        query: 'report',
+        limit: 1,
+        current_path: '/docs',
+      })) as any
+      expect(ranked.ok).toBe(true)
+      expect(ranked.result.items.map((item: any) => item.path)).toEqual(['/docs/report.md'])
+
+      const all = (await t.sendCatalog('catalog:file-links:complete', {
+        query: '',
+        limit: 20,
+      })) as any
+      expect(all.ok).toBe(true)
+      expect(all.result.items.map((item: any) => item.path)).toEqual(
+        expect.arrayContaining(['/docs/report.md', '/archive/report.md', '/docs/photo.jpg']),
+      )
+      expect(all.result.items.map((item: any) => item.path)).not.toContain('/docs')
+      expect(all.result.items.map((item: any) => item.path)).not.toContain('/.private/report.md')
+    })
+
+    it('resolves catalog file links and fails closed for hidden, directory, and invalid targets', async () => {
+      await t.sendCatalog('catalog:createDir', {parentPath: '/', name: 'docs'})
+      await t.sendCatalog('catalog:createDir', {parentPath: '/', name: '.private'})
+      await t.uploadFile(
+        {parentPath: '/docs', name: 'guide.md'},
+        new File(['# Guide'], 'guide.md', {type: 'text/markdown'}),
+      )
+      await t.uploadFile(
+        {parentPath: '/.private', name: 'secret.md'},
+        new File(['hidden'], 'secret.md', {type: 'text/markdown'}),
+      )
+
+      const resolved = (await t.sendCatalog('catalog:file-links:resolve', {
+        targets: ['/docs/guide.md', '/docs', '/.private/secret.md', '../guide.md', '/'],
+      })) as any
+
+      expect(resolved.ok).toBe(true)
+      expect(resolved.result.results).toEqual([
+        expect.objectContaining({
+          target: '/docs/guide.md',
+          item: expect.objectContaining({path: '/docs/guide.md', name: 'guide.md'}),
+        }),
+        {target: '/docs', item: null},
+        {target: '/.private/secret.md', item: null},
+        {target: '../guide.md', item: null},
+        {target: '/', item: null},
+      ])
     })
 
     it('unsupported command returns error', async () => {
@@ -516,6 +663,83 @@ describe('MockTransport', () => {
   })
 
   describe('passmanager secret contracts', () => {
+    it('stores generated SSH keys at root and preserves them when the source entry is deleted', async () => {
+      await t.sendPassmanager('passmanager:entry:save', {
+        entry_id: 'ssh-source',
+        title: 'SSH source',
+      })
+      const generated = (await t.sendPassmanager('passmanager:ssh:keygen', {
+        key_type: 'ed25519',
+        name: 'Deploy key',
+        comment: 'deploy@example.test',
+        source_entry_id: 'ssh-source',
+      })) as any
+      expect(generated.ok).toBe(true)
+
+      await t.sendPassmanager('passmanager:entry:delete', {entry_id: 'ssh-source'})
+
+      const listed = (await t.sendPassmanager('passmanager:ssh:list', {})) as any
+      expect(listed.result.sshKeys).toEqual([
+        expect.objectContaining({
+          id: generated.result.key_id,
+          name: 'Deploy key',
+          sourceEntryId: 'ssh-source',
+        }),
+      ])
+      const publicRead = (await t.sendPassmanager('passmanager:ssh:secret:read', {
+        key_id: generated.result.key_id,
+        secret_type: 'ssh_public_key',
+      })) as any
+      expect(publicRead.result.value).toBe(generated.result.public_key_openssh)
+
+      await t.sendPassmanager('passmanager:ssh:key:delete', {key_id: generated.result.key_id})
+      expect((await t.sendPassmanager('passmanager:ssh:list', {}) as any).result.sshKeys).toEqual([])
+      expect((await t.sendPassmanager('passmanager:ssh:secret:read', {
+        key_id: generated.result.key_id,
+        secret_type: 'ssh_public_key',
+      }) as any).ok).toBe(false)
+    })
+
+    it('migrates legacy entry SSH metadata and secrets into the root namespace', async () => {
+      await t.sendPassmanager('passmanager:entry:save', {entry_id: 'legacy-entry', title: 'Legacy'})
+      await t.sendPassmanager('passmanager:secret:save', {
+        entry_id: 'legacy-entry',
+        secret_type: 'ssh_private_key:invalid key',
+        value: 'PRIVATE',
+      })
+      await t.sendPassmanager('passmanager:secret:save', {
+        entry_id: 'legacy-entry',
+        secret_type: 'ssh_public_key:invalid key',
+        value: 'PUBLIC',
+      })
+
+      const imported = (await t.sendPassmanager('passmanager:root:import', {
+        mode: 'merge',
+        entries: [{
+          id: 'legacy-entry',
+          title: 'Legacy',
+          sshKeys: [{id: 'invalid key', type: 'ed25519', fingerprint: 'SHA256:legacy'}],
+        }],
+        folders: [],
+      })) as any
+      expect(imported.ok).toBe(true)
+
+      const listed = (await t.sendPassmanager('passmanager:ssh:list', {})) as any
+      expect(listed.result.sshKeys).toHaveLength(1)
+      const migratedKey = listed.result.sshKeys[0]
+      expect(migratedKey.id).toMatch(/^migrated-[a-f0-9]{32}$/)
+      expect(migratedKey.sourceEntryId).toBe('legacy-entry')
+      expect((await t.sendPassmanager('passmanager:ssh:secret:read', {
+        key_id: migratedKey.id,
+        secret_type: 'ssh_public_key',
+      }) as any).result.value).toBe('PUBLIC')
+
+      const exported = (await t.sendPassmanager('passmanager:root:export', {})) as any
+      expect(exported.result.root.version).toBe(4)
+      expect(exported.result.root.sshKeys).toEqual([migratedKey])
+      expect(exported.result.root.entries[0]).not.toHaveProperty('sshKeys')
+    })
+
     it('normalizes and preserves entry tags in read/list/export', async () => {
       const created = (await t.sendPassmanager('passmanager:entry:save', {
         entry_id: 'tagged-entry',

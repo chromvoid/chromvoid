@@ -95,11 +95,6 @@ export class CvConfirmDialog extends ReatomLitElement {
       }
 
       cv-dialog {
-        --cv-color-surface-elevated: var(--cv-color-surface, #ffffff);
-        --cv-color-border: var(--cv-color-border, var(--cv-alpha-black-10));
-        --cv-color-text: var(--cv-color-text, #1f2937);
-        --cv-color-text-muted: var(--cv-color-text-muted, #64748b);
-        --cv-color-primary: var(--cv-color-primary, #6366f1);
         --cv-dialog-width: var(--cv-dialog-width-m);
       }
 
@@ -136,7 +131,7 @@ export class CvConfirmDialog extends ReatomLitElement {
 
       cv-dialog::part(title) {
         margin: 0;
-        color: var(--cv-color-text, #1f2937);
+        color: var(--cv-color-text);
       }
 
       cv-dialog::part(description) {
@@ -145,7 +140,7 @@ export class CvConfirmDialog extends ReatomLitElement {
 
       .dialog-body {
         padding: var(--app-spacing-5, 1.25rem);
-        line-height: var(--line-height-relaxed, 1.625);
+        line-height: var(--cv-line-height-relaxed, 1.625);
         min-inline-size: 0;
       }
 
@@ -157,7 +152,7 @@ export class CvConfirmDialog extends ReatomLitElement {
         justify-content: flex-end;
         padding: var(--app-spacing-4, 1rem) var(--app-spacing-5, 1.25rem);
         border-top: 1px solid var(--cv-color-border, var(--cv-alpha-black-10));
-        background: var(--cv-color-surface-2, #f8fafc);
+        background: var(--cv-color-surface-2);
       }
 
       .message-container {
@@ -179,27 +174,27 @@ export class CvConfirmDialog extends ReatomLitElement {
 
       .message-icon.success {
         background: var(--cv-color-success-surface);
-        color: var(--cv-color-success, #22c55e);
+        color: var(--cv-color-success);
         box-shadow: 0 0 0 1px var(--cv-color-success-surface-strong);
       }
       .message-icon.warning {
         background: var(--cv-color-warning-surface);
-        color: var(--cv-color-warning, #f59e0b);
+        color: var(--cv-color-warning);
         box-shadow: 0 0 0 1px var(--cv-color-warning-surface-strong);
       }
       .message-icon.danger {
         background: var(--cv-color-danger-surface);
-        color: var(--cv-color-danger, #ef4444);
+        color: var(--cv-color-danger);
         box-shadow: 0 0 0 1px var(--cv-color-danger-surface-strong);
       }
       .message-icon.info {
         background: var(--cv-color-info-surface);
-        color: var(--cv-color-info, #3b82f6);
+        color: var(--cv-color-info);
         box-shadow: 0 0 0 1px var(--cv-color-info-surface-strong);
       }
       .message-icon.default {
         background: var(--cv-color-primary-surface);
-        color: var(--cv-color-primary, #6366f1);
+        color: var(--cv-color-primary);
         box-shadow: 0 0 0 1px var(--cv-color-primary-surface-strong);
       }
 
@@ -207,8 +202,8 @@ export class CvConfirmDialog extends ReatomLitElement {
         display: inline-block;
         max-inline-size: 100%;
         font-size: var(--cv-font-size-md, 1rem);
-        line-height: var(--line-height-relaxed, 1.625);
-        color: var(--cv-color-text-muted, #9aa6bf);
+        line-height: var(--cv-line-height-relaxed, 1.625);
+        color: var(--cv-color-text-muted);
         margin: 0;
         text-align: left;
         white-space: pre-line;

@@ -52,12 +52,13 @@ pub fn create_assertion(
     let client_data_hash = client_data_hash(context, client_data_json.as_bytes())?;
     let response_client_data_json = response_client_data_json(context, &client_data_json);
     let next_sign_count = source.sign_count.saturating_add(1);
-    let auth_data = assertion_authenticator_data(&rp_id, next_sign_count);
+    let auth_data = assertion_authenticator_data(&rp_id, next_sign_count, context.user_verified);
     let mut signed = auth_data.clone();
     signed.extend_from_slice(&client_data_hash);
     let signature = sign_assertion(&source.private_key_pkcs8_b64url, &signed)?;
     source.last_used_epoch_ms = now_epoch_ms();
     source.sign_count = next_sign_count;
+    source.rp_id = rp_id;
 
     let response = serde_json::json!({
         "id": source.credential_id_b64url,

@@ -2,7 +2,7 @@ import {beforeEach, describe, it} from 'node:test'
 import assert from 'node:assert/strict'
 
 import {setLang} from './i18n'
-import {otpDisplayLabel, pickOtp} from './otp-selection'
+import {autofillOtpOptions, otpDisplayLabel, pickOtp} from './otp-selection'
 
 type FakeOtp = {
   id: string
@@ -42,5 +42,17 @@ describe('popup otp selection', () => {
   it('builds fallback labels when otp label is empty', () => {
     const otp: FakeOtp = {id: 'otp-1', label: '  '}
     assert.equal(otpDisplayLabel(otp, 1), 'OTP 2')
+  })
+
+  it('keeps only TOTP-compatible profiles for browser autofill', () => {
+    const otps = [
+      {id: 'totp', type: 'TOTP'},
+      {id: 'hotp', type: 'HOTP'},
+      {id: 'legacy', type: null},
+    ]
+    assert.deepEqual(
+      autofillOtpOptions(otps).map((otp) => otp.id),
+      ['totp', 'legacy'],
+    )
   })
 })

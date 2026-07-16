@@ -27,6 +27,7 @@ import com.chromvoid.app.shared.installTestAppGraph
 import com.chromvoid.app.shared.resetTestAppGraph
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -106,6 +107,8 @@ class ChromVoidCredentialProviderServiceTest {
         assertEquals("req-get-1", requestRegistry.get("req-get-1")?.requestId)
         assertEquals("example.com", requestRegistry.get("req-get-1")?.rpId)
         assertEquals(1, fakeBridge.queryCalls)
+        assertEquals("android:apk-key-hash:unknown", fakeBridge.lastQueryPayload?.origin)
+        assertFalse(fakeBridge.lastQueryPayload?.userVerified ?: true)
     }
 
     @Test
@@ -378,6 +381,7 @@ class ChromVoidCredentialProviderServiceTest {
         var queryResponse: BridgeResult<PasskeyCoreQueryResult> =
             BridgeResult.Success(PasskeyCoreQueryResult("req-default", emptyList()))
         var queryCalls: Int = 0
+        var lastQueryPayload: PasskeyCoreRequestPayload? = null
         var passwordListCalls: Int = 0
         var passwordListResponse: BridgeResult<Pair<String, List<PasswordCandidate>>> =
             BridgeResult.Success("pwd-session-default" to emptyList())
@@ -392,6 +396,7 @@ class ChromVoidCredentialProviderServiceTest {
 
         override fun passkeyQuery(payload: PasskeyCoreRequestPayload): BridgeResult<PasskeyCoreQueryResult> {
             queryCalls += 1
+            lastQueryPayload = payload
             return queryResponse
         }
 

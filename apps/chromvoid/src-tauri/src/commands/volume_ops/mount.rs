@@ -1,6 +1,11 @@
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use chromvoid_core::rpc::types::{
+    CORE_FEATURE_CATALOG_EXCHANGE_V1, CORE_FEATURE_CATALOG_LIST_SOURCE_REVISION_V1,
+    CORE_FEATURE_CATALOG_PATCH_V1, CORE_FEATURE_CATALOG_TRASH_V1,
+};
 use tauri::{Emitter, Manager};
 
 use crate::core_adapter::{CoreAdapter, CoreMode};
@@ -85,6 +90,32 @@ async fn shutdown_started_backend_after_cancel(
     complete_cancelled_mount_without_backend(app, adapter, vm).await
 }
 
+fn missing_remote_fuse_features(mode: &CoreMode, features: &[String]) -> Vec<&'static str> {
+    if !mode.is_remote() {
+        return Vec::new();
+    }
+
+    [
+        CORE_FEATURE_CATALOG_TRASH_V1,
+        CORE_FEATURE_CATALOG_EXCHANGE_V1,
+        CORE_FEATURE_CATALOG_PATCH_V1,
+        CORE_FEATURE_CATALOG_LIST_SOURCE_REVISION_V1,
+    ]
+    .into_iter()
+    .filter(|required| !features.iter().any(|feature| feature == *required))
+    .collect()
+}
+
+fn session_staging_dir(app_data_dir: &std::path::Path) -> std::path::PathBuf {
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    app_data_dir
+        .join("volume-staging")
+        .join(format!("session-{now_ms}-{}", std::process::id()))
+}
+
 pub(crate) async fn volume_mount_inner(
     app: tauri::AppHandle,
     adapter: Arc<Mutex<Box<dyn CoreAdapter>>>,
@@ -92,17 +123,15 @@ pub(crate) async fn volume_mount_inner(
     backend: Option<String>,
 ) -> Result<VolumeStatus, String> {
     // Preflight: vault must be unlocked.
-    {
+    let (adapter_mode, remote_core_features) = {
         let adapter = adapter
             .lock()
             .map_err(|_| "Adapter mutex poisoned".to_string())?;
         if !adapter.is_unlocked() {
             return Err("Vault is locked".to_string());
         }
-        if adapter.mode() != CoreMode::Local {
-            return Err("Volume mount is supported only in local mode".to_string());
-        }
-    }
+        (adapter.mode(), adapter.remote_core_features())
+    };
 
     {
         let mut vm = vm
@@ -125,7 +154,7 @@ pub(crate) async fn volume_mount_inner(
         }
     }
 
-    let use_fuse = {
+    let mut use_fuse = {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
             let fuse_status = volume_manager::detect_fuse_driver();
@@ -168,6 +197,34 @@ pub(crate) async fn volume_mount_inner(
     };
 
     if use_fuse {
+        let missing = missing_remote_fuse_features(&adapter_mode, &remote_core_features);
+        if !missing.is_empty() {
+            if backend.as_deref() == Some("fuse") {
+                let msg = format!(
+                    "FUSE remote mount requires remote core features: {}",
+                    missing.join(", ")
+                );
+                let st = {
+                    let mut vm = vm
+                        .lock()
+                        .map_err(|_| "VolumeManager mutex poisoned".to_string())?;
+                    vm.mount_failed();
+                    vm.set_last_error(msg.clone());
+                    volume_status_from_vm(&vm)
+                };
+                let _ = app.emit("volume:status", &st);
+                return Err(msg);
+            }
+
+            tracing::warn!(
+                "FUSE auto-mount disabled for remote core; missing features: {}",
+                missing.join(", ")
+            );
+            use_fuse = false;
+        }
+    }
+
+    if use_fuse {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
             let app_data_dir = app
@@ -178,7 +235,7 @@ pub(crate) async fn volume_mount_inner(
             // Staging must be outside the mountpoint. On macOS, the preferred mountpoint is
             // under /Volumes for Finder visibility, but /Volumes itself is not user-writable.
             // Keep staging under the app data dir.
-            let staging_dir = app_data_dir.join("volume-staging");
+            let staging_dir = session_staging_dir(&app_data_dir);
 
             let mut mount_candidates: Vec<std::path::PathBuf> = Vec::new();
 

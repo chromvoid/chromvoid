@@ -24,14 +24,14 @@ export const gatewayPageStyles = [
   routeEmptyStateStyles,
   css`
     :host {
-      --route-card-border-color: var(--cv-color-border);
-      --route-card-radius: var(--cv-radius-3);
-      --route-card-header-padding: var(--app-spacing-3) var(--app-spacing-4);
-      --route-card-title-gap: 2px;
-      --route-badge-border-color: var(--cv-color-border);
-      --route-card-body-gap: var(--app-spacing-3);
-      --route-callout-base-justify-content: center;
-      --route-callout-text-align: center;
+      --app-route-card-border-color: var(--cv-color-border);
+      --app-route-card-radius: var(--cv-radius-3);
+      --app-route-card-header-padding: var(--app-spacing-3) var(--app-spacing-4);
+      --app-route-card-title-gap: 2px;
+      --app-route-badge-border-color: var(--cv-color-border);
+      --app-route-card-body-gap: var(--app-spacing-3);
+      --app-route-callout-base-justify-content: center;
+      --app-route-callout-text-align: center;
     }
 
     .page {
@@ -166,7 +166,7 @@ export const gatewayPageStyles = [
       height: 100%;
       background: var(--cv-color-brand);
       border-radius: 3px;
-      inline-size: var(--gateway-pairing-progress, 0%);
+      inline-size: var(--_gateway-pairing-progress, 0%);
       transition: inline-size 1s linear;
     }
 
@@ -192,8 +192,8 @@ export const gatewayPageStyles = [
     }
 
     .ext-actions {
-      --route-item-actions-gap: var(--app-spacing-1);
-      --route-item-actions-wrap: nowrap;
+      --app-route-item-actions-gap: var(--app-spacing-1);
+      --app-route-item-actions-wrap: nowrap;
     }
 
     .grant-list {

@@ -46,11 +46,33 @@ pub fn frame_from_rpc_response(message_id: u64, resp: &RpcResponse) -> Frame {
     }
 }
 
+pub fn frame_from_agent_response(
+    message_id: u64,
+    response: &chromvoid_protocol::AgentResponseV1,
+) -> Frame {
+    Frame {
+        frame_type: FrameType::RpcResponse,
+        message_id,
+        flags: 0,
+        payload: serde_json::to_vec(response).unwrap_or_else(|_| b"{}".to_vec()),
+    }
+}
+
+pub fn frame_from_agent_event(message_id: u64, event: &chromvoid_protocol::AgentEventV1) -> Frame {
+    Frame {
+        frame_type: FrameType::RpcRequest,
+        message_id,
+        flags: 0,
+        payload: serde_json::to_vec(event).unwrap_or_else(|_| b"{}".to_vec()),
+    }
+}
+
 pub fn frame_from_event(message_id: u64, command: &str, data: Value) -> Frame {
     let req = RpcRequest {
         v: PROTOCOL_VERSION,
         command: command.to_string(),
         data,
+        transport_features: None,
     };
     frame_from_rpc_request(message_id, &req)
 }

@@ -105,12 +105,18 @@ describe('CatalogPasswordsRepository + TauriTransport integration', () => {
 
     const {repo, catalog} = createRepo({mockDomainCommands: true})
 
-    const out = await repo.readRoot<{version: number; entries: unknown[]; folders: string[]}>()
+    const out = await repo.readRoot<{
+      version: number
+      entries: unknown[]
+      folders: string[]
+      sshKeys: unknown[]
+    }>()
 
     expect(out).toBeDefined()
-    expect(out?.version).toBe(3)
+    expect(out?.version).toBe(4)
     expect(out?.entries).toEqual([])
     expect(out?.folders).toEqual([])
+    expect(out?.sshKeys).toEqual([])
     expect(catalog.lastError.set).not.toHaveBeenCalled()
     expect(tauriInvoke).toHaveBeenCalledWith(
       'rpc_dispatch',

@@ -125,6 +125,16 @@ function touchEndEvent(x: number, y = 24) {
   } as unknown as TestTouchEvent
 }
 
+function pointerEvent(type: string, y: number): PointerEvent {
+  const event = new Event(type, {bubbles: true, composed: true, cancelable: true}) as PointerEvent
+  Object.defineProperties(event, {
+    button: {value: 0},
+    clientY: {value: y},
+    pointerId: {value: 1},
+  })
+  return event
+}
+
 async function flush(element: ImageGalleryMobile) {
   await Promise.resolve()
   await element.updateComplete
@@ -341,6 +351,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
 
     const withoutSave = await mountGallery()
     expect(queryViewer(withoutSave, '[data-action="save-to-gallery"]')).toBeNull()
+    expect(queryViewer(withoutSave, '[data-action="download"]')).not.toBeNull()
 
     withoutSave.remove()
 
@@ -352,27 +363,38 @@ describe('image-gallery-mobile fast swipe queue', () => {
 
     const withSave = await mountGallery()
     expect(queryViewer(withSave, '[data-action="save-to-gallery"]')).not.toBeNull()
+    expect(queryViewer(withSave, '[data-action="download"]')).toBeNull()
   })
 
-  it('keeps mobile viewer info and overflow action order stable', async () => {
+  it('keeps mobile viewer menu action order stable', async () => {
     const element = await mountGallery()
+    const expectedActions = ['open-external', 'info', 'save-to-gallery', 'share', 'delete']
 
     expect(
       [...(getViewer(element).shadowRoot?.querySelectorAll<HTMLElement>('[data-action]') ?? [])].map(
         (button) => button.dataset['action'],
       ),
-    ).toEqual(['download', 'open-external', 'info', 'save-to-gallery', 'share', 'delete'])
+    ).toEqual(expectedActions)
 
     expect(
       [
         ...(getViewer(element).shadowRoot?.querySelectorAll<HTMLElement>('cv-menu-button cv-menu-item') ??
           []),
       ].map((item) => item.getAttribute('value')),
-    ).toEqual(['save-to-gallery', 'share', 'delete'])
+    ).toEqual(expectedActions)
 
     const deleteAction = queryViewer<HTMLElement>(element, 'cv-menu-button cv-menu-item[value="delete"]')
     expect(deleteAction).not.toBeNull()
     expect(deleteAction?.getAttribute('data-dangerous')).toBe('true')
+  })
+
+  it('keeps mobile viewer header metadata to the position and file type', async () => {
+    const element = await mountGallery()
+    const meta = queryViewer<HTMLElement>(element, '[part="meta"]')
+
+    expect(meta?.textContent).toContain('1 / 4')
+    expect(meta?.textContent).toContain('image/jpeg')
+    expect(meta?.textContent).not.toContain('1 of 4')
   })
 
   it('uses viewer input events for direct mobile navigation', async () => {
@@ -1064,9 +1086,9 @@ describe('image-gallery-mobile fast swipe queue', () => {
     ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
     await flush(element)
     expect(element.infoSheetOpen).toBe(true)
-    expect(element.infoSheetDetent).toBe('middle')
-    await clickViewerAction(element, 'download')
-    expect(actions).toEqual([{action: 'download', fileId: 2}])
+    expect(element.infoSheetDetent).toBe('expanded')
+    await clickViewerAction(element, 'save-to-gallery')
+    expect(actions).toEqual([{action: 'save-to-gallery', fileId: 2}])
     expect(element.infoSheetOpen).toBe(false)
     ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
     await flush(element)
@@ -1077,7 +1099,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
     await clickViewerAction(element, 'delete')
 
     expect(actions).toEqual([
-      {action: 'download', fileId: 2},
+      {action: 'save-to-gallery', fileId: 2},
       {action: 'open-external', fileId: 2},
       {action: 'delete', fileId: 2},
     ])
@@ -1121,10 +1143,14 @@ describe('image-gallery-mobile fast swipe queue', () => {
     const element = await mountGallery()
     ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
     await flush(element)
-    expect(element.infoSheetDetent).toBe('middle')
+    expect(element.infoSheetDetent).toBe('expanded')
 
-    const sheet = element.shadowRoot?.querySelector('cv-bottom-sheet') as HTMLElement | null
+    const sheet = element.shadowRoot?.querySelector('cv-bottom-sheet') as
+      | (HTMLElement & {detent?: string; detents?: string})
+      | null
     expect(sheet).not.toBeNull()
+    expect(sheet?.detents).toBe('expanded')
+    expect(sheet?.detent).toBe('expanded')
 
     sheet?.dispatchEvent(
       new CustomEvent('cv-change', {
@@ -1135,11 +1161,11 @@ describe('image-gallery-mobile fast swipe queue', () => {
     )
     await flush(element)
     expect(element.infoSheetOpen).toBe(true)
-    expect(element.infoSheetDetent).toBe('middle')
+    expect(element.infoSheetDetent).toBe('expanded')
 
     sheet?.dispatchEvent(
       new CustomEvent('cv-change', {
-        detail: {open: true, detent: 'expanded'},
+        detail: {open: true, detent: 'middle'},
         bubbles: true,
         composed: true,
       }),
@@ -1154,7 +1180,59 @@ describe('image-gallery-mobile fast swipe queue', () => {
     expect(element.infoSheetDetent).toBe('collapsed')
   })
 
-  it('renders translated system metadata and mocked photo metadata in the info sheet', async () => {
+  it('closes the single-detent info sheet on one downward handle drag', async () => {
+    const element = await mountGallery()
+    ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
+    await flush(element)
+    expect(element.infoSheetOpen).toBe(true)
+    expect(element.infoSheetDetent).toBe('expanded')
+
+    const sheet = element.shadowRoot?.querySelector('cv-bottom-sheet') as
+      | (HTMLElement & {open?: boolean; updateComplete?: Promise<unknown>})
+      | null
+    const handle = sheet?.shadowRoot?.querySelector('[part="handle"]') as HTMLElement | null
+    expect(handle).not.toBeNull()
+
+    handle?.dispatchEvent(pointerEvent('pointerdown', 120))
+    handle?.dispatchEvent(pointerEvent('pointermove', 200))
+    handle?.dispatchEvent(pointerEvent('pointerup', 200))
+    await sheet?.updateComplete
+    await flush(element)
+
+    expect(sheet?.open).toBe(false)
+    expect(element.infoSheetOpen).toBe(false)
+    expect(element.infoSheetDetent).toBe('collapsed')
+  })
+
+  it('ignores bubbled bottom sheet input events without corrupting the track index', async () => {
+    const element = await mountGallery({currentIndex: 1})
+    ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
+    await flush(element)
+    expect(element.infoSheetOpen).toBe(true)
+
+    const sheet = element.shadowRoot?.querySelector('cv-bottom-sheet') as HTMLElement | null
+    expect(sheet).not.toBeNull()
+
+    sheet?.dispatchEvent(
+      new CustomEvent('cv-input', {
+        detail: {open: false},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    await flush(element)
+
+    expect(element.displayIndex).toBe(1)
+    expect(element.model.navigate).not.toHaveBeenCalled()
+    const trackHost = getTrackHost(element)
+    const panelIndexes = [...(trackHost.shadowRoot?.querySelectorAll<HTMLElement>('.panel') ?? [])].map(
+      (panel) => panel.dataset['imageIndex'],
+    )
+    expect(panelIndexes).not.toContain('NaN')
+    expect(panelIndexes).toEqual(['0', '1', '2'])
+  })
+
+  it('renders translated file and photo metadata in the info sheet', async () => {
     const element = await mountGallery({
       images: [
         {
@@ -1194,14 +1272,14 @@ describe('image-gallery-mobile fast swipe queue', () => {
 
     const text = element.shadowRoot?.querySelector('.info-sheet-content')?.textContent ?? ''
 
-    expect(text).toContain('System metadata')
+    expect(text).toContain('File')
     expect(text).toContain('Type')
     expect(text).toContain('image/jpeg')
     expect(text).toContain('/Photos/Trips/2026/capture.jpg')
     expect(text).toContain('170.81 KB (174,909 B)')
     expect(text).toContain('Created')
     expect(text).toContain('Modified')
-    expect(text).toContain('Photo metadata')
+    expect(text).toContain('Camera & shot')
     expect(text).toContain('4,000 × 3,000')
     expect(text).toContain('Canon EOS R6')
     expect(text).toContain('RF 24-70mm')
@@ -1209,7 +1287,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
     expect(text).toContain('f/2.8')
     expect(text).toContain('400')
     expect(text).toContain('50 mm')
-    expect(text).toContain('GPS')
+    expect(text).toContain('Location')
     expect(text).toContain('55.755833')
     expect(text).toContain('37.617222')
     expect(text).not.toContain('Latitude')
@@ -1478,7 +1556,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
     await flush(element)
 
     expect(element.infoSheetOpen).toBe(true)
-    expect(element.infoSheetDetent).toBe('middle')
+    expect(element.infoSheetDetent).toBe('expanded')
   })
 
   it('closes the viewer on a downward swipe while not zoomed', async () => {

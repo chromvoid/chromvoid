@@ -1,8 +1,12 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {
+  dispatchAndroidVideoPlayerEvent,
   dispatchMediaStreamError,
+  getInFlightMediaStreamLoadCountForTests,
   getMediaStreamOwnerCountForTests,
+  isAndroidVideoPlayerEvent,
+  registerInFlightMediaStreamLoad,
   releaseAllMediaStreamOwnersForLifecycle,
   registerMediaStreamOwner,
   resetMediaStreamOwnerRegistryForTests,
@@ -62,6 +66,39 @@ describe('media-stream owner registry', () => {
     })
   })
 
+  it('aborts matching in-flight loads during lifecycle release', async () => {
+    const excludedOwner = {handleNativeStreamError: vi.fn()}
+    const matchingController = new AbortController()
+    const otherNodeController = new AbortController()
+    const excludedController = new AbortController()
+    const unregisteredController = new AbortController()
+
+    registerInFlightMediaStreamLoad(matchingController, {nodeId: 5})
+    registerInFlightMediaStreamLoad(otherNodeController, {nodeId: 6})
+    registerInFlightMediaStreamLoad(excludedController, {owner: excludedOwner})
+    const unregister = registerInFlightMediaStreamLoad(unregisteredController, {nodeId: 5})
+    unregister()
+    expect(getInFlightMediaStreamLoadCountForTests()).toBe(3)
+
+    await releaseAllMediaStreamOwnersForLifecycle(
+      'vault-lock',
+      {nodeId: 5},
+      {excludeOwner: excludedOwner},
+    )
+
+    expect(matchingController.signal.aborted).toBe(true)
+    expect(otherNodeController.signal.aborted).toBe(false)
+    expect(excludedController.signal.aborted).toBe(false)
+    expect(unregisteredController.signal.aborted).toBe(false)
+
+    // Without a nodeId context every non-excluded in-flight load is aborted.
+    await releaseAllMediaStreamOwnersForLifecycle('vault-lock')
+
+    expect(otherNodeController.signal.aborted).toBe(true)
+    expect(excludedController.signal.aborted).toBe(true)
+    expect(unregisteredController.signal.aborted).toBe(false)
+  })
+
   it('wires the transport event into validated registry dispatch', () => {
     const handlers = new Map<string, TransportEventHandler>()
     const ws = {
@@ -94,5 +131,60 @@ describe('media-stream owner registry', () => {
     )
     expect(ws.off).toHaveBeenCalledWith('media-stream:error', expect.any(Function))
     expect(handlers.has('media-stream:error')).toBe(false)
+  })
+
+  it('normalizes Android video events by native source token', () => {
+    const owner = {handleNativeStreamError: vi.fn(), handleAndroidVideoPlayerEvent: vi.fn()}
+    registerMediaStreamOwner('native-source-token', owner, {
+      mediaSourceGeneration: 3,
+      sourceRevision: 77,
+      transportSessionGeneration: 12,
+      appForegroundEpoch: 4,
+    })
+
+    expect(
+      isAndroidVideoPlayerEvent({
+        nativeSourceToken: 'native-source-token',
+        event: 'ready',
+        mediaSourceGeneration: 3,
+        sourceRevision: 77,
+        transportSessionGeneration: 12,
+        appForegroundEpoch: 4,
+      }),
+    ).toBe(true)
+
+    dispatchAndroidVideoPlayerEvent({
+      nativeSourceToken: 'native-source-token',
+      event: 'ready',
+      mediaSourceGeneration: 3,
+      sourceRevision: 77,
+      transportSessionGeneration: 12,
+      appForegroundEpoch: 4,
+    })
+    dispatchAndroidVideoPlayerEvent({
+      nativeSourceToken: 'native-source-token',
+      event: 'ready',
+      mediaSourceGeneration: 2,
+      sourceRevision: 77,
+      transportSessionGeneration: 12,
+      appForegroundEpoch: 4,
+    })
+    dispatchAndroidVideoPlayerEvent({
+      token: 'legacy-native-source-token',
+      event: 'ready',
+    })
+
+    expect(owner.handleAndroidVideoPlayerEvent).toHaveBeenCalledTimes(1)
+    expect(owner.handleAndroidVideoPlayerEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nativeSourceToken: 'native-source-token',
+        token: 'native-source-token',
+        event: 'ready',
+        mediaSourceGeneration: 3,
+        sourceRevision: 77,
+        transportSessionGeneration: 12,
+        appForegroundEpoch: 4,
+      }),
+    )
   })
 })

@@ -6,14 +6,9 @@ use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 
 use crate::app_state::AppState;
 use crate::helpers::*;
-use crate::media_source::{effective_catalog_media_mime_type, LocalMediaKind};
-use crate::media_stream::format::{
-    playable_media_kind_with_media_info, PlayableMediaKind, ERR_MEDIA_UNSUPPORTED,
-};
+use crate::media_stream::format::ERR_MEDIA_UNSUPPORTED;
 use crate::mobile;
 use crate::types::*;
-
-use super::native_media_source::load_native_media_source_metadata;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,6 +37,9 @@ pub(crate) struct AndroidVideoStartArgs {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AndroidVideoStartResult {
     started: bool,
+    stream_id: String,
+    source_token: String,
+    native_source_token: String,
     token: String,
     mime_type: String,
     size: u64,
@@ -92,6 +90,8 @@ pub(crate) async fn mobile_notify_background(
         };
 
     if locked {
+        #[cfg(target_os = "android")]
+        super::stop_mobile_usb_host_sessions_for_vault_lock();
         super::release_mobile_native_sessions(&app, &state, "mobile_background");
         state.media_streams.clear();
         #[cfg(desktop)]
@@ -262,9 +262,9 @@ pub(crate) async fn mobile_notify_foreground(
                     "mobile_notify_foreground",
                 ) {
                     tracing::warn!(
-                    "mobile_notify_foreground: android mobile host resume was not scheduled: {}",
-                    error
-                );
+                        "mobile_notify_foreground: android mobile host resume was not scheduled: {}",
+                        error
+                    );
                 }
             }
             Err(_) => tracing::warn!("mobile_notify_foreground: storage root mutex poisoned"),
@@ -357,84 +357,13 @@ pub(crate) fn android_media_session_stop(_app: tauri::AppHandle) -> RpcResult<Va
 
 #[tauri::command]
 pub(crate) async fn android_video_start(
-    state: tauri::State<'_, AppState>,
-    args: AndroidVideoStartArgs,
+    _state: tauri::State<'_, AppState>,
+    _args: AndroidVideoStartArgs,
 ) -> TauriRpcResult<AndroidVideoStartResult> {
-    let _ = (&args.file_name, args.last_modified);
-    let metadata = match load_native_media_source_metadata(
-        &state,
-        args.node_id,
-        "Native video source metadata",
-    )
-    .await
-    {
-        Ok(metadata) => metadata,
-        Err((error, code)) => return Ok(rpc_error(error, code)),
-    };
-    if metadata.node_type != chromvoid_core::NodeType::File || metadata.size == 0 {
-        return Ok(rpc_error(
-            "Video source is not playable",
-            Some(ERR_MEDIA_UNSUPPORTED.to_string()),
-        ));
-    }
-    let mime_type = effective_catalog_media_mime_type(&metadata, args.mime_type);
-    if playable_media_kind_with_media_info(
-        &metadata.name,
-        Some(&mime_type),
-        metadata.media_info.as_ref(),
-    ) != Ok(PlayableMediaKind::Video)
-    {
-        return Ok(rpc_error(
-            "Video source is not playable",
-            Some(ERR_MEDIA_UNSUPPORTED.to_string()),
-        ));
-    }
-
-    let session = match state.media_streams.register(
-        metadata.node_id,
-        LocalMediaKind::Video,
-        mime_type.clone(),
-        metadata.size,
-        metadata.source_revision,
-    ) {
-        Ok(session) => session,
-        Err(error) => return Ok(rpc_error(error, Some("INTERNAL".to_string()))),
-    };
-    let source_json = serde_json::json!({
-        "token": session.token,
-        "nodeId": metadata.node_id,
-        "name": metadata.name,
-        "mimeType": mime_type,
-        "size": metadata.size,
-        "sourceRevision": metadata.source_revision,
-    })
-    .to_string();
-
-    let started = if cfg!(target_os = "android") {
-        crate::mobile::android::start_video_playback(&source_json)
-    } else if cfg!(target_os = "ios") {
-        crate::mobile::ios::native_bridge::start_video_playback(&source_json)
-    } else {
-        false
-    };
-    if !started {
-        state.media_streams.release(&session.token);
-        return Ok(rpc_error(
-            "Native video player failed to start",
-            Some("ERR_NATIVE_VIDEO_START_FAILED".to_string()),
-        ));
-    }
-
-    Ok(RpcResult::Success {
-        ok: true,
-        result: AndroidVideoStartResult {
-            started,
-            token: session.token,
-            mime_type,
-            size: metadata.size,
-            source_revision: metadata.source_revision,
-        },
-    })
+    Ok(rpc_error(
+        "android_video_start is retired; use prepare_media_source with native-video delivery",
+        Some(ERR_MEDIA_UNSUPPORTED.to_string()),
+    ))
 }
 
 #[tauri::command]
@@ -587,12 +516,17 @@ pub(crate) async fn android_open_autofill_provider_settings(
 }
 
 #[tauri::command]
-pub(crate) fn credential_provider_status() -> RpcResult<Value> {
-    if cfg!(target_os = "android") {
+pub(crate) async fn credential_provider_status(app: tauri::AppHandle) -> RpcResult<Value> {
+    #[cfg(not(target_os = "macos"))]
+    let _ = &app;
+
+    #[cfg(target_os = "android")]
+    {
         return android_autofill_provider_status();
     }
 
-    if cfg!(target_os = "ios") {
+    #[cfg(target_os = "ios")]
+    {
         let passkeys_lite_available = crate::mobile::credential_provider_passkeys_lite_supported();
         return rpc_ok(serde_json::json!({
             "platform": "ios",
@@ -608,43 +542,114 @@ pub(crate) fn credential_provider_status() -> RpcResult<Value> {
         }));
     }
 
-    rpc_err(
-        "Credential Provider is not available on this platform",
-        Some("UNSUPPORTED".to_string()),
-    )
+    #[cfg(target_os = "macos")]
+    {
+        let capabilities = crate::types::runtime_capabilities_for_current_target();
+        let passkeys_lite_available = capabilities.supports_credential_provider_passkeys_lite;
+        return match crate::credential_provider_bridge::settings::credential_provider_enabled()
+            .await
+        {
+            Ok(selected) => {
+                crate::credential_provider_bridge::on_identity_policy_status(&app, selected);
+                rpc_ok(serde_json::json!({
+                    "platform": "macos",
+                    "selected": selected,
+                    "available": capabilities.supports_autofill,
+                    "capabilities": crate::credential_provider_bridge::otp_capability_status(selected),
+                    "passkeysLiteAvailable": passkeys_lite_available,
+                    "passkeysLiteReason": if passkeys_lite_available {
+                        Value::Null
+                    } else {
+                        Value::String("passkeys_lite requires macOS 14+".to_string())
+                    },
+                    "settingsAction": crate::credential_provider_bridge::settings::settings_action(selected),
+                }))
+            }
+            Err(error) => {
+                crate::credential_provider_bridge::on_identity_policy_status(&app, false);
+                rpc_err(error, Some("UNAVAILABLE".to_string()))
+            }
+        };
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+    {
+        rpc_err(
+            "Credential Provider is not available on this platform",
+            Some("UNSUPPORTED".to_string()),
+        )
+    }
 }
 
 #[tauri::command]
 pub(crate) async fn open_credential_provider_settings(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> TauriRpcResult<Value> {
-    if cfg!(target_os = "android") {
+    #[cfg(target_os = "android")]
+    {
+        let _ = app;
         return android_open_autofill_provider_settings(state).await;
     }
 
-    if let Err(error) = crate::pro::guard_pro_feature_async(
-        &state,
-        chromvoid_core::license::PRO_FEATURE_CREDENTIAL_PROVIDER,
-    )
-    .await
+    #[cfg(not(target_os = "android"))]
     {
-        return Ok(error);
-    }
-
-    Ok(if cfg!(target_os = "ios") {
-        match crate::mobile::ios::native_bridge::open_app_settings() {
-            Ok(()) => rpc_ok(serde_json::json!({
-                "opened": true,
-                "settingsAction": "open_app_settings",
-            })),
-            Err(error) => rpc_err(error, Some("UNAVAILABLE".to_string())),
-        }
-    } else {
-        rpc_err(
-            "Credential Provider settings are not available on this platform",
-            Some("UNSUPPORTED".to_string()),
+        if let Err(error) = crate::pro::guard_pro_feature_async(
+            &state,
+            chromvoid_core::license::PRO_FEATURE_CREDENTIAL_PROVIDER,
         )
-    })
+        .await
+        {
+            return Ok(error);
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            return Ok(
+                match crate::credential_provider_bridge::settings::open_or_request_settings(&app)
+                    .await
+                {
+                    Ok(crate::credential_provider_bridge::settings::SettingsOutcome::EnableRequested {
+                        enabled,
+                    }) => rpc_ok(serde_json::json!({
+                        "opened": true,
+                        "selected": enabled,
+                        "settingsAction": "request_enable",
+                    })),
+                    Ok(crate::credential_provider_bridge::settings::SettingsOutcome::SettingsOpened) => {
+                        rpc_ok(serde_json::json!({
+                            "opened": true,
+                            "settingsAction": "open_system_autofill",
+                        }))
+                    }
+                    Err(error) => rpc_err(error, Some("UNAVAILABLE".to_string())),
+                },
+            );
+        }
+
+        #[cfg(target_os = "ios")]
+        {
+            let _ = app;
+            return Ok(
+                match crate::mobile::ios::native_bridge::open_app_settings() {
+                    Ok(()) => rpc_ok(serde_json::json!({
+                        "opened": true,
+                        "settingsAction": "open_app_settings",
+                    })),
+                    Err(error) => rpc_err(error, Some("UNAVAILABLE".to_string())),
+                },
+            );
+        }
+
+        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+        {
+            let _ = app;
+            Ok(rpc_err(
+                "Credential Provider settings are not available on this platform",
+                Some("UNSUPPORTED".to_string()),
+            ))
+        }
+    }
 }
 
 #[tauri::command]
@@ -652,13 +657,13 @@ pub(crate) async fn android_passkeys_list(
     state: tauri::State<'_, AppState>,
 ) -> TauriRpcResult<Value> {
     let started_at = std::time::Instant::now();
-    tracing::info!("[android-passkeys-management] command=list phase=start");
+    tracing::info!("[credential-provider-passkeys] command=list phase=start");
     let mut passkeys = match passkeys_core_rpc(&state, "passkeys:list", serde_json::json!({})).await
     {
         Ok(value) => take_passkeys_from_list_response(value),
         Err((error, code)) => {
             tracing::warn!(
-                "[android-passkeys-management] command=list phase=core_error dt_ms={} error={}",
+                "[credential-provider-passkeys] command=list phase=core_error dt_ms={} error={}",
                 started_at.elapsed().as_millis(),
                 error
             );
@@ -678,7 +683,7 @@ pub(crate) async fn android_passkeys_list(
             })
     });
     tracing::info!(
-        "[android-passkeys-management] command=list phase=done dt_ms={}",
+        "[credential-provider-passkeys] command=list phase=done dt_ms={}",
         started_at.elapsed().as_millis()
     );
     Ok(rpc_ok(serde_json::json!({ "passkeys": passkeys })))
@@ -690,14 +695,14 @@ fn take_passkeys_from_list_response(mut value: Value) -> Vec<Value> {
             Some(passkeys) => std::mem::take(passkeys),
             None => {
                 tracing::warn!(
-                    "[android-passkeys-management] command=list phase=malformed_response field=passkeys"
+                    "[credential-provider-passkeys] command=list phase=malformed_response field=passkeys"
                 );
                 Vec::new()
             }
         },
         None => {
             tracing::warn!(
-                "[android-passkeys-management] command=list phase=malformed_response missing=passkeys"
+                "[credential-provider-passkeys] command=list phase=malformed_response missing=passkeys"
             );
             Vec::new()
         }
@@ -718,7 +723,7 @@ pub(crate) async fn android_passkey_delete(
 ) -> TauriRpcResult<Value> {
     let started_at = std::time::Instant::now();
     tracing::info!(
-        "[android-passkeys-management] command=delete phase=start credential_len={}",
+        "[credential-provider-passkeys] command=delete phase=start credential_len={}",
         credential_id.len()
     );
     match passkeys_core_rpc(
@@ -730,14 +735,14 @@ pub(crate) async fn android_passkey_delete(
     {
         Ok(value) => {
             tracing::info!(
-                "[android-passkeys-management] command=delete phase=core_done dt_ms={}",
+                "[credential-provider-passkeys] command=delete phase=core_done dt_ms={}",
                 started_at.elapsed().as_millis()
             );
             Ok(rpc_ok(value))
         }
         Err((error, code)) => {
             tracing::warn!(
-                "[android-passkeys-management] command=delete phase=core_error dt_ms={} error={}",
+                "[credential-provider-passkeys] command=delete phase=core_error dt_ms={} error={}",
                 started_at.elapsed().as_millis(),
                 error
             );
@@ -756,8 +761,13 @@ pub(crate) async fn credential_provider_passkey_delete(
 
 #[tauri::command]
 #[cfg(mobile)]
-pub(crate) fn setup_native_gestures(app: tauri::AppHandle) {
-    mobile::ios::edge_swipe::setup(app);
+pub(crate) async fn configure_native_edge_back(
+    app: tauri::AppHandle,
+    enabled: bool,
+    direction: mobile::ios::edge_swipe::TextDirection,
+    request_id: u64,
+) -> Result<mobile::ios::edge_swipe::NativeEdgeBackConfiguration, String> {
+    mobile::ios::edge_swipe::configure(app, enabled, direction, request_id).await
 }
 
 #[cfg(any(test, debug_assertions))]

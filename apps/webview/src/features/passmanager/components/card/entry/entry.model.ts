@@ -301,7 +301,7 @@ export class PMEntryModel implements PMEntrySessionController {
       const firstOtp = otps.length > 0 ? otps[0] : undefined
       if (firstOtp) {
         try {
-          const code = await firstOtp.loadCode()
+          const code = await wrap(firstOtp.loadCode())
           if (code) parts.push(`[${i18n('otp')}] ${code}`)
         } catch {}
       }
@@ -343,7 +343,7 @@ export class PMEntryModel implements PMEntrySessionController {
       if (!firstOtp) return
 
       try {
-        const code = await firstOtp.loadCode()
+        const code = await wrap(firstOtp.loadCode())
         if (code) {
           await this.copyText(code, 'copyOtp')
         }
@@ -528,30 +528,30 @@ export class PMEntryModel implements PMEntrySessionController {
   }
 
   private async readPassword(entry: Entry): Promise<string> {
-    await entry.flushPendingPersistence()
-    return (await entry.password()) ?? ''
+    await wrap(entry.flushPendingPersistence())
+    return (await wrap(entry.password())) ?? ''
   }
 
   private async readNote(entry: Entry): Promise<string> {
-    await entry.flushPendingPersistence()
-    return (await entry.note()) ?? ''
+    await wrap(entry.flushPendingPersistence())
+    return (await wrap(entry.note())) ?? ''
   }
 
   private async readCardPan(entry: Entry): Promise<string> {
-    await entry.flushPendingPersistence()
-    return (await entry.cardPan()) ?? ''
+    await wrap(entry.flushPendingPersistence())
+    return (await wrap(entry.cardPan())) ?? ''
   }
 
   private async readCardCvv(entry: Entry): Promise<string> {
-    await entry.flushPendingPersistence()
-    return (await entry.cardCvv()) ?? ''
+    await wrap(entry.flushPendingPersistence())
+    return (await wrap(entry.cardCvv())) ?? ''
   }
 
   private async copyText(text: string, context: string): Promise<boolean> {
     if (!text) return false
 
     try {
-      await copyWithAutoWipe(text, DEFAULT_CLIPBOARD_WIPE_MS)
+      await wrap(copyWithAutoWipe(text, DEFAULT_CLIPBOARD_WIPE_MS))
       return true
     } catch (error) {
       this.logger.warn('[PassManager][Entry] copy failed', {

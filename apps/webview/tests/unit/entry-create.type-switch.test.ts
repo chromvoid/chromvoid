@@ -115,14 +115,26 @@ describe('PMEntryCreate entry type switch', () => {
     expect(getTypeOptions(component).map((option) => option.getAttribute('aria-checked'))).toEqual(['false', 'true'])
   })
 
-  it('keeps the mobile create tag editor compact', async () => {
+  it('keeps the Details hub tag editor compact', async () => {
     const component = document.createElement('pm-entry-create-mobile') as HTMLElement & {
       updateComplete: Promise<unknown>
     }
     document.body.append(component)
     await settle(component)
 
-    const section = component.shadowRoot?.querySelector('.mobile-tags-section')
+    const model = (component as unknown as {
+      model: {openDetailsSheet(): void; openDetailsEditor(detail: 'tags'): void}
+    }).model
+    model.openDetailsSheet()
+    model.openDetailsEditor('tags')
+    await settle(component)
+
+    const sheet = component.shadowRoot?.querySelector('pm-entry-create-details-sheet') as
+      | (HTMLElement & {shadowRoot?: ShadowRoot; updateComplete: Promise<unknown>})
+      | null
+    if (sheet) await settle(sheet)
+
+    const section = sheet?.shadowRoot?.querySelector('[data-detail-editor="tags"]')
     expect(section).not.toBeNull()
 
     const combobox = section?.querySelector('cv-combobox.entry-tags-combobox') as
@@ -135,7 +147,6 @@ describe('PMEntryCreate entry type switch', () => {
     expect(combobox?.shadowRoot?.querySelector('[part="input"]')).toBeNull()
     expect(combobox?.shadowRoot?.querySelector('[part="trigger"]')).not.toBeNull()
 
-    const manageButton = section?.querySelector('.entry-tags-manage')
-    expect(manageButton?.getAttribute('aria-label')).toBe('Manage tags')
+    expect(section?.querySelector('.entry-tags-manage')).toBeNull()
   })
 })

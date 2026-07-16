@@ -390,9 +390,9 @@ describe('audio-player', () => {
     expect(close).not.toHaveBeenCalled()
 
     const dialog = await getSheetDialog(element)
-    dialog.shadowRoot
-      ?.querySelector('[part="overlay"]')
-      ?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
+    const overlay = dialog.shadowRoot?.querySelector('[part="overlay"]')
+    overlay?.dispatchEvent(new MouseEvent('mousedown', {bubbles: true, composed: true}))
+    overlay?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
     await settleAudioPlayer(element)
 
     expect(close).toHaveBeenCalledTimes(1)

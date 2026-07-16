@@ -5,7 +5,6 @@ import {i18n as pmI18n} from '@project/passmanager/i18n'
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import {i18n as appI18n} from 'root/i18n'
 import {tryGetAppContext, type AppContext} from 'root/shared/services/app-context'
-import {getFileManagerModel} from 'root/features/file-manager/file-manager.model'
 import {notesQuickViewModel} from 'root/features/file-manager/components/notes-quick-view/notes-quick-view.model'
 import {pmOtpQuickViewModel} from 'root/features/passmanager/components/otp-quick-view/otp-quick-view.model'
 import type {PMSummaryRailItem, PMSummaryRailTone} from 'root/features/passmanager/components/summary-rail'
@@ -13,7 +12,7 @@ import {PMGroupModel, type PMGroupMetric} from 'root/features/passmanager/compon
 import {getPassmanagerShowElement} from 'root/features/passmanager/models/pm-root.adapter'
 
 export type StatusBarSummaryRail = {
-  id: 'files' | 'notes' | 'passwords-group' | 'passwords-otp'
+  id: 'notes' | 'passwords-group' | 'passwords-otp'
   label: string
   items: readonly PMSummaryRailItem[]
   busy?: boolean
@@ -35,9 +34,6 @@ class StatusBarSummaryModel {
     if (this.getLayoutMode(ctx) !== 'desktop') return null
 
     const surface = navigationModel.currentSurface()
-    if (surface === 'files') {
-      return this.resolveFilesSummary(ctx)
-    }
     if (surface === 'notes') {
       return this.resolveNotesSummary()
     }
@@ -56,35 +52,6 @@ class StatusBarSummaryModel {
   private getLayoutMode(ctx: AppContext): string | null {
     const layoutMode = (ctx.store as {layoutMode?: () => string}).layoutMode
     return typeof layoutMode === 'function' ? layoutMode() : null
-  }
-
-  private resolveFilesSummary(ctx: AppContext): StatusBarSummaryRail | null {
-    if (navigationModel.resolvedDocument().kind !== 'closed') return null
-
-    try {
-      const model = getFileManagerModel(ctx)
-      const selectedCount = model.selectedCount()
-
-      return {
-        id: 'files',
-        label: appI18n('file-manager:summary:label' as never),
-        items: [
-          {
-            id: 'items',
-            label: appI18n('file-manager:summary:items' as never),
-            value: model.filteredCount(),
-          },
-          {
-            id: 'selected',
-            label: appI18n('file-manager:summary:selected' as never),
-            value: selectedCount,
-            tone: selectedCount > 0 ? 'primary' : 'neutral',
-          },
-        ],
-      }
-    } catch {
-      return null
-    }
   }
 
   private resolveNotesSummary(): StatusBarSummaryRail {

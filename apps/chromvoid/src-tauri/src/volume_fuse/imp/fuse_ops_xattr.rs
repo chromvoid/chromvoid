@@ -21,6 +21,15 @@ fn stored_xattr_keys(
         .unwrap_or_default())
 }
 
+fn listxattr_keys_with_synthetic(mut keys: Vec<String>) -> Vec<String> {
+    for synthetic in ["com.apple.FinderInfo", "com.apple.ResourceFork"] {
+        if !keys.iter().any(|key| key == synthetic) {
+            keys.push(synthetic.to_string());
+        }
+    }
+    keys
+}
+
 pub(super) fn handle_getxattr(
     fs: &PrivyFilesystem,
     _req: &Request,
@@ -86,6 +95,7 @@ pub(super) fn handle_listxattr(
             return;
         }
     };
+    let keys = listxattr_keys_with_synthetic(keys);
 
     let mut out: Vec<u8> = Vec::new();
     for k in keys {
@@ -233,5 +243,35 @@ mod tests {
         let map = poisoned_xattr_map();
 
         assert_eq!(stored_xattr_keys(&map, 7), Err(libc::EIO));
+    }
+
+    #[test]
+    fn listxattr_keys_include_getxattr_synthetic_names() {
+        let keys = listxattr_keys_with_synthetic(vec!["user.test".to_string()]);
+
+        assert!(keys.iter().any(|key| key == "user.test"));
+        assert!(keys.iter().any(|key| key == "com.apple.FinderInfo"));
+        assert!(keys.iter().any(|key| key == "com.apple.ResourceFork"));
+    }
+
+    #[test]
+    fn listxattr_keys_do_not_duplicate_synthetic_names() {
+        let keys = listxattr_keys_with_synthetic(vec![
+            "com.apple.FinderInfo".to_string(),
+            "com.apple.ResourceFork".to_string(),
+        ]);
+
+        assert_eq!(
+            keys.iter()
+                .filter(|key| key.as_str() == "com.apple.FinderInfo")
+                .count(),
+            1
+        );
+        assert_eq!(
+            keys.iter()
+                .filter(|key| key.as_str() == "com.apple.ResourceFork")
+                .count(),
+            1
+        );
     }
 }

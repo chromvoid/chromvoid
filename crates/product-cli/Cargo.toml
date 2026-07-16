@@ -1,0 +1,47 @@
+[package]
+name = "chromvoid-product-cli"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+description = "Shipped CLI boundary for ChromVoid Vault Env Runtime"
+
+[features]
+default = []
+# Compiles subprocess-only seams for the real CLI/Gateway integration test.
+# `src/lib.rs` rejects this feature in release builds so the file identity and
+# endpoint overrides cannot ship with a production binary.
+env-runtime-integration-tests = []
+
+[[bin]]
+name = "chromvoid"
+path = "src/main.rs"
+
+[[test]]
+name = "env_runtime_sigint"
+path = "tests/env_runtime_sigint.rs"
+required-features = ["env-runtime-integration-tests"]
+
+[dependencies]
+base64.workspace = true
+chromvoid-protocol = { path = "../protocol" }
+clap.workspace = true
+dirs = "6"
+futures-util = "0.3"
+hex = "0.4"
+libc = "0.2"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+snow = "0.10"
+thiserror.workspace = true
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "time"] }
+tokio-tungstenite = "0.30"
+uuid = { version = "1", features = ["v4"] }
+zeroize.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["apple-native"] }
+
+[dev-dependencies]
+tempfile.workspace = true

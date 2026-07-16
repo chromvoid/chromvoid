@@ -38,6 +38,7 @@ export class RemoteStoragePage extends ReatomLitElement {
   readonly transferStep = this.model.transferStep
   readonly targetDir = this.model.targetDir
   readonly masterPassword = this.model.masterPassword
+  readonly passwordError = this.model.passwordError
   readonly progress = this.model.progress
   readonly transferResult = this.model.transferResult
 
@@ -70,7 +71,7 @@ export class RemoteStoragePage extends ReatomLitElement {
       return
     }
 
-    progress.style.setProperty('--remote-storage-progress', `${progress.dataset['progress'] ?? '0'}%`)
+    progress.style.setProperty('--_remote-storage-progress', `${progress.dataset['progress'] ?? '0'}%`)
   }
 
   private onBack = () => {
@@ -79,6 +80,16 @@ export class RemoteStoragePage extends ReatomLitElement {
 
   private startTransferWizard = () => {
     this.model.startTransferWizard()
+  }
+
+  private async handleStartExport(): Promise<void> {
+    const started = await this.model.startExport()
+    if (started || !this.model.passwordError()) return
+
+    await this.updateComplete
+    const input = this.renderRoot.querySelector<HTMLElement>('#master-password')
+    const focusTarget = input?.shadowRoot?.querySelector<HTMLInputElement>('input') ?? input
+    focusTarget?.focus()
   }
 
   private renderWizard() {
@@ -98,9 +109,10 @@ export class RemoteStoragePage extends ReatomLitElement {
       renderPasswordStep: () =>
         renderPasswordStep({
           password: this.masterPassword(),
+          passwordError: this.passwordError(),
           onPasswordInput: this.model.handlePasswordInput,
           onBack: () => this.model.goToStep('confirm'),
-          onStartExport: this.model.startExport,
+          onStartExport: () => this.handleStartExport(),
         }),
       renderProgressStep: () =>
         renderProgressStep({

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBundleCommand": "node ./scripts/verify-macos-runtime-libraries.mjs"
+  },
+  "bundle": {
+    "externalBin": [],
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    }
+  }
+}

@@ -1,7 +1,7 @@
 use serde_json::Value;
 
 use crate::rpc::request_parse::{optional_str, optional_u64};
-use crate::rpc::router::otp_sidecar::OtpSetSecretRequest;
+use crate::rpc::router::otp_sidecar::{OtpPreviewRequest, OtpSetSecretRequest};
 
 use super::super::otp_target::PassmanagerOtpTargetRequest;
 use super::error::PassmanagerOtpError;
@@ -15,6 +15,11 @@ pub(super) struct PassmanagerOtpGenerateRequest<'a> {
     pub(super) node_id: Option<u64>,
     pub(super) target: PassmanagerOtpTargetRequest<'a>,
     pub(super) ts: Option<u64>,
+    pub(super) counter: Option<u64>,
+}
+
+pub(super) struct PassmanagerOtpPreviewRequest<'a> {
+    data: &'a Value,
 }
 
 pub(super) struct PassmanagerOtpRemoveSecretRequest<'a> {
@@ -41,7 +46,19 @@ pub(super) fn parse_generate(data: &Value) -> PassmanagerOtpGenerateRequest<'_> 
         node_id: optional_u64(data, "node_id"),
         target: parse_optional_target(data),
         ts: optional_u64(data, "ts"),
+        counter: optional_u64(data, "counter"),
     }
+}
+
+pub(super) fn parse_preview(
+    data: &Value,
+) -> Result<PassmanagerOtpPreviewRequest<'_>, PassmanagerOtpError> {
+    let secret = normalize_non_empty(data.get("secret").and_then(|value| value.as_str()));
+    if secret.is_none() {
+        return Err(PassmanagerOtpError::empty_payload("secret is required"));
+    }
+
+    Ok(PassmanagerOtpPreviewRequest { data })
 }
 
 pub(super) fn parse_remove_secret(
@@ -105,6 +122,13 @@ impl PassmanagerOtpSetSecretRequest<'_> {
         label: String,
     ) -> Result<OtpSetSecretRequest, PassmanagerOtpError> {
         let secret = required_str(self.data, "secret")?.to_string();
+        let encoding = optional_str(self.data, "encoding")
+            .unwrap_or("base32")
+            .to_string();
+        let otp_type = optional_str(self.data, "type")
+            .unwrap_or("TOTP")
+            .to_string();
+        let counter = optional_u64(self.data, "counter");
         let algorithm = optional_str(self.data, "algorithm")
             .unwrap_or("SHA1")
             .to_string();
@@ -115,9 +139,42 @@ impl PassmanagerOtpSetSecretRequest<'_> {
             node_id,
             label,
             secret,
+            encoding,
+            otp_type,
+            counter,
             algorithm,
             digits,
             period,
+        })
+    }
+}
+
+impl PassmanagerOtpPreviewRequest<'_> {
+    pub(super) fn into_sidecar_request(self) -> Result<OtpPreviewRequest, PassmanagerOtpError> {
+        let secret = required_str(self.data, "secret")?.to_string();
+        let encoding = optional_str(self.data, "encoding")
+            .unwrap_or("base32")
+            .to_string();
+        let otp_type = optional_str(self.data, "type")
+            .unwrap_or("TOTP")
+            .to_string();
+        let counter = optional_u64(self.data, "counter");
+        let algorithm = optional_str(self.data, "algorithm")
+            .unwrap_or("SHA1")
+            .to_string();
+        let digits = optional_u64(self.data, "digits").unwrap_or(6) as u8;
+        let period = optional_u64(self.data, "period").unwrap_or(30) as u32;
+        let ts = optional_u64(self.data, "ts");
+
+        Ok(OtpPreviewRequest {
+            secret,
+            encoding,
+            otp_type,
+            counter,
+            algorithm,
+            digits,
+            period,
+            ts,
         })
     }
 }

@@ -19,25 +19,8 @@ impl RpcRouter {
     pub(in crate::rpc::router::credential_matching) fn credential_provider_base_domain(
         hostname: &str,
     ) -> Option<String> {
-        const COMMON_SLD: &[&str] = &["co", "com", "net", "org", "gov", "edu", "ac"];
-
         let host = Self::credential_provider_normalize_hostname(hostname);
-        let parts: Vec<&str> = host.split('.').filter(|s| !s.is_empty()).collect();
-        if parts.len() < 2 {
-            return None;
-        }
-
-        let last = parts[parts.len() - 1];
-        let second_last = parts[parts.len() - 2];
-        let third_last = parts.get(parts.len().saturating_sub(3)).copied();
-
-        if last.len() == 2 && COMMON_SLD.contains(&second_last) {
-            if let Some(third) = third_last {
-                return Some(format!("{third}.{second_last}.{last}"));
-            }
-        }
-
-        Some(format!("{second_last}.{last}"))
+        psl::domain_str(&host).map(str::to_string)
     }
 
     pub(in crate::rpc::router::credential_matching) fn credential_provider_strip_hash(

@@ -6,6 +6,8 @@ import {init} from 'root/app/bootstrap/Initialize'
 import {applyLayoutQueryParam} from 'root/app/layout/layout-mode'
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import type {
+  MarkdownDocumentRouteSource,
+  MarkdownDocumentViewMode,
   NavigationBlockerIntent,
   ResolvedAudioTrack,
   ResolvedFilesDocumentState,
@@ -17,6 +19,7 @@ import type {FilePreviewMode} from 'root/utils/file-format-registry'
 import {
   pmMobileChromeModel,
   type PMMobileToolbarAction as PasswordMobileToolbarAction,
+  type PMMobileToolbarMetaItem as PasswordMobileToolbarMetaItem,
 } from 'root/features/passmanager/models/pm-mobile-chrome.model'
 import {pmModel} from 'root/features/passmanager/password-manager.model'
 import {getFileManagerModel} from 'root/features/file-manager/file-manager.model'
@@ -34,6 +37,9 @@ import {canShareFiles} from 'root/shared/services/share'
 import {bindTheme} from 'root/shared/services/theme'
 import {lockVaultFromUi} from 'root/shared/services/vault-lock'
 import {remoteStorageModel} from './remote-storage/remote-storage.model'
+import {vaultRekeyModel} from './settings/vault-rekey.model'
+import {walletPageModel} from './wallet/wallet-page.model'
+import type {WalletToolbarCommand} from './wallet/wallet-page.types'
 import {AudioOverlaySessionSync, traceAudioOverlay} from './audio-overlay-session-sync'
 
 let activeAppModel: ChromVoidAppModel | null = null
@@ -52,12 +58,19 @@ export type MobileToolbarStatus = {
 export type MobileToolbarState = {
   show: boolean
   title: string
+  titleAction?: {
+    id: string
+    label: string
+    disabled?: boolean
+    expanded?: boolean
+    popup?: 'dialog' | 'menu'
+  }
   subtitle?: string
+  meta?: PasswordMobileToolbarMetaItem[]
+  metaLabel?: string
   status?: MobileToolbarStatus | null
   leading: MobileToolbarLeadingMode
   backDisabled: boolean
-  showCommand: boolean
-  commandActive?: boolean
   maxVisible: number
   overflowFromIndex?: number
   actions: PasswordMobileToolbarAction[]
@@ -184,6 +197,13 @@ type ResolveToolbarInput = {
   store: AppRouteToolbarStore
 }
 
+const WALLET_TOOLBAR_COMMANDS = new Set<WalletToolbarCommand>(['switch-wallet', 'send', 'receive', 'refresh'])
+
+function executeWalletToolbarAction(actionId: string, presentation?: 'mobile'): boolean {
+  if (!WALLET_TOOLBAR_COMMANDS.has(actionId as WalletToolbarCommand)) return false
+  return walletPageModel.executeToolbarCommand(actionId as WalletToolbarCommand, presentation)
+}
+
 type MarkdownToolbarDocument = Extract<ResolvedFilesDocumentState, {kind: 'markdown'}>
 
 type OpenGalleryInput = {
@@ -203,10 +223,7 @@ function shouldBlockMarkdownNavigation(intent: NavigationBlockerIntent): boolean
   }
 
   const resolvedDocument = navigationModel.resolvedDocument()
-  if (
-    resolvedDocument.kind !== 'markdown' ||
-    resolvedDocument.fileId !== currentDocument.fileId
-  ) {
+  if (resolvedDocument.kind !== 'markdown' || resolvedDocument.fileId !== currentDocument.fileId) {
     return false
   }
 
@@ -231,31 +248,35 @@ function getMarkdownMobileToolbarActions(): PasswordMobileToolbarAction[] {
     const imageAttaching = markdownPreviewModel.imageAttaching()
     actions.push(
       {
-        id: 'markdown-insert-image',
-        icon: 'image-plus',
-        label: i18n(imageAttaching ? 'markdown:attaching-image' : 'markdown:insert-image'),
-        disabled: !markdownPreviewModel.canInsertImage(),
-        active: imageAttaching,
-      },
-    )
-    actions.push(
-      {
-        id: 'markdown-paste',
-        icon: 'clipboard',
-        label: i18n('markdown:paste' as never),
-        disabled: !markdownPreviewModel.canPasteText(),
-      },
-      {
         id: 'markdown-undo',
         icon: 'undo-2',
         label: i18n('markdown:undo'),
         disabled: !markdownPreviewModel.canUndo(),
+        preserveFocusOnPress: true,
       },
       {
         id: 'markdown-redo',
         icon: 'redo-2',
         label: i18n('markdown:redo'),
         disabled: !markdownPreviewModel.canRedo(),
+        preserveFocusOnPress: true,
+      },
+      {
+        id: 'markdown-insert-image',
+        icon: 'image-plus',
+        label: i18n(imageAttaching ? 'markdown:attaching-image' : 'markdown:insert-image'),
+        disabled: !markdownPreviewModel.canInsertImage(),
+        active: imageAttaching,
+        overflowOnly: true,
+        preserveFocusOnPress: true,
+      },
+      {
+        id: 'markdown-paste',
+        icon: 'clipboard',
+        label: i18n('markdown:paste' as never),
+        disabled: !markdownPreviewModel.canPasteText(),
+        overflowOnly: true,
+        preserveFocusOnPress: true,
       },
     )
   }
@@ -266,6 +287,7 @@ function getMarkdownMobileToolbarActions(): PasswordMobileToolbarAction[] {
     label: i18n(markdownPreviewModel.formatting() ? 'markdown:formatting' : 'markdown:format'),
     disabled: !markdownPreviewModel.canFormat(),
     active: markdownPreviewModel.formatting(),
+    preserveFocusOnPress: true,
   })
 
   if (markdownState.kind === 'ready') {
@@ -293,17 +315,18 @@ function getMarkdownMobileToolbarOverflowFromIndex(
   actions: PasswordMobileToolbarAction[],
   maxVisible: number,
 ): number | undefined {
-  const insertImageIndex = actions.findIndex((action) => action.id === 'markdown-insert-image')
-  if (insertImageIndex >= 0 && actions.length > maxVisible) {
-    return Math.max(insertImageIndex + 1, Math.min(2, Math.max(0, maxVisible - 1)))
-  }
-
-  const formatIndex = actions.findIndex((action) => action.id === 'markdown-format')
+  const maxVisibleBeforeOverflow = Math.max(0, maxVisible - 1)
+  const visibleActions = actions.filter((action) => !action.overflowOnly)
+  const formatIndex = visibleActions.findIndex((action) => action.id === 'markdown-format')
   if (formatIndex >= 0) {
-    return Math.min(formatIndex, Math.max(0, maxVisible - 1))
+    return Math.min(formatIndex, maxVisibleBeforeOverflow)
   }
 
-  return actions.length > maxVisible ? maxVisible : undefined
+  if (actions.some((action) => action.overflowOnly) || actions.length > maxVisible) {
+    return Math.min(visibleActions.length, maxVisibleBeforeOverflow)
+  }
+
+  return undefined
 }
 
 function executeMarkdownMobileToolbarAction(
@@ -352,8 +375,7 @@ export function getDeepActiveElement(): HTMLElement | null {
 
 function isEditableElement(element: HTMLElement | null): boolean {
   return (
-    element?.matches?.('input, textarea, select, [contenteditable="true"], [contenteditable=""]') ??
-    false
+    element?.matches?.('input, textarea, select, [contenteditable="true"], [contenteditable=""]') ?? false
   )
 }
 
@@ -378,6 +400,8 @@ export function resolveMobileShellContentScrollMode(input: {
     case 'notes':
     case 'passwords':
     case 'passkeys':
+    case 'wallet':
+    case 'settings':
       return 'surface'
     default:
       return 'shell'
@@ -394,8 +418,6 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
     title: '',
     leading: 'none',
     backDisabled: false,
-    showCommand: false,
-    commandActive: false,
     maxVisible: 3,
     actions: [],
   }
@@ -411,8 +433,6 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
       title: ctx.title,
       leading: ctx.canGoBack ? 'back' : 'menu',
       backDisabled: ctx.backDisabled,
-      showCommand: ctx.showCommand,
-      commandActive: false,
       maxVisible: 3,
       actions: [],
     }
@@ -422,10 +442,9 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
     return {
       show: true,
       title: i18n('navigation:remote'),
+      subtitle: i18n('remote:subtitle'),
       leading: 'menu',
       backDisabled: false,
-      showCommand: false,
-      commandActive: false,
       maxVisible: 3,
       actions: [],
     }
@@ -436,20 +455,44 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
       title: i18n('gateway:page-title'),
       leading: 'menu',
       backDisabled: false,
-      showCommand: false,
-      commandActive: false,
       maxVisible: 3,
       actions: [],
     }
   }
   if (surface === 'settings') {
+    const settingsRoute = snapshot.settings ?? {kind: 'overview'}
+    if (settingsRoute.kind !== 'overview') {
+      const titleKey =
+        settingsRoute.kind === 'security'
+          ? 'settings:security-title'
+          : settingsRoute.kind === 'autofill'
+            ? 'settings:provider-title'
+            : settingsRoute.kind === 'files'
+              ? 'settings:files-storage-title'
+              : settingsRoute.kind === 'passwords'
+                ? 'settings:password-vault-title'
+                : settingsRoute.kind === 'license'
+                  ? 'settings:license-title'
+                  : settingsRoute.kind === 'vault-rekey'
+                    ? 'settings:vault-password-title'
+                    : 'settings:passwords-maintenance-import'
+
+      return {
+        show: true,
+        title: i18n(titleKey),
+        leading: 'back',
+        backDisabled: settingsRoute.kind === 'vault-rekey' && vaultRekeyModel.busy(),
+        maxVisible: 3,
+        actions: [],
+      }
+    }
+
     return {
       show: true,
       title: i18n('navigation:settings'),
+      subtitle: i18n('settings:subtitle'),
       leading: 'menu',
       backDisabled: false,
-      showCommand: false,
-      commandActive: false,
       maxVisible: 3,
       actions: [],
     }
@@ -458,12 +501,82 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
     return {
       show: true,
       title: i18n('navigation:passkeys'),
+      subtitle: i18n('passkeys:mobile-description'),
       leading: 'menu',
       backDisabled: false,
-      showCommand: false,
-      commandActive: false,
       maxVisible: 3,
       actions: [],
+    }
+  }
+  if (surface === 'wallet') {
+    const context = walletPageModel.toolbarContext()
+    if (!context.ready) {
+      return {
+        show: true,
+        title: i18n('navigation:wallet'),
+        subtitle: i18n('wallet:subtitle'),
+        leading: 'menu',
+        backDisabled: false,
+        maxVisible: 3,
+        actions: [],
+      }
+    }
+
+    const status: MobileToolbarStatus | null = context.refreshing
+      ? {
+          tone: 'saving',
+          icon: 'refresh-cw',
+          label: i18n('wallet:status:refreshing'),
+          spinner: true,
+        }
+      : !walletPageModel.selectedNetworkReady()
+        ? {
+            tone: 'error',
+            icon: 'triangle-alert',
+            label: i18n('wallet:status:provider-unavailable:title'),
+          }
+        : null
+
+    return {
+      show: true,
+      title: context.walletLabel,
+      titleAction: {
+        id: 'switch-wallet',
+        label: `${i18n('wallet:switcher:title')}: ${context.walletLabel}`,
+        disabled: !context.canSwitchWallet,
+        expanded: context.switcherOpen,
+        popup: 'dialog',
+      },
+      subtitle: `${context.networkLabel} · ${context.accountLabel}`,
+      status,
+      leading: 'menu',
+      backDisabled: false,
+      maxVisible: 3,
+      overflowFromIndex: 2,
+      actions: [
+        {
+          id: 'send',
+          icon: 'arrow-up-right',
+          label: i18n('wallet:send:title'),
+          disabled: !context.canSend,
+          active: context.sendActive,
+          tone: 'accent',
+        },
+        {
+          id: 'receive',
+          icon: 'arrow-down-left',
+          label: i18n('wallet:receive:title'),
+          disabled: !context.canReceive,
+        },
+        {
+          id: 'refresh',
+          icon: 'refresh-cw',
+          label: i18n('wallet:action:refresh'),
+          disabled: !context.canRefresh,
+          overflowOnly: true,
+        },
+      ],
+      executeAction: executeWalletToolbarAction,
     }
   }
 
@@ -473,24 +586,23 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
       return {
         show: true,
         title: i18n('navigation:passwords'),
+        subtitle: pmMobileChromeModel.getRootSubtitle(),
         leading: 'menu',
         backDisabled: false,
-        showCommand: false,
-        commandActive: false,
         maxVisible: 3,
         actions: [],
       }
     }
     const ctx = pmMobileChromeModel.getToolbarContext()
-    const commandContext = pmMobileChromeModel.getCommandContext()
     const actions = pmMobileChromeModel.getToolbarActions()
     return {
       show: true,
       title: ctx.title,
+      subtitle: ctx.subtitle,
+      meta: ctx.meta,
+      metaLabel: ctx.metaLabel,
       leading: ctx.canGoBack ? 'back' : 'menu',
       backDisabled: ctx.backDisabled,
-      showCommand: ctx.showCommand,
-      commandActive: commandContext.query.trim().length > 0,
       maxVisible: ctx.maxVisible,
       overflowFromIndex: ctx.overflowFromIndex,
       actions,
@@ -506,8 +618,6 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
       subtitle: i18n('notes:quick_view:subtitle' as never),
       leading: 'menu',
       backDisabled: false,
-      showCommand: true,
-      commandActive: false,
       maxVisible: 3,
       actions: [{id: 'create-note', icon: 'book-plus', label: i18n('file-manager:create-note')}],
       executeAction: (actionId: string) => fileManagerModel.executeMobileCommand(actionId),
@@ -533,8 +643,6 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
       status: chrome.status,
       leading: 'back',
       backDisabled: false,
-      showCommand: false,
-      commandActive: false,
       maxVisible,
       overflowFromIndex: getMarkdownMobileToolbarOverflowFromIndex(actions, maxVisible),
       actions,
@@ -548,16 +656,11 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
   if (selectionActive) {
     return {
       show: true,
-      title:
-        selectedNodeIds.length > 0
-          ? i18n('file-manager:selected-count', {count: String(selectedNodeIds.length)})
-          : i18n('details:selected'),
+      title: getFilesToolbarTitle(currentPath),
       leading: 'back',
       backDisabled: false,
-      showCommand: false,
-      commandActive: false,
       maxVisible: 4,
-      actions: filesActions,
+      actions: [],
       executeAction: (actionId: string) => fileManagerModel.executeMobileCommand(actionId),
     }
   }
@@ -565,10 +668,12 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
   return {
     show: true,
     title: getFilesToolbarTitle(currentPath),
+    subtitle:
+      currentPath === '/' && !hasOverlay && !hasFilesDocument
+        ? i18n('navigation:files-description')
+        : undefined,
     leading: hasOverlay || hasFilesDocument || currentPath !== '/' ? 'back' : 'menu',
     backDisabled: false,
-    showCommand: !hasOverlay && !hasFilesDocument,
-    commandActive: false,
     maxVisible: 3,
     overflowFromIndex: filesActions.length > 0 ? 0 : undefined,
     actions: filesActions,
@@ -596,7 +701,10 @@ export function handleMobileBack(): boolean {
 }
 
 export class ChromVoidAppModel {
-  readonly renderedRoute = atom<Routes>(tryGetAppContext()?.router?.route?.() ?? 'loading', 'app.route.renderedRoute')
+  readonly renderedRoute = atom<Routes>(
+    tryGetAppContext()?.router?.route?.() ?? 'loading',
+    'app.route.renderedRoute',
+  )
 
   readonly mobileToolbarState = computed<MobileToolbarState>(() => {
     const route = tryGetAppContext()?.router?.route?.() ?? 'loading'
@@ -605,12 +713,20 @@ export class ChromVoidAppModel {
       store: this.toolbarStore,
     })
   })
+  readonly walletToolbarContext = computed(() => walletPageModel.toolbarContext())
   readonly mobileShellContentScrollMode = computed<MobileShellContentScrollMode>(() =>
     resolveMobileShellContentScrollMode({
       layoutMode: this.toolbarStore.layoutMode(),
       surface: navigationModel.currentSurface(),
     }),
   )
+
+  executeWalletToolbarAction(actionId: string): boolean {
+    return executeWalletToolbarAction(
+      actionId,
+      this.toolbarStore.layoutMode() === 'mobile' ? 'mobile' : undefined,
+    )
+  }
 
   readonly galleryOpen = computed(() => navigationModel.resolvedOverlay().kind === 'gallery')
   readonly galleryImages = computed<Array<AppGalleryImage>>(() => {
@@ -681,10 +797,14 @@ export class ChromVoidAppModel {
     return {
       fileId: document.fileId,
       fileName: document.fileName,
+      ...(document.path ? {path: document.path} : {}),
+      ...(document.parentPath ? {parentPath: document.parentPath} : {}),
       ...(document.size !== undefined ? {size: document.size} : {}),
       mimeType: document.mimeType,
       lastModified: document.lastModified,
       sourceRevision: document.sourceRevision,
+      ...(document.anchor ? {anchor: document.anchor} : {}),
+      ...(document.viewMode ? {viewMode: document.viewMode} : {}),
       mode: 'markdown' as const,
     }
   })
@@ -828,10 +948,16 @@ export class ChromVoidAppModel {
     const syncAudioOverlay = () => this.syncAudioOverlaySession()
     syncAudioOverlay()
     this.componentUnsubscribers.push(subscribeAfterInitial(getRouter().route, ensureVisibleRoute))
-    this.componentUnsubscribers.push(subscribeAfterInitial(navigationModel.currentSurface, ensureVisibleRoute))
+    this.componentUnsubscribers.push(
+      subscribeAfterInitial(navigationModel.currentSurface, ensureVisibleRoute),
+    )
     this.componentUnsubscribers.push(subscribeAfterInitial(moduleAccessModel.states, ensureVisibleRoute))
-    this.componentUnsubscribers.push(subscribeAfterInitial(navigationModel.resolvedOverlay, ensureVisibleRoute))
-    this.componentUnsubscribers.push(subscribeAfterInitial(navigationModel.resolvedDocument, ensureVisibleRoute))
+    this.componentUnsubscribers.push(
+      subscribeAfterInitial(navigationModel.resolvedOverlay, ensureVisibleRoute),
+    )
+    this.componentUnsubscribers.push(
+      subscribeAfterInitial(navigationModel.resolvedDocument, ensureVisibleRoute),
+    )
     this.componentUnsubscribers.push(subscribeAfterInitial(navigationModel.resolvedOverlay, syncAudioOverlay))
     this.componentUnsubscribers.push(
       subscribeAfterInitial(mediaPlaybackModel.currentIndex, () => this.syncAudioOverlayFromPlayback()),
@@ -1029,13 +1155,20 @@ export class ChromVoidAppModel {
     navigationModel.openPreview(fileId)
   }
 
-  openMarkdownDocument(fileId: number) {
+  openMarkdownDocument(
+    fileId: number,
+    options?: {
+      parentPath?: string
+      source?: MarkdownDocumentRouteSource
+      viewMode?: MarkdownDocumentViewMode
+    },
+  ) {
     const document = navigationModel.snapshot().files?.document
     if (document?.kind === 'markdown' && document.fileId === fileId) {
       return
     }
 
-    navigationModel.openMarkdownDocument(fileId)
+    navigationModel.openMarkdownDocument(fileId, 'push', options)
   }
 
   closeVideoPlayer() {

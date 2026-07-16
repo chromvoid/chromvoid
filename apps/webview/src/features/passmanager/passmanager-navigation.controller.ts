@@ -7,6 +7,7 @@ import {defaultLogger} from 'root/core/logger'
 import {dialogService} from 'root/shared/services/dialog-service'
 import {pmActiveRowModel} from './models/pm-active-row.model'
 import {pmEntryEditorModel} from './models/pm-entry-editor.model'
+import {pmListViewportModel} from './models/pm-list-viewport.model'
 import {pmMotionModel, type PassmanagerMotionDirection} from './models/pm-motion.model'
 import {getPassmanagerRoot, getPassmanagerShowElement, type PMRootShowElement} from './models/pm-root.adapter'
 import {subscribeToSignalChanges} from './service/subscribed-signal'
@@ -98,6 +99,7 @@ class PassmanagerNavigationController {
   reset(): void {
     this.navigationStack.length = 0
     pmActiveRowModel.clearAll()
+    pmListViewportModel.clearAll()
     pmMotionModel.reset()
     this.createEntryTargetGroupPath = undefined
     this.createGroupTargetGroupPath = undefined
@@ -129,6 +131,14 @@ class PassmanagerNavigationController {
 
     if (current === 'otpView') {
       return {kind: 'otp-view'}
+    }
+
+    if (current === 'sshView') {
+      return {kind: 'ssh-view'}
+    }
+
+    if (current === 'envRuntimeView') {
+      return {kind: 'env-runtime-view'}
     }
 
     if (current instanceof Entry) {
@@ -165,111 +175,132 @@ class PassmanagerNavigationController {
     route: PassmanagerRoute,
     options: {preserveEntryEditor?: boolean} = {},
   ): boolean {
-    return this.withSuppressedNotify(() => {
-      const current = root.showElement()
-      if (!options.preserveEntryEditor) {
-        pmEntryEditorModel.reset()
-      }
-      this.logger.debug('[PassManager][NavController] applyRoute begin', {
-        route,
-        current: describeShowElement(current),
-        hasActiveEntryEditor: pmEntryEditorModel.active(),
-      })
+    const current = root.showElement()
+    let direction: PassmanagerMotionDirection
+    let target: string
+    let applyRoute: () => void
 
-      let handled = false
-      switch (route.kind) {
-        case 'root':
+    switch (route.kind) {
+      case 'root':
+        direction = this.getApplyRouteDirection(current, root)
+        target = this.targetForRoot(root)
+        applyRoute = () => {
           this.createEntryTargetGroupPath = undefined
           this.createGroupTargetGroupPath = undefined
           this.maybePreserveActiveSelection(current, root)
           root.showElement.set(root)
-          this.setMotionIntent(this.getApplyRouteDirection(current, root), this.targetForRoot(root))
-          handled = true
-          break
-        case 'group': {
-          const group = this.findGroupByPath(route.groupPath)
-          if (!group) {
-            return false
-          }
+        }
+        break
+      case 'group': {
+        const group = this.findGroupByPath(route.groupPath)
+        if (!group) return false
+        direction = this.getApplyRouteDirection(current, group)
+        target = this.targetForGroup(group)
+        applyRoute = () => {
           this.createEntryTargetGroupPath = undefined
           this.createGroupTargetGroupPath = undefined
           this.maybePreserveActiveSelection(current, group)
           root.showElement.set(group)
-          this.setMotionIntent(this.getApplyRouteDirection(current, group), this.targetForGroup(group))
-          handled = true
-          break
         }
-        case 'entry': {
-          const entry = this.findEntryById(route.entryId)
-          if (!entry) {
-            return false
-          }
+        break
+      }
+      case 'entry': {
+        const entry = this.findEntryById(route.entryId)
+        if (!entry) return false
+        direction = current === entry ? 'none' : 'replace'
+        target = this.targetForEntry(entry)
+        applyRoute = () => {
           this.createEntryTargetGroupPath = undefined
           this.createGroupTargetGroupPath = undefined
           root.showElement.set(entry)
-          this.setMotionIntent(current === entry ? 'none' : 'replace', this.targetForEntry(entry))
-          handled = true
-          break
         }
-        case 'create-entry': {
-          const previousTargetGroupPath = this.createEntryTargetGroupPath
+        break
+      }
+      case 'create-entry': {
+        const previousTargetGroupPath = this.createEntryTargetGroupPath
+        const group = route.targetGroupPath ? this.findGroupByPath(route.targetGroupPath) : undefined
+        direction =
+          current === 'createEntry' && route.targetGroupPath === previousTargetGroupPath ? 'none' : 'open'
+        target = this.targetForCreateEntry(group)
+        applyRoute = () => {
           this.createEntryTargetGroupPath = route.targetGroupPath
           this.createGroupTargetGroupPath = undefined
-          const target = route.targetGroupPath ? this.findGroupByPath(route.targetGroupPath) : undefined
-          if (target) {
-            root.setShowElement('createEntry', target)
-          } else {
-            root.showElement.set('createEntry')
-          }
-          this.setMotionIntent(
-            current === 'createEntry' && route.targetGroupPath === previousTargetGroupPath ? 'none' : 'open',
-            this.targetForCreateEntry(target),
-          )
-          handled = true
-          break
+          if (group) root.setShowElement('createEntry', group)
+          else root.showElement.set('createEntry')
         }
-        case 'create-group': {
-          const previousTargetGroupPath = this.createGroupTargetGroupPath
+        break
+      }
+      case 'create-group': {
+        const previousTargetGroupPath = this.createGroupTargetGroupPath
+        const group = route.targetGroupPath ? this.findGroupByPath(route.targetGroupPath) : undefined
+        direction =
+          current === 'createGroup' && route.targetGroupPath === previousTargetGroupPath ? 'none' : 'open'
+        target = this.targetForCreateGroup(group)
+        applyRoute = () => {
           this.createEntryTargetGroupPath = undefined
           this.createGroupTargetGroupPath = route.targetGroupPath
-          const target = route.targetGroupPath ? this.findGroupByPath(route.targetGroupPath) : undefined
-          if (target) {
-            root.setShowElement('createGroup', target)
-          } else {
-            root.showElement.set('createGroup')
-          }
-          this.setMotionIntent(
-            current === 'createGroup' && route.targetGroupPath === previousTargetGroupPath ? 'none' : 'open',
-            this.targetForCreateGroup(target),
-          )
-          handled = true
-          break
+          if (group) root.setShowElement('createGroup', group)
+          else root.showElement.set('createGroup')
         }
-        case 'import':
+        break
+      }
+      case 'import':
+        direction = current === 'importDialog' ? 'none' : 'open'
+        target = this.targetForImport()
+        applyRoute = () => {
           this.createEntryTargetGroupPath = undefined
           this.createGroupTargetGroupPath = undefined
           root.showElement.set('importDialog')
-          this.setMotionIntent(current === 'importDialog' ? 'none' : 'open', this.targetForImport())
-          handled = true
-          break
-        case 'otp-view':
+        }
+        break
+      case 'otp-view':
+        direction = current === 'otpView' ? 'none' : 'open'
+        target = this.targetForOtpView()
+        applyRoute = () => {
           this.createEntryTargetGroupPath = undefined
           this.createGroupTargetGroupPath = undefined
           setExtendedShowElement(root, 'otpView')
-          this.setMotionIntent(current === 'otpView' ? 'none' : 'open', this.targetForOtpView())
-          handled = true
-          break
+        }
+        break
+      case 'ssh-view':
+        direction = current === 'sshView' ? 'none' : 'open'
+        target = this.targetForSshView()
+        applyRoute = () => {
+          this.createEntryTargetGroupPath = undefined
+          this.createGroupTargetGroupPath = undefined
+          setExtendedShowElement(root, 'sshView')
+        }
+        break
+      case 'env-runtime-view':
+        direction = current === 'envRuntimeView' ? 'none' : 'open'
+        target = this.targetForEnvRuntimeView()
+        applyRoute = () => {
+          this.createEntryTargetGroupPath = undefined
+          this.createGroupTargetGroupPath = undefined
+          setExtendedShowElement(root, 'envRuntimeView')
+        }
+        break
+    }
+
+    this.logger.debug('[PassManager][NavController] applyRoute begin', {
+      route,
+      current: describeShowElement(current),
+      hasActiveEntryEditor: pmEntryEditorModel.active(),
+    })
+    this.runMotion(direction, target, () => {
+      if (!options.preserveEntryEditor) {
+        pmEntryEditorModel.reset()
       }
+      applyRoute()
 
       this.logger.debug('[PassManager][NavController] applyRoute result', {
         route,
-        handled,
+        handled: true,
         next: describeShowElement(root.showElement()),
         hasActiveEntryEditor: pmEntryEditorModel.active(),
       })
-
-      return handled
     })
+    return true
   }
 
   openItem(item: Entry | Group): void {
@@ -283,9 +314,7 @@ class PassmanagerNavigationController {
       (current instanceof Group && item instanceof Group && current.id === item.id) ||
       (current instanceof Entry && item instanceof Entry && current.id === item.id)
     ) {
-      this.withSuppressedNotify(() => {
-        this.setMotionIntent('none', this.targetForItem(current))
-      })
+      this.runMotion('none', this.targetForItem(current), () => {})
       return
     }
 
@@ -302,16 +331,16 @@ class PassmanagerNavigationController {
   }
 
   private openItemNow(root: ManagerRoot, item: Entry | Group): void {
-    this.withSuppressedNotify(() => {
-      const current = root.showElement()
-      if (
-        (current instanceof Group && item instanceof Group && current.id === item.id) ||
-        (current instanceof Entry && item instanceof Entry && current.id === item.id)
-      ) {
-        this.setMotionIntent('none', this.targetForItem(current))
-        return
-      }
+    const current = root.showElement()
+    if (
+      (current instanceof Group && item instanceof Group && current.id === item.id) ||
+      (current instanceof Entry && item instanceof Entry && current.id === item.id)
+    ) {
+      this.runMotion('none', this.targetForItem(current), () => {})
+      return
+    }
 
+    this.runMotion('forward', this.targetForItem(item), () => {
       pmEntryEditorModel.reset()
 
       if (current instanceof ManagerRoot || current instanceof Group) {
@@ -324,7 +353,6 @@ class PassmanagerNavigationController {
 
       this.createEntryTargetGroupPath = undefined
       root.showElement.set(item)
-      this.setMotionIntent('forward', this.targetForItem(item))
     })
   }
 
@@ -357,57 +385,69 @@ class PassmanagerNavigationController {
 
   private goBackFromCurrentNow(root: ManagerRoot): boolean {
     const current = root.showElement() as PMRootShowElement
-    return this.withSuppressedNotify(() => {
-      if (current instanceof Entry && pmEntryEditorModel.closeSurface(current.id)) {
-        return true
-      }
+    if (current instanceof Entry && pmEntryEditorModel.closeSurface(current.id)) {
+      return true
+    }
 
-      if (
-        current === 'createEntry' ||
-        current === 'createGroup' ||
-        current === 'importDialog' ||
-        current === 'otpView'
-      ) {
+    if (
+      current === 'createEntry' ||
+      current === 'createGroup' ||
+      current === 'importDialog' ||
+      current === 'otpView' ||
+      current === 'sshView' ||
+      current === 'envRuntimeView'
+    ) {
+      this.runMotion('back', this.targetForRoot(root), () => {
         this.createEntryTargetGroupPath = undefined
         this.createGroupTargetGroupPath = undefined
         root.showElement.set(root)
-        this.setMotionIntent('back', this.targetForRoot(root))
-        return true
+      })
+      return true
+    }
+
+    if (!(current instanceof Entry || current instanceof Group)) {
+      return false
+    }
+
+    let stackMatch:
+      | {frame: PMNavigationFrame; index: number; target: Group | ManagerRoot}
+      | undefined
+    for (let index = this.navigationStack.length - 1; index >= 0; index -= 1) {
+      const frame = this.navigationStack[index]
+      if (frame?.selectedItemId !== current.id) continue
+      const target = this.getContainerById(frame.containerId)
+      if (target && target !== current) {
+        stackMatch = {frame, index, target}
+        break
       }
+    }
 
-      if (!(current instanceof Entry || current instanceof Group)) {
-        return false
-      }
+    if (stackMatch) {
+      this.runMotion('back', this.targetForContainer(stackMatch.target), () => {
+        this.navigationStack.splice(stackMatch.index)
+        pmActiveRowModel.setActive(stackMatch.frame.containerId, stackMatch.frame.selectedItemId)
+        root.showElement.set(stackMatch.target)
+      })
+      return true
+    }
 
-      let frame = this.navigationStack.pop()
-      while (frame) {
-        if (frame.selectedItemId === current.id) {
-          const target = this.getContainerById(frame.containerId)
-          if (target && target !== current) {
-            pmActiveRowModel.setActive(frame.containerId, frame.selectedItemId)
-            root.showElement.set(target)
-            this.setMotionIntent('back', this.targetForContainer(target))
-            return true
-          }
-        }
-
-        frame = this.navigationStack.pop()
-      }
-
-      if (current instanceof Entry) {
-        const parent = current.parent
+    if (current instanceof Entry) {
+      const parent = current.parent
+      this.runMotion('back', this.targetForContainer(parent), () => {
+        this.navigationStack.length = 0
         pmActiveRowModel.setActive(parent.id, current.id)
         root.showElement.set(parent)
-        this.setMotionIntent('back', this.targetForContainer(parent))
-        return true
-      }
+      })
+      return true
+    }
 
-      const parent = this.resolveParentContainer(current)
+    const parent = this.resolveParentContainer(current)
+    this.runMotion('back', this.targetForContainer(parent), () => {
+      this.navigationStack.length = 0
       pmActiveRowModel.setActive(parent.id, current.id)
       root.showElement.set(parent)
-      this.setMotionIntent('back', this.targetForContainer(parent))
-      return true
     })
+    return true
   }
 
   openCreateEntry(targetGroupPath?: string): void {
@@ -424,16 +464,16 @@ class PassmanagerNavigationController {
   }
 
   private openCreateEntryNow(root: ManagerRoot, targetGroupPath?: string): void {
-    this.withSuppressedNotify(() => {
-      pmEntryEditorModel.reset()
-      const current = root.showElement()
-      const currentGroup =
-        targetGroupPath != null
-          ? this.findGroupByPath(targetGroupPath)
-          : current instanceof Group
-            ? current
-            : undefined
+    const current = root.showElement()
+    const currentGroup =
+      targetGroupPath != null
+        ? this.findGroupByPath(targetGroupPath)
+        : current instanceof Group
+          ? current
+          : undefined
 
+    this.runMotion('open', this.targetForCreateEntry(currentGroup), () => {
+      pmEntryEditorModel.reset()
       this.createEntryTargetGroupPath = currentGroup?.name
 
       if (currentGroup) {
@@ -441,7 +481,6 @@ class PassmanagerNavigationController {
       } else {
         root.showElement.set('createEntry')
       }
-      this.setMotionIntent('open', this.targetForCreateEntry(currentGroup))
     })
   }
 
@@ -459,16 +498,16 @@ class PassmanagerNavigationController {
   }
 
   private openCreateGroupNow(root: ManagerRoot, targetGroupPath?: string): void {
-    this.withSuppressedNotify(() => {
-      pmEntryEditorModel.reset()
-      const current = root.showElement()
-      const currentGroup =
-        targetGroupPath != null
-          ? this.findGroupByPath(targetGroupPath)
-          : current instanceof Group
-            ? current
-            : undefined
+    const current = root.showElement()
+    const currentGroup =
+      targetGroupPath != null
+        ? this.findGroupByPath(targetGroupPath)
+        : current instanceof Group
+          ? current
+          : undefined
 
+    this.runMotion('open', this.targetForCreateGroup(currentGroup), () => {
+      pmEntryEditorModel.reset()
       this.createEntryTargetGroupPath = undefined
       this.createGroupTargetGroupPath = currentGroup?.name
       if (currentGroup) {
@@ -476,7 +515,6 @@ class PassmanagerNavigationController {
       } else {
         root.showElement.set('createGroup')
       }
-      this.setMotionIntent('open', this.targetForCreateGroup(currentGroup))
     })
   }
 
@@ -494,12 +532,11 @@ class PassmanagerNavigationController {
   }
 
   private openImportNow(root: ManagerRoot): void {
-    this.withSuppressedNotify(() => {
+    this.runMotion('open', this.targetForImport(), () => {
       pmEntryEditorModel.reset()
       this.createEntryTargetGroupPath = undefined
       this.createGroupTargetGroupPath = undefined
       root.showElement.set('importDialog')
-      this.setMotionIntent('open', this.targetForImport())
     })
   }
 
@@ -509,12 +546,11 @@ class PassmanagerNavigationController {
       return
     }
 
-    this.withSuppressedNotify(() => {
+    this.runMotion('close', this.targetForRoot(root), () => {
       pmEntryEditorModel.reset()
       this.createEntryTargetGroupPath = undefined
       this.createGroupTargetGroupPath = undefined
       root.showElement.set(root)
-      this.setMotionIntent('close', this.targetForRoot(root))
     })
   }
 
@@ -605,17 +641,13 @@ class PassmanagerNavigationController {
     }
   }
 
-  private setMotionIntent(direction: PassmanagerMotionDirection, target: string): void {
-    if (direction === 'none') {
-      pmMotionModel.reset()
-      return
-    }
-
-    pmMotionModel.setIntent({
-      kind: 'surface-change',
-      direction,
-      target,
-    })
+  private runMotion(direction: PassmanagerMotionDirection, target: string, commit: () => void): void {
+    pmMotionModel.run(
+      direction === 'none'
+        ? {kind: 'none', direction: 'none', target: null}
+        : {kind: 'surface-change', direction, target},
+      () => this.withSuppressedNotify(commit),
+    )
   }
 
   private targetForRoot(root: ManagerRoot): string {
@@ -652,6 +684,14 @@ class PassmanagerNavigationController {
 
   private targetForOtpView(): string {
     return 'otp-view'
+  }
+
+  private targetForSshView(): string {
+    return 'ssh-view'
+  }
+
+  private targetForEnvRuntimeView(): string {
+    return 'env-runtime-view'
   }
 
   private getApplyRouteDirection(

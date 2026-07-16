@@ -30,6 +30,13 @@ interface VaultRekeyResult {
   backup_recommended?: boolean
 }
 
+export type VaultRekeyValidationField = 'current' | 'new' | 'confirm'
+
+type VaultRekeyValidationIssue = {
+  field: VaultRekeyValidationField
+  message: string
+}
+
 function isOk<T>(res: RpcResult<T>): res is RpcOk<T> {
   return typeof res === 'object' && res !== null && 'ok' in res && res.ok === true
 }
@@ -42,6 +49,10 @@ class VaultRekeyModel {
   readonly isCancelling = atom(false)
   readonly progress = atom<VaultRekeyProgressEvent | null>(null)
   readonly error = atom('')
+  readonly validationField = atom<VaultRekeyValidationField | null>(
+    null,
+    'settings.vaultRekey.validationField',
+  )
   readonly success = atom(false)
   readonly backupRecommended = atom(false)
 
@@ -124,22 +135,24 @@ class VaultRekeyModel {
     this.isCancelling.set(false)
     this.progress.set(null)
     this.error.set('')
+    this.validationField.set(null)
     this.success.set(false)
     this.backupRecommended.set(false)
     this.cleanupProgressListener()
   }
 
-  async submit(): Promise<void> {
-    const validationError = this.getSubmitValidationError()
-    if (validationError) {
-      this.error.set(validationError)
+  async submit(): Promise<boolean> {
+    const validationIssue = this.getSubmitValidationIssue()
+    if (validationIssue) {
+      this.validationField.set(validationIssue.field)
+      this.error.set(validationIssue.message)
       this.success.set(false)
-      return
+      return false
     }
     if (!isTauriRuntime()) {
       this.error.set(i18n('settings:vault-password-unavailable'))
       this.success.set(false)
-      return
+      return false
     }
 
     this.busy.set(true)
@@ -164,9 +177,10 @@ class VaultRekeyModel {
       )
 
       if (!isOk(result)) {
+        this.validationField.set(result.code === 'REKEY_INVALID_CURRENT_PASSWORD' ? 'current' : null)
         this.error.set(this.errorLabel(result.error, result.code))
         this.success.set(false)
-        return
+        return false
       }
 
       this.currentPassword.set('')
@@ -181,9 +195,11 @@ class VaultRekeyModel {
       this.success.set(true)
       this.backupRecommended.set(result.result.backup_recommended !== false)
       getAppContext().store.pushNotification('success', i18n('settings:vault-password-success-title'))
+      return true
     } catch (error) {
       this.error.set(error instanceof Error ? error.message : String(error))
       this.success.set(false)
+      return false
     } finally {
       this.busy.set(false)
       this.isCancelling.set(false)
@@ -215,16 +231,25 @@ class VaultRekeyModel {
   private clearTransientState(): void {
     if (this.busy()) return
     this.error.set('')
+    this.validationField.set(null)
     this.success.set(false)
     this.backupRecommended.set(false)
   }
 
-  private getSubmitValidationError(): string {
-    if (this.currentPassword().length === 0) return i18n('settings:vault-password-current-required')
-    if (this.newPassword().length < 8) return i18n('settings:vault-password-too-short')
-    if (this.currentPassword() === this.newPassword()) return i18n('settings:vault-password-same')
-    if (this.newPassword() !== this.confirmPassword()) return i18n('settings:vault-password-mismatch')
-    return ''
+  private getSubmitValidationIssue(): VaultRekeyValidationIssue | null {
+    if (this.currentPassword().length === 0) {
+      return {field: 'current', message: i18n('settings:vault-password-current-required')}
+    }
+    if (this.newPassword().length < 8) {
+      return {field: 'new', message: i18n('settings:vault-password-too-short')}
+    }
+    if (this.currentPassword() === this.newPassword()) {
+      return {field: 'new', message: i18n('settings:vault-password-same')}
+    }
+    if (this.newPassword() !== this.confirmPassword()) {
+      return {field: 'confirm', message: i18n('settings:vault-password-mismatch')}
+    }
+    return null
   }
 
   private async startProgressListener(): Promise<void> {

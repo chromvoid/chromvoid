@@ -5,11 +5,6 @@ import {Entry, ManagerRoot} from '@project/passmanager'
 import {PMEntryEditModel} from '../../src/features/passmanager/components/card/entry/entry-edit.model'
 import {pmEntryEditorModel} from '../../src/features/passmanager/models/pm-entry-editor.model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
-import {passmanagerSshKeygen} from 'root/features/passmanager/service/passmanager-ssh-keygen'
-
-vi.mock('root/features/passmanager/service/passmanager-ssh-keygen', () => ({
-  passmanagerSshKeygen: vi.fn(),
-}))
 
 function createEntry(options: {
   id: string
@@ -317,54 +312,4 @@ describe('PMEntryEditModel external editor surface sync', () => {
     expect(updateEntry).not.toHaveBeenCalled()
   })
 
-  it('generates and stores SSH key metadata through the edit model', async () => {
-    vi.mocked(passmanagerSshKeygen).mockResolvedValue({
-      key_id: 'key-1',
-      key_type: 'ed25519',
-      fingerprint: 'SHA256:test',
-      public_key_openssh: 'ssh-ed25519 test',
-    })
-    const entry = createEntry({id: 'entry-ssh'})
-    const updateSshKeys = vi.spyOn(entry, 'updateSshKeys').mockResolvedValue(true)
-    const model = new PMEntryEditModel()
-
-    model.sshDraft.reset({entryTitle: entry.title, username: entry.username})
-
-    await expect(model.generateSshKey(entry)).resolves.toBe(true)
-
-    expect(passmanagerSshKeygen).toHaveBeenCalledWith({
-      entryId: entry.id,
-      keyType: 'ed25519',
-      comment: 'user@Entry title',
-    })
-    expect(updateSshKeys).toHaveBeenCalledWith([
-      expect.objectContaining({
-        id: 'key-1',
-        type: 'ed25519',
-        fingerprint: 'SHA256:test',
-        name: 'Entry title SSH',
-      }),
-    ])
-    expect(model.sshResult()).toMatchObject({
-      keyId: 'key-1',
-      publicKey: 'ssh-ed25519 test',
-      pending: false,
-    })
-    expect(model.sshGenerating()).toBe(false)
-  })
-
-  it('keeps SSH generator open and reports failures', async () => {
-    vi.mocked(passmanagerSshKeygen).mockRejectedValue(new Error('keygen failed'))
-    const entry = createEntry({id: 'entry-ssh-fail'})
-    const model = new PMEntryEditModel()
-
-    model.sshDraft.reset({entryTitle: entry.title, username: entry.username})
-    model.sshGeneratorOpen.set(true)
-
-    await expect(model.generateSshKey(entry)).resolves.toBe(false)
-
-    expect(model.sshGeneratorOpen()).toBe(true)
-    expect(model.sshGenerating()).toBe(false)
-    expect(model.sshError()).toBe('keygen failed')
-  })
 })

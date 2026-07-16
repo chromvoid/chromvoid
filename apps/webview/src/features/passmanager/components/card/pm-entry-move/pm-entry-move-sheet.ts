@@ -31,6 +31,10 @@ export class PMEntryMoveSheet extends ReatomLitElement {
       display: contents;
     }
 
+    cv-bottom-sheet {
+      --cv-bottom-sheet-header-padding: 0 var(--cv-space-4) var(--cv-space-3);
+    }
+
     cv-bottom-sheet::part(content) {
       overflow: hidden;
       border-color: var(--cv-color-primary-border);
@@ -38,7 +42,6 @@ export class PMEntryMoveSheet extends ReatomLitElement {
     }
 
     cv-bottom-sheet::part(header) {
-      padding: var(--cv-space-4) var(--cv-space-4) var(--cv-space-3);
       border-block-end: 1px solid var(--cv-color-border);
     }
 

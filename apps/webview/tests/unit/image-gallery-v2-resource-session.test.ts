@@ -677,7 +677,7 @@ describe('image gallery v2 resource/session core', () => {
     const pending = new Map<number, ReturnType<typeof deferred<LoadResult>>>()
     let activeLoads = 0
     let maxActiveLoads = 0
-    const loadSourceById = vi.fn<LoadSourceById>((fileId, _name, options) => {
+    const loadSourceById = vi.fn<LoadSourceById>((fileId, _name, _options) => {
       activeLoads += 1
       maxActiveLoads = Math.max(maxActiveLoads, activeLoads)
       const item = deferred<LoadResult>()

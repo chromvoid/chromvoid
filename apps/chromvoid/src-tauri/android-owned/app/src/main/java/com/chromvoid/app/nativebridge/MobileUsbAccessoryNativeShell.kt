@@ -7,6 +7,7 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.chromvoid.app.shared.NativeRuntimeLoader
 import com.chromvoid.app.shared.TracePrivacy
+import com.chromvoid.app.shared.UsbApprovalNotificationFactory
 import java.util.UUID
 import org.json.JSONObject
 
@@ -27,7 +28,10 @@ internal interface MobileUsbAccessoryNativeSink {
         identityJson: String,
     ): Boolean
 
-    fun stopAccessorySession(sessionId: String)
+    fun stopAccessorySession(
+        sessionId: String,
+        reasonCode: String,
+    )
 }
 
 internal object MobileUsbAccessoryNativeShell {
@@ -52,6 +56,41 @@ internal object MobileUsbAccessoryNativeShell {
             sessionId,
             reasonCode,
         )
+    }
+
+    @JvmStatic
+    fun onNativeUsbApprovalRequired(
+        context: Context,
+        kind: String,
+        attemptId: String,
+    ) {
+        if (!UsbApprovalNotificationFactory.isKnownKind(kind) || attemptId.isBlank()) {
+            Log.w(TAG, "Ignoring invalid USB approval notification kind=$kind")
+            return
+        }
+        UsbApprovalNotificationFactory.post(context.applicationContext, kind, attemptId)
+    }
+
+    @JvmStatic
+    fun onNativeUsbApprovalResolved(context: Context) {
+        UsbApprovalNotificationFactory.cancel(context.applicationContext)
+    }
+
+    fun resolveNativeUsbApproval(
+        kind: String,
+        attemptId: String,
+        approved: Boolean,
+    ): Boolean {
+        if (
+            !UsbApprovalNotificationFactory.isKnownKind(kind) ||
+                attemptId.isBlank() ||
+                (kind == UsbApprovalNotificationFactory.KIND_PAIRING && approved)
+        ) {
+            return false
+        }
+        return NativeRuntimeLoader.callWhenLoaded(TAG, false) {
+            nativeResolveUsbApproval(kind, attemptId, approved)
+        }
     }
 
     fun createSessionOpener(context: Context): MobileUsbAccessorySessionOpener =
@@ -164,14 +203,14 @@ internal object MobileUsbAccessoryNativeShell {
     ) : MobileUsbAccessorySessionHandle {
         private var closed = false
 
-        override fun close() {
+        override fun close(reason: MobileUsbAccessorySessionStopReason) {
             if (closed) return
             closed = true
             Log.i(
                 TAG,
-                "accessory_native_stop_call session=${TracePrivacy.redactIdentifier(sessionId)}",
+                "accessory_native_stop_call session=${TracePrivacy.redactIdentifier(sessionId)} reason=${reason.code}",
             )
-            nativeSink.stopAccessorySession(sessionId)
+            nativeSink.stopAccessorySession(sessionId, reason.code)
         }
     }
 
@@ -195,13 +234,16 @@ internal object MobileUsbAccessoryNativeShell {
             return result
         }
 
-        override fun stopAccessorySession(sessionId: String) {
+        override fun stopAccessorySession(
+            sessionId: String,
+            reasonCode: String,
+        ) {
             Log.i(
                 TAG,
-                "accessory_jni_stop_dispatch session=${TracePrivacy.redactIdentifier(sessionId)}",
+                "accessory_jni_stop_dispatch session=${TracePrivacy.redactIdentifier(sessionId)} reason=$reasonCode",
             )
             NativeRuntimeLoader.runWhenLoaded(TAG) {
-                nativeStopAccessorySession(sessionId)
+                nativeStopAccessorySession(sessionId, reasonCode)
             }
         }
     }
@@ -222,5 +264,14 @@ internal object MobileUsbAccessoryNativeShell {
         identityJson: String,
     ): Boolean
 
-    private external fun nativeStopAccessorySession(sessionId: String)
+    private external fun nativeStopAccessorySession(
+        sessionId: String,
+        reasonCode: String,
+    )
+
+    private external fun nativeResolveUsbApproval(
+        kind: String,
+        attemptId: String,
+        approved: Boolean,
+    ): Boolean
 }

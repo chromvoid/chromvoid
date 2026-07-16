@@ -4,9 +4,10 @@ import {css, nothing} from 'lit'
 
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import type {HostPathTokenGrant} from 'root/core/transport/transport'
-import type {
-  FileListVisibleRange,
-  FileListViewportSnapshot,
+import {
+  isRealFileListItem,
+  type FileListVisibleRange,
+  type FileListViewportSnapshot,
 } from 'root/shared/contracts/file-manager'
 import {getAppContext} from 'root/shared/services/app-context'
 import {subscribeFileCommand, type FileCommand} from 'root/shared/services/file-command-service'
@@ -26,20 +27,20 @@ import {CvEmptyState} from 'root/shared/ui/empty-state'
 import {ContextMenu, type ContextMenuItem} from './components/context-menu'
 import {DashboardDropzone} from './components/dashboard-dropzone'
 import {DashboardFileList} from './components/dashboard-file-list'
-import {DashboardHeader} from './components/dashboard-header'
 import {FileItem, type FileItemData} from './components/file-item'
 import {FileItemMobile} from './components/file-item-mobile'
 import {FileManagerDesktopLayout} from './components/file-manager-desktop-layout'
 import {FileManagerMobileLayout} from './components/file-manager-mobile-layout'
 import {FileFilterControlsMobile} from './components/file-filter-controls-mobile'
+import {FileManagerStatusBar} from './components/file-manager-status-bar'
 import {FileSearch} from './components/file-search'
+import {WorkspaceDashboardHeader} from './components/workspace-dashboard-header'
 import {FileMove, FileMoveMobile, FileMoveSheet} from './components/file-move'
 import {UploadProgress} from './components/upload-progress'
 import {VirtualFileList} from './components/virtual-file-list'
-import {VirtualFileListMobile} from './components/virtual-file-list-mobile'
-import {isMobileTouch} from './components/file-item/utils'
 
 import {type FileManagerModel, getFileManagerModel} from './file-manager.model'
+import {logFileManagerDebug} from './file-manager-debug'
 import type {FileDragPayload} from './models/file-move.model'
 
 export const formatFormatSpace = (value: number) => {
@@ -52,17 +53,14 @@ export class FileManager extends ReatomLitElement {
     ContextMenu.define()
     FileItem.define()
     FileItemMobile.define()
-    if (isMobileTouch()) {
-      VirtualFileListMobile.define()
-    } else {
-      VirtualFileList.define()
-    }
+    VirtualFileList.define()
     FileSearch.define()
     FileMove.define()
     FileMoveMobile.define()
     FileMoveSheet.define()
     FileFilterControlsMobile.define()
-    DashboardHeader.define()
+    FileManagerStatusBar.define()
+    WorkspaceDashboardHeader.define()
 
     DashboardDropzone.define()
     DashboardFileList.define()
@@ -79,13 +77,14 @@ export class FileManager extends ReatomLitElement {
   private unregisterBackHandler?: () => void
   private unsubscribeFileCommand?: () => void
   private filePickerSession: MobileFilePickerSession | null = null
+  private lastFileListPropsDebugKey: string | null = null
 
   private ensureModel(): FileManagerModel {
     return getFileManagerModel(getAppContext())
   }
 
   focusDashboardCreateDirActionTarget(): boolean {
-    const header = this.renderRoot.querySelector<DashboardHeader>('dashboard-header')
+    const header = this.renderRoot.querySelector<WorkspaceDashboardHeader>('workspace-dashboard-header')
     return header?.focusCreateDirActionTarget() ?? false
   }
 
@@ -179,6 +178,12 @@ export class FileManager extends ReatomLitElement {
     this.ensureModel().setSelectionMode(enabled)
   }
 
+  private handleMobileCommand(e: CustomEvent<{actionId?: string}>) {
+    const actionId = e.detail?.actionId
+    if (typeof actionId !== 'string') return
+    this.ensureModel().executeMobileCommand(actionId)
+  }
+
   private handleViewportStateChange(e: CustomEvent<FileListViewportSnapshot>) {
     this.ensureModel().saveFileListViewportSnapshot(e.detail)
   }
@@ -224,6 +229,21 @@ export class FileManager extends ReatomLitElement {
     void this.ensureModel().handleNativeUpload()
   }
 
+  private handleEmptyAction(event: CustomEvent<{action?: string}>) {
+    const model = this.ensureModel()
+    switch (event.detail?.action) {
+      case 'create-dir':
+        void model.handleCreateDir()
+        break
+      case 'create-note':
+        void model.handleCreateMarkdownNote()
+        break
+      case 'upload':
+        void model.handleToolbarUpload()
+        break
+    }
+  }
+
   private onActionBarFileChange(e: Event) {
     this.endFilePickerSession()
     const files = (e.target as HTMLInputElement).files
@@ -236,7 +256,9 @@ export class FileManager extends ReatomLitElement {
     const input = this.renderRoot.querySelector<HTMLInputElement>('#action-bar-file-input')
     if (!input) return
 
-    this.beginFilePickerSession()
+    if (getAppContext().store.layoutMode() === 'mobile') {
+      this.beginFilePickerSession()
+    }
     try {
       input.click()
     } catch {
@@ -317,13 +339,7 @@ export class FileManager extends ReatomLitElement {
   private handleFileCommand = (command: FileCommand) => {
     if (command.kind !== 'action') return
     const model = this.ensureModel()
-    const item = model.getFileItemById(command.fileId)
-    if (!item) return
-    this.handleItemAction(
-      new CustomEvent('item-action', {
-        detail: {action: command.action, item},
-      }),
-    )
+    model.executeFileActionById(command.action, command.fileId)
   }
 
   handleGlobalFileAction(event: CustomEvent<{action?: string; fileId?: number}>) {
@@ -364,7 +380,7 @@ export class FileManager extends ReatomLitElement {
       })
     }
 
-    menu?.show(event.clientX, event.clientY, items)
+    menu?.show(event.clientX, event.clientY, items, item.name)
   }
 
   private renderSlottedContent(isMobileLayout: boolean) {
@@ -375,19 +391,27 @@ export class FileManager extends ReatomLitElement {
     const model = this.ensureModel()
 
     const renderItems = model.renderItems()
-    const filteredCount = model.filteredCount()
+    const filteredCount = model.visibleCount()
+    const displayTotalCount = model.displayTotalCount()
+    const listFilters = isMobileLayout ? model.mobileListFilters() : model.searchFilters()
+    this.logFileListProps(model, renderItems, filteredCount, isMobileLayout)
 
     return html`
       ${isMobileLayout
         ? html`
-            <dashboard-header
+            <workspace-dashboard-header
               slot="header"
+              surface="files"
               .currentPath=${model.currentPath()}
               .filters=${model.searchFilters()}
               .filterActions=${model.searchFilterActions}
-              .totalFiles=${model.totalCount()}
+              .totalFiles=${displayTotalCount}
               .filteredFiles=${filteredCount}
               .selectedCount=${model.selectedCount()}
+              .quickFilterChips=${model.mobileQuickFilterChips()}
+              .mobileViewMode=${model.mobileEffectiveViewMode()}
+              .mobileToolbarActions=${model.getMobileToolbarActions()}
+              .mobileSelectionActions=${model.getMobileSelectionBarActions()}
               @navigate=${this.handleNavigate}
               @filters-change=${this.handleFiltersChange}
               @create-dir=${this.handleCreateDir}
@@ -396,8 +420,9 @@ export class FileManager extends ReatomLitElement {
               @native-upload-requested=${this.onNativeUploadRequested}
               @delete-selected=${this.handleDeleteSelected}
               @clear-selection=${this.handleClearSelection}
+              @mobile-command=${this.handleMobileCommand}
               @selection-mode-requested=${this.handleSelectionModeRequested}
-            ></dashboard-header>
+            ></workspace-dashboard-header>
           `
         : nothing}
 
@@ -410,7 +435,7 @@ export class FileManager extends ReatomLitElement {
           <dashboard-file-list
             class="dropzone-file-list"
             .items=${renderItems}
-            .filters=${model.searchFilters()}
+            .filters=${listFilters}
             .filterActions=${model.searchFilterActions}
             .selectedItems=${model.selectedItems()}
             .selectionMode=${store.selectionMode()}
@@ -429,21 +454,62 @@ export class FileManager extends ReatomLitElement {
             @viewport-state-change=${this.handleViewportStateChange}
             @viewport-state-restored=${this.handleViewportStateRestored}
             @visible-range-change=${this.handleVisibleRangeChange}
+            @empty-action=${this.handleEmptyAction}
           ></dashboard-file-list>
         </div>
       </dashboard-dropzone>
 
+      ${isMobileLayout
+        ? nothing
+        : html`
+            <file-manager-status-bar
+              slot="status"
+              .visibleCount=${filteredCount}
+              .totalCount=${displayTotalCount}
+              .currentPath=${model.currentPath()}
+              .sortBy=${model.searchFilters().sortBy}
+              .sortDirection=${model.searchFilters().sortDirection}
+              .loading=${model.isLoading()}
+            ></file-manager-status-bar>
+          `}
+
       <context-menu slot="context-menu"></context-menu>
       <upload-progress slot="upload-progress"></upload-progress>
-      ${isMobileLayout
-        ? html`<input
-            id="action-bar-file-input"
-            type="file"
-            multiple
-            @change=${this.onActionBarFileChange}
-          />`
-        : nothing}
+      <input
+        id="action-bar-file-input"
+        type="file"
+        multiple
+        @change=${this.onActionBarFileChange}
+      />
     `
+  }
+
+  private logFileListProps(
+    model: FileManagerModel,
+    renderItems: ReturnType<FileManagerModel['renderItems']>,
+    filteredCount: number,
+    isMobileLayout: boolean,
+  ): void {
+    const realItems = renderItems.filter(isRealFileListItem)
+    const path = model.currentPath()
+    const key = `${path}|${isMobileLayout}|${renderItems.length}|${realItems.length}|${filteredCount}|${model.displayTotalCount()}|${model.searchFilters().viewMode}`
+    if (key === this.lastFileListPropsDebugKey) return
+    this.lastFileListPropsDebugKey = key
+
+    logFileManagerDebug('file-manager', 'render:file-list-props', {
+      path,
+      isMobileLayout,
+      renderSlots: renderItems.length,
+      renderRealCount: realItems.length,
+      filteredCount,
+      totalCount: model.displayTotalCount(),
+      viewMode: model.searchFilters().viewMode,
+      firstItems: realItems.slice(0, 5).map((item) => ({
+        id: item.id,
+        name: item.name,
+        isDir: item.isDir,
+      })),
+    })
   }
 
   private getLayoutContainerHeight(): number {

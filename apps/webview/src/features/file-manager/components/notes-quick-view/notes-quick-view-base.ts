@@ -1,14 +1,20 @@
 import {nothing, type TemplateResult} from 'lit'
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {CVButton} from '@chromvoid/uikit/components/cv-button'
+import {isolateBidiText, isolateLtrText} from '@project/i18n/pure'
 
 import {i18n} from 'root/i18n'
 import {renderGuidanceInline} from 'root/features/guidance/render-guidance-inline'
-import {formatDate, formatFileSize} from '../virtual-file-list/virtual-file-list.model-helpers'
-import type {PMSummaryRailItem} from '../../../passmanager/components/summary-rail'
+import {
+  WorkspaceDashboardHeader,
+  type WorkspaceDashboardHeaderControlsModel,
+  type WorkspaceDashboardHeaderViewModeOption,
+} from '../workspace-dashboard-header'
 import {
   notesQuickViewModel,
-  type NotesQuickViewMode,
+  type NotesQuickViewDisplayMode,
   type NotesQuickViewRow,
+  type NotesQuickViewRowView,
   type NotesQuickViewTreeDirectory,
   type NotesQuickViewTreeItem,
 } from './notes-quick-view.model'
@@ -17,6 +23,84 @@ type EmptyStateKind = 'unavailable' | 'error' | 'empty' | 'filtered'
 type RenderRowOptions = {
   tree?: boolean
   level?: number
+}
+
+const createTechnicalMetadataLabel = (parts: string[]): string => parts.map(isolateLtrText).join(' · ')
+
+const renderTechnicalMetadataParts = (parts: string[]): TemplateResult[] =>
+  parts.map(
+    (part) => html`
+      <span class="note-card__detail" title=${isolateLtrText(part)}><bdi dir="ltr">${part}</bdi></span>
+    `,
+  )
+
+export function getNotesQuickViewSortLabel(sortMode: string): string {
+  if (sortMode === 'recent') {
+    return i18n('notes:quick_view:sort:recent' as never)
+  }
+  if (sortMode === 'size') {
+    return i18n('notes:quick_view:sort:size' as never)
+  }
+  return i18n('notes:quick_view:sort:name' as never)
+}
+
+export function getNotesQuickViewDisplayModeOptions(): WorkspaceDashboardHeaderViewModeOption[] {
+  return [
+    {value: 'list', icon: 'list', label: i18n('notes:quick_view:view_mode:list' as never)},
+    {value: 'grid', icon: 'layout-grid', label: i18n('notes:quick_view:view_mode:grid' as never)},
+    {value: 'tree', icon: 'folder-tree', label: i18n('notes:quick_view:view_mode:tree' as never)},
+  ]
+}
+
+function isNotesQuickViewDisplayMode(value: string): value is NotesQuickViewDisplayMode {
+  return value === 'list' || value === 'grid' || value === 'tree'
+}
+
+export const notesQuickViewHeaderControlsModel: WorkspaceDashboardHeaderControlsModel = {
+  search: {
+    value: notesQuickViewModel.state.query,
+    placeholder: () => i18n('notes:quick_view:search' as never),
+    ariaLabel: () => i18n('notes:quick_view:search' as never),
+    setValue: notesQuickViewModel.actions.setQuery,
+    clear: () => notesQuickViewModel.actions.setQuery(''),
+  },
+  filters: {
+    chips: notesQuickViewModel.state.filterChips,
+    value: notesQuickViewModel.state.activeFilterKey,
+    ariaLabel: () => i18n('notes:quick_view:filters' as never),
+    setValue: notesQuickViewModel.actions.setFilterKey,
+  },
+  summary: {
+    label: () => notesQuickViewModel.state.summary().label,
+  },
+  sort: {
+    label: () => getNotesQuickViewSortLabel(notesQuickViewModel.state.sortMode()),
+    ariaLabel: () => i18n('notes:quick_view:sort:label' as never),
+    title: () => i18n('notes:quick_view:sort:label' as never),
+    mode: notesQuickViewModel.state.sortMode,
+    activate: notesQuickViewModel.actions.cycleSortMode,
+  },
+  viewMode: {
+    value: notesQuickViewModel.state.displayMode,
+    ariaLabel: () => i18n('notes:quick_view:view_mode' as never),
+    options: getNotesQuickViewDisplayModeOptions,
+    setValue(value: string): void {
+      if (isNotesQuickViewDisplayMode(value)) {
+        notesQuickViewModel.actions.setDisplayMode(value)
+      }
+    },
+  },
+}
+
+export const notesQuickViewMobileHeaderControlsModel: WorkspaceDashboardHeaderControlsModel = {
+  search: notesQuickViewHeaderControlsModel.search,
+  filters: notesQuickViewHeaderControlsModel.filters,
+  summary: notesQuickViewHeaderControlsModel.summary,
+}
+
+export function defineNotesQuickViewUikitControls(): void {
+  CVButton.define()
+  WorkspaceDashboardHeader.define()
 }
 
 export abstract class NotesQuickViewBase extends ReatomLitElement {
@@ -32,23 +116,12 @@ export abstract class NotesQuickViewBase extends ReatomLitElement {
     super.disconnectedCallback()
   }
 
-  protected handleQueryInput(event: InputEvent) {
-    const target = event.target as HTMLInputElement | null
-    this.model.actions.setQuery(target?.value ?? '')
-  }
-
   protected handleClearFilters() {
     this.model.actions.clearFilters()
   }
 
   protected handleRetryLoad() {
     this.model.actions.retryLoad()
-  }
-
-  protected handleViewModeClick(event: Event) {
-    const target = event.currentTarget as HTMLButtonElement | null
-    const viewMode = target?.value === 'hierarchy' ? 'hierarchy' : 'flat'
-    this.model.actions.setViewMode(viewMode)
   }
 
   protected handleToggleDirectory(event: Event) {
@@ -70,88 +143,17 @@ export abstract class NotesQuickViewBase extends ReatomLitElement {
     this.handleOpenNote(event)
   }
 
-  protected renderHeader(slot?: string) {
+  protected renderHeader(
+    slot?: string,
+    controlsModel: WorkspaceDashboardHeaderControlsModel = notesQuickViewHeaderControlsModel,
+  ) {
     return html`
-      <header class="quick-view__header" slot=${slot ?? nothing} aria-label=${i18n('notes:quick_view:title' as never)}>
-        
-        ${this.renderControls()}
-      </header>
-    `
-  }
-
-  protected renderSummary(slot?: string): TemplateResult {
-    const summary = this.model.state.summary()
-
-    return html`
-      <pm-summary-rail
+      <workspace-dashboard-header
         slot=${slot ?? nothing}
-        class="quick-view__summary-rail"
-        .items=${this.getSummaryItems(summary)}
-        .label=${i18n('notes:quick_view:summary:label' as never)}
-      ></pm-summary-rail>
-    `
-  }
-
-  private getSummaryItems(summary: {total: number; visible: number}): PMSummaryRailItem[] {
-    return [
-      {id: 'total', label: i18n('notes:quick_view:summary:total' as never), value: summary.total},
-      {id: 'visible', label: i18n('notes:quick_view:summary:visible' as never), value: summary.visible},
-    ]
-  }
-
-  protected renderControls() {
-    return html`
-      <div class="controls">
-        <div class="view-switch" role="group" aria-label=${i18n('notes:quick_view:view_mode' as never)}>
-          ${this.renderViewModeButton('flat', 'list', i18n('notes:quick_view:view_mode:flat' as never))}
-          ${this.renderViewModeButton(
-            'hierarchy',
-            'folder',
-            i18n('notes:quick_view:view_mode:hierarchy' as never),
-          )}
-        </div>
-        <input
-          class="search"
-          type="search"
-          .value=${this.model.state.query()}
-          placeholder=${i18n('notes:quick_view:search' as never)}
-          aria-label=${i18n('notes:quick_view:search' as never)}
-          @input=${this.handleQueryInput}
-        />
-        ${this.model.state.hasActiveFilters()
-          ? html`
-              <button
-                class="clear-filters clear-filters--compact"
-                type="button"
-                aria-label=${i18n('notes:quick_view:clear_filters' as never)}
-                title=${i18n('notes:quick_view:clear_filters' as never)}
-                @click=${this.handleClearFilters}
-              >
-                <cv-icon name="x" aria-hidden="true"></cv-icon>
-              </button>
-            `
-          : nothing}
-      </div>
-    `
-  }
-
-  protected renderViewModeButton(mode: NotesQuickViewMode, icon: string, label: string): TemplateResult {
-    const active = this.model.state.viewMode() === mode
-
-    return html`
-      <button
-        class="view-switch__button"
-        type="button"
-        value=${mode}
-        data-view-mode=${mode}
-        aria-label=${label}
-        aria-pressed=${String(active)}
-        title=${label}
-        @click=${this.handleViewModeClick}
-      >
-        <cv-icon name=${icon} aria-hidden="true"></cv-icon>
-        <span class="sr-only">${label}</span>
-      </button>
+        surface="notes"
+        embedded
+        .controlsModel=${controlsModel}
+      ></workspace-dashboard-header>
     `
   }
 
@@ -176,13 +178,25 @@ export abstract class NotesQuickViewBase extends ReatomLitElement {
 
     if (this.model.state.viewMode() === 'hierarchy') {
       return html`
-        <div class="tree" role="tree" aria-label=${i18n('notes:quick_view:view_mode:hierarchy' as never)}>
+        <div class="tree" role="tree" aria-label=${i18n('notes:quick_view:view_mode:tree' as never)}>
           ${this.model.state.visibleTree().map((item) => this.renderTreeItem(item))}
         </div>
       `
     }
 
-    return html`<div class="rows" role="list">${visibleRows.map((row) => this.renderRow(row))}</div>`
+    if (this.model.state.displayMode() === 'grid') {
+      return html`
+        <div class="notes-grid" role="list">
+          ${this.model.state.visibleRowViews().map((view) => this.renderGridCard(view))}
+        </div>
+      `
+    }
+
+    return html`
+      <div class="rows" role="list">
+        ${this.model.state.visibleRowViews().map((view) => this.renderListCard(view))}
+      </div>
+    `
   }
 
   protected renderTreeItem(item: NotesQuickViewTreeItem): TemplateResult {
@@ -194,10 +208,8 @@ export abstract class NotesQuickViewBase extends ReatomLitElement {
   }
 
   protected renderDirectory(node: NotesQuickViewTreeDirectory): TemplateResult {
-    const labelKey = node.expanded
-      ? 'notes:quick_view:collapse_folder'
-      : 'notes:quick_view:expand_folder'
-    const toggleLabel = i18n(labelKey as never, {name: node.name})
+    const labelKey = node.expanded ? 'notes:quick_view:collapse_folder' : 'notes:quick_view:expand_folder'
+    const toggleLabel = i18n(labelKey as never, {name: isolateBidiText(node.name)})
 
     return html`
       <section class="tree-folder" data-folder-path=${node.path}>
@@ -220,8 +232,12 @@ export abstract class NotesQuickViewBase extends ReatomLitElement {
           <div class="folder-icon" aria-hidden="true">
             <cv-icon name=${node.expanded ? 'folder-open' : 'folder'}></cv-icon>
           </div>
-          <span class="folder-name" title=${node.path}>${node.name}</span>
-          <span class="folder-count">${i18n('notes:quick_view:folder_count', {count: String(node.noteCount)})}</span>
+          <span class="folder-name" title=${isolateLtrText(node.path)}
+            ><bdi dir="auto">${node.name}</bdi></span
+          >
+          <span class="folder-count"
+            >${i18n('notes:quick_view:folder_count', {count: isolateLtrText(String(node.noteCount))})}</span
+          >
         </div>
         ${node.expanded
           ? html`<div class="tree-children" role="group">
@@ -233,13 +249,31 @@ export abstract class NotesQuickViewBase extends ReatomLitElement {
   }
 
   protected renderRow(row: NotesQuickViewRow, options: RenderRowOptions = {}): TemplateResult {
-    const openLabel = `${i18n('notes:quick_view:open' as never)}: ${row.fileName}`
-    const parent = row.parentPath || '/'
+    const view = this.model.state.rowViewsById().get(row.id) ?? {
+      id: row.id,
+      row,
+      title: row.fileName,
+      fileLabel: row.fileName,
+      excerpt: row.parentPath || '/',
+      excerptDirection: 'ltr' as const,
+      parentLabel: row.parentPath || '/',
+      previewTitle: row.fileName,
+      metadataParts: [],
+      compactMetadataParts: [],
+      previewTruncated: false,
+    }
+
+    return this.renderListCard(view, options)
+  }
+
+  protected renderListCard(view: NotesQuickViewRowView, options: RenderRowOptions = {}): TemplateResult {
+    const row = view.row
+    const openLabel = `${i18n('notes:quick_view:open' as never)}: ${isolateBidiText(row.fileName)}`
     const role = options.tree ? 'treeitem' : 'listitem'
 
     return html`
       <article
-        class=${options.tree ? 'row row--tree' : 'row'}
+        class=${options.tree ? 'row row--tree note-card note-card--tree' : 'row note-card note-card--list'}
         role=${role}
         aria-level=${options.tree ? String(options.level ?? 1) : nothing}
         aria-label=${openLabel}
@@ -249,17 +283,53 @@ export abstract class NotesQuickViewBase extends ReatomLitElement {
         @click=${this.handleOpenNote}
         @keydown=${this.handleOpenNoteKeydown}
       >
-        <div class="row__icon" aria-hidden="true">
-          <cv-icon name="file-text"></cv-icon>
+        <div class="note-card__icon" aria-hidden="true">
+          <cv-icon name="notebook-text"></cv-icon>
         </div>
-        <div class="row__meta">
-          <div class="row__heading">
-            <h3 class="row__title" title=${row.fileName}>${row.fileName}</h3>
+        <div class="note-card__body">
+          <div class="note-card__heading">
+            <h3 class="note-card__title" title=${isolateBidiText(row.fileName)}>
+              <bdi dir="auto">${view.title}</bdi>
+            </h3>
+            <span class="note-card__badge"><bdi dir="ltr">MD</bdi></span>
           </div>
-          <div class="row__details">
-            <span class="row__detail row__path" title=${row.path}>${parent}</span>
-            <span class="row__detail">${formatFileSize(row.size)}</span>
-            <span class="row__detail">${formatDate(row.lastModified)}</span>
+          <p class="note-card__excerpt"><bdi dir=${view.excerptDirection}>${view.excerpt}</bdi></p>
+          <div class="note-card__details" aria-label=${createTechnicalMetadataLabel(view.metadataParts)}>
+            ${renderTechnicalMetadataParts(view.metadataParts)}
+          </div>
+        </div>
+      </article>
+    `
+  }
+
+  protected renderGridCard(view: NotesQuickViewRowView): TemplateResult {
+    const row = view.row
+    const openLabel = `${i18n('notes:quick_view:open' as never)}: ${isolateBidiText(row.fileName)}`
+
+    return html`
+      <article
+        class="row note-card note-card--grid"
+        role="listitem"
+        aria-label=${openLabel}
+        title=${openLabel}
+        data-row-id=${row.id}
+        tabindex="0"
+        @click=${this.handleOpenNote}
+        @keydown=${this.handleOpenNoteKeydown}
+      >
+        <div class="note-card__preview">
+          <p class="note-card__preview-title"><bdi dir="auto">${view.previewTitle}</bdi></p>
+          <p class="note-card__preview-copy"><bdi dir=${view.excerptDirection}>${view.excerpt}</bdi></p>
+        </div>
+        <div class="note-card__grid-footer">
+          <h3 class="note-card__title note-card__title--grid" title=${isolateBidiText(row.fileName)}>
+            <bdi dir="auto">${view.title}</bdi>
+          </h3>
+          <div
+            class="note-card__details note-card__details--grid"
+            aria-label=${createTechnicalMetadataLabel(view.compactMetadataParts)}
+          >
+            ${renderTechnicalMetadataParts(view.compactMetadataParts)}
           </div>
         </div>
       </article>
@@ -274,7 +344,7 @@ export abstract class NotesQuickViewBase extends ReatomLitElement {
           ? 'notes:quick_view:unavailable:title'
           : kind === 'error'
             ? 'notes:quick_view:error:title'
-          : 'notes:quick_view:empty:title'
+            : 'notes:quick_view:empty:title'
     const descriptionKey =
       kind === 'filtered'
         ? 'notes:quick_view:empty_filtered:description'
@@ -282,7 +352,7 @@ export abstract class NotesQuickViewBase extends ReatomLitElement {
           ? 'notes:quick_view:unavailable:description'
           : kind === 'error'
             ? 'notes:quick_view:error:description'
-          : 'notes:quick_view:empty:description'
+            : 'notes:quick_view:empty:description'
 
     const content = html`
       <cv-empty-state
@@ -293,18 +363,32 @@ export abstract class NotesQuickViewBase extends ReatomLitElement {
         ${kind === 'empty' ? renderGuidanceInline('notes.create-note', 'notes') : nothing}
         ${kind === 'filtered'
           ? html`
-              <button slot="actions" class="clear-filters" type="button" @click=${this.handleClearFilters}>
-                <cv-icon name="x" aria-hidden="true"></cv-icon>
+              <cv-button
+                class="clear-filters"
+                slot="actions"
+                variant="ghost"
+                size="medium"
+                type="button"
+                @click=${this.handleClearFilters}
+              >
+                <cv-icon slot="prefix" name="x" aria-hidden="true"></cv-icon>
                 ${i18n('notes:quick_view:clear_filters' as never)}
-              </button>
+              </cv-button>
             `
           : nothing}
         ${kind === 'error'
           ? html`
-              <button slot="actions" class="retry-load" type="button" @click=${this.handleRetryLoad}>
-                <cv-icon name="refresh-cw" aria-hidden="true"></cv-icon>
+              <cv-button
+                class="retry-load"
+                slot="actions"
+                preset="action-primary-subtle"
+                size="medium"
+                type="button"
+                @click=${this.handleRetryLoad}
+              >
+                <cv-icon slot="prefix" name="refresh-cw" aria-hidden="true"></cv-icon>
                 ${i18n('button:retry' as never)}
-              </button>
+              </cv-button>
             `
           : nothing}
       </cv-empty-state>

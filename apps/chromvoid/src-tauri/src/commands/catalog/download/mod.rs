@@ -15,6 +15,7 @@ type GallerySaveError = CatalogDownloadError;
 pub(crate) use commands::catalog_download;
 #[cfg(desktop)]
 pub(crate) use commands::catalog_download_path;
+pub(crate) use commands::catalog_download_range;
 pub(crate) use commands::catalog_image_metadata;
 pub(crate) use commands::catalog_open_external;
 pub(crate) use commands::catalog_preview_image;

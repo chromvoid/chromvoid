@@ -1,7 +1,8 @@
 import {expect, test} from 'vitest'
+import type {Page} from 'playwright'
 
 declare global {
-  var __E2E_PAGE__: import('playwright').Page | undefined
+  var __E2E_PAGE__: Page | undefined
 }
 
 test('S20: app renders file-manager → lock → unlock cycle', async () => {
@@ -18,6 +19,6 @@ test('S20: app renders file-manager → lock → unlock cycle', async () => {
   // Verify file manager is present
   expect(await page.$('chromvoid-file-manager')).toBeTruthy()
 
-  // Verify status bar shows connected state
-  expect(await page.$('status-bar')).toBeTruthy()
+  // Files surface does not render the global shell status bar.
+  expect(await page.$('status-bar')).toBeNull()
 })

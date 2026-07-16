@@ -9,6 +9,63 @@ export const pmGroupListItemMobileStyles = css`
     display: block;
   }
 
+  .swipe-container {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--cv-radius-2);
+  }
+
+  .swipe-container > .group-row {
+    position: relative;
+    z-index: 1;
+    transform: translateX(var(--_pm-group-swipe-offset-inline, 0px));
+  }
+
+  .group-swipe-actions-right {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 64px;
+    padding-inline: var(--cv-space-2);
+    box-sizing: border-box;
+    visibility: hidden;
+    pointer-events: none;
+    background: var(--cv-gradient-surface-danger);
+  }
+
+  .swipe-container.swipe-left .group-swipe-actions-right {
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  .swipe-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: var(--app-touch-target-min);
+    block-size: var(--app-touch-target-min);
+    padding: 0;
+    border: 1px solid var(--cv-alpha-white-20);
+    border-radius: var(--cv-radius-2);
+    background: var(--cv-alpha-black-10);
+    color: white;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .swipe-action cv-icon {
+    inline-size: 18px;
+    block-size: 18px;
+  }
+
+  .group-row.snap-back {
+    transition: transform var(--cv-duration-normal) var(--cv-easing-decelerate);
+  }
+
   .group-row {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
@@ -53,7 +110,8 @@ export const pmGroupListItemMobileStyles = css`
     width: 100%;
     height: 100%;
     --pm-avatar-radius: var(--pm-mobile-list-row-icon-radius);
-    --pm-avatar-image-padding: var(--pm-mobile-list-row-icon-image-padding);
+    --pm-avatar-image-padding: 0px;
+    --pm-avatar-image-inset-shadow-color: transparent;
     --pm-avatar-letter-size: var(--pm-mobile-list-row-icon-letter-size);
     --pm-avatar-icon-size: var(--pm-avatar-list-folder-icon-size);
   }
@@ -106,25 +164,39 @@ export const pmGroupListItemMobileStyles = css`
     opacity: 0.6;
   }
 
-  .group-risk-dot {
-    --pm-group-risk-ring: var(--cv-color-border-glass);
+  .group-risk-slot {
     inline-size: 8px;
     block-size: 8px;
     flex: 0 0 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .group-risk-dot {
+    inline-size: 8px;
+    block-size: 8px;
+    flex: 0 0 auto;
     border-radius: 999px;
     border: 1px solid currentColor;
-    box-shadow: 0 0 0 3px var(--pm-group-risk-ring);
+    box-shadow: 0 0 0 3px var(--cv-color-border-glass);
   }
 
   .group-risk-dot[data-severity='warning'] {
-    --pm-group-risk-ring: var(--cv-color-warning-ring);
     color: var(--cv-color-warning);
     background: var(--cv-color-warning);
+    box-shadow: 0 0 0 3px var(--cv-color-warning-ring);
   }
 
   .group-risk-dot[data-severity='critical'] {
-    --pm-group-risk-ring: var(--cv-color-danger-ring);
     color: var(--cv-color-danger);
     background: var(--cv-color-danger);
+    box-shadow: 0 0 0 3px var(--cv-color-danger-ring);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .group-row.snap-back {
+      transition-duration: 1ms;
+    }
   }
 `

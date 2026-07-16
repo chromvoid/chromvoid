@@ -1,6 +1,6 @@
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use tauri::Manager;
@@ -9,14 +9,19 @@ use crate::app_state::AppState;
 use crate::catalog_blocking_io::CatalogBlockingIoError;
 use crate::types::*;
 
+pub(crate) const UNLOCK_DEBUG_LOG_FILE_NAME: &str = "unlock-debug.log";
+
 #[tauri::command]
 pub(crate) async fn unlock_debug_log(
     app: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
     message: String,
     reset: Option<bool>,
 ) -> TauriRpcResult<Value> {
-    tracing::info!("[android-unlock-debug] {message}");
+    if message.contains("\"marker\":\"TAURI_IPC_FAILURE\"") {
+        tracing::error!("[tauri-ipc][frontend] {message}");
+    } else {
+        tracing::info!("[android-unlock-debug] {message}");
+    }
 
     let data_dir = match app.path().app_data_dir() {
         Ok(path) => path,
@@ -29,13 +34,29 @@ pub(crate) async fn unlock_debug_log(
     };
 
     let logs_dir = data_dir.join("logs");
-    let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
-    match catalog_blocking_io_runtime
-        .spawn_blocking(move || unlock_debug_log_blocking(logs_dir, message, reset))
-        .await
+
+    if let Some(state) = app.try_state::<AppState>() {
+        let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
+        return match catalog_blocking_io_runtime
+            .spawn_blocking(move || unlock_debug_log_blocking(logs_dir, message, reset))
+            .await
+        {
+            Ok(result) => Ok(result),
+            Err(error) => Ok(unlock_debug_log_blocking_err(error)),
+        };
+    }
+
+    tracing::warn!("unlock_debug_log: AppState unavailable; using fallback blocking runtime");
+    match tauri::async_runtime::spawn_blocking(move || {
+        unlock_debug_log_blocking(logs_dir, message, reset)
+    })
+    .await
     {
         Ok(result) => Ok(result),
-        Err(error) => Ok(unlock_debug_log_blocking_err(error)),
+        Err(error) => Ok(rpc_err(
+            format!("unlock_debug_log: blocking task: {error}"),
+            Some("INTERNAL".to_string()),
+        )),
     }
 }
 
@@ -51,10 +72,10 @@ fn unlock_debug_log_blocking(
         );
     }
 
-    let path = logs_dir.join("unlock-debug.log");
+    let path = unlock_debug_log_path(&logs_dir);
 
     if reset.unwrap_or(false) {
-        if let Err(error) = crate::helpers::storage::write_bytes_atomic(&path, b"") {
+        if let Err(error) = reset_unlock_debug_log(&logs_dir) {
             return rpc_err(
                 format!("unlock_debug_log: reset file: {error}"),
                 Some("IO".to_string()),
@@ -82,6 +103,14 @@ fn unlock_debug_log_blocking(
     rpc_ok(serde_json::json!({
         "path": path,
     }))
+}
+
+pub(crate) fn reset_unlock_debug_log(logs_dir: &Path) -> Result<(), String> {
+    crate::helpers::storage::write_bytes_atomic(&unlock_debug_log_path(logs_dir), b"")
+}
+
+fn unlock_debug_log_path(logs_dir: &Path) -> PathBuf {
+    logs_dir.join(UNLOCK_DEBUG_LOG_FILE_NAME)
 }
 
 fn unlock_debug_log_blocking_err(error: CatalogBlockingIoError) -> RpcResult<Value> {

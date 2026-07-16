@@ -5,13 +5,27 @@ import type {
   PassManagerRootV3,
   PassManagerRootV3Entry,
   PassManagerRootV3FolderMeta,
+  PassManagerRootV4,
+  PassManagerSshKey,
+  SshKeygenParams,
+  SshKeygenResult,
   PassManagerSecretSlot,
   PassManagerRootV2,
   PaymentCardMeta,
   UrlMatch,
   UrlRule,
+  PassManagerSaveEntryMetaPayload,
 } from '@project/passmanager/types'
-import {normalizeCredentialTagCatalog, normalizeCredentialTags} from '@project/passmanager/tags'
+import {
+  normalizeCredentialTagCatalog,
+  normalizeCredentialTagCatalogMeta,
+  normalizeCredentialTags,
+  type CredentialTagCatalogMeta,
+} from '@project/passmanager/tags'
+import {
+  parseCredentialSecurityAuditArtifact,
+  type CredentialSecurityAuditArtifactV1,
+} from '@project/passmanager/security-audit'
 import type {CatalogDeps} from './types'
 import type {PassmanagerBackend} from './backend'
 import type {PassmanagerTransport} from './passmanager-transport'
@@ -27,7 +41,10 @@ type RootExportShape = {
   folders?: unknown
   foldersMeta?: unknown
   tags?: unknown
+  tagMeta?: unknown
+  tag_meta?: unknown
   entries?: unknown
+  sshKeys?: unknown
 }
 
 const DEFAULT_PAYMENT_CARD_BRAND = 'unknown' as const
@@ -180,6 +197,25 @@ const normalizePaymentCardMeta = (value: unknown): PaymentCardMeta | undefined =
   }
 }
 
+const normalizeSshKey = (value: unknown): PassManagerSshKey | undefined => {
+  if (!value || typeof value !== 'object') return undefined
+  const rec = value as Record<string, unknown>
+  const id = toOptionalString(rec['id'] ?? rec['key_id'])
+  const type = rec['type'] ?? rec['key_type']
+  const fingerprint = toOptionalString(rec['fingerprint'])
+  if (!id || !['ed25519', 'rsa', 'ecdsa'].includes(String(type)) || !fingerprint) return undefined
+  return {
+    id,
+    type: type as PassManagerSshKey['type'],
+    fingerprint,
+    name: toOptionalString(rec['name']),
+    comment: toOptionalString(rec['comment']),
+    sourceEntryId: toOptionalString(rec['sourceEntryId'] ?? rec['source_entry_id']),
+    createdTs: toOptionalTimestamp(rec['createdTs'] ?? rec['created_ts']),
+    updatedTs: toOptionalTimestamp(rec['updatedTs'] ?? rec['updated_ts']),
+  }
+}
+
 const toEntry = (value: unknown): PassManagerRootV3Entry | undefined => {
   if (!value || typeof value !== 'object') return undefined
   const rec = value as Record<string, unknown>
@@ -214,41 +250,6 @@ const toEntry = (value: unknown): PassManagerRootV3Entry | undefined => {
       counter: typeof otp['counter'] === 'number' ? otp['counter'] : undefined,
     }))
 
-  // Parse sshKeys array (new format)
-  const rawSshKeys = Array.isArray(rec['sshKeys']) ? rec['sshKeys'] : []
-  let sshKeys = rawSshKeys
-    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
-    .filter(
-      (item) =>
-        typeof item['id'] === 'string' &&
-        typeof item['type'] === 'string' &&
-        typeof item['fingerprint'] === 'string',
-    )
-    .map((item) => ({
-      id: item['id'] as string,
-      type: item['type'] as string,
-      fingerprint: item['fingerprint'] as string,
-      name: typeof item['name'] === 'string' ? item['name'] : undefined,
-      comment: typeof item['comment'] === 'string' ? item['comment'] : undefined,
-    }))
-
-  // Backward compat: old scalar fields → single-element array
-  if (sshKeys.length === 0) {
-    const t = toOptionalString(rec['sshKeyType'] ?? rec['ssh_key_type'])
-    const f = toOptionalString(rec['sshKeyFingerprint'] ?? rec['ssh_key_fingerprint'])
-    if (t && f) {
-      sshKeys = [
-        {
-          id: 'default',
-          type: t,
-          fingerprint: f,
-          name: toOptionalString(rec['sshKeyName'] ?? rec['ssh_key_name']),
-          comment: toOptionalString(rec['sshKeyComment'] ?? rec['ssh_key_comment']),
-        },
-      ]
-    }
-  }
-
   const iconRef = toOptionalString(rec['iconRef'] ?? rec['icon_ref'])
   if (entryType === 'payment_card') {
     const paymentCard = normalizePaymentCardMeta(rec['paymentCard'] ?? rec['payment_card'])
@@ -278,7 +279,6 @@ const toEntry = (value: unknown): PassManagerRootV3Entry | undefined => {
     folderPath: normalizedFolder ?? null,
     tags,
     ...(iconRef ? {iconRef} : {}),
-    ...(sshKeys.length > 0 ? {sshKeys} : {}),
   }
 }
 
@@ -353,7 +353,7 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
     } catch {}
   }
 
-  private buildIntegrityKey(root: PassManagerRootV3): string {
+  private buildIntegrityKey(root: PassManagerRootV4): string {
     const entryParts = root.entries
       .map((entry) => {
         const otpIds = getEntryOtps(entry)
@@ -411,7 +411,7 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
 
   private async runIntegrityReconciliation(
     source: IntegrityScanSource,
-    root: PassManagerRootV3,
+    root: PassManagerRootV4,
     mismatches: IntegrityMismatch[],
   ): Promise<IntegrityReconcileAction[]> {
     const actions: IntegrityReconcileAction[] = []
@@ -577,7 +577,6 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
           username: entry.username,
           groupPath: groupPath ?? '',
           iconRef: getEntryIconRef(entry),
-          sshKeys: entry.sshKeys,
           tags: entry.tags,
           otps: nextOtps,
         })
@@ -603,7 +602,7 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
 
   private async runIntegrityScan(
     source: IntegrityScanSource,
-    root: PassManagerRootV3,
+    root: PassManagerRootV4,
   ): Promise<IntegrityDiagnostics | undefined> {
     const key = this.buildIntegrityKey(root)
     if (source === 'readRoot' && key === this.lastIntegrityKey && this.lastIntegrityDiagnostics) {
@@ -758,12 +757,16 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
     return diagnostics
   }
 
-  private normalizeRootPayload(raw: unknown): PassManagerRootV3 {
+  private normalizeRootPayload(raw: unknown): PassManagerRootV4 {
     const rec = (raw && typeof raw === 'object' ? raw : {}) as RootExportShape
     const entriesRaw = Array.isArray(rec.entries) ? rec.entries : []
     const foldersRaw = toFolderPathList(rec.folders)
     const foldersMetaRaw = Array.isArray(rec.foldersMeta) ? rec.foldersMeta : []
     const rootTagsRaw = Array.isArray(rec.tags) ? rec.tags : []
+    const rootTagMetaRaw = rec.tagMeta ?? rec.tag_meta
+    const sshKeys = (Array.isArray(rec.sshKeys) ? rec.sshKeys : [])
+      .map(normalizeSshKey)
+      .filter((key): key is PassManagerSshKey => Boolean(key))
 
     const folders = new Set<string>()
     const entries: PassManagerRootV3Entry[] = []
@@ -803,8 +806,9 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
       entries.push(entry)
     }
 
-    const version = 3
+    const version = 4
     const now = Date.now()
+    const tags = normalizeCredentialTagCatalog([...rootTagsRaw, ...assignedTags])
     return {
       version,
       createdTs: typeof rec.createdTs === 'number' ? rec.createdTs : now,
@@ -813,12 +817,14 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
       foldersMeta: Array.from(foldersMetaByPath.values()).sort((left, right) =>
         left.path.localeCompare(right.path),
       ),
-      tags: normalizeCredentialTagCatalog([...rootTagsRaw, ...assignedTags]),
+      tags,
+      tagMeta: normalizeCredentialTagCatalogMeta(rootTagMetaRaw, tags),
       entries,
+      sshKeys,
     }
   }
 
-  private async appendListedFolders(root: PassManagerRootV3): Promise<PassManagerRootV3> {
+  private async appendListedFolders(root: PassManagerRootV4): Promise<PassManagerRootV4> {
     const folders = new Set(root.folders)
     try {
       const listed = await this.transport.listGroups()
@@ -839,11 +845,11 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
   async saveRoot(file: File): Promise<boolean> {
     try {
       const raw = await file.text()
-      const parsed = JSON.parse(raw) as Partial<PassManagerRootV2 | PassManagerRootV3>
-      if (parsed?.version !== 2 && parsed?.version !== 3) {
+      const parsed = JSON.parse(raw) as Partial<PassManagerRootV2 | PassManagerRootV3 | PassManagerRootV4>
+      if (parsed?.version !== 2 && parsed?.version !== 3 && parsed?.version !== 4) {
         this.setError(
           ADAPTER_ERROR.SAVE_ROOT_PARSE,
-          'Unsupported PassManager root payload: expected version 2 or 3',
+          'Unsupported PassManager root payload: expected version 2, 3, or 4',
           new Error('Invalid root version'),
         )
         return false
@@ -854,16 +860,26 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
       const tags = Array.isArray((parsed as Partial<PassManagerRootV3>).tags)
         ? (parsed as Partial<PassManagerRootV3>).tags
         : []
+      const tagMeta = (parsed as Partial<PassManagerRootV3> & {tag_meta?: unknown}).tagMeta ??
+        (parsed as Partial<PassManagerRootV3> & {tag_meta?: unknown}).tag_meta
       const entries = Array.isArray(parsed.entries) ? parsed.entries : []
+      const parsedSshKeys = Array.isArray((parsed as Partial<PassManagerRootV4>).sshKeys)
+        ? (parsed as Partial<PassManagerRootV4>).sshKeys
+        : []
       const normalizedRoot = this.normalizeRootPayload({
         ...parsed,
         folders,
         foldersMeta,
         tags,
+        tagMeta,
         entries,
+        sshKeys: parsedSshKeys,
       })
       const importMode = 'incremental' as const
       const importReason = 'runtime-save' as const
+      const hasLegacySshKeys = entries.some(
+        (entry) => Boolean(entry && typeof entry === 'object' && Array.isArray((entry as {sshKeys?: unknown}).sshKeys) && (entry as {sshKeys: unknown[]}).sshKeys.length > 0),
+      )
 
       this.logger.info('[PassManager][saveRoot] reconcile begin', {
         mode: importMode,
@@ -871,6 +887,19 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
         folders: normalizedRoot.folders.length,
         entries: normalizedRoot.entries.length,
       })
+
+      if (hasLegacySshKeys) {
+        await this.transport.importRoot(
+          entries as object[],
+          folders,
+          foldersMeta as object[],
+          {mode: 'merge', reason: importReason},
+          tags,
+          tagMeta as CredentialTagCatalogMeta | undefined,
+          parsedSshKeys as PassManagerSshKey[],
+        )
+        normalizedRoot.sshKeys = (await this.transport.listSshKeys()).sshKeys
+      }
 
       for (const folderPath of normalizedRoot.folders) {
         const normalized = normalizeGroupPath(folderPath)
@@ -912,7 +941,6 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
             username: entry.username,
             groupPath: groupPath ?? '',
             iconRef: getEntryIconRef(entry),
-            sshKeys: entry.sshKeys,
             tags: entry.tags,
             otps: entry.otps,
           })
@@ -969,7 +997,21 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
         await this.transport.setGroupMeta(path, {iconRef, description})
       }
 
-      await this.transport.setTagCatalog(normalizedRoot.tags ?? [])
+      await this.transport.setTagCatalog(normalizedRoot.tags ?? [], normalizedRoot.tagMeta)
+
+      let existingSshKeys: PassManagerSshKey[] = []
+      try {
+        existingSshKeys = (await this.transport.listSshKeys())?.sshKeys ?? []
+      } catch {}
+      const desiredSshKeyIds = new Set(normalizedRoot.sshKeys.map((key) => key.id))
+      for (const key of existingSshKeys) {
+        if (!desiredSshKeyIds.has(key.id)) {
+          await this.transport.deleteSshKey(key.id)
+        }
+      }
+      for (const key of normalizedRoot.sshKeys) {
+        await this.transport.updateSshKey(key)
+      }
 
       const importTs = Date.now()
       this.transport.markRuntimeRootImport(importTs)
@@ -991,7 +1033,10 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
 
   async readRoot<T>(): Promise<T | undefined> {
     try {
-      const exported = await this.transport.exportRoot()
+      const [exported, credentialSecurityAudit] = await Promise.all([
+        this.transport.exportRoot(),
+        this.readCredentialSecurityAudit(),
+      ])
       const maybeRoot =
         exported && typeof exported === 'object' && 'root' in exported
           ? (exported as {root?: unknown}).root
@@ -1003,6 +1048,7 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
       return {
         ...withMirrorFolders,
         integrity,
+        credentialSecurityAudit,
       } as unknown as T
     } catch (e) {
       this.setError(ADAPTER_ERROR.READ_ROOT, 'Failed to read PassManager root', e)
@@ -1014,8 +1060,31 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
     return true
   }
 
+  async readCredentialSecurityAudit(): Promise<CredentialSecurityAuditArtifactV1 | undefined> {
+    try {
+      const result = await this.transport.getCredentialSecurityAudit()
+      return parseCredentialSecurityAuditArtifact(result.artifact)
+    } catch (error) {
+      this.logger.debug('[PassManager][security-audit] artifact unavailable', error)
+      return undefined
+    }
+  }
+
+  async saveCredentialSecurityAudit(artifact: CredentialSecurityAuditArtifactV1): Promise<boolean> {
+    const validated = parseCredentialSecurityAuditArtifact(artifact, artifact.revision)
+    if (!validated) return false
+
+    try {
+      await this.transport.setCredentialSecurityAudit(validated)
+      return true
+    } catch (error) {
+      this.logger.warn('[PassManager][security-audit] artifact write failed', error)
+      return false
+    }
+  }
+
   async saveEntryMeta(
-    data: import('@project/passmanager/types').PassManagerSaveEntryMetaPayload,
+    data: PassManagerSaveEntryMetaPayload,
   ): Promise<boolean> {
     try {
       const groupPath = normalizeGroupPath(data.groupPath)
@@ -1047,7 +1116,6 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
           username: data.username,
           groupPath: groupPath ?? '',
           iconRef: data.iconRef,
-          sshKeys: data.sshKeys,
           tags: data.tags !== undefined ? normalizeCredentialTags(data.tags) : undefined,
           otps: data.otps ?? [],
         })
@@ -1208,6 +1276,45 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
 
   async removeEntryNote(entryId: string): Promise<boolean> {
     return this.removeEntrySecretFile(entryId, '.note')
+  }
+
+  async listSshKeys(): Promise<PassManagerSshKey[]> {
+    return (await this.transport.listSshKeys()).sshKeys
+  }
+
+  async updateSshKey(key: PassManagerSshKey): Promise<boolean> {
+    try {
+      await this.transport.updateSshKey(key)
+      this.schedulePostPassmanagerWriteRefresh()
+      return true
+    } catch (error) {
+      this.setError(ADAPTER_ERROR.SAVE_ROOT_WRITE, 'Failed to update SSH key', error)
+      return false
+    }
+  }
+
+  async removeSshKey(keyId: string): Promise<boolean> {
+    try {
+      await this.transport.deleteSshKey(keyId)
+      this.schedulePostPassmanagerWriteRefresh()
+      return true
+    } catch (error) {
+      this.setError(ADAPTER_ERROR.SAVE_ROOT_WRITE, 'Failed to remove SSH key', error)
+      return false
+    }
+  }
+
+  async readSshPublicKey(keyId: string): Promise<string | undefined> {
+    try {
+      return (await this.transport.readSshPublicKey(keyId)).value
+    } catch (error) {
+      if (isMissingSecretError(error)) return undefined
+      throw error
+    }
+  }
+
+  generateSshKey(params: SshKeygenParams): Promise<SshKeygenResult> {
+    return this.transport.generateSshKey(params)
   }
 
   async readEntrySshPrivateKey(entryId: string, keyId: string): Promise<string | undefined> {

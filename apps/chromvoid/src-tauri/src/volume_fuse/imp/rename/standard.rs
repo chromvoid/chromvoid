@@ -6,8 +6,8 @@ impl PrivyFilesystem {
     /// catalog move, catalog rename, and inode cache update.
     pub(in crate::volume_fuse::imp) fn rename_standard(
         &self,
-        _parent: u64,
-        _name_str: &str,
+        parent: u64,
+        name_str: &str,
         newparent: u64,
         newname_str: &str,
         src: &InodeEntry,
@@ -95,8 +95,9 @@ impl PrivyFilesystem {
 
         // Update inode cache for moved entry.
         if let Some(dst_node_id) = replace_existing_node_id {
-            self.inode_table
-                .remove(fuse_ino_from_catalog_node_id(dst_node_id));
+            let dst_ino = fuse_ino_from_catalog_node_id(dst_node_id);
+            self.inode_table.remove(dst_ino);
+            self.clear_xattrs_for_ino(dst_ino);
         }
         let ino = fuse_ino_from_catalog_node_id(node_id);
         if let Some(mut entry) = self.inode_table.get(ino) {
@@ -108,5 +109,20 @@ impl PrivyFilesystem {
 
         info!(target: "chromvoid_lib::volume_fuse::imp", branch = "final_success", node_id, flags, "FUSE rename: ok");
         reply.ok();
+        self.platform_runtime
+            .notify_kernel_invalidate(parent, name_str, Some(ino));
+        if let Some(dst_node_id) = replace_existing_node_id {
+            self.platform_runtime.notify_kernel_invalidate(
+                newparent,
+                newname_str,
+                Some(fuse_ino_from_catalog_node_id(dst_node_id)),
+            );
+        }
+        self.platform_runtime
+            .notify_kernel_invalidate(newparent, newname_str, Some(ino));
+        if let Some(parent_path) = build_catalog_path(&self.inode_table, parent) {
+            self.platform_runtime.poke_finder_dir(&parent_path);
+        }
+        self.platform_runtime.poke_finder_dir(dest_parent_path);
     }
 }

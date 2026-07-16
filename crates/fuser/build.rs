@@ -16,15 +16,12 @@ fn main() {
     } else if target_os == "macos" {
         if cfg!(feature = "macos-no-mount") {
             println!("cargo::rustc-cfg=fuser_mount_impl=\"macos-no-mount\"");
-        } else {
-            pkg_config::Config::new()
-                .atleast_version("2.6.0")
-                .probe("fuse") // for macFUSE
-                .map_err(|e| eprintln!("{e}"))
-                .unwrap();
-            println!("cargo::rustc-cfg=fuser_mount_impl=\"libfuse2\"");
+        } else if cfg!(feature = "libfuse") {
+            configure_libfuse2().unwrap();
             // Runtime detection in request.rs handles macFUSE 4.x and 5.x
             // rename protocol differences from the same binary.
+        } else {
+            println!("cargo::rustc-cfg=fuser_mount_impl=\"pure-rust\"");
         }
     } else if cfg!(feature = "libfuse3") {
         configure_libfuse3().unwrap();

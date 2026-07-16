@@ -11,12 +11,7 @@ export const entryMobileStyles = css`
     min-block-size: 0;
     overflow: hidden;
     contain: none;
-    --entry-avatar-bg: var(--cv-color-primary-dark);
-    --cv-mobile-bottom-action-footer-block-size: calc(3.375rem + var(--cv-space-2) + var(--cv-space-2));
-    --cv-mobile-bottom-action-scroll-padding-end: calc(
-      var(--cv-mobile-bottom-action-footer-block-size) + var(--mobile-keyboard-scroll-clearance, 0px) +
-        var(--cv-space-4)
-    );
+    --pm-entry-avatar-background: var(--cv-color-primary-dark);
   }
 
   :host(.card) {
@@ -47,7 +42,10 @@ export const entryMobileStyles = css`
     overflow-y: auto;
     overflow-x: hidden;
     overscroll-behavior-y: contain;
-    scroll-padding-block-end: var(--cv-mobile-bottom-action-scroll-padding-end);
+    scroll-padding-block-end: calc(
+      3.375rem + var(--cv-space-2) + var(--cv-space-2) + var(--app-runtime-keyboard-scroll-clearance, 0px) +
+        var(--cv-space-4)
+    );
     -webkit-overflow-scrolling: touch;
   }
 
@@ -98,7 +96,7 @@ export const entryMobileStyles = css`
     --pm-avatar-radius: var(--cv-radius-2);
     --pm-avatar-icon-size: 32px;
     --pm-avatar-letter-size: 1.45rem;
-    --pm-avatar-fallback-bg: var(--entry-avatar-bg);
+    --pm-avatar-fallback-background: var(--pm-entry-avatar-background);
     --pm-avatar-fallback-color: var(--cv-color-on-primary);
     --pm-avatar-fallback-border: transparent;
     --pm-avatar-fallback-shadow: none;
@@ -354,18 +352,18 @@ export const entryMobileStyles = css`
   }
 
   .section-block-primary .otp-codes pm-entry-otp-item {
-    --totp-card-background: transparent;
-    --totp-card-border-color: transparent;
-    --totp-card-shadow: none;
-    --totp-card-hover-shadow: none;
-    --totp-card-padding: var(--cv-space-2) var(--cv-space-1) var(--cv-space-1);
-    --totp-code-color: var(--cv-color-text);
-    --totp-code-font-size: 3.6rem;
-    --totp-code-font-size-compact: 3.05rem;
-    --totp-code-group-gap: var(--cv-space-6);
-    --totp-label-color: var(--cv-color-text-subtle);
-    --totp-timer-size: 88px;
-    --totp-timer-size-compact: 78px;
+    --pm-totp-card-background: transparent;
+    --pm-totp-card-border-color: transparent;
+    --pm-totp-card-shadow: none;
+    --pm-totp-card-hover-shadow: none;
+    --pm-totp-card-padding: var(--cv-space-2) var(--cv-space-1) var(--cv-space-1);
+    --pm-totp-code-color: var(--cv-color-text);
+    --pm-totp-code-font-size: 3.6rem;
+    --pm-totp-code-font-size-compact: 3.05rem;
+    --pm-totp-code-group-gap: var(--cv-space-6);
+    --pm-totp-label-color: var(--cv-color-text-subtle);
+    --pm-totp-timer-size: 88px;
+    --pm-totp-timer-size-compact: 78px;
   }
 
   .secondary-stack {
@@ -391,10 +389,9 @@ export const entryMobileStyles = css`
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 11px;
-    font-weight: var(--cv-font-weight-semibold);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
+    font-size: var(--cv-font-size-xs);
+    font-weight: var(--cv-font-weight-medium);
+    letter-spacing: 0;
     color: var(--cv-color-text-muted);
   }
 
@@ -591,11 +588,11 @@ export const entryMobileStyles = css`
     inline-size: 100%;
     block-size: 3.375rem;
     min-block-size: 3.375rem;
-    border: 1px solid var(--pm-entry-action-border-color);
+    border: 1px solid var(--cv-color-border-muted);
     border-radius: 1rem;
-    background: var(--pm-entry-action-background);
-    color: var(--pm-entry-action-text-color);
-    box-shadow: var(--pm-entry-action-shadow, none);
+    background: var(--cv-color-surface-tertiary-glass-strong);
+    color: var(--cv-color-text);
+    box-shadow: none;
     font-size: 1.0625rem;
     font-weight: 700;
     line-height: 1;
@@ -603,18 +600,12 @@ export const entryMobileStyles = css`
     transition: transform 120ms var(--cv-easing-standard);
   }
 
-  .entry-edit-cancel-action {
-    --pm-entry-action-border-color: var(--cv-color-border-muted);
-    --pm-entry-action-background: var(--cv-color-surface-tertiary-glass-strong);
-    --pm-entry-action-text-color: var(--cv-color-text);
-  }
-
   .entry-edit-entry-action,
   .entry-edit-save-action {
-    --pm-entry-action-border-color: var(--cv-button-border-color);
-    --pm-entry-action-background: var(--cv-button-background);
-    --pm-entry-action-text-color: var(--cv-button-text-color);
-    --pm-entry-action-shadow: var(--cv-shadow-sm), 0 0 24px var(--cv-color-primary-ring);
+    border-color: var(--cv-button-border-color);
+    background: var(--cv-button-background);
+    color: var(--cv-button-text-color);
+    box-shadow: var(--cv-shadow-sm), 0 0 24px var(--cv-color-primary-ring);
   }
 
   .entry-edit-entry-action::part(base),
@@ -729,11 +720,10 @@ export const entryMobileStyles = css`
       display: flex;
       align-items: center;
       gap: 4px;
-      font-size: 10px;
-      font-weight: var(--cv-font-weight-semibold);
+      font-size: var(--cv-font-size-xs);
+      font-weight: var(--cv-font-weight-medium);
       color: var(--cv-color-text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
+      letter-spacing: 0;
 
       cv-icon {
         font-size: 12px;
@@ -778,15 +768,6 @@ export const entryMobileStyles = css`
       color: var(--cv-color-text);
       line-height: 1.4;
 
-      &.masked {
-        font-family: var(--cv-font-family-code);
-        letter-spacing: 0.15em;
-      }
-
-      &.masked.revealed {
-        letter-spacing: 0.02em;
-      }
-
       &.empty {
         color: var(--cv-color-text-muted);
         font-style: italic;
@@ -806,16 +787,15 @@ export const entryMobileStyles = css`
     }
 
     &.credential-field-primary {
-      --entry-mobile-password-action-size: 40px;
     }
 
     .password-input {
       grid-column: 1;
       display: block;
       min-inline-size: 0;
-      block-size: var(--entry-mobile-password-action-size);
+      block-size: var(--pm-entry-mobile-password-action-size);
       line-height: 0;
-      --cv-input-height: var(--entry-mobile-password-action-size);
+      --cv-input-height: var(--pm-entry-mobile-password-action-size);
       --cv-input-background: transparent;
       --cv-input-border-color: transparent;
       --cv-input-padding-inline: 0;
@@ -823,8 +803,8 @@ export const entryMobileStyles = css`
 
     .password-input::part(base) {
       padding: 0;
-      block-size: var(--entry-mobile-password-action-size);
-      min-block-size: var(--entry-mobile-password-action-size);
+      block-size: var(--pm-entry-mobile-password-action-size);
+      min-block-size: var(--pm-entry-mobile-password-action-size);
       min-height: auto;
       border: none;
       background: transparent;
@@ -840,7 +820,8 @@ export const entryMobileStyles = css`
       font-weight: var(--cv-font-weight-medium);
       color: var(--cv-color-text);
       font-family: var(--cv-font-family-code);
-      letter-spacing: 0.15em;
+      font-variant-ligatures: none;
+      letter-spacing: 0.08em;
       line-height: 1.4;
     }
 
@@ -848,8 +829,8 @@ export const entryMobileStyles = css`
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      inline-size: var(--entry-mobile-password-action-size);
-      block-size: var(--entry-mobile-password-action-size);
+      inline-size: var(--pm-entry-mobile-password-action-size);
+      block-size: var(--pm-entry-mobile-password-action-size);
       align-self: center;
     }
 
@@ -869,7 +850,7 @@ export const entryMobileStyles = css`
     }
 
     cv-copy-button {
-      --cv-copy-button-size: var(--entry-mobile-password-action-size, 40px);
+      --cv-copy-button-size: var(--pm-entry-mobile-password-action-size, 40px);
       display: block;
       inline-size: var(--cv-copy-button-size);
       block-size: var(--cv-copy-button-size);
@@ -883,12 +864,6 @@ export const entryMobileStyles = css`
 
   .inline-field-input::part(base) {
     min-block-size: 44px;
-  }
-
-  .inline-edit-form {
-    display: grid;
-    gap: 10px;
-    min-inline-size: 0;
   }
 
   .password-inline-stack {
@@ -1138,8 +1113,7 @@ export const entryMobileStyles = css`
     min-inline-size: 0;
   }
 
-  .otp-manage-list,
-  .ssh-manage-list {
+  .otp-manage-list {
     display: grid;
     gap: var(--cv-space-2);
   }
@@ -1238,10 +1212,9 @@ export const entryMobileStyles = css`
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 11px;
-    font-weight: var(--cv-font-weight-semibold);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
+    font-size: var(--cv-font-size-xs);
+    font-weight: var(--cv-font-weight-medium);
+    letter-spacing: 0;
     color: var(--cv-color-text-muted);
   }
 
@@ -1263,18 +1236,20 @@ export const entryMobileStyles = css`
   }
 
   .note-card-demoted .note-content {
-    font-family: var(--cv-font-family-code);
-    font-size: 0.9rem;
-    line-height: 1.65;
+    font-family: var(--cv-font-family-body);
+    font-size: var(--cv-font-size-sm);
+    line-height: var(--cv-line-height-normal);
     white-space: pre-wrap;
     word-break: break-word;
     color: var(--cv-color-text);
   }
 
   .note-card-demoted .note-skeleton {
-    --pm-entry-note-skeleton-gap: var(--cv-space-2);
-    --pm-entry-note-skeleton-padding: 0;
-    --pm-entry-note-skeleton-short-width: 60%;
+    padding: 0;
+  }
+
+  .note-card-demoted .note-skeleton .skeleton-line.short {
+    inline-size: 60%;
   }
 
   .note-card-demoted .empty-state {

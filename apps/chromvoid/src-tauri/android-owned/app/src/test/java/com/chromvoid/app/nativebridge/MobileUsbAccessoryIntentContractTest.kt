@@ -1,5 +1,6 @@
 package com.chromvoid.app.nativebridge
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -7,6 +8,7 @@ import android.hardware.usb.UsbAccessory
 import android.hardware.usb.UsbManager
 import androidx.test.core.app.ApplicationProvider
 import com.chromvoid.app.MainActivity
+import com.chromvoid.app.MobileUsbApprovalActionReceiver
 import com.chromvoid.app.MobileUsbAccessorySystemReceiver
 import com.chromvoid.app.R
 import org.junit.Assert.assertEquals
@@ -216,6 +218,18 @@ class MobileUsbAccessoryIntentContractTest {
             },
         )
         assertAccessoryFilterMatchesChromVoidContract()
+    }
+
+    @Test
+    fun manifest_registersPrivateUsbApprovalActionReceiver() {
+        val receiver =
+            context.packageManager.getReceiverInfo(
+                ComponentName(context, MobileUsbApprovalActionReceiver::class.java),
+                0,
+            )
+
+        assertEquals(MobileUsbApprovalActionReceiver::class.java.name, receiver.name)
+        assertFalse(receiver.exported)
     }
 
     private fun assertAccessoryFilterMatchesChromVoidContract() {

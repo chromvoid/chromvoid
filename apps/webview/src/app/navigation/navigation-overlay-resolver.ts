@@ -17,6 +17,7 @@ import {
   DEFAULT_FILES_PATH,
   DEFAULT_OVERLAY,
   DEFAULT_SEARCH_FILTERS,
+  parentPath as getParentPath,
   toOptionalFiniteNumber,
 } from './navigation-snapshot'
 
@@ -69,6 +70,24 @@ type ResolvedVideoFile = {
 
 const CLOSED_OVERLAY: ResolvedOverlayState = {kind: 'closed'}
 const CLOSED_DOCUMENT: ResolvedFilesDocumentState = {kind: 'closed'}
+
+function mergeMarkdownRouteSource(
+  resolved: ResolvedFilesDocumentState,
+  source: MarkdownDocumentRouteSource | undefined,
+  viewMode?: Extract<ResolvedFilesDocumentState, {kind: 'markdown'}>['viewMode'],
+): ResolvedFilesDocumentState {
+  if (resolved.kind !== 'markdown') {
+    return resolved
+  }
+
+  return {
+    ...resolved,
+    ...(source ? {path: resolved.path ?? source.path} : {}),
+    ...(source?.parentPath ? {parentPath: resolved.parentPath ?? source.parentPath} : {}),
+    ...(source?.anchor ? {anchor: source.anchor} : {}),
+    ...(viewMode ? {viewMode} : {}),
+  }
+}
 
 function getCatalogReader(ctx: AppContext | null): CatalogReader | null {
   const catalog = ctx?.catalog as {catalog?: unknown} | undefined
@@ -310,6 +329,8 @@ function resolveMarkdownDocumentNode(
   node: CatalogNodeLike,
   fileId: number,
   filters: SearchFilters,
+  fallbackParentPath?: string,
+  anchor?: string,
 ): ResolvedFilesDocumentState | null {
   if (node.isDir) {
     return null
@@ -336,14 +357,20 @@ function resolveMarkdownDocumentNode(
 
   const size = toOptionalFiniteNumber(node.size)
   const sourceRevision = toOptionalFiniteNumber(node.sourceRevision ?? node.source_revision)
+  const explicitPath = typeof node.path === 'string' && node.path.length > 0 ? node.path : undefined
+  const path = explicitPath ?? (fallbackParentPath ? buildChildPath(fallbackParentPath, String(node.name)) : undefined)
+  const parentPath = path ? getParentPath(path) : fallbackParentPath
   return {
     kind: 'markdown',
     fileId,
     fileName: String(node.name),
+    ...(path ? {path} : {}),
+    ...(parentPath ? {parentPath} : {}),
     ...(size !== undefined ? {size} : {}),
     mimeType: typeof node.mimeType === 'string' ? node.mimeType : undefined,
     lastModified: toOptionalFiniteNumber(node.lastModified ?? node.modtime),
     ...(sourceRevision !== undefined ? {sourceRevision} : {}),
+    ...(anchor ? {anchor} : {}),
     mode: 'markdown',
   }
 }
@@ -356,7 +383,7 @@ function getMarkdownDocumentFile(
 ): ResolvedFilesDocumentState | null {
   const children = getCatalogChildren(catalog, path)
   const match = children.find((node) => Number(node.nodeId) === fileId)
-  return match ? resolveMarkdownDocumentNode(match, fileId, filters) : null
+  return match ? resolveMarkdownDocumentNode(match, fileId, filters, path) : null
 }
 
 function getMarkdownDocumentById(
@@ -390,6 +417,8 @@ function getMarkdownDocumentSource(
     },
     fileId,
     filters,
+    source.parentPath,
+    source.anchor,
   )
 }
 
@@ -574,7 +603,7 @@ export function evaluateNavigationDocument(options: {
     const markdownDocument = getMarkdownDocumentFile(path, document.fileId, filters, catalog)
     if (markdownDocument) {
       return {
-        resolved: markdownDocument,
+        resolved: mergeMarkdownRouteSource(markdownDocument, document.source, document.viewMode),
         shouldCanonicalize: false,
       }
     }
@@ -583,7 +612,7 @@ export function evaluateNavigationDocument(options: {
       const catalogDocument = getMarkdownDocumentById(document.fileId, filters, catalog)
       if (catalogDocument) {
         return {
-          resolved: catalogDocument,
+          resolved: mergeMarkdownRouteSource(catalogDocument, document.source, document.viewMode),
           shouldCanonicalize: false,
         }
       }
@@ -591,7 +620,7 @@ export function evaluateNavigationDocument(options: {
       const sourceDocument = getMarkdownDocumentSource(document.source, document.fileId, filters)
       if (sourceDocument) {
         return {
-          resolved: sourceDocument,
+          resolved: mergeMarkdownRouteSource(sourceDocument, document.source, document.viewMode),
           shouldCanonicalize: false,
         }
       }

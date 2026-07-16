@@ -13,8 +13,7 @@ import {logger} from './logger'
 import {OTP} from './otp'
 import {normalizeCredentialTags} from './tags'
 import type {ManagerRoot} from './root'
-import type {IEntry, IEntryExternal, OTPOptions, SshKeyEntry, UrlRule} from './types'
-import type {ManagerSaver} from './types'
+import type {IEntry, IEntryExternal, ManagerSaver, OTPOptions, PassManagerSshKey, UrlRule} from './types'
 
 export const DEFAULT_OPTIONS: OTPOptions = {
   id: '',
@@ -197,7 +196,7 @@ export class Entry {
           if (!createdOtp) {
             throw new Error('saveOTP failed')
           }
-          const otpSaved = await wrap(this.root.managerSaver.saveOTP(createdOtp.id, otpSecret))
+          const otpSaved = await wrap(this.root.managerSaver.saveOTP(createdOtp.id, otpSecret, createdOtp.data))
           if (!otpSaved) {
             throw new Error('saveOTP failed')
           }
@@ -244,9 +243,7 @@ export class Entry {
 
       try {
         const metaSaved = await wrap(
-          this.root.managerSaver.saveEntryMeta(
-            this.buildEntryMetaPayload(undefined, undefined, this.sshKeys),
-          ),
+          this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload()),
         )
         if (!metaSaved) {
           throw new Error('saveEntryMeta failed')
@@ -288,14 +285,14 @@ export class Entry {
       const nextOtps = [...prevOtps, otp]
 
       const metaSaved = await wrap(
-        this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload(undefined, nextOtps, this.sshKeys)),
+        this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload(undefined, nextOtps)),
       )
       if (!metaSaved) {
         throw new Error('saveEntryMeta failed')
       }
 
       if (secret) {
-        const otpSaved = await wrap(this.root.managerSaver.saveOTP(otp.id, secret))
+        const otpSaved = await wrap(this.root.managerSaver.saveOTP(otp.id, secret, otp.data))
         if (!otpSaved) {
           throw new Error('saveOTP failed')
         }
@@ -307,57 +304,6 @@ export class Entry {
       throw error
     }
   }, 'passmanager.entry.addOTP').extend(withTransaction())
-
-  private readonly updateSshKeysAction = action(async (sshKeys: SshKeyEntry[]) => {
-    if (this.entryType === 'payment_card') {
-      throw new Error('payment_card entries do not support SSH keys')
-    }
-    this._data.set({
-      ...this._data(),
-      sshKeys,
-      updatedTs: Date.now(),
-    })
-
-    const metaSaved = await wrap(
-      this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload(undefined, undefined, sshKeys)),
-    )
-    if (!metaSaved) {
-      throw new Error('saveEntryMeta failed')
-    }
-
-    return true
-  }, 'passmanager.entry.updateSshKeys').extend(withTransaction())
-
-  private readonly removeSshKeyAction = action(async (keyId: string) => {
-    if (this.entryType === 'payment_card') {
-      throw new Error('payment_card entries do not support SSH keys')
-    }
-    const newKeys = this.sshKeys.filter((k) => k.id !== keyId)
-    this._data.set({
-      ...this._data(),
-      sshKeys: newKeys,
-      updatedTs: Date.now(),
-    })
-
-    const [okPriv, okPub] = await wrap(
-      Promise.all([
-        this.root.managerSaver.removeEntrySshPrivateKey(this.id, keyId),
-        this.root.managerSaver.removeEntrySshPublicKey(this.id, keyId),
-      ]),
-    )
-    if (!okPriv || !okPub) {
-      throw new Error('removeSshKey failed')
-    }
-
-    const metaSaved = await wrap(
-      this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload(undefined, undefined, newKeys)),
-    )
-    if (!metaSaved) {
-      throw new Error('saveEntryMeta failed')
-    }
-
-    return true
-  }, 'passmanager.entry.removeSshKey').extend(withTransaction())
 
   private readonly removeOTPAction = action(async (otp: OTP) => {
     if (this.entryType === 'payment_card') {
@@ -631,19 +577,15 @@ export class Entry {
     return this.cardCvvReadPending
   }
 
-  async sshPrivateKey(keyId: string) {
-    return this.root.managerSaver.readEntrySshPrivateKey(this.id, keyId)
-  }
-
   async sshPublicKey(keyId: string) {
-    return this.root.managerSaver.readEntrySshPublicKey(this.id, keyId)
+    return this.root.readSshPublicKey(keyId)
   }
 
-  get sshKeys(): SshKeyEntry[] {
+  get sshKeys(): PassManagerSshKey[] {
     if (this.entryType === 'payment_card') {
       return []
     }
-    return this._data().sshKeys ?? []
+    return this.root.sshKeysForEntry(this.id)
   }
 
   get createdTs() {
@@ -661,7 +603,6 @@ export class Entry {
   private buildEntryMetaPayload(
     parent: Group | ManagerRoot | undefined = this.parent,
     otps: OTP[] = this.otps(),
-    sshKeys: SshKeyEntry[] | undefined = undefined,
   ): Parameters<ManagerSaver['saveEntryMeta']>[0] {
     const groupPath = parent instanceof Group ? parent.name : undefined
 
@@ -703,7 +644,6 @@ export class Entry {
         counter: o.data.counter,
       })),
       groupPath,
-      ...(sshKeys !== undefined ? {sshKeys} : {}),
     }
   }
 
@@ -805,33 +745,6 @@ export class Entry {
     return ok
   }
 
-  async saveSshKey(keyId: string, privateKey: string, publicKey: string) {
-    if (this.entryType === 'payment_card') {
-      return false
-    }
-    logger.debug('[PassManager] saveSshKey', {entryId: this.id, keyId})
-    const [okPriv, okPub] = await Promise.all([
-      wrap(this.root.managerSaver.saveEntrySshPrivateKey(this.id, keyId, privateKey)),
-      wrap(this.root.managerSaver.saveEntrySshPublicKey(this.id, keyId, publicKey)),
-    ])
-    logger.debug('[PassManager] saveSshKey:result', {entryId: this.id, keyId, okPriv, okPub})
-    return okPriv && okPub
-  }
-
-  async cleanSshKeys() {
-    if (this.entryType === 'payment_card') {
-      return []
-    }
-    return await Promise.all(
-      this.sshKeys.map((k) =>
-        Promise.all([
-          wrap(this.root.managerSaver.removeEntrySshPrivateKey(this.id, k.id)),
-          wrap(this.root.managerSaver.removeEntrySshPublicKey(this.id, k.id)),
-        ]),
-      ),
-    )
-  }
-
   async addOTP(params: OTPOptions) {
     this.root.beginEntryUpdate()
     try {
@@ -861,30 +774,6 @@ export class Entry {
       undefined,
       undefined,
     )
-  }
-
-  async updateSshKeys(sshKeys: SshKeyEntry[]) {
-    if (this.entryType === 'payment_card') {
-      return false
-    }
-    this.root.beginEntryUpdate()
-    try {
-      return await this.updateSshKeysAction(sshKeys)
-    } finally {
-      this.root.endEntryUpdate()
-    }
-  }
-
-  async removeSshKey(keyId: string) {
-    if (this.entryType === 'payment_card') {
-      return false
-    }
-    this.root.beginEntryUpdate()
-    try {
-      return await this.removeSshKeyAction(keyId)
-    } finally {
-      this.root.endEntryUpdate()
-    }
   }
 
   async move(newParent: Group | ManagerRoot, options: {silent?: boolean} = {}) {
@@ -925,7 +814,7 @@ export class Entry {
     if (this.entryType === 'payment_card') {
       await wrap(Promise.all([this.cleanNote(), this.cleanCardCvv(), this.cleanCardPan()]))
     } else {
-      await wrap(Promise.all([this.cleanNote(), this.cleanPassword(), this.cleanOTPs(), this.cleanSshKeys()]))
+      await wrap(Promise.all([this.cleanNote(), this.cleanPassword(), this.cleanOTPs()]))
     }
 
     if (updateParent) {

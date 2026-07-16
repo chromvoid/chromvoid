@@ -1,994 +1,433 @@
+import {CVBottomSheet} from '@chromvoid/uikit/components/cv-bottom-sheet'
 import {css, nothing, type TemplateResult} from 'lit'
 import {html} from '@chromvoid/uikit/reatom-lit'
 
-import type {CVSwitchChangeEvent} from '@chromvoid/uikit/components/cv-switch'
 import {i18n} from '@project/passmanager/i18n'
+import {navigationModel} from 'root/app/navigation/navigation.model'
+import type {NavigationBlockerIntent} from 'root/app/navigation/navigation.types'
 import {
   getPassmanagerRoot,
   isPassmanagerReadOnlyOrMissing,
 } from 'root/features/passmanager/models/pm-root.adapter'
 import {markMobileKeyboardProgrammaticScroll} from 'root/shared/services/mobile-keyboard-scroll-intent'
-import {PMIconPicker} from '../../pm-icon-picker'
-import {renderPaymentCardFace} from '../entry/payment-card-face'
-import {paymentCardFaceMobileStyles, paymentCardFaceStyles} from '../entry/payment-card-face.styles'
-import {pmEntryTagsStyles} from '../entry-tags/entry-tags.styles'
-import {PMEntryOTPCreateSheet} from '../entry-otp-create/entry-otp-create-sheet'
-import {PMEntrySshCreateSheet} from '../entry-ssh/entry-ssh-create-sheet'
+import {transientBackModel} from 'root/shared/services/transient-back.model'
+import {MobileBottomActionFooter} from 'root/shared/ui/mobile-bottom-action-footer'
 import {PMEntryCreateBase} from './entry-create-base'
-import {pmEntryCardStyles, pmEntryGenerateStyles} from './styles'
+import {PMEntryCreateDetailsSheet} from './entry-create-details-sheet'
+import {PMEntryCreateLocationSheet} from './entry-create-location-sheet'
+import type {PMEntryCreateOptionalDetail} from './entry-create.model'
 
 const pmEntryCreateMobileStyles = css`
   :host {
     display: block;
     block-size: 100%;
-    container-type: inline-size;
+    min-block-size: 0;
     overflow: hidden;
     contain: layout style paint;
-    overscroll-behavior-y: contain;
-    scrollbar-width: none;
+    container-type: inline-size;
     color: var(--cv-color-text);
     background: var(--cv-color-bg);
-    --entry-create-surface: var(--cv-color-surface-secondary-glass-strong);
-    --entry-create-field: var(--cv-color-surface-tertiary-glass);
-    --entry-create-border: var(--cv-color-border-faint);
-    --entry-create-keyboard-clearance: max(
-      var(--mobile-keyboard-scroll-clearance, 0px),
-      var(--visual-viewport-bottom-inset, 0px)
-    );
   }
 
-  @supports (-webkit-touch-callout: none) {
-    @media (hover: none) and (pointer: coarse) {
-      cv-input::part(input),
-      cv-textarea::part(textarea),
-      cv-select::part(trigger) {
-        font-size: 16px;
-      }
-    }
-  }
-
-  @keyframes pmTypeSwitchPulse {
-    0% { transform: scale(0.97); }
-    60% { transform: scale(1.015); }
-    100% { transform: scale(1); }
-  }
-
-  @keyframes pmAvatarPulse {
-    0% { transform: scale(1); box-shadow: 0 0 0 0 var(--cv-color-primary-ring); }
-    50% { transform: scale(1.04); box-shadow: 0 0 0 10px transparent; }
-    100% { transform: scale(1); box-shadow: 0 0 0 0 transparent; }
-  }
-
-  @keyframes pmGenerateSpin {
-    from { transform: rotate(0); }
-    to { transform: rotate(360deg); }
-  }
-
-  cv-select {
-    --cv-select-inline-size: 100%;
-  }
-
-  cv-guidance-anchor {
-    display: block;
-    block-size: 100%;
-    min-block-size: 0;
-  }
-
+  cv-guidance-anchor,
   form {
     display: flex;
     flex-direction: column;
     block-size: 100%;
     min-block-size: 0;
-    inline-size: 100%;
-    max-width: 860px;
-    box-sizing: border-box;
-
   }
 
   .create-scroll {
     display: flex;
     flex: 1 1 auto;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: var(--cv-space-4);
     min-block-size: 0;
     overflow-x: hidden;
     overflow-y: auto;
-    padding: 1rem 1rem 1.25rem;
-    box-sizing: border-box;
-    scroll-padding-block-end: calc(var(--entry-create-keyboard-clearance) + var(--cv-space-4));
+    padding: var(--cv-space-3) var(--cv-space-3) var(--cv-space-4);
+    scroll-padding-block-end: var(--cv-space-4);
+    overscroll-behavior-y: contain;
     -webkit-overflow-scrolling: touch;
   }
 
-  h3 {
-    font-size: 0.8125rem;
-    font-weight: 500;
-    margin: 0;
-    color: var(--cv-color-text);
-  }
-
-
-  back-button {
-    --back-button-size: 44px;
-    --back-button-icon-size: 22px;
-    --back-button-radius: 50%;
-    --back-button-bg: var(--cv-color-surface-secondary-glass);
-    --back-button-border-color: var(--cv-color-border-faint);
-    --back-button-color: var(--cv-color-text);
-    --back-button-hover-bg: var(--cv-color-primary-surface);
-    --back-button-hover-border-color: var(--cv-color-primary-border-strong);
-  }
-
-  .create-heading {
-    min-inline-size: 0;
-    display: grid;
-    gap: 0.25rem;
-  }
-
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    padding: 1rem;
-    background: var(--cv-color-surface-secondary-glass);
-    border: 1px solid var(--entry-create-border);
-    border-radius: 1.125rem;
-    box-shadow: 0 8px 24px var(--cv-alpha-black-15);
-    transition:
-      border-color 220ms var(--cv-easing-standard),
-      box-shadow 280ms var(--cv-easing-spring);
-
-    &:focus-within {
-      border-color: var(--cv-color-primary-border-strong);
-      box-shadow:
-        0 8px 24px var(--cv-alpha-black-15),
-        0 0 0 1px var(--cv-color-primary-ring),
-        0 0 28px var(--cv-color-primary-ring);
-    }
-  }
-
-  .type-section {
-    gap: 0.625rem;
-    padding: 0;
-    background: transparent;
-    border: 0;
-    border-radius: 0;
-    box-shadow: none;
-  }
-
-  .type-section:focus-within {
-    box-shadow: none;
-  }
-
-  .section-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-  }
-
-  .section-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4375rem;
-    font-family: var(--cv-font-family-primary);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.16em;
-    color: var(--cv-color-text-muted);
-    padding-inline-start: 0.125rem;
-  }
-
-  .section-label cv-icon {
-    inline-size: 0.875rem;
-    block-size: 0.875rem;
+  .create-scroll > * {
+    flex: 0 0 auto;
   }
 
   .entry-type-switch {
     display: block;
-    --cv-radio-group-gap: 0.25rem;
+    inline-size: 100%;
   }
 
   .entry-type-switch::part(base) {
     display: grid;
-    grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
-    gap: 0.25rem;
-    padding: 0.3125rem;
-    border-color: var(--cv-color-border-faint);
-    border-radius: 1.25rem;
-    background: var(--cv-color-surface-secondary-glass);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--cv-space-1);
+    inline-size: 100%;
+    padding: var(--cv-space-1);
+    border-color: var(--cv-color-border-muted);
+    border-radius: var(--cv-radius-3);
+    background: var(--cv-color-surface-2);
   }
 
   .entry-type-option {
-    min-width: 0;
-    color: var(--cv-color-text-subtle);
-    font: inherit;
-    font-size: 0.9375rem;
-    font-weight: 600;
-    white-space: nowrap;
+    min-inline-size: 0;
+    inline-size: 100%;
+    font-weight: var(--cv-font-weight-semibold);
   }
 
   .entry-type-option::part(base) {
-    gap: 0.5rem;
-    min-width: 0;
-    min-height: 2.75rem;
     justify-content: center;
-    padding: 0 0.75rem;
-    border: 1px solid transparent;
-    border-radius: 0.95rem;
-    background: transparent;
-    transition:
-      border-color 220ms var(--cv-easing-standard),
-      background 220ms var(--cv-easing-standard),
-      color 220ms var(--cv-easing-standard),
-      box-shadow 280ms var(--cv-easing-spring),
-      transform 220ms var(--cv-easing-spring);
-
-    cv-icon {
-      inline-size: 1.05rem;
-      block-size: 1.05rem;
-      box-sizing: content-box;
-      padding: 0.3125rem;
-      border-radius: 50%;
-      flex-shrink: 0;
-      transition:
-        background 220ms var(--cv-easing-standard),
-        color 220ms var(--cv-easing-standard),
-        box-shadow 220ms var(--cv-easing-spring),
-        padding 220ms var(--cv-easing-standard);
-    }
-
-    span {
-      min-inline-size: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
+    box-sizing: border-box;
+    min-block-size: 44px;
+    inline-size: 100%;
+    border-radius: var(--cv-radius-2);
   }
 
-  .entry-type-option[checked]::part(base) {
-    background: var(--cv-color-primary-surface);
-    border-color: var(--cv-color-primary-border-strong);
-    color: var(--cv-color-primary);
-    box-shadow:
-      inset 0 0 0 1px var(--cv-color-primary-muted),
-      0 0 14px var(--cv-color-primary-ring);
-    animation: pmTypeSwitchPulse 240ms var(--cv-easing-spring);
-  }
-
-  .entry-type-option[checked] cv-icon {
-    background: var(--cv-color-primary-surface-strong);
-    color: var(--cv-color-primary);
-    box-shadow:
-      inset 0 0 0 1px var(--cv-color-primary),
-      0 0 8px var(--cv-color-primary-ring);
-  }
-
-  .credentials-grid,
-  .details-grid {
-    display: grid;
-    gap: 1rem;
-    grid-template-columns: 1fr;
-  }
-
-  .title-row {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    grid-template-areas:
-      'label label'
-      'avatar input';
-    gap: 0.5rem 1rem;
-    align-items: end;
-  }
-
-  .title-field-label {
-    grid-area: label;
-    color: var(--cv-color-text);
-    font-size: 0.9375rem;
-    font-weight: 600;
-    line-height: 1.2;
-  }
-
-  .field-cell {
-    min-width: 0;
-  }
-
-  .avatar-picker {
-    grid-area: avatar;
-    position: relative;
-    inline-size: 60px;
-    block-size: 60px;
-    align-self: end;
-    border-radius: 14px;
-    transition: transform 220ms var(--cv-easing-spring), box-shadow 220ms var(--cv-easing-spring);
-  }
-
-  .title-row .field-cell {
-    grid-area: input;
-  }
-
-  .title-input::part(form-control-label) {
-    display: none;
-  }
-
-  .avatar-picker[data-pulse='true'] {
-    animation: pmAvatarPulse 480ms var(--cv-easing-spring);
-  }
-
-  pm-icon-picker {
-    --pm-icon-picker-trigger-size: 60px;
-    --pm-icon-picker-trigger-radius: 14px;
-    --pm-icon-picker-trigger-bg: var(--cv-color-primary-surface);
-    --pm-icon-picker-trigger-border: var(--cv-color-primary-border-strong);
-    --pm-icon-picker-trigger-hover-border: var(--cv-color-primary);
-    --pm-icon-picker-trigger-shadow: 0 8px 20px var(--cv-alpha-black-15);
-    --pm-icon-picker-preview-size: 32px;
-  }
-
-  .avatar-edit-badge {
-    position: absolute;
-    inset-inline-end: -2px;
-    inset-block-end: -2px;
+  .entry-type-option::part(label) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    inline-size: 1.25rem;
-    block-size: 1.25rem;
-    border-radius: 50%;
-    background: var(--cv-color-primary);
-    color: var(--cv-color-bg);
-    box-shadow: 0 0 8px var(--cv-color-primary-ring);
-    pointer-events: none;
-    transition: transform 220ms var(--cv-easing-spring);
-
-    cv-icon {
-      inline-size: 0.75rem;
-      block-size: 0.75rem;
-    }
+    gap: var(--cv-space-2);
+    min-inline-size: 0;
   }
 
-  .avatar-picker:hover .avatar-edit-badge,
-  .avatar-picker[data-pulse='true'] .avatar-edit-badge {
-    transform: scale(1.1);
+  .entry-type-option cv-icon {
+    flex: 0 0 auto;
   }
 
-  cv-input,
-  cv-textarea {
-    width: 100%;
+  .entry-type-option span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  cv-input::part(form-control-label),
-  cv-textarea::part(form-control-label) {
-    margin-block-end: 0.5rem;
+  .location-field {
+    display: grid;
+    gap: var(--cv-space-1);
+  }
+
+  .location-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--cv-space-3);
+    inline-size: 100%;
+    min-block-size: 52px;
+    padding: var(--cv-space-2) var(--cv-space-3);
+    border: 1px solid var(--cv-color-primary-border);
+    border-radius: var(--cv-radius-3);
     color: var(--cv-color-text);
-    font-size: 0.9375rem;
-    font-weight: 600;
-    line-height: 1.2;
+    background: var(--cv-gradient-surface-primary);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
   }
 
-  cv-input::part(base) {
-    min-block-size: 2.875rem;
-    border-radius: 0.875rem;
-    border-color: var(--entry-create-border);
-    background: var(--entry-create-field);
-    color: var(--cv-color-text);
-    padding-inline: 0.875rem;
-    gap: 0.75rem;
+  .location-row:focus-visible,
+  .details-row:focus-visible {
+    outline: 2px solid var(--cv-color-primary);
+    outline-offset: 2px;
   }
 
-  cv-input[focused]::part(base),
-  cv-textarea[focused]::part(base) {
-    border-color: var(--cv-color-primary);
-    box-shadow: 0 0 0 3px var(--cv-color-primary-ring);
-  }
-
-  cv-input[invalid]::part(base) {
-    border-color: var(--cv-color-danger);
-    box-shadow: 0 0 0 2px var(--cv-color-danger-ring);
-  }
-
-  cv-input::part(input),
-  cv-textarea::part(textarea) {
-    font-size: 1rem;
-  }
-
-  cv-input::part(prefix),
-  cv-input::part(password-toggle),
-  cv-input::part(suffix) {
-    color: var(--cv-color-text-muted);
-  }
-
-  cv-input::part(prefix) {
-    transition:
-      transform 200ms var(--cv-easing-spring),
-      color 200ms var(--cv-easing-standard);
-  }
-
-  cv-input[focused]::part(prefix) {
-    transform: scale(1.08);
+  .location-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 36px;
+    block-size: 36px;
+    border-radius: var(--cv-radius-2);
     color: var(--cv-color-primary);
+    background: var(--cv-color-primary-surface);
   }
 
-  .field-icon {
-    inline-size: 1.35rem;
-    block-size: 1.35rem;
+  .location-copy,
+  .form-heading-copy {
+    display: grid;
+    gap: 2px;
+    min-inline-size: 0;
+  }
+
+  .location-label,
+  .section-label {
+    color: var(--cv-color-text-muted);
+    font-size: var(--cv-font-size-xs);
+    font-weight: var(--cv-font-weight-semibold);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .location-value {
+    overflow: hidden;
+    font-weight: var(--cv-font-weight-semibold);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .field-error {
-    display: block;
-    margin-block-start: 0.375rem;
     color: var(--cv-color-danger);
-    font-size: 0.8125rem;
-    line-height: 1.3;
+    font-size: var(--cv-font-size-sm);
+    line-height: 1.35;
   }
 
-  .card-grid {
-    display: grid;
-    gap: 1rem;
-    grid-template-columns: 1fr;
-  }
-
-  .payment-card-create-section {
-    padding: 0;
-    background: transparent;
-    border: 0;
-    box-shadow: none;
-
-    &:focus-within {
-      border-color: transparent;
-      box-shadow: none;
-    }
-  }
-
-  .payment-card-create-section .payment-card-face {
-    inline-size: 100%;
-    box-sizing: border-box;
-  }
-
-  .mobile-tags-section {
-    gap: 0.625rem;
-    padding: 0.75rem;
-    border-radius: 0.875rem;
-    box-shadow: 0 6px 16px var(--cv-alpha-black-15);
-  }
-
-  .mobile-tags-section .entry-tags-editor {
-    gap: 0.5rem;
-  }
-
-  .mobile-tags-section .entry-tags-combobox::part(input-wrapper) {
-    min-block-size: 2.25rem;
-    padding-inline: 0.625rem;
-    gap: 0.375rem;
-    border-radius: 0.75rem;
-  }
-
-  .mobile-tags-section .entry-tags-combobox::part(input) {
-    min-inline-size: 2.625rem;
-    min-block-size: 2.125rem;
-    font-size: 0.875rem;
-  }
-
-  .mobile-tags-section .entry-tags-combobox::part(trigger) {
-    min-block-size: 2.125rem;
-    font-size: 0.875rem;
-  }
-
-  .mobile-tags-section .entry-tags-combobox::part(tags) {
-    gap: 0.25rem;
-  }
-
-  .mobile-tags-section .entry-tags-combobox::part(tag) {
-    max-inline-size: min(9rem, 52vw);
-    padding: 1px 0.375rem;
-    border-radius: 999px;
-    font-size: 0.75rem;
-  }
-
-  .mobile-tags-section .entry-tags-combobox::part(tag-overflow) {
-    font-size: 0.75rem;
-  }
-
-  .mobile-tags-section .entry-tags-picker {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0.5rem;
-  }
-
-  .mobile-tags-section .entry-tags-manage {
-    min-inline-size: 2.25rem;
-    align-self: stretch;
-    border-radius: 0.75rem;
-  }
-
-  @container (width < 380px) {
-    .entry-type-switch {
-      --cv-radio-group-gap: 0.25rem;
-    }
-
-    .entry-type-switch::part(base) {
-      grid-template-columns: minmax(0, 0.76fr) minmax(0, 1.24fr);
-    }
-
-    .entry-type-option::part(base) {
-      gap: 0.375rem;
-      padding-inline: 0.45rem;
-    }
-
-    .entry-type-option {
-      font-size: 0.875rem;
-    }
-
-    .entry-type-option cv-icon {
-      inline-size: 1rem;
-      block-size: 1rem;
-      padding: 0.25rem;
-    }
-
-    .mobile-tags-section .entry-tags-picker {
-      grid-template-columns: minmax(0, 1fr) auto;
-    }
-  }
-
-  .optional-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.625rem;
-  }
-
-  .optional-card {
-    display: flex;
-    flex-direction: column;
-    padding: 0;
+  .form-surface {
     overflow: hidden;
-    background: var(--cv-color-surface-secondary-glass);
-    border: 1px solid var(--entry-create-border);
-    border-radius: 1.125rem;
-    box-shadow: 0 8px 24px var(--cv-alpha-black-15);
-    transition:
-      border-color 220ms var(--cv-easing-standard),
-      box-shadow 280ms var(--cv-easing-spring);
+    border: 1px solid var(--cv-color-border-muted);
+    border-radius: var(--cv-radius-3);
+    background: var(--cv-color-surface);
   }
 
-  .optional-card[data-open='true'] {
-    border-color: var(--cv-color-primary-border-strong);
-    box-shadow:
-      0 8px 24px var(--cv-alpha-black-15),
-      0 0 0 1px var(--cv-color-primary-ring),
-      0 0 28px var(--cv-color-primary-ring);
+  .form-surface:focus-within {
+    border-color: var(--cv-color-primary-border);
   }
 
-  .optional-card-header {
+  .form-heading {
     display: grid;
-    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.875rem 1rem;
-    cursor: pointer;
-    user-select: none;
+    gap: var(--cv-space-3);
+    padding: var(--cv-space-3);
+    border-block-end: 1px solid var(--cv-color-border-muted);
+    background: var(--cv-color-surface-2);
   }
 
-  .optional-card-header cv-switch {
-    align-self: center;
-  }
-
-  .optional-card-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    inline-size: 1.5rem;
-    block-size: 1.5rem;
-    color: var(--cv-color-primary);
-  }
-
-  .optional-card-icon cv-icon {
-    inline-size: 1.25rem;
-    block-size: 1.25rem;
-  }
-
-  .optional-card-title-stack {
-    display: grid;
-    gap: 0.125rem;
-    min-inline-size: 0;
-  }
-
-  .optional-card-title {
-    margin: 0;
-    font-size: 0.9375rem;
-    font-weight: 600;
-    line-height: 1.2;
-    color: var(--cv-color-text);
-  }
-
-  .optional-card-description {
-    margin: 0;
-    font-size: 0.8125rem;
-    line-height: 1.3;
-    color: var(--cv-color-text-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .optional-card-chevron {
-    inline-size: 1.125rem;
-    block-size: 1.125rem;
-    color: var(--cv-color-text-muted);
-    transition: transform 220ms var(--cv-easing-spring);
-  }
-
-  .optional-card[data-open='true'] .optional-card-chevron {
-    transform: rotate(90deg);
-    color: var(--cv-color-primary);
-  }
-
-  .optional-card-body {
-    display: flex;
-    flex-direction: column;
-    gap: 0.875rem;
-    padding: 0 1rem 1rem;
-    border-block-start: 1px solid var(--cv-color-border-faint);
-    padding-block-start: 0.875rem;
-    opacity: 1;
-    transition:
-      opacity var(--cv-duration-fast, 120ms) var(--cv-easing-standard),
-      display var(--cv-duration-fast, 120ms) allow-discrete;
-    transition-behavior: allow-discrete;
-  }
-
-  .optional-card-body[hidden] {
-    display: none;
-    opacity: 0;
-  }
-
-  @starting-style {
-    .optional-card-body:not([hidden]) {
-      opacity: 0;
-    }
-  }
-
-  .otp-summary {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 0.875rem;
-    padding: 0.875rem;
-    border: 1px solid var(--cv-color-success-border);
-    border-radius: var(--cv-radius-2);
-    background: var(--cv-color-success-surface);
-  }
-
-  .otp-summary-text {
-    display: grid;
-    gap: 0.1875rem;
-    min-inline-size: 0;
-  }
-
-  .otp-summary-title {
-    margin: 0;
-    color: var(--cv-color-text);
-    font-size: 0.875rem;
+  .form-heading-title {
+    color: var(--cv-color-text-strong);
     font-weight: var(--cv-font-weight-semibold);
-    line-height: 1.2;
   }
 
-  .otp-summary-meta {
-    margin: 0;
-    overflow: hidden;
+  .form-heading-subtitle {
     color: var(--cv-color-text-muted);
-    font-size: 0.8125rem;
-    line-height: 1.25;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-size: var(--cv-font-size-sm);
+    line-height: 1.35;
   }
 
-  .otp-summary-edit {
-    min-inline-size: 2.25rem;
+  .field-row {
+    padding: var(--cv-space-3);
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .optional-card-chevron {
-      transition: none !important;
-    }
+  .field-row + .field-row {
+    border-block-start: 1px solid var(--cv-color-border-muted);
   }
 
-  .generate-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2.25rem;
-    height: 2.25rem;
-    border-radius: 50%;
-    color: var(--cv-color-primary);
-    cursor: pointer;
-    box-shadow: 0 0 0 0 transparent;
-    transition:
-      background-color 200ms var(--cv-easing-standard),
-      color 200ms var(--cv-easing-standard),
-      border-color 200ms var(--cv-easing-standard),
-      box-shadow 220ms var(--cv-easing-spring),
-      transform 120ms var(--cv-easing-standard);
-    padding: 0;
-
-    cv-icon {
-      width: 18px;
-      height: 18px;
-    }
-
-    &:hover {
-      background: var(--cv-color-primary);
-      color: var(--cv-color-on-primary);
-      border-color: var(--cv-color-primary);
-      box-shadow: 0 0 18px var(--cv-color-primary-ring);
-    }
-
-    &:active {
-      transform: scale(0.92);
-    }
+  cv-field,
+  cv-input,
+  cv-textarea {
+    inline-size: 100%;
   }
 
-  .generate-btn[data-spinning='true'] cv-icon {
-    animation: pmGenerateSpin 460ms var(--cv-easing-spring);
+  .optional-label {
+    color: var(--cv-color-text-muted);
+    font-weight: var(--cv-font-weight-regular);
   }
 
-  .generate-divider {
-    align-self: center;
-    inline-size: 1px;
-    block-size: 1.25rem;
-    background: var(--cv-color-border-faint);
-    margin-inline: 0.125rem;
-  }
-
-  .strength-bar {
+  .password-suffix {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 0.125rem 0;
-    block-size: auto;
+    place-items: center;
+    block-size: 100%;
+    border-inline-start: 1px solid var(--cv-color-border-muted);
   }
 
-  .strength-status {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    min-inline-size: 0;
+  .password-input::part(base) {
+    padding-inline-end: 0;
+  }
+
+  .password-input::part(suffix) {
+    align-self: stretch;
+  }
+
+  .generate-button {
+    inline-size: 48px;
+    block-size: 100%;
+    min-block-size: 40px;
+  }
+
+  .strength {
+    display: grid;
+    gap: var(--cv-space-1);
+    margin-block-start: var(--cv-space-2);
+  }
+
+  .strength-copy {
     color: var(--cv-color-text-muted);
-    font-size: 0.8125rem;
-
-    cv-icon {
-      inline-size: 1.125rem;
-      block-size: 1.125rem;
-      color: var(--cv-color-primary);
-    }
-  }
-
-  .strength-value {
-    color: var(--cv-color-primary);
-    font-weight: 650;
+    font-size: var(--cv-font-size-xs);
   }
 
   .strength-segments {
     display: grid;
-    grid-template-columns: repeat(5, 1.5rem);
-    gap: 0.25rem;
-    justify-content: end;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 3px;
   }
 
-  .strength-segment {
-    block-size: 0.375rem;
+  .strength-segments span {
+    block-size: 3px;
     border-radius: 999px;
-    background: var(--cv-color-border-glass);
-    transform-origin: center;
-    transition:
-      background 200ms var(--cv-easing-standard),
-      box-shadow 240ms var(--cv-easing-spring),
-      transform 200ms var(--cv-easing-spring);
+    background: var(--cv-color-border-muted);
   }
 
-  .strength-segment:nth-child(1) { transition-delay: 0ms; }
-  .strength-segment:nth-child(2) { transition-delay: 60ms; }
-  .strength-segment:nth-child(3) { transition-delay: 120ms; }
-  .strength-segment:nth-child(4) { transition-delay: 180ms; }
-  .strength-segment:nth-child(5) { transition-delay: 240ms; }
-
-  .strength-segment[data-active='true'] {
+  .strength-segments span[data-active='true'] {
     background: var(--cv-color-primary);
-    box-shadow: 0 0 10px var(--cv-color-primary-ring);
-    transform: scaleY(1.15);
   }
 
-  .strength-bar.strength-0 .strength-value,
-  .strength-bar.strength-0 .strength-status cv-icon {
-    color: var(--cv-color-danger);
+  .expiry-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--cv-space-2);
   }
 
-  .strength-bar.strength-0 .strength-segment[data-active='true'] {
-    background: var(--cv-color-danger);
-    box-shadow: 0 0 10px var(--cv-color-danger-ring);
+  .details-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: var(--cv-space-3);
+    inline-size: 100%;
+    min-block-size: 60px;
+    padding: var(--cv-space-2) var(--cv-space-3);
+    border: 1px solid var(--cv-color-border-muted);
+    border-radius: var(--cv-radius-3);
+    color: var(--cv-color-text);
+    background: var(--cv-color-surface-2);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
   }
 
-  .strength-bar.strength-1 .strength-value,
-  .strength-bar.strength-1 .strength-status cv-icon,
-  .strength-bar.strength-2 .strength-value,
-  .strength-bar.strength-2 .strength-status cv-icon {
-    color: var(--cv-color-warning);
+  .details-row:hover {
+    border-color: var(--cv-color-primary-border);
+    background: var(--cv-color-surface-highlight);
   }
 
-  .strength-bar.strength-1 .strength-segment[data-active='true'],
-  .strength-bar.strength-2 .strength-segment[data-active='true'] {
-    background: var(--cv-color-warning);
-    box-shadow: 0 0 10px var(--cv-color-warning-ring);
+  .details-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 36px;
+    block-size: 36px;
+    border-radius: var(--cv-radius-2);
+    color: var(--cv-color-primary);
+    background: var(--cv-color-primary-surface);
   }
 
-  .strength-bar.strength-4 .strength-value,
-  .strength-bar.strength-4 .strength-status cv-icon {
-    color: var(--cv-color-success);
+  .details-copy {
+    display: grid;
+    gap: 2px;
+    min-inline-size: 0;
   }
 
-  .strength-bar.strength-4 .strength-segment[data-active='true'] {
-    background: var(--cv-color-success);
-    box-shadow: 0 0 10px var(--cv-color-success-ring);
+  .details-title {
+    color: var(--cv-color-text-strong);
+    font-weight: var(--cv-font-weight-semibold);
+  }
+
+  .details-summary {
+    overflow: hidden;
+    color: var(--cv-color-text-muted);
+    font-size: var(--cv-font-size-sm);
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .details-count {
+    display: inline-grid;
+    place-items: center;
+    min-inline-size: 26px;
+    block-size: 26px;
+    padding-inline: var(--cv-space-1);
+    border-radius: var(--cv-radius-pill);
+    color: var(--cv-color-primary);
+    background: var(--cv-color-primary-surface);
+    font-size: var(--cv-font-size-xs);
+    font-weight: var(--cv-font-weight-semibold);
   }
 
   .create-footer {
-    flex: 0 0 auto;
-    --cv-mobile-bottom-action-padding: var(--cv-space-2) 1rem;
-    margin-block-end: calc(var(--entry-create-keyboard-clearance) + var(--cv-space-1));
+    --app-mobile-block-end-action-padding: var(--cv-space-2) var(--cv-space-3);
   }
 
-  .create-footer cv-button {
-    inline-size: 100%;
-    display: block;
-    overflow: hidden;
-    isolation: isolate;
-    contain: paint;
-    border: 1px solid var(--cv-button-border-color);
-    border-radius: 1rem;
-    background: var(--cv-button-background);
-    color: var(--cv-button-text-color);
-    box-shadow:
-      var(--cv-shadow-sm),
-      0 0 24px var(--cv-color-primary-ring);
-    transform: translateZ(0);
+  :host-context(html[data-mobile-keyboard-expanded]) .create-footer,
+  :host-context(html[data-visual-viewport-shrunken]) .create-footer {
+    margin-block-end: calc(
+      var(--app-runtime-visual-viewport-inset-block-end, 0px) + var(--cv-space-1)
+    );
   }
 
   .create-footer cv-button::part(base) {
-    min-block-size: 3.375rem;
-    border: 0;
-    border-radius: inherit;
-    background: var(--cv-button-background);
-    color: inherit;
-    box-shadow:
-      var(--cv-shadow-sm),
-      0 0 24px var(--cv-color-primary-ring);
-    font-size: 1.0625rem;
-    font-weight: 700;
-    justify-content: space-between;
-    padding-inline: 1.125rem;
-    transition: transform 120ms var(--cv-easing-standard);
+    min-block-size: 48px;
   }
 
-  .create-footer cv-button:not([disabled]):active::part(base) {
-    transform: translateY(1px) scale(0.995);
+  .discard-action::part(base) {
+    inline-size: 100%;
+    min-block-size: 48px;
   }
 
-  .create-footer cv-button[disabled] {
-    filter: saturate(0.5);
-    box-shadow: none;
+  cv-bottom-sheet::part(footer) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--cv-space-2);
+    padding: 0 var(--cv-space-4) max(var(--cv-space-4), env(safe-area-inset-bottom));
+    border-block-start: 0;
   }
 
-  .create-footer cv-button[disabled]::part(base) {
-    opacity: 1;
-    box-shadow: none;
-    animation: none;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .section,
-    .entry-type-option,
-    .entry-type-option cv-icon,
-    .avatar-picker,
-    .avatar-edit-badge,
-    .strength-segment,
-    .generate-btn,
-    .generate-btn cv-icon,
-    cv-input::part(prefix),
-    .create-footer cv-button::part(base) {
-      animation: none !important;
-      transition: none !important;
+  @supports (-webkit-touch-callout: none) {
+    cv-input::part(input),
+    cv-textarea::part(textarea) {
+      font-size: 16px;
     }
   }
 
-  @container (width >= 520px) {
-    .credentials-grid,
-    .details-grid,
-    .card-grid {
-      grid-template-columns: 1fr 1fr;
-    }
-
-    .note-cell {
-      grid-row: span 1;
-    }
-  }
-
-  @container (width < 360px) {
+  @container (max-width: 380px) {
     .create-scroll {
-      padding-inline: 0.75rem;
-      gap: 1.25rem;
+      padding-inline: var(--cv-space-2);
     }
 
-    .section {
-      border-radius: 1rem;
-    }
-
-    .create-header-title {
-      font-size: 1.375rem;
-    }
-
-    .section-label {
-      font-size: 0.625rem;
-    }
-
-    .title-row {
-      column-gap: 0.75rem;
-    }
-
-    .avatar-picker {
-      inline-size: 54px;
-      block-size: 54px;
-    }
-
-    pm-icon-picker {
-      --pm-icon-picker-trigger-size: 54px;
+    .entry-type-option::part(label) {
+      gap: var(--cv-space-1);
     }
 
     .entry-type-option::part(base) {
-      gap: 0.35rem;
-      padding: 0 0.4rem;
+      padding-inline: var(--cv-space-1);
     }
 
     .entry-type-option {
-      font-size: 0.8125rem;
-    }
-
-    .entry-type-option cv-icon {
-      inline-size: 0.95rem;
-      block-size: 0.95rem;
-    }
-
-    .create-footer {
-      --cv-mobile-bottom-action-padding: var(--cv-space-2) 0.75rem;
+      font-size: var(--cv-font-size-sm);
     }
   }
 `
 
 export class PMEntryCreateMobile extends PMEntryCreateBase {
+  static styles = [pmEntryCreateMobileStyles]
+
+  private unregisterNavigationBlocker?: () => void
+  private unregisterTransientBack?: () => void
+
   static define() {
+    CVBottomSheet.define()
+    MobileBottomActionFooter.define()
+    PMEntryCreateDetailsSheet.define()
+    PMEntryCreateLocationSheet.define()
     if (!customElements.get('pm-entry-create-mobile')) {
       customElements.define('pm-entry-create-mobile', this)
     }
-    PMIconPicker.define()
-    PMEntryOTPCreateSheet.define()
-    PMEntrySshCreateSheet.define()
   }
 
-  static styles = [
-    pmEntryCardStyles,
-    pmEntryGenerateStyles,
-    pmEntryTagsStyles,
-    paymentCardFaceStyles,
-    paymentCardFaceMobileStyles,
-    pmEntryCreateMobileStyles,
-  ]
-
-  protected override getTagsEditorMaxTagsVisible(): number {
-    return 1
+  public override connectedCallback(): void {
+    super.connectedCallback()
+    this.unregisterNavigationBlocker = navigationModel.registerNavigationBlocker((intent, resume) =>
+      this.handleNavigationIntent(intent, resume),
+    )
+    this.unregisterTransientBack = transientBackModel.register(() => this.model.consumeTransientBack(), {
+      priority: 80,
+    })
   }
 
-  protected override getTagsEditorComboboxType(): 'select-only' {
-    return 'select-only'
-  }
-
-  protected override getTagsEditorPlaceholder(): string {
-    return i18n('tags:select_placeholder' as never)
+  public override disconnectedCallback(): void {
+    this.unregisterNavigationBlocker?.()
+    this.unregisterNavigationBlocker = undefined
+    this.unregisterTransientBack?.()
+    this.unregisterTransientBack = undefined
+    super.disconnectedCallback()
   }
 
   protected override prepareInitialViewport(): void {
@@ -997,595 +436,457 @@ export class PMEntryCreateMobile extends PMEntryCreateBase {
     if (scroll) {
       scroll.scrollTop = 0
       scroll.scrollLeft = 0
-
-      try {
-        scroll.scrollTo({top: 0, left: 0})
-      } catch {
-        scroll.scrollTop = 0
-        scroll.scrollLeft = 0
-      }
     }
-
     this.scrollTop = 0
     this.scrollLeft = 0
+  }
 
-    try {
-      this.scrollTo({top: 0, left: 0})
-    } catch {
-      this.scrollTop = 0
-      this.scrollLeft = 0
+  private handleNavigationIntent(intent: NavigationBlockerIntent, resume: () => void): boolean {
+    if (intent.current.surface !== 'passwords' || intent.current.passwords?.kind !== 'create-entry') {
+      return false
     }
-  }
-
-  protected override generate(): void {
-    super.generate()
-    this.triggerSpinAttribute('.generate-btn', 'data-spinning', 460)
-  }
-
-  protected override onIconChange(event: CustomEvent<{iconRef: string | undefined}>): void {
-    super.onIconChange(event)
-    this.triggerSpinAttribute('.avatar-picker', 'data-pulse', 480)
-  }
-
-  private triggerSpinAttribute(selector: string, attribute: string, durationMs: number): void {
-    const element = this.shadowRoot?.querySelector<HTMLElement>(selector)
-    if (!element) return
-    element.removeAttribute(attribute)
-    void element.offsetWidth
-    element.setAttribute(attribute, 'true')
-    window.setTimeout(() => element.removeAttribute(attribute), durationMs)
-  }
-
-  private renderOtpSummary(): TemplateResult | typeof nothing {
-    if (!this.model.useOtp()) {
-      return nothing
+    if (intent.next.surface === 'passwords' && intent.next.passwords?.kind === 'create-entry') {
+      return false
     }
+    return this.model.requestDiscard(resume)
+  }
 
-    const form = this.model.otp.getFormData()
-    const preview = this.model.otp.preview()
-    const meta = preview?.code || `${form.type} · ${form.digits} ${i18n('otp:digits')}`
+  private handleLocationClick(): void {
+    this.model.openLocationSheet()
+  }
+
+  private handleAddDetailsClick(): void {
+    this.model.openDetailsSheet()
+  }
+
+  private handleDiscardSheetChange(event: CustomEvent<{open?: boolean}>): void {
+    if (event.target !== event.currentTarget || event.detail.open !== false) return
+    this.model.cancelDiscard()
+  }
+
+  private handleDiscardCancel(): void {
+    this.model.cancelDiscard()
+  }
+
+  private handleDiscardConfirm(): void {
+    this.model.confirmDiscard()
+  }
+
+  private renderTypeSelector(): TemplateResult {
+    return html`
+      <cv-radio-group
+        class="entry-type-switch"
+        variant="segmented"
+        .value=${this.model.entryType()}
+        aria-label=${i18n('entry:type')}
+        @cv-change=${this.onEntryTypeChange}
+      >
+        <cv-radio class="entry-type-option" value="login">
+          <cv-icon name="person-circle" aria-hidden="true"></cv-icon>
+          <span>${i18n('entry:type:login')}</span>
+        </cv-radio>
+        <cv-radio class="entry-type-option" value="payment_card">
+          <cv-icon name="credit-card" aria-hidden="true"></cv-icon>
+          <span>${i18n('entry:type:payment_card')}</span>
+        </cv-radio>
+      </cv-radio-group>
+    `
+  }
+
+  private renderLocation(): TemplateResult {
+    const root = getPassmanagerRoot()
+    const error = this.model.targetGroupError()
+    const label = this.model.targetGroupLabel() || root?.name || i18n('root:title')
 
     return html`
-      <div class="otp-summary">
-        <div class="otp-summary-text">
-          <p class="otp-summary-title">${i18n('otp:configured')}</p>
-          <p class="otp-summary-meta">${form.label || i18n('otp:default:name')} · ${meta}</p>
-        </div>
-        <cv-button
-          class="otp-summary-edit"
+      <div class="location-field">
+        <button
+          class="location-row"
           type="button"
-          variant="default"
-          size="small"
-          aria-label=${i18n('button:edit')}
-          @click=${this.onOtpEditClick}
+          aria-invalid=${String(Boolean(error))}
+          aria-describedby=${error ? 'entry-create-location-error' : nothing}
+          @click=${this.handleLocationClick}
         >
-          <cv-icon name="edit-2" aria-hidden="true"></cv-icon>
-        </cv-button>
+          <span class="location-icon"><cv-icon name="folder" aria-hidden="true"></cv-icon></span>
+          <span class="location-copy">
+            <span class="location-label">${i18n('entry:create:location' as never)}</span>
+            <span class="location-value">${label}</span>
+          </span>
+          <cv-icon name="chevron-right" aria-hidden="true"></cv-icon>
+        </button>
+        ${error ? html`<span id="entry-create-location-error" class="field-error">${error}</span>` : nothing}
       </div>
     `
   }
 
-  private toggleOtp(e: MouseEvent) {
-    if ((e.target as HTMLElement).closest('cv-switch')) return
-    this.model.openOtpSheet()
-  }
-
-  private onOtpEditClick(e: MouseEvent) {
-    e.stopPropagation()
-    this.model.openOtpSheet()
-  }
-
-  private onOtpSwitchChange(e: CVSwitchChangeEvent) {
-    if (e.detail.checked) {
-      this.model.openOtpSheet()
-      return
-    }
-
-    this.model.disableOtp()
-  }
-
-  private onOtpSheetClose() {
-    this.model.closeOtpSheet()
-  }
-
-  private onOtpSheetPrimary() {
-    this.model.confirmOtpSheet()
-  }
-
-  private renderSshSummary(): TemplateResult | typeof nothing {
-    if (!this.model.useSsh()) {
-      return nothing
-    }
-
-    const ssh = this.model.ssh.getFormData()
-    const keyTypeLabel =
-      ssh.keyType === 'rsa'
-        ? i18n('ssh:key_type:rsa')
-        : ssh.keyType === 'ecdsa'
-          ? i18n('ssh:key_type:ecdsa')
-          : i18n('ssh:key_type:ed25519')
-    const result = this.model.sshGenResult()
-    const meta = result?.fingerprint
-      ? `${keyTypeLabel} · ${result.fingerprint}`
-      : i18n('ssh:configured:on_create', {type: keyTypeLabel})
-
+  private renderField(
+    label: string,
+    field: TemplateResult,
+    error: string,
+    options: {required?: boolean; optional?: boolean} = {},
+  ): TemplateResult {
     return html`
-      <div class="otp-summary ssh-summary">
-        <div class="otp-summary-text">
-          <p class="otp-summary-title">${ssh.name}</p>
-          <p class="otp-summary-meta">${meta}</p>
-        </div>
-        <cv-button
-          class="otp-summary-edit"
-          type="button"
-          variant="default"
-          size="small"
-          aria-label=${i18n('button:edit')}
-          @click=${this.onSshEditClick}
-        >
-          <cv-icon name="edit-2" aria-hidden="true"></cv-icon>
-        </cv-button>
+      <div class="field-row">
+        <cv-field ?invalid=${Boolean(error)} ?required=${Boolean(options.required)}>
+          <span slot="label">
+            ${label}${options.optional ? html` <span class="optional-label">(${i18n('optional:title')})</span>` : nothing}
+          </span>
+          ${field}
+          ${error ? html`<span slot="error" class="field-error">${error}</span>` : nothing}
+        </cv-field>
       </div>
     `
   }
 
-  private toggleSsh(e: MouseEvent) {
-    if ((e.target as HTMLElement).closest('cv-switch')) return
-    this.model.openSshSheet()
-  }
-
-  private onSshEditClick(e: MouseEvent) {
-    e.stopPropagation()
-    this.model.openSshSheet()
-  }
-
-  protected override onSshSwitchChange(e: CVSwitchChangeEvent) {
-    if (e.detail.checked) {
-      this.model.openSshSheet()
-      return
-    }
-
-    this.model.disableSsh()
-  }
-
-  private onSshSheetClose() {
-    this.model.closeSshSheet()
-  }
-
-  private onSshSheetPrimary() {
-    this.model.confirmSshSheet()
-  }
-
-  private toggleNote = (e: MouseEvent) => {
-    if ((e.target as HTMLElement).closest('cv-switch')) return
-    this.model.setUseNote(!this.model.useNote())
-  }
-
-  private renderStrengthBar(): TemplateResult | typeof nothing {
-    if (this.model.passwordStrengthScore() === null) {
-      return nothing
-    }
-
-    const score = this.model.passwordStrengthScore()!
-    return html`<div class="strength-bar strength-${score}">
-      <div class="strength-status">
-        <cv-icon name="shield-check"></cv-icon>
-        <span>
-          ${i18n('password:strength', {label: this.model.passwordStrengthLabel()})}
+  private renderFormHeading(): TemplateResult {
+    const isPaymentCard = this.model.entryType() === 'payment_card'
+    return html`
+      <header class="form-heading">
+        <span class="location-icon" aria-hidden="true">
+          <cv-icon name=${isPaymentCard ? 'credit-card' : 'shield-lock'}></cv-icon>
         </span>
-      </div>
-      <div class="strength-segments" aria-hidden="true">
-        ${[0, 1, 2, 3, 4].map((index) => html`<span class="strength-segment" data-active=${String(index <= score)}></span>`)}
-      </div>
-    </div>`
-  }
-
-
-
-  private renderTypeSection(): TemplateResult {
-    const entryType = this.model.entryType()
-
-    return html`
-      <div class="section-group">
-        <div class="section-label">${i18n('entry:type')}</div>
-        <div class="section type-section">
-        <cv-radio-group
-          class="entry-type-switch"
-          variant="segmented"
-          .value=${entryType}
-          aria-label=${i18n('entry:type')}
-          @cv-change=${this.onEntryTypeChange}
-        >
-          <cv-radio
-            class="entry-type-option"
-            value="login"
-          >
-            <cv-icon name="person-circle"></cv-icon>
-            <span>${i18n('entry:type:login')}</span>
-          </cv-radio>
-          <cv-radio
-            class="entry-type-option"
-            value="payment_card"
-          >
-            <cv-icon name="credit-card"></cv-icon>
-            <span>${i18n('entry:type:payment_card')}</span>
-          </cv-radio>
-        </cv-radio-group>
-        </div>
-      </div>
+        <span class="form-heading-copy">
+          <span class="form-heading-title">
+            ${i18n(isPaymentCard ? 'entry:create-card-title' : 'entry:create-login-title')}
+          </span>
+          <span class="form-heading-subtitle">
+            ${i18n(isPaymentCard ? 'entry:create-card-subtitle' : 'entry:create-login-subtitle')}
+          </span>
+        </span>
+      </header>
     `
   }
 
-  private renderTitleSection(): TemplateResult {
-    const entryType = this.model.entryType()
-    const titleError = this.model.titleError()
+  private renderTitleField(): TemplateResult {
+    const error = this.model.titleError()
+    return this.renderField(
+      i18n('title'),
+      html`
+        <cv-input
+          name="title"
+          type="text"
+          size="large"
+          autocomplete="off"
+          placeholder=${i18n('title:placeholder')}
+          .value=${this.model.title()}
+          ?invalid=${Boolean(error)}
+          @cv-input=${this.onTitleInput}
+          @blur=${this.onTitleBlur}
+        ></cv-input>
+      `,
+      error,
+      {required: true},
+    )
+  }
+
+  private renderLoginFields(): TemplateResult {
+    const usernameError = this.model.usernameError()
+    const passwordError = this.model.passwordError()
     const websiteError = this.model.websiteError()
 
     return html`
-      <div class="section-group">
-        <div class="section-label">${i18n('entry:details')}</div>
-        <div class="section title-section">
-        <div class="title-row">
-          <label class="title-field-label" for="entry-create-title">${i18n('title')}</label>
-          <div class="avatar-picker">
-            <pm-icon-picker
-              .iconRef=${this.model.avatarId()}
-              .icon=${entryType === 'payment_card' ? 'credit-card' : 'person-circle'}
-              @pm-icon-change=${this.onIconChange}
-            ></pm-icon-picker>
-            <span class="avatar-edit-badge"><cv-icon name="pencil"></cv-icon></span>
-          </div>
-          <div class="field-cell">
-            <cv-field ?invalid=${Boolean(titleError)} required>
-              <cv-input
-                id="entry-create-title"
-                class="title-input"
-                type="text"
-                size="large"
-                name="title"
-                required
-                autocomplete="card-title"
-                placeholder=${i18n('title:placeholder')}
-                .value=${this.model.title()}
-                @cv-input=${this.onTitleInput}
-                ?invalid=${Boolean(titleError)}
-              ></cv-input>
-              ${titleError ? html`<span slot="error" class="field-error">${titleError}</span>` : nothing}
-            </cv-field>
-          </div>
-        </div>
-        ${entryType === 'login'
-          ? html`
-              <div class="field-cell">
-                <cv-field ?invalid=${Boolean(websiteError)}>
-                  <span slot="label">${i18n('website:title')}</span>
-                  <cv-input
-                    id="urls"
-                    type="text"
-                    size="large"
-                    name="urls"
-                    autocomplete="url"
-                    placeholder=${i18n('website:placeholder')}
-                    .value=${this.model.website()}
-                    @cv-input=${this.onUrlsInput}
-                    ?invalid=${Boolean(websiteError)}
-                  >
-                    <cv-icon slot="prefix" class="field-icon" name="globe"></cv-icon>
-                  </cv-input>
-                  ${websiteError ? html`<span slot="error" class="field-error">${websiteError}</span>` : nothing}
-                </cv-field>
-              </div>
-            `
-          : nothing}
-        </div>
-      </div>
-    `
-  }
-
-  private renderPaymentCardSection(): TemplateResult {
-    const cardNumber = this.model.cardNumber()
-    const cardCvv = this.model.cardCvv()
-    const cardholderNameError = this.model.cardholderNameError()
-    const cardNumberError = this.model.cardNumberError()
-    const cardExpMonthError = this.model.cardExpMonthError()
-    const cardExpYearError = this.model.cardExpYearError()
-    const paymentCardError = cardholderNameError || cardNumberError || cardExpMonthError || cardExpYearError
-
-    return html`
-      <div class="section-group">
-        <div class="section-label">
-          <cv-icon name="credit-card"></cv-icon>
-          ${i18n('entry:type:payment_card')}
-        </div>
-        <div class="section payment-card-create-section" aria-label=${i18n('entry:type:payment_card')}>
-          ${renderPaymentCardFace({
-            title: this.model.title(),
-            caption: i18n('entry:type:payment_card'),
-            brandLabel: 'Card',
-            cardholderName: this.model.cardholderName(),
-            expiryLabel: '',
-            cardNumberResource: {
-              status: cardNumber.trim() ? 'ready' : 'missing',
-              value: cardNumber,
-            },
-            cardCvvResource: {
-              status: cardCvv.trim() ? 'ready' : 'missing',
-              value: cardCvv,
-            },
-            isCvvRevealed: true,
-            edit: {
-              cardholderName: this.model.cardholderName(),
-              cardNumber,
-              expMonth: this.model.cardExpMonth(),
-              expYear: this.model.cardExpYear(),
-              cardCvv,
-              onInput: this.onPaymentCardFaceInput,
-              errors: {
-                cardholderName: cardholderNameError,
-                cardNumber: cardNumberError,
-                expMonth: cardExpMonthError,
-                expYear: cardExpYearError,
-              },
-            },
-          })}
-          ${paymentCardError ? html`<div class="field-error payment-card-create-error">${paymentCardError}</div>` : nothing}
-        </div>
-      </div>
-    `
-  }
-
-  private renderCredentialsSection(): TemplateResult {
-    const usernameError = this.model.usernameError()
-    const passwordError = this.model.passwordError()
-
-    return html`
-      <div class="section-group">
-        <div class="section-label">${i18n('entry:credentials')}</div>
-        <div class="section">
-        <div class="credentials-grid">
-          <div class="field-cell">
-            <cv-field ?invalid=${Boolean(usernameError)}>
-              <span slot="label">${i18n('username')}</span>
-              <cv-input
-                type="text"
-                size="large"
-                name="username"
-                autocomplete="username"
-                placeholder=${i18n('username:placeholder')}
-                .value=${this.model.username()}
-                @cv-input=${this.onUsernameInput}
-                ?invalid=${Boolean(usernameError)}
-              >
-                <cv-icon slot="prefix" class="field-icon" name="person-circle"></cv-icon>
-              </cv-input>
-              ${usernameError ? html`<span slot="error" class="field-error">${usernameError}</span>` : nothing}
-            </cv-field>
-          </div>
-          <div class="field-cell password-cell">
-            <cv-field ?invalid=${Boolean(passwordError)}>
-              <span slot="label">${i18n('password')}</span>
-              <cv-input
-                id="password"
-                type="password"
-                size="large"
-                name="password"
-                autocomplete="password"
-                placeholder=${i18n('password:placeholder')}
-                password-toggle
-                .value=${this.model.password()}
-                @cv-input=${this.onPasswordInput}
-                ?editing=${this.model.isEditingPassword()}
-                ?invalid=${Boolean(passwordError)}
-              >
-                <cv-icon slot="prefix" class="field-icon" name="lock"></cv-icon>
-                <span class="generate-divider" slot="suffix" aria-hidden="true"></span>
-                <cv-button unstyled
-                  class="generate-btn"
-                  slot="suffix"
-                  @click=${this.generate}
+      <div class="form-surface">
+        ${this.renderFormHeading()} ${this.renderTitleField()}
+        ${this.renderField(
+          i18n('username'),
+          html`
+            <cv-input
+              name="username"
+              type="text"
+              size="large"
+              autocomplete="username"
+              placeholder=${i18n('username:placeholder')}
+              .value=${this.model.username()}
+              ?invalid=${Boolean(usernameError)}
+              @cv-input=${this.onUsernameInput}
+              @blur=${this.onUsernameBlur}
+            ></cv-input>
+          `,
+          usernameError,
+        )}
+        ${this.renderField(
+          i18n('password'),
+          html`
+            <cv-input
+              class="password-input"
+              name="password"
+              type="password"
+              size="large"
+              autocomplete="new-password"
+              password-toggle
+              placeholder=${i18n('password:placeholder')}
+              .value=${this.model.password()}
+              ?invalid=${Boolean(passwordError)}
+              @cv-input=${this.onPasswordInput}
+              @blur=${this.onPasswordBlur}
+            >
+              <span class="password-suffix" slot="suffix">
+                <cv-button
+                  class="generate-button"
+                  unstyled
                   type="button"
                   title=${i18n('button:generate')}
+                  aria-label=${i18n('button:generate')}
+                  @click=${this.generate}
                 >
-                  <cv-icon name="arrow-repeat"></cv-icon>
+                  <cv-icon name="arrow-repeat" aria-hidden="true"></cv-icon>
                 </cv-button>
-              </cv-input>
-              ${passwordError ? html`<span slot="error" class="field-error">${passwordError}</span>` : nothing}
-            </cv-field>
-            ${this.renderStrengthBar()}
-          </div>
-        </div>
-        </div>
+              </span>
+            </cv-input>
+            ${this.renderStrength()}
+          `,
+          passwordError,
+          {required: true},
+        )}
+        ${this.renderField(
+          i18n('website:title'),
+          html`
+            <cv-input
+              name="urls"
+              type="url"
+              size="large"
+              inputmode="url"
+              autocomplete="url"
+              placeholder=${i18n('website:placeholder')}
+              .value=${this.model.website()}
+              ?invalid=${Boolean(websiteError)}
+              @cv-input=${this.onUrlsInput}
+              @blur=${this.onUrlsBlur}
+            ></cv-input>
+          `,
+          websiteError,
+          {optional: true},
+        )}
       </div>
     `
   }
 
-  private renderTagsSection(): TemplateResult {
+  private renderStrength(): TemplateResult | typeof nothing {
+    const score = this.model.passwordStrengthScore()
+    if (score === null) return nothing
+
     return html`
-      <div class="section-group">
-        <div class="section-label">
-          <cv-icon name="tag"></cv-icon>
-          ${i18n('tags:title')}
+      <div class="strength" aria-label=${i18n('password:strength', {label: this.model.passwordStrengthLabel()})}>
+        <span class="strength-copy">${i18n('password:strength', {label: this.model.passwordStrengthLabel()})}</span>
+        <span class="strength-segments" aria-hidden="true">
+          ${[0, 1, 2, 3, 4].map(
+            (index) => html`<span data-active=${String(index <= score)}></span>`,
+          )}
+        </span>
+      </div>
+    `
+  }
+
+  private renderPaymentCardFields(): TemplateResult {
+    const cardholderError = this.model.cardholderNameError()
+    const cardNumberError = this.model.cardNumberError()
+    const monthError = this.model.cardExpMonthError()
+    const yearError = this.model.cardExpYearError()
+
+    return html`
+      <div class="form-surface">
+        ${this.renderFormHeading()} ${this.renderTitleField()}
+        ${this.renderField(
+          i18n('payment-card:cardholder'),
+          html`
+            <cv-input
+              name="cardholderName"
+              type="text"
+              size="large"
+              autocomplete="cc-name"
+              .value=${this.model.cardholderName()}
+              ?invalid=${Boolean(cardholderError)}
+              @cv-input=${this.onCardholderInput}
+              @blur=${this.onCardholderBlur}
+            ></cv-input>
+          `,
+          cardholderError,
+          {required: true},
+        )}
+        ${this.renderField(
+          i18n('payment-card:number'),
+          html`
+            <cv-input
+              name="cardNumber"
+              type="password"
+              size="large"
+              inputmode="numeric"
+              autocomplete="cc-number"
+              password-toggle
+              .value=${this.model.cardNumber()}
+              ?invalid=${Boolean(cardNumberError)}
+              @cv-input=${this.onCardNumberInput}
+              @blur=${this.onCardNumberBlur}
+            ></cv-input>
+          `,
+          cardNumberError,
+          {required: true},
+        )}
+        <div class="field-row expiry-row">
+          <cv-field ?invalid=${Boolean(monthError)} required>
+            <span slot="label">${i18n('payment-card:exp-month')}</span>
+            <cv-input
+              name="cardExpMonth"
+              type="text"
+              size="large"
+              inputmode="numeric"
+              autocomplete="cc-exp-month"
+              maxlength="2"
+              placeholder="MM"
+              .value=${this.model.cardExpMonth()}
+              ?invalid=${Boolean(monthError)}
+              @cv-input=${this.onCardExpMonthInput}
+              @blur=${this.onCardExpMonthBlur}
+            ></cv-input>
+            ${monthError ? html`<span slot="error" class="field-error">${monthError}</span>` : nothing}
+          </cv-field>
+          <cv-field ?invalid=${Boolean(yearError)} required>
+            <span slot="label">${i18n('payment-card:exp-year')}</span>
+            <cv-input
+              name="cardExpYear"
+              type="text"
+              size="large"
+              inputmode="numeric"
+              autocomplete="cc-exp-year"
+              maxlength="2"
+              placeholder="YY"
+              .value=${this.model.cardExpYear()}
+              ?invalid=${Boolean(yearError)}
+              @cv-input=${this.onCardExpYearInput}
+              @blur=${this.onCardExpYearBlur}
+            ></cv-input>
+            ${yearError ? html`<span slot="error" class="field-error">${yearError}</span>` : nothing}
+          </cv-field>
         </div>
-        <div class="section mobile-tags-section">${this.renderTagsEditor()}</div>
+        ${this.renderField(
+          i18n('payment-card:cvv'),
+          html`
+            <cv-input
+              name="cardCvv"
+              type="password"
+              size="large"
+              inputmode="numeric"
+              autocomplete="cc-csc"
+              password-toggle
+              .value=${this.model.cardCvv()}
+              @cv-input=${this.onCardCvvInput}
+            ></cv-input>
+          `,
+          '',
+          {optional: true},
+        )}
       </div>
     `
   }
 
-  private renderOptionalCard({
-    open,
-    icon,
-    title,
-    description,
-    onToggleSwitch,
-    onHeaderClick,
-    body,
-    bodyClass,
-  }: {
-    open: boolean
-    icon: string
-    title: string
-    description: string
-    onToggleSwitch: (e: CVSwitchChangeEvent) => void
-    onHeaderClick: (e: MouseEvent) => void
-    body: TemplateResult | typeof nothing
-    bodyClass?: string
-  }): TemplateResult {
-    return html`
-      <div class="optional-card" data-open=${String(open)}>
-        <div class="optional-card-header" @click=${onHeaderClick}>
-          <cv-switch size="small" ?checked=${open} @cv-change=${onToggleSwitch}></cv-switch>
-          <span class="optional-card-icon"><cv-icon name=${icon}></cv-icon></span>
-          <div class="optional-card-title-stack">
-            <p class="optional-card-title">${title}</p>
-            <p class="optional-card-description">${description}</p>
-          </div>
-          <cv-icon class="optional-card-chevron" name="chevron-right"></cv-icon>
-        </div>
-        <div class=${`optional-card-body ${bodyClass ?? ''}`} ?hidden=${!open}>${body}</div>
-      </div>
-    `
+  private getDetailLabel(detail: PMEntryCreateOptionalDetail): string {
+    switch (detail) {
+      case 'icon':
+        return i18n('entry:create:detail-icon' as never)
+      case 'tags':
+        return i18n('tags:title')
+      case 'otp':
+        return i18n('entry:create:detail-otp' as never)
+      case 'note':
+        return i18n('note:use')
+    }
   }
 
-  private renderOptionalSection(): TemplateResult {
-    const useOtp = this.model.useOtp()
-    const useSsh = this.model.useSsh()
-    const useNote = this.model.useNote()
-
-    const noteBody = html`
-      <cv-textarea
-        size="small"
-        name="note"
-        placeholder=${i18n('note:placeholder')}
-        rows="3"
-        .value=${this.model.note()}
-        @cv-input=${this.onNoteInput}
-      ></cv-textarea>
-    `
+  private renderDetailsSummary(): TemplateResult {
+    const configured = this.model.configuredOptionalDetails()
+    const configuredCount = this.model.configuredOptionalDetailCount()
+    const summaryDetails = configured.length > 0 ? configured : this.model.supportedOptionalDetails()
+    const summary = summaryDetails.map((detail) => this.getDetailLabel(detail)).join(' · ')
 
     return html`
-      <div class="section-group optional-group">
-        <div class="section-label">${i18n('optional:title')}</div>
-        ${this.renderOptionalCard({
-          open: useOtp,
-          icon: 'shield-check',
-          title: i18n('otp:use'),
-          description: i18n('otp:description'),
-          onToggleSwitch: this.onOtpSwitchChange,
-          onHeaderClick: this.toggleOtp,
-          body: this.renderOtpSummary(),
-        })}
-        ${this.renderOptionalCard({
-          open: useSsh,
-          icon: 'key',
-          title: i18n('ssh:title'),
-          description: i18n('ssh:description'),
-          onToggleSwitch: this.onSshSwitchChange,
-          onHeaderClick: this.toggleSsh,
-          body: this.renderSshSummary(),
-        })}
-        ${this.renderOptionalCard({
-          open: useNote,
-          icon: 'sticky-note',
-          title: i18n('note:use'),
-          description: i18n('note:description'),
-          onToggleSwitch: this.onUseNoteChange,
-          onHeaderClick: this.toggleNote,
-          body: noteBody,
-        })}
-      </div>
+      <button
+        class="details-row"
+        type="button"
+        data-details-hub-trigger
+        @click=${this.handleAddDetailsClick}
+      >
+        <span class="details-icon"><cv-icon name="list-plus" aria-hidden="true"></cv-icon></span>
+        <span class="details-copy">
+          <span class="details-title">${i18n('entry:create:add-details' as never)}</span>
+          <span class="details-summary">${summary}</span>
+        </span>
+        <span class="details-count" aria-hidden="true">${configuredCount}</span>
+        <cv-icon name="chevron-right" aria-hidden="true"></cv-icon>
+      </button>
     `
   }
 
-  private renderSubmitSection(): TemplateResult | typeof nothing {
-    return nothing
-  }
-
-  private renderOtpSheet(): TemplateResult {
-    const title = this.model.title().trim() || i18n('otp:default:name')
-
+  private renderDiscardSheet(): TemplateResult {
     return html`
-      <pm-entry-otp-create-sheet
-        .model=${this.model.otp}
-        .open=${this.model.otpSheetOpen()}
-        .saving=${false}
-        .title=${i18n('otp:add')}
-        .description=${i18n('otp:sheet:description', {title})}
-        .primaryLabel=${i18n('button:done')}
-        @pm-entry-otp-create-sheet-close=${this.onOtpSheetClose}
-        @pm-entry-otp-create-sheet-primary=${this.onOtpSheetPrimary}
-      ></pm-entry-otp-create-sheet>
+      <cv-bottom-sheet
+        .open=${this.model.discardSheetOpen()}
+        @cv-change=${this.handleDiscardSheetChange}
+      >
+        <span slot="title">${i18n('entry:create:discard-title' as never)}</span>
+        <span slot="description">${i18n('entry:create:discard-message' as never)}</span>
+        <cv-button
+          class="discard-action"
+          slot="footer"
+          type="button"
+          variant="default"
+          size="large"
+          aria-label=${i18n('button:cancel')}
+          @click=${this.handleDiscardCancel}
+        >
+          ${i18n('button:cancel')}
+        </cv-button>
+        <cv-button
+          class="discard-action"
+          slot="footer"
+          type="button"
+          variant="danger"
+          size="large"
+          aria-label=${i18n('button:discard')}
+          @click=${this.handleDiscardConfirm}
+        >
+          ${i18n('button:discard')}
+        </cv-button>
+      </cv-bottom-sheet>
     `
   }
 
-  private renderSshSheet(): TemplateResult {
-    const title = this.model.title().trim() || i18n('ssh:name:default')
-
-    return html`
-      <pm-entry-ssh-create-sheet
-        .model=${this.model.ssh}
-        .open=${this.model.sshSheetOpen()}
-        .saving=${false}
-        .title=${i18n('ssh:add')}
-        .description=${i18n('ssh:sheet:description:create', {title})}
-        .primaryLabel=${i18n('button:done')}
-        .doneLabel=${i18n('button:done')}
-        @pm-entry-ssh-create-sheet-close=${this.onSshSheetClose}
-        @pm-entry-ssh-create-sheet-primary=${this.onSshSheetPrimary}
-        @pm-entry-ssh-create-sheet-done=${this.onSshSheetClose}
-      ></pm-entry-ssh-create-sheet>
-    `
-  }
-
-  private renderFormFooter(): TemplateResult {
-    const disabled = isPassmanagerReadOnlyOrMissing() || this.model.isSubmitting()
-
+  private renderFooter(): TemplateResult {
+    const isSubmitting = this.model.isSubmitting()
     return html`
       <mobile-bottom-action-footer class="create-footer" flow>
         <cv-button
-          .disabled=${disabled}
-          .loading=${this.model.isSubmitting()}
+          .disabled=${isPassmanagerReadOnlyOrMissing()}
+          .loading=${isSubmitting}
           size="large"
           variant="primary"
           preset="action-primary"
           type="submit"
         >
-          <cv-icon slot="prefix" name="shield-check"></cv-icon>
-          <span>${this.model.isSubmitting() ? i18n('entry:creating') : i18n('button:create_entry')}</span>
-          <cv-icon slot="suffix" name="chevron-right"></cv-icon>
+          <cv-icon slot="prefix" name="shield-check" aria-hidden="true"></cv-icon>
+          <span>${isSubmitting ? i18n('entry:creating') : i18n('button:create_entry')}</span>
         </cv-button>
       </mobile-bottom-action-footer>
     `
   }
 
-  private renderFormBody(): TemplateResult {
-    const entryType = this.model.entryType()
-
-    return html`
-      ${this.renderTypeSection()} ${this.renderTitleSection()}
-      ${entryType === 'payment_card'
-        ? html`${this.renderPaymentCardSection()} ${this.renderTagsSection()} ${this.renderSubmitSection()}`
-        : html`
-            ${this.renderCredentialsSection()}
-            ${this.renderTagsSection()}
-            ${this.renderOptionalSection()}
-            ${this.renderSubmitSection()}
-            ${this.renderOtpSheet()}
-            ${this.renderSshSheet()}
-          `}
-    `
-  }
-
   override render(): TemplateResult | typeof nothing {
-    if (!getPassmanagerRoot()) {
-      return nothing
-    }
+    if (!getPassmanagerRoot()) return nothing
 
     return html`
       <cv-guidance-anchor anchor-id="passwords.create-entry" surface="passwords" owner="passmanager">
         <form @submit=${this.onSubmit}>
-          <div class="create-scroll">${this.renderFormBody()}</div>
-          ${this.renderFormFooter()}
+          <div class="create-scroll">
+            ${this.renderTypeSelector()} ${this.renderLocation()}
+            ${this.model.entryType() === 'payment_card'
+              ? this.renderPaymentCardFields()
+              : this.renderLoginFields()}
+            ${this.renderDetailsSummary()}
+          </div>
+          ${this.renderFooter()}
         </form>
+        <pm-entry-create-details-sheet .model=${this.model}></pm-entry-create-details-sheet>
+        <pm-entry-create-location-sheet .model=${this.model}></pm-entry-create-location-sheet>
+        ${this.renderDiscardSheet()}
       </cv-guidance-anchor>
     `
   }

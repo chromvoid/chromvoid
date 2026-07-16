@@ -38,7 +38,7 @@ pub(super) fn refresh_action(
     SshAgentRefreshAction::Started
 }
 
-pub(super) fn ensure_main_window_caller(
+pub(crate) fn ensure_main_window_caller(
     window_label: &str,
     command_name: &str,
 ) -> Result<(), String> {
@@ -49,12 +49,39 @@ pub(super) fn ensure_main_window_caller(
     Err(format!("{command_name} is restricted to the main window"))
 }
 
-pub(super) fn ensure_local_mode(mode: CoreMode, command_name: &str) -> Result<(), String> {
+pub(crate) fn ensure_local_mode(mode: CoreMode, command_name: &str) -> Result<(), String> {
     if matches!(mode, CoreMode::Local) {
         return Ok(());
     }
 
     Err(format!("{command_name} requires local Core adapter mode"))
+}
+
+pub(crate) fn ensure_ssh_agent_feature_access(
+    adapter: &mut dyn CoreAdapter,
+    command_name: &str,
+) -> Result<(), String> {
+    ensure_local_mode(adapter.mode(), command_name)?;
+    let caps = crate::types::runtime_capabilities_for_current_target();
+    crate::pro::guard_pro_feature_for_adapter(
+        adapter,
+        chromvoid_core::license::PRO_FEATURE_SSH_AGENT,
+        &caps,
+    )
+    .map_err(format_pro_guard_error)
+}
+
+fn format_pro_guard_error(error: crate::types::RpcResult<serde_json::Value>) -> String {
+    match error {
+        crate::types::RpcResult::Error { error, code, .. } => {
+            format!(
+                "{}: {}",
+                code.unwrap_or_else(|| "PRO_REQUIRED".to_string()),
+                error
+            )
+        }
+        crate::types::RpcResult::Success { .. } => "Pro license required".to_string(),
+    }
 }
 
 pub(super) fn agent_status(agent: &crate::ssh_agent::SshAgentState) -> SshAgentStatus {
@@ -69,72 +96,52 @@ pub(crate) fn collect_ssh_agent_entries(
     adapter: &mut dyn CoreAdapter,
 ) -> Result<SshAgentEntries, String> {
     let list_req = chromvoid_core::rpc::types::RpcRequest::new(
-        "passmanager:entry:list".to_string(),
+        "passmanager:ssh:list".to_string(),
         serde_json::Value::Null,
     );
     let list_resp = adapter.handle(&list_req);
     let entries_json = match list_resp {
         chromvoid_core::rpc::types::RpcResponse::Success { result, .. } => result
-            .get("entries")
+            .get("sshKeys")
             .and_then(|value| value.as_array())
             .cloned()
             .unwrap_or_else(|| {
-                tracing::warn!("ssh_agent: passmanager entry list response missing entries array");
+                tracing::warn!("ssh_agent: passmanager SSH list response missing sshKeys array");
                 Vec::new()
             }),
         chromvoid_core::rpc::types::RpcResponse::Error { error, .. } => {
-            tracing::warn!("ssh_agent: passmanager entry list failed: {error}");
-            Vec::new()
+            return Err(format!("passmanager SSH list failed: {error}"));
         }
     };
 
-    let mut ssh_entries = Vec::<(String, String, String, String)>::new();
+    let mut ssh_entries = Vec::<(String, String)>::new();
 
-    for entry in &entries_json {
-        let entry_id = entry
+    for key in &entries_json {
+        let key_id = key
             .get("id")
             .and_then(|value| value.as_str())
             .unwrap_or_default()
             .to_string();
-        let default_comment = entry
-            .get("title")
+        if key_id.is_empty() {
+            continue;
+        }
+        let comment = key
+            .get("comment")
+            .or_else(|| key.get("name"))
             .and_then(|value| value.as_str())
             .unwrap_or("chromvoid")
             .to_string();
-
-        let Some(ssh_keys) = entry.get("sshKeys").and_then(|value| value.as_array()) else {
-            continue;
-        };
-
-        for key in ssh_keys {
-            let key_id = key
-                .get("id")
-                .and_then(|value| value.as_str())
-                .unwrap_or("default")
-                .to_string();
-            let comment = key
-                .get("comment")
-                .and_then(|value| value.as_str())
-                .unwrap_or(&default_comment)
-                .to_string();
-            let fingerprint = key
-                .get("fingerprint")
-                .and_then(|value| value.as_str())
-                .unwrap_or_default()
-                .to_string();
-
-            ssh_entries.push((entry_id.clone(), key_id, comment, fingerprint));
-        }
+        ssh_entries.push((key_id, comment));
     }
 
     let mut full_entries = Vec::with_capacity(ssh_entries.len());
 
-    for (entry_id, key_id, comment, fingerprint) in &ssh_entries {
+    for (key_id, comment) in &ssh_entries {
         let read_req = chromvoid_core::rpc::types::RpcRequest::new(
-            "passmanager:secret:read".to_string(),
+            "passmanager:ssh:secret:read".to_string(),
             serde_json::json!({
-                "entry_id": entry_id,
-                "secret_type": format!("ssh_public_key:{key_id}"),
+                "key_id": key_id,
+                "secret_type": "ssh_public_key",
             }),
         );
         let read_resp = adapter.handle(&read_req);
@@ -144,32 +151,29 @@ pub(crate) fn collect_ssh_agent_entries(
                     Some(value) => value.to_string(),
                     None => {
                         tracing::warn!(
-                            "ssh_agent: public key read response missing value for {entry_id}/{key_id}"
+                            "ssh_agent: public key read response missing value for {key_id}"
                         );
                         continue;
                     }
                 }
             }
             chromvoid_core::rpc::types::RpcResponse::Error { error, .. } => {
-                tracing::warn!(
-                    "ssh_agent: public key read failed for {entry_id}/{key_id}: {error}"
-                );
+                tracing::warn!("ssh_agent: public key read failed for {key_id}: {error}");
                 continue;
             }
         };
 
-        full_entries.push((
-            format!("{entry_id}/{key_id}"),
+        full_entries.push(crate::ssh_agent::SshAgentEntry::new(
+            key_id.clone(),
             value,
             comment.clone(),
-            fingerprint.clone(),
         ));
     }
 
     Ok(full_entries)
 }
 
-fn build_private_key_reader(
+pub(crate) fn build_private_key_reader(
     adapter_arc: Arc<std::sync::Mutex<Box<dyn CoreAdapter>>>,
     core_rpc_dispatcher: CoreRpcDispatcher,
 ) -> impl Fn(&str) -> ReadPrivateKeyFuture + Send + Sync + 'static {
@@ -184,7 +188,7 @@ fn build_private_key_reader(
             match core_rpc_dispatcher
                 .run_adapter_phase(
                     CoreRpcPriority::PrivacyCritical,
-                    "passmanager:secret:read",
+                    "passmanager:ssh:secret:read",
                     "ssh_agent_private_key",
                     cancellation_generation,
                     move || {
@@ -201,16 +205,11 @@ fn build_private_key_reader(
                             return None;
                         }
 
-                        let (entry_id, key_id) = match identity_key.rsplit_once('/') {
-                            Some((entry_id, key_id)) => (entry_id.to_string(), key_id.to_string()),
-                            None => (identity_key.clone(), "default".to_string()),
-                        };
-
                         let req = chromvoid_core::rpc::types::RpcRequest::new(
-                            "passmanager:secret:read".to_string(),
+                            "passmanager:ssh:secret:read".to_string(),
                             serde_json::json!({
-                                "entry_id": entry_id,
-                                "secret_type": format!("ssh_private_key:{key_id}"),
+                                "key_id": identity_key,
+                                "secret_type": "ssh_private_key",
                             }),
                         );
                         let resp = adapter.handle(&req);
@@ -266,7 +265,7 @@ pub(super) fn start_ssh_agent_with_entries<R: tauri::Runtime>(
         build_approval_emitter(app.clone()),
         build_audit_log(&app),
         build_private_key_reader(adapter_arc, core_rpc_dispatcher),
-    );
+    )?;
 
     Ok(agent_status(&agent))
 }
@@ -292,6 +291,7 @@ pub(crate) async fn reconcile_ssh_agent_with_vault<R: tauri::Runtime>(
             return Ok(action);
         }
 
+        ensure_ssh_agent_feature_access(adapter.as_mut(), "ssh_agent_reconcile")?;
         collect_ssh_agent_entries(adapter.as_mut())?
     };
 

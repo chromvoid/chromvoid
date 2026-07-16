@@ -280,6 +280,33 @@ describe('NavigationModel back behavior', () => {
     })
   })
 
+  it('keeps Notes origin when opening another Markdown document from a Notes-origin document', () => {
+    navigationModel.navigateToSurface('notes')
+    navigationModel.openMarkdownDocument(77, 'push', '/vault/notes/')
+    navigationModel.openMarkdownDocument(88, 'push', {
+      source: {
+        path: '/vault/notes/new.md',
+        fileName: 'new.md',
+        mimeType: 'text/markdown',
+      },
+      viewMode: 'edit',
+    })
+
+    expect(navigationModel.snapshot()).toMatchObject({
+      surface: 'files',
+      files: {
+        path: '/vault/notes/',
+        document: {
+          kind: 'markdown',
+          fileId: 88,
+          originSurface: 'notes',
+          viewMode: 'edit',
+        },
+      },
+    })
+    expect(navigationModel.activeMobileTab()).toBe('notes')
+  })
+
   it('falls back from a Notes-origin Markdown document to Notes when no browser entry exists', () => {
     const tracker = installHistoryTracker()
 
@@ -293,6 +320,96 @@ describe('NavigationModel back behavior', () => {
       surface: 'notes',
       overlay: {kind: 'none'},
     })
+  })
+
+  it('restores an unclosed Notes-origin Markdown document after switching surfaces', () => {
+    const tracker = installHistoryTracker()
+
+    navigationModel.navigateToSurface('notes')
+    navigationModel.openMarkdownDocument(77, 'push', '/vault/notes/')
+    navigationModel.navigateToSurface('passwords')
+
+    expect(navigationModel.currentSurface()).toBe('passwords')
+
+    navigationModel.navigateToSurface('notes')
+
+    expect(navigationModel.snapshot()).toMatchObject({
+      surface: 'files',
+      files: {
+        path: '/vault/notes/',
+        document: {kind: 'markdown', fileId: 77, originSurface: 'notes'},
+      },
+      overlay: {kind: 'none'},
+    })
+    expect(navigationModel.activeMobileTab()).toBe('notes')
+
+    expect(navigationModel.goBack()).toBe(true)
+    expect(tracker.backSpy).toHaveBeenCalled()
+    expect(navigationModel.snapshot()).toEqual({
+      surface: 'notes',
+      overlay: {kind: 'none'},
+    })
+  })
+
+  it('restores an unclosed Notes-origin Markdown document with its edit mode after switching surfaces', () => {
+    navigationModel.navigateToSurface('notes')
+    navigationModel.openMarkdownDocument(77, 'push', '/vault/notes/')
+    expect(navigationModel.updateCurrentMarkdownDocumentViewMode(77, 'edit')).toBe(true)
+    navigationModel.navigateToSurface('passwords')
+
+    navigationModel.navigateToSurface('notes')
+
+    expect(navigationModel.snapshot()).toMatchObject({
+      surface: 'files',
+      files: {
+        path: '/vault/notes/',
+        document: {
+          kind: 'markdown',
+          fileId: 77,
+          originSurface: 'notes',
+          viewMode: 'edit',
+        },
+      },
+      overlay: {kind: 'none'},
+    })
+    expect(window.location.search).toContain('docView=edit')
+  })
+
+  it('does not restore a Notes-origin Markdown document after it was closed', () => {
+    const tracker = installHistoryTracker()
+
+    navigationModel.navigateToSurface('notes')
+    navigationModel.openMarkdownDocument(77, 'push', '/vault/notes/')
+
+    expect(navigationModel.goBack()).toBe(true)
+    expect(tracker.backSpy).toHaveBeenCalledTimes(1)
+    expect(navigationModel.snapshot()).toEqual({
+      surface: 'notes',
+      overlay: {kind: 'none'},
+    })
+
+    navigationModel.navigateToSurface('passwords')
+    navigationModel.navigateToSurface('notes')
+
+    expect(navigationModel.snapshot()).toEqual({
+      surface: 'notes',
+      overlay: {kind: 'none'},
+    })
+  })
+
+  it('returns to the Notes list when the remembered note was deleted from Files', () => {
+    navigationModel.navigateToSurface('notes')
+    navigationModel.openMarkdownDocument(77, 'push', '/vault/notes/')
+    navigationModel.navigateToSurface('files')
+
+    navigationModel.forgetDeletedFiles([77])
+    navigationModel.navigateToSurface('notes')
+
+    expect(navigationModel.snapshot()).toEqual({
+      surface: 'notes',
+      overlay: {kind: 'none'},
+    })
+    expect(navigationModel.activeMobileTab()).toBe('notes')
   })
 
   it('keeps files selection active while UI back closes an open overlay first', () => {
@@ -377,6 +494,25 @@ describe('NavigationModel back behavior', () => {
     expect(navigationModel.snapshot().passwords).toEqual({kind: 'group', groupPath: 'Group A'})
   })
 
+  it('falls back through the settings hierarchy for deep-linked routes', () => {
+    navigationModel.disconnect()
+    clearAppContext()
+    window.history.replaceState(
+      {},
+      '',
+      '/dashboard?layout=mobile&surface=settings&settings=vault-rekey',
+    )
+    ctx = setupContext()
+    navigationModel.connect()
+
+    expect(navigationModel.settingsRoute()).toEqual({kind: 'vault-rekey'})
+    expect(navigationModel.goBackFromUi()).toBe(true)
+    expect(navigationModel.settingsRoute()).toEqual({kind: 'passwords'})
+    expect(navigationModel.goBackFromUi()).toBe(true)
+    expect(navigationModel.settingsRoute()).toEqual({kind: 'overview'})
+    expect(navigationModel.goBackFromUi()).toBe(false)
+  })
+
   it('falls back to passwords root for deep-linked OTP quick view with no history', () => {
     navigationModel.disconnect()
     clearAppContext()
@@ -386,6 +522,25 @@ describe('NavigationModel back behavior', () => {
 
     expect(navigationModel.currentSurface()).toBe('passwords')
     expect(navigationModel.snapshot().passwords).toEqual({kind: 'otp-view'})
+
+    expect(navigationModel.goBackFromUi()).toBe(true)
+    expect(navigationModel.currentSurface()).toBe('passwords')
+    expect(navigationModel.snapshot().passwords).toEqual({kind: 'root'})
+  })
+
+  it('falls back to passwords root for a deep-linked Env Runtime view with no history', () => {
+    navigationModel.disconnect()
+    clearAppContext()
+    window.history.replaceState(
+      {},
+      '',
+      '/dashboard?layout=desktop&surface=passwords&pm=env-runtime',
+    )
+    ctx = setupContext()
+    navigationModel.connect()
+
+    expect(navigationModel.currentSurface()).toBe('passwords')
+    expect(navigationModel.snapshot().passwords).toEqual({kind: 'env-runtime-view'})
 
     expect(navigationModel.goBackFromUi()).toBe(true)
     expect(navigationModel.currentSurface()).toBe('passwords')

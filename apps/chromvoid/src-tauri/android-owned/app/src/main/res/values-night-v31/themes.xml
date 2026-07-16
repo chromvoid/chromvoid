@@ -1,0 +1,12 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.chromvoid" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/chromvoid_splash_background</item>
+        <item name="android:windowSplashScreenBackground">@color/chromvoid_splash_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_system_icon_transparent</item>
+        <item name="android:colorAccent">@color/teal_200</item>
+        <item name="android:navigationBarColor">@color/chromvoid_splash_background</item>
+        <item name="android:statusBarColor">@color/chromvoid_splash_background</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

@@ -19,6 +19,15 @@
     <string name="connection_notification_title">Connected to %1$s</string>
     <string name="connection_notification_text">ChromVoid is sharing data with your desktop</string>
     <string name="connection_disconnect_action">Disconnect</string>
+    <string name="usb_approval_channel_name">USB approval requests</string>
+    <string name="usb_approval_channel_description">Approval prompts for USB desktop connections</string>
+    <string name="usb_approval_pairing_title">USB pairing request</string>
+    <string name="usb_approval_pairing_text">Open ChromVoid to view the PIN and confirm pairing</string>
+    <string name="usb_approval_session_title">USB connection request</string>
+    <string name="usb_approval_session_text">Allow or deny access for the connected computer</string>
+    <string name="usb_approval_allow_action">Allow</string>
+    <string name="usb_approval_deny_action">Deny</string>
+    <string name="usb_approval_show_pin_action">Show PIN</string>
     <string name="vault_status_channel_name">Vault Status</string>
     <string name="vault_status_channel_description">Shows when the vault is unlocked</string>
     <string name="vault_status_notification_title">Vault unlocked</string>

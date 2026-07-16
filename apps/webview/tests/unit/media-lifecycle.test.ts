@@ -17,6 +17,15 @@ import {resetMediaStreamOwnerRegistryForTests} from '../../src/features/media/mo
 
 const originalCreateObjectURL = URL.createObjectURL
 const originalRevokeObjectURL = URL.revokeObjectURL
+const originalMediaSource = globalThis.MediaSource
+
+class LifecycleFakeMediaSource extends EventTarget {
+  static isTypeSupported = vi.fn(() => true)
+
+  readyState: 'closed' | 'open' | 'ended' = 'closed'
+  addSourceBuffer = vi.fn()
+  endOfStream = vi.fn()
+}
 
 function streamOf(...chunks: Uint8Array[]): AsyncIterable<Uint8Array> {
   return {
@@ -92,6 +101,11 @@ afterEach(async () => {
     configurable: true,
     writable: true,
     value: originalRevokeObjectURL,
+  })
+  Object.defineProperty(globalThis, 'MediaSource', {
+    configurable: true,
+    writable: true,
+    value: originalMediaSource,
   })
 })
 
@@ -229,7 +243,7 @@ describe('media lifecycle cleanup', () => {
     expect(mediaPlaybackModel.sourceKind()).toBe('media-stream')
   })
 
-  it('releases the active Android native video source during app background cleanup', async () => {
+  it('releases the active generic Android native video source during app background cleanup', async () => {
     setRuntimeCapabilities({
       platform: 'android',
       mobile: true,
@@ -237,21 +251,35 @@ describe('media lifecycle cleanup', () => {
       supports_android_native_video: true,
     })
     runtimeModeModel.setCoreMode('local')
-    const startAndroidVideo = vi.fn().mockResolvedValue({
-      kind: 'android-native-video',
-      token: 'background-video-token',
+    const prepareMediaSource = vi.fn().mockResolvedValue({
+      kind: 'video-source',
+      streamId: 'background-video-stream',
+      sourceToken: 'background-video-stream',
+      platform: 'mobile',
+      provider: 'mobile-local-catalog',
+      deliveries: [
+        {
+          delivery: 'native-video',
+          platform: 'mobile',
+          nativeSourceToken: 'background-video-token',
+        },
+      ],
+      name: 'background.mp4',
       mimeType: 'video/mp4',
       size: 100,
       sourceRevision: 12,
+      mediaSourceGeneration: 1,
+      appForegroundEpoch: 1,
+      expiresAt: 123456,
     })
-    const stopAndroidVideo = vi.fn().mockResolvedValue(undefined)
+    const releaseMediaSource = vi.fn().mockResolvedValue(undefined)
     const download = vi.fn().mockImplementation(async () => streamOf(new TextEncoder().encode('fallback')))
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          startAndroidVideo,
-          stopAndroidVideo,
+          prepareMediaSource,
+          releaseMediaSource,
         } as any,
         catalog: {
           api: {
@@ -270,14 +298,105 @@ describe('media lifecycle cleanup', () => {
     })
 
     await vi.waitFor(() => {
-      expect(model.sourceKind()).toBe('android-native-video')
+      expect(model.sourceKind()).toBe('video-source')
+      expect(model.sourceDelivery()).toBe('native-video')
     })
 
     await releaseMediaSourcesForAppBackground()
 
-    expect(stopAndroidVideo).toHaveBeenCalledWith(
-      expect.objectContaining({token: 'background-video-token'}),
+    expect(releaseMediaSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        streamId: 'background-video-stream',
+        sourceToken: 'background-video-stream',
+      }),
     )
+    expect(download).not.toHaveBeenCalled()
+    expect(model.sourceKind()).toBe('none')
+  })
+
+  it('releases active MSE video source and object URL during app background cleanup', async () => {
+    Object.defineProperty(globalThis, 'MediaSource', {
+      configurable: true,
+      writable: true,
+      value: LifecycleFakeMediaSource,
+    })
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      supports_media_http_stream: true,
+      supports_mse_video_playback: true,
+    })
+    runtimeModeModel.setCoreMode('local')
+    const prepareMediaSource = vi.fn().mockResolvedValue({
+      kind: 'video-source',
+      streamId: 'background-mse-stream',
+      sourceToken: 'background-mse-stream',
+      platform: 'desktop',
+      provider: 'local-catalog',
+      deliveries: [
+        {
+          delivery: 'mse',
+          platform: 'desktop',
+          fetchUrl: 'http://127.0.0.1:49152/media/background-mse-stream',
+          initSegment: {offset: 0, length: 128},
+          mediaSegments: [{offset: 128, length: 256, timestampUs: 0}],
+        },
+      ],
+      name: 'background-fragmented.mp4',
+      mimeType: 'video/mp4',
+      size: 100,
+      sourceRevision: 12,
+      mediaSourceGeneration: 1,
+      appForegroundEpoch: 1,
+      expiresAt: 123456,
+    })
+    const releaseMediaSource = vi.fn().mockResolvedValue(undefined)
+    const download = vi.fn().mockImplementation(async () => streamOf(new TextEncoder().encode('fallback')))
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          kind: 'tauri',
+          prepareMediaSource,
+          releaseMediaSource,
+        } as any,
+        catalog: {
+          api: {
+            download,
+          },
+        } as any,
+      }),
+    )
+
+    const model = new VideoPlayerModel()
+    model.setFile({
+      fileId: 704,
+      fileName: 'background-fragmented.mp4',
+      mimeType: 'video/mp4',
+      mediaInfo: {
+        kind: 'video',
+        audioTracks: 1,
+        videoTracks: 1,
+        playbackMimeType: 'video/mp4',
+        codecString: 'avc1.640028,mp4a.40.2',
+        mseFragmented: true,
+      },
+      sourceSize: 100,
+    })
+
+    await vi.waitFor(() => {
+      expect(model.sourceKind()).toBe('video-source')
+      expect(model.sourceDelivery()).toBe('mse')
+    })
+
+    await releaseMediaSourcesForAppBackground()
+
+    expect(releaseMediaSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        streamId: 'background-mse-stream',
+        sourceToken: 'background-mse-stream',
+      }),
+    )
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:lifecycle-audio')
     expect(download).not.toHaveBeenCalled()
     expect(model.sourceKind()).toBe('none')
   })

@@ -2,7 +2,6 @@ import {Entry, Group, ManagerRoot} from '@project/passmanager/core'
 
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import {SURFACE_IDS, type HistoryMode, type SurfaceId} from 'root/app/navigation/navigation.types'
-import {commandBarModel} from 'root/features/file-manager/models/command-bar.model'
 import {
   getPassmanagerRoot,
   getPassmanagerShowElement,
@@ -31,8 +30,6 @@ export const WEBMCP_TOOL_NAMES = [
   'chromvoid_open_surface',
   'chromvoid_get_overlay_state',
   'chromvoid_close_overlay',
-  'chromvoid_list_actions',
-  'chromvoid_execute_action',
   'chromvoid_wait_for_idle',
 ] as const
 
@@ -67,7 +64,7 @@ export function createChromVoidWebMcpTools(): WebMcpTool[] {
     {
       name: 'chromvoid_run_ui_diagnostics',
       description:
-        'Runs lightweight ChromVoid UI diagnostics and returns CSS token, custom element, shadow DOM, command palette, and document readiness checks.',
+        'Runs lightweight ChromVoid UI diagnostics and returns CSS token, custom element, shadow DOM, and document readiness checks.',
       inputSchema: {
         type: 'object',
         properties: {},
@@ -108,7 +105,6 @@ export function createChromVoidWebMcpTools(): WebMcpTool[] {
         serializeSafely(() => {
           const surface = readSurface(input['surface'])
           const historyMode = readHistoryMode(input['historyMode'])
-          commandBarModel.close()
           navigationModel.navigateToSurface(surface, historyMode)
           return {ok: true, state: buildAppState()}
         }),
@@ -116,7 +112,7 @@ export function createChromVoidWebMcpTools(): WebMcpTool[] {
     {
       name: 'chromvoid_get_overlay_state',
       description:
-        'Returns sanitized navigation overlay, document, and command palette state for agent navigation.',
+        'Returns sanitized navigation overlay and document state for agent navigation.',
       inputSchema: {
         type: 'object',
         properties: {},
@@ -131,13 +127,13 @@ export function createChromVoidWebMcpTools(): WebMcpTool[] {
     {
       name: 'chromvoid_close_overlay',
       description:
-        'Closes command palette and/or navigation overlay through ChromVoid models without traversing Shadow DOM.',
+        'Closes navigation overlays and documents through ChromVoid models without traversing Shadow DOM.',
       inputSchema: {
         type: 'object',
         properties: {
           target: {
             type: 'string',
-            enum: ['any', 'navigation', 'commandPalette'],
+            enum: ['any', 'navigation'],
             description: 'Overlay target to close. Defaults to any.',
           },
         },
@@ -150,60 +146,9 @@ export function createChromVoidWebMcpTools(): WebMcpTool[] {
       execute: (input = {}) => serializeSafely(() => closeOverlay(input)),
     },
     {
-      name: 'chromvoid_list_actions',
-      description:
-        'Returns sanitized command palette actions available in the current model context without action functions or secret payloads.',
-      inputSchema: {
-        type: 'object',
-        properties: {},
-        additionalProperties: false,
-      },
-      annotations: {
-        readOnlyHint: true,
-        untrustedContentHint: false,
-      },
-      execute: () =>
-        serializeSafely(() => ({
-          ok: true,
-          actions: commandBarModel.getAgentActions(),
-          state: commandBarModel.getAgentState(),
-        })),
-    },
-    {
-      name: 'chromvoid_execute_action',
-      description:
-        'Executes a safe command palette action by id. Only navigation, filters, and search actions are allowed.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          id: {
-            type: 'string',
-            description: 'Command id returned by chromvoid_list_actions.',
-          },
-          query: {
-            type: 'string',
-            description: 'Optional query for search actions.',
-          },
-        },
-        required: ['id'],
-        additionalProperties: false,
-      },
-      annotations: {
-        readOnlyHint: false,
-        untrustedContentHint: false,
-      },
-      execute: (input = {}) =>
-        serializeSafely(() => {
-          const id = readString(input['id'], 'id')
-          const query = readOptionalString(input['query'], 'query')
-          const result = commandBarModel.executeCommandById(id, query === undefined ? {} : {query})
-          return result.ok ? {ok: true, action: result.command, state: buildAppState()} : result
-        }),
-    },
-    {
       name: 'chromvoid_wait_for_idle',
       description:
-        'Waits until the document, custom elements, route snapshot, and command palette model are stable for agent execution.',
+        'Waits until the document, custom elements, and route snapshot are stable for agent execution.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -226,7 +171,6 @@ export function createChromVoidWebMcpTools(): WebMcpTool[] {
 }
 
 export function buildAppState() {
-  const commandPalette = commandBarModel.getAgentState()
   return {
     location: {
       href: window.location.href,
@@ -250,14 +194,7 @@ export function buildAppState() {
       resolvedOverlay: navigationModel.resolvedOverlay(),
       resolvedDocument: navigationModel.resolvedDocument(),
     },
-    agent: {
-      commandPalette,
-      actions: {
-        count: commandPalette.commandCount,
-        safeCount: commandPalette.safeActionCount,
-      },
-      shadowDom: collectShadowDomStats(),
-    },
+    agent: {shadowDom: collectShadowDomStats()},
     passmanager: buildPassmanagerState(),
   }
 }
@@ -314,10 +251,8 @@ function runUiDiagnostics() {
   const tokenReports = validateCssTokens()
   const missingTokenCount = tokenReports.reduce((count, report) => count + report.missing.length, 0)
   const missingCustomElements = requiredCustomElements().filter((tag) => !customElements.get(tag))
-  const commandPalette = collectCommandPaletteDiagnostic()
-
   return {
-    ok: missingTokenCount === 0 && missingCustomElements.length === 0 && !commandPalette.mismatch,
+    ok: missingTokenCount === 0 && missingCustomElements.length === 0,
     document: {
       readyState: document.readyState,
       appElementPresent: document.querySelector('chromvoid-app') !== null,
@@ -330,7 +265,6 @@ function runUiDiagnostics() {
       missing: missingCustomElements,
     },
     shadowDom: collectShadowDomStats(),
-    commandPalette,
     state: buildAppState(),
   }
 }
@@ -343,21 +277,14 @@ function buildOverlayState() {
       resolvedOverlay: navigationModel.resolvedOverlay(),
       resolvedDocument: navigationModel.resolvedDocument(),
     },
-    commandPalette: commandBarModel.getAgentState(),
   }
 }
 
 function closeOverlay(input: JsonObject) {
   const target = readOverlayTarget(input['target'])
   const closed = {
-    commandPalette: false,
     navigation: false,
     document: false,
-  }
-
-  if ((target === 'any' || target === 'commandPalette') && commandBarModel.isOpen) {
-    commandBarModel.close()
-    closed.commandPalette = true
   }
 
   if (target === 'any' || target === 'navigation') {
@@ -423,55 +350,6 @@ function collectShadowDomStats() {
   }
 }
 
-function collectCommandPaletteDiagnostic() {
-  const model = commandBarModel.getAgentState()
-  const dialogs = collectCommandPaletteDialogs()
-  const activeDialogCount = dialogs.filter((dialog) => !dialog.hidden && dialog.ariaModal === 'true').length
-
-  return {
-    model,
-    dialogs,
-    activeDialogCount,
-    mismatch: model.isOpen !== (activeDialogCount > 0),
-  }
-}
-
-function collectCommandPaletteDialogs() {
-  const dialogs: Array<{
-    path: string
-    hidden: boolean
-    ariaModal: string | null
-    ariaLabel: string | null
-  }> = []
-
-  const visitChildren = (root: ParentNode, path: string[]) => {
-    for (const child of Array.from(root.children)) {
-      visitElement(child, path)
-    }
-  }
-
-  const visitElement = (element: Element, path: string[]) => {
-    const nextPath = [...path, element.localName]
-    if (element.getAttribute('role') === 'dialog' && nextPath.includes('command-bar')) {
-      dialogs.push({
-        path: nextPath.join(' > '),
-        hidden: Boolean((element as HTMLElement).hidden),
-        ariaModal: element.getAttribute('aria-modal'),
-        ariaLabel: element.getAttribute('aria-label'),
-      })
-    }
-
-    const shadowRoot = (element as HTMLElement).shadowRoot
-    if (shadowRoot) {
-      visitChildren(shadowRoot, nextPath)
-    }
-    visitChildren(element, path)
-  }
-
-  visitChildren(document, [])
-  return dialogs
-}
-
 async function waitForIdle(input: JsonObject) {
   const timeoutMs = readTimeoutMs(input['timeoutMs'])
   const start = Date.now()
@@ -508,17 +386,9 @@ async function waitForIdle(input: JsonObject) {
 }
 
 function stableSnapshot(): string {
-  const commandPalette = commandBarModel.getAgentState()
   return JSON.stringify({
     readyState: document.readyState,
     navigation: navigationModel.snapshot(),
-    commandPalette: {
-      available: commandPalette.available,
-      isOpen: commandPalette.isOpen,
-      mode: commandPalette.mode,
-      query: commandPalette.query,
-      context: commandPalette.context,
-    },
   })
 }
 
@@ -563,36 +433,16 @@ function readHistoryMode(value: unknown): Exclude<HistoryMode, 'none'> {
   throw new WebMcpInputError('invalid_history_mode', 'historyMode must be "push" or "replace"')
 }
 
-function readOverlayTarget(value: unknown): 'any' | 'navigation' | 'commandPalette' {
+function readOverlayTarget(value: unknown): 'any' | 'navigation' {
   if (value === undefined || value === null) {
     return 'any'
   }
 
-  if (value === 'any' || value === 'navigation' || value === 'commandPalette') {
+  if (value === 'any' || value === 'navigation') {
     return value
   }
 
-  throw new WebMcpInputError('invalid_overlay_target', 'target must be "any", "navigation", or "commandPalette"')
-}
-
-function readString(value: unknown, field: string): string {
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new WebMcpInputError('invalid_input', `${field} must be a non-empty string`)
-  }
-
-  return value
-}
-
-function readOptionalString(value: unknown, field: string): string | undefined {
-  if (value === undefined || value === null) {
-    return undefined
-  }
-
-  if (typeof value !== 'string') {
-    throw new WebMcpInputError('invalid_input', `${field} must be a string when provided`)
-  }
-
-  return value
+  throw new WebMcpInputError('invalid_overlay_target', 'target must be "any" or "navigation"')
 }
 
 function readTimeoutMs(value: unknown): number {

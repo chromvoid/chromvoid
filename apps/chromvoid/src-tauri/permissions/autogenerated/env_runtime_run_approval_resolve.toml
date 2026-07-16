@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-env-runtime-run-approval-resolve"
+description = "Enables the env_runtime_run_approval_resolve command without any pre-configured scope."
+commands.allow = ["env_runtime_run_approval_resolve"]
+
+[[permission]]
+identifier = "deny-env-runtime-run-approval-resolve"
+description = "Denies the env_runtime_run_approval_resolve command without any pre-configured scope."
+commands.deny = ["env_runtime_run_approval_resolve"]

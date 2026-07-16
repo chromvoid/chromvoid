@@ -34,6 +34,35 @@ describe('PMGroupCreate desktop', () => {
     vi.restoreAllMocks()
   })
 
+  it('keeps create available and focuses the title when the required name is missing', async () => {
+    const createGroup = vi.fn()
+    window.passmanager = {
+      createGroup,
+      showElement: () => null,
+    } as unknown as typeof window.passmanager
+
+    const element = document.createElement('pm-group-create-desktop') as PMGroupCreateDesktop
+    document.body.append(element)
+    await settle(element)
+
+    const submit = element.shadowRoot?.querySelector('cv-button[type="submit"]') as HTMLElement | null
+    expect(submit?.hasAttribute('disabled')).toBe(false)
+
+    element.shadowRoot
+      ?.querySelector('form')
+      ?.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))
+    await settle(element)
+
+    const header = element.shadowRoot?.querySelector('pm-workspace-header') as HTMLElement | null
+    const titleInput = header?.shadowRoot?.querySelector('cv-input.title-input') as
+      | (HTMLElement & {shadowRoot?: ShadowRoot})
+      | null
+    const nativeInput = titleInput?.shadowRoot?.querySelector('input')
+    expect(createGroup).not.toHaveBeenCalled()
+    expect(header?.shadowRoot?.querySelector('.title-error')?.textContent).not.toBe('')
+    expect(titleInput?.shadowRoot?.activeElement).toBe(nativeInput)
+  })
+
   it('renders the workspace header flow and submits an empty group', async () => {
     const createGroup = vi.fn()
     window.passmanager = {

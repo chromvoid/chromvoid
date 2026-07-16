@@ -1,5 +1,15 @@
 import type {SearchFilters, SortOption, ViewMode} from 'root/shared/contracts/file-manager'
 
+export type MobileFileQuickFilter = 'all' | 'markdown' | 'images'
+export type MobileFileViewMode = Extract<ViewMode, 'list' | 'grid'>
+export type MobileQuickFilterChip = {
+  key: MobileFileQuickFilter
+  label: string
+  active: boolean
+}
+
+const MOBILE_SORT_OPTIONS: SortOption[] = ['name', 'date', 'size']
+
 export type FileSearchFilterActions = {
   setFilters(next: SearchFilters): void
   patchFilters(patch: Partial<SearchFilters>): void
@@ -12,6 +22,9 @@ export type FileSearchFilterActions = {
   applyTableSort(value: SortOption): void
   cycleViewMode(): void
   setViewMode(value: ViewMode): void
+  setMobileViewMode(value: MobileFileViewMode): void
+  setMobileQuickFilter(value: MobileFileQuickFilter): void
+  cycleMobileSort(): void
   removeFileType(value: string): void
   toggleFileType(value: string): void
 }
@@ -132,6 +145,28 @@ export function createFileSearchFilterActions({
     },
     setViewMode(value: ViewMode): void {
       patchFilters({viewMode: value})
+    },
+    setMobileViewMode(value: MobileFileViewMode): void {
+      patchFilters({viewMode: value})
+    },
+    setMobileQuickFilter(value: MobileFileQuickFilter): void {
+      if (value === 'all') {
+        patchFilters({fileTypes: []})
+        return
+      }
+
+      const current = read().fileTypes
+      patchFilters({
+        fileTypes: current.includes(value)
+          ? current.filter((type) => type !== value)
+          : [...current, value],
+      })
+    },
+    cycleMobileSort(): void {
+      const current = read().sortBy
+      const index = MOBILE_SORT_OPTIONS.indexOf(current)
+      const next = MOBILE_SORT_OPTIONS[(index + 1) % MOBILE_SORT_OPTIONS.length] ?? 'name'
+      patchFilters({sortBy: next})
     },
     removeFileType(value: string): void {
       patchFilters({fileTypes: read().fileTypes.filter((type) => type !== value)})

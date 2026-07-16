@@ -1,8 +1,13 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use super::super::connection::NetworkConnectionManager;
-use super::{AcceptorState, AcceptorStatus, ConnectedPeer};
+use super::{now_ms, AcceptorState, AcceptorStatus, ConnectedPeer};
+use crate::mobile_usb::{
+    MobileUsbErrorCode, MobileUsbHostApprovalDecision, MobileUsbHostPairingApprovalView,
+    MobileUsbHostSessionApprovalView,
+};
 
 /// Per-peer connection tracking: NetworkConnectionManager for state + shutdown handle.
 pub(super) struct PeerConnection {
@@ -48,14 +53,382 @@ impl AcceptorInner {
 pub struct MobileAcceptorRuntimeState {
     inner: Mutex<Option<AcceptorInner>>,
     acceptor_generation: AtomicU64,
+    direct_transport_sessions: AtomicU64,
+    vault_unlock_tx: tokio::sync::watch::Sender<u64>,
+    usb_pairing_approvals: Mutex<HashMap<String, PendingUsbPairingApproval>>,
+    usb_session_approvals: Mutex<HashMap<String, PendingUsbSessionApproval>>,
+}
+
+/// RAII marker for an in-flight direct transport (USB) session. While at least
+/// one scope is alive, listener restarts must not preempt the session.
+pub(crate) struct DirectTransportSessionScope {
+    runtime: Arc<MobileAcceptorRuntimeState>,
+}
+
+impl Drop for DirectTransportSessionScope {
+    fn drop(&mut self) {
+        self.runtime
+            .direct_transport_sessions
+            .fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+struct PendingUsbPairingApproval {
+    view: MobileUsbHostPairingApprovalView,
+    approved: bool,
+    rejected: bool,
+    notify: Arc<tokio::sync::Notify>,
+}
+
+struct PendingUsbSessionApproval {
+    view: MobileUsbHostSessionApprovalView,
+    approved: bool,
+    rejected: bool,
+    notify: Arc<tokio::sync::Notify>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::network::mobile_acceptor) enum UsbPairingApprovalDecision {
+    Approved,
+    Rejected,
+    Expired,
+    Missing,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::network::mobile_acceptor) enum UsbSessionApprovalDecision {
+    Approved,
+    Rejected,
+    Expired,
+    Missing,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum MobileUsbApprovalKind {
+    Pairing,
+    Session,
+}
+
+impl MobileUsbApprovalKind {
+    pub(crate) fn from_native(value: &str) -> Result<Self, String> {
+        match value {
+            "pairing" => Ok(Self::Pairing),
+            "session" => Ok(Self::Session),
+            _ => Err(format!(
+                "{}: unknown mobile USB approval kind",
+                MobileUsbErrorCode::InvalidState.as_str(),
+            )),
+        }
+    }
 }
 
 impl MobileAcceptorRuntimeState {
     pub fn new() -> Self {
+        let (vault_unlock_tx, _) = tokio::sync::watch::channel(0);
         Self {
             inner: Mutex::new(None),
             acceptor_generation: AtomicU64::new(0),
+            direct_transport_sessions: AtomicU64::new(0),
+            vault_unlock_tx,
+            usb_pairing_approvals: Mutex::new(HashMap::new()),
+            usb_session_approvals: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub(crate) fn notify_vault_unlocked(&self) {
+        self.vault_unlock_tx.send_modify(|generation| {
+            *generation = generation.wrapping_add(1);
+        });
+    }
+
+    pub(in crate::network::mobile_acceptor) fn subscribe_vault_unlocks(
+        &self,
+    ) -> tokio::sync::watch::Receiver<u64> {
+        self.vault_unlock_tx.subscribe()
+    }
+
+    pub(crate) fn direct_transport_session_scope(self: &Arc<Self>) -> DirectTransportSessionScope {
+        self.direct_transport_sessions
+            .fetch_add(1, Ordering::AcqRel);
+        DirectTransportSessionScope {
+            runtime: Arc::clone(self),
+        }
+    }
+
+    pub(crate) fn has_active_direct_transport_session(&self) -> bool {
+        self.direct_transport_sessions.load(Ordering::Acquire) > 0
+    }
+
+    pub(in crate::network::mobile_acceptor) fn register_usb_pairing_approval(
+        &self,
+        view: MobileUsbHostPairingApprovalView,
+    ) -> Result<(), String> {
+        let mut approvals = self
+            .usb_pairing_approvals
+            .lock()
+            .map_err(|_| "USB pairing approval mutex poisoned".to_string())?;
+        approvals.insert(
+            view.attempt_id.clone(),
+            PendingUsbPairingApproval {
+                view,
+                approved: false,
+                rejected: false,
+                notify: Arc::new(tokio::sync::Notify::new()),
+            },
+        );
+        Ok(())
+    }
+
+    pub fn pending_usb_pairing_approval(
+        &self,
+    ) -> Result<Option<MobileUsbHostPairingApprovalView>, String> {
+        self.expire_usb_pairing_approvals()?;
+        let approvals = self
+            .usb_pairing_approvals
+            .lock()
+            .map_err(|_| "USB pairing approval mutex poisoned".to_string())?;
+        Ok(approvals
+            .values()
+            .next()
+            .map(|pending| pending.view.clone()))
+    }
+
+    pub fn approve_usb_pairing(&self, attempt_id: &str) -> Result<(), String> {
+        self.set_usb_pairing_approval_decision(attempt_id, true)
+    }
+
+    pub fn reject_usb_pairing(&self, attempt_id: &str) -> Result<(), String> {
+        self.set_usb_pairing_approval_decision(attempt_id, false)
+    }
+
+    pub(crate) fn resolve_usb_approval(
+        &self,
+        kind: MobileUsbApprovalKind,
+        attempt_id: &str,
+        approved: bool,
+    ) -> Result<(), String> {
+        if attempt_id.trim().is_empty() {
+            return Err(format!(
+                "{}: attempt_id is required",
+                MobileUsbErrorCode::InvalidState.as_str(),
+            ));
+        }
+        match (kind, approved) {
+            (MobileUsbApprovalKind::Pairing, true) => self.approve_usb_pairing(attempt_id),
+            (MobileUsbApprovalKind::Pairing, false) => self.reject_usb_pairing(attempt_id),
+            (MobileUsbApprovalKind::Session, true) => self.approve_usb_session(attempt_id),
+            (MobileUsbApprovalKind::Session, false) => self.reject_usb_session(attempt_id),
+        }
+    }
+
+    pub(in crate::network::mobile_acceptor) async fn wait_usb_pairing_approval(
+        &self,
+        attempt_id: &str,
+    ) -> Result<UsbPairingApprovalDecision, String> {
+        loop {
+            let (decision, notify, expires_at_ms) = {
+                let approvals = self
+                    .usb_pairing_approvals
+                    .lock()
+                    .map_err(|_| "USB pairing approval mutex poisoned".to_string())?;
+                let Some(pending) = approvals.get(attempt_id) else {
+                    return Ok(UsbPairingApprovalDecision::Missing);
+                };
+                let decision = if pending.approved {
+                    Some(UsbPairingApprovalDecision::Approved)
+                } else if pending.rejected {
+                    Some(UsbPairingApprovalDecision::Rejected)
+                } else if pending.view.expires_at_ms <= now_ms() {
+                    Some(UsbPairingApprovalDecision::Expired)
+                } else {
+                    None
+                };
+                (decision, pending.notify.clone(), pending.view.expires_at_ms)
+            };
+            if let Some(decision) = decision {
+                return Ok(decision);
+            }
+            let remaining_ms = expires_at_ms.saturating_sub(now_ms());
+            tokio::select! {
+                _ = notify.notified() => {}
+                _ = tokio::time::sleep(std::time::Duration::from_millis(remaining_ms.max(1))) => {}
+            }
+        }
+    }
+
+    pub(in crate::network::mobile_acceptor) fn finish_usb_pairing_approval(
+        &self,
+        attempt_id: &str,
+    ) -> Result<(), String> {
+        let mut approvals = self
+            .usb_pairing_approvals
+            .lock()
+            .map_err(|_| "USB pairing approval mutex poisoned".to_string())?;
+        approvals.remove(attempt_id);
+        Ok(())
+    }
+
+    fn set_usb_pairing_approval_decision(
+        &self,
+        attempt_id: &str,
+        approved: bool,
+    ) -> Result<(), String> {
+        self.expire_usb_pairing_approvals()?;
+        let notify = {
+            let mut approvals = self
+                .usb_pairing_approvals
+                .lock()
+                .map_err(|_| "USB pairing approval mutex poisoned".to_string())?;
+            let pending = approvals
+                .get_mut(attempt_id)
+                .ok_or_else(|| "USB pairing approval attempt not found".to_string())?;
+            pending.approved = approved;
+            pending.rejected = !approved;
+            pending.view.decision = if approved {
+                MobileUsbHostApprovalDecision::Approved
+            } else {
+                MobileUsbHostApprovalDecision::Rejected
+            };
+            pending.notify.clone()
+        };
+        notify.notify_waiters();
+        Ok(())
+    }
+
+    fn expire_usb_pairing_approvals(&self) -> Result<(), String> {
+        let now = now_ms();
+        let mut approvals = self
+            .usb_pairing_approvals
+            .lock()
+            .map_err(|_| "USB pairing approval mutex poisoned".to_string())?;
+        approvals.retain(|_, pending| pending.view.expires_at_ms > now);
+        Ok(())
+    }
+
+    pub(in crate::network::mobile_acceptor) fn register_usb_session_approval(
+        &self,
+        view: MobileUsbHostSessionApprovalView,
+    ) -> Result<(), String> {
+        let mut approvals = self
+            .usb_session_approvals
+            .lock()
+            .map_err(|_| "USB session approval mutex poisoned".to_string())?;
+        approvals.insert(
+            view.attempt_id.clone(),
+            PendingUsbSessionApproval {
+                view,
+                approved: false,
+                rejected: false,
+                notify: Arc::new(tokio::sync::Notify::new()),
+            },
+        );
+        Ok(())
+    }
+
+    pub fn pending_usb_session_approval(
+        &self,
+    ) -> Result<Option<MobileUsbHostSessionApprovalView>, String> {
+        self.expire_usb_session_approvals()?;
+        let approvals = self
+            .usb_session_approvals
+            .lock()
+            .map_err(|_| "USB session approval mutex poisoned".to_string())?;
+        Ok(approvals
+            .values()
+            .next()
+            .map(|pending| pending.view.clone()))
+    }
+
+    pub fn approve_usb_session(&self, attempt_id: &str) -> Result<(), String> {
+        self.set_usb_session_approval_decision(attempt_id, true)
+    }
+
+    pub fn reject_usb_session(&self, attempt_id: &str) -> Result<(), String> {
+        self.set_usb_session_approval_decision(attempt_id, false)
+    }
+
+    pub(in crate::network::mobile_acceptor) async fn wait_usb_session_approval(
+        &self,
+        attempt_id: &str,
+    ) -> Result<UsbSessionApprovalDecision, String> {
+        loop {
+            let (decision, notify, expires_at_ms) = {
+                let approvals = self
+                    .usb_session_approvals
+                    .lock()
+                    .map_err(|_| "USB session approval mutex poisoned".to_string())?;
+                let Some(pending) = approvals.get(attempt_id) else {
+                    return Ok(UsbSessionApprovalDecision::Missing);
+                };
+                let decision = if pending.approved {
+                    Some(UsbSessionApprovalDecision::Approved)
+                } else if pending.rejected {
+                    Some(UsbSessionApprovalDecision::Rejected)
+                } else if pending.view.expires_at_ms <= now_ms() {
+                    Some(UsbSessionApprovalDecision::Expired)
+                } else {
+                    None
+                };
+                (decision, pending.notify.clone(), pending.view.expires_at_ms)
+            };
+            if let Some(decision) = decision {
+                return Ok(decision);
+            }
+            let remaining_ms = expires_at_ms.saturating_sub(now_ms());
+            tokio::select! {
+                _ = notify.notified() => {}
+                _ = tokio::time::sleep(std::time::Duration::from_millis(remaining_ms.max(1))) => {}
+            }
+        }
+    }
+
+    pub(in crate::network::mobile_acceptor) fn finish_usb_session_approval(
+        &self,
+        attempt_id: &str,
+    ) -> Result<(), String> {
+        let mut approvals = self
+            .usb_session_approvals
+            .lock()
+            .map_err(|_| "USB session approval mutex poisoned".to_string())?;
+        approvals.remove(attempt_id);
+        Ok(())
+    }
+
+    fn set_usb_session_approval_decision(
+        &self,
+        attempt_id: &str,
+        approved: bool,
+    ) -> Result<(), String> {
+        self.expire_usb_session_approvals()?;
+        let notify = {
+            let mut approvals = self
+                .usb_session_approvals
+                .lock()
+                .map_err(|_| "USB session approval mutex poisoned".to_string())?;
+            let pending = approvals
+                .get_mut(attempt_id)
+                .ok_or_else(|| "USB session approval attempt not found".to_string())?;
+            pending.approved = approved;
+            pending.rejected = !approved;
+            pending.view.decision = if approved {
+                MobileUsbHostApprovalDecision::Approved
+            } else {
+                MobileUsbHostApprovalDecision::Rejected
+            };
+            pending.notify.clone()
+        };
+        notify.notify_waiters();
+        Ok(())
+    }
+
+    fn expire_usb_session_approvals(&self) -> Result<(), String> {
+        let now = now_ms();
+        let mut approvals = self
+            .usb_session_approvals
+            .lock()
+            .map_err(|_| "USB session approval mutex poisoned".to_string())?;
+        approvals.retain(|_, pending| pending.view.expires_at_ms > now);
+        Ok(())
     }
 
     pub(in crate::network::mobile_acceptor) fn with_acceptor<F, R>(&self, f: F) -> Result<R, String>
@@ -90,6 +463,9 @@ impl MobileAcceptorRuntimeState {
         room_id: String,
         shutdown_tx: tokio::sync::oneshot::Sender<()>,
     ) -> Result<(u64, AcceptorStatus), String> {
+        if self.has_active_direct_transport_session() {
+            return Err("direct transport session active".to_string());
+        }
         let mut guard = self
             .inner
             .lock()
@@ -318,6 +694,123 @@ impl MobileAcceptorRuntimeState {
             }
         })
         .map(|result| result.is_some())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pairing_view() -> MobileUsbHostPairingApprovalView {
+        MobileUsbHostPairingApprovalView {
+            attempt_id: "pair-attempt-1".to_string(),
+            approval_pin: "123456".to_string(),
+            peer_label: "MacBook".to_string(),
+            peer_fingerprint: "abcd1234".to_string(),
+            attempts_left: 5,
+            decision: MobileUsbHostApprovalDecision::Pending,
+            expires_at_ms: u64::MAX,
+        }
+    }
+
+    fn session_view() -> MobileUsbHostSessionApprovalView {
+        MobileUsbHostSessionApprovalView {
+            attempt_id: "session-attempt-1".to_string(),
+            peer_id: "desktop-peer-1".to_string(),
+            peer_label: "MacBook".to_string(),
+            transport_type: "usb_mobile".to_string(),
+            decision: MobileUsbHostApprovalDecision::Pending,
+            expires_at_ms: u64::MAX,
+        }
+    }
+
+    #[test]
+    fn usb_pairing_pending_view_reports_recorded_decision() {
+        let state = MobileAcceptorRuntimeState::new();
+        state
+            .register_usb_pairing_approval(pairing_view())
+            .expect("register pairing approval");
+
+        let pending = state
+            .pending_usb_pairing_approval()
+            .expect("read pending pairing approval")
+            .expect("pending pairing approval");
+        assert_eq!(pending.decision, MobileUsbHostApprovalDecision::Pending);
+
+        state
+            .approve_usb_pairing("pair-attempt-1")
+            .expect("approve pairing approval");
+        let approved = state
+            .pending_usb_pairing_approval()
+            .expect("read approved pairing approval")
+            .expect("approved pairing approval remains visible");
+        assert_eq!(approved.decision, MobileUsbHostApprovalDecision::Approved);
+
+        state
+            .reject_usb_pairing("pair-attempt-1")
+            .expect("reject pairing approval");
+        let rejected = state
+            .pending_usb_pairing_approval()
+            .expect("read rejected pairing approval")
+            .expect("rejected pairing approval remains recorded");
+        assert_eq!(rejected.decision, MobileUsbHostApprovalDecision::Rejected);
+    }
+
+    #[test]
+    fn usb_session_pending_view_reports_recorded_decision() {
+        let state = MobileAcceptorRuntimeState::new();
+        state
+            .register_usb_session_approval(session_view())
+            .expect("register session approval");
+
+        let pending = state
+            .pending_usb_session_approval()
+            .expect("read pending session approval")
+            .expect("pending session approval");
+        assert_eq!(pending.decision, MobileUsbHostApprovalDecision::Pending);
+
+        state
+            .approve_usb_session("session-attempt-1")
+            .expect("approve session approval");
+        let approved = state
+            .pending_usb_session_approval()
+            .expect("read approved session approval")
+            .expect("approved session approval remains recorded");
+        assert_eq!(approved.decision, MobileUsbHostApprovalDecision::Approved);
+
+        state
+            .reject_usb_session("session-attempt-1")
+            .expect("reject session approval");
+        let rejected = state
+            .pending_usb_session_approval()
+            .expect("read rejected session approval")
+            .expect("rejected session approval remains recorded");
+        assert_eq!(rejected.decision, MobileUsbHostApprovalDecision::Rejected);
+    }
+
+    #[test]
+    fn usb_approval_resolver_uses_the_approval_runtime_as_its_source_of_truth() {
+        let state = MobileAcceptorRuntimeState::new();
+        state
+            .register_usb_session_approval(session_view())
+            .expect("register session approval");
+
+        state
+            .resolve_usb_approval(MobileUsbApprovalKind::Session, "session-attempt-1", true)
+            .expect("approve exact session approval");
+        let approved = state
+            .pending_usb_session_approval()
+            .expect("read approved session approval")
+            .expect("approved session approval remains recorded");
+
+        assert_eq!(approved.decision, MobileUsbHostApprovalDecision::Approved);
+        assert!(state
+            .resolve_usb_approval(MobileUsbApprovalKind::Session, " ", false)
+            .expect_err("blank attempt id should be rejected")
+            .starts_with("ERR_USB_MOBILE_INVALID_STATE"));
+        assert!(MobileUsbApprovalKind::from_native("unexpected")
+            .expect_err("unknown notification kind should be rejected")
+            .starts_with("ERR_USB_MOBILE_INVALID_STATE"));
     }
 }
 

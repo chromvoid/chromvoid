@@ -4,6 +4,7 @@ import {navigationModel} from 'root/app/navigation/navigation.model'
 import {guidanceCompletionBridge} from 'root/core/guidance'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
 import {i18n} from 'root/i18n'
+import {getAppContext} from 'root/shared/services/app-context'
 import {toast} from 'root/shared/services/toast-manager'
 
 import type {
@@ -68,7 +69,9 @@ export class RemotePageModel {
   connect(): void {
     if (this.connected) return
     this.connected = true
-    this.guidanceCompletionUnsubscribe = guidanceCompletionBridge.bindRemotePairedDevices(this.remoteHosts.peers)
+    this.guidanceCompletionUnsubscribe = guidanceCompletionBridge.bindRemotePairedDevices(
+      this.remoteHosts.peers,
+    )
     this.remoteHosts.connect()
     if (!this.isMobileRuntime()) {
       void this.loadModeData()
@@ -138,10 +141,6 @@ export class RemotePageModel {
     this.remoteStatus.set(deriveRemoteStatusWithLock(this.connectionState(), this.syncSnapshot()))
   }
 
-  goBack = (): void => {
-    navigationModel.goBack()
-  }
-
   syncRemoteHostsPanel(): void {
     if (this.remoteHosts.view() === 'wait') return
 
@@ -172,6 +171,11 @@ export class RemotePageModel {
   }
 
   backToHosts = (): void => {
+    if (this.remoteHosts.view() === 'usb-mobile') {
+      void this.remoteHosts.closeUsbMobile()
+      navigationModel.navigateToRemotePanel('hosts', 'replace')
+      return
+    }
     navigationModel.navigateToRemotePanel('hosts', 'replace')
     void this.remoteHosts.closePairIos()
   }
@@ -218,6 +222,12 @@ export class RemotePageModel {
     void this.remoteHosts.refreshPresence()
   }
 
+  remoteWaitReason = (): 'host_unlock' | 'phone_approval' => {
+    return getAppContext().store.remoteSessionState() === 'waiting_phone_approval'
+      ? 'phone_approval'
+      : 'host_unlock'
+  }
+
   disconnectRemoteTransport = (): void => {
     void this.remoteHosts.disconnectTransport()
   }
@@ -252,37 +262,45 @@ export class RemotePageModel {
     }
 
     guard(
-      onModeSwitching(() => {
-        if (!this.connected) return
-        this.modeSwitching.set(true)
-        this.connectionPhase.set(i18n('remote:mode-label-switching'))
-        this.modeError.set(null)
-      }),
+      onModeSwitching(
+        wrap(() => {
+          if (!this.connected) return
+          this.modeSwitching.set(true)
+          this.connectionPhase.set(i18n('remote:mode-label-switching'))
+          this.modeError.set(null)
+        }),
+      ),
     )
 
     guard(
-      onModeChanged((r: ModeSwitchResult) => {
-        if (!this.connected) return
-        this.modeSwitching.set(false)
-        this.currentMode.set(r.current_mode)
-        this.connectionPhase.set(null)
-        void this.loadModeData()
-      }),
+      onModeChanged(
+        wrap((r: ModeSwitchResult) => {
+          if (!this.connected) return
+          this.modeSwitching.set(false)
+          this.currentMode.set(r.current_mode)
+          this.connectionPhase.set(null)
+          void this.loadModeData()
+        }),
+      ),
     )
 
     guard(
-      onConnectionStatus((e: ConnectionStatusEvent) => {
-        if (!this.connected) return
-        this.connectionPhase.set(e.phase)
-      }),
+      onConnectionStatus(
+        wrap((e: ConnectionStatusEvent) => {
+          if (!this.connected) return
+          this.connectionPhase.set(e.phase)
+        }),
+      ),
     )
 
     guard(
-      onSyncStatus((e: SyncStatusEvent) => {
-        if (!this.connected) return
-        this.syncPhase.set(e.phase)
-        this.handleSyncEvent(e)
-      }),
+      onSyncStatus(
+        wrap((e: SyncStatusEvent) => {
+          if (!this.connected) return
+          this.syncPhase.set(e.phase)
+          this.handleSyncEvent(e)
+        }),
+      ),
     )
   }
 
@@ -305,7 +323,7 @@ export class RemotePageModel {
   private startLockPoll(): void {
     if (this.lockPollTimer !== null) return
     this.lockPollTimer = setInterval(
-      () => void this.pollLockState(),
+      wrap(() => void this.pollLockState()),
       RemotePageModel.LOCK_POLL_INTERVAL_MS,
     )
   }

@@ -27,6 +27,8 @@ export const getViewLabel = (value: ViewMode): string => {
 
 export const getFileTypeLabel = (value: string): string => {
   switch (value) {
+    case 'markdown':
+      return i18n('file-manager:type:markdown')
     case 'images':
       return i18n('file-manager:type:images')
     case 'documents':

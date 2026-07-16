@@ -1,9 +1,11 @@
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {css, nothing} from 'lit'
+import {i18n} from 'root/i18n'
 
 import type {WelcomeSectionLayout} from '../welcome-section-layout'
 import {welcomeSectionHostStyles} from '../welcome-section.styles'
 import type {WelcomeSetupModel} from '../welcome-setup.model'
+import {WelcomeChromvoidIcon} from './welcome-icon'
 
 export class WelcomeHeroSection extends ReatomLitElement {
   static properties = {
@@ -24,8 +26,9 @@ export class WelcomeHeroSection extends ReatomLitElement {
 
       .hero-mark {
         display: grid;
+        gap: var(--app-spacing-2);
         justify-items: center;
-        gap: var(--app-spacing-3);
+        inline-size: 100%;
       }
 
       .hero-kicker {
@@ -51,41 +54,16 @@ export class WelcomeHeroSection extends ReatomLitElement {
         place-items: center;
         inline-size: 76px;
         block-size: 76px;
-        border-radius: 22px;
-        background: linear-gradient(180deg, var(--cv-color-surface-2) 0%, var(--cv-color-bg) 100%);
         overflow: hidden;
       }
 
-      .hero-icon-shell::before {
-        content: '';
-        position: absolute;
-        inset: -20%;
-        background:
-          radial-gradient(circle at center, var(--cv-color-primary-surface-strong), transparent 60%);
-        opacity: 0.38;
-        filter: blur(18px);
-      }
-
-      .hero-art {
-        width: 100%;
-        height: 100%;
+      welcome-chromvoid-icon {
         position: relative;
         z-index: 1;
         display: block;
-        object-fit: cover;
+        inline-size: 100%;
+        block-size: 100%;
         border-radius: inherit;
-        filter: none;
-      }
-
-      .hero-art.locked {
-        opacity: 0.9;
-        filter: saturate(0.92) brightness(0.94);
-      }
-
-      .hero-art.unlocked {
-        opacity: 1;
-        transform: scale(1.02);
-        filter: saturate(1.02) brightness(1.01);
       }
 
       .hero-title {
@@ -123,6 +101,83 @@ export class WelcomeHeroSection extends ReatomLitElement {
         padding-top: var(--app-spacing-3);
         border-top: 1px solid var(--cv-color-border-soft);
       }
+
+      :host([layout='desktop']) .hero {
+        justify-items: start;
+        gap: 10px;
+        text-align: start;
+      }
+
+      :host([layout='desktop']) .hero-mark {
+        display: block;
+      }
+
+      :host([layout='desktop']) .hero-icon-shell {
+        display: none;
+      }
+
+      :host([layout='desktop']) .hero-kicker {
+        min-block-size: auto;
+        min-inline-size: 0;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        color: var(--cv-color-primary);
+        font-size: 0.6875rem;
+        letter-spacing: 0.18em;
+      }
+
+      :host([layout='desktop']) .hero-copy {
+        justify-items: start;
+        max-inline-size: 46ch;
+        margin-inline: 0;
+        text-align: start;
+      }
+
+      :host([layout='desktop']) .hero-title {
+        font-size: 1.6875rem;
+        font-weight: 650;
+        letter-spacing: 0;
+      }
+
+      :host([layout='desktop']) .hero-desc {
+        max-inline-size: 52ch;
+        font-size: 0.875rem;
+        line-height: 1.5;
+      }
+
+      :host([layout='desktop']) .hero-proof {
+        max-inline-size: 52ch;
+        margin-inline: 0;
+        padding-block-start: 12px;
+        text-align: start;
+      }
+
+      :host([layout='desktop']) .hero.locked-vault {
+        justify-items: center;
+        text-align: center;
+      }
+
+      :host([layout='desktop']) .hero.locked-vault .hero-mark {
+        display: grid;
+        justify-items: center;
+      }
+
+      :host([layout='desktop']) .hero.locked-vault .hero-icon-shell {
+        display: grid;
+        inline-size: 66px;
+        block-size: 66px;
+        margin-block-end: 10px;
+      }
+
+      :host([layout='desktop']) .hero.locked-vault .hero-copy,
+      :host([layout='desktop']) .hero.locked-vault .hero-proof {
+        justify-items: center;
+        margin-inline: auto;
+        text-align: center;
+      }
+
 
       @keyframes shake {
         0%,
@@ -172,6 +227,127 @@ export class WelcomeHeroSection extends ReatomLitElement {
       :host([layout='mobile']) .hero-proof {
         max-inline-size: 32ch;
       }
+
+      :host([layout='mobile']) .hero.locked-vault {
+        flex: 1 1 auto;
+        align-content: center;
+        justify-content: center;
+        gap: 0;
+        min-block-size: 320px;
+      }
+
+      :host([layout='mobile']) .hero.locked-vault .hero-icon-shell {
+        inline-size: 88px;
+        block-size: 88px;
+        border-radius: 26px;
+        overflow: visible;
+        background: transparent;
+      }
+
+      :host([layout='mobile']) .hero.locked-vault.unlocking .hero-icon-shell {
+        z-index: 3;
+        pointer-events: none;
+      }
+
+      :host([layout='mobile']) .hero.locked-vault .hero-kicker {
+        min-block-size: auto;
+        min-inline-size: 0;
+        margin-block-start: 26px;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        color: var(--welcome-lockscreen-foreground-subtle);
+        font-size: 0.6875rem;
+        font-weight: 700;
+        letter-spacing: 0.32em;
+      }
+
+      :host([layout='mobile']) .hero.locked-vault .hero-copy {
+        margin-block-start: 13px;
+        gap: 13px;
+        max-inline-size: 282px;
+      }
+
+      :host([layout='mobile']) .hero.locked-vault .hero-title {
+        color: var(--welcome-lockscreen-foreground-strong);
+        font-size: 1.875rem;
+        line-height: 1.08;
+        letter-spacing: 0;
+      }
+
+      :host([layout='mobile']) .hero.locked-vault .hero-desc {
+        max-inline-size: 282px;
+        color: var(--welcome-lockscreen-foreground-muted);
+        font-size: 0.9375rem;
+        line-height: 1.55;
+      }
+
+      @media (max-height: 700px) {
+        :host([layout='mobile']) .hero.locked-vault {
+          min-block-size: 245px;
+        }
+
+        :host([layout='mobile']) .hero.locked-vault .hero-icon-shell {
+          inline-size: 66px;
+          block-size: 66px;
+          border-radius: 20px;
+        }
+
+
+        :host([layout='mobile']) .hero.locked-vault .hero-kicker {
+          margin-block-start: 18px;
+          font-size: 0.625rem;
+          letter-spacing: 0.26em;
+        }
+
+        :host([layout='mobile']) .hero.locked-vault .hero-copy {
+          margin-block-start: 8px;
+          gap: 8px;
+        }
+
+        :host([layout='mobile']) .hero.locked-vault .hero-title {
+          font-size: 1.55rem;
+        }
+
+        :host([layout='mobile']) .hero.locked-vault .hero-desc {
+          font-size: 0.8125rem;
+          line-height: 1.38;
+        }
+      }
+
+      @media (max-height: 620px) {
+        :host([layout='mobile']) .hero.locked-vault {
+          min-block-size: 190px;
+        }
+
+        :host([layout='mobile']) .hero.locked-vault .hero-icon-shell {
+          inline-size: 54px;
+          block-size: 54px;
+          border-radius: 17px;
+        }
+
+
+        :host([layout='mobile']) .hero.locked-vault .hero-kicker {
+          margin-block-start: 12px;
+          font-size: 0.5625rem;
+          letter-spacing: 0.22em;
+        }
+
+        :host([layout='mobile']) .hero.locked-vault .hero-copy {
+          margin-block-start: 6px;
+          gap: 6px;
+        }
+
+        :host([layout='mobile']) .hero.locked-vault .hero-title {
+          font-size: 1.35rem;
+        }
+
+        :host([layout='mobile']) .hero.locked-vault .hero-desc {
+          font-size: 0.75rem;
+          line-height: 1.3;
+        }
+      }
     `,
   ]
 
@@ -184,6 +360,7 @@ export class WelcomeHeroSection extends ReatomLitElement {
   }
 
   static define() {
+    WelcomeChromvoidIcon.define()
     if (!customElements.get('welcome-hero-section')) {
       customElements.define('welcome-hero-section', this)
     }
@@ -194,18 +371,24 @@ export class WelcomeHeroSection extends ReatomLitElement {
       return nothing
     }
 
+    const isLockedVault = !this.model.isNeedInit() && this.model.effectiveStep() === null
+    const isMobileLockedVault = this.layout === 'mobile' && isLockedVault
+    const isUnlocking = isMobileLockedVault && this.model.unlockInProgress()
+
     return html`
-      <div class="hero">
+      <div class="hero ${isLockedVault ? 'locked-vault' : ''}${isUnlocking ? ' unlocking' : ''}">
         <div class="hero-mark">
           <div class="hero-icon-shell" aria-hidden="true">
-            <img
-              class="hero-art ${this.model.shakeError() ? 'animate-shake' : ''} ${this.model.isNeedInit() ? 'locked' : 'unlocked'}"
-              src="/assets/icon.png"
-              alt=""
-            />
+            <welcome-chromvoid-icon
+              animated
+              class=${this.model.shakeError() ? 'animate-shake' : ''}
+              .model=${this.model.icon}
+            ></welcome-chromvoid-icon>
           </div>
 
-          <div class="hero-kicker">${this.model.heroEyebrow()}</div>
+          <div class="hero-kicker">
+            ${isMobileLockedVault ? i18n('welcome:device-locked') : this.model.heroEyebrow()}
+          </div>
         </div>
 
         <div class="hero-copy">
@@ -213,7 +396,7 @@ export class WelcomeHeroSection extends ReatomLitElement {
           <div class="hero-desc">${this.model.heroDescription()}</div>
         </div>
 
-        <div class="hero-proof">${this.model.heroProof()}</div>
+        ${isMobileLockedVault ? nothing : html`<div class="hero-proof">${this.model.heroProof()}</div>`}
       </div>
     `
   }

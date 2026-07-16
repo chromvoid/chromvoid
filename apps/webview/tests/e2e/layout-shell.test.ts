@@ -1,13 +1,17 @@
 import {expect, test} from 'vitest'
 
+import type {Browser, Page} from 'playwright'
+import type * as AppContextModule from '../../src/shared/services/app-context'
+import type * as RuntimeCapabilitiesModule from '../../src/core/runtime/runtime-capabilities'
+import {seedWalletFixture} from './wallet-fixture'
 declare global {
-  var __E2E_BROWSER__: import('playwright').Browser | undefined
-  var __E2E_PAGE__: import('playwright').Page | undefined
+  var __E2E_BROWSER__: Browser | undefined
+  var __E2E_PAGE__: Page | undefined
 }
 
 const BASE_URL = 'http://localhost:4400/index.html'
 
-async function deepQuerySelector(page: import('playwright').Page, selector: string): Promise<boolean> {
+async function deepQuerySelector(page: Page, selector: string): Promise<boolean> {
   return page.evaluate((sel) => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -24,7 +28,7 @@ async function deepQuerySelector(page: import('playwright').Page, selector: stri
   }, selector)
 }
 
-async function deepQuerySelectorCount(page: import('playwright').Page, selector: string): Promise<number> {
+async function deepQuerySelectorCount(page: Page, selector: string): Promise<number> {
   return page.evaluate((sel) => {
     function deepFindAll(root: Document | ShadowRoot, selector: string): Element[] {
       const found = Array.from(root.querySelectorAll(selector))
@@ -39,7 +43,7 @@ async function deepQuerySelectorCount(page: import('playwright').Page, selector:
   }, selector)
 }
 
-async function waitForDeepSelector(page: import('playwright').Page, selector: string): Promise<void> {
+async function waitForDeepSelector(page: Page, selector: string): Promise<void> {
   await page.waitForFunction((sel) => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -56,7 +60,7 @@ async function waitForDeepSelector(page: import('playwright').Page, selector: st
   }, selector)
 }
 
-async function getDesktopNavigationRailMetrics(page: import('playwright').Page) {
+async function getDesktopNavigationRailMetrics(page: Page) {
   return page.evaluate(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -76,13 +80,12 @@ async function getDesktopNavigationRailMetrics(page: import('playwright').Page) 
 
     return {
       expanded: rail.hasAttribute('expanded'),
-      pointerCoarse: matchMedia('(hover: none) and (pointer: coarse)').matches,
       width: rail.getBoundingClientRect().width,
     }
   })
 }
 
-async function getCollapsedNavigationRailIconAlignment(page: import('playwright').Page) {
+async function getCollapsedNavigationRailIconAlignment(page: Page) {
   return page.evaluate(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -123,7 +126,7 @@ async function getCollapsedNavigationRailIconAlignment(page: import('playwright'
   })
 }
 
-async function deepClick(page: import('playwright').Page, selector: string): Promise<boolean> {
+async function deepClick(page: Page, selector: string): Promise<boolean> {
   return page.evaluate((sel) => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -143,7 +146,7 @@ async function deepClick(page: import('playwright').Page, selector: string): Pro
   }, selector)
 }
 
-async function clickMobileLeading(page: import('playwright').Page): Promise<boolean> {
+async function clickMobileLeading(page: Page): Promise<boolean> {
   return page.evaluate(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -166,7 +169,7 @@ async function clickMobileLeading(page: import('playwright').Page): Promise<bool
   })
 }
 
-async function deepClickRailButton(page: import('playwright').Page, label: string): Promise<boolean> {
+async function deepClickRailButton(page: Page, label: string): Promise<boolean> {
   return page.evaluate((targetLabel) => {
     function deepFindAll(root: Document | ShadowRoot, selector: string): Element[] {
       const found = Array.from(root.querySelectorAll(selector))
@@ -192,12 +195,12 @@ async function deepClickRailButton(page: import('playwright').Page, label: strin
   }, label)
 }
 
-async function ensureToolbarMenuMode(page: import('playwright').Page): Promise<void> {
+async function ensureToolbarMenuMode(page: Page): Promise<void> {
   await page.evaluate(async () => {
     const modulePath = '/shared/services/app-context.ts'
     const dynamicImport = new Function('path', 'return import(path)') as (
       path: string,
-    ) => Promise<typeof import('../../src/shared/services/app-context')>
+    ) => Promise<typeof AppContextModule>
     const {getAppContext} = await dynamicImport(modulePath)
     const store = getAppContext().store
     store.closeDetailsPanel?.()
@@ -211,7 +214,7 @@ async function ensureToolbarMenuMode(page: import('playwright').Page): Promise<v
   await page.waitForTimeout(80)
 }
 
-async function getToolbarLeadingMode(page: import('playwright').Page): Promise<string | null> {
+async function getToolbarLeadingMode(page: Page): Promise<string | null> {
   return page.evaluate(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -231,7 +234,26 @@ async function getToolbarLeadingMode(page: import('playwright').Page): Promise<s
   })
 }
 
-async function isSidebarOpen(page: import('playwright').Page): Promise<boolean> {
+async function getMobileToolbarTitle(page: Page): Promise<string | null> {
+  return page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const toolbar = deepFind(document, 'mobile-top-toolbar') as HTMLElement | null
+    return toolbar?.shadowRoot?.querySelector('.title')?.textContent?.trim() ?? null
+  })
+}
+
+async function isSidebarOpen(page: Page): Promise<boolean> {
   return page.evaluate(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -250,7 +272,7 @@ async function isSidebarOpen(page: import('playwright').Page): Promise<boolean> 
   })
 }
 
-async function dragMobileNavDrawerClosed(page: import('playwright').Page): Promise<boolean> {
+async function dragMobileNavDrawerClosed(page: Page): Promise<boolean> {
   return page.evaluate(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -289,7 +311,7 @@ async function dragMobileNavDrawerClosed(page: import('playwright').Page): Promi
   })
 }
 
-async function clickMobileTab(page: import('playwright').Page, label: string): Promise<boolean> {
+async function clickMobileTab(page: Page, label: string): Promise<boolean> {
   return page.evaluate((targetLabel) => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -321,7 +343,7 @@ async function clickMobileTab(page: import('playwright').Page, label: string): P
   }, label)
 }
 
-async function getMobileToolbarActionIds(page: import('playwright').Page): Promise<string[]> {
+async function getMobileToolbarActionIds(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -394,6 +416,7 @@ test('desktop dashboard surfaces render one shell toolbar and no mobile toolbar'
     'notes',
     'passwords',
     'passkeys',
+    'wallet',
     'settings',
     'remote',
     'gateway',
@@ -427,7 +450,6 @@ test('desktop navigation rail stays collapsed on touch tablet until expanded', a
     await waitForDeepSelector(page, 'navigation-rail')
 
     const collapsed = await getDesktopNavigationRailMetrics(page)
-    expect(collapsed?.pointerCoarse).toBe(true)
     expect(collapsed?.expanded).toBe(false)
     expect(collapsed?.width).toBeLessThan(100)
 
@@ -503,26 +525,7 @@ test('mobile top toolbar appears on dashboard and wires menu + command actions',
 
   expect(await deepQuerySelector(page, 'mobile-top-toolbar')).toBe(true)
   expect(await deepQuerySelector(page, '[data-action="mobile-leading"]')).toBe(true)
-  expect(await deepQuerySelector(page, '[data-action="mobile-command"]')).toBe(true)
-
-  expect(await deepClick(page, '[data-action="mobile-command"]')).toBe(true)
-  await page.waitForTimeout(120)
-  const commandOpen = await page.evaluate(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-    const command = deepFind(document, 'command-bar') as HTMLElement | null
-    return Boolean(command?.hasAttribute('open'))
-  })
-  expect(commandOpen).toBe(true)
+  expect(await deepQuerySelector(page, '[data-action="mobile-command"]')).toBe(false)
 
   await ensureToolbarMenuMode(page)
   expect(await getToolbarLeadingMode(page)).toBe('menu')
@@ -536,6 +539,75 @@ test('mobile top toolbar appears on dashboard and wires menu + command actions',
   await page.waitForTimeout(120)
   const sidebarClosed = await isSidebarOpen(page)
   expect(sidebarClosed).toBe(false)
+})
+
+test('mobile wallet toolbar runs Send, Receive, switch, and transaction-safe actions', async () => {
+  const page = globalThis.__E2E_PAGE__!
+  await page.setViewportSize({width: 390, height: 844})
+  await page.goto(`${BASE_URL}?surface=files&layout=mobile&e2eGuidance=1`, {
+    waitUntil: 'domcontentloaded',
+  })
+  await waitForDeepSelector(page, 'file-app-shell-mobile-layout')
+  await page.waitForFunction(() => Boolean(window.__chromvoidGuidanceE2E))
+  await page.evaluate(() => {
+    window.__chromvoidGuidanceE2E?.moduleAccessModel.rawStates.set([
+      {feature_key: 'crypto-wallet', status: 'enabled', denial_code: null},
+    ])
+  })
+
+  expect(await deepClickRailButton(page, 'Wallet')).toBe(true)
+  await waitForDeepSelector(page, 'wallet-page-mobile-layout')
+  await seedWalletFixture(page, {multipleWallets: true})
+
+  const sendAction = page.locator('mobile-top-toolbar [data-action="send"]')
+  const receiveAction = page.locator('mobile-top-toolbar [data-action="receive"]')
+  const receiveButton = receiveAction.locator('button')
+  const titleAction = page.locator('mobile-top-toolbar .title-action')
+  const refreshAction = page.locator('mobile-top-toolbar cv-menu-item[value="refresh"]')
+
+  expect(await getMobileToolbarTitle(page)).toBe('Personal Wallet')
+  expect(await getMobileToolbarActionIds(page)).toEqual(['send', 'receive'])
+  await sendAction.click()
+  await page.locator('[role="tab"][data-tab="send"][aria-selected="true"]').waitFor()
+
+  await receiveButton.focus()
+  await receiveButton.click()
+  await waitForDeepSelector(page, 'cv-bottom-sheet.receive-sheet[open]')
+  const receiveSheet = page.locator('cv-bottom-sheet.receive-sheet')
+  const afterReceiveHide = receiveSheet.evaluate(
+    (sheet) => new Promise<void>((resolve) => sheet.addEventListener('cv-after-hide', () => resolve(), {once: true})),
+  )
+  await page.keyboard.press('Escape')
+  await afterReceiveHide
+  expect(await receiveButton.evaluate((button) => button.matches(':focus'))).toBe(true)
+
+  await titleAction.click()
+  await waitForDeepSelector(page, 'cv-bottom-sheet.wallet-sheet[open]')
+  await page.locator('[data-wallet-id="wallet-travel"]').click()
+  await page.locator('mobile-top-toolbar .title', {hasText: 'Travel Wallet'}).waitFor()
+
+  await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+    const layout = deepFind(document, 'wallet-page-mobile-layout') as
+      | (HTMLElement & {model?: {preparing: {set(value: boolean): void}}})
+      | null
+    layout?.model?.preparing.set(true)
+  })
+  await page.locator('mobile-top-toolbar [data-action="receive"][disabled]').waitFor()
+  expect(await sendAction.getAttribute('disabled')).toBeNull()
+  expect(await receiveAction.getAttribute('disabled')).not.toBeNull()
+  expect(await titleAction.getAttribute('disabled')).not.toBeNull()
+  expect(await refreshAction.getAttribute('disabled')).not.toBeNull()
 })
 
 test('switching from files to passwords shows password toolbar actions without opening sidebar', async () => {
@@ -590,11 +662,26 @@ test('mobile navigation drawer closes when dragged left', async () => {
   expect(await isSidebarOpen(page)).toBe(false)
 })
 
-test('global mobile toolbar hides local settings back-link and keeps menu behavior on settings', async () => {
+test('mobile Settings uses overview, category route, and toolbar back hierarchy', async () => {
   const page = globalThis.__E2E_PAGE__!
   await page.setViewportSize({width: 390, height: 844})
   await page.goto(`${BASE_URL}?layout=mobile`)
   await page.waitForTimeout(900)
+
+  await page.evaluate(async () => {
+    const modulePath = '/core/runtime/runtime-capabilities.ts'
+    const dynamicImport = new Function('path', 'return import(path)') as (
+      path: string,
+    ) => Promise<typeof RuntimeCapabilitiesModule>
+    const {setRuntimeCapabilities} = await dynamicImport(modulePath)
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+      desktop: false,
+      supports_autofill: true,
+      supports_biometric: true,
+    })
+  })
 
   await ensureToolbarMenuMode(page)
   expect(await clickMobileLeading(page)).toBe(true)
@@ -616,21 +703,141 @@ test('global mobile toolbar hides local settings back-link and keeps menu behavi
     }
 
     const settings = deepFind(document, 'settings-page') as HTMLElement | null
-    return Boolean(settings?.shadowRoot?.querySelector('.back-link'))
+    return Boolean(settings && deepFind(settings.shadowRoot!, '.back-link'))
   })
 
   expect(hasLocalSettingsBack).toBe(false)
   expect(await getToolbarLeadingMode(page)).toBe('menu')
+  expect(await getMobileToolbarTitle(page)).toBe('Settings')
+  expect(await deepQuerySelectorCount(page, '.overview-row')).toBe(6)
+  expect(await deepClick(page, '[data-settings-route="security"]')).toBe(true)
+  await page.waitForTimeout(180)
+
+  expect(await getToolbarLeadingMode(page)).toBe('back')
+  expect(await getMobileToolbarTitle(page)).toBe('Security & locking')
+  expect(new URL(page.url()).searchParams.get('settings')).toBe('security')
+  expect(await deepClick(page, '[data-action="mobile-leading"]')).toBe(true)
+  await page.waitForTimeout(180)
+
+  expect(await getToolbarLeadingMode(page)).toBe('menu')
+  expect(await getMobileToolbarTitle(page)).toBe('Settings')
+  expect(new URL(page.url()).searchParams.get('settings')).toBeNull()
   expect(await deepClick(page, '[data-action="mobile-leading"]')).toBe(true)
   await page.waitForTimeout(180)
   const settingsOpen = await page.evaluate(async () => {
     const modulePath = '/shared/services/app-context.ts'
     const dynamicImport = new Function('path', 'return import(path)') as (
       path: string,
-    ) => Promise<typeof import('../../src/shared/services/app-context')>
+    ) => Promise<typeof AppContextModule>
     const {getAppContext} = await dynamicImport(modulePath)
     return Boolean(getAppContext().store.showSettingsPage())
   })
   expect(settingsOpen).toBe(true)
   expect(await isSidebarOpen(page)).toBe(true)
+
+  await page.evaluate(async () => {
+    const modulePath = '/core/runtime/runtime-capabilities.ts'
+    const dynamicImport = new Function('path', 'return import(path)') as (
+      path: string,
+    ) => Promise<typeof RuntimeCapabilitiesModule>
+    const {resetRuntimeCapabilities} = await dynamicImport(modulePath)
+    resetRuntimeCapabilities()
+  })
+})
+
+test('mobile Settings keeps long copy and the attachment sheet keyboard-safe at 360px', async () => {
+  const page = globalThis.__E2E_PAGE__!
+  await page.setViewportSize({width: 360, height: 640})
+  await page.goto(`${BASE_URL}?layout=mobile&surface=settings&settings=files`, {
+    waitUntil: 'domcontentloaded',
+  })
+  await waitForDeepSelector(page, 'settings-page-mobile-layout')
+
+  await page.evaluate(async () => {
+    const dynamicImport = new Function('path', 'return import(path)') as (
+      path: string,
+    ) => Promise<{setLang(value: string): void}>
+    const {setLang} = await dynamicImport('/i18n/index.ts')
+    setLang('ru')
+  })
+  await page.waitForTimeout(100)
+
+  const hasOverflow = await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+    const layout = deepFind(document, 'settings-page-mobile-layout') as HTMLElement | null
+    return layout ? layout.scrollWidth > layout.clientWidth : true
+  })
+  expect(hasOverflow).toBe(false)
+
+  expect(await deepClick(page, '.picker-row')).toBe(true)
+  await page.waitForFunction(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+    const layout = deepFind(document, 'settings-page-mobile-layout') as HTMLElement | null
+    const sheet = Array.from(layout?.shadowRoot?.querySelectorAll('cv-bottom-sheet') ?? []).find(
+      (candidate) => candidate.querySelector('[slot="title"]')?.textContent?.includes('Markdown'),
+    ) as (HTMLElement & {open?: boolean}) | undefined
+    return sheet?.open === true
+  })
+  await page.locator('#settings-attachment-folder-input').click()
+  await page.waitForTimeout(50)
+
+  const sheetState = await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+    const layout = deepFind(document, 'settings-page-mobile-layout') as HTMLElement | null
+    const input = layout?.shadowRoot?.querySelector<HTMLInputElement>(
+      '#settings-attachment-folder-input',
+    )
+    const sheet = input?.closest('cv-bottom-sheet') as (HTMLElement & {open?: boolean}) | null
+    return {
+      focused: input?.matches(':focus') ?? false,
+      inputDisabled: input?.disabled ?? true,
+      open: sheet?.open ?? false,
+      horizontalOverflow: layout ? layout.scrollWidth > layout.clientWidth : true,
+    }
+  })
+
+  expect(sheetState).toEqual({
+    focused: true,
+    inputDisabled: false,
+    open: true,
+    horizontalOverflow: false,
+  })
+
+  await page.evaluate(async () => {
+    const dynamicImport = new Function('path', 'return import(path)') as (
+      path: string,
+    ) => Promise<{setLang(value: string): void}>
+    const {setLang} = await dynamicImport('/i18n/index.ts')
+    setLang('en')
+  })
 })

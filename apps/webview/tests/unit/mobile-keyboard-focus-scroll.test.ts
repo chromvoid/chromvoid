@@ -10,7 +10,10 @@ import {
   setupMobileKeyboardFocusScroll,
 } from '../../src/app/bootstrap/mobile-keyboard-focus-scroll'
 import {markMobileKeyboardProgrammaticScroll} from '../../src/shared/services/mobile-keyboard-scroll-intent'
-import {ANDROID_KEYBOARD_INSETS_EVENT} from '../../src/app/bootstrap/mobile-keyboard-insets'
+import {
+  ANDROID_KEYBOARD_INSETS_EVENT,
+  applyMobileKeyboardInsetsPayload,
+} from '../../src/app/bootstrap/mobile-keyboard-insets'
 
 function dispatchAndroidKeyboardInsets(detail: Record<string, unknown>) {
   window.dispatchEvent(new CustomEvent(ANDROID_KEYBOARD_INSETS_EVENT, {detail}))
@@ -30,10 +33,10 @@ function resetRootKeyboardState() {
   document.documentElement.removeAttribute('data-native-keyboard-insets')
   document.documentElement.removeAttribute('data-android-native-keyboard-insets')
   document.documentElement.removeAttribute('data-ios-native-keyboard-insets')
-  document.documentElement.style.removeProperty('--mobile-keyboard-scroll-clearance')
-  document.documentElement.style.removeProperty('--mobile-keyboard-overlay-offset')
-  document.documentElement.style.removeProperty('--visual-viewport-bottom-inset')
-  document.documentElement.style.removeProperty('--native-keyboard-bottom-inset')
+  document.documentElement.style.removeProperty('--app-runtime-keyboard-scroll-clearance')
+  document.documentElement.style.removeProperty('--app-runtime-keyboard-overlay-offset')
+  document.documentElement.style.removeProperty('--app-runtime-visual-viewport-inset-block-end')
+  document.documentElement.style.removeProperty('--app-runtime-keyboard-native-inset-block-end')
 }
 
 function createDOMRect(rect: Partial<DOMRect>): DOMRect {
@@ -253,6 +256,28 @@ describe('mobile keyboard focus scroll coordinator', () => {
       setupCoordinator()
 
       dispatchFocusIn(input)
+      await nextFrame()
+
+      expect(scroller.scrollTop).toBe(120)
+    } finally {
+      viewport.restore()
+    }
+  })
+
+  it('keeps opted-out active targets out of reveal after viewport changes', async () => {
+    const viewport = installVisualViewportMock(844)
+    try {
+      const input = document.createElement('input')
+      const scroller = appendFieldInScroller(input)
+      input.setAttribute(MOBILE_KEYBOARD_SCROLL_ATTR, 'off')
+      setupCoordinator()
+
+      input.focus()
+      dispatchFocusIn(input)
+      await nextFrame()
+
+      viewport.setHeight(620)
+      viewport.dispatchResize()
       await nextFrame()
 
       expect(scroller.scrollTop).toBe(120)
@@ -841,6 +866,42 @@ describe('mobile keyboard focus scroll coordinator', () => {
       documentScroller.dispatchEvent(new Event('scroll'))
 
       expect(documentScroller.scrollTop).toBe(0)
+    } finally {
+      viewport.restore()
+    }
+  })
+
+  it('preserves focused scroller position while keyboard body padding is removed on close', () => {
+    const viewport = installVisualViewportMock(620)
+    try {
+      let currentTime = 0
+      vi.spyOn(performance, 'now').mockImplementation(() => currentTime)
+
+      const input = document.createElement('input')
+      const scroller = appendFieldInScroller(input)
+      vi.mocked(input.getBoundingClientRect).mockReturnValue(createDOMRect({top: 200, bottom: 240}))
+      setupCoordinator()
+      input.focus()
+
+      applyMobileKeyboardInsetsPayload(document.documentElement, {
+        visible: true,
+        bottomInset: 240,
+        phase: 'settled',
+        source: 'android-native',
+      })
+      scroller.scrollTop = 320
+      currentTime = 501
+
+      applyMobileKeyboardInsetsPayload(document.documentElement, {
+        visible: false,
+        bottomInset: 0,
+        phase: 'settled',
+        source: 'android-native',
+      })
+      scroller.scrollTop = 560
+      scroller.dispatchEvent(new Event('scroll'))
+
+      expect(scroller.scrollTop).toBe(320)
     } finally {
       viewport.restore()
     }

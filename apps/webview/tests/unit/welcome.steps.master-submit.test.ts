@@ -8,14 +8,22 @@ import {dialogService} from '../../src/shared/services/dialog'
 import {WelcomeSetupSection} from '../../src/routes/welcome/sections/steps'
 import {WelcomeSetupModel} from '../../src/routes/welcome/welcome.model'
 import {RpcError} from '../../src/routes/welcome/welcome-rpc'
+import type * as WelcomeRpcModule from '../../src/routes/welcome/welcome-rpc'
+import type * as RemoteModelModule from '../../src/routes/remote/remote.model'
+import type * as RuntimeModule from '../../src/core/runtime/runtime'
 
 const welcomeRpcMocks = vi.hoisted(() => ({
   estimatePasswordStrength: vi.fn(),
   tauriRpc: vi.fn(),
 }))
 
+const remoteModelMocks = vi.hoisted(() => ({
+  getModeStatus: vi.fn(),
+  switchMode: vi.fn(),
+}))
+
 vi.mock('../../src/routes/welcome/welcome-rpc', async () => {
-  const actual = await vi.importActual<typeof import('../../src/routes/welcome/welcome-rpc')>(
+  const actual = await vi.importActual<typeof WelcomeRpcModule>(
     '../../src/routes/welcome/welcome-rpc',
   )
 
@@ -26,8 +34,20 @@ vi.mock('../../src/routes/welcome/welcome-rpc', async () => {
   }
 })
 
+vi.mock('../../src/routes/remote/remote.model', async () => {
+  const actual = await vi.importActual<typeof RemoteModelModule>(
+    '../../src/routes/remote/remote.model',
+  )
+
+  return {
+    ...actual,
+    getModeStatus: remoteModelMocks.getModeStatus,
+    switchMode: remoteModelMocks.switchMode,
+  }
+})
+
 vi.mock('../../src/core/runtime/runtime', async () => {
-  const actual = await vi.importActual<typeof import('../../src/core/runtime/runtime')>(
+  const actual = await vi.importActual<typeof RuntimeModule>(
     '../../src/core/runtime/runtime',
   )
 
@@ -42,6 +62,11 @@ describe('welcome create-master submit', () => {
   let model: WelcomeSetupModel
   let pushNotification: ReturnType<typeof vi.fn>
   let stateUpdate: ReturnType<typeof vi.fn>
+  let resetRemoteSession: ReturnType<typeof vi.fn>
+  let stateData: ReturnType<typeof atom<{
+    NeedUserInitialization: boolean
+    StorageOpened: boolean
+  }>>
 
   const settle = async () => {
     await Promise.resolve()
@@ -49,11 +74,21 @@ describe('welcome create-master submit', () => {
     await Promise.resolve()
   }
 
+  const prepareLockedVault = () => {
+    stateData.set({...stateData(), NeedUserInitialization: false})
+    model.setupStep.set(null)
+  }
+
   beforeEach(() => {
     CVInput.define()
     WelcomeSetupSection.define()
     pushNotification = vi.fn()
     stateUpdate = vi.fn()
+    resetRemoteSession = vi.fn()
+    stateData = atom({
+      NeedUserInitialization: true,
+      StorageOpened: false,
+    })
     welcomeRpcMocks.estimatePasswordStrength.mockReset()
     welcomeRpcMocks.estimatePasswordStrength.mockResolvedValue({
       score: 4,
@@ -64,17 +99,37 @@ describe('welcome create-master submit', () => {
     })
     welcomeRpcMocks.tauriRpc.mockReset()
     welcomeRpcMocks.tauriRpc.mockResolvedValue(undefined)
+    remoteModelMocks.getModeStatus.mockReset()
+    remoteModelMocks.getModeStatus.mockResolvedValue({
+      mode: 'local',
+      connection_state: 'disconnected',
+      transport_type: null,
+      remote_core_features: [],
+    })
+    remoteModelMocks.switchMode.mockReset()
+    remoteModelMocks.switchMode.mockResolvedValue({
+      previous_mode: {
+        remote: {
+          host: {
+            type: 'tauri_remote_wss',
+            peer_id: 'iphone-1',
+          },
+        },
+      },
+      current_mode: 'local',
+      remote_core_features: [],
+      auto_locked: false,
+      drain_completed: true,
+    })
     initAppContext(
       createMockAppContext({
         store: {
           remoteSessionState: atom<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive'),
           pushNotification,
+          resetRemoteSession,
         } as never,
         state: {
-          data: () => ({
-            NeedUserInitialization: true,
-            StorageOpened: false,
-          }),
+          data: stateData,
           update: stateUpdate,
         } as never,
       }),
@@ -149,6 +204,7 @@ describe('welcome create-master submit', () => {
     expect(welcomeRpcMocks.tauriRpc).toHaveBeenCalledWith('master:setup', {
       master_password: 'correct horse battery staple',
     })
+    expect(remoteModelMocks.switchMode).not.toHaveBeenCalled()
     expect(markVaultCreatedSpy).toHaveBeenCalledTimes(1)
     expect(stateUpdate).toHaveBeenCalledWith({NeedUserInitialization: false})
     expect(pushNotification).toHaveBeenCalledWith('success', 'Storage created! Now unlock your vault.')
@@ -157,23 +213,172 @@ describe('welcome create-master submit', () => {
     expect(model.shared.busy()).toBe(false)
   })
 
-  it('unlocks the vault through the password dialog and commits opened state after the RPC resolves', async () => {
-    vi.spyOn(dialogService, 'showInputDialog').mockResolvedValue('vault-password')
+  it('switches back to local mode before creating local storage from a remote adapter', async () => {
+    remoteModelMocks.getModeStatus.mockResolvedValueOnce({
+      mode: {
+        remote: {
+          host: {
+            type: 'tauri_remote_wss',
+            peer_id: 'iphone-1',
+          },
+        },
+      },
+      connection_state: 'disconnected',
+      transport_type: 'wss',
+      remote_core_features: [],
+    })
 
-    await model.onUnlock()
+    await model.submitMasterSetup()
+
+    expect(remoteModelMocks.switchMode).toHaveBeenCalledWith('local')
+    expect(resetRemoteSession).toHaveBeenCalledTimes(1)
+    expect(welcomeRpcMocks.tauriRpc).toHaveBeenCalledWith('master:setup', {
+      master_password: 'correct horse battery staple',
+    })
+    expect(remoteModelMocks.switchMode.mock.invocationCallOrder[0]).toBeLessThan(
+      welcomeRpcMocks.tauriRpc.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('unlocks the vault through the password sheet and commits opened state after the RPC resolves', async () => {
+    const passwordDialog = vi.spyOn(dialogService, 'showInputDialog')
+    prepareLockedVault()
+
+    model.onUnlock()
+    expect(model.unlockSheetOpen()).toBe(true)
+    expect(passwordDialog).not.toHaveBeenCalled()
+
+    model.unlockPassword.set('vault-password')
+    await model.submitUnlock()
 
     expect(welcomeRpcMocks.tauriRpc).toHaveBeenCalledWith('vault:unlock', {
       password: 'vault-password',
     })
     expect(stateUpdate).toHaveBeenCalledWith({StorageOpened: true})
     expect(pushNotification).not.toHaveBeenCalled()
+    expect(model.unlockSheetOpen()).toBe(false)
     expect(model.setupInProgress()).toBe(false)
     expect(model.shared.busy()).toBe(false)
   })
 
+  it('keeps unlock available and guides an empty submit to the password field', async () => {
+    prepareLockedVault()
+    await vi.waitFor(() => {
+      expect(section.shadowRoot?.querySelector('form.unlock-inline-form')).not.toBeNull()
+    })
+
+    const form = section.shadowRoot?.querySelector<HTMLFormElement>('form.unlock-inline-form')
+    const submit = form?.querySelector('cv-button[type="submit"]') as HTMLElement | null
+    expect(submit?.hasAttribute('disabled')).toBe(false)
+
+    form?.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))
+    await vi.waitFor(() => {
+      expect(model.unlockValidationError()).toBe('Master Password is required')
+    })
+    await section.updateComplete
+
+    const input = form?.querySelector('cv-input#welcome-unlock-password-desktop') as CVInput | null
+    const nativeInput = input?.shadowRoot?.querySelector('input')
+    expect(input?.hasAttribute('invalid')).toBe(true)
+    expect(form?.querySelector('[role="alert"]')?.textContent).toContain('Master Password is required')
+    expect(input?.shadowRoot?.activeElement).toBe(nativeInput)
+    expect(welcomeRpcMocks.tauriRpc).not.toHaveBeenCalled()
+  })
+
+  it('exposes unlock pending state until the vault RPC settles', async () => {
+    prepareLockedVault()
+    let resolveUnlock: (() => void) | undefined
+    welcomeRpcMocks.tauriRpc.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveUnlock = resolve
+        }),
+    )
+    model.unlockPassword.set('vault-password')
+
+    const unlockPromise = model.submitUnlock()
+
+    await vi.waitFor(() => {
+      expect(welcomeRpcMocks.tauriRpc).toHaveBeenCalledWith('vault:unlock', {
+        password: 'vault-password',
+      })
+      expect(model.unlockInProgress()).toBe(true)
+    })
+    expect(model.unlockSheetOpen()).toBe(false)
+    expect(model.shared.busy()).toBe(true)
+    expect(model.icon.state()).toBe('active')
+
+    resolveUnlock?.()
+    await unlockPromise
+
+    expect(model.unlockInProgress()).toBe(false)
+    expect(model.shared.busy()).toBe(false)
+    expect(model.icon.state()).toBe('active')
+  })
+
+  it('renders desktop unlock as an inline password form', async () => {
+    section.remove()
+    clearAppContext()
+    initAppContext(
+      createMockAppContext({
+        store: {
+          remoteSessionState: atom<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive'),
+          pushNotification,
+          resetRemoteSession,
+        } as never,
+        state: {
+          data: () => ({
+            NeedUserInitialization: false,
+            StorageOpened: false,
+          }),
+          update: stateUpdate,
+        } as never,
+      }),
+    )
+
+    section = document.createElement('welcome-setup-section') as WelcomeSetupSection
+    section.layout = 'desktop'
+    model = new WelcomeSetupModel()
+    section.model = model
+    document.body.append(section)
+    await section.updateComplete
+
+    const root = section.shadowRoot
+    expect(root).not.toBeNull()
+    if (!root) throw new Error('welcome setup shadow root missing')
+
+    const form = root.querySelector('form.unlock-inline-form')
+    expect(form).toBeInstanceOf(HTMLFormElement)
+
+    const unlockForm = form as HTMLFormElement
+    const input = unlockForm.querySelector('cv-input#welcome-unlock-password-desktop')
+    expect(input).not.toBeNull()
+
+    const unlockInput = input as HTMLElement
+    const submitButton = unlockForm.querySelector('cv-button[type="submit"]')
+    expect(submitButton).not.toBeNull()
+    expect((submitButton as HTMLElement).textContent).toContain('Unlock Vault')
+
+    const submitSpy = vi.spyOn(model, 'submitUnlock').mockResolvedValue()
+    unlockInput.dispatchEvent(
+      new CustomEvent('cv-input', {
+        detail: {value: 'vault-password'},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    const submitEvent = new Event('submit', {bubbles: true, cancelable: true})
+    unlockForm.dispatchEvent(submitEvent)
+
+    expect(submitEvent.defaultPrevented).toBe(true)
+    expect(model.unlockPassword()).toBe('vault-password')
+    expect(submitSpy).toHaveBeenCalledTimes(1)
+  })
+
   it('diagnoses and applies confirmed catalog repair during unlock', async () => {
-    vi.spyOn(dialogService, 'showInputDialog').mockResolvedValue('vault-password')
+    prepareLockedVault()
     const confirmSpy = vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(true)
+    model.unlockPassword.set('vault-password')
     welcomeRpcMocks.tauriRpc.mockImplementation(async (command: string) => {
       if (command === 'vault:unlock') {
         throw new RpcError('repair required', 'CATALOG_REPAIR_REQUIRED')
@@ -215,7 +420,7 @@ describe('welcome create-master submit', () => {
       return undefined
     })
 
-    await model.onUnlock()
+    await model.submitUnlock()
 
     expect(confirmSpy).toHaveBeenCalledTimes(1)
     expect(welcomeRpcMocks.tauriRpc).toHaveBeenCalledWith('vault:repair:diagnose', {
@@ -230,8 +435,9 @@ describe('welcome create-master submit', () => {
   })
 
   it('does not apply lossy catalog repair when the user cancels confirmation', async () => {
-    vi.spyOn(dialogService, 'showInputDialog').mockResolvedValue('vault-password')
+    prepareLockedVault()
     vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(false)
+    model.unlockPassword.set('vault-password')
     welcomeRpcMocks.tauriRpc.mockImplementation(async (command: string) => {
       if (command === 'vault:unlock') {
         throw new RpcError('repair required', 'CATALOG_REPAIR_REQUIRED')
@@ -247,17 +453,20 @@ describe('welcome create-master submit', () => {
       return undefined
     })
 
-    await model.onUnlock()
+    await model.submitUnlock()
 
     expect(welcomeRpcMocks.tauriRpc).not.toHaveBeenCalledWith(
       'vault:repair:apply',
       expect.anything(),
     )
     expect(stateUpdate).not.toHaveBeenCalledWith({StorageOpened: true})
+    expect(model.unlockInProgress()).toBe(false)
+    expect(model.icon.state()).toBe('idle')
   })
 
   it('maps catalog repair diagnose failures into unlock errors', async () => {
-    vi.spyOn(dialogService, 'showInputDialog').mockResolvedValue('vault-password')
+    prepareLockedVault()
+    model.unlockPassword.set('vault-password')
     welcomeRpcMocks.tauriRpc.mockImplementation(async (command: string) => {
       if (command === 'vault:unlock') {
         throw new RpcError('repair required', 'CATALOG_REPAIR_REQUIRED')
@@ -268,10 +477,12 @@ describe('welcome create-master submit', () => {
       return undefined
     })
 
-    await model.onUnlock()
+    await model.submitUnlock()
 
     expect(model.shared.errorText()).toBe('Vault catalog repair state changed. Try unlocking again.')
     expect(stateUpdate).not.toHaveBeenCalledWith({StorageOpened: true})
+    expect(model.unlockInProgress()).toBe(false)
+    expect(model.icon.state()).toBe('idle')
   })
 
   it('ignores stale password strength completions', async () => {

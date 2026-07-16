@@ -2,8 +2,8 @@ use async_trait::async_trait;
 
 use super::record_transport::MobileUsbByteStream;
 use super::types::{
-    MobileUsbError, MobileUsbErrorCode, MobileUsbPairRequest, MobileUsbPairedHostRecord,
-    MobileUsbScanResult,
+    MobileUsbDetectCandidate, MobileUsbError, MobileUsbErrorCode, MobileUsbPairRequest,
+    MobileUsbPairedHostRecord, MobileUsbScanResult,
 };
 
 pub type BoxMobileUsbStream = Box<dyn MobileUsbByteStream>;
@@ -11,6 +11,15 @@ pub type BoxMobileUsbStream = Box<dyn MobileUsbByteStream>;
 #[async_trait]
 pub trait MobileUsbBridge: Send + Sync {
     async fn scan(&self) -> Result<Vec<MobileUsbScanResult>, MobileUsbError>;
+
+    /// Passive inventory: list currently plugged devices from descriptors only.
+    /// Must not send AOA control transfers or otherwise change device state.
+    async fn detect(&self) -> Result<Vec<MobileUsbDetectCandidate>, MobileUsbError> {
+        Err(MobileUsbError::new(
+            MobileUsbErrorCode::BridgeUnavailable,
+            "passive USB detect is not supported by this bridge",
+        ))
+    }
 
     async fn open_pair_stream(
         &self,

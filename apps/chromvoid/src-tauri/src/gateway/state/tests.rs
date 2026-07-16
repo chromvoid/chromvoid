@@ -127,11 +127,13 @@ fn start_pairing_replaces_previous_session() {
     let mut st = GatewayState::load_or_default(tmp.path().to_path_buf());
 
     st.start_pairing("tok-1".to_string(), "111111".to_string());
+    let first_nonce = st.pairing.as_ref().expect("first pairing").ceremony_nonce;
     st.start_pairing("tok-2".to_string(), "222222".to_string());
 
     let s = st.pairing.as_ref().unwrap();
     assert_eq!(s.pairing_token, "tok-2");
     assert_eq!(s.pin, "222222");
+    assert_ne!(s.ceremony_nonce, first_nonce);
 }
 
 #[test]
@@ -275,6 +277,70 @@ fn is_paired_and_active_returns_false_for_unknown() {
     let tmp = NamedTempFile::new().expect("tempfile");
     let st = GatewayState::load_or_default(tmp.path().to_path_buf());
     assert!(!st.is_paired_and_active("unknown"));
+}
+
+// ---------------------------------------------------------------------------
+// Durable CLI agent revocation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn persisted_agent_revocation_reaches_disk_before_success() {
+    let tmp = NamedTempFile::new().expect("tempfile");
+    let path = tmp.path().to_path_buf();
+    let mut st = GatewayState::load_or_default(path.clone());
+    st.upsert_paired_agent("agent-durable".to_string());
+    st.save_config();
+
+    let paired_agents = st
+        .revoke_agent_persisted("agent-durable")
+        .expect("durable revoke");
+
+    assert!(paired_agents[0].revoked);
+    let persisted: GatewayConfig =
+        serde_json::from_slice(&std::fs::read(path).expect("read config")).expect("parse config");
+    assert!(persisted.paired_agents[0].revoked);
+}
+
+#[test]
+fn failed_agent_revocation_write_stays_revoked_in_memory() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    // A directory cannot be atomically replaced by the config file, providing
+    // a deterministic persistence failure without platform-specific modes.
+    let mut st = GatewayState::load_or_default(tmp.path().to_path_buf());
+    st.upsert_paired_agent("agent-fail-closed".to_string());
+    let stale_active_snapshot = st.config_save_snapshot();
+
+    let error = st
+        .revoke_agent_persisted("agent-fail-closed")
+        .expect_err("directory config path must fail");
+
+    assert!(!error.is_empty());
+    assert!(!st.is_agent_paired_and_active("agent-fail-closed"));
+    assert!(st.config.paired_agents[0].revoked);
+    assert!(
+        !stale_active_snapshot.persist().expect("stale write result"),
+        "a failed newer revoke attempt must still suppress older snapshots"
+    );
+}
+
+#[test]
+fn stale_gateway_snapshot_cannot_overwrite_durable_agent_revocation() {
+    let tmp = NamedTempFile::new().expect("tempfile");
+    let path = tmp.path().to_path_buf();
+    let mut st = GatewayState::load_or_default(path.clone());
+    st.upsert_paired_agent("agent-no-resurrection".to_string());
+    let stale_active_snapshot = st.config_save_snapshot();
+
+    st.revoke_agent_persisted("agent-no-resurrection")
+        .expect("durable revoke");
+    assert!(
+        !stale_active_snapshot.persist().expect("stale write result"),
+        "older queued snapshots must be skipped"
+    );
+
+    let persisted: GatewayConfig =
+        serde_json::from_slice(&std::fs::read(path).expect("read config")).expect("parse config");
+    assert!(persisted.paired_agents[0].revoked);
 }
 
 // ---------------------------------------------------------------------------
@@ -546,6 +612,7 @@ fn gateway_config_serde_roundtrip() {
             revoked: false,
             label: Some("My Extension".to_string()),
         }],
+        paired_agents: vec![],
         session_max_duration_mins: 30,
         capability_policies: vec![],
         gateway_privkey_hex: Some("ab".repeat(32)),

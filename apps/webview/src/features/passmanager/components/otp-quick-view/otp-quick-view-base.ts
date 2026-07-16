@@ -97,8 +97,8 @@ export abstract class PMOtpQuickViewBase extends ReatomLitElement {
     return [
       {id: 'total', label: i18n('otp:quick_view:summary:total'), value: summary.total},
       {id: 'visible', label: i18n('otp:quick_view:summary:visible'), value: summary.visible},
-      {id: 'totp', label: i18n('otp:quick_view:summary:totp'), value: summary.totp},
-      {id: 'hotp', label: i18n('otp:quick_view:summary:hotp'), value: summary.hotp},
+      {id: 'totp', label: i18n('otp:quick_view:summary:totp'), value: summary.totp, tone: 'primary'},
+      {id: 'hotp', label: i18n('otp:quick_view:summary:hotp'), value: summary.hotp, tone: summary.hotp > 0 ? 'neutral' : 'muted'},
     ]
   }
 

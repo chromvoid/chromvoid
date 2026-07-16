@@ -10,9 +10,9 @@
 
       console.log({users})
       if (users.length == 1) {
-          var user = users[0];
+          var _user = users[0];
 
-          chrome.runtime.onMessage.addListener(function (message, sender, respond) {
+          chrome.runtime.onMessage.addListener(function (message, _sender, _respond) {
               console.log('>> message', message)
           });
           chrome.runtime.sendMessage('', {

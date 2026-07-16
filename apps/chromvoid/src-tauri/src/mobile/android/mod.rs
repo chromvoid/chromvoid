@@ -13,7 +13,14 @@ mod password_save;
 mod provider_status;
 mod runtime;
 mod saf_picker;
+#[cfg(any(target_os = "android", test))]
+mod usb_accessory_fd;
+#[cfg(any(target_os = "android", test))]
+mod usb_accessory_host_failure;
+#[cfg(any(target_os = "android", test))]
 mod usb_accessory_runtime;
+#[cfg(any(target_os = "android", test))]
+mod usb_accessory_sessions;
 
 #[cfg(test)]
 mod tests;
@@ -48,12 +55,15 @@ pub(crate) use runtime::{shared_provider_runtime, AndroidProviderRuntimeState};
 pub(crate) use saf_picker::AndroidSafPickerRuntimeState;
 #[cfg(target_os = "android")]
 pub(crate) use saf_picker::AndroidSafTree;
+#[cfg(any(target_os = "android", test))]
+pub(crate) use usb_accessory_host_failure::{
+    AndroidMobileUsbHostFailure, AndroidMobileUsbHostStopReason,
+};
 #[cfg(target_os = "android")]
 pub(crate) use usb_accessory_runtime::shared_android_usb_accessory_runtime;
 #[cfg(any(target_os = "android", test))]
 pub(crate) use usb_accessory_runtime::{
     AndroidMobileUsbAccessoryIdentity, AndroidMobileUsbAccessoryRuntimeState,
-    AndroidMobileUsbHostStopReason,
 };
 #[cfg(not(target_os = "android"))]
 mod native_stub {
@@ -243,6 +253,20 @@ pub(crate) fn register_app_handle(app: tauri::AppHandle) {
     runtime::register_app_handle(app)
 }
 
+pub(crate) fn app_handle() -> Option<tauri::AppHandle> {
+    runtime::app_handle()
+}
+
+#[cfg(target_os = "android")]
+pub(crate) fn notify_mobile_usb_approval_required(kind: &str, attempt_id: &str) {
+    native::notify_mobile_usb_approval_required(kind, attempt_id);
+}
+
+#[cfg(target_os = "android")]
+pub(crate) fn notify_mobile_usb_approval_resolved() {
+    native::notify_mobile_usb_approval_resolved();
+}
+
 #[cfg(target_os = "android")]
 pub(crate) fn configure_usb_accessory_host_starter(
     mobile_acceptor_runtime: Arc<crate::network::mobile_acceptor::MobileAcceptorRuntimeState>,
@@ -276,6 +300,14 @@ pub(crate) fn configure_usb_accessory_host_starter_for_runtime(
                 session_id,
                 label
             );
+            let shutdown: crate::network::mobile_acceptor::DirectTransportShutdownSignal =
+                Box::pin(async move {
+                    start
+                        .shutdown
+                        .await
+                        .unwrap_or(AndroidMobileUsbHostStopReason::Shutdown)
+                        .as_local_direct_transport_stop_reason()
+                });
             crate::network::mobile_acceptor::accept_direct_transport_until_closed(
                 mobile_acceptor_runtime,
                 adapter,
@@ -283,7 +315,7 @@ pub(crate) fn configure_usb_accessory_host_starter_for_runtime(
                 start.transport,
                 TransportType::UsbMobile,
                 label,
-                start.shutdown,
+                shutdown,
                 crate::network::mobile_acceptor::DirectTransportTimelineContext::android_usb(
                     session_id.clone(),
                 ),
@@ -294,8 +326,32 @@ pub(crate) fn configure_usb_accessory_host_starter_for_runtime(
                     crate::network::mobile_acceptor::DirectTransportStopReason::Shutdown => {
                         AndroidMobileUsbHostStopReason::Shutdown
                     }
+                    crate::network::mobile_acceptor::DirectTransportStopReason::VaultLocked => {
+                        AndroidMobileUsbHostStopReason::VaultLocked
+                    }
+                    crate::network::mobile_acceptor::DirectTransportStopReason::PeerClosed => {
+                        AndroidMobileUsbHostStopReason::PeerClosed
+                    }
+                    crate::network::mobile_acceptor::DirectTransportStopReason::AccessoryDetached => {
+                        AndroidMobileUsbHostStopReason::AccessoryDetached
+                    }
+                    crate::network::mobile_acceptor::DirectTransportStopReason::ExplicitDisconnect => {
+                        AndroidMobileUsbHostStopReason::ExplicitDisconnect
+                    }
+                    crate::network::mobile_acceptor::DirectTransportStopReason::SessionReplaced => {
+                        AndroidMobileUsbHostStopReason::SessionReplaced
+                    }
+                    crate::network::mobile_acceptor::DirectTransportStopReason::LocalError => {
+                        AndroidMobileUsbHostStopReason::LocalError
+                    }
                     crate::network::mobile_acceptor::DirectTransportStopReason::TransportClosed => {
                         AndroidMobileUsbHostStopReason::TransportClosed
+                    }
+                    crate::network::mobile_acceptor::DirectTransportStopReason::StreamTimeout => {
+                        AndroidMobileUsbHostStopReason::StreamTimeout
+                    }
+                    crate::network::mobile_acceptor::DirectTransportStopReason::DataPlaneError => {
+                        AndroidMobileUsbHostStopReason::DataPlaneError
                     }
                     crate::network::mobile_acceptor::DirectTransportStopReason::Error => {
                         AndroidMobileUsbHostStopReason::Error
@@ -311,6 +367,7 @@ pub(crate) fn configure_usb_accessory_host_starter_for_runtime(
                 );
                 stop_reason
             })
+            .map_err(AndroidMobileUsbHostFailure::from_direct_accept_failure)
         })
     }));
 }

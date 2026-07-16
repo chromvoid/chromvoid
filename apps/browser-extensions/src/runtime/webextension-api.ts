@@ -20,6 +20,7 @@ type ChromeNamespace = {
   }
   tabs: {
     query(queryInfo: chrome.tabs.QueryInfo, callback: (tabs: ExtensionTab[]) => void): void
+    create(createProperties: chrome.tabs.CreateProperties, callback?: (tab: ExtensionTab) => void): void
     sendMessage(tabId: number, message: unknown, callback?: (response: unknown) => void): void
   }
   action?: {
@@ -36,6 +37,7 @@ type BrowserNamespace = {
   }
   tabs: {
     query(queryInfo: chrome.tabs.QueryInfo): Promise<ExtensionTab[]>
+    create(createProperties: chrome.tabs.CreateProperties): Promise<ExtensionTab>
     sendMessage(tabId: number, message: unknown): Promise<unknown>
   }
   action?: {
@@ -154,6 +156,25 @@ export const sendTabMessage = async (tabId: number, message: unknown): Promise<u
       }
 
       resolve(response)
+    })
+  })
+}
+
+export const openExtensionTab = async (url: string): Promise<ExtensionTab> => {
+  const resolved = resolveApi()
+  if (resolved.kind === 'browser') {
+    return resolved.api.tabs.create({url})
+  }
+
+  return new Promise((resolve, reject) => {
+    resolved.api.tabs.create({url}, (tab) => {
+      const error = chromeLastError(resolved.api)
+      if (error) {
+        reject(new Error(error))
+        return
+      }
+
+      resolve(tab)
     })
   })
 }

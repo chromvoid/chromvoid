@@ -61,11 +61,8 @@ export class StatusBar extends ReatomLitElement {
       }
 
       .status-summary-slot pm-summary-rail.status-context-summary {
-        --pm-summary-rail-background: transparent;
-        --pm-summary-rail-border: 0;
-        --pm-summary-rail-padding: 0;
         flex: 0 1 auto;
-        min-inline-size: min(220px, 100%);
+        min-inline-size: min(360px, 100%);
         max-inline-size: min(720px, 100%);
       }
 
@@ -156,7 +153,7 @@ export class StatusBar extends ReatomLitElement {
         --cv-callout-gap: var(--app-spacing-2);
         font-weight: var(--cv-font-weight-medium);
         max-inline-size: 300px;
-        animation: errorSlideIn 300ms var(--cv-easing-decelerate);
+        animation: errorSlideIn var(--cv-duration-normal, 220ms) var(--cv-easing-decelerate);
       }
 
       cv-callout.status-error-callout::part(base) {
@@ -194,11 +191,19 @@ export class StatusBar extends ReatomLitElement {
       @keyframes errorSlideIn {
         from {
           opacity: 0;
-          transform: translateX(-8px);
+          transform: translateX(
+            calc(8px * var(--app-runtime-inline-start-direction-sign, -1))
+          );
         }
         to {
           opacity: 1;
           transform: translateX(0);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        cv-callout.status-error-callout {
+          animation: none;
         }
       }
 
@@ -245,8 +250,10 @@ export class StatusBar extends ReatomLitElement {
     const statusClass = ready ? 'connected' : 'syncing'
     const statusLabel = ready
       ? i18n('statusbar:remote-connection:ready')
-      : i18n('statusbar:remote-connection:waiting-host')
-    const icon = ready ? 'wifi' : 'lock'
+      : remoteSessionState === 'waiting_phone_approval'
+        ? i18n('statusbar:remote-connection:waiting-phone')
+        : i18n('statusbar:remote-connection:waiting-host')
+    const icon = ready ? 'wifi' : remoteSessionState === 'waiting_phone_approval' ? 'smartphone' : 'lock'
 
     return html`
       <div

@@ -6,7 +6,6 @@ import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/
 import {PMQuickFilters} from '../../src/features/passmanager/components/list/quick-filters'
 import {PMSearch} from '../../src/features/passmanager/components/list/search'
 import {PMSearchMobile} from '../../src/features/passmanager/components/list/search-mobile'
-import {pmCredentialTagsModel} from '../../src/features/passmanager/models/pm-credential-tags.model'
 import {pmMobileChromeModel} from '../../src/features/passmanager/models/pm-mobile-chrome.model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
@@ -104,7 +103,6 @@ afterEach(() => {
   groupBy.set('none')
   resetRuntimeCapabilities()
   pmMobileChromeModel.closeSortGroupSheet()
-  pmCredentialTagsModel.closeSheet()
   vi.useRealTimers()
 })
 
@@ -403,29 +401,6 @@ describe('PMSearch', () => {
     expect(element.shadowRoot?.querySelector('cv-combobox.tag-filter-combobox')).toBeNull()
   })
 
-  it('keeps mobile tag selection available when no tags exist yet', async () => {
-    ensureMobileDefined()
-    const root = new ManagerRoot({} as any)
-    root.entries.set([])
-    setPassmanagerRoot(root)
-
-    const element = document.createElement('pm-search-mobile') as PMSearchMobile
-    document.body.appendChild(element)
-    await settle(element)
-
-    expect(element.shadowRoot?.querySelector('.tag-filter-row')).not.toBeNull()
-    expect(element.shadowRoot?.querySelector('.tag-chip[aria-pressed="true"]')?.textContent).toContain('All')
-    expect(element.shadowRoot?.querySelector('.tag-chip[data-tag-key]')).toBeNull()
-    expect(element.shadowRoot?.querySelector('pm-mobile-tag-filter-sheet')).toBeNull()
-
-    const sheetTrigger = element.shadowRoot?.querySelector('.tag-chip.manage') as HTMLElement | null
-    sheetTrigger?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
-    await settle(element)
-
-    expect(pmCredentialTagsModel.filterSheetOpen()).toBe(true)
-    expect(pmCredentialTagsModel.sheetMode()).toBe('manage')
-  })
-
   it('renders desktop tag combobox and updates selected filters from selectedIds', async () => {
     ensureQuickFiltersDefined()
     installRootWithTags()
@@ -480,47 +455,4 @@ describe('PMSearch', () => {
     expect(selectedCredentialTagFilters()).toEqual([])
   })
 
-  it('renders mobile tag chips and management trigger when tags exist without desktop quick filters', async () => {
-    ensureMobileDefined()
-    installRootWithTags()
-
-    const element = document.createElement('pm-search-mobile') as PMSearchMobile
-    document.body.appendChild(element)
-    await settle(element)
-
-    expect(element.shadowRoot?.querySelector('.quick-filters')).toBeNull()
-    expect(element.shadowRoot?.querySelector('cv-combobox.tag-filter-combobox')).toBeNull()
-    expect(element.shadowRoot?.querySelector('.tag-chip[aria-pressed="true"]')?.textContent).toContain('All')
-    const workChipText = element.shadowRoot
-      ?.querySelector('.tag-chip[data-tag-key="work"]')
-      ?.textContent?.replace(/\s+/g, ' ')
-      .trim()
-    expect(workChipText).toContain('Work · 1')
-    expect(element.shadowRoot?.querySelector('pm-mobile-tag-filter-sheet')).toBeNull()
-  })
-
-  it('updates mobile tag filters from chips and opens tag management from manage chip', async () => {
-    ensureMobileDefined()
-    installRootWithTags()
-
-    const element = document.createElement('pm-search-mobile') as PMSearchMobile
-    document.body.appendChild(element)
-    await settle(element)
-
-    const workChip = element.shadowRoot?.querySelector('.tag-chip[data-tag-key="work"]') as HTMLElement | null
-    workChip?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
-    await settle(element)
-
-    expect(selectedCredentialTagFilters()).toEqual(['work'])
-    expect(
-      element.shadowRoot?.querySelector('.tag-chip[data-tag-key="work"]')?.classList.contains('active'),
-    ).toBe(true)
-
-    const sheetTrigger = element.shadowRoot?.querySelector('.tag-chip.manage') as HTMLElement | null
-    sheetTrigger?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
-    await settle(element)
-
-    expect(pmCredentialTagsModel.filterSheetOpen()).toBe(true)
-    expect(pmCredentialTagsModel.sheetMode()).toBe('manage')
-  })
 })

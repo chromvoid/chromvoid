@@ -39,6 +39,7 @@ pub(crate) struct DesktopExitCleanup {
     ios_host_runtime: Arc<IosHostRuntimeState>,
     android_host_runtime: Arc<AndroidHostRuntimeState>,
     ssh_agent: Arc<Mutex<SshAgentState>>,
+    env_runtime: Arc<crate::env_runtime::EnvRuntimeState>,
     remote_io_runtime: Arc<RemoteIoRuntimeState>,
     task_lifecycle: Arc<TaskLifecycleRuntime>,
     core_rpc_dispatcher: CoreRpcDispatcher,
@@ -69,6 +70,7 @@ pub(crate) fn collect_desktop_exit_cleanup(
         ios_host_runtime: state.ios_host_runtime.clone(),
         android_host_runtime: state.android_host_runtime.clone(),
         ssh_agent: state.ssh_agent.clone(),
+        env_runtime: state.env_runtime.clone(),
         remote_io_runtime: state.remote_io_runtime.clone(),
         task_lifecycle: state.task_lifecycle.clone(),
         core_rpc_dispatcher: state.core_rpc_dispatcher.clone(),
@@ -89,11 +91,13 @@ pub(crate) async fn run_desktop_exit_cleanup(cleanup: DesktopExitCleanup) {
         ios_host_runtime,
         android_host_runtime,
         ssh_agent,
+        env_runtime,
         remote_io_runtime,
         task_lifecycle,
         core_rpc_dispatcher,
     } = cleanup;
 
+    env_runtime.stop_all_and_wait().await;
     let _ = crate::commands::catalog::purge_catalog_preview_cache_for_app(&app, "session-end");
     if let Err(error) = catalog_blocking_io_runtime
         .shutdown_with_grace(CATALOG_BLOCKING_IO_EXIT_GRACE)

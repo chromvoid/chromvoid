@@ -2,6 +2,7 @@ import {ClientCatalogNode} from './client-model'
 import type {
   CatalogEvent,
   CatalogFolderBatchResponse,
+  CatalogFolderFilterCounts,
   CatalogFolderListItem,
   CatalogFolderPageResponse,
   CatalogFolderState,
@@ -47,6 +48,7 @@ type MutableFolderPageState = {
   path: string
   version: number
   totalCount: number
+  filterCounts?: CatalogFolderFilterCounts
   queryKey: string
   items: Array<number | null>
   loadedRanges: Array<{offset: number; limit: number}>
@@ -58,6 +60,7 @@ export interface CatalogMirrorApi {
   applyManifest(manifest: CatalogSyncManifestResponse): void
   applyFolderPage(page: CatalogFolderPageResponse, queryKey?: string): void
   applyFolderBatch(batch: CatalogFolderBatchResponse, queryKey?: string): void
+  clear(reason?: string): void
   applyEvent(event: CatalogEvent): void
   applyEvents(events: readonly CatalogEvent[]): void
   getNode(id: number): ClientCatalogNode | undefined
@@ -194,6 +197,16 @@ export class CatalogMirror implements CatalogMirrorApi {
     })
   }
 
+  clear(_reason = 'reset'): void {
+    this.withTransaction(() => {
+      this.byId.clear()
+      this.idsByPath.clear()
+      this.childrenByPath.clear()
+      this.folderPages.clear()
+      this.emit()
+    })
+  }
+
   applyFolderPage(page: CatalogFolderPageResponse, queryKey = DEFAULT_FOLDER_QUERY_KEY): void {
     this.withTransaction(() => this.applyFolderPageNoEmit(page, queryKey))
   }
@@ -220,6 +233,7 @@ export class CatalogMirror implements CatalogMirrorApi {
         path,
         version: page.version,
         totalCount: page.total_count,
+        filterCounts: page.filter_counts,
         queryKey,
         items: Array.from({length: page.total_count}, () => null),
         loadedRanges: [],
@@ -234,11 +248,15 @@ export class CatalogMirror implements CatalogMirrorApi {
       state.loadedRanges = []
       state.loadingRanges = []
     }
+    state.filterCounts = page.filter_counts
 
     page.items.forEach((item, index) => {
       const absoluteIndex = page.offset + index
       if (absoluteIndex >= state.items.length) return
-      const node = this.upsert(this.catalogNodeFromFolderItem(path, item))
+      const node = this.upsert(
+        this.catalogNodeFromFolderItem(path, item),
+        queryKey === DEFAULT_FOLDER_QUERY_KEY,
+      )
       state.items[absoluteIndex] = node.nodeId
     })
 
@@ -248,10 +266,12 @@ export class CatalogMirror implements CatalogMirrorApi {
     )
     state.error = null
     this.folderPages.set(key, state)
-    this.childrenByPath.set(
-      path,
-      state.items.filter((id): id is number => typeof id === 'number'),
-    )
+    if (queryKey === DEFAULT_FOLDER_QUERY_KEY) {
+      this.childrenByPath.set(
+        path,
+        state.items.filter((id): id is number => typeof id === 'number'),
+      )
+    }
     this.emit()
   }
 
@@ -387,7 +407,7 @@ export class CatalogMirror implements CatalogMirrorApi {
   getFolderState(path: string, queryKey = DEFAULT_FOLDER_QUERY_KEY): CatalogFolderState | undefined {
     const state = this.folderPages.get(this.folderKey(path, queryKey))
     if (!state) return undefined
-    return {
+    const snapshot: CatalogFolderState = {
       path: state.path,
       version: state.version,
       totalCount: state.totalCount,
@@ -396,6 +416,10 @@ export class CatalogMirror implements CatalogMirrorApi {
       loadingRanges: state.loadingRanges.map((range) => ({...range})),
       error: state.error ?? null,
     }
+    if (state.filterCounts) {
+      return {...snapshot, filterCounts: {...state.filterCounts}}
+    }
+    return snapshot
   }
 
   getFolderItems(path: string, queryKey = DEFAULT_FOLDER_QUERY_KEY): Array<ClientCatalogNode | null> {
@@ -412,7 +436,17 @@ export class CatalogMirror implements CatalogMirrorApi {
   ): boolean {
     const state = this.folderPages.get(this.folderKey(path, queryKey))
     if (!state) return false
-    const end = Math.min(state.totalCount, offset + limit)
+    if (state.error) return false
+    const requestEnd = offset + limit
+    if (
+      state.loadingRanges.some(
+        (range) => offset < range.offset + range.limit && range.offset < requestEnd,
+      )
+    ) {
+      return false
+    }
+    if (state.totalCount === 0) return state.loadedRanges.length > 0
+    const end = Math.min(state.totalCount, requestEnd)
     for (let index = offset; index < end; index++) {
       if (state.items[index] === null || state.items[index] === undefined) return false
     }
@@ -439,16 +473,21 @@ export class CatalogMirror implements CatalogMirrorApi {
         loadingRanges: [],
         error: null,
       } satisfies MutableFolderPageState)
+    let changed = !this.folderPages.has(key)
     if (loading) {
       if (!state.loadingRanges.some((range) => range.offset === offset && range.limit === limit)) {
         state.loadingRanges.push({offset, limit})
+        changed = true
       }
     } else {
-      state.loadingRanges = state.loadingRanges.filter(
+      const nextRanges = state.loadingRanges.filter(
         (range) => range.offset !== offset || range.limit !== limit,
       )
+      changed = changed || nextRanges.length !== state.loadingRanges.length
+      state.loadingRanges = nextRanges
     }
     this.folderPages.set(key, state)
+    if (!changed) return
     this.emit()
   }
 
@@ -506,7 +545,7 @@ export class CatalogMirror implements CatalogMirrorApi {
     for (const l of this.listeners) l()
   }
 
-  private upsert(nodeLike: ClientCatalogNode | CatalogNodeClient): ClientCatalogNode {
+  private upsert(nodeLike: ClientCatalogNode | CatalogNodeClient, attachToParent = true): ClientCatalogNode {
     const node = nodeLike instanceof ClientCatalogNode ? nodeLike : new ClientCatalogNode(nodeLike)
     this.byId.set(node.nodeId, node)
     this.idsByPath.set(node.path, node.nodeId)
@@ -515,15 +554,19 @@ export class CatalogMirror implements CatalogMirrorApi {
       if (node.isDir && !this.childrenByPath.has(node.path)) this.childrenByPath.set(node.path, [])
       return node
     }
-    if (!this.childrenByPath.has(parent)) this.childrenByPath.set(parent, [])
-    const list = this.childrenByPath.get(parent)!
-    if (!list.includes(node.nodeId)) list.push(node.nodeId)
+    if (attachToParent) {
+      if (!this.childrenByPath.has(parent)) this.childrenByPath.set(parent, [])
+      const list = this.childrenByPath.get(parent)!
+      if (!list.includes(node.nodeId)) list.push(node.nodeId)
+    }
     if (node.isDir && !this.childrenByPath.has(node.path)) this.childrenByPath.set(node.path, [])
     return node
   }
 
   private catalogNodeFromFolderItem(parentPath: string, item: CatalogFolderListItem): CatalogNodeClient {
     const nodeType = (item.is_dir ? 0 : 1) as NodeType
+    const itemParentPath = item.parent_path ? normalizePath(item.parent_path) : parentPath
+    const itemPath = item.path ? normalizePath(item.path) : normalizePath(joinPath(itemParentPath, item.name))
     return {
       nodeId: item.node_id,
       nodeType,
@@ -534,9 +577,10 @@ export class CatalogMirror implements CatalogMirrorApi {
       isDir: item.is_dir,
       isFile: !item.is_dir,
       isSymlink: false,
-      path: normalizePath(joinPath(parentPath, item.name)),
+      path: itemPath,
       hasChildren: item.is_dir,
       deferredChildren: item.is_dir,
+      sourceRevision: item.source_revision ?? undefined,
       mediaInspectedRevision: item.media_inspected_revision,
       mimeType: item.mime_type ?? undefined,
       mediaInfo: normalizeFileMediaInfo(item.media_info),

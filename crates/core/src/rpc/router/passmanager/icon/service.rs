@@ -2,10 +2,10 @@ use base64::{engine::general_purpose, Engine as _};
 
 use super::normalize::NormalizedIconPayload;
 use super::parse_icon_ref_sha;
-use super::request::{IconGetRequest, IconPutRequest, IconSetMetaRequest};
+use super::request::{IconGetManyRequest, IconGetRequest, IconPutRequest, IconSetMetaRequest};
 use super::store::{ensure_icons_dir_exists_uow, load_icon_index, stage_save_icon_index};
 use super::types::{
-    IconGetResult, IconIndexRecord, IconListItem, IconListResult, IconPutResult,
+    IconGetManyResult, IconGetResult, IconIndexRecord, IconListItem, IconListResult, IconPutResult,
     PASSMANAGER_ICONS_DIR,
 };
 use crate::crypto::sha256_hex;
@@ -141,6 +141,43 @@ pub(super) fn get_icon(
         mime_type: record.mime_type.clone(),
         background_color: record.background_color.clone(),
         content_base64: general_purpose::STANDARD_NO_PAD.encode(bytes),
+    })
+}
+
+pub(super) fn get_icons(
+    session: &VaultSession,
+    storage: &Storage,
+    request: IconGetManyRequest,
+) -> Result<IconGetManyResult, PassmanagerCommandError> {
+    let index = load_icon_index(session, storage)?;
+    let mut icons = Vec::with_capacity(request.icon_refs.len());
+    let mut missing_icon_refs = Vec::new();
+
+    for icon_ref in request.icon_refs {
+        let sha =
+            parse_icon_ref_sha(&icon_ref).expect("icon refs are validated during request parsing");
+        let Some(record) = index.icons.iter().find(|item| item.sha256 == sha) else {
+            missing_icon_refs.push(icon_ref);
+            continue;
+        };
+
+        let asset_path = format!("{PASSMANAGER_ICONS_DIR}/{}.{}", record.sha256, record.ext);
+        let Some(bytes) = read_file_bytes_by_path(session, storage, &asset_path)? else {
+            missing_icon_refs.push(icon_ref);
+            continue;
+        };
+
+        icons.push(IconGetResult {
+            icon_ref,
+            mime_type: record.mime_type.clone(),
+            background_color: record.background_color.clone(),
+            content_base64: general_purpose::STANDARD_NO_PAD.encode(bytes),
+        });
+    }
+
+    Ok(IconGetManyResult {
+        icons,
+        missing_icon_refs,
     })
 }
 

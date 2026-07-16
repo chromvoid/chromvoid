@@ -2,7 +2,12 @@ import {i18n} from './i18n'
 
 type OtpLike = {
   id: string
-  label?: string
+  label?: string | null
+  type?: string | null
+}
+
+export const autofillOtpOptions = <T extends OtpLike>(otps: readonly T[]): T[] => {
+  return otps.filter((otp) => !otp.type || otp.type.toUpperCase() === 'TOTP')
 }
 
 export const pickOtp = <T extends OtpLike>(otps: readonly T[], selectedId?: string): T | undefined => {

@@ -1,0 +1,55 @@
+:root {
+  --app-runtime-safe-area-block-start-environment: env(safe-area-inset-top, 0px);
+  --app-runtime-safe-area-block-start-fallback: 0px;
+  --app-runtime-safe-area-block-start: max(
+    var(--app-runtime-safe-area-block-start-environment),
+    var(--app-runtime-safe-area-block-start-fallback)
+  );
+  --app-runtime-safe-area-inline-start: env(safe-area-inset-left, 0px);
+  --app-runtime-safe-area-inline-end: env(safe-area-inset-right, 0px);
+  --app-runtime-inline-start-direction-sign: -1;
+  --app-runtime-inline-end-direction-sign: 1;
+  --app-runtime-safe-area-block-end-environment: env(safe-area-inset-bottom, 0px);
+  --app-runtime-safe-area-block-end-native: 0px;
+  --app-runtime-safe-area-block-end-fallback: 0px;
+  --app-runtime-safe-area-block-end: max(
+    var(--app-runtime-safe-area-block-end-environment),
+    var(--app-runtime-safe-area-block-end-native),
+    var(--app-runtime-safe-area-block-end-fallback)
+  );
+  --app-runtime-safe-area-block-end-active: var(--app-runtime-safe-area-block-end);
+  --app-runtime-content-padding: calc(
+    var(--app-runtime-safe-area-block-start) + var(--app-runtime-safe-area-block-end)
+  );
+  --app-runtime-dialog-password-input-keyboard-offset: var(--app-runtime-keyboard-overlay-offset);
+  --app-runtime-keyboard-inset-block-end: 0px;
+  --app-runtime-keyboard-native-inset-block-end: 0px;
+  --app-runtime-keyboard-overlay-offset: 0px;
+  --app-runtime-keyboard-scroll-action-offset: 0px;
+  --app-runtime-keyboard-scroll-clearance: 0px;
+  --app-runtime-tab-bar-block-size: var(--app-mobile-tabbar-block-size);
+  --app-runtime-tab-bar-display: block;
+  --app-runtime-visual-viewport-block-size: 100dvh;
+  --app-runtime-visual-viewport-inset-block-end: 0px;
+}
+
+:root[dir='rtl'] {
+  --app-runtime-safe-area-inline-start: env(safe-area-inset-right, 0px);
+  --app-runtime-safe-area-inline-end: env(safe-area-inset-left, 0px);
+  --app-runtime-inline-start-direction-sign: 1;
+  --app-runtime-inline-end-direction-sign: -1;
+}
+
+html[data-mobile-keyboard-expanded],
+html[data-visual-viewport-shrunken] {
+  --app-runtime-content-padding: 0px;
+  --app-runtime-safe-area-block-end-active: 0px;
+  --app-runtime-tab-bar-block-size: 0px;
+  --app-runtime-tab-bar-display: none;
+}
+
+body {
+  min-height: 100vh;
+  padding-block-start: var(--app-runtime-safe-area-block-start);
+  background-color: var(--cv-color-bg);
+}

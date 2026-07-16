@@ -1,6 +1,5 @@
 import {css, nothing} from 'lit'
-import {html} from '@chromvoid/uikit/reatom-lit'
-import {ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
 import {i18n} from '@project/passmanager/i18n'
 import {hostLayoutPaintContainStyles, motionPrimitiveStyles} from 'root/shared/ui/shared-styles'
@@ -28,7 +27,7 @@ export class PMEntryOTP extends ReatomLitElement {
     css`
       :host {
         display: block;
-        --motion-fade-up-distance: 10px;
+        --app-motion-fade-up-distance: 10px;
       }
 
       .otp-list {

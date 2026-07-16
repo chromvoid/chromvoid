@@ -4,7 +4,10 @@ import {androidSystemBackModel} from '../../src/app/navigation/android-system-ba
 import {navigationModel} from '../../src/app/navigation/navigation.model'
 import {moduleAccessModel} from '../../src/core/pro/module-access.model'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
-import {NavigationRail, NavigationRailActions} from '../../src/features/file-manager/components/navigation-rail'
+import {
+  NavigationRail,
+  NavigationRailActions,
+} from '../../src/features/file-manager/components/navigation-rail'
 import {navigationRailModel} from '../../src/features/file-manager/components/navigation-rail.model'
 import {ChromVoidAppModel} from '../../src/routes/app.route.model'
 import {atom} from '@reatom/core'
@@ -81,7 +84,7 @@ describe('NavigationRail mobile drawer auto-close', () => {
     )
   }
 
-  it('closes sidebar after selecting Notes, Passwords, OTPs and Settings on mobile', () => {
+  it('closes sidebar after selecting Notes, Passwords, OTPs, SSH keys and Settings on mobile', () => {
     const {sidebar} = setupContext('mobile', true)
     const rail = createRail()
 
@@ -101,12 +104,18 @@ describe('NavigationRail mobile drawer auto-close', () => {
     expect(sidebar()).toBe(false)
 
     sidebar.set(true)
+    ;(rail as any).handleSshKeysClick()
+    expect(navigationModel.currentSurface()).toBe('passwords')
+    expect(navigationModel.snapshot().passwords).toEqual({kind: 'ssh-view'})
+    expect(sidebar()).toBe(false)
+
+    sidebar.set(true)
     ;(rail as any).handleSettingsClick()
     expect(navigationModel.currentSurface()).toBe('settings')
     expect(sidebar()).toBe(false)
   })
 
-  it('renders Passkeys below OTPs and closes the mobile drawer when selected on Android', async () => {
+  it('renders Passkeys below SSH keys and closes the mobile drawer when selected on Android', async () => {
     const {sidebar} = setupContext('mobile', true)
     vi.stubGlobal('__TAURI_INTERNALS__', {invoke: vi.fn()})
     setRuntimeCapabilities({
@@ -119,6 +128,7 @@ describe('NavigationRail mobile drawer auto-close', () => {
     const rail = await createRenderedRail()
     const labels = buttonLabels(rail.shadowRoot)
     const otpIndex = labels.findIndex((label) => label.includes('OTPs'))
+    const sshIndex = labels.findIndex((label) => label.includes('SSH keys'))
     const passkeysIndex = labels.findIndex((label) => label.includes('Passkeys'))
     const buttons = Array.from(rail.shadowRoot?.querySelectorAll<HTMLElement>('cv-button') ?? [])
     const passwordsButton = buttons.find((button) => button.textContent?.includes('Passwords'))
@@ -127,11 +137,70 @@ describe('NavigationRail mobile drawer auto-close', () => {
     const passkeysIconName = passkeysButton?.querySelector('cv-icon')?.getAttribute('name')
 
     expect(otpIndex).toBeGreaterThanOrEqual(0)
-    expect(passkeysIndex).toBe(otpIndex + 1)
+    expect(sshIndex).toBe(otpIndex + 1)
+    expect(passkeysIndex).toBe(sshIndex + 1)
     expect(passwordsIconName).not.toBe(passkeysIconName)
     expect(passkeysIconName).toBe('octicons:passkey-fill')
     ;(rail as any).handlePasskeysClick()
     expect(navigationModel.currentSurface()).toBe('passkeys')
+    expect(sidebar()).toBe(false)
+  })
+
+  it('reactively reveals Passkeys in the desktop rail on supported macOS runtimes', async () => {
+    const {sidebar} = setupContext('desktop', true)
+    vi.stubGlobal('__TAURI_INTERNALS__', {invoke: vi.fn()})
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      supports_autofill: true,
+    })
+
+    const rail = await createRenderedRail()
+    expect(buttonLabels(rail.shadowRoot).some((label) => label.includes('Passkeys'))).toBe(false)
+
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      supports_autofill: true,
+      supports_credential_provider_passkeys_lite: true,
+    })
+    await Promise.resolve()
+    await rail.updateComplete
+
+    const labels = buttonLabels(rail.shadowRoot)
+    const otpIndex = labels.findIndex((label) => label.includes('OTPs'))
+    const passkeysIndex = labels.findIndex((label) => label.includes('Passkeys'))
+
+    expect(labels.some((label) => label.includes('SSH keys'))).toBe(false)
+    expect(passkeysIndex).toBe(otpIndex + 1)
+    ;(rail as any).handlePasskeysClick()
+    expect(navigationModel.currentSurface()).toBe('passkeys')
+    expect(sidebar()).toBe(true)
+  })
+
+  it('renders Wallet in the mobile drawer when Core reports wallet support', async () => {
+    const {sidebar} = setupContext('mobile', true)
+    moduleAccessModel.rawStates.set([
+      {feature_key: 'crypto-wallet', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
+    ])
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+    })
+
+    const rail = await createRenderedRail()
+    const labels = buttonLabels(rail.shadowRoot)
+    const otpIndex = labels.findIndex((label) => label.includes('OTPs'))
+    const walletIndex = labels.findIndex((label) => label.includes('Wallet'))
+    const buttons = Array.from(rail.shadowRoot?.querySelectorAll<HTMLElement>('cv-button.item') ?? [])
+    const walletButton = buttons.find((button) => (button.textContent ?? '').includes('Wallet'))
+
+    expect(otpIndex).toBeGreaterThanOrEqual(0)
+    expect(walletIndex).toBeGreaterThan(otpIndex)
+    expect(walletButton?.querySelector('cv-icon[slot="prefix"]')?.getAttribute('name')).toBe('wallet')
+    expect(walletButton?.querySelector('cv-icon[slot="suffix"]')?.getAttribute('name')).toBe('lock')
+    ;(rail as any).handleWalletClick()
+    expect(navigationModel.currentSurface()).toBe('wallet')
     expect(sidebar()).toBe(false)
   })
 
@@ -170,6 +239,33 @@ describe('NavigationRail mobile drawer auto-close', () => {
     expect(otpButton?.classList.contains('active')).toBe(true)
   })
 
+  it('renders SSH keys as a separate active drawer item for the SSH keys route', async () => {
+    setupContext('mobile', true)
+    navigationModel.openPassmanagerRoute({kind: 'ssh-view'})
+
+    const rail = await createRenderedRail()
+    const buttons = Array.from(rail.shadowRoot?.querySelectorAll<HTMLElement>('cv-button.item') ?? [])
+    const passwordsButton = buttons.find((button) => (button.textContent ?? '').includes('Credentials'))
+    const sshButton = buttons.find((button) => (button.textContent ?? '').includes('SSH keys'))
+
+    expect(passwordsButton?.classList.contains('active')).toBe(false)
+    expect(sshButton?.classList.contains('active')).toBe(true)
+    expect(sshButton?.querySelector('cv-icon')?.getAttribute('name')).toBe('terminal')
+  })
+
+  it('keeps SSH keys out of the desktop navigation rail', async () => {
+    setupContext('desktop', true)
+    navigationModel.openPassmanagerRoute({kind: 'ssh-view'})
+
+    const rail = await createRenderedRail()
+    const buttons = Array.from(rail.shadowRoot?.querySelectorAll<HTMLElement>('cv-button.item') ?? [])
+    const passwordsButton = buttons.find((button) => (button.textContent ?? '').includes('Credentials'))
+    const sshButton = buttons.find((button) => (button.textContent ?? '').includes('SSH keys'))
+
+    expect(passwordsButton?.classList.contains('active')).toBe(true)
+    expect(sshButton).toBeUndefined()
+  })
+
   it('renders Notes as a separate active drawer item for the Notes route', async () => {
     setupContext('mobile', true)
     navigationModel.navigateToSurface('notes', 'replace')
@@ -203,7 +299,7 @@ describe('NavigationRail mobile drawer auto-close', () => {
     expect(rail.hasAttribute('expanded')).toBe(true)
   })
 
-  it('hides command palette from the mobile drawer while keeping core drawer actions', async () => {
+  it('keeps core actions in their mobile drawer regions', async () => {
     setupContext('mobile', true)
 
     const rail = await createRenderedRail()
@@ -211,11 +307,9 @@ describe('NavigationRail mobile drawer auto-close', () => {
     const railLabels = buttonLabels(rail.shadowRoot)
     const actionLabels = buttonLabels(actions.shadowRoot)
 
-    expect(railLabels.some((label) => label.includes('Command palette'))).toBe(false)
     expect(railLabels.some((label) => label.includes('Settings'))).toBe(false)
     expect(railLabels.some((label) => label.includes('Lock'))).toBe(false)
     expect(railLabels.some((label) => label.includes('Files'))).toBe(true)
-    expect(actionLabels.some((label) => label.includes('Command palette'))).toBe(false)
     expect(actionLabels.some((label) => label.includes('Settings'))).toBe(true)
     expect(actionLabels.some((label) => label.includes('Lock'))).toBe(true)
     expect(actionLabels.some((label) => label.includes('Files'))).toBe(false)
@@ -339,16 +433,6 @@ describe('NavigationRail mobile drawer auto-close', () => {
     await vi.waitFor(() => {
       expect(rail.hasAttribute('expanded')).toBe(false)
     })
-  })
-
-  it('keeps command palette available on the desktop rail', async () => {
-    setupContext('desktop', true)
-
-    const rail = await createRenderedRail()
-    const buttons = Array.from(rail.shadowRoot?.querySelectorAll<HTMLElement>('cv-button.item') ?? [])
-    const labels = buttons.map((button) => button.textContent?.replace(/\s+/g, ' ').trim() ?? '')
-
-    expect(labels.some((label) => label.includes('Command palette'))).toBe(true)
   })
 
   it('renders only Remote for network remote and routes back to remote hosts', async () => {

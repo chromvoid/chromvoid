@@ -18,7 +18,6 @@ export const welcomeSectionMobileButtonStyles = css`
   :host([layout='mobile']) .remote-actions cv-button::part(base),
   :host([layout='mobile']) .setup-card cv-button::part(base),
   :host([layout='mobile']) .step cv-button::part(base),
-  :host([layout='mobile']) .mobile-panel-body cv-button::part(base),
   :host([layout='mobile']) .tool-actions cv-button::part(base) {
     min-block-size: 52px;
     justify-content: center;

@@ -277,6 +277,17 @@ pub(in crate::gateway) async fn handle_extension_session(
               break;
             }
 
+            if crate::gateway::types::is_agent_only_core_command(&req.command) {
+              warn!(
+                "[gateway] denied agent-only command on extension route for extension_id={ext_id}"
+              );
+              try_send_request_error!(
+                transport, write, frame.message_id,
+                error_codes::CAPABILITY_DENIED, "command is available only through the product CLI"
+              );
+              continue;
+            }
+
             // SPEC-002 s5.2: Timestamp validation (optional field).
             if let Some(ts) = req.data.get("timestamp").and_then(|v| v.as_u64()) {
               if validate_timestamp(ts).is_err() {
@@ -554,6 +565,7 @@ pub(in crate::gateway) async fn handle_extension_session(
                   v: chromvoid_core::rpc::types::PROTOCOL_VERSION,
                   command: command.clone(),
                   data: chunk_data,
+                  transport_features: req.transport_features.clone(),
                 };
 
                 let reply = match run_gateway_adapter_task(

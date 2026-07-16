@@ -6,10 +6,6 @@ export const fileMoveSharedStyles = [
   hostContentContainStyles,
   sharedStyles,
   css`
-    :host {
-      --file-move-indent-step: var(--pm-move-indent-step);
-    }
-
     .layout {
       display: grid;
       gap: var(--cv-space-2);
@@ -170,10 +166,10 @@ export const fileMoveSharedStyles = [
     }
 
     .indent-step {
-      width: var(--file-move-indent-step);
-      min-width: var(--file-move-indent-step);
+      width: var(--pm-move-indent-step);
+      min-width: var(--pm-move-indent-step);
       height: 1px;
-      flex: 0 0 var(--file-move-indent-step);
+      flex: 0 0 var(--pm-move-indent-step);
     }
 
     .folder-icon {

@@ -31,7 +31,7 @@ describe('pmEntryEditorModel', () => {
   })
 
   it('resets when the visible entry changes away from the active editor entry', () => {
-    pmEntryEditorModel.openSurface('entry-a', 'ssh')
+    pmEntryEditorModel.openSurface('entry-a', 'otp')
     pmEntryEditorModel.markDirty('entry-a', true)
     pmEntryEditorModel.resetForEntryChange('entry-a')
 

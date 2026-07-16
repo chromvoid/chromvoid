@@ -14,11 +14,13 @@ pub mod stream;
 pub mod types;
 
 pub use router::{
-    cleanup_catalog_derivative_write_result, inspect_catalog_media_snapshot,
+    cleanup_catalog_derivative_write_result, execute_wallet_balance_snapshot,
+    execute_wallet_history_snapshot, inspect_catalog_media_snapshot,
     write_catalog_derivative_snapshot, CatalogDerivativeSplitWriteError,
     CatalogDerivativeSplitWriteResult, CatalogDerivativeWriteError, CatalogDerivativeWriteRequest,
     CatalogDerivativeWriteResult, CatalogDerivativeWriteSnapshot, CatalogMediaInspectCommandError,
-    CatalogMediaInspectResult, CatalogMediaInspectSnapshot, RpcRouter,
+    CatalogMediaInspectResult, CatalogMediaInspectSnapshot, RpcRouter, WalletBalanceExecution,
+    WalletBalanceSnapshot, WalletHistoryExecution, WalletHistorySnapshot,
 };
 pub use stream::{
     RpcInputStream, RpcOutputStream, RpcRangeOutputStream, RpcRangeStreamMeta, RpcReply,

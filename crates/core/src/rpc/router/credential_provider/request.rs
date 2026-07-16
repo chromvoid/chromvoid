@@ -9,6 +9,17 @@ fn required_str<'a>(
         .ok_or_else(|| CredentialProviderCommandError::empty_payload(field))
 }
 
+fn required_non_empty_str<'a>(
+    data: &'a serde_json::Value,
+    field: &str,
+) -> Result<&'a str, CredentialProviderCommandError> {
+    let value = required_str(data, field)?.trim();
+    if value.is_empty() {
+        return Err(CredentialProviderCommandError::empty_payload(field));
+    }
+    Ok(value)
+}
+
 fn optional_str<'a>(data: &'a serde_json::Value, field: &str) -> Option<&'a str> {
     data.get(field).and_then(|value| value.as_str())
 }
@@ -73,6 +84,25 @@ impl<'a> CredentialProviderSecretRequest<'a> {
             provider_session: required_str(data, "provider_session")?,
             credential_id: required_str(data, "credential_id")?,
             requested_otp_id: optional_str(data, "otp_id").map(str::trim),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(in crate::rpc::router) struct CredentialProviderOneTimeCodeRequest<'a> {
+    pub(in crate::rpc::router) provider_session: &'a str,
+    pub(in crate::rpc::router) credential_id: &'a str,
+    pub(in crate::rpc::router) otp_id: &'a str,
+}
+
+impl<'a> CredentialProviderOneTimeCodeRequest<'a> {
+    pub(in crate::rpc::router) fn parse(
+        data: &'a serde_json::Value,
+    ) -> Result<Self, CredentialProviderCommandError> {
+        Ok(Self {
+            provider_session: required_non_empty_str(data, "provider_session")?,
+            credential_id: required_non_empty_str(data, "credential_id")?,
+            otp_id: required_non_empty_str(data, "otp_id")?,
         })
     }
 }

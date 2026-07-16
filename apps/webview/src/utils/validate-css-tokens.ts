@@ -15,6 +15,40 @@ function reportMissing(el: Element, scope: string, names: string[]): TokenReport
   return {scope, missing}
 }
 
+function collectRootRuntimePropertyNames(): string[] {
+  const names = new Set<string>()
+
+  const visitRules = (rules: CSSRuleList) => {
+    for (const rule of rules) {
+      if (rule instanceof CSSStyleRule) {
+        const targetsRoot = rule.selectorText
+          .split(',')
+          .map((selector) => selector.trim())
+          .includes(':root')
+        if (targetsRoot) {
+          for (let index = 0; index < rule.style.length; index += 1) {
+            const name = rule.style.item(index)
+            if (name.startsWith('--app-runtime-')) names.add(name)
+          }
+        }
+      }
+
+      const nestedRules = (rule as CSSRule & {cssRules?: CSSRuleList}).cssRules
+      if (nestedRules) visitRules(nestedRules)
+    }
+  }
+
+  for (const styleSheet of document.styleSheets) {
+    try {
+      visitRules(styleSheet.cssRules)
+    } catch {
+      // Cross-origin stylesheets are opaque and cannot own Webview runtime values.
+    }
+  }
+
+  return [...names].sort()
+}
+
 export function validateCssTokens(): TokenReport[] {
   const root = document.documentElement
 
@@ -38,14 +72,15 @@ export function validateCssTokens(): TokenReport[] {
 
   const appCore = [
     '--app-spacing-4',
-    '--touch-target-min',
+    '--app-touch-target-min',
     '--cv-gradient-primary',
-    '--overlay-bg',
+    '--app-overlay-background',
   ]
 
   const reports = [
     reportMissing(root, 'ChromVoid CV tokens', cvCore),
     reportMissing(root, 'ChromVoid app tokens', appCore),
+    reportMissing(root, 'ChromVoid runtime values', collectRootRuntimePropertyNames()),
   ]
 
   const missingTotal = reports.reduce((sum, r) => sum + r.missing.length, 0)

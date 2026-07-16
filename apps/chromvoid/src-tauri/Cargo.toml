@@ -17,17 +17,26 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [[bin]]
 name = "mobile-usb-smoke"
 path = "src/bin/mobile-usb-smoke.rs"
-required-features = ["desktop"]
+required-features = ["mobile-usb-smoke"]
+
+[[bin]]
+name = "env-runtime-test-probe"
+path = "tests/fixtures/env-runtime-test-probe.rs"
+required-features = ["env-runtime-test-probe"]
+test = false
+bench = false
 
 [build-dependencies]
-tauri-build = { version = "2.5.6", features = [] }
+tauri-build = { version = "2.6.3", features = [] }
 
 [features]
 default = ["desktop"]
+mobile-usb-smoke = ["desktop"]
 desktop = [
     "dep:webrtc",
     "dep:dav-server",
     "dep:hyper",
+    "dep:http-body-util",
     "dep:hyper-util",
     "tokio/rt-multi-thread",
     "tokio/signal",
@@ -40,17 +49,21 @@ ios = ["mobile"]
 android = ["mobile"]
 caldav = ["desktop", "dav-server/caldav"]
 carddav = ["desktop", "dav-server/carddav"]
+# Test-only executable and in-crate harness for the production Env Runtime
+# coordinator. The crate root rejects this feature in non-debug builds.
+env-runtime-test-probe = ["desktop"]
 
 [dependencies]
-tauri = { version = "2.10.3", features = ["protocol-asset"] }
+tauri = { version = "2.11.5", features = ["protocol-asset"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 futures-util = "0.3"
 tempfile = "3"
-tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "sync", "time"] }
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 snow = "0.10"
 sha2 = "0.10"
+hmac = "0.12"
 signature = "2"
 rsa = "0.9"
 rand = "0.8"
@@ -58,7 +71,7 @@ base64 = "0.22"
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-tauri-plugin-dialog = "2.6.0"
+tauri-plugin-dialog = "2.7.1"
 tauri-plugin-clipboard-manager = "2.3.2"
 webrtc = { version = "0.14", optional = true }
 bytes = "1"
@@ -68,24 +81,30 @@ quinn = { version = "0.11", default-features = true }
 uuid = { version = "1", features = ["v4", "serde"] }
 rustls-pemfile = "2"
 rustls = "0.23"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 chrono = "0.4"
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "tiff", "webp"] }
 lofty = "0.24.0"
 kamadak-exif = "0.6"
 quick-xml = "0.39"
 hex = "0.4"
-keyring = "3"
 zxcvbn = "3.1.0"
 
 # ADR-023: WebDAV backend (localhost-only)
 dav-server = { version = "0.10", optional = true }
 hyper = { version = "1", features = ["http1", "server", "client"], optional = true }
+http-body-util = { version = "0.1", optional = true }
 hyper-util = { version = "0.1", features = ["tokio"], optional = true }
 ssh-key = { version = "0.6", features = ["ed25519", "rsa", "p256", "p384", "std", "rand_core"] }
 zeroize = "1"
 chromvoid-core = { path = "../../../crates/core" }
 chromvoid-protocol = { path = "../../../crates/protocol", features = ["async-transport"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["apple-native"] }
+
+[target.'cfg(all(target_os = "linux", not(target_env = "musl")))'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 fuser = { path = "../../../crates/fuser" }
@@ -93,17 +112,19 @@ libc = "0.2"
 dbus = "0.9"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-fuser = { path = "../../../crates/fuser", features = ["libfuse2"] }
+fuser = { path = "../../../crates/fuser" }
 libc = "0.2"
+rusb = { version = "0.9", features = ["vendored"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
 ssh2 = "0.9"
-rusb = "0.9"
 
 [target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
 libheif-rs = { version = "2.7", default-features = false, features = ["v1_17"] }
+rusb = "0.9"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "ios"))'.dependencies]
@@ -113,11 +134,14 @@ webp = { version = "0.3", default-features = false }
 block2 = "0.6"
 objc2 = "0.6"
 objc2-core-foundation = "0.3.2"
-objc2-foundation = { version = "0.3.2", features = ["NSData", "NSDictionary", "NSObject", "NSUserDefaults", "NSString", "NSFileManager", "NSURL"] }
+objc2-foundation = { version = "0.3.2", features = ["NSData", "NSDictionary", "NSObject", "NSProcessInfo", "NSUserDefaults", "NSString", "NSFileManager", "NSURL"] }
+objc2-security = { version = "0.3.2", default-features = false, features = ["SecTask"] }
 objc2-authentication-services = { version = "0.3.2", default-features = false, features = [
     "ASCredentialIdentityStore",
+    "ASSettingsHelper",
     "ASCredentialServiceIdentifier",
     "ASPasswordCredentialIdentity",
+    "ASOneTimeCodeCredentialIdentity",
     "ASCredentialIdentityStoreState",
     "ASCredentialIdentity",
     "block2",
@@ -126,6 +150,7 @@ objc2-authentication-services = { version = "0.3.2", default-features = false, f
     "alloc",
 ] }
 objc2-local-authentication = "0.3.2"
+security-framework = "3.7"
 
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2-background-tasks = "0.3.2"
@@ -151,10 +176,10 @@ ndk-context = "0.1"
 [dev-dependencies]
 ed25519-dalek = "2"
 image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
-tauri = { version = "2.10.3", features = ["test"] }
-http-body-util = "0.1"
+tauri = { version = "2.11.5", features = ["test"] }
 
 [workspace]
 
 [patch.crates-io]
 swift-rs = { path = "vendor/swift-rs-1.0.7" }
+ton = { path = "vendor/ton-0.2.5" }

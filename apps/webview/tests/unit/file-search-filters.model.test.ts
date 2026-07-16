@@ -60,6 +60,79 @@ describe('file search filter actions', () => {
     })
   })
 
+  it('toggles mobile quick filters without clearing existing filter state', () => {
+    let filters: SearchFilters = {
+      ...createDefaultFileSearchFilters(),
+      query: 'daily',
+      sortBy: 'date',
+      sortDirection: 'desc',
+      viewMode: 'grid',
+      fileTypes: ['documents'],
+    }
+    const actions = createFileSearchFilterActions({
+      read: () => filters,
+      write: (next) => {
+        filters = next
+      },
+    })
+
+    actions.setMobileQuickFilter('markdown')
+    expect(filters).toMatchObject({
+      query: 'daily',
+      sortBy: 'date',
+      sortDirection: 'desc',
+      viewMode: 'grid',
+      fileTypes: ['documents', 'markdown'],
+    })
+
+    actions.setMobileQuickFilter('images')
+    expect(filters).toMatchObject({query: 'daily', fileTypes: ['documents', 'markdown', 'images']})
+
+    actions.setMobileQuickFilter('markdown')
+    expect(filters).toMatchObject({query: 'daily', fileTypes: ['documents', 'images']})
+
+    actions.setMobileQuickFilter('all')
+    expect(filters).toMatchObject({query: 'daily', fileTypes: []})
+  })
+
+  it('keeps mobile view controls limited to list and grid while preserving table elsewhere', () => {
+    let filters: SearchFilters = createDefaultFileSearchFilters({viewMode: 'table'})
+    const actions = createFileSearchFilterActions({
+      read: () => filters,
+      write: (next) => {
+        filters = next
+      },
+    })
+
+    actions.setMobileViewMode('grid')
+    expect(filters.viewMode).toBe('grid')
+
+    actions.setMobileViewMode('list')
+    expect(filters.viewMode).toBe('list')
+
+    actions.setViewMode('table')
+    expect(filters.viewMode).toBe('table')
+  })
+
+  it('cycles the mobile sort control through name, date, and size', () => {
+    let filters: SearchFilters = createDefaultFileSearchFilters()
+    const actions = createFileSearchFilterActions({
+      read: () => filters,
+      write: (next) => {
+        filters = next
+      },
+    })
+
+    actions.cycleMobileSort()
+    expect(filters.sortBy).toBe('date')
+
+    actions.cycleMobileSort()
+    expect(filters.sortBy).toBe('size')
+
+    actions.cycleMobileSort()
+    expect(filters.sortBy).toBe('name')
+  })
+
   it('resets to injected default filters', () => {
     let filters: SearchFilters = {
       ...createDefaultFileSearchFilters({showHidden: true}),

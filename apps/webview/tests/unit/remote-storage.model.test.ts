@@ -41,6 +41,19 @@ describe('RemoteStorageModel export flow', () => {
     vi.restoreAllMocks()
   })
 
+  it('keeps an empty export attempt local and exposes actionable password guidance', async () => {
+    const model = new RemoteStorageModel()
+
+    await expect(model.startExport()).resolves.toBe(false)
+
+    expect(model.passwordError()).not.toBe('')
+    expect(model.transferStep()).toBe('idle')
+    expect(ipc.tauriInvoke).not.toHaveBeenCalled()
+
+    model.handlePasswordInput(new CustomEvent('cv-input', {detail: {value: 'secret-password'}}))
+    expect(model.passwordError()).toBe('')
+  })
+
   it('guards duplicate export starts while an export is already running', async () => {
     const pending = deferred<{
       ok: true

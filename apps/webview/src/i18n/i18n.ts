@@ -1,49 +1,70 @@
+import {computed} from '@reatom/core'
 import type {Lang} from '@project/i18n'
-import {createI18n} from '@project/i18n'
+import {createI18n, createTranslationStore, resolveTextDirection} from '@project/i18n'
 
 import {setPasswordManagerLang} from '@project/passmanager/i18n'
+import {setLang as setPasswordImportLang} from '@chromvoid/password-import/i18n'
 
-import data from './data.json'
+import {
+  isSupportedLanguage,
+  langsAvailable,
+  resolveSupportedLanguage,
+} from './language-availability'
+import {locales} from './locales'
 
+const translations = createTranslationStore(locales)
 const localStorageKey = 'current-lang'
 
-const langsUnsorted: [string, string][] = [
-  ['en', 'English'],
-  ['es', 'Spanish'],
-  ['fr', 'French'],
-  ['id', 'Indonesian'],
-  ['it', 'Italian'],
-  ['ja', 'Japanese'],
-  ['ru', 'Russian'],
-  ['tr', 'Turkish'],
-  ['uk', 'Ukrainian'],
-  ['vi', 'Vietnamese'],
-  ['zh', 'Chinese'],
-]
-const langs = langsUnsorted.sort((a, b) => {
-  if (a[0] === 'en') return -1
-  if (b[0] === 'en') return 1
-  if (a[1] < b[1]) return -1
-  if (a[1] > b[1]) return 1
-  return 0
-})
-const available = ['en', 'es', 'fr', 'id', 'it', 'ja', 'ru', 'tr', 'uk', 'vi', 'zh']
+const readPersistedLanguage = (): string | null => {
+  try {
+    return globalThis.localStorage?.getItem(localStorageKey) ?? null
+  } catch {
+    return null
+  }
+}
 
-export const {i18n, setLang, getLang, langState} = createI18n(
-  data,
-  (localStorage.getItem(localStorageKey) as Lang) ?? 'en',
-  {fallbackLang: 'en'},
-)
+const persistLanguage = (value: string): void => {
+  try {
+    globalThis.localStorage?.setItem(localStorageKey, value)
+  } catch {
+    // Language selection still applies for this session when storage is unavailable.
+  }
+}
+
+const applyDocumentLanguage = (value: string): void => {
+  if (typeof document === 'undefined') return
+  document.documentElement.lang = value
+  document.documentElement.dir = resolveTextDirection(value)
+}
+
+const i18nModel = createI18n(translations, resolveSupportedLanguage(readPersistedLanguage()), {
+  fallbackLang: 'en',
+  syncDocumentLang: false,
+})
+
+export const {i18n, getLang, langState} = i18nModel
+export const directionState = computed(() => resolveTextDirection(langState()), 'i18n.direction')
+
+export const setLang = (value: Lang): boolean => {
+  if (!isSupportedLanguage(value)) return false
+  i18nModel.setLang(value)
+  return true
+}
+
+// App-lifetime integration boundary. Reatom calls this synchronously on subscribe,
+// keeping pre-paint bootstrap, runtime document state, persistence, and packages aligned.
 langState.subscribe((value: Lang) => {
-  localStorage.setItem(localStorageKey, value)
+  applyDocumentLanguage(value)
+  persistLanguage(value)
   setPasswordManagerLang(value)
+  setPasswordImportLang(value)
 })
 
-export const langsAvalable = langs.filter((item) => available.includes(item[0]!))
+export {isSupportedLanguage, langsAvailable, resolveSupportedLanguage}
 
 export const lang = {
-  langs,
-  available,
+  langs: langsAvailable,
+  available: langsAvailable.map(([value]) => value),
   localStorageKey,
 }
 

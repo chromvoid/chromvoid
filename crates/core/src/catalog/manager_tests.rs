@@ -182,6 +182,105 @@ fn test_delete_root_fails() {
 }
 
 #[test]
+fn test_trash_restore_and_empty() {
+    let mut manager = CatalogManager::new();
+
+    manager.create_dir("/", "docs").expect("should create docs");
+    let file_id = manager
+        .create_file("/docs", "report.txt", 42, Some("text/plain".to_string()))
+        .expect("should create file");
+
+    let trashed = manager.trash_node(file_id).expect("should trash file");
+    assert_eq!(
+        trashed
+            .trash
+            .as_ref()
+            .map(|trash| trash.original_path.as_str()),
+        Some("/docs/report.txt")
+    );
+    assert!(manager.find_by_path("/docs/report.txt").is_none());
+    assert_eq!(manager.list("/").expect("root list").len(), 2);
+    assert_eq!(manager.list_trash().expect("trash list").len(), 1);
+
+    let restored = manager
+        .restore_trashed_node(file_id, None, None)
+        .expect("should restore file");
+    assert_eq!(restored.name, "report.txt");
+    assert_eq!(restored.trash, None);
+    assert!(manager.find_by_path("/docs/report.txt").is_some());
+    assert!(manager.list_trash().expect("trash list").is_empty());
+
+    manager.trash_node(file_id).expect("should trash again");
+    let removed = manager.empty_trash().expect("should empty trash");
+    assert_eq!(removed.len(), 1);
+    assert!(manager.find_by_id(file_id).is_none());
+    assert!(manager.list_trash().expect("trash list").is_empty());
+}
+
+#[test]
+fn test_restore_trash_reports_name_conflict_without_losing_node() {
+    let mut manager = CatalogManager::new();
+
+    manager.create_dir("/", "docs").expect("should create docs");
+    let file_id = manager
+        .create_file("/docs", "report.txt", 42, None)
+        .expect("should create file");
+    manager.trash_node(file_id).expect("should trash file");
+    manager
+        .create_file("/docs", "report.txt", 1, None)
+        .expect("should create conflicting file");
+
+    let result = manager.restore_trashed_node(file_id, None, None);
+
+    assert!(matches!(result, Err(Error::NameExists(_))));
+    let trashed = manager.find_by_id(file_id).expect("trashed node remains");
+    assert!(trashed.trash.is_some());
+    assert!(manager
+        .get_path(file_id)
+        .expect("trashed path")
+        .starts_with("/.trash/"));
+}
+
+#[test]
+fn test_exchange_nodes_swaps_same_type_paths() {
+    let mut manager = CatalogManager::new();
+
+    manager.create_dir("/", "left").expect("should create left");
+    manager
+        .create_dir("/", "right")
+        .expect("should create right");
+    let left_id = manager
+        .create_file("/left", "a.txt", 1, None)
+        .expect("should create left file");
+    let right_id = manager
+        .create_file("/right", "b.txt", 2, None)
+        .expect("should create right file");
+
+    manager
+        .exchange_nodes(left_id, right_id)
+        .expect("should exchange files");
+
+    assert_eq!(manager.get_path(left_id).as_deref(), Some("/right/b.txt"));
+    assert_eq!(manager.get_path(right_id).as_deref(), Some("/left/a.txt"));
+}
+
+#[test]
+fn test_exchange_nodes_rolls_back_on_type_mismatch() {
+    let mut manager = CatalogManager::new();
+
+    let dir_id = manager.create_dir("/", "docs").expect("should create dir");
+    let file_id = manager
+        .create_file("/", "file.txt", 1, None)
+        .expect("should create file");
+
+    let result = manager.exchange_nodes(dir_id, file_id);
+
+    assert!(matches!(result, Err(Error::InvalidPath(_))));
+    assert_eq!(manager.get_path(dir_id).as_deref(), Some("/docs"));
+    assert_eq!(manager.get_path(file_id).as_deref(), Some("/file.txt"));
+}
+
+#[test]
 fn test_list() {
     let mut manager = CatalogManager::new();
 

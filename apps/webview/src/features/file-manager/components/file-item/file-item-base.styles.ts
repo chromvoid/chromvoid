@@ -8,30 +8,11 @@ export const fileItemBaseStyles = [
   css`
     /*========== HOST - Basic Styles ========*/
     :host {
-      --file-type-default: var(--cv-color-text-muted);
-      --file-type-folder: var(--cv-color-primary);
-      --file-type-image: var(--cv-color-success);
-      --file-type-document: var(--cv-color-accent);
-      --file-type-archive: var(--cv-color-warning);
-      --file-type-media: var(--cv-color-cyan);
-      --file-type-code: var(--cv-color-primary-dark);
-      --file-item-focus-outline: 2px solid var(--cv-color-focus);
-      --file-item-focus-outline-offset: 2px;
-      --file-item-selected-background: var(--cv-color-primary-surface-strong);
-      --file-item-active-background: var(--cv-color-primary-subtle);
-      --file-item-hover-background: var(--cv-color-primary-surface);
-      --file-item-selected-border: var(--cv-color-primary);
-      --file-item-active-border: var(--cv-color-primary-border-strong);
-      --file-item-selected-outline: 1px solid var(--cv-color-primary-ring);
-      --file-item-selected-outline-offset: -1px;
-      --file-item-selected-leading-accent: var(--cv-color-primary);
-      --file-item-active-outline: var(--file-item-selected-outline);
-      --file-item-active-outline-offset: var(--file-item-selected-outline-offset);
       box-sizing: border-box;
       border: 1px solid transparent;
       border-radius: var(--cv-radius-2);
       outline: none;
-      outline-offset: var(--file-item-focus-outline-offset);
+      outline-offset: 2px;
       transition:
         transform var(--cv-duration-fast) var(--cv-easing-standard),
         opacity var(--cv-duration-fast) var(--cv-easing-standard),
@@ -42,19 +23,19 @@ export const fileItemBaseStyles = [
     }
 
     :host(:focus) {
-      outline: var(--file-item-focus-outline);
+      outline: 2px solid var(--cv-color-focus);
       z-index: 2;
     }
 
     :host([active]) {
-      outline: var(--file-item-active-outline);
-      outline-offset: var(--file-item-active-outline-offset);
+      outline: 1px solid var(--cv-color-primary-ring);
+      outline-offset: -1px;
       z-index: 1;
     }
 
     :host([active]:focus),
     :host(:focus-visible) {
-      outline: var(--file-item-focus-outline);
+      outline: 2px solid var(--cv-color-focus);
       z-index: 2;
     }
 
@@ -113,29 +94,36 @@ export const fileItemBaseStyles = [
       inset-inline-start: 10px;
       inline-size: 18px;
       block-size: 18px;
-      border-radius: 999px;
-      background: var(--cv-color-surface-glass);
+      padding: 0;
+      border-radius: var(--cv-radius-1);
+      background: transparent;
       border: 1px solid var(--cv-color-border-soft);
       color: var(--cv-color-primary);
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 0 0 2px var(--cv-color-surface);
-      pointer-events: none;
+      box-shadow: none;
+      cursor: pointer;
       z-index: 2;
+    }
+
+    .selection-indicator:hover {
+      border-color: var(--cv-color-primary-border-strong);
+      background: var(--cv-color-primary-subtle);
+    }
+
+    .selection-indicator:focus-visible {
+      outline: 2px solid var(--cv-color-focus);
+      outline-offset: 2px;
     }
 
     .selection-indicator.is-selected {
       background: var(--cv-color-primary);
       border-color: transparent;
-      color: white;
+      color: var(--cv-color-on-primary);
     }
 
     .thumbnail-shell {
-      --file-media-spectrum-width: var(--file-media-spectrum-default-width);
-      --file-media-spectrum-height: var(--file-media-spectrum-default-height);
-      --file-media-spectrum-bar-width: var(--file-media-spectrum-default-bar-width);
-      --file-media-spectrum-gap: var(--file-media-spectrum-default-gap);
       inline-size: 44px;
       block-size: 44px;
       display: flex;
@@ -188,18 +176,18 @@ export const fileItemBaseStyles = [
     }
 
     .media-active-spectrum {
-      inline-size: var(--file-media-spectrum-width);
-      block-size: var(--file-media-spectrum-height);
+      inline-size: var(--file-media-spectrum-default-inline-size);
+      block-size: var(--file-media-spectrum-default-block-size);
       display: inline-flex;
       align-items: end;
       justify-content: center;
-      gap: var(--file-media-spectrum-gap);
+      gap: var(--file-media-spectrum-default-gap);
       color: var(--cv-color-primary);
       pointer-events: none;
     }
 
     .media-active-spectrum span {
-      inline-size: var(--file-media-spectrum-bar-width);
+      inline-size: var(--file-media-spectrum-default-bar-inline-size);
       block-size: 44%;
       border-radius: 999px;
       background: currentColor;
@@ -232,23 +220,9 @@ export const fileItemBaseStyles = [
       block-size: 100%;
       display: block;
       object-fit: cover;
-      animation: thumbnail-reveal var(--cv-duration-fast) var(--cv-easing-standard);
-    }
-
-    @keyframes thumbnail-reveal {
-      from {
-        opacity: 0;
-        transform: scale(1.02);
-      }
-
-      to {
-        opacity: 1;
-        transform: scale(1);
-      }
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .thumbnail-image,
       .media-active-spectrum span {
         animation: none;
       }
@@ -268,7 +242,7 @@ export const fileItemBaseStyles = [
 
     .icon {
       font-size: 22px;
-      color: var(--file-type-default, var(--cv-color-text-muted));
+      color: var(--cv-color-text-muted);
       inline-size: 100%;
       block-size: 100%;
       display: flex;
@@ -281,31 +255,31 @@ export const fileItemBaseStyles = [
         background var(--cv-duration-fast) var(--cv-easing-standard);
 
       &.folder {
-        color: var(--file-type-folder);
+        color: var(--cv-color-primary);
       }
 
       &.file-image {
-        color: var(--file-type-image);
+        color: var(--cv-color-success);
       }
 
       &.file-document {
-        color: var(--file-type-document);
+        color: var(--cv-color-accent);
       }
 
       &.file-archive {
-        color: var(--file-type-archive);
+        color: var(--cv-color-warning);
       }
 
       &.file-media {
-        color: var(--file-type-media);
+        color: var(--cv-color-cyan);
       }
 
       &.file-code {
-        color: var(--file-type-code);
+        color: var(--cv-color-primary-dark);
       }
 
       &.file-default {
-        color: var(--file-type-default);
+        color: var(--cv-color-text-muted);
       }
     }
 
@@ -364,27 +338,27 @@ export const fileItemBaseStyles = [
     /*Color badges for file types*/
     .file-item:has(.icon.file-image, .thumbnail-shell.file-image) .file-type {
       background: var(--cv-color-success-surface);
-      color: var(--file-type-image);
+      color: var(--cv-color-success);
     }
 
     .file-item:has(.icon.file-document, .thumbnail-shell.file-document) .file-type {
       background: var(--cv-color-accent-surface);
-      color: var(--file-type-document);
+      color: var(--cv-color-accent);
     }
 
     .file-item:has(.icon.file-archive, .thumbnail-shell.file-archive) .file-type {
       background: var(--cv-color-warning-surface);
-      color: var(--file-type-archive);
+      color: var(--cv-color-warning);
     }
 
     .file-item:has(.icon.file-media, .thumbnail-shell.file-media) .file-type {
       background: var(--cv-color-primary-surface);
-      color: var(--file-type-media);
+      color: var(--cv-color-cyan);
     }
 
     .file-item:has(.icon.file-code, .thumbnail-shell.file-code) .file-type {
       background: var(--cv-color-primary-surface-strong);
-      color: var(--file-type-code);
+      color: var(--cv-color-primary-dark);
     }
 
     .actions {

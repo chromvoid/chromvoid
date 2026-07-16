@@ -2,14 +2,14 @@ import {html, render} from 'lit'
 import {atom} from '@reatom/core'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
-import {CVGuidanceAnchor} from '@chromvoid/uikit/components/cv-guidance-anchor'
 import {
+  CVGuidanceAnchor,
   GUIDANCE_ANCHOR_REGISTER_EVENT,
   type CVGuidanceAnchorEventDetail,
 } from '@chromvoid/uikit/components/cv-guidance-anchor'
 
-import {DashboardHeader} from '../../src/features/file-manager/components/dashboard-header'
-import {DesktopShellToolbar} from '../../src/features/shell/components/desktop-shell-toolbar'
+import {DashboardHeader} from '../../src/features/shell/components/dashboard-header'
+import {WorkspaceDashboardHeader} from '../../src/features/file-manager/components/workspace-dashboard-header'
 import {
   definePasswordManagerDesktopToolbarContent,
   executePasswordManagerDesktopToolbarButtonEvent,
@@ -26,6 +26,7 @@ import {clearAppContext, createMockAppContext, initAppContext} from '../../src/s
 
 CVGuidanceAnchor.define()
 DashboardHeader.define()
+WorkspaceDashboardHeader.define()
 definePasswordManagerDesktopToolbarContent()
 WelcomeSetupSection.define()
 
@@ -72,6 +73,7 @@ function makeWelcomeModel(overrides: Record<string, unknown> = {}) {
     effectiveStep: () => 'mode-select',
     busy: () => false,
     setupInProgress: () => false,
+    unlockInProgress: () => false,
     creationState: () => ({p1: '', p2: ''}),
     isNeedInit: () => true,
     isDesktopRemoteSupported: () => true,
@@ -134,7 +136,7 @@ describe('guidance anchor registration', () => {
       }),
     )
     const registrations = captureAnchorRegistrations()
-    const header = document.createElement('dashboard-header') as DashboardHeader
+    const header = document.createElement('workspace-dashboard-header') as WorkspaceDashboardHeader
     const createDir = vi.fn()
     header.addEventListener('create-dir', createDir)
 
@@ -153,7 +155,9 @@ describe('guidance anchor registration', () => {
     const registrations = captureAnchorRegistrations()
     const execute = vi.fn()
     const model = makeToolbarModel(execute)
-    const toolbar = document.createElement(DesktopShellToolbar.elementName) as DesktopShellToolbar
+    const toolbar = document.createElement(DashboardHeader.elementName) as DashboardHeader
+    toolbar.classList.add('passwords-desktop-toolbar')
+    toolbar.twoRow = true
 
     document.body.append(toolbar)
     render(
@@ -228,8 +232,10 @@ describe('guidance anchor registration', () => {
               }),
               backends: () => [{id: 'webdav', label: 'WebDAV', available: true}],
               selectedBackend: () => 'webdav',
+              missingMacFuse: () => null,
             },
             onBackendChange: () => {},
+            onOpenMacFuseInstallPage: () => {},
             onVolumeMount: () => {},
             onVolumeUnmount: () => {},
             onVolumeRefresh: () => {},

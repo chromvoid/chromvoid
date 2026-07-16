@@ -244,6 +244,7 @@ describe('PMEntryTOTPItem', () => {
     })
     const idleFeedbackNode = getFeedbackMotionNode(item)
     expect(idleFeedbackNode?.textContent?.trim()).toBe('Copy')
+    expect(item.shadowRoot?.querySelector('.totp-feedback-icon')?.getAttribute('name')).toBe('copy')
 
     getTotpCard(item)?.click()
     await flushMicrotasks()
@@ -258,11 +259,13 @@ describe('PMEntryTOTPItem', () => {
     })
     const copiedFeedbackNode = getFeedbackMotionNode(item)
     expect(copiedFeedbackNode).not.toBe(idleFeedbackNode)
+    expect(item.shadowRoot?.querySelector('.totp-feedback-icon')?.getAttribute('name')).toBe('copy-check')
 
     await vi.advanceTimersByTimeAsync(1500)
     await item.updateComplete
 
     expect(getFeedbackText(item)).toBe('Copy')
+    expect(item.shadowRoot?.querySelector('.totp-feedback-icon')?.getAttribute('name')).toBe('copy')
     expect(getFeedbackMotionNode(item)).not.toBe(copiedFeedbackNode)
   })
 
@@ -375,8 +378,8 @@ describe('PMEntryTOTPItem', () => {
 
   it.each([
     {leftSeconds: 11, level: 'safe', urgent: false},
-    {leftSeconds: 10, level: 'warning', urgent: false},
-    {leftSeconds: 6, level: 'warning', urgent: false},
+    {leftSeconds: 10, level: 'safe', urgent: false},
+    {leftSeconds: 6, level: 'safe', urgent: false},
     {leftSeconds: 5, level: 'danger', urgent: true},
     {leftSeconds: 4, level: 'danger', urgent: true},
   ])('marks TOTP countdown as $level at $leftSeconds seconds', async ({leftSeconds, level, urgent}) => {

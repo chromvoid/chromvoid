@@ -44,8 +44,6 @@ export class FileSearchMobile extends FileSearchBase {
 
     :host {
       display: contents;
-      --fab-size: 44px;
-      --fab-icon-size: 20px;
     }
 
     .mobile-bar {
@@ -86,16 +84,16 @@ export class FileSearchMobile extends FileSearchBase {
     }
 
     .toggle-filters--fab {
-      width: var(--fab-size, 44px);
-      height: var(--fab-size, 44px);
+      width: var(--file-search-fab-size);
+      height: var(--file-search-fab-size);
       border-radius: 50%;
       border: 1px solid var(--cv-color-border-soft);
       background: var(--cv-color-surface-2);
       box-shadow: var(--cv-shadow-2);
 
       cv-icon {
-        width: var(--fab-icon-size, 20px);
-        height: var(--fab-icon-size, 20px);
+        width: var(--file-search-fab-icon-size);
+        height: var(--file-search-fab-icon-size);
       }
 
       &:hover {
@@ -112,15 +110,15 @@ export class FileSearchMobile extends FileSearchBase {
 
     /* Active filter indicator dot */
     .filter-badge {
-      --cv-notification-dot-block-start: 4px;
-      --cv-notification-dot-inline-end: 4px;
-      --cv-notification-dot-size: 8px;
-      --cv-notification-dot-radius: 50%;
+      --app-notification-dot-block-start: 4px;
+      --app-notification-dot-inline-end: 4px;
+      --app-notification-dot-size: 8px;
+      --app-notification-dot-radius: 50%;
     }
 
     .toggle-filters--fab .filter-badge {
-      --cv-notification-dot-block-start: 10px;
-      --cv-notification-dot-inline-end: 10px;
+      --app-notification-dot-block-start: 10px;
+      --app-notification-dot-inline-end: 10px;
     }
 
     /* ===== SHEET ===== */

@@ -23,16 +23,16 @@ export class MobileTabBar extends ReatomLitElement {
 
       @media (max-width: 767px) {
         :host {
-          display: var(--mobile-tab-bar-keyboard-aware-display, block);
+          display: var(--app-runtime-tab-bar-display, block);
           position: fixed;
-          bottom: 0;
-          left: 0;
-          right: 0;
+          inset-block-end: 0;
+          inset-inline: 0;
           z-index: calc(var(--cv-z-overlay, 300) - 1);
           background: var(--cv-color-bg);
+          border-block-start: 1px solid var(--cv-color-border-faint);
           backdrop-filter: blur(12px);
           -webkit-backdrop-filter: blur(12px);
-          padding-bottom: var(--safe-area-bottom-active, var(--safe-area-bottom, 0px));
+          padding-block-end: var(--app-runtime-safe-area-block-end-active, var(--app-runtime-safe-area-block-end, 0px));
         }
       }
 
@@ -41,14 +41,14 @@ export class MobileTabBar extends ReatomLitElement {
         align-items: center;
         justify-content: center;
         gap: 8px;
-        height: var(--app-mobile-tabbar-block-size, 64px);
+        block-size: var(--app-mobile-tabbar-block-size, 64px);
         padding: 0 16px;
       }
 
       .tab {
         flex: 1;
-        min-width: 0;
-        height: 100%;
+        min-inline-size: 0;
+        block-size: 100%;
         position: relative;
         border: none;
         border-radius: 12px;
@@ -58,9 +58,9 @@ export class MobileTabBar extends ReatomLitElement {
         -webkit-tap-highlight-color: transparent;
         touch-action: manipulation;
         transition:
-          color var(--cv-duration-fast, 150ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),
-          background var(--cv-duration-fast, 150ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1));
-        min-height: 48px;
+          color var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),
+          background var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart, cubic-bezier(0.25, 1, 0.5, 1));
+        min-block-size: 48px;
       }
 
       .tab::part(base) {
@@ -68,7 +68,7 @@ export class MobileTabBar extends ReatomLitElement {
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 6px;
+        gap: 3px;
         inline-size: 100%;
         block-size: 100%;
         box-sizing: border-box;
@@ -93,31 +93,6 @@ export class MobileTabBar extends ReatomLitElement {
 
       .tab.active {
         color: var(--cv-color-accent);
-      }
-
-      .tab.active::before,
-      .tab.active::after {
-        content: '';
-        position: absolute;
-        inset-inline-start: 50%;
-        transform: translateX(-50%);
-        pointer-events: none;
-        background: var(--cv-color-accent);
-      }
-
-      .tab.active::before {
-        inset-block-start: 0;
-        inline-size: 44px;
-        block-size: 3px;
-        border-radius: 0 0 999px 999px;
-        box-shadow: 0 0 14px var(--cv-color-accent-ring);
-      }
-
-      .tab.active::after {
-        inset-block-end: 6px;
-        inline-size: 5px;
-        block-size: 5px;
-        border-radius: 999px;
       }
 
       .tab cv-icon {

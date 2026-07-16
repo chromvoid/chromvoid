@@ -24,9 +24,6 @@ export const pmGroupCommonStyles = css`
     flex-direction: column;
     flex: 1;
     min-height: 0;
-    --pm-scrollbar-safe-area-end: 14px;
-    --pm-scrollbar-safe-area-start: 0px;
-    --pm-scrollbar-safe-area: calc(var(--pm-scrollbar-safe-area-start) + var(--pm-scrollbar-safe-area-end));
   }
 
   .group-virtual-list {
@@ -37,22 +34,22 @@ export const pmGroupCommonStyles = css`
     overflow-y: auto;
     contain: layout style !important;
     scrollbar-gutter: stable both-edges;
-    padding-inline-start: var(--pm-scrollbar-safe-area-start);
-    padding-inline-end: var(--pm-scrollbar-safe-area-end);
+    padding-inline-start: 0;
+    padding-inline-end: 14px;
     padding-top: var(--cv-space-1);
   }
 
   .pm-group-scroll-edge {
     flex: 1;
     min-block-size: 0;
-    --cv-scroll-edge-block-size: var(--cv-scroll-edge-group-block-size);
-    --cv-scroll-edge-inline-start: var(--pm-scrollbar-safe-area-start);
-    --cv-scroll-edge-inline-end: var(--pm-scrollbar-safe-area-end);
-    --cv-scroll-edge-surface: var(--cv-scroll-edge-default-surface);
+    --app-scroll-edge-block-size: var(--app-scroll-edge-group-block-size);
+    --app-scroll-edge-inline-start: 0px;
+    --app-scroll-edge-inline-end: 14px;
+    --app-scroll-edge-surface: var(--app-scroll-edge-default-surface);
   }
 
   .group-virtual-list > * {
-    width: calc(100% - var(--pm-scrollbar-safe-area-start) - var(--pm-scrollbar-safe-area-end));
+    width: calc(100% - 14px);
   }
 
   .entry-row[data-delete-exiting],
@@ -101,7 +98,8 @@ export const pmGroupCommonStyles = css`
     height: var(--pm-avatar-list-folder-size);
     --pm-avatar-radius: var(--pm-avatar-list-radius);
     --pm-avatar-image-fit: contain;
-    --pm-avatar-image-padding: var(--pm-avatar-list-folder-image-padding);
+    --pm-avatar-image-padding: 0px;
+    --pm-avatar-image-inset-shadow-color: transparent;
     --pm-avatar-contrast: var(--pm-avatar-contrast-base);
     --pm-avatar-shadow-opacity: var(--pm-avatar-list-shadow-opacity);
   }

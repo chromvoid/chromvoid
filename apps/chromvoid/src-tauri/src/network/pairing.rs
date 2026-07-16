@@ -311,7 +311,7 @@ impl NetworkPairingRuntimeState {
             }
         };
 
-        store.upsert(peer);
+        store.upsert(peer).map_err(|e| format!("upsert: {e}"))?;
         store.save().map_err(|e| format!("save: {e}"))?;
 
         self.sessions

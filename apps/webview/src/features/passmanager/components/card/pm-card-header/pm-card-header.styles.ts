@@ -180,7 +180,7 @@ export const pmCardHeaderMobileStyles = [
       inset-block-end: 8px;
       inline-size: 3px;
       border-radius: 0 999px 999px 0;
-      background: var(--cv-header-accent, var(--cv-color-primary));
+      background: var(--pm-header-accent, var(--cv-color-primary));
       opacity: 0.7;
     }
 

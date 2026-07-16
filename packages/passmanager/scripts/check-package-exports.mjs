@@ -37,6 +37,7 @@ async function main() {
     packageJson.exports['./ports'].types,
     packageJson.exports['./i18n'].types,
     packageJson.exports['./i18n/format'].types,
+    packageJson.exports['./i18n/availability'].types,
     packageJson.exports['./notify'].types,
     packageJson.exports['./dialog'].types,
     packageJson.exports['./select'].types,
@@ -64,6 +65,7 @@ async function main() {
     await bundle(`import {ManagerRoot} from '${path.join(packageRoot, 'dist', 'index.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof ManagerRoot)\n`, tmpRoot, 'root')
     await bundle(`import {Entry, ManagerRoot} from '${path.join(packageRoot, 'dist', 'core.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof Entry, typeof ManagerRoot)\n`, tmpRoot, 'core')
     await bundle(`import {i18n} from '${path.join(packageRoot, 'dist', 'i18n', 'index.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof i18n)\n`, tmpRoot, 'i18n')
+    await bundle(`import {hasCompletePasswordManagerTranslations} from '${path.join(packageRoot, 'dist', 'i18n', 'availability.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof hasCompletePasswordManagerTranslations)\n`, tmpRoot, 'i18n-availability')
     await bundle(`import {confirmPassManagerAction} from '${path.join(packageRoot, 'dist', 'service', 'dialog.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof confirmPassManagerAction)\n`, tmpRoot, 'dialog')
     await bundle(`import {createCredentialAuditResult} from '${path.join(packageRoot, 'dist', 'security-audit.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof createCredentialAuditResult)\n`, tmpRoot, 'security-audit')
     await bundle(`import {copyWithAutoWipe} from '${path.join(packageRoot, 'dist', 'password-utils.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof copyWithAutoWipe)\n`, tmpRoot, 'password-utils')

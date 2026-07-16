@@ -16,7 +16,7 @@ internal object PasskeyResultMapper {
     fun getException(error: BridgeError): GetCredentialException {
         val message = error.message
         return when (error.code) {
-            "UNSUPPORTED" -> NoCredentialException(message)
+            "NO_MATCH", "UNSUPPORTED" -> NoCredentialException(message)
             "POLICY_DENIED", "PROVIDER_UNAVAILABLE", "VAULT_REQUIRED", "PROVIDER_DISABLED" ->
                 GetCredentialInterruptedException(message)
             "USER_CANCELLED" -> GetCredentialCancellationException(message)

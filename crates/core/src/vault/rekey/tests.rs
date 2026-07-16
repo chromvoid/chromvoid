@@ -122,10 +122,11 @@ fn rekey_changes_password_and_preserves_catalog_blob_and_otp() {
     }
 
     let new_session = unlock(&storage, &keystore, "new-password");
-    assert!(new_session
-        .catalog()
-        .find_by_path("/docs/note.txt")
-        .is_some());
+    assert!(new_session.catalog().find_by_path("/docs").is_some());
+    let docs = Vault::load_shard_from_storage(&storage, new_session.vault_key(), "docs")
+        .expect("load rekeyed docs shard")
+        .expect("docs shard");
+    assert!(docs.root.find_child("note.txt").is_some());
 
     let old_session = unlock(&storage, &keystore, "old-password");
     assert!(old_session

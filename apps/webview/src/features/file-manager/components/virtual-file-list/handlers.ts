@@ -72,6 +72,8 @@ export class VirtualFileListHandlers {
     this.keyboardHandlers = createKeyboardHandlers({
       getItems: () => this.context.getItems(),
       getSelectedItems: () => this.context.getSelectedItems(),
+      isSelectionMode: () => this.context.isSelectionMode(),
+      emitSelectionModeRequested: (enabled: boolean) => this.context.emitSelectionModeRequested(enabled),
       emitSelectionChange: (selectedItems: number[]) => this.context.emitSelectionChange(selectedItems),
       emitNavigate: (path: string) => this.context.emitNavigate(path),
       emitItemAction: (
@@ -124,10 +126,16 @@ export class VirtualFileListHandlers {
 
   pruneAnchors(items: FileListItem[]): void {
     const ids = new Set(items.map((item) => item.id))
-    if (this.selectionState.lastSelectionAnchorId != null && !ids.has(this.selectionState.lastSelectionAnchorId)) {
+    if (
+      this.selectionState.lastSelectionAnchorId != null &&
+      !ids.has(this.selectionState.lastSelectionAnchorId)
+    ) {
       this.selectionState.lastSelectionAnchorId = null
     }
-    if (this.selectionState.lastKeyboardAnchorId != null && !ids.has(this.selectionState.lastKeyboardAnchorId)) {
+    if (
+      this.selectionState.lastKeyboardAnchorId != null &&
+      !ids.has(this.selectionState.lastKeyboardAnchorId)
+    ) {
       this.selectionState.lastKeyboardAnchorId = null
     }
   }
@@ -145,6 +153,7 @@ export class VirtualFileListHandlers {
   }
 
   onSortName: () => void = () => handleHeaderSort(this.context, 'name')
+  onSortType: () => void = () => handleHeaderSort(this.context, 'type')
   onSortSize: () => void = () => handleHeaderSort(this.context, 'size')
   onSortDate: () => void = () => handleHeaderSort(this.context, 'date')
   onPointerDown: (e: PointerEvent) => void = (e: PointerEvent) => this.pointerHandlers.onPointerDown(e)
@@ -158,8 +167,10 @@ export class VirtualFileListHandlers {
   onTouchEnd: (_event?: TouchEvent) => void = (_event?: TouchEvent) => this.pointerHandlers.onTouchEnd(_event)
   onItemDrop: (e: Event) => void = (e: Event) => this.itemHandlers.onItemDrop(e)
   onFileItemClick: (e: CustomEvent) => void = (e: CustomEvent) => this.itemHandlers.onFileItemClick(e)
-  onFileItemDoubleClick: (e: CustomEvent) => void = (e: CustomEvent) => this.itemHandlers.onFileItemDoubleClick(e)
-  onFileItemContextMenu: (e: CustomEvent) => void = (e: CustomEvent) => this.itemHandlers.onFileItemContextMenu(e)
+  onFileItemDoubleClick: (e: CustomEvent) => void = (e: CustomEvent) =>
+    this.itemHandlers.onFileItemDoubleClick(e)
+  onFileItemContextMenu: (e: CustomEvent) => void = (e: CustomEvent) =>
+    this.itemHandlers.onFileItemContextMenu(e)
   onFileItemRename: (e: CustomEvent) => void = (e: CustomEvent) => this.itemHandlers.onFileItemRename(e)
   onFileItemDownload: (e: CustomEvent) => void = (e: CustomEvent) => this.itemHandlers.onFileItemDownload(e)
   onFileItemDelete: (e: CustomEvent) => void = (e: CustomEvent) => this.itemHandlers.onFileItemDelete(e)
@@ -167,10 +178,14 @@ export class VirtualFileListHandlers {
   onTableRowClick: (e: Event) => void = (e: Event) => this.itemHandlers.onTableRowClick(e)
   onTableRowDblClick: (e: Event) => void = (e: Event) => this.itemHandlers.onTableRowDblClick(e)
   onTableRowContextMenu: (e: Event) => void = (e: Event) => this.itemHandlers.onTableRowContextMenu(e)
+  onTableSelectAll: (e: Event) => void = (e: Event) => this.itemHandlers.onTableSelectAll(e)
+  onTableInfoButtonClick: (e: Event) => void = (e: Event) => this.itemHandlers.onTableInfoButtonClick(e)
   onMoreButtonClick: (e: Event) => void = (e: Event) => this.itemHandlers.onMoreButtonClick(e)
   onTableCheckboxClick: (e: Event) => void = (e: Event) => this.itemHandlers.onTableCheckboxClick(e)
-  onContainerBackgroundClick: (e: MouseEvent) => void = (e: MouseEvent) => this.itemHandlers.onContainerBackgroundClick(e)
-  onContainerKeyDown: (e: KeyboardEvent) => void = (e: KeyboardEvent) => this.keyboardHandlers.onContainerKeyDown(e)
+  onContainerBackgroundClick: (e: MouseEvent) => void = (e: MouseEvent) =>
+    this.itemHandlers.onContainerBackgroundClick(e)
+  onContainerKeyDown: (e: KeyboardEvent) => void = (e: KeyboardEvent) =>
+    this.keyboardHandlers.onContainerKeyDown(e)
 
   private emitItemAction(
     action: string,

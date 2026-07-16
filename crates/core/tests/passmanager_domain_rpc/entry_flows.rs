@@ -921,13 +921,7 @@ fn test_passmanager_entry_move_preserves_otp_and_ssh_artifacts() {
         .result()
         .and_then(|r| r.get("entry"))
         .expect("entry");
-    assert_eq!(
-        entry
-            .get("sshKeys")
-            .and_then(|v| v.as_array())
-            .map(|items| items.len()),
-        Some(1)
-    );
+    assert!(entry.get("sshKeys").is_none());
     assert_eq!(
         entry
             .get("otps")
@@ -943,13 +937,7 @@ fn test_passmanager_entry_move_preserves_otp_and_ssh_artifacts() {
     assert_rpc_ok(&exported);
     let entry = get_root_entry_by_id(&exported, "move-secrets-direct-1").expect("entry in export");
     assert_eq!(entry.get("folderPath"), Some(&serde_json::Value::Null));
-    assert_eq!(
-        entry
-            .get("sshKeys")
-            .and_then(|v| v.as_array())
-            .map(|items| items.len()),
-        Some(1)
-    );
+    assert!(entry.get("sshKeys").is_none());
     assert_eq!(
         entry
             .get("otps")
@@ -1119,13 +1107,7 @@ fn test_passmanager_entry_save_move_preserves_otp_and_ssh_artifacts() {
     assert_rpc_ok(&exported);
     let entry = get_root_entry_by_id(&exported, "move-secrets-save-1").expect("entry in export");
     assert_eq!(entry.get("folderPath"), Some(&serde_json::Value::Null));
-    assert_eq!(
-        entry
-            .get("sshKeys")
-            .and_then(|v| v.as_array())
-            .map(|items| items.len()),
-        Some(1)
-    );
+    assert!(entry.get("sshKeys").is_none());
     assert_eq!(
         entry
             .get("otps")

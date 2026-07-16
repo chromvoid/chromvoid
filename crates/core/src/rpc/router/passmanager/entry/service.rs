@@ -152,27 +152,7 @@ pub(super) fn save_entry(
     if let Some(icon_ref) = request.icon_ref {
         meta_obj.insert("icon_ref".to_string(), serde_json::Value::String(icon_ref));
     }
-    if request.entry_type == "login" {
-        if let Some(ssh_keys) = request.ssh_keys {
-            meta_obj.insert("sshKeys".to_string(), serde_json::Value::Array(ssh_keys));
-            meta_obj.remove("sshKeyType");
-            meta_obj.remove("sshKeyFingerprint");
-            meta_obj.remove("sshKeyComment");
-        } else {
-            if let Some(v) = request.ssh_key_type {
-                meta_obj.insert("sshKeyType".to_string(), serde_json::Value::String(v));
-            }
-            if let Some(v) = request.ssh_key_fingerprint {
-                meta_obj.insert(
-                    "sshKeyFingerprint".to_string(),
-                    serde_json::Value::String(v),
-                );
-            }
-            if let Some(v) = request.ssh_key_comment {
-                meta_obj.insert("sshKeyComment".to_string(), serde_json::Value::String(v));
-            }
-        }
-    }
+    super::super::ssh::remove_legacy_metadata(meta_obj);
 
     sanitize_entry_meta_for_wire(meta_obj);
     stage_entry_meta_json(uow, node_id, &meta)?;
@@ -203,44 +183,6 @@ pub(super) fn read_entry(
         .map(|path| group_path_from_entry_path(&path))
         .unwrap_or_else(|| "/".to_string());
     set_wire_group_path(meta_obj, &current_group_path);
-    let entry_type = meta_obj
-        .get("entry_type")
-        .or_else(|| meta_obj.get("entryType"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("login")
-        .to_string();
-
-    if entry_type == "login" && !meta_obj.contains_key("sshKeys") {
-        let ssh_type = meta_obj
-            .get("sshKeyType")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        let ssh_fp = meta_obj
-            .get("sshKeyFingerprint")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        if let (Some(t), Some(f)) = (ssh_type, ssh_fp) {
-            let comment = meta_obj
-                .get("sshKeyComment")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let mut key_obj = serde_json::Map::new();
-            key_obj.insert(
-                "id".to_string(),
-                serde_json::Value::String("default".to_string()),
-            );
-            key_obj.insert("type".to_string(), serde_json::Value::String(t));
-            key_obj.insert("fingerprint".to_string(), serde_json::Value::String(f));
-            if !comment.is_empty() {
-                key_obj.insert("comment".to_string(), serde_json::Value::String(comment));
-            }
-            meta_obj.insert(
-                "sshKeys".to_string(),
-                serde_json::Value::Array(vec![serde_json::Value::Object(key_obj)]),
-            );
-        }
-    }
     sanitize_entry_meta_for_wire(meta_obj);
 
     Ok(EntryReadResult::new(meta))

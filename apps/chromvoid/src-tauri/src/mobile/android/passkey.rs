@@ -256,6 +256,11 @@ fn core_operation_payload(payload: Value, api_level: u64) -> Result<Value, Passk
     if let Some(client_data_hash) = client_data_hash {
         out["clientDataHash"] = json!(client_data_hash);
     }
+    out["userVerified"] = json!(payload
+        .get("user_verified")
+        .or_else(|| payload.get("userVerified"))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false));
     if let Some(credential_id) = payload
         .get("selected_credential_id")
         .or_else(|| payload.get("credentialIdB64Url"))

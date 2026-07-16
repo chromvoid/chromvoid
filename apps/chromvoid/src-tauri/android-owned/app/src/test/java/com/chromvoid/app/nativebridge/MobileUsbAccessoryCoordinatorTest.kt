@@ -88,6 +88,7 @@ class MobileUsbAccessoryCoordinatorTest {
         assertEquals(MobileUsbAccessoryCoordinatorResult.Detached, result)
         assertEquals(MobileUsbAccessoryCoordinatorState.Detached, coordinator.status.state)
         assertTrue(handle.closed)
+        assertEquals(MobileUsbAccessorySessionStopReason.AccessoryDetached, handle.closeReason)
     }
 
     @Test
@@ -103,6 +104,7 @@ class MobileUsbAccessoryCoordinatorTest {
         assertEquals(MobileUsbAccessoryCoordinatorResult.Disconnected, coordinator.disconnect())
         assertEquals(MobileUsbAccessoryCoordinatorResult.Disconnected, coordinator.disconnect())
         assertTrue(handle.closed)
+        assertEquals(MobileUsbAccessorySessionStopReason.ExplicitDisconnect, handle.closeReason)
         assertEquals(MobileUsbAccessoryCoordinatorState.Idle, coordinator.status.state)
     }
 
@@ -222,9 +224,11 @@ class MobileUsbAccessoryCoordinatorTest {
         override val sessionId: String = "session-1",
     ) : MobileUsbAccessorySessionHandle {
         var closed = false
+        var closeReason: MobileUsbAccessorySessionStopReason? = null
 
-        override fun close() {
+        override fun close(reason: MobileUsbAccessorySessionStopReason) {
             closed = true
+            closeReason = reason
         }
     }
 

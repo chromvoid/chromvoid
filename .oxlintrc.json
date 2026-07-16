@@ -19,6 +19,8 @@
     "**/dist/**",
     "build/**",
     "**/build/**",
+    ".mock/**",
+    "**/.mock/**",
     "*.min.js",
     "**/*.min.js",
     "*.bundle.js",
@@ -59,38 +61,52 @@
     "typescript/no-unnecessary-type-constraint": "off",
     "no-undef": "off",
     "no-redeclare": "off",
-    "quotes": [
-      "warn",
-      "single",
-      {
-        "allowTemplateLiterals": true,
-        "avoidEscape": true
-      }
-    ],
-    "semi": ["error", "never"],
     "no-console": "warn",
-    "no-mixed-spaces-and-tabs": ["error", "smart-tabs"],
     "no-empty": ["error", {"allowEmptyCatch": true}],
-    "object-curly-spacing": ["error", "never"],
     "import/no-duplicates": "error",
-    "no-restricted-syntax": [
+    "no-restricted-properties": [
       "error",
       {
-        "selector": "MemberExpression[object.name='window'][property.name='store']",
+        "object": "window",
+        "property": "store",
         "message": "Использовать getAppContext().store вместо window.store"
       },
       {
-        "selector": "MemberExpression[object.name='window'][property.name='ws']",
+        "object": "window",
+        "property": "ws",
         "message": "Использовать getAppContext().ws вместо window.ws"
       },
       {
-        "selector": "MemberExpression[object.name='window'][property.name='catalog']",
+        "object": "window",
+        "property": "catalog",
         "message": "Использовать getAppContext().catalog вместо window.catalog"
       },
       {
-        "selector": "MemberExpression[object.name='window'][property.name='state']",
+        "object": "window",
+        "property": "state",
         "message": "Использовать getAppContext().state вместо window.state"
       }
     ]
-  }
+  },
+  "overrides": [
+    {
+      "files": ["apps/webview/tests/**/*.{ts,tsx}"],
+      "rules": {
+        "no-restricted-properties": "off"
+      }
+    },
+    {
+      "files": ["backend/landings/**/*.tsx"],
+      "rules": {
+        "no-unused-vars": [
+          "error",
+          {
+            "argsIgnorePattern": "^_",
+            "varsIgnorePattern": "^(?:_|jsx$|Fragment$)",
+            "caughtErrorsIgnorePattern": "^_"
+          }
+        ]
+      }
+    }
+  ]
 }

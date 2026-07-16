@@ -2,7 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {html} from 'lit'
 import {Group, ManagerRoot} from '@project/passmanager'
 import {PMGroupMobile} from '../../src/features/passmanager/components/group/group/group-mobile'
-import {PMGroupListItemMobile} from '../../src/features/passmanager/components/group/group/group-list-item-mobile'
+import type {PMGroupListItemMobile} from '../../src/features/passmanager/components/group/group/group-list-item-mobile'
 import {pmSelectionModeModel} from '../../src/features/passmanager/models/pm-selection-mode.model'
 import {PMGroupModel, type PMGroupRow} from '../../src/features/passmanager/components/group/group/group.model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
@@ -29,6 +29,18 @@ async function flushGroupRow(element: PMGroupListItemMobile) {
   await Promise.resolve()
   await element.updateComplete
   await Promise.resolve()
+}
+
+async function openLeftGroupSwipe(element: PMGroupListItemMobile, preventDefault: () => void = () => {}) {
+  ;(element as PMGroupListItemMobile & {handleTouchStart: (event: TouchEvent) => void}).handleTouchStart({
+    touches: [{clientX: 80, clientY: 0}],
+  } as unknown as TouchEvent)
+  ;(element as PMGroupListItemMobile & {handleTouchMove: (event: TouchEvent) => void}).handleTouchMove({
+    touches: [{clientX: 0, clientY: 0}],
+    preventDefault,
+  } as unknown as TouchEvent)
+  ;(element as PMGroupListItemMobile & {handleTouchEnd: () => void}).handleTouchEnd()
+  await flushGroupRow(element)
 }
 
 async function flushGroupMobile(element: PMGroupMobile) {
@@ -205,6 +217,60 @@ describe('PMGroupMobile selection mode', () => {
     await flushGroupRow(element)
 
     expect(element.shadowRoot?.querySelector('.mobile-dnd-handle')).toBeNull()
+  })
+
+  it('reveals delete on left swipe and emits group-delete from the action', async () => {
+    const group = createGroup('swipe-delete-group', 'Swipe Delete Group')
+    const element = createGroupRowElement(group)
+    const preventDefault = vi.fn()
+    const deleteSpy = vi.fn()
+    element.addEventListener('group-delete', deleteSpy as EventListener)
+    await flushGroupRow(element)
+
+    await openLeftGroupSwipe(element, preventDefault)
+
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+    expect(element.shadowRoot?.querySelector('.group-row')?.getAttribute('data-swipe-state')).toBe('open-left')
+    expect(element.shadowRoot?.querySelector('.group-swipe-actions-right cv-icon[name="trash"]')).not.toBeNull()
+
+    element.shadowRoot
+      ?.querySelector('.group-swipe-actions-right .swipe-action')
+      ?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
+    await flushGroupRow(element)
+
+    expect(deleteSpy).toHaveBeenCalledTimes(1)
+    expect((deleteSpy.mock.calls[0]?.[0] as CustomEvent<Group>).detail).toBe(group)
+    expect(element.shadowRoot?.querySelector('.group-row')?.getAttribute('data-swipe-state')).toBe('idle')
+  })
+
+  it('does not expose swipe actions for read-only groups', async () => {
+    const group = createGroup('swipe-read-only-group', 'Swipe Read-only Group')
+    const element = createGroupRowElement(group)
+    element.readOnly = true
+    await flushGroupRow(element)
+
+    await openLeftGroupSwipe(element)
+
+    expect(element.shadowRoot?.querySelector('.group-row')?.getAttribute('data-swipe-state')).toBe('idle')
+    expect(element.shadowRoot?.querySelector('.group-swipe-actions-right')).toBeNull()
+  })
+
+  it('keeps the group row closed on a right swipe', async () => {
+    const group = createGroup('swipe-right-group', 'Swipe Right Group')
+    const element = createGroupRowElement(group)
+    await flushGroupRow(element)
+
+    ;(element as PMGroupListItemMobile & {handleTouchStart: (event: TouchEvent) => void}).handleTouchStart({
+      touches: [{clientX: 0, clientY: 0}],
+    } as unknown as TouchEvent)
+    ;(element as PMGroupListItemMobile & {handleTouchMove: (event: TouchEvent) => void}).handleTouchMove({
+      touches: [{clientX: 80, clientY: 0}],
+      preventDefault() {},
+    } as unknown as TouchEvent)
+    ;(element as PMGroupListItemMobile & {handleTouchEnd: () => void}).handleTouchEnd()
+    await flushGroupRow(element)
+
+    expect(element.shadowRoot?.querySelector('.group-row')?.getAttribute('data-swipe-state')).toBe('idle')
   })
 
 })

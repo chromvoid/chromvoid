@@ -1,17 +1,19 @@
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css} from 'lit'
+import {css, type PropertyValues} from 'lit'
 
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 
-import type {
-  FileListRenderItem,
-  FileListVisibleRange,
-  FileListViewportRestoreState,
-  SearchFilters,
+import {
+  isRealFileListItem,
+  type FileListRenderItem,
+  type FileListVisibleRange,
+  type FileListViewportRestoreState,
+  type SearchFilters,
 } from 'root/shared/contracts/file-manager'
 import type {FileDeletionMotionModel} from '../models/file-deletion-motion.model'
 import type {FileSearchFilterActions} from '../models/file-search-filters.model'
+import {logFileManagerDebug} from '../file-manager-debug'
 
 export class DashboardFileList extends ReatomLitElement {
   static define() {
@@ -50,6 +52,7 @@ export class DashboardFileList extends ReatomLitElement {
   declare itemsPreFiltered: boolean
   declare deletionMotion: FileDeletionMotionModel | null
   declare filterActions: FileSearchFilterActions | null
+  private lastDebugKey: string | null = null
 
   constructor() {
     super()
@@ -125,6 +128,38 @@ export class DashboardFileList extends ReatomLitElement {
 
   private onVisibleRangeChange(e: CustomEvent<FileListVisibleRange>) {
     this.dispatchEvent(new CustomEvent('visible-range-change', {detail: e.detail, bubbles: true}))
+  }
+
+  override updated(changed: PropertyValues<this>) {
+    super.updated(changed)
+    if (
+      !changed.has('items') &&
+      !changed.has('currentPath') &&
+      !changed.has('filters') &&
+      !changed.has('itemsPreFiltered') &&
+      !changed.has('mobile')
+    ) {
+      return
+    }
+
+    const realItems = this.items.filter(isRealFileListItem)
+    const key = `${this.currentPath}|${this.mobile}|${this.items.length}|${realItems.length}|${this.filters.viewMode}|${this.itemsPreFiltered}`
+    if (key === this.lastDebugKey) return
+    this.lastDebugKey = key
+
+    logFileManagerDebug('dashboard-file-list', 'updated:file-list-inputs', {
+      path: this.currentPath,
+      mobile: this.mobile,
+      viewMode: this.filters.viewMode,
+      itemsPreFiltered: this.itemsPreFiltered,
+      renderSlots: this.items.length,
+      renderRealCount: realItems.length,
+      firstItems: realItems.slice(0, 5).map((item) => ({
+        id: item.id,
+        name: item.name,
+        isDir: item.isDir,
+      })),
+    })
   }
 
   render() {

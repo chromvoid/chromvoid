@@ -55,6 +55,8 @@ export type CatalogFolderSort = {
 export type CatalogFolderFilter = {
   readonly query?: string | null
   readonly include_hidden?: boolean | null
+  readonly recursive?: boolean | null
+  readonly include_text_content?: boolean | null
   readonly file_types?: string[]
 }
 
@@ -70,13 +72,22 @@ export type CatalogFolderPageRequest = {
 export type CatalogFolderListItem = {
   readonly node_id: number
   readonly name: string
+  readonly path?: string | null
+  readonly parent_path?: string | null
   readonly is_dir: boolean
   readonly size?: number | null
   readonly mime_type?: string | null
   readonly media_info?: FileMediaInfo | null
   readonly media_inspected_revision: number
+  readonly source_revision?: number | null
   readonly created_at: number
   readonly updated_at: number
+}
+
+export type CatalogFolderFilterCounts = {
+  readonly all: number
+  readonly markdown: number
+  readonly images: number
 }
 
 export type CatalogFolderPageResponse = {
@@ -87,6 +98,7 @@ export type CatalogFolderPageResponse = {
   readonly limit: number
   readonly next_offset?: number | null
   readonly reload_required: boolean
+  readonly filter_counts: CatalogFolderFilterCounts
   readonly items: CatalogFolderListItem[]
 }
 
@@ -106,11 +118,52 @@ export type CatalogNotesListItem = {
   readonly source_revision: number
   readonly created_at: number
   readonly updated_at: number
+  readonly heading?: string | null
+  readonly excerpt?: string | null
+  readonly preview_words?: number | null
+  readonly preview_truncated?: boolean | null
 }
 
 export type CatalogNotesListResponse = {
   readonly version: number
   readonly items: CatalogNotesListItem[]
+}
+
+export type CatalogFileLinksCompleteRequest = {
+  readonly query: string
+  readonly limit?: number | null
+  readonly current_path?: string | null
+}
+
+export type CatalogFileLinksResolveRequest = {
+  readonly targets: string[]
+}
+
+export type CatalogFileLinkItem = {
+  readonly node_id: number
+  readonly name: string
+  readonly path: string
+  readonly parent_path: string
+  readonly size: number
+  readonly mime_type?: string | null
+  readonly source_revision: number
+  readonly created_at: number
+  readonly updated_at: number
+}
+
+export type CatalogFileLinkResolveResult = {
+  readonly target: string
+  readonly item?: CatalogFileLinkItem | null
+}
+
+export type CatalogFileLinksCompleteResponse = {
+  readonly version: number
+  readonly items: CatalogFileLinkItem[]
+}
+
+export type CatalogFileLinksResolveResponse = {
+  readonly version: number
+  readonly results: CatalogFileLinkResolveResult[]
 }
 
 export type CatalogFolderLoadedRange = {
@@ -122,6 +175,7 @@ export type CatalogFolderState = {
   readonly path: string
   readonly version: number
   readonly totalCount: number
+  readonly filterCounts?: CatalogFolderFilterCounts
   readonly queryKey: string
   readonly loadedRanges: CatalogFolderLoadedRange[]
   readonly loadingRanges: CatalogFolderLoadedRange[]

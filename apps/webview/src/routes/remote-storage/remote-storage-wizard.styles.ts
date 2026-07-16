@@ -130,7 +130,7 @@ export const remoteStorageWizardStyles = [
       height: 100%;
       background: linear-gradient(90deg, var(--cv-color-brand), var(--cv-color-info));
       border-radius: 5px;
-      inline-size: var(--remote-storage-progress, 0%);
+      inline-size: var(--_remote-storage-progress, 0%);
       transition: inline-size 0.3s ease;
       position: relative;
     }

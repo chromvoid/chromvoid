@@ -30,6 +30,7 @@ function setupContext(layoutModeValue: LayoutMode = 'desktop') {
   const theme = atom<'light' | 'dark' | 'system'>('dark')
   const selectedNodeIds = atom<number[]>([])
   const vaultLockPending = atom(false)
+  const remoteSessionState = atom<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive')
   const notifications: Array<{type: string; message: string}> = []
 
   const store = {
@@ -40,6 +41,7 @@ function setupContext(layoutModeValue: LayoutMode = 'desktop') {
     switchTheme: () => theme.set(theme() === 'dark' ? 'light' : 'dark'),
     selectedNodeIds,
     vaultLockPending,
+    remoteSessionState,
     beginVaultLockRequest: () => vaultLockPending.set(true),
     finishVaultLockRequest: () => vaultLockPending.set(false),
     setSelectedItems: vi.fn((next: number[]) => selectedNodeIds.set(next)),
@@ -99,23 +101,21 @@ afterEach(() => {
 })
 
 describe('NavigationRail shortcut labels and vault lock shortcut', () => {
-  it('renders macOS navigation action hints from the shortcut model', async () => {
+  it('renders the macOS vault lock action hint from the shortcut model', async () => {
     setupContext('desktop')
     setRuntimeCapabilities({platform: 'macos', desktop: true})
 
     const rail = await renderRail()
 
-    expect(rail.shadowRoot?.textContent).toContain('⌘K')
     expect(rail.shadowRoot?.textContent).toContain('⌘L')
   })
 
-  it('renders Ctrl navigation action hints on Windows/Linux desktop', async () => {
+  it('renders the Ctrl vault lock action hint on Windows/Linux desktop', async () => {
     setupContext('desktop')
     setRuntimeCapabilities({platform: 'linux', desktop: true})
 
     const rail = await renderRail()
 
-    expect(rail.shadowRoot?.textContent).toContain('Ctrl+K')
     expect(rail.shadowRoot?.textContent).toContain('Ctrl+L')
   })
 
@@ -143,6 +143,17 @@ describe('NavigationRail shortcut labels and vault lock shortcut', () => {
 
     expect(lockButton?.hasAttribute('disabled')).toBe(true)
     expect(lockButton?.getAttribute('aria-busy')).toBe('true')
+  })
+
+  it('labels the desktop remote session action as disconnect', async () => {
+    setupContext('desktop')
+    getAppContext().store.remoteSessionState.set('ready')
+
+    const rail = await renderRail()
+    const text = rail.shadowRoot?.textContent ?? ''
+
+    expect(text).toContain('Disconnect')
+    expect(text).not.toContain('Lock')
   })
 
   it('locks the vault through the global platform shortcut when focus is not editable', async () => {

@@ -1,361 +1,353 @@
-import {action, atom, wrap} from '@reatom/core'
-import {css} from 'lit'
+import type {CredentialCandidate} from '@chromvoid/scheme'
 import {ReatomLitElement, html} from '@chromvoid/uikit/reatom-lit'
+import type {PropertyValues} from 'lit'
 
-import type {Entry} from '@project/passmanager/core'
+import {appStyles} from './app.styles'
+import type {CredentialRow} from './components/credential-row'
+import {i18n} from './i18n'
+import type {PopupActionKind, PopupModel, PopupRuntimeKind} from './popup.model'
 
-import {type BrowserExtensionLang, getLang, i18n, setLang} from './i18n'
-import {store} from './store'
-
-class AppRootModel {
-  readonly copyFeedback = atom<string | undefined>(undefined, 'app.copyFeedback')
-  private copyFeedbackTimeout: ReturnType<typeof setTimeout> | undefined
-
-  readonly showCopyFeedback = action((message: string) => {
-    this.copyFeedback.set(message)
-    if (this.copyFeedbackTimeout) {
-      clearTimeout(this.copyFeedbackTimeout)
-    }
-    this.copyFeedbackTimeout = setTimeout(wrap(() => {
-      this.copyFeedback.set(undefined)
-      this.copyFeedbackTimeout = undefined
-    }), 1400)
-  }, 'app.showCopyFeedback')
-
-  disconnect(): void {
-    if (this.copyFeedbackTimeout) {
-      clearTimeout(this.copyFeedbackTimeout)
-      this.copyFeedbackTimeout = undefined
-    }
-  }
-}
+type CandidateEvent = CustomEvent<{candidate: CredentialCandidate}>
+type CredentialActionEvent = CustomEvent<{
+  kind: PopupActionKind
+  candidate: CredentialCandidate
+  otpId?: string
+}>
 
 export class AppRoot extends ReatomLitElement {
+  static styles = appStyles
+  private static configuredModel: PopupModel | undefined
+  private searchFocused = false
+  private pendingFocus: {kind: 'back' | 'search'} | {kind: 'credential'; credentialId: string} | undefined
+
+  static configure(model: PopupModel) {
+    this.configuredModel = model
+  }
+
   static define() {
     if (!customElements.get('app-root')) {
       customElements.define('app-root', AppRoot)
     }
   }
 
-  static styles = css`
-    :host {
-      display: block;
-      width: 100%;
-      min-height: 360px;
-      box-sizing: border-box;
-      padding: 10px;
-      color: rgb(226 232 240 / 96%);
-      background:
-        radial-gradient(120% 95% at 100% -5%, rgb(249 116 22 / 22%), transparent 52%),
-        radial-gradient(90% 70% at -20% 0%, rgb(59 130 246 / 15%), transparent 58%),
-        linear-gradient(165deg, #080f19 0%, #0f1828 55%, #101728 100%);
-      font-size: 14px;
-      line-height: 1.35;
+  private get model(): PopupModel {
+    const model = AppRoot.configuredModel
+    if (!model) {
+      throw new Error('AppRoot must be configured with a PopupModel before it is connected')
     }
+    return model
+  }
 
-    .shell {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      min-height: 340px;
-      padding: 14px;
-      border: 1px solid rgb(148 163 184 / 18%);
-      border-radius: 20px;
-      background:
-        linear-gradient(176deg, rgb(15 23 42 / 82%) 0%, rgb(2 6 23 / 86%) 100%),
-        linear-gradient(128deg, rgb(59 130 246 / 7%) 0%, rgb(244 114 182 / 7%) 100%);
-      box-shadow:
-        0 18px 48px rgb(2 6 23 / 52%),
-        inset 0 1px 0 rgb(255 255 255 / 8%);
-      backdrop-filter: blur(8px);
+  override connectedCallback() {
+    super.connectedCallback()
+    this.model.connect()
+  }
+
+  override disconnectedCallback() {
+    this.model.disconnect()
+    super.disconnectedCallback()
+  }
+
+  protected override updated(changedProperties: PropertyValues<this>) {
+    super.updated(changedProperties)
+    const pendingFocus = this.pendingFocus
+    this.pendingFocus = undefined
+    if (pendingFocus?.kind === 'back') {
+      this.renderRoot.querySelector<HTMLButtonElement>('.back-button')?.focus()
+      return
     }
-
-    .topbar {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 10px;
+    if (pendingFocus?.kind === 'search') {
+      this.renderRoot.querySelector<HTMLInputElement>('.search-input')?.focus()
+      return
     }
-
-    .topbar-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
-    }
-
-    .lang-switch {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 3px;
-      border: 1px solid rgb(148 163 184 / 18%);
-      border-radius: 999px;
-      background: rgb(15 23 42 / 56%);
-      box-shadow: inset 0 1px 0 rgb(255 255 255 / 4%);
-    }
-
-    .lang-switch-button {
-      border: 0;
-      border-radius: 999px;
-      background: transparent;
-      color: rgb(148 163 184 / 92%);
-      padding: 4px 8px;
-      font: inherit;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      cursor: pointer;
-      transition:
-        background-color 140ms ease,
-        color 140ms ease;
-    }
-
-    .lang-switch-button.active {
-      background: rgb(56 189 248 / 16%);
-      color: rgb(226 232 240 / 98%);
-    }
-
-    .lang-switch-button:focus-visible {
-      outline: 2px solid rgb(125 211 252 / 72%);
-      outline-offset: 1px;
-    }
-
-    .count-badge {
-      inline-size: min(120px, 100%);
-      flex: 0 1 120px;
-      max-width: 120px;
-      min-width: 0;
-      --cv-badge-font-size: 11px;
-    }
-
-    .count-badge::part(base) {
-      width: 100%;
-      min-width: 0;
-      overflow: hidden;
-    }
-
-    .count-badge::part(label) {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-weight: 700;
-    }
-
-    .headline {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-    }
-
-    .headline-title {
-      margin: 0;
-      color: #f8fafc;
-      font-size: 16px;
-      font-weight: 700;
-      letter-spacing: 0.01em;
-    }
-
-    .headline-host {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      color: rgb(148 163 184 / 92%);
-      font-size: 12px;
-      font-weight: 500;
-    }
-
-    .headline-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: rgb(56 189 248 / 88%);
-      box-shadow: 0 0 0 5px rgb(56 189 248 / 12%);
-    }
-
-    .copy-toast {
-      display: inline-flex;
-      align-items: center;
-      align-self: flex-start;
-      padding: 4px 10px;
-      border: 1px solid rgb(56 189 248 / 36%);
-      border-radius: 999px;
-      background: rgb(15 23 42 / 82%);
-      color: rgb(186 230 253);
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.03em;
-      text-transform: uppercase;
-    }
-
-    .content {
-      flex: 1;
-      min-height: 220px;
-      max-height: 300px;
-      overflow: auto;
-      padding-right: 2px;
-    }
-
-    .content::-webkit-scrollbar {
-      width: 8px;
-    }
-
-    .content::-webkit-scrollbar-thumb {
-      border-radius: 999px;
-      background: rgb(148 163 184 / 24%);
-    }
-
-    .state-panel {
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      gap: 10px;
-      min-height: 212px;
-      padding: 16px;
-      border: 1px dashed rgb(148 163 184 / 24%);
-      border-radius: 14px;
-      text-align: center;
-      color: rgb(226 232 240 / 94%);
-    }
-
-    .loading-label {
-      color: rgb(148 163 184);
-      font-size: 13px;
-      font-weight: 500;
-    }
-
-    .records {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    cv-progress-ring {
-      --cv-progress-ring-track-width: 2px;
-      --cv-progress-ring-indicator-width: 2px;
-      --cv-progress-ring-indicator-color: rgb(125 211 252);
-      --cv-progress-ring-track-color: rgb(148 163 184 / 24%);
-    }
-
-    @media (max-width: 470px) {
-      :host {
-        padding: 8px;
+    if (pendingFocus?.kind === 'credential') {
+      const rows = this.renderRoot.querySelectorAll<CredentialRow>('credential-row')
+      for (const row of rows) {
+        if (row.candidate?.credential_id === pendingFocus.credentialId) {
+          void this.focusCredentialRow(row)
+          return
+        }
       }
     }
-  `
-
-  private readonly model = new AppRootModel()
-
-  disconnectedCallback(): void {
-    super.disconnectedCallback()
-    this.model.disconnect()
-  }
-
-  private handleFill(event: CustomEvent<{entry: Entry}>) {
-    void store.fillData(event.detail.entry)
-  }
-
-  private handleFillOtp(event: CustomEvent<{entry: Entry}>) {
-    const item = event.detail.entry
-    const otpId = store.selectedOtpId(item)
-    void store.fillOTP(item, otpId)
-  }
-
-  private handleCopyFeedback(event: CustomEvent<{message: string}>) {
-    this.model.showCopyFeedback(event.detail.message)
-  }
-
-  private handleOtpChange(event: CustomEvent<{entryId: string; otpId: string}>) {
-    const item = store.list().find((e) => e.id === event.detail.entryId)
-    if (item) {
-      store.setSelectedOtp(item, event.detail.otpId)
+    if (this.model.runtime().kind !== 'ready') {
+      this.searchFocused = false
+      return
+    }
+    if (!this.searchFocused) {
+      this.renderRoot.querySelector<HTMLInputElement>('.search-input')?.focus()
+      this.searchFocused = true
     }
   }
 
-  private handlePair(event: CustomEvent<{pin: string}>) {
-    void store.pairWithPin(event.detail.pin)
+  private handleSearchInput(event: Event) {
+    this.model.setQuery((event.currentTarget as HTMLInputElement).value)
   }
 
-  private handleLanguageChange(event: Event) {
-    const button = event.currentTarget as HTMLButtonElement | null
-    const lang = button?.dataset['lang']
-    if ((lang === 'en' || lang === 'ru') && lang !== getLang()) {
-      setLang(lang)
+  private async focusCredentialRow(row: CredentialRow) {
+    await row.updateComplete
+    row.focusPrimary()
+  }
+
+  private handleCredentialOpen(event: CandidateEvent) {
+    this.pendingFocus = {kind: 'back'}
+    this.model.openDetail(event.detail.candidate)
+  }
+
+  private handleCredentialFill(event: CandidateEvent) {
+    void this.model.fillPassword(event.detail.candidate)
+  }
+
+  private handleCredentialAction(event: CredentialActionEvent) {
+    const {kind, candidate, otpId} = event.detail
+    void this.model.performAction(kind, candidate, otpId)
+  }
+
+  private handleOtpChange(event: CustomEvent<{otpId: string}>) {
+    this.model.setSelectedOtp(event.detail.otpId)
+  }
+
+  private handlePairingPin(event: CustomEvent<{pin: string}>) {
+    this.model.setPairingPin(event.detail.pin)
+  }
+
+  private handlePairingSubmit() {
+    void this.model.pair()
+  }
+
+  private handleRetry() {
+    this.model.retry()
+  }
+
+  private handleSearchRetry() {
+    this.model.retrySearch()
+  }
+
+  private handleBack() {
+    const credentialId = this.model.selectedCandidate()?.credential_id
+    if (credentialId) {
+      this.pendingFocus = {kind: 'credential', credentialId}
+    }
+    this.model.closeDetail()
+  }
+
+  private handleKeydown(event: KeyboardEvent) {
+    if (event.key !== 'Escape') {
+      return
+    }
+    if (this.model.isDetailMode()) {
+      event.preventDefault()
+      this.handleBack()
+      return
+    }
+    if (this.model.query()) {
+      event.preventDefault()
+      this.pendingFocus = {kind: 'search'}
+      this.model.setQuery('')
     }
   }
 
-  render() {
-    const list = store.list()
-    const error = store.error()
-    const host = store.tabHost() || i18n('app.currentPage')
-    const entryLabel =
-      list.length === 1 ? i18n('app.entry.one') : i18n('app.entry.many', {count: list.length})
-    const currentLang = getLang()
-    const languageOptions: BrowserExtensionLang[] = ['en', 'ru']
-    const copyFeedback = this.model.copyFeedback()
-    let content
-
-    if (store.isLoading()) {
-      content = html`<div class="state-panel">
-        <cv-progress-ring indeterminate></cv-progress-ring>
-        <div class="loading-label">${i18n('app.loading')}</div>
-      </div>`
-    } else if (error) {
-      content =
-        !store.gatewayConnected() && store.gatewayReachable()
-          ? html`<ext-pairing-form @ext-pair=${this.handlePair}></ext-pairing-form>`
-          : html`<div class="state-panel">${error}</div>`
-    } else if (!list.length) {
-      content = html`<div class="state-panel">${i18n('app.noRecords', {host})}</div>`
-    } else {
-      content = html`<div class="records">
-        ${list.map(
-          (item) =>
-            html`<ext-record-card
-              .entry=${item}
-              @ext-fill=${this.handleFill}
-              @ext-fill-otp=${this.handleFillOtp}
-              @ext-copy-feedback=${this.handleCopyFeedback}
-              @ext-otp-change=${this.handleOtpChange}
-            ></ext-record-card>`,
-        )}
-      </div>`
-    }
-
+  private renderHeader() {
+    const runtime = this.model.runtime()
+    const detail = this.model.isDetailMode()
+    const context = this.model.currentHost() || i18n('app.nonWebPage')
     return html`
-      <section class="shell">
-        <header class="topbar">
-          <div class="headline">
-            <h1 class="headline-title">${i18n('app.title')}</h1>
-            <div class="headline-host">
-              <span class="headline-dot" aria-hidden="true"></span>
-              <span>${host}</span>
-            </div>
-          </div>
-          <div class="topbar-actions">
-            <div class="lang-switch" role="group" aria-label=${i18n('app.lang.switchTo', {lang: ''})}>
-              ${languageOptions.map(
-                (lang) => html`<button
-                  class="lang-switch-button ${currentLang === lang ? 'active' : ''}"
-                  type="button"
-                  data-lang=${lang}
-                  aria-pressed=${currentLang === lang ? 'true' : 'false'}
-                  aria-label=${i18n('app.lang.switchTo', {lang: i18n(`app.lang.${lang}`)})}
-                  @click=${this.handleLanguageChange}
-                >
-                  ${i18n(`app.lang.${lang}`)}
-                </button>`,
-              )}
-            </div>
-            <cv-badge class="count-badge" pill variant="primary">${entryLabel}</cv-badge>
-          </div>
-        </header>
-        <ext-status-panel></ext-status-panel>
-        ${copyFeedback ? html`<div class="copy-toast">${copyFeedback}</div>` : null}
-        <div class="content">${content}</div>
+      <header class="topbar">
+        ${detail
+          ? html`<button
+              class="back-button"
+              type="button"
+              @click=${this.handleBack}
+              aria-label=${i18n('app.back')}
+            >
+              ←
+            </button>`
+          : html`<div class="brand-mark" aria-hidden="true">C</div>`}
+        <div class="identity">
+          <span class="title">${i18n('app.title')}</span>
+          <span class="context">${context}</span>
+        </div>
+        <span class=${`health ${runtime.kind === 'ready' ? 'ready' : ''}`}>
+          <span class="health-dot" aria-hidden="true"></span>
+          ${this.runtimeLabel(runtime.kind)}
+        </span>
+      </header>
+    `
+  }
+
+  private runtimeLabel(kind: PopupRuntimeKind): string {
+    switch (kind) {
+      case 'ready':
+        return i18n('app.ready')
+      case 'checking':
+        return i18n('app.status.checking')
+      case 'gateway_offline':
+        return i18n('app.status.offline')
+      case 'unpaired':
+        return i18n('app.status.pairing')
+      case 'provider_disabled':
+        return i18n('app.status.disabled')
+      case 'vault_locked':
+        return i18n('app.status.locked')
+      case 'load_error':
+        return i18n('app.status.error')
+    }
+  }
+
+  private renderSearch() {
+    if (this.model.runtime().kind !== 'ready') {
+      return null
+    }
+    return html`
+      <div class="search-region">
+        <label class="visually-hidden" for="credential-search">${i18n('search.label')}</label>
+        <input
+          class="search-input"
+          id="credential-search"
+          type="search"
+          autocomplete="off"
+          spellcheck="false"
+          .value=${this.model.query()}
+          placeholder=${i18n('search.placeholder')}
+          @input=${this.handleSearchInput}
+        />
+      </div>
+    `
+  }
+
+  private renderEmpty(title: string, body: string) {
+    return html`
+      <section class="empty">
+        <div class="empty-content">
+          <h2>${title}</h2>
+          <p>${body}</p>
+        </div>
       </section>
+    `
+  }
+
+  private renderResults() {
+    const candidates = this.model.visibleCandidates()
+    const searchMode = this.model.isSearchMode()
+    const searchPending = this.model.search.pending() > 0
+    const searchError = this.model.searchError()
+
+    if (!searchMode && !this.model.isWebTab()) {
+      return this.renderEmpty(i18n('empty.nonWebTitle'), i18n('empty.nonWebBody'))
+    }
+    if (!candidates.length && searchPending) {
+      return html`<div class="loading" role="status">${i18n('search.loading')}</div>`
+    }
+    if (!candidates.length && searchMode && searchError) {
+      return html`
+        <section class="empty">
+          <div class="empty-content">
+            <h2>${i18n('recovery.loadErrorTitle')}</h2>
+            <p role="alert">${searchError}</p>
+            <button type="button" @click=${this.handleSearchRetry}>${i18n('action.retry')}</button>
+          </div>
+        </section>
+      `
+    }
+    if (!candidates.length) {
+      return this.renderEmpty(
+        searchMode ? i18n('empty.searchTitle') : i18n('empty.siteTitle'),
+        searchMode ? i18n('empty.searchBody') : i18n('empty.siteBody'),
+      )
+    }
+
+    const countLabel =
+      candidates.length === 1
+        ? i18n('section.result.one')
+        : i18n('section.result.many', {count: candidates.length})
+    return html`
+      <section aria-labelledby="result-heading" aria-busy=${searchPending ? 'true' : 'false'}>
+        <div class="section-header">
+          <span id="result-heading"
+            >${searchMode ? i18n('section.searchResults') : i18n('section.currentSite')}</span
+          >
+          <span class="search-state" aria-live="polite"
+            >${searchPending ? i18n('search.loading') : countLabel}</span
+          >
+        </div>
+        ${searchError ? html`<p class="message error" role="alert">${searchError}</p>` : null}
+        <div class="list" role="list">
+          ${candidates.map(
+            (candidate) =>
+              html`<credential-row
+                role="listitem"
+                .candidate=${candidate}
+                .currentSite=${this.model.isCurrentSite(candidate)}
+                .pending=${this.model.pendingAction() === 'fill_password'}
+              ></credential-row>`,
+          )}
+        </div>
+      </section>
+    `
+  }
+
+  private renderReady() {
+    const selected = this.model.selectedCandidate()
+    if (selected) {
+      return html`<credential-detail
+        .candidate=${selected}
+        .currentSite=${this.model.isCurrentSite(selected)}
+        .selectedOtpId=${this.model.selectedOtpId()}
+        .pending=${Boolean(this.model.pendingAction())}
+      ></credential-detail>`
+    }
+    return this.renderResults()
+  }
+
+  private renderContent() {
+    const runtime = this.model.runtime()
+    if (runtime.kind === 'checking') {
+      return html`<div class="loading" role="status">${i18n('loading.checking')}</div>`
+    }
+    if (runtime.kind === 'unpaired') {
+      return html`
+        <section class="pairing" aria-labelledby="pairing-title">
+          <div class="pairing-content">
+            <h2 id="pairing-title">${i18n('recovery.unpairedTitle')}</h2>
+            <p>${i18n('recovery.unpairedBody')}</p>
+            <ext-pairing-form
+              .pin=${this.model.pairingPin()}
+              .pinError=${this.model.pairingPinError()}
+              .backendError=${this.model.pairingError()}
+              .pending=${this.model.pair.pending() > 0}
+              .focusRequest=${this.model.pairingFocusRequest()}
+            ></ext-pairing-form>
+          </div>
+        </section>
+      `
+    }
+    if (runtime.kind !== 'ready') {
+      return html`<recovery-state .state=${runtime}></recovery-state>`
+    }
+    return this.renderReady()
+  }
+
+  protected override render() {
+    const feedback = this.model.feedback()
+    const actionError = this.model.actionError()
+    return html`
+      <div
+        class="shell"
+        @keydown=${this.handleKeydown}
+        @credential-open=${this.handleCredentialOpen}
+        @credential-fill=${this.handleCredentialFill}
+        @credential-action=${this.handleCredentialAction}
+        @credential-otp-change=${this.handleOtpChange}
+        @pairing-pin-input=${this.handlePairingPin}
+        @pairing-submit=${this.handlePairingSubmit}
+        @recovery-retry=${this.handleRetry}
+      >
+        ${this.renderHeader()} ${this.renderSearch()}
+        <main class="content">${this.renderContent()}</main>
+        <div class="message-stack">
+          ${actionError ? html`<p class="message error" role="alert">${actionError}</p>` : null}
+          ${feedback ? html`<p class="message" role="status" aria-live="polite">${feedback}</p>` : null}
+        </div>
+      </div>
     `
   }
 }

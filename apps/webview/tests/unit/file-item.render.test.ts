@@ -12,7 +12,9 @@ import {
 } from '../../src/features/file-manager/components/virtual-file-list/render-list'
 import {renderGridView} from '../../src/features/file-manager/components/virtual-file-list/render-grid'
 import {renderTableView} from '../../src/features/file-manager/components/virtual-file-list/render-table'
+import {setLang} from '../../src/i18n'
 import type {FileListItem} from '../../src/shared/contracts/file-manager'
+import {TOUCH_FIRST_POINTER_MEDIA} from '../../src/utils/input-capabilities'
 
 const ITEM: FileListItem = {
   id: 7,
@@ -38,6 +40,7 @@ const CALLBACKS: VirtualFileListItemCallbacks = {
   onFileItemDownload: () => {},
   onFileItemDelete: () => {},
   onFileItemInfo: () => {},
+  onDeleteExitAnimationEnd: () => {},
   onFileItemDrop: () => {},
   onTouchStart: () => {},
   onTouchMove: () => {},
@@ -54,7 +57,7 @@ let originalMatchMedia: typeof window.matchMedia
 
 function setTouchCapability(enabled: boolean) {
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({
-    matches: query === '(hover: none) and (pointer: coarse)' ? enabled : false,
+    matches: query === TOUCH_FIRST_POINTER_MEDIA ? enabled : false,
     media: query,
     onchange: null,
     addListener: () => {},
@@ -85,6 +88,7 @@ beforeEach(() => {
 afterEach(() => {
   document.body.innerHTML = ''
   window.matchMedia = originalMatchMedia
+  setLang('en')
   vi.restoreAllMocks()
 })
 
@@ -102,7 +106,7 @@ describe('file-item render split', () => {
     expect(element.shadowRoot?.querySelector('.swipe-container')).toBeNull()
   })
 
-  it('omits inline actions on mobile desktop runtime without rendering swipe shell', async () => {
+  it('keeps mobile swipe shell stable when touch capability is unavailable', async () => {
     ensureDefined()
     setTouchCapability(false)
 
@@ -113,7 +117,7 @@ describe('file-item render split', () => {
     await settle(element)
 
     expect(element.shadowRoot?.querySelector('.actions')).toBeNull()
-    expect(element.shadowRoot?.querySelector('.swipe-container')).toBeNull()
+    expect(element.shadowRoot?.querySelector('.swipe-container')).not.toBeNull()
   })
 
   it('keeps swipe shell on touch mobile list items', async () => {
@@ -214,7 +218,7 @@ describe('file-item render split', () => {
     expect(hasNonPassiveTouchMoveBinding).toBe(false)
   })
 
-  it('renders desktop action titles without pending-open copy in the item layout', () => {
+  it('renders desktop action titles with inline pending-open status', () => {
     const container = document.createElement('div')
 
     renderTemplate(
@@ -235,8 +239,8 @@ describe('file-item render split', () => {
     )
 
     const text = container.textContent ?? ''
-    expect(text).not.toContain('Preparing file...')
-    expect(container.querySelector('.pending-open-badge')).toBeNull()
+    expect(text).toContain('Preparing file...')
+    expect(container.querySelector('.pending-open-badge')).not.toBeNull()
     expect(container.querySelector('.file-item')?.getAttribute('aria-busy')).toBe('true')
 
     const actionButtons = Array.from(container.querySelectorAll<HTMLButtonElement>('.actions .action-btn'))
@@ -316,7 +320,7 @@ describe('file-item render split', () => {
     expect(element.shadowRoot?.querySelector('.media-active-spectrum.is-playing')).not.toBeNull()
   })
 
-  it('keeps selected and pending-open state with media-active state without local copy', () => {
+  it('keeps selected and pending-open state with media-active state', () => {
     const container = document.createElement('div')
 
     renderTemplate(
@@ -337,10 +341,79 @@ describe('file-item render split', () => {
     )
 
     expect(container.querySelector('.selection-indicator.is-selected')).not.toBeNull()
-    expect(container.querySelector('.pending-open-badge')).toBeNull()
-    expect(container.textContent ?? '').not.toContain('Preparing file...')
+    expect(container.querySelector('.pending-open-badge')).not.toBeNull()
+    expect(container.textContent ?? '').toContain('Preparing file...')
     expect(container.querySelector('.file-item')?.getAttribute('aria-busy')).toBe('true')
     expect(container.querySelector('.media-active-spectrum')).not.toBeNull()
+  })
+
+  it('isolates technical file metadata without forcing localized directory labels to LTR', () => {
+    setLang('ar')
+    const fileContainer = document.createElement('div')
+    renderTemplate(
+      renderDesktopFileItem({
+        item: ITEM,
+        selected: false,
+        selectionMode: false,
+        pendingExternalOpen: false,
+        mediaActive: false,
+        mediaPlaying: false,
+        viewMode: 'list',
+        dragEnabled: 'true',
+        showSwipeActions: false,
+        thumbnailUrl: null,
+        callbacks: CALLBACKS,
+      }),
+      fileContainer,
+    )
+
+    expect(fileContainer.querySelector('.meta > bdi[dir="ltr"]')?.textContent).toContain('1 KB')
+    expect(fileContainer.querySelector('.meta')?.textContent).not.toMatch(/\p{Bidi_Control}/u)
+    expect(fileContainer.querySelector('.file-type > bdi[dir="ltr"]')?.textContent).toBe('PDF')
+
+    const directoryContainer = document.createElement('div')
+    renderTemplate(
+      renderDesktopFileItem({
+        item: {...ITEM, name: 'Archive', path: '/Archive', isDir: true},
+        selected: false,
+        selectionMode: false,
+        pendingExternalOpen: false,
+        mediaActive: false,
+        mediaPlaying: false,
+        viewMode: 'list',
+        dragEnabled: 'true',
+        showSwipeActions: false,
+        thumbnailUrl: null,
+        callbacks: CALLBACKS,
+      }),
+      directoryContainer,
+    )
+
+    expect(directoryContainer.querySelector('.meta > bdi[dir="auto"]')).not.toBeNull()
+    expect(directoryContainer.querySelector('.file-type')).toBeNull()
+  })
+
+  it('keeps the desktop list selection control available before selection mode starts', async () => {
+    ensureDefined()
+    setTouchCapability(false)
+
+    const element = document.createElement('file-item-desktop') as FileItem
+    element.item = ITEM
+    element.viewMode = 'list'
+    element.selectionMode = false
+    const itemClick = vi.fn()
+    element.addEventListener('item-click', itemClick)
+    document.body.appendChild(element)
+    await settle(element)
+
+    const control = element.shadowRoot?.querySelector<HTMLButtonElement>('.selection-indicator')
+    expect(control).not.toBeNull()
+    expect(control?.getAttribute('aria-pressed')).toBe('false')
+
+    control?.click()
+
+    const event = itemClick.mock.calls[0]?.[0] as CustomEvent<{event?: MouseEvent}> | undefined
+    expect(event?.detail.event?.metaKey).toBe(true)
   })
 
   it('selects item host tag from virtual-file-list mobile flag', () => {
@@ -426,7 +499,7 @@ describe('file-item render split', () => {
     expect(host?.getAttribute('aria-selected')).toBe('true')
   })
 
-  it('keeps selected table rows and pending-open state without local copy', () => {
+  it('keeps selected and active table rows with inline pending-open state', () => {
     const container = document.createElement('div')
     const noop = () => {}
 
@@ -434,6 +507,7 @@ describe('file-item render split', () => {
       renderTableView({
         items: [ITEM],
         filteredItems: [ITEM],
+        totalItemsCount: 1,
         itemHeight: 48,
         virtualScrollTop: 0,
         viewportHeight: 96,
@@ -442,14 +516,19 @@ describe('file-item render split', () => {
         selectedItems: [ITEM.id],
         pendingExternalOpenIds: [ITEM.id],
         selectionMode: true,
+        activeItemId: ITEM.id,
         onSortName: noop,
+        onSortType: noop,
         onSortSize: noop,
         onSortDate: noop,
+        onSelectAll: noop,
         onRowClick: noop,
         onRowDblClick: noop,
         onRowContextMenu: noop,
         onCheckboxClick: noop,
+        onInfoButtonClick: noop,
         onMoreButtonClick: noop,
+        onDeleteExitAnimationEnd: noop,
         getAriaSort: () => 'none',
       }),
       container,
@@ -459,8 +538,84 @@ describe('file-item render split', () => {
     expect(row?.getAttribute('data-id')).toBe(String(ITEM.id))
     expect(row?.getAttribute('aria-selected')).toBe('true')
     expect(row?.getAttribute('aria-busy')).toBe('true')
-    expect(container.querySelector('.table-open-status')).toBeNull()
-    expect(container.textContent ?? '').not.toContain('Preparing file...')
+    expect(row?.classList.contains('active')).toBe(true)
+    expect(row?.querySelector('.table-file-name > bdi[dir="auto"]')?.textContent).toBe(ITEM.name)
+    expect(row?.querySelector('.table-type-cell > bdi[dir="ltr"]')?.textContent).toBe('PDF')
+    expect(row?.querySelector('.table-size-cell > bdi[dir="ltr"]')?.textContent).toBe('1 KB')
+    expect(row?.querySelector('.table-date-cell > bdi[dir="ltr"]')?.textContent).not.toBe('')
+    expect(container.querySelector('.table-open-status')).not.toBeNull()
+    expect(container.textContent ?? '').toContain('Preparing file...')
+  })
+
+  it('renders a sortable type column using the file format label', () => {
+    const container = document.createElement('div')
+    const noop = () => {}
+    const onSortType = vi.fn()
+
+    renderTemplate(
+      renderTableView({
+        items: [ITEM],
+        filteredItems: [ITEM],
+        totalItemsCount: 1,
+        itemHeight: 36,
+        virtualScrollTop: 0,
+        viewportHeight: 72,
+        sortBy: 'type',
+        sortDirection: 'asc',
+        selectedItems: [],
+        pendingExternalOpenIds: [],
+        selectionMode: false,
+        activeItemId: null,
+        onSortName: noop,
+        onSortType,
+        onSortSize: noop,
+        onSortDate: noop,
+        onSelectAll: noop,
+        onRowClick: noop,
+        onRowDblClick: noop,
+        onRowContextMenu: noop,
+        onCheckboxClick: noop,
+        onInfoButtonClick: noop,
+        onMoreButtonClick: noop,
+        onDeleteExitAnimationEnd: noop,
+        getAriaSort: (column) => (column === 'type' ? 'ascending' : 'none'),
+      }),
+      container,
+    )
+
+    const typeHeader = [...container.querySelectorAll<HTMLButtonElement>('.table-sort-button')].find(
+      (button) => button.textContent?.includes('Type'),
+    )
+    typeHeader?.click()
+
+    expect(typeHeader?.closest('[role="columnheader"]')?.getAttribute('aria-sort')).toBe('ascending')
+    expect(container.querySelector('.table-type-cell')?.textContent?.trim()).toBe('PDF')
+    expect(onSortType).toHaveBeenCalledTimes(1)
+  })
+
+  it('labels desktop dotfiles as hidden without changing the filename', () => {
+    const container = document.createElement('div')
+
+    renderTemplate(
+      renderDesktopFileItem({
+        item: {...ITEM, name: '.report.pdf', path: '/.report.pdf'},
+        selected: false,
+        selectionMode: false,
+        pendingExternalOpen: false,
+        mediaActive: false,
+        mediaPlaying: false,
+        viewMode: 'list',
+        dragEnabled: 'true',
+        showSwipeActions: false,
+        thumbnailUrl: null,
+        callbacks: CALLBACKS,
+      }),
+      container,
+    )
+
+    expect(container.querySelector('.name')?.textContent).toBe('.report.pdf')
+    expect(container.querySelector('.name > bdi[dir="auto"]')?.textContent).toBe('.report.pdf')
+    expect(container.querySelector('.hidden-badge')).not.toBeNull()
   })
 
   it('keeps overlapping desktop list items on the same DOM hosts when the visible window shifts', () => {

@@ -11,6 +11,10 @@ export default defineConfig({
     alias: [
       {find: /^root\/(.+)$/, replacement: resolve(__dirname, 'src/$1')},
       {find: /^@project\/i18n$/, replacement: resolve(__dirname, '../../packages/i18n/src/index.ts')},
+      {
+        find: /^@project\/i18n\/pure$/,
+        replacement: resolve(__dirname, '../../packages/i18n/src/pure.ts'),
+      },
       {find: /^@project\/passmanager$/, replacement: resolve(__dirname, '../../packages/passmanager/src/index.ts')},
       {find: /^@project\/passmanager\/core$/, replacement: resolve(__dirname, '../../packages/passmanager/src/core.ts')},
       {find: /^@project\/passmanager\/types$/, replacement: resolve(__dirname, '../../packages/passmanager/src/types.ts')},
@@ -29,6 +33,18 @@ export default defineConfig({
       {
         find: /^@project\/passmanager\/i18n\/format$/,
         replacement: resolve(__dirname, '../../packages/passmanager/src/i18n/format.ts'),
+      },
+      {
+        find: /^@project\/passmanager\/i18n\/availability$/,
+        replacement: resolve(__dirname, '../../packages/passmanager/src/i18n/availability.ts'),
+      },
+      {
+        find: /^@chromvoid\/password-import\/i18n$/,
+        replacement: resolve(__dirname, '../../packages/password-import/src/i18n.ts'),
+      },
+      {
+        find: /^@chromvoid\/password-import\/i18n\/availability$/,
+        replacement: resolve(__dirname, '../../packages/password-import/src/i18n/availability.ts'),
       },
       {
         find: /^@project\/passmanager\/password-utils$/,

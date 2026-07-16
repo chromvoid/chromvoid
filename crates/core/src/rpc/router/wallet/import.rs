@@ -5,11 +5,8 @@ impl RpcRouter {
         &mut self,
         data: &Value,
     ) -> RpcResponse {
-        if let Some(response) = self.wallet_preflight(false) {
+        if let Some(response) = self.wallet_preflight() {
             return response;
-        }
-        if let Some(error) = reject_unsupported_network(data, "network") {
-            return error.into_rpc_response();
         }
         let request = match parse::<WalletImportCreateRequest>(data) {
             Ok(request) => request,
@@ -23,8 +20,44 @@ impl RpcRouter {
             return invalid_input("label, curve, encoding and private_key are required")
                 .into_rpc_response();
         }
+        let profile = match self
+            .wallet_chain_registry
+            .enabled_profile(&request.network, &self.wallet_runtime_config)
+        {
+            Ok(profile) => profile,
+            Err(error) => return WalletCommandError::from(error).into_rpc_response(),
+        };
+        let canonical_request = WalletImportCreateRequest {
+            label: request.label.trim().to_string(),
+            network: request.network.clone(),
+            curve: request.curve.clone(),
+            private_key: request.private_key.clone(),
+            encoding: request.encoding.clone(),
+            client_request_id: None,
+        };
+        let idempotency_digest = match payload_digest(&canonical_request) {
+            Ok(digest) => digest,
+            Err(error) => return error.into_rpc_response(),
+        };
 
         self.with_wallet_session_cleaned_after_preflight(|session, storage| {
+            if let Some(client_request_id) = request.client_request_id.as_deref() {
+                if let Some(record) = load_idempotency_record(session, storage, client_request_id)?
+                {
+                    if record.command != "wallet:import:create"
+                        || record.payload_digest != idempotency_digest
+                    {
+                        return Err(WalletCommandError::invalid_input(
+                            "client_request_id payload mismatch",
+                        ));
+                    }
+                    return serde_json::from_value(record.result_ref).map_err(|error| {
+                        WalletCommandError::internal(format!(
+                            "wallet idempotency result parse failed: {error}"
+                        ))
+                    });
+                }
+            }
             let mut uow = begin_wallet_uow(session, storage, "wallet-import-create");
             ensure_wallet_dirs(&mut uow)?;
             let now = now_ms();
@@ -36,7 +69,7 @@ impl RpcRouter {
                 kind: "imported_key".to_string(),
                 payload_version: 1,
                 payload: SecretPayloadV1::ImportedKey {
-                    network: request.network,
+                    network: request.network.clone(),
                     curve: request.curve.clone(),
                     private_key: request.private_key.clone(),
                     encoding: request.encoding.clone(),
@@ -54,7 +87,10 @@ impl RpcRouter {
                 wallet_id: wallet_id.clone(),
                 kind: "imported".to_string(),
                 label: request.label.trim().to_string(),
-                supported_networks: vec![request.network],
+                wallet_mode: "imported".to_string(),
+                mnemonic_standard: "imported".to_string(),
+                supported_networks: vec![request.network.clone()],
+                bitcoin_discovery_pending: Some(false),
                 secret_ref: secret_id,
                 created_at: now,
                 updated_at: now,
@@ -68,34 +104,19 @@ impl RpcRouter {
                 JSON_MIME,
             )?;
 
-            let address = derive_address(
-                request.network,
-                &request.private_key,
-                imported_derivation_path(request.network),
-            );
-            let account = WalletAccountMeta {
-                account_id: account_id.clone(),
-                wallet_id: wallet_id.clone(),
-                network: request.network,
-                kind: "imported".to_string(),
-                account_model: None,
-                derivation_profile: None,
-                account_index: None,
-                label: Some(request.label.trim().to_string()),
-                address: Some(address),
-                public_key: Some(derive_public_key(
-                    &request.private_key,
-                    imported_derivation_path(request.network),
-                )),
-                derivation_path: None,
-                current_receive_address: None,
-                current_receive_derivation_path: None,
-                next_receive_index: None,
-                next_change_index: None,
-                created_at: now,
-                updated_at: now,
-            };
-            save_account(&mut uow, &account)?;
+            let materialization = profile
+                .materialize_imported_account(WalletImportedAccountMaterializeInput {
+                    wallet_id: wallet_id.clone(),
+                    account_id: account_id.clone(),
+                    network: request.network.clone(),
+                    label: request.label.trim().to_string(),
+                    curve: request.curve.clone(),
+                    private_key: request.private_key.clone(),
+                    encoding: request.encoding.clone(),
+                    now,
+                })
+                .map_err(WalletCommandError::from)?;
+            let account = materialize_profile_account(&mut uow, materialization)?;
 
             let mut index = load_index(session, storage)?;
             if !index.wallet_ids.contains(&wallet_id) {
@@ -107,12 +128,29 @@ impl RpcRouter {
             }
             index.schema_version = WALLET_SCHEMA_VERSION;
             save_index(&mut uow, &index)?;
+            let response = WalletImportCreateResponse {
+                wallet_id,
+                account_id: account.account_id().to_string(),
+            };
+            if let Some(client_request_id) = request.client_request_id.as_deref() {
+                save_idempotency_record(
+                    &mut uow,
+                    &WalletOperationIdempotencyRecordV1 {
+                        client_request_id: client_request_id.to_string(),
+                        command: "wallet:import:create".to_string(),
+                        payload_digest: idempotency_digest,
+                        result_ref: serde_json::to_value(&response).map_err(|error| {
+                            WalletCommandError::internal(format!(
+                                "wallet idempotency result serialization failed: {error}"
+                            ))
+                        })?,
+                        created_at: now,
+                    },
+                )?;
+            }
             commit_wallet_uow(uow, session)?;
 
-            Ok(WalletImportCreateResponse {
-                wallet_id,
-                account_id,
-            })
+            Ok(response)
         })
     }
 }

@@ -46,4 +46,26 @@ describe('file list filtering', () => {
     expect(filterAndSortFileItems(items, {...BASE_FILTERS, fileTypes: ['audio']}).map((item) => item.id)).toEqual([1])
     expect(filterAndSortFileItems(items, {...BASE_FILTERS, fileTypes: ['videos']}).map((item) => item.id)).toEqual([2])
   })
+
+  it('filters Markdown notes without dropping directories or broad document behavior', () => {
+    const items: FileListItem[] = [
+      {id: 1, name: 'Notes', path: '/Notes', isDir: true},
+      {id: 2, name: 'daily.md', path: '/daily.md', isDir: false, mimeType: 'text/markdown'},
+      {id: 3, name: 'plan.markdown', path: '/plan.markdown', isDir: false},
+      {id: 4, name: 'readme.txt', path: '/readme.txt', isDir: false, mimeType: 'text/plain'},
+      {id: 5, name: 'photo.jpg', path: '/photo.jpg', isDir: false, mimeType: 'image/jpeg'},
+    ]
+
+    expect(filterAndSortFileItems(items, {...BASE_FILTERS, fileTypes: ['markdown']}).map((item) => item.id)).toEqual([
+      1,
+      2,
+      3,
+    ])
+    expect(filterAndSortFileItems(items, {...BASE_FILTERS, fileTypes: ['documents']}).map((item) => item.id)).toEqual([
+      1,
+      2,
+      3,
+      4,
+    ])
+  })
 })

@@ -82,7 +82,7 @@ export class ImageGalleryMobileInfoSheetModel {
 
   openInfoSheet(image?: MobileGalleryImageMeta) {
     this.debug('sheet:open', this.getImageDebugMeta(image))
-    this.state.infoSheetDetent.set('middle')
+    this.state.infoSheetDetent.set('expanded')
     this.state.infoSheetOpen.set(true)
     this.loadInfoSheetMetadata(image, {forceRetry: true})
   }
@@ -100,6 +100,8 @@ export class ImageGalleryMobileInfoSheetModel {
 
   setInfoSheetDetent(detent: MobileGalleryInfoSheetDetent) {
     if (!this.state.infoSheetOpen()) return
+    if (detent !== 'expanded') return
+
     this.debug('sheet:detent', {detent})
     this.state.infoSheetDetent.set(detent)
   }

@@ -11,6 +11,7 @@ pub const PRO_FEATURE_SSH_AGENT: &str = "ssh-agent";
 pub const PRO_FEATURE_EMERGENCY_ACCESS: &str = "emergency-access";
 pub const PRO_FEATURE_BROWSER_EXTENSION: &str = "browser-extension";
 pub const PRO_FEATURE_MOUNTED_VAULT: &str = "mounted-vault";
+pub const PRO_FEATURE_ENV_RUNTIME: &str = "env-runtime";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]

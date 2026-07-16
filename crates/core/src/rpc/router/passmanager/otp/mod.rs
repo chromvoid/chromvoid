@@ -8,7 +8,9 @@ use serde_json::Value;
 use std::sync::Mutex;
 
 pub(in crate::rpc::router) use error::PassmanagerOtpError;
-pub(in crate::rpc::router) use service::generate_by_id_lookup;
+pub(in crate::rpc::router) use service::{
+    generate_by_id_lookup, generate_by_id_lookup_with_timing,
+};
 
 use super::super::super::types::RpcResponse;
 use super::otp_target::PassmanagerOtpTargetCache;
@@ -40,6 +42,18 @@ pub(super) fn handle_generate(
 ) -> RpcResponse {
     let request = request::parse_generate(data);
     match service::generate(s, storage, cache, request) {
+        Ok(response) => RpcResponse::success(response),
+        Err(error) => error.into_rpc_response(),
+    }
+}
+
+pub(super) fn handle_preview(_session: &VaultSession, data: &Value) -> RpcResponse {
+    let request = match request::parse_preview(data) {
+        Ok(request) => request,
+        Err(error) => return error.into_rpc_response(),
+    };
+
+    match service::preview(request) {
         Ok(response) => RpcResponse::success(response),
         Err(error) => error.into_rpc_response(),
     }

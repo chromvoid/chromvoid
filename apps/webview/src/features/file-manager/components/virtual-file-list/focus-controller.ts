@@ -141,7 +141,11 @@ export class VirtualFileListFocusController {
     this.deps.focusContainer()
 
     const filtered = this.deps.getActionItems()
-    if (filtered.length === 0) return
+    if (filtered.length === 0) {
+      this.deps.setScrollTop(0)
+      this.deps.setVirtualScrollTop(0)
+      return
+    }
 
     if (prev) {
       const parentOfPrev = getParentPath(prev)

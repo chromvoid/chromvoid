@@ -24,10 +24,15 @@ internal object VideoPlaybackNativeShell {
                 ?: return false
         trace(
             "start_request",
-            "token" to redactIdentifier(source.token),
+            "nativeSourceToken" to redactIdentifier(source.nativeSourceToken),
+            "streamId" to redactIdentifier(source.streamId),
             "nodeId" to source.nodeId,
             "mimeType" to source.mimeType,
             "size" to source.size,
+            "sourceRevision" to source.sourceRevision,
+            "mediaSourceGeneration" to source.mediaSourceGeneration,
+            "transportSessionGeneration" to source.transportSessionGeneration,
+            "appForegroundEpoch" to source.appForegroundEpoch,
         )
 
         val intent =
@@ -41,12 +46,12 @@ internal object VideoPlaybackNativeShell {
 
         return runCatching {
             startIntentForExternalAction(context, intent)
-            trace("start_intent_sent", "token" to redactIdentifier(source.token))
-            emitVideoPlayerEvent(source.token, "started", -1, -1, "")
+            trace("start_intent_sent", "nativeSourceToken" to redactIdentifier(source.nativeSourceToken))
+            emitVideoPlayerEvent(source, "started", -1, -1, "")
             true
         }.getOrElse { error ->
             Log.w(TAG, "Failed to start video activity", error)
-            releaseVideoSource(source.token)
+            releaseVideoSource(source.nativeSourceToken)
             false
         }
     }
@@ -61,21 +66,73 @@ internal object VideoPlaybackNativeShell {
         val finishedActivity = ChromVoidVideoActivity.finishActiveForToken(token)
         trace(
             "stop_request",
-            "token" to redactIdentifier(token),
+            "nativeSourceToken" to redactIdentifier(token),
             "finishedActivity" to finishedActivity,
         )
         releaseVideoSource(token)
     }
 
     @JvmStatic
-    internal fun readVideoSource(
-        token: String,
+    internal fun openVideoSourceRead(
+        source: VideoSource,
         offset: Long,
-        length: Int,
-    ): ByteArray? =
-        NativeRuntimeLoader.callWhenLoaded<ByteArray?>(TAG, null) {
-            nativeReadVideoSource(token, offset, length)
+        length: Long,
+    ): VideoSourceReadHandleResult =
+        NativeRuntimeLoader.callWhenLoaded(
+            callerTag = TAG,
+            fallback = VideoSourceReadHandleResult(handle = 0L, errorCode = "ERR_NATIVE_VIDEO_SOURCE_READ"),
+        ) {
+            nativeOpenVideoSourceRead(
+                source.nativeSourceToken,
+                offset,
+                length,
+                source.mediaSourceGeneration,
+                source.sourceRevision,
+                source.transportSessionGeneration ?: -1L,
+                source.appForegroundEpoch,
+            )
+                ?: VideoSourceReadHandleResult(handle = 0L, errorCode = "ERR_NATIVE_VIDEO_SOURCE_READ")
         }
+
+    @JvmStatic
+    internal fun readVideoSourceChunk(
+        source: VideoSource,
+        handle: Long,
+        maxLength: Int,
+    ): VideoSourceReadResult =
+        NativeRuntimeLoader.callWhenLoaded(
+            callerTag = TAG,
+            fallback = VideoSourceReadResult(bytes = null, errorCode = "ERR_NATIVE_VIDEO_SOURCE_READ"),
+        ) {
+            nativeReadVideoSourceChunk(
+                source.nativeSourceToken,
+                handle,
+                maxLength,
+                source.mediaSourceGeneration,
+                source.sourceRevision,
+                source.transportSessionGeneration ?: -1L,
+                source.appForegroundEpoch,
+            )
+                ?: VideoSourceReadResult(bytes = null, errorCode = "ERR_NATIVE_VIDEO_SOURCE_READ")
+        }
+
+    @JvmStatic
+    internal fun closeVideoSourceRead(
+        source: VideoSource,
+        handle: Long,
+    ) {
+        if (handle <= 0L) return
+        NativeRuntimeLoader.runWhenLoaded(TAG) {
+            nativeCloseVideoSourceRead(
+                source.nativeSourceToken,
+                handle,
+                source.mediaSourceGeneration,
+                source.sourceRevision,
+                source.transportSessionGeneration ?: -1L,
+                source.appForegroundEpoch,
+            )
+        }
+    }
 
     @JvmStatic
     internal fun releaseVideoSource(token: String) {
@@ -92,15 +149,50 @@ internal object VideoPlaybackNativeShell {
         durationMs: Long = -1,
         error: String = "",
     ) {
+        emitVideoPlayerEvent(token, event, positionMs, durationMs, error)
+    }
+
+    @JvmStatic
+    internal fun onVideoPlayerEvent(
+        source: VideoSource,
+        event: String,
+        positionMs: Long = -1,
+        durationMs: Long = -1,
+        error: String = "",
+    ) {
         trace(
             "player_event",
-            "token" to redactIdentifier(token),
+            "nativeSourceToken" to redactIdentifier(source.nativeSourceToken),
             "event" to event,
             "positionMs" to positionMs,
             "durationMs" to durationMs,
             "error" to TracePrivacy.traceValue(error),
+            "sourceRevision" to source.sourceRevision,
+            "mediaSourceGeneration" to source.mediaSourceGeneration,
+            "transportSessionGeneration" to source.transportSessionGeneration,
+            "appForegroundEpoch" to source.appForegroundEpoch,
         )
-        emitVideoPlayerEvent(token, event, positionMs, durationMs, error)
+        emitVideoPlayerEvent(source, event, positionMs, durationMs, error)
+    }
+
+    private fun emitVideoPlayerEvent(
+        source: VideoSource,
+        event: String,
+        positionMs: Long,
+        durationMs: Long,
+        error: String,
+    ) {
+        emitVideoPlayerEvent(
+            token = source.nativeSourceToken,
+            event = event,
+            positionMs = positionMs,
+            durationMs = durationMs,
+            error = error,
+            mediaSourceGeneration = source.mediaSourceGeneration,
+            sourceRevision = source.sourceRevision,
+            transportSessionGeneration = source.transportSessionGeneration ?: -1,
+            appForegroundEpoch = source.appForegroundEpoch,
+        )
     }
 
     private fun emitVideoPlayerEvent(
@@ -109,18 +201,57 @@ internal object VideoPlaybackNativeShell {
         positionMs: Long,
         durationMs: Long,
         error: String,
+        mediaSourceGeneration: Long = -1,
+        sourceRevision: Long = -1,
+        transportSessionGeneration: Long = -1,
+        appForegroundEpoch: Long = -1,
     ) {
         NativeRuntimeLoader.runWhenLoaded(TAG) {
-            nativeOnVideoPlayerEvent(token, event, positionMs, durationMs, error)
+            nativeOnVideoPlayerEvent(
+                token,
+                event,
+                positionMs,
+                durationMs,
+                error,
+                mediaSourceGeneration,
+                sourceRevision,
+                transportSessionGeneration,
+                appForegroundEpoch,
+            )
         }
     }
 
     @JvmStatic
-    private external fun nativeReadVideoSource(
+    private external fun nativeOpenVideoSourceRead(
         token: String,
         offset: Long,
-        length: Int,
-    ): ByteArray?
+        length: Long,
+        mediaSourceGeneration: Long,
+        sourceRevision: Long,
+        transportSessionGeneration: Long,
+        appForegroundEpoch: Long,
+    ): VideoSourceReadHandleResult?
+
+    @JvmStatic
+    private external fun nativeReadVideoSourceChunk(
+        token: String,
+        handle: Long,
+        maxLength: Int,
+        mediaSourceGeneration: Long,
+        sourceRevision: Long,
+        transportSessionGeneration: Long,
+        appForegroundEpoch: Long,
+    ): VideoSourceReadResult?
+
+    @JvmStatic
+    private external fun nativeCloseVideoSourceRead(
+        token: String,
+        handle: Long,
+        mediaSourceGeneration: Long,
+        sourceRevision: Long,
+        transportSessionGeneration: Long,
+        appForegroundEpoch: Long,
+    ): String?
 
     @JvmStatic
     private external fun nativeReleaseVideoSource(token: String)
@@ -132,6 +263,10 @@ internal object VideoPlaybackNativeShell {
         positionMs: Long,
         durationMs: Long,
         error: String,
+        mediaSourceGeneration: Long,
+        sourceRevision: Long,
+        transportSessionGeneration: Long,
+        appForegroundEpoch: Long,
     ): String?
 
     private fun trace(event: String, vararg fields: Pair<String, Any?>) {

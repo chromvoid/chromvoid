@@ -41,6 +41,7 @@ export class PMGroupCreateDesktop extends PMGroupCreateBase {
             .contextItems=${contextItems}
             .title=${this.model.name()}
             .titlePlaceholder=${i18n('group:name')}
+            .titleError=${this.model.nameError()}
             .avatarIcon=${'camera'}
             .avatarIconRef=${this.model.iconRef()}
             .editableTitle=${true}
@@ -56,7 +57,7 @@ export class PMGroupCreateDesktop extends PMGroupCreateBase {
               variant="primary"
               size="large"
               .loading=${this.model.isSubmitting()}
-              ?disabled=${!this.model.canSubmit()}
+              ?disabled=${this.model.isSubmitting() || this.model.isReadOnly()}
               >${i18n('group:create:button')}</cv-button
             >
           </pm-workspace-header>

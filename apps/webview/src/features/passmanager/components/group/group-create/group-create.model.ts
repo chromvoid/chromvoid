@@ -1,34 +1,61 @@
 import {atom, computed, peek} from '@reatom/core'
 
 import {i18n} from '@project/passmanager/i18n'
-import {getPassmanagerRoot} from '../../../models/pm-root.adapter'
+import {getPassmanagerRoot, isPassmanagerReadOnly} from '../../../models/pm-root.adapter'
 import type {PMWorkspaceContextItem} from '../../card/pm-workspace-header'
 import {passmanagerNavigationController} from '../../../passmanager-navigation.controller'
+import {
+  groupPresetIconService,
+  type GroupIconColorName,
+  type GroupIconPresetName,
+  type GroupIconPresetSelection,
+} from './group-icon-presets'
 
 export const GROUP_CREATE_NAME_MAX_LENGTH = 40
 export const GROUP_CREATE_DESCRIPTION_MAX_LENGTH = 120
+
+type PMGroupCreateModelOptions = {
+  defaultPreset?: GroupIconPresetSelection
+}
 
 export class PMGroupCreateModel {
   readonly name = atom('')
   readonly description = atom('')
   readonly iconRef = atom<string | undefined>(undefined)
+  readonly presetIcon = atom<GroupIconPresetName | undefined>(undefined)
+  readonly presetColor = atom<GroupIconColorName | undefined>(undefined)
   readonly targetGroupPath = atom<string | undefined>(
     passmanagerNavigationController.getCreateGroupTargetGroupPath(),
   )
   readonly isSubmitting = atom(false)
-  readonly nameError = atom('')
+  readonly submitAttempted = atom(false, 'passmanager.groupCreate.submitAttempted')
+  readonly submitError = atom('')
   readonly trimmedName = computed(() => this.name().trim())
   readonly nameLength = computed(() => this.name().length)
   readonly descriptionLength = computed(() => this.description().length)
+  readonly isReadOnly = computed(() => isPassmanagerReadOnly())
+  readonly presetSelection = computed<GroupIconPresetSelection | undefined>(() => {
+    const icon = this.presetIcon()
+    const color = this.presetColor()
+    return icon && color ? {icon, color} : undefined
+  })
+  readonly nameError = computed(() => this.getNameValidationError())
   readonly nameCounterLabel = computed(() => `${this.nameLength()}/${GROUP_CREATE_NAME_MAX_LENGTH}`)
   readonly descriptionCounterLabel = computed(
     () => `${this.descriptionLength()}/${GROUP_CREATE_DESCRIPTION_MAX_LENGTH}`,
   )
-  readonly canSubmit = computed(() => this.trimmedName().length > 0 && !this.isSubmitting())
+  readonly canSubmit = computed(
+    () => this.trimmedName().length > 0 && !this.nameError() && !this.isReadOnly() && !this.isSubmitting(),
+  )
+
+  constructor(options: PMGroupCreateModelOptions = {}) {
+    this.presetIcon.set(options.defaultPreset?.icon)
+    this.presetColor.set(options.defaultPreset?.color)
+  }
 
   setName(name: string): void {
     this.name.set(name.slice(0, GROUP_CREATE_NAME_MAX_LENGTH))
-    this.nameError.set('')
+    this.submitError.set('')
   }
 
   setDescription(description: string): void {
@@ -37,6 +64,16 @@ export class PMGroupCreateModel {
 
   setIconRef(iconRef: string | undefined): void {
     this.iconRef.set(iconRef)
+  }
+
+  setPresetIcon(icon: GroupIconPresetName): void {
+    this.presetIcon.set(icon)
+    this.submitError.set('')
+  }
+
+  setPresetColor(color: GroupIconColorName): void {
+    this.presetColor.set(color)
+    this.submitError.set('')
   }
 
   getContextItems(): PMWorkspaceContextItem[] {
@@ -56,8 +93,15 @@ export class PMGroupCreateModel {
   }
 
   async submit(): Promise<boolean> {
+    this.submitAttempted.set(true)
     const passmanager = getPassmanagerRoot()
-    if (!passmanager || !peek(this.canSubmit)) {
+    if (
+      !passmanager ||
+      this.isReadOnly() ||
+      this.isSubmitting() ||
+      !this.trimmedName() ||
+      this.nameError()
+    ) {
       return false
     }
 
@@ -65,29 +109,55 @@ export class PMGroupCreateModel {
     const groupName = peek(this.trimmedName)
     const fullName = targetGroupPath ? `${targetGroupPath}/${groupName}` : groupName
 
-    if (this.groupPathExists(passmanager, fullName)) {
-      this.nameError.set(i18n('tags:error_exists' as never))
-      return false
-    }
-
     this.isSubmitting.set(true)
+    this.submitError.set('')
     try {
+      const presetSelection = peek(this.presetSelection)
+      const iconRef = presetSelection
+        ? await groupPresetIconService.upload(presetSelection)
+        : peek(this.iconRef)
       await Promise.resolve(
         passmanager.createGroup({
           name: fullName,
           description: peek(this.description),
-          iconRef: peek(this.iconRef),
+          iconRef,
           entries: [],
         }),
       )
       return true
+    } catch {
+      this.submitError.set(i18n('group:create:error' as never))
+      return false
     } finally {
       this.isSubmitting.set(false)
     }
   }
 
+  private getNameValidationError(): string {
+    const rawName = this.name()
+    if (/[\\/]/.test(rawName)) {
+      return i18n('error:group_name_invalid_chars')
+    }
+
+    const trimmedName = rawName.trim()
+    if (!trimmedName) {
+      return this.submitAttempted() ? i18n('error:group_name_required') : ''
+    }
+
+    const targetGroupPath = this.targetGroupPath()
+    const fullName = targetGroupPath ? `${targetGroupPath}/${trimmedName}` : trimmedName
+    return this.groupPathExists(getPassmanagerRoot(), fullName)
+      ? i18n('group:create:duplicate' as never, {
+          name: trimmedName,
+          parent: targetGroupPath || i18n('root:title-short'),
+        })
+      : ''
+  }
+
   private groupPathExists(passmanager: unknown, fullName: string): boolean {
     if (!passmanager || typeof passmanager !== 'object') return false
+
+    const normalizedFullName = fullName.trim().toLocaleLowerCase()
 
     const root = passmanager as {
       entriesList?: () => unknown[]
@@ -97,7 +167,8 @@ export class PMGroupCreateModel {
     const entries = typeof root.entriesList === 'function' ? root.entriesList() : root.entries
     if (Array.isArray(entries)) {
       return entries.some((item) => {
-        return Boolean(item && typeof item === 'object' && (item as {name?: unknown}).name === fullName)
+        const name = item && typeof item === 'object' ? (item as {name?: unknown}).name : undefined
+        return typeof name === 'string' && name.trim().toLocaleLowerCase() === normalizedFullName
       })
     }
 

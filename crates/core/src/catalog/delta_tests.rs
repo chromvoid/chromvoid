@@ -126,6 +126,9 @@ fn test_apply_delta_sets_media_info() {
         audio_tracks: 1,
         video_tracks: 0,
         playback_mime_type: Some("audio/mp4".to_string()),
+        codec_string: None,
+        mse_fragmented: None,
+        streaming_metadata: None,
     };
     let fields = PartialNode {
         media_info: Some(Some(media_info.clone())),
@@ -152,6 +155,9 @@ fn test_apply_delta_clears_media_info() {
         audio_tracks: 1,
         video_tracks: 1,
         playback_mime_type: None,
+        codec_string: None,
+        mse_fragmented: None,
+        streaming_metadata: None,
     });
 
     let fields = PartialNode {
@@ -177,6 +183,9 @@ fn test_apply_delta_preserves_media_info_when_absent() {
         audio_tracks: 1,
         video_tracks: 0,
         playback_mime_type: None,
+        codec_string: None,
+        mse_fragmented: None,
+        streaming_metadata: None,
     };
     let docs = root.find_child_mut("docs").unwrap();
     let readme = docs.find_child_mut("readme.txt").unwrap();
@@ -205,6 +214,9 @@ fn test_partial_node_media_info_serde_supports_set_and_clear() {
         audio_tracks: 2,
         video_tracks: 0,
         playback_mime_type: Some("audio/mp4".to_string()),
+        codec_string: None,
+        mse_fragmented: None,
+        streaming_metadata: None,
     };
     let set_fields = PartialNode {
         media_info: Some(Some(media_info.clone())),

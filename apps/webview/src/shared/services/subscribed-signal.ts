@@ -1,3 +1,5 @@
+import {wrap} from '@reatom/core'
+
 export type Unsubscribe = () => void
 
 export type SubscribeCallback = (listener: () => void) => Unsubscribe
@@ -22,10 +24,10 @@ export function subscribeCallbackAfterInitial(
   }
 
   let isSubscribing = true
-  const unsubscribe = subscribe(() => {
+  const unsubscribe = subscribe(wrap(() => {
     if (isSubscribing) return
     listener()
-  })
+  }))
   isSubscribing = false
 
   return unsubscribe
@@ -57,7 +59,7 @@ export function subscribeToSignalChanges<TValue, TSnapshot = TValue>(
   let previous = readSnapshot()
   let isSubscribing = true
 
-  const unsubscribe = signal.subscribe(() => {
+  const unsubscribe = signal.subscribe(wrap(() => {
     const next = readSnapshot()
 
     if (isSubscribing) {
@@ -72,7 +74,7 @@ export function subscribeToSignalChanges<TValue, TSnapshot = TValue>(
     const current = previous
     previous = next
     onChange(next, current)
-  })
+  }))
 
   isSubscribing = false
   return unsubscribe

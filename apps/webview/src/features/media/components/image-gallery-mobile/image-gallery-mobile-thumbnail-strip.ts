@@ -144,11 +144,11 @@ export class ImageGalleryMobileThumbnailStrip extends ReatomLitElement {
   private syncVirtualSpacerProperties() {
     const virtualWindow = this.galleryModel?.getThumbnailVirtualWindow()
     this.style.setProperty(
-      '--thumbnail-before-spacer',
+      '--_media-image-gallery-thumbnail-before-spacer',
       `${(virtualWindow?.beforeCount ?? 0) * (virtualWindow?.thumbnailStepPx ?? THUMBNAIL_STEP_PX)}px`,
     )
     this.style.setProperty(
-      '--thumbnail-after-spacer',
+      '--_media-image-gallery-thumbnail-after-spacer',
       `${(virtualWindow?.afterCount ?? 0) * (virtualWindow?.thumbnailStepPx ?? THUMBNAIL_STEP_PX)}px`,
     )
   }

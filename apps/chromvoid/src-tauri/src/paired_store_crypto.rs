@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
@@ -19,34 +20,30 @@ struct EncryptedPairedStore {
     ciphertext_b64: String,
 }
 
-pub(crate) fn load_store<T>(path: &Path, context: &str) -> HashMap<String, T>
+pub(crate) fn load_store<T>(path: &Path, context: &str) -> Result<HashMap<String, T>, String>
 where
     T: DeserializeOwned + Serialize,
 {
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) => {
-            if error.kind() != std::io::ErrorKind::NotFound {
-                tracing::warn!(
-                    "{context}: failed to read paired store {}: {error}",
-                    path.display()
-                );
+            if error.kind() == std::io::ErrorKind::NotFound {
+                return Ok(HashMap::new());
             }
-            return HashMap::new();
+            return Err(format!(
+                "{context}: failed to read paired store {}: {error}",
+                path.display()
+            ));
         }
     };
 
     if let Ok(wrapper) = serde_json::from_slice::<EncryptedPairedStore>(&bytes) {
-        return match decrypt_store(&wrapper, path) {
-            Ok(store) => store,
-            Err(error) => {
-                tracing::warn!(
-                    "{context}: failed to decrypt paired store {}: {error}",
-                    path.display()
-                );
-                HashMap::new()
-            }
-        };
+        return decrypt_store(&wrapper, path).map_err(|error| {
+            format!(
+                "{context}: failed to decrypt paired store {}: {error}",
+                path.display()
+            )
+        });
     }
 
     match serde_json::from_slice::<HashMap<String, T>>(&bytes) {
@@ -57,15 +54,12 @@ where
                     path.display()
                 );
             }
-            legacy_store
+            Ok(legacy_store)
         }
-        Err(error) => {
-            tracing::warn!(
-                "{context}: failed to parse paired store {}: {error}",
-                path.display()
-            );
-            HashMap::new()
-        }
+        Err(error) => Err(format!(
+            "{context}: failed to parse paired store {}: {error}",
+            path.display()
+        )),
     }
 }
 
@@ -73,6 +67,7 @@ pub(crate) fn save_store<T>(path: &Path, store: &HashMap<String, T>) -> Result<(
 where
     T: Serialize,
 {
+    backup_existing_store(path)?;
     let plaintext = Zeroizing::new(
         serde_json::to_vec_pretty(store).map_err(|error| format!("serialize: {error}"))?,
     );
@@ -87,6 +82,38 @@ where
     };
 
     crate::helpers::storage::write_json_pretty_atomic(path, &wrapper)
+}
+
+fn backup_existing_store(path: &Path) -> Result<(), String> {
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.is_file() => {}
+        Ok(_) => {
+            return Err(format!(
+                "paired store path is not a file: {}",
+                path.display()
+            ))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("stat paired store {}: {error}", path.display())),
+    }
+
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("paired-store");
+    let timestamp_ns = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let backup_path = path.with_file_name(format!("{file_name}.bak.{timestamp_ns}"));
+    std::fs::copy(path, &backup_path).map_err(|error| {
+        format!(
+            "backup paired store {} to {}: {error}",
+            path.display(),
+            backup_path.display()
+        )
+    })?;
+    Ok(())
 }
 
 fn decrypt_store<T>(

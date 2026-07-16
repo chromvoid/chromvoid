@@ -51,7 +51,7 @@ fn frame_decode_reserved_flags() {
         payload: vec![],
     };
     let mut encoded = frame.encode();
-    encoded[9] = 0b0000_0100;
+    encoded[9] = 0b0000_0010;
     assert_eq!(Frame::decode(&encoded).unwrap_err(), "unsupported flags");
 }
 
@@ -68,6 +68,35 @@ fn frame_decode_payload_length_mismatch() {
     assert_eq!(
         Frame::decode(&encoded).unwrap_err(),
         "payload length mismatch"
+    );
+}
+
+#[test]
+fn frame_decode_accepts_max_noise_frame_payload() {
+    let frame = Frame {
+        frame_type: FrameType::RpcRequest,
+        message_id: 1,
+        flags: 0,
+        payload: vec![7; MAX_FRAME_PAYLOAD_SIZE],
+    };
+
+    let decoded = Frame::decode(&frame.encode()).expect("max frame payload decodes");
+
+    assert_eq!(decoded.payload.len(), MAX_FRAME_PAYLOAD_SIZE);
+}
+
+#[test]
+fn frame_decode_rejects_payload_above_noise_frame_limit() {
+    let frame = Frame {
+        frame_type: FrameType::RpcRequest,
+        message_id: 1,
+        flags: 0,
+        payload: vec![7; MAX_FRAME_PAYLOAD_SIZE + 1],
+    };
+
+    assert_eq!(
+        Frame::decode(&frame.encode()).unwrap_err(),
+        "payload too large"
     );
 }
 
@@ -99,6 +128,28 @@ fn error_frame_construction() {
     let decoded = Frame::decode(&encoded).unwrap();
     assert_eq!(decoded.frame_type, FrameType::Error);
     assert_eq!(decoded.message_id, 99);
+}
+
+#[test]
+fn stream_error_codes_are_nonzero_and_distinct() {
+    let codes = [
+        error_codes::STREAM_READ_FAILED,
+        error_codes::STREAM_CANCELLED,
+        error_codes::INVALID_FORMAT,
+        error_codes::UNSUPPORTED_TYPE,
+        error_codes::AUTH_FAILED,
+        error_codes::REPLAY_DETECTED,
+        error_codes::RATE_LIMIT_EXCEEDED,
+        error_codes::CAPABILITY_DENIED,
+    ];
+    for code in codes {
+        assert_ne!(code, 0);
+    }
+    for (index, code) in codes.iter().enumerate() {
+        for other in &codes[index + 1..] {
+            assert_ne!(code, other);
+        }
+    }
 }
 
 #[test]

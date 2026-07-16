@@ -168,7 +168,7 @@ describe('createEntryFilterMatcher', () => {
     expect(snapshot.resultCount).toBe(1)
   })
 
-  it('covers the credential tag lifecycle across creation, AND filters, clearing, and stale filter pruning', async () => {
+  it('covers the credential tag lifecycle across creation, OR filters, clearing, and stale filter pruning', async () => {
     const root = new ManagerRoot(createManagerSaver())
     root.entries.set([])
     setPassmanagerRoot(root)
@@ -217,7 +217,7 @@ describe('createEntryFilterMatcher', () => {
 
     await login.updateTags(['Work', 'Rotate'])
     selectedCredentialTagFilters.set(['work', 'rotate'])
-    expect(searchedEntryIds()).toEqual([login.id])
+    expect(searchedEntryIds()).toEqual([card.id, login.id].sort())
 
     selectedCredentialTagFilters.set([])
     expect(searchedEntryIds()).toEqual([card.id, login.id].sort())

@@ -48,7 +48,7 @@ fn setup_paired_peer_store() -> (tempfile::TempDir, PairedPeerStore, PairedPeer)
         paired_at: 1700000000,
         platform: "network".to_string(),
     };
-    store.upsert(peer.clone());
+    store.upsert(peer.clone()).expect("upsert peer");
     store.save().unwrap();
 
     (dir, store, peer)

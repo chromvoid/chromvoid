@@ -312,7 +312,7 @@ export class GatewayModel {
   private startCountdown(): void {
     this.stopCountdown()
     this.tick()
-    this.timerId = setInterval(() => this.tick(), 1000)
+    this.timerId = setInterval(wrap(() => this.tick()), 1000)
   }
 
   private stopCountdown(): void {

@@ -68,7 +68,7 @@ describe('Store upload status messages', () => {
   })
 
   it('publishes the translated success message after a file upload completes', async () => {
-    const {store, ws, catalog} = createStore()
+    const {store, ws, catalog: _catalog} = createStore()
     const file = new File(['payload'], 'report.txt', {type: 'text/plain'})
 
     await store.startUploadFile('/', file)
@@ -137,7 +137,7 @@ describe('Store upload status messages', () => {
     const uploadStarted = new Promise<void>((resolve) => {
       resolveUpload = resolve
     })
-    const {store, ws, catalog} = createStore({
+    const {store, ws, catalog: _catalog} = createStore({
       kind: 'tauri',
       uploadFilePath: async () => {
         await uploadStarted

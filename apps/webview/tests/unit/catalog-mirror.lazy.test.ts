@@ -49,6 +49,12 @@ function folderPage(offset: number, names: string[], totalCount = 5): CatalogFol
     limit: names.length,
     next_offset: offset + names.length < totalCount ? offset + names.length : null,
     reload_required: false,
+    filter_counts: {
+      all: names.length,
+      markdown: names.filter((name) => /\.(?:md|markdown)$/i.test(name)).length,
+      images: names.filter((name) => /\.(?:jpg|jpeg|png|gif|webp|svg|bmp|ico|avif|heic|heif|tif|tiff)$/i.test(name))
+        .length,
+    },
     items: names.map((name, index) => ({
       node_id: 100 + offset + index,
       name,
@@ -147,6 +153,116 @@ describe('CatalogMirror lazy folders', () => {
     expect(items[4]).toBeNull()
     expect(mirror.isFolderRangeLoaded('/docs', 2, 2)).toBe(true)
     expect(mirror.isFolderRangeLoaded('/docs', 0, 3)).toBe(false)
+  })
+
+  it('does not let filtered folder pages overwrite the default children cache', () => {
+    const mirror = new CatalogMirror()
+    const filteredKey = '{"query":"report"}'
+    mirror.applyManifest(manifest())
+
+    mirror.applyFolderPage(folderPage(0, ['a.txt', 'b.txt'], 2))
+    expect(mirror.getChildren('/docs').map((node) => node.name)).toEqual(['a.txt', 'b.txt'])
+
+    mirror.applyFolderPage(
+      {
+        ...folderPage(0, ['report.md'], 1),
+        filter_counts: {all: 2, markdown: 1, images: 0},
+        items: [
+          {
+            node_id: 200,
+            name: 'report.md',
+            is_dir: false,
+            size: 10,
+            mime_type: 'text/markdown',
+            media_info: null,
+            media_inspected_revision: 0,
+            created_at: 1,
+            updated_at: 2,
+          },
+        ],
+      },
+      filteredKey,
+    )
+
+    expect(mirror.getChildren('/docs').map((node) => node.name)).toEqual(['a.txt', 'b.txt'])
+    expect(mirror.getFolderItems('/docs', filteredKey).map((node) => node?.name ?? null)).toEqual(['report.md'])
+    expect(mirror.getFolderState('/docs', filteredKey)?.filterCounts).toEqual({
+      all: 2,
+      markdown: 1,
+      images: 0,
+    })
+  })
+
+  it('uses explicit item paths for nested filtered folder results', () => {
+    const mirror = new CatalogMirror()
+    const filteredKey = '{"searchMode":"recursive-content","query":"launch"}'
+    mirror.applyManifest(manifest())
+
+    mirror.applyFolderPage(
+      {
+        ...folderPage(0, ['PLAN.md'], 1),
+        items: [
+          {
+            node_id: 220,
+            name: 'PLAN.md',
+            path: '/docs/nested/PLAN.md',
+            parent_path: '/docs/nested',
+            is_dir: false,
+            size: 10,
+            mime_type: 'text/markdown',
+            media_info: null,
+            media_inspected_revision: 0,
+            source_revision: 3,
+            created_at: 1,
+            updated_at: 2,
+          },
+        ],
+      },
+      filteredKey,
+    )
+
+    const result = mirror.getFolderItems('/docs', filteredKey)[0]
+    expect(result?.path).toBe('/docs/nested/PLAN.md')
+    expect(result?.parentPath).toBe('/docs/nested')
+    expect(result?.sourceRevision).toBe(3)
+    expect(mirror.findByPath('/docs/nested/PLAN.md')?.nodeId).toBe(220)
+    expect(mirror.getChildren('/docs')).toEqual([])
+  })
+
+  it('does not treat transient loading or error folder state as loaded', () => {
+    const mirror = new CatalogMirror()
+    mirror.applyManifest(manifest())
+
+    mirror.setFolderRangeLoading('/docs', 0, 200, true)
+    expect(mirror.isFolderRangeLoaded('/docs', 0, 200)).toBe(false)
+
+    mirror.setFolderRangeLoading('/docs', 0, 200, false)
+    mirror.setFolderError('/docs', 'backend failed')
+    expect(mirror.isFolderRangeLoaded('/docs', 0, 200)).toBe(false)
+  })
+
+  it('does not notify subscribers for duplicate loading range state', () => {
+    const mirror = new CatalogMirror()
+    mirror.applyManifest(manifest())
+    const listener = vi.fn()
+    mirror.subscribe(listener)
+
+    mirror.setFolderRangeLoading('/docs', 0, 200, true)
+    mirror.setFolderRangeLoading('/docs', 0, 200, true)
+    mirror.setFolderRangeLoading('/docs', 0, 200, false)
+    mirror.setFolderRangeLoading('/docs', 0, 200, false)
+
+    expect(listener).toHaveBeenCalledTimes(2)
+  })
+
+  it('treats an applied empty folder page as loaded', () => {
+    const mirror = new CatalogMirror()
+    mirror.applyManifest(manifest())
+
+    mirror.applyFolderPage(folderPage(0, [], 0))
+
+    expect(mirror.isFolderRangeLoaded('/docs', 0, 200)).toBe(true)
+    expect(mirror.getFolderItems('/docs')).toEqual([])
   })
 
   it('applies folder batches with one subscriber emission', () => {

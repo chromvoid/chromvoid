@@ -89,6 +89,11 @@ pub(super) fn parse_passkey_invocation_context(
     if let Some(credential_id) = selected_credential_id.as_deref() {
         validate_credential_id(credential_id)?;
     }
+    let user_verified = data
+        .get("userVerified")
+        .or_else(|| data.get("user_verified"))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
 
     Ok(PasskeyInvocationContext {
         platform: platform.platform.to_string(),
@@ -96,6 +101,7 @@ pub(super) fn parse_passkey_invocation_context(
         origin: origin.to_string(),
         client_data_hash,
         selected_credential_id,
+        user_verified,
     })
 }
 

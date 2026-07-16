@@ -11,11 +11,21 @@ const REMOTE_IO_RUNTIME_POISONED: &str = "Remote IO runtime mutex poisoned";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RemoteIoRuntimeEvent {
-    Disconnected { reason: String },
+    HostUnlockConfirmed,
+    HostLocked,
+    Disconnected {
+        reason: String,
+        failure: crate::remote_data_plane::RemoteIoFailure,
+    },
 }
 
 pub(crate) trait RemoteIoRuntimeEventSink: Send + Sync {
     fn on_remote_io_event(&self, event: RemoteIoRuntimeEvent);
+}
+
+pub(crate) struct RemoteIoSessionHandle {
+    pub(crate) req_tx: mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>,
+    pub(crate) generation: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,7 +92,7 @@ impl RemoteIoRuntimeState {
         self: &Arc<Self>,
         app: tauri::AppHandle,
         config: crate::remote_data_plane::RemoteIoTaskConfig,
-    ) -> Result<mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>, String> {
+    ) -> Result<RemoteIoSessionHandle, String> {
         self.start_remote_session_with_event_sink(app, config, None)
     }
 
@@ -91,7 +101,7 @@ impl RemoteIoRuntimeState {
         app: tauri::AppHandle,
         config: crate::remote_data_plane::RemoteIoTaskConfig,
         event_sink: Option<Arc<dyn RemoteIoRuntimeEventSink>>,
-    ) -> Result<mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>, String> {
+    ) -> Result<RemoteIoSessionHandle, String> {
         let crate::remote_data_plane::RemoteIoTaskHandle {
             req_tx,
             evt_rx,
@@ -114,7 +124,10 @@ impl RemoteIoRuntimeState {
         match self.publish_active(session) {
             Ok(previous) => {
                 abort_session(previous, RemoteIoStopReason::Replaced);
-                Ok(req_tx_for_adapter)
+                Ok(RemoteIoSessionHandle {
+                    req_tx: req_tx_for_adapter,
+                    generation,
+                })
             }
             Err(PublishActiveError { error, session }) => {
                 self.current_generation.fetch_add(1, Ordering::AcqRel);
@@ -283,6 +296,9 @@ async fn run_remote_event_pump<R: tauri::Runtime>(
     mut evt_rx: mpsc::Receiver<crate::remote_data_plane::RemoteIoEvent>,
     event_sink: Option<Arc<dyn RemoteIoRuntimeEventSink>>,
 ) {
+    const MOBILE_USB_HOST_UNLOCK_CONFIRMED: &str = "mobile_usb:host_unlock_confirmed";
+    const MOBILE_USB_HOST_LOCKED: &str = "mobile_usb:host_locked";
+
     while let Some(event) = evt_rx.recv().await {
         if !runtime.is_generation_current(generation) {
             continue;
@@ -296,6 +312,18 @@ async fn run_remote_event_pump<R: tauri::Runtime>(
 
                 match serde_json::from_slice::<RpcRequest>(&frame.payload) {
                     Ok(request) => {
+                        if request.command == MOBILE_USB_HOST_UNLOCK_CONFIRMED {
+                            if let Some(sink) = event_sink.as_ref() {
+                                sink.on_remote_io_event(RemoteIoRuntimeEvent::HostUnlockConfirmed);
+                            }
+                            continue;
+                        }
+                        if request.command == MOBILE_USB_HOST_LOCKED {
+                            if let Some(sink) = event_sink.as_ref() {
+                                sink.on_remote_io_event(RemoteIoRuntimeEvent::HostLocked);
+                            }
+                            return;
+                        }
                         crate::helpers::emit_core_event(&app, &request.command, request.data);
                     }
                     Err(error) => {
@@ -303,10 +331,11 @@ async fn run_remote_event_pump<R: tauri::Runtime>(
                     }
                 }
             }
-            crate::remote_data_plane::RemoteIoEvent::Disconnected { reason } => {
+            crate::remote_data_plane::RemoteIoEvent::Disconnected { reason, failure } => {
                 if let Some(sink) = event_sink.as_ref() {
                     sink.on_remote_io_event(RemoteIoRuntimeEvent::Disconnected {
                         reason: reason.clone(),
+                        failure,
                     });
                 }
                 warn!("remote_io: remote data-plane task disconnected: {reason}");
@@ -436,6 +465,7 @@ mod tests {
         evt_tx
             .send(crate::remote_data_plane::RemoteIoEvent::Disconnected {
                 reason: "transport closed".to_string(),
+                failure: crate::remote_data_plane::RemoteIoFailure::TransportClosed,
             })
             .await
             .expect("send disconnect");
@@ -448,10 +478,53 @@ mod tests {
             event,
             RemoteIoRuntimeEvent::Disconnected {
                 reason: "transport closed".to_string(),
+                failure: crate::remote_data_plane::RemoteIoFailure::TransportClosed,
             }
         );
 
         drop(evt_tx);
         pump.await.expect("event pump join");
+    }
+
+    #[tokio::test]
+    async fn event_pump_forwards_authenticated_host_lock_and_stops() {
+        let app = tauri::test::mock_app();
+        let runtime = Arc::new(RemoteIoRuntimeState::new());
+        let generation = runtime.next_active_generation();
+        let (evt_tx, evt_rx) = mpsc::channel(1);
+        let (sink_tx, sink_rx) = tokio::sync::oneshot::channel();
+        let sink = Arc::new(RecordingRuntimeEventSink {
+            tx: Mutex::new(Some(sink_tx)),
+        });
+
+        let pump = tokio::spawn(run_remote_event_pump(
+            runtime,
+            app.handle().clone(),
+            generation,
+            evt_rx,
+            Some(sink),
+        ));
+        let request = RpcRequest::new("mobile_usb:host_locked", serde_json::json!({}));
+        evt_tx
+            .send(crate::remote_data_plane::RemoteIoEvent::Frame(
+                crate::gateway::protocol::Frame {
+                    frame_type: crate::gateway::protocol::FrameType::RpcRequest,
+                    message_id: 1,
+                    flags: 0,
+                    payload: serde_json::to_vec(&request).expect("host lock request"),
+                },
+            ))
+            .await
+            .expect("send host lock");
+
+        let event = tokio::time::timeout(Duration::from_secs(1), sink_rx)
+            .await
+            .expect("sink event timeout")
+            .expect("sink event");
+        assert_eq!(event, RemoteIoRuntimeEvent::HostLocked);
+        tokio::time::timeout(Duration::from_secs(1), pump)
+            .await
+            .expect("event pump stop timeout")
+            .expect("event pump join");
     }
 }

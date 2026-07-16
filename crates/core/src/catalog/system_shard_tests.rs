@@ -16,10 +16,23 @@ fn test_system_shard_passkeys() {
 }
 
 #[test]
+fn test_system_shard_trash() {
+    assert!(is_system_shard_id(".trash"));
+}
+
+#[test]
+fn test_system_shard_env_runtime() {
+    assert!(is_system_shard_id(".cv-env-runtime"));
+    assert!(is_system_path("/.cv-env-runtime"));
+    assert!(is_system_path("/.cv-env-runtime/values/secret.json"));
+}
+
+#[test]
 fn test_eager_system_shards_include_passkeys() {
     assert!(is_eager_system_shard_id(".passmanager"));
     assert!(is_eager_system_shard_id(".passkeys"));
     assert!(!is_eager_system_shard_id(".wallet"));
+    assert!(!is_eager_system_shard_id(".trash"));
     assert_eq!(eager_system_shard_ids(), &[".passmanager", ".passkeys"]);
 }
 
@@ -83,6 +96,14 @@ fn test_shard_id_from_path_passkeys() {
 }
 
 #[test]
+fn test_shard_id_from_path_trash() {
+    assert_eq!(
+        shard_id_from_path("/.trash/report.pdf"),
+        Some(".trash".to_string())
+    );
+}
+
+#[test]
 fn test_shard_id_from_path_root_returns_none() {
     assert_eq!(shard_id_from_path("/"), None);
 }
@@ -121,6 +142,12 @@ fn test_is_system_path_wallet() {
 fn test_is_system_path_passkeys() {
     assert!(is_system_path("/.passkeys"));
     assert!(is_system_path("/.passkeys/github"));
+}
+
+#[test]
+fn test_is_system_path_trash() {
+    assert!(is_system_path("/.trash"));
+    assert!(is_system_path("/.trash/report.pdf"));
 }
 
 #[test]

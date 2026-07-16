@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import {createTranslationStore, hasCompleteTranslations} from './locales'
 import {createI18n} from './translation'
 
 const translations = {
@@ -69,6 +70,41 @@ test('uses fallback language when configured', () => {
   })
 
   assert.equal(i18n('onlyEnglish'), 'Only English')
+})
+
+test('reports whether every key has a non-empty translation', () => {
+  assert.equal(hasCompleteTranslations(translations, 'en'), true)
+  assert.equal(hasCompleteTranslations(translations, 'ru'), false)
+  assert.equal(hasCompleteTranslations(translations, 'de'), false)
+  assert.equal(
+    hasCompleteTranslations(
+      {
+        first: {en: 'First', ru: 'Первый'},
+        second: {en: 'Second', ru: '   '},
+      },
+      'ru',
+    ),
+    false,
+  )
+})
+
+test('creates a key-first translation store from locale files', () => {
+  const store = createTranslationStore({
+    en: {
+      title: 'Title',
+      greeting: 'Hello ${name}',
+    },
+    ru: {
+      title: 'Заголовок',
+    },
+  } as const)
+
+  assert.deepEqual(store, {
+    title: {en: 'Title', ru: 'Заголовок'},
+    greeting: {en: 'Hello ${name}'},
+  })
+  assert.equal(hasCompleteTranslations(store, 'en'), true)
+  assert.equal(hasCompleteTranslations(store, 'ru'), false)
 })
 
 test('syncs document html lang attribute by default', () => {

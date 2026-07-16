@@ -8,6 +8,7 @@ mod upload;
 pub(crate) use download::catalog_download;
 #[cfg(desktop)]
 pub(crate) use download::catalog_download_path;
+pub(crate) use download::catalog_download_range;
 pub(crate) use download::catalog_image_metadata;
 pub(crate) use download::catalog_open_external;
 pub(crate) use download::catalog_preview_image;

@@ -2,7 +2,6 @@ import {FileItemBase} from './file-item.base'
 import {fileItemMobileStyles} from './file-item/file-item-mobile.styles'
 import {fileItemStyles} from './file-item/file-item.styles'
 import {renderMobileFileItem, type FileItemRenderData} from './file-item/render'
-import {isMobileTouch} from './file-item/utils'
 
 export class FileItemMobile extends FileItemBase {
   static elementName = 'file-item-mobile'
@@ -19,7 +18,7 @@ export class FileItemMobile extends FileItemBase {
   }
 
   protected override get showSwipeActions(): boolean {
-    return this.viewMode === 'list' && isMobileTouch()
+    return this.viewMode === 'list'
   }
 
   protected override readonly onTouchStart = (event: TouchEvent) => {

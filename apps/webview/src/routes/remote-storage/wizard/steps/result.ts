@@ -41,7 +41,7 @@ export const renderResultStep = ({result, onCopyPath, onClose, onRetry}: ResultS
                 icon: 'folder-check',
                 title: i18n('remote-storage:files-saved'),
               })}
-              <div class="path-display">
+              <div class="path-display" dir="ltr">
                 <cv-icon name="folder"></cv-icon>
                 ${result.backupDir}
               </div>

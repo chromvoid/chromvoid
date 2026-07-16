@@ -8,15 +8,18 @@ use crate::app_state::AppState;
 
 use approval::resolve_sign_approval;
 #[cfg(test)]
-use support::refresh_action;
-use support::{
-    agent_status, ensure_local_mode, ensure_main_window_caller, start_ssh_agent_with_entries,
+pub(crate) use support::build_private_key_reader;
+use support::{agent_status, start_ssh_agent_with_entries};
+pub(crate) use support::{
+    collect_ssh_agent_entries, ensure_main_window_caller, ensure_ssh_agent_feature_access,
+    reconcile_ssh_agent_with_vault,
 };
-pub(crate) use support::{collect_ssh_agent_entries, reconcile_ssh_agent_with_vault};
+#[cfg(test)]
+use support::{ensure_local_mode, refresh_action};
 
 const MAIN_WINDOW_LABEL: &str = "main";
 
-pub(crate) type SshAgentEntries = Vec<(String, String, String, String)>;
+pub(crate) type SshAgentEntries = Vec<crate::ssh_agent::SshAgentEntry>;
 
 #[derive(Debug, Serialize)]
 pub struct SshAgentStatus {
@@ -64,23 +67,7 @@ pub async fn ssh_agent_start(
             .lock()
             .map_err(|_| "Adapter mutex poisoned".to_string())?;
 
-        ensure_local_mode(adapter.mode(), "ssh_agent_start")?;
-        let caps = crate::types::runtime_capabilities_for_current_target();
-        crate::pro::guard_pro_feature_for_adapter(
-            adapter.as_mut(),
-            chromvoid_core::license::PRO_FEATURE_SSH_AGENT,
-            &caps,
-        )
-        .map_err(|error| match error {
-            crate::types::RpcResult::Error { error, code, .. } => {
-                format!(
-                    "{}: {}",
-                    code.unwrap_or_else(|| "PRO_REQUIRED".to_string()),
-                    error
-                )
-            }
-            crate::types::RpcResult::Success { .. } => "Pro license required".to_string(),
-        })?;
+        ensure_ssh_agent_feature_access(adapter.as_mut(), "ssh_agent_start")?;
 
         if !adapter.is_unlocked() {
             return Err("Vault is locked".to_string());
@@ -107,23 +94,7 @@ pub async fn ssh_agent_sign_approval_resolve(
             .adapter
             .lock()
             .map_err(|_| "Adapter mutex poisoned".to_string())?;
-        ensure_local_mode(adapter.mode(), "ssh_agent_sign_approval_resolve")?;
-        let caps = crate::types::runtime_capabilities_for_current_target();
-        crate::pro::guard_pro_feature_for_adapter(
-            adapter.as_mut(),
-            chromvoid_core::license::PRO_FEATURE_SSH_AGENT,
-            &caps,
-        )
-        .map_err(|error| match error {
-            crate::types::RpcResult::Error { error, code, .. } => {
-                format!(
-                    "{}: {}",
-                    code.unwrap_or_else(|| "PRO_REQUIRED".to_string()),
-                    error
-                )
-            }
-            crate::types::RpcResult::Success { .. } => "Pro license required".to_string(),
-        })?;
+        ensure_ssh_agent_feature_access(adapter.as_mut(), "ssh_agent_sign_approval_resolve")?;
     }
 
     resolve_sign_approval(app, request_id, approved).await
@@ -157,7 +128,7 @@ mod tests {
     use crate::core_adapter::{ConnectionState, CoreAdapter, CoreMode, RemoteHost};
     use crate::gateway::GatewayState;
     use crate::session_settings::SessionSettings;
-    use crate::ssh_agent::{stop_shared_state, SshAgentState, StopReason};
+    use crate::ssh_agent::{stop_shared_state, SshAgentEntry, SshAgentState, StopReason};
     use crate::volume_manager::VolumeManager;
     use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
     use chromvoid_core::rpc::{RpcInputStream, RpcReply};
@@ -174,6 +145,7 @@ mod tests {
         unlocked: bool,
         entries: Vec<serde_json::Value>,
         secrets: HashMap<(String, String), String>,
+        license_status: Option<serde_json::Value>,
     }
 
     struct TestAdapter {
@@ -196,13 +168,18 @@ mod tests {
         fn handle(&mut self, req: &RpcRequest) -> RpcResponse {
             let shared = self.shared.lock().expect("adapter lock");
             match req.command.as_str() {
-                "passmanager:entry:list" => RpcResponse::success(json!({
-                    "entries": shared.entries,
+                "passmanager:ssh:list" => RpcResponse::success(json!({
+                    "sshKeys": shared.entries,
                 })),
-                "passmanager:secret:read" => {
-                    let entry_id = req
+                "license:status" => shared
+                    .license_status
+                    .clone()
+                    .map(RpcResponse::success)
+                    .unwrap_or_else(|| RpcResponse::error("license unavailable", Some("TEST"))),
+                "passmanager:ssh:secret:read" => {
+                    let key_id = req
                         .data
-                        .get("entry_id")
+                        .get("key_id")
                         .and_then(|value| value.as_str())
                         .unwrap_or_default()
                         .to_string();
@@ -213,7 +190,7 @@ mod tests {
                         .unwrap_or_default()
                         .to_string();
 
-                    match shared.secrets.get(&(entry_id, secret_type)) {
+                    match shared.secrets.get(&(key_id, secret_type)) {
                         Some(value) => RpcResponse::success(json!({"value": value})),
                         None => RpcResponse::error("missing", Some("NOT_FOUND")),
                     }
@@ -282,6 +259,16 @@ mod tests {
         )
     }
 
+    fn pro_license_status() -> serde_json::Value {
+        json!({
+            "licensed": true,
+            "plan": "pro",
+            "feature_keys": [chromvoid_core::license::PRO_FEATURE_SSH_AGENT],
+            "source_core": "local",
+            "build_policy": "enforce",
+        })
+    }
+
     fn app_with_state(
         adapter_shared: Arc<Mutex<TestAdapterData>>,
     ) -> (TempDir, tauri::App<MockRuntime>) {
@@ -304,6 +291,12 @@ mod tests {
             gateway: Arc::new(Mutex::new(GatewayState::load_or_default(
                 tempdir.path().join("gateway.json"),
             ))),
+            env_runtime: Arc::new(
+                crate::env_runtime::EnvRuntimeState::new(
+                    tempdir.path().join("env-runtime-device.enc.json"),
+                )
+                .expect("env runtime"),
+            ),
             session_settings: Arc::new(Mutex::new(SessionSettings::default())),
             mobile_is_foreground: Arc::new(Mutex::new(false)),
             last_activity: Arc::new(Mutex::new(std::time::Instant::now())),
@@ -323,6 +316,9 @@ mod tests {
             ),
             media_streams: Arc::new(crate::media_source::LocalMediaSourceManager::new()),
             media_protocol_runtime: Arc::new(crate::media_stream::MediaProtocolRuntimeState::new()),
+            media_http_stream_runtime: Arc::new(
+                crate::media_stream::MediaHttpStreamRuntimeState::new(),
+            ),
             network_pairing_runtime: Arc::new(
                 crate::network::pairing::NetworkPairingRuntimeState::new(),
             ),
@@ -393,6 +389,7 @@ mod tests {
             Ok(crate::mobile_usb::MobileUsbSessionHandle {
                 session_id: "test-session".to_string(),
                 host_unlocked: false,
+                transport_session_generation: 1,
             })
         }
     }
@@ -426,34 +423,97 @@ mod tests {
             mode: CoreMode::Local,
             unlocked: true,
             entries: vec![json!({
-                "id": "entry-a",
-                "title": "server",
-                "sshKeys": [
-                    {
-                        "id": "key-a",
-                        "comment": "deploy",
-                        "fingerprint": "SHA256:abc",
-                    }
-                ]
+                "id": "key-a",
+                "comment": "deploy",
+                "fingerprint": "SHA256:metadata-is-not-trusted",
             })],
             secrets: HashMap::from([(
-                ("entry-a".to_string(), "ssh_public_key:key-a".to_string()),
+                ("key-a".to_string(), "ssh_public_key".to_string()),
                 "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO+I0O6tnVW8gFDrWZ15l6WO3ol8YV0P4i4R6Jr4h9rB deploy".to_string(),
             )]),
+            license_status: None,
         }));
         let mut adapter = TestAdapter { shared };
 
         let entries = collect_ssh_agent_entries(&mut adapter).expect("collect entries");
         assert_eq!(
             entries,
-            vec![(
-                "entry-a/key-a".to_string(),
+            vec![SshAgentEntry::new(
+                "key-a",
                 "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO+I0O6tnVW8gFDrWZ15l6WO3ol8YV0P4i4R6Jr4h9rB deploy"
                     .to_string(),
                 "deploy".to_string(),
-                "SHA256:abc".to_string(),
             )]
         );
+    }
+
+    #[test]
+    fn collect_entries_ignores_malformed_root_metadata() {
+        let shared = Arc::new(Mutex::new(TestAdapterData {
+            mode: CoreMode::Local,
+            unlocked: true,
+            entries: vec![json!({
+                "id": "",
+                "sshKeyType": "ed25519",
+                "sshKeyFingerprint": "SHA256:legacy",
+                "sshKeyComment": "legacy",
+            })],
+            secrets: HashMap::new(),
+            license_status: None,
+        }));
+        let mut adapter = TestAdapter { shared };
+
+        let entries = collect_ssh_agent_entries(&mut adapter).expect("malformed metadata skipped");
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn collect_entries_propagates_entry_list_errors() {
+        let shared = Arc::new(Mutex::new(TestAdapterData {
+            mode: CoreMode::Local,
+            unlocked: true,
+            entries: vec![],
+            secrets: HashMap::new(),
+            license_status: None,
+        }));
+        struct FailingListAdapter {
+            shared: Arc<Mutex<TestAdapterData>>,
+        }
+        impl CoreAdapter for FailingListAdapter {
+            fn mode(&self) -> CoreMode {
+                self.shared.lock().expect("adapter lock").mode.clone()
+            }
+            fn connection_state(&self) -> ConnectionState {
+                ConnectionState::Disconnected
+            }
+            fn is_unlocked(&self) -> bool {
+                self.shared.lock().expect("adapter lock").unlocked
+            }
+            fn handle(&mut self, req: &RpcRequest) -> RpcResponse {
+                if req.command == "passmanager:ssh:list" {
+                    return RpcResponse::error("transient list failure", Some("TEST"));
+                }
+                RpcResponse::error("unexpected", Some("TEST"))
+            }
+            fn handle_with_stream(
+                &mut self,
+                req: &RpcRequest,
+                _stream: Option<RpcInputStream>,
+            ) -> RpcReply {
+                RpcReply::Json(self.handle(req))
+            }
+            fn save(&mut self) -> Result<(), String> {
+                Ok(())
+            }
+            fn take_events(&mut self) -> Vec<serde_json::Value> {
+                Vec::new()
+            }
+            fn set_master_key(&mut self, _key: Option<String>) {}
+        }
+
+        let mut adapter = FailingListAdapter { shared };
+        let error = collect_ssh_agent_entries(&mut adapter).expect_err("list error must bubble");
+        assert!(error.contains("transient list failure"));
     }
 
     #[test]
@@ -484,6 +544,7 @@ mod tests {
             unlocked: true,
             entries: vec![],
             secrets: HashMap::new(),
+            license_status: Some(pro_license_status()),
         }));
         let (_tempdir, app) = app_with_state(shared.clone());
         let _xdg_guard = XdgConfigGuard::set(_tempdir.path());
@@ -496,18 +557,12 @@ mod tests {
         {
             let mut state = shared.lock().expect("adapter data");
             state.entries = vec![json!({
-                "id": "entry-a",
-                "title": "server",
-                "sshKeys": [
-                    {
-                        "id": "key-a",
-                        "comment": "deploy",
-                        "fingerprint": "SHA256:abc",
-                    }
-                ]
+                "id": "key-a",
+                "comment": "deploy",
+                "fingerprint": "SHA256:abc",
             })];
             state.secrets.insert(
-                ("entry-a".to_string(), "ssh_public_key:key-a".to_string()),
+                ("key-a".to_string(), "ssh_public_key".to_string()),
                 sample_pubkey("deploy"),
             );
         }
@@ -528,26 +583,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unlock_auto_start_requires_pro_entitlement() {
+        let _env_lock = env_lock().lock().expect("env lock");
+        let shared = Arc::new(Mutex::new(TestAdapterData {
+            mode: CoreMode::Local,
+            unlocked: true,
+            entries: vec![json!({
+                "id": "key-a",
+                "comment": "deploy",
+                "fingerprint": "SHA256:metadata",
+            })],
+            secrets: HashMap::from([(
+                ("key-a".to_string(), "ssh_public_key".to_string()),
+                sample_pubkey("deploy"),
+            )]),
+            license_status: None,
+        }));
+        let (_tempdir, app) = app_with_state(shared);
+        let _xdg_guard = XdgConfigGuard::set(_tempdir.path());
+
+        let error = reconcile_ssh_agent_with_vault(app.handle(), true)
+            .await
+            .expect_err("auto-start must require Pro entitlement");
+        assert!(error.contains("ENTITLEMENT_UNAVAILABLE"));
+
+        let ssh_agent = app.state::<AppState>().ssh_agent.clone();
+        let agent = ssh_agent.lock().expect("agent lock");
+        assert!(!agent.is_running());
+        assert_eq!(agent.identities_count(), 0);
+    }
+
+    #[tokio::test]
     async fn unlock_auto_start_disabled_and_runtime_refresh_updates_running_identities() {
         let _env_lock = env_lock().lock().expect("env lock");
         let shared = Arc::new(Mutex::new(TestAdapterData {
             mode: CoreMode::Local,
             unlocked: true,
             entries: vec![json!({
-                "id": "entry-a",
-                "title": "server",
-                "sshKeys": [
-                    {
-                        "id": "key-a",
-                        "comment": "deploy",
-                        "fingerprint": "SHA256:abc",
-                    }
-                ]
+                "id": "key-a",
+                "comment": "deploy",
+                "fingerprint": "SHA256:abc",
             })],
             secrets: HashMap::from([(
-                ("entry-a".to_string(), "ssh_public_key:key-a".to_string()),
+                ("key-a".to_string(), "ssh_public_key".to_string()),
                 sample_pubkey("deploy"),
             )]),
+            license_status: Some(pro_license_status()),
         }));
         let (_tempdir, app) = app_with_state(shared.clone());
         let _xdg_guard = XdgConfigGuard::set(_tempdir.path());
@@ -564,24 +645,20 @@ mod tests {
 
         {
             let mut state = shared.lock().expect("adapter data");
-            state.entries = vec![json!({
-                "id": "entry-a",
-                "title": "server",
-                "sshKeys": [
-                    {
-                        "id": "key-a",
-                        "comment": "deploy",
-                        "fingerprint": "SHA256:abc",
-                    },
-                    {
-                        "id": "key-b",
-                        "comment": "backup",
-                        "fingerprint": "SHA256:def",
-                    }
-                ]
-            })];
+            state.entries = vec![
+                json!({
+                    "id": "key-a",
+                    "comment": "deploy",
+                    "fingerprint": "SHA256:abc",
+                }),
+                json!({
+                    "id": "key-b",
+                    "comment": "backup",
+                    "fingerprint": "SHA256:def",
+                }),
+            ];
             state.secrets.insert(
-                ("entry-a".to_string(), "ssh_public_key:key-b".to_string()),
+                ("key-b".to_string(), "ssh_public_key".to_string()),
                 sample_pubkey("backup"),
             );
         }

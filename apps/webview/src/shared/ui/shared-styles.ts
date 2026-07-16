@@ -7,10 +7,6 @@ import {sharedStyles as baseSharedStyles} from './base-shared-styles'
 export const sharedStyles: CSSResult[] = [
   ...baseSharedStyles,
   css`
-    :host {
-      --app-spacing: var(--app-spacing-4);
-    }
-
     /* ========== CONTAINMENT RULES ========== */
     .header-container {
       contain: layout paint style;
@@ -25,7 +21,7 @@ export const sharedStyles: CSSResult[] = [
     }
 
     .card {
-      padding: var(--app-spacing);
+      padding: var(--app-spacing-4);
     }
 
     .animate-spin {
@@ -116,7 +112,7 @@ export const motionPrimitiveStyles: CSSResult = css`
   @keyframes fadeInUp {
     from {
       opacity: 0;
-      transform: translateY(var(--motion-fade-up-distance, 12px));
+      transform: translateY(var(--app-motion-fade-up-distance, 12px));
     }
     to {
       opacity: 1;
@@ -128,31 +124,17 @@ export const motionPrimitiveStyles: CSSResult = css`
 
   @keyframes reveal {
     from {
-      opacity: var(--motion-reveal-start-opacity, 0);
-      transform: var(--motion-reveal-start-transform, none);
+      opacity: 0;
+      transform: var(--app-motion-reveal-start-transform, none);
     }
     to {
-      opacity: var(--motion-reveal-end-opacity, 1);
-      transform: var(--motion-reveal-end-transform, none);
+      opacity: 1;
+      transform: var(--app-motion-reveal-end-transform, none);
     }
   }
 
   /* floatY, shimmer, progressShimmer: removed — infinite animations hurt responsiveness */
 
-  :host {
-    --motion-reveal-start-opacity: 0;
-    --motion-reveal-end-opacity: 1;
-    --motion-spin-duration: 1s;
-    --motion-spin-easing: linear;
-    --motion-reveal-animation: reveal 0.4s var(--motion-reveal-easing, var(--cv-easing-standard, ease-in-out)) both;
-    --motion-reveal-easing: var(--cv-easing-standard, ease-in-out);
-    --motion-fade-up-animation: fadeInUp 0.35s var(--motion-fade-up-easing, var(--cv-easing-standard, ease-in-out)) both;
-    --motion-fade-up-easing: var(--cv-easing-standard, ease-in-out);
-    --motion-fade-animation: fadeIn 0.2s ease-out;
-    --motion-zoom-animation: zoomIn 0.2s ease-out;
-    --motion-float-animation: none;
-    --motion-page-reveal-animation: reveal 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
-  }
 `
 
 export const animationStyles: CSSResult = motionPrimitiveStyles
@@ -161,8 +143,8 @@ export const functionalMotionStyles: CSSResult = css`
   @keyframes motion-text-swap-in {
     from {
       opacity: 0;
-      transform: translateY(var(--motion-text-swap-distance, 6px));
-      filter: blur(var(--motion-text-swap-blur, 2px));
+      transform: translateY(6px);
+      filter: blur(2px);
     }
     to {
       opacity: 1;
@@ -174,8 +156,8 @@ export const functionalMotionStyles: CSSResult = css`
   @keyframes motion-number-pop-in {
     from {
       opacity: 0;
-      transform: translateY(var(--motion-number-pop-distance, 4px)) scale(var(--motion-number-pop-scale, 0.92));
-      filter: blur(var(--motion-number-pop-blur, 2px));
+      transform: translateY(4px) scale(0.92);
+      filter: blur(2px);
     }
     to {
       opacity: 1;
@@ -187,8 +169,8 @@ export const functionalMotionStyles: CSSResult = css`
   @keyframes motion-icon-swap-in {
     from {
       opacity: 0;
-      transform: scale(var(--motion-icon-swap-scale, 0.78));
-      filter: blur(var(--motion-icon-swap-blur, 2px));
+      transform: scale(0.78);
+      filter: blur(2px);
     }
     to {
       opacity: 1;
@@ -228,8 +210,8 @@ export const functionalMotionStyles: CSSResult = css`
     grid-template-rows: 0fr;
     opacity: 0;
     pointer-events: none;
-    transform: translateY(var(--motion-panel-reveal-distance, -8px));
-    filter: blur(var(--motion-panel-reveal-blur, 2px));
+    transform: translateY(-8px);
+    filter: blur(2px);
   }
 
   .motion-panel-reveal__inner {
@@ -288,7 +270,7 @@ export const functionalMotionStyles: CSSResult = css`
 
 export const pageTransitionStyles: CSSResult = css`
   :host {
-    animation: page-fade-in var(--cv-duration-normal, 200ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1)) both;
+    animation: page-fade-in var(--cv-duration-normal, 200ms) var(--app-editorial-easing-out-quart, cubic-bezier(0.25, 1, 0.5, 1)) both;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -358,22 +340,13 @@ export const routeHostStyles: CSSResult = css`
 `
 
 export const surfacePrimitiveStyles: CSSResult = css`
-  :host {
-    --file-manager-section-accent: var(--gradient-primary);
-    --file-manager-section-title-bg: linear-gradient(
-      135deg,
-      var(--cv-color-surface) 0%,
-      var(--cv-color-surface-2) 100%
-    );
-  }
-
   :host::before {
     content: '';
     position: absolute;
     inset-block-start: 0;
     inset-inline: 0;
     block-size: 3px;
-    background: var(--file-manager-section-accent);
+    background: var(--cv-gradient-primary);
     opacity: 0.7;
   }
 
@@ -385,13 +358,13 @@ export const surfacePrimitiveStyles: CSSResult = css`
     display: flex;
     align-items: center;
     gap: var(--app-spacing-2);
-    background: var(--file-manager-section-title-bg);
+    background: var(--cv-gradient-surface);
 
     &::before {
       content: '';
       inline-size: 4px;
       block-size: 16px;
-      background: var(--file-manager-section-accent);
+      background: var(--cv-gradient-primary);
       border-radius: var(--cv-radius-1);
     }
   }
@@ -420,7 +393,7 @@ export const pulseIndicatorStyles: CSSResult = css``
 export const spinIndicatorStyles: CSSResult = css`
   .spinner,
   .loading-spinner {
-    animation: spin var(--motion-spin-duration, 1s) var(--motion-spin-easing, linear) infinite;
+    animation: spin var(--app-motion-spin-duration) linear infinite;
   }
 `
 

@@ -37,6 +37,8 @@ async function main() {
     packageJson.exports['./types'].types,
     packageJson.exports['./validation'].types,
     packageJson.exports['./conflicts'].types,
+    packageJson.exports['./i18n'].types,
+    packageJson.exports['./i18n/availability'].types,
     packageJson.exports['./mapper'].types,
     packageJson.exports['./parsers'].types,
     packageJson.exports['./parsers/1password'].types,
@@ -60,6 +62,8 @@ async function main() {
   try {
     await bundle(`import {ImportOrchestrator} from '${path.join(packageRoot, 'dist', 'index.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof ImportOrchestrator)\n`, tmpRoot, 'root')
     await bundle(`import {ImportOrchestrator} from '${path.join(packageRoot, 'dist', 'mapper.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof ImportOrchestrator)\n`, tmpRoot, 'mapper')
+    await bundle(`import {setLang} from '${path.join(packageRoot, 'dist', 'i18n.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof setLang)\n`, tmpRoot, 'i18n')
+    await bundle(`import {hasCompletePasswordImportTranslations} from '${path.join(packageRoot, 'dist', 'i18n', 'availability.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof hasCompletePasswordImportTranslations)\n`, tmpRoot, 'i18n-availability')
     await bundle(`import {notifyMobileFilePickerLifecycleStart} from '${path.join(packageRoot, 'dist', 'ui', 'mobile-file-picker-lifecycle.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof notifyMobileFilePickerLifecycleStart)\n`, tmpRoot, 'lifecycle')
     await bundle(`import {ImportDialog} from '${path.join(packageRoot, 'dist', 'ui', 'import-dialog.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof ImportDialog)\n`, tmpRoot, 'dialog')
     await bundle(`import {setImportCatalogOps} from '${path.join(packageRoot, 'dist', 'ui', 'import-dialog-state.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof setImportCatalogOps)\n`, tmpRoot, 'dialog-state')

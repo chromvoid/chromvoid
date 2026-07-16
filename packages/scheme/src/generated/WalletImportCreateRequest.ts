@@ -7,4 +7,5 @@ export type WalletImportCreateRequest = {
   curve: string
   private_key: string
   encoding: string
+  client_request_id?: string | null
 }

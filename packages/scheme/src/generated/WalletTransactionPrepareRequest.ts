@@ -8,4 +8,5 @@ export type WalletTransactionPrepareRequest = {
   network: WalletNetwork
   outputs: Array<WalletTransactionOutput>
   fee_policy: WalletFeePolicy
+  maximize_output_index?: number | null
 }

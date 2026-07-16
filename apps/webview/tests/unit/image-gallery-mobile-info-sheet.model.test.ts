@@ -85,7 +85,7 @@ describe('image-gallery-v2/mobile-gallery-info-sheet.model', () => {
     model.openInfoSheet(image)
 
     expect(model.state.infoSheetOpen()).toBe(true)
-    expect(model.state.infoSheetDetent()).toBe('middle')
+    expect(model.state.infoSheetDetent()).toBe('expanded')
     expect(model.state.photoMetadataLoading()).toBe(true)
 
     await vi.waitFor(() => {
@@ -100,7 +100,7 @@ describe('image-gallery-v2/mobile-gallery-info-sheet.model', () => {
     model.closeInfoSheet()
     expect(model.state.infoSheetDetent()).toBe('collapsed')
     model.openInfoSheet(image)
-    expect(model.state.infoSheetDetent()).toBe('middle')
+    expect(model.state.infoSheetDetent()).toBe('expanded')
     expect(model.state.photoMetadataLoading()).toBe(true)
 
     await vi.waitFor(() => {
@@ -121,7 +121,9 @@ describe('image-gallery-v2/mobile-gallery-info-sheet.model', () => {
     expect(model.state.infoSheetDetent()).toBe('collapsed')
 
     model.openInfoSheet(imageMeta(5))
-    expect(model.state.infoSheetDetent()).toBe('middle')
+    expect(model.state.infoSheetDetent()).toBe('expanded')
+    model.setInfoSheetDetent('collapsed')
+    expect(model.state.infoSheetDetent()).toBe('expanded')
     model.setInfoSheetDetent('expanded')
     expect(model.state.infoSheetDetent()).toBe('expanded')
 

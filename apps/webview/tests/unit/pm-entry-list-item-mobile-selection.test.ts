@@ -77,6 +77,12 @@ function createPassmanagerRoot(entry: Entry): typeof window.passmanager {
   const root = new ManagerRoot({} as any)
   group.entries.set([entry])
   root.entries.set([group])
+  root.sshKeys.set(
+    entry.data().sshKeys.map((key) => ({
+      ...key,
+      sourceEntryId: entry.id,
+    })),
+  )
   root.showElement.set(group)
   ;(root as ManagerRoot & {isReadOnly: () => boolean}).isReadOnly = () => false
   return root as typeof window.passmanager
@@ -120,6 +126,18 @@ async function openLeftSwipe(element: PMEntryListItemMobile, preventDefault: () 
     preventDefault,
   } as unknown as TouchEvent)
 
+  ;(element as PMEntryListItemMobile & {handleTouchEnd: () => void}).handleTouchEnd()
+  await flush(element)
+}
+
+async function openRightSwipe(element: PMEntryListItemMobile) {
+  ;(element as PMEntryListItemMobile & {handleTouchStart: (event: TouchEvent) => void}).handleTouchStart({
+    touches: [{clientX: 0, clientY: 0}],
+  } as unknown as TouchEvent)
+  ;(element as PMEntryListItemMobile & {handleTouchMove: (event: TouchEvent) => void}).handleTouchMove({
+    touches: [{clientX: 80, clientY: 0}],
+    preventDefault() {},
+  } as unknown as TouchEvent)
   ;(element as PMEntryListItemMobile & {handleTouchEnd: () => void}).handleTouchEnd()
   await flush(element)
 }
@@ -299,12 +317,13 @@ describe('PMEntryListItemMobile selection mode', () => {
 
     const text = element.shadowRoot?.textContent ?? ''
     const statusDots = [...(element.shadowRoot?.querySelectorAll('.entry-status-dot') ?? [])]
-    const tagBadges = [...(element.shadowRoot?.querySelectorAll('.entry-badge') ?? [])]
+    const tagBadges = [...(element.shadowRoot?.querySelectorAll('.entry-tag-badge') ?? [])]
+    const tagOverflow = element.shadowRoot?.querySelector('.entry-tag-overflow[data-tag-limit="1"]')
 
     expect(text).not.toContain('2FA')
     expect(text).not.toContain('SSH')
     expect(text).toContain('work')
-    expect(text).toContain('banking')
+    expect(text).not.toContain('banking')
     expect(text).not.toContain('OTP')
     expect(text).not.toContain('OK')
     expect(element.shadowRoot?.querySelector('.otp-indicator')).toBeNull()
@@ -312,8 +331,11 @@ describe('PMEntryListItemMobile selection mode', () => {
     expect(statusDots.map((dot) => dot.getAttribute('data-badge-id'))).toEqual(['two_factor', 'ssh'])
     expect(statusDots.every((dot) => dot.getAttribute('role') === 'img')).toBe(true)
     expect(statusDots.every((dot) => dot.getAttribute('aria-label'))).toBe(true)
-    expect(tagBadges).toHaveLength(2)
-    expect(tagBadges.map((badge) => badge.getAttribute('data-family'))).toEqual(['meta', 'meta'])
+    expect(tagBadges).toHaveLength(1)
+    expect(tagBadges.map((badge) => badge.getAttribute('data-family'))).toEqual(['meta'])
+    expect(tagOverflow?.textContent?.trim()).toBe('+1')
+    expect(tagOverflow?.getAttribute('aria-label')).toBe('1 more tags')
+    expect(tagOverflow?.getAttribute('role')).toBe('img')
     expect(element.shadowRoot?.querySelector('.entry-badge cv-icon')).toBeNull()
     expect(element.shadowRoot?.querySelector('.entry-menu-button')?.getAttribute('aria-label')).toBe('More actions')
   })
@@ -374,7 +396,26 @@ describe('PMEntryListItemMobile selection mode', () => {
       'two_factor',
       'ssh',
     ])
+  })
 
+  it('keeps the mobile security indicator slot mounted while audit state settles', async () => {
+    const entry = createEntry('mobile-security-slot')
+    window.passmanager = createPassmanagerRoot(entry)
+
+    const element = document.createElement('pm-entry-list-item-mobile') as PMEntryListItemMobile
+    element.entry = entry
+    document.body.append(element)
+    await flush(element)
+
+    const slot = element.shadowRoot?.querySelector('.entry-status-dots')
+    expect(slot?.getAttribute('aria-hidden')).toBe('true')
+
+    setAuditEntries([[entry, {weakPassword: true, strengthScore: 1}]])
+    await flush(element)
+
+    expect(element.shadowRoot?.querySelector('.entry-status-dots')).toBe(slot)
+    expect(slot?.hasAttribute('aria-hidden')).toBe(false)
+    expect(slot?.querySelector('[data-badge-id="weak_password"]')).not.toBeNull()
   })
 
   it('binds left swipe to right-side delete actions through the gesture model', async () => {
@@ -394,6 +435,21 @@ describe('PMEntryListItemMobile selection mode', () => {
     expect(element.shadowRoot?.querySelector('.swipe-actions-left cv-icon[name="person-circle"]')).not.toBeNull()
 
     expect(element.shadowRoot?.querySelector('.list-item')?.getAttribute('data-swipe-state')).toBe('open-left')
+  })
+
+  it('preserves right swipe actions through the shared gesture model', async () => {
+    const entry = createEntry('mobile-swipe-right-visual')
+    window.passmanager = createPassmanagerRoot(entry)
+
+    const element = document.createElement('pm-entry-list-item-mobile') as PMEntryListItemMobile
+    element.entry = entry
+    document.body.append(element)
+    await flush(element)
+
+    await openRightSwipe(element)
+
+    expect(element.shadowRoot?.querySelector('.list-item')?.getAttribute('data-swipe-state')).toBe('open-right')
+    expect(element.shadowRoot?.querySelector('.swipe-actions-left cv-icon[name="person-circle"]')).not.toBeNull()
   })
 
   it('emits entry-delete from the right-side swipe delete action', async () => {

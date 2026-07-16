@@ -1,12 +1,28 @@
 export const CREDENTIAL_TAG_MAX_LENGTH = 32
 export const CREDENTIAL_TAG_MAX_PER_ENTRY = 12
+export const CREDENTIAL_TAG_COLOR_IDS = [
+  'violet',
+  'green',
+  'blue',
+  'pink',
+  'amber',
+  'orange',
+  'cyan',
+] as const
+export const CREDENTIAL_TAG_DEFAULT_COLOR_ID = 'violet' satisfies CredentialTagColorId
 
 export type CredentialTagLabel = string
 export type CredentialTagKey = string
+export type CredentialTagColorId = (typeof CREDENTIAL_TAG_COLOR_IDS)[number]
+export type CredentialTagMeta = {
+  colorId: CredentialTagColorId
+}
+export type CredentialTagCatalogMeta = Record<CredentialTagKey, CredentialTagMeta>
 
 export type CredentialTagOption = {
   key: CredentialTagKey
   label: CredentialTagLabel
+  colorId: CredentialTagColorId
   count: number
 }
 
@@ -35,6 +51,19 @@ export type CredentialTagDeletePlan = {
   affectedEntryIds: string[]
 }
 
+function isCredentialTagColorId(value: unknown): value is CredentialTagColorId {
+  return (
+    typeof value === 'string' &&
+    (CREDENTIAL_TAG_COLOR_IDS as readonly string[]).includes(value)
+  )
+}
+
+function readCredentialTagMetaColorId(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return undefined
+  const rec = value as Record<string, unknown>
+  return rec['colorId'] ?? rec['color_id']
+}
+
 function normalizeTagText(value: string): string {
   return value
     .normalize('NFKC')
@@ -57,6 +86,22 @@ export function normalizeCredentialTagLabel(value: unknown): string | undefined 
 export function credentialTagKey(label: string): CredentialTagKey {
   const normalized = normalizeCredentialTagLabel(label) ?? ''
   return normalized.toLowerCase().replace(/\s+/gu, '-')
+}
+
+export function normalizeCredentialTagColorId(value: unknown): CredentialTagColorId | undefined {
+  return isCredentialTagColorId(value) ? value : undefined
+}
+
+export function fallbackCredentialTagColorId(keyOrLabel: string): CredentialTagColorId {
+  const key = credentialTagKey(keyOrLabel)
+  if (!key) return CREDENTIAL_TAG_DEFAULT_COLOR_ID
+
+  let hash = 0
+  for (let index = 0; index < key.length; index += 1) {
+    hash = (hash * 31 + key.charCodeAt(index)) >>> 0
+  }
+
+  return CREDENTIAL_TAG_COLOR_IDS[hash % CREDENTIAL_TAG_COLOR_IDS.length] ?? CREDENTIAL_TAG_DEFAULT_COLOR_ID
 }
 
 export function normalizeCredentialTags(values: unknown): string[] {
@@ -101,16 +146,49 @@ export function normalizeCredentialTagCatalog(values: unknown): string[] {
   return tags
 }
 
+export function normalizeCredentialTagCatalogMeta(
+  value: unknown,
+  catalogTags?: readonly string[],
+): CredentialTagCatalogMeta {
+  if (!value || typeof value !== 'object') return {}
+
+  const allowedKeys =
+    catalogTags === undefined
+      ? undefined
+      : new Set(normalizeCredentialTagCatalog(catalogTags).map(credentialTagKey))
+  const meta: CredentialTagCatalogMeta = {}
+
+  for (const [rawKey, rawMeta] of Object.entries(value as Record<string, unknown>)) {
+    const key = credentialTagKey(rawKey)
+    if (!key || (allowedKeys && !allowedKeys.has(key))) continue
+
+    const colorId = normalizeCredentialTagColorId(readCredentialTagMetaColorId(rawMeta))
+    if (!colorId) continue
+    meta[key] = {colorId}
+  }
+
+  return meta
+}
+
+export function pruneCredentialTagCatalogMeta(
+  meta: unknown,
+  catalogTags: readonly string[],
+): CredentialTagCatalogMeta {
+  return normalizeCredentialTagCatalogMeta(meta, catalogTags)
+}
+
 export function buildCredentialTagOptions(
   entries: readonly {tags: readonly string[]}[],
   catalogTags: readonly string[] = [],
+  catalogMeta: CredentialTagCatalogMeta = {},
 ): CredentialTagOption[] {
   const options = new Map<CredentialTagKey, CredentialTagOption>()
+  const meta = normalizeCredentialTagCatalogMeta(catalogMeta)
 
   for (const label of normalizeCredentialTagCatalog(catalogTags)) {
     const key = credentialTagKey(label)
     if (!key || options.has(key)) continue
-    options.set(key, {key, label, count: 0})
+    options.set(key, {key, label, colorId: meta[key]?.colorId ?? fallbackCredentialTagColorId(key), count: 0})
   }
 
   for (const entry of entries) {
@@ -120,7 +198,7 @@ export function buildCredentialTagOptions(
       if (current) {
         current.count += 1
       } else {
-        options.set(key, {key, label, count: 1})
+        options.set(key, {key, label, colorId: meta[key]?.colorId ?? fallbackCredentialTagColorId(key), count: 1})
       }
     }
   }
@@ -225,6 +303,42 @@ export function planCredentialTagDelete(
     catalogTags: catalogTagsNext,
     affectedEntryIds,
   }
+}
+
+export function renameCredentialTagCatalogMeta(
+  meta: unknown,
+  catalogTags: readonly string[],
+  sourceKey: string,
+  nextKey: string,
+  colorId?: CredentialTagColorId,
+): CredentialTagCatalogMeta {
+  const next = normalizeCredentialTagCatalogMeta(meta)
+  const normalizedSourceKey = credentialTagKey(sourceKey)
+  const normalizedNextKey = credentialTagKey(nextKey)
+  if (!normalizedNextKey) return pruneCredentialTagCatalogMeta(next, catalogTags)
+
+  const nextColorId =
+    colorId ??
+    (normalizedSourceKey ? next[normalizedSourceKey]?.colorId : undefined) ??
+    next[normalizedNextKey]?.colorId
+  if (normalizedSourceKey && normalizedSourceKey !== normalizedNextKey) {
+    delete next[normalizedSourceKey]
+  }
+  if (nextColorId) {
+    next[normalizedNextKey] = {colorId: nextColorId}
+  }
+  return pruneCredentialTagCatalogMeta(next, catalogTags)
+}
+
+export function removeCredentialTagCatalogMeta(
+  meta: unknown,
+  catalogTags: readonly string[],
+  tagKey: string,
+): CredentialTagCatalogMeta {
+  const next = normalizeCredentialTagCatalogMeta(meta)
+  const key = credentialTagKey(tagKey)
+  if (key) delete next[key]
+  return pruneCredentialTagCatalogMeta(next, catalogTags)
 }
 
 export function pruneCredentialTagKeys(

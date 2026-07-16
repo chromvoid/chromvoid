@@ -121,9 +121,20 @@ export const getDeepActiveElement = (): HTMLElement | null => {
   return active instanceof HTMLElement ? active : null
 }
 
+const hasKeyboardScrollOptOut = (element: HTMLElement): boolean =>
+  Boolean(
+    findComposedAncestor(
+      element,
+      (candidate) =>
+        candidate.getAttribute(MOBILE_KEYBOARD_SCROLL_ATTR) === MOBILE_KEYBOARD_SCROLL_OFF_VALUE,
+      {includeSelf: true},
+    ),
+  )
+
 export const getActiveMobileKeyboardTarget = (): HTMLElement | null => {
   const active = getDeepActiveElement()
   if (!active) return null
+  if (hasKeyboardScrollOptOut(active)) return null
 
   const customHost = findComposedAncestor(
     active,
@@ -147,12 +158,5 @@ export const isKeyboardScrollOptedOut = (
     return true
   }
 
-  return Boolean(
-    findComposedAncestor(
-      element,
-      (candidate) =>
-        candidate.getAttribute(MOBILE_KEYBOARD_SCROLL_ATTR) === MOBILE_KEYBOARD_SCROLL_OFF_VALUE,
-      {includeSelf: true},
-    ),
-  )
+  return hasKeyboardScrollOptOut(element)
 }

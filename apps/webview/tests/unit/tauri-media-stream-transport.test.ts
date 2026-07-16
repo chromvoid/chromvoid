@@ -3,11 +3,11 @@ import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {TauriTransport} from '../../src/core/transport/tauri/tauri-transport'
 import {
   prepareMediaStreamViaTauri,
+  prepareMediaSourceViaTauri,
   releaseMediaStreamViaTauri,
+  releaseMediaSourceViaTauri,
   sendAndroidAudioCommandViaTauri,
   sendNativeAudioCommandViaTauri,
-  startAndroidVideoViaTauri,
-  stopAndroidVideoViaTauri,
 } from '../../src/core/transport/tauri/tauri-binary-ops'
 import type {RuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import type {AndroidAudioPlayerEvent, MediaStreamErrorEvent, NativeAudioPlayerEvent} from '../../src/core/transport/transport'
@@ -15,10 +15,6 @@ import type {AndroidAudioPlayerEvent, MediaStreamErrorEvent, NativeAudioPlayerEv
 const tauriInvoke = vi.fn()
 const tauriListen = vi.fn()
 const listenHandlers = new Map<string, (payload: unknown) => void>()
-
-vi.mock('@tauri-apps/api/core', () => ({
-  convertFileSrc: (path: string) => `asset://${path}`,
-}))
 
 vi.mock('../../src/core/transport/tauri/ipc', () => {
   return {
@@ -40,6 +36,10 @@ const capabilities: RuntimeCapabilities = {
   supports_biometric: false,
   supports_autofill: false,
   supports_media_stream_protocol: true,
+  supports_media_http_stream: true,
+  supports_mse_video_playback: true,
+  supports_desktop_native_video_playback: true,
+  supports_mobile_native_video_playback: false,
   supports_native_audio_playback: false,
   supports_native_video_playback: false,
   supports_native_file_upload: false,
@@ -129,6 +129,8 @@ describe('Tauri media stream transport', () => {
       kind: 'media-stream',
       streamId: 'stream-1',
       url: 'chromvoid-media://localhost/stream-1',
+      fallbackUrl: undefined,
+      delivery: 'custom-scheme',
       name: 'track.mp3',
       mimeType: 'audio/mpeg',
       size: 1234,
@@ -153,6 +155,131 @@ describe('Tauri media stream transport', () => {
     })
   })
 
+  it('parses loopback HTTP media stream delivery metadata', async () => {
+    tauriInvoke.mockImplementation(async (command: string) => {
+      if (command === 'prepare_media_stream') {
+        return {
+          ok: true,
+          result: {
+            kind: 'media-stream',
+            streamId: 'stream-http',
+            url: 'http://127.0.0.1:49152/media/stream-http',
+            fallbackUrl: 'chromvoid-media://localhost/stream-http',
+            delivery: 'loopback-http',
+            name: 'clip.mp4',
+            mimeType: 'video/mp4',
+            size: 2048,
+            sourceRevision: 88,
+            expiresAt: 654321,
+          },
+        }
+      }
+      throw new Error(`unexpected tauri command: ${command}`)
+    })
+
+    const source = await prepareMediaStreamViaTauri(24, {
+      fileName: 'clip.mp4',
+      mimeType: 'video/mp4',
+    })
+
+    expect(source).toEqual({
+      kind: 'media-stream',
+      streamId: 'stream-http',
+      url: 'http://127.0.0.1:49152/media/stream-http',
+      fallbackUrl: 'chromvoid-media://localhost/stream-http',
+      delivery: 'loopback-http',
+      name: 'clip.mp4',
+      mimeType: 'video/mp4',
+      size: 2048,
+      sourceRevision: 88,
+      expiresAt: 654321,
+    })
+  })
+
+  it('prepares and releases generic video sources through Tauri commands', async () => {
+    tauriInvoke.mockImplementation(async (command: string) => {
+      if (command === 'prepare_media_source') {
+        return {
+          ok: true,
+          result: {
+            kind: 'video-source',
+            streamId: 'stream-231',
+            sourceToken: 'stream-231',
+            platform: 'desktop',
+            provider: 'local-catalog',
+            deliveries: [
+              {
+                delivery: 'loopback-http',
+                platform: 'desktop',
+                url: 'http://127.0.0.1:49152/media/stream-231',
+              },
+            ],
+            name: 'clip.mp4',
+            mimeType: 'video/mp4',
+            size: 2048,
+            sourceRevision: 88,
+            mediaSourceGeneration: 1,
+            expiresAt: 654321,
+          },
+        }
+      }
+      if (command === 'release_media_source') {
+        return {ok: true, result: null}
+      }
+      throw new Error(`unexpected tauri command: ${command}`)
+    })
+
+    const source = await prepareMediaSourceViaTauri({
+      kind: 'video',
+      nodeId: 24,
+      fileName: 'clip.mp4',
+      mimeType: 'video/mp4',
+      lastModified: 1000,
+    })
+
+    expect(source).toEqual({
+      kind: 'video-source',
+      streamId: 'stream-231',
+      sourceToken: 'stream-231',
+      platform: 'desktop',
+      provider: 'local-catalog',
+      deliveries: [
+        {
+          delivery: 'loopback-http',
+          platform: 'desktop',
+          url: 'http://127.0.0.1:49152/media/stream-231',
+        },
+      ],
+      name: 'clip.mp4',
+      mimeType: 'video/mp4',
+      size: 2048,
+      sourceRevision: 88,
+      mediaSourceGeneration: 1,
+      appForegroundEpoch: 1,
+      expiresAt: 654321,
+    })
+    expect(tauriInvoke).toHaveBeenCalledWith('prepare_media_source', {
+      args: {
+        kind: 'video',
+        nodeId: 24,
+        sourceRevision: null,
+        ownerToken: null,
+        fileName: 'clip.mp4',
+        mimeType: 'video/mp4',
+        lastModified: 1000,
+      },
+    })
+
+    await releaseMediaSourceViaTauri(source)
+
+    expect(tauriInvoke).toHaveBeenCalledWith('release_media_source', {
+      args: {
+        streamId: 'stream-231',
+        sourceToken: 'stream-231',
+      },
+    })
+  })
+
   it('preserves stable prepare error codes on rejection', async () => {
     tauriInvoke.mockResolvedValue({
       ok: false,
@@ -172,52 +299,78 @@ describe('Tauri media stream transport', () => {
     })
   })
 
-  it('starts and stops Android native video through Tauri commands', async () => {
+  it('normalizes Android native video delivery through generic media source commands', async () => {
     tauriInvoke.mockImplementation(async (command: string) => {
-      if (command === 'android_video_start') {
+      if (command === 'prepare_media_source') {
         return {
           ok: true,
           result: {
-            started: true,
-            token: 'video-token-1',
+            kind: 'video-source',
+            streamId: 'stream-android-1',
+            sourceToken: 'video-token-1',
+            platform: 'mobile',
+            provider: 'mobile-local-catalog',
+            deliveries: [
+              {
+                delivery: 'native-video',
+                platform: 'mobile',
+                nativeSourceToken: 'native-video-token-1',
+              },
+            ],
+            name: 'clip.mp4',
             mimeType: 'video/mp4',
             size: 1234,
             sourceRevision: 77,
+            mediaSourceGeneration: 3,
+            transportSessionGeneration: 9,
+            appForegroundEpoch: 5,
+            expiresAt: 654321,
           },
         }
-      }
-      if (command === 'android_video_stop') {
-        return {ok: true, result: null}
       }
       throw new Error(`unexpected tauri command: ${command}`)
     })
 
-    const source = await startAndroidVideoViaTauri(23, {
+    const source = await prepareMediaSourceViaTauri({
+      kind: 'video',
+      nodeId: 23,
       fileName: 'clip.mp4',
       mimeType: 'video/mp4',
       lastModified: 1000,
     })
 
     expect(source).toEqual({
-      kind: 'android-native-video',
-      token: 'video-token-1',
+      kind: 'video-source',
+      streamId: 'stream-android-1',
+      sourceToken: 'video-token-1',
+      platform: 'mobile',
+      provider: 'mobile-local-catalog',
+      deliveries: [
+        {
+          delivery: 'native-video',
+          platform: 'mobile',
+          nativeSourceToken: 'native-video-token-1',
+        },
+      ],
+      name: 'clip.mp4',
       mimeType: 'video/mp4',
       size: 1234,
       sourceRevision: 77,
+      mediaSourceGeneration: 3,
+      transportSessionGeneration: 9,
+      appForegroundEpoch: 5,
+      expiresAt: 654321,
     })
-    expect(tauriInvoke).toHaveBeenCalledWith('android_video_start', {
+    expect(tauriInvoke).toHaveBeenCalledWith('prepare_media_source', {
       args: {
+        kind: 'video',
         nodeId: 23,
+        sourceRevision: null,
+        ownerToken: null,
         fileName: 'clip.mp4',
         mimeType: 'video/mp4',
         lastModified: 1000,
       },
-    })
-
-    await stopAndroidVideoViaTauri(source)
-
-    expect(tauriInvoke).toHaveBeenCalledWith('android_video_stop', {
-      token: 'video-token-1',
     })
   })
 
@@ -273,6 +426,40 @@ describe('Tauri media stream transport', () => {
         nativeSessionId: 'audio-session-1',
       },
     })
+  })
+
+  it('skips desktop mode_status during mobile transport connect', async () => {
+    const mobileCapabilities: RuntimeCapabilities = {
+      ...capabilities,
+      platform: 'android',
+      desktop: false,
+      mobile: true,
+      supports_native_path_io: false,
+      supports_volume: false,
+      supports_gateway: false,
+      supports_mobile_usb_remote: false,
+    }
+    tauriInvoke.mockImplementation(async (command: string) => {
+      if (command === 'init_local_storage') {
+        return {ok: true, result: {storage_root: '/tmp/chromvoid'}}
+      }
+      if (command === 'runtime_capabilities') {
+        return mobileCapabilities
+      }
+      if (command === 'get_current_mode') {
+        return {ok: true, result: 'local'}
+      }
+      throw new Error(`unexpected tauri command: ${command}`)
+    })
+
+    const transport = new TauriTransport()
+    transport.connect()
+    await waitForConnected(transport)
+
+    expect(tauriInvoke).not.toHaveBeenCalledWith('mode_status')
+    expect(tauriInvoke).toHaveBeenCalledWith('get_current_mode')
+
+    transport.disconnect()
   })
 
   it('forwards native media stream errors through the transport event layer', async () => {

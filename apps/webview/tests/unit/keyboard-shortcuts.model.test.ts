@@ -9,7 +9,6 @@ import {clearAppContext, createMockAppContext, initAppContext} from '../../src/s
 type LayoutMode = 'desktop' | 'mobile'
 
 const macLabels: Record<KeyboardShortcutId, string> = {
-  'app.commandPalette.open': '⌘K',
   'app.vault.lock': '⌘L',
   'nav.files': '⌘1',
   'nav.passwords': '⌘2',
@@ -28,7 +27,6 @@ const macLabels: Record<KeyboardShortcutId, string> = {
 }
 
 const ctrlLabels: Record<KeyboardShortcutId, string> = {
-  'app.commandPalette.open': 'Ctrl+K',
   'app.vault.lock': 'Ctrl+L',
   'nav.files': 'Ctrl+1',
   'nav.passwords': 'Ctrl+2',
@@ -112,10 +110,6 @@ describe('keyboardShortcutsModel', () => {
         expect(keyboardShortcutsModel.label(id)).toBeUndefined()
         expect(keyboardShortcutsModel.hasBinding(id)).toBe(false)
       }
-
-      expect(
-        keyboardShortcutsModel.matches('app.commandPalette.open', keyEvent('k', {ctrlKey: true, code: 'KeyK'})),
-      ).toBe(false)
     }
   })
 
@@ -123,32 +117,32 @@ describe('keyboardShortcutsModel', () => {
     setupRuntime('web', 'desktop')
     setupContext('desktop')
 
-    expect(keyboardShortcutsModel.label('app.commandPalette.open')).toBe('Ctrl+K')
-    expect(keyboardShortcutsModel.matches('app.commandPalette.open', keyEvent('k', {ctrlKey: true}))).toBe(true)
+    expect(keyboardShortcutsModel.label('app.vault.lock')).toBe('Ctrl+L')
+    expect(keyboardShortcutsModel.matches('app.vault.lock', keyEvent('l', {ctrlKey: true}))).toBe(true)
 
     clearAppContext()
     setupRuntime('web', 'mobile')
     setupContext('mobile')
 
-    expect(keyboardShortcutsModel.label('app.commandPalette.open')).toBeUndefined()
-    expect(keyboardShortcutsModel.matches('app.commandPalette.open', keyEvent('k', {ctrlKey: true}))).toBe(false)
+    expect(keyboardShortcutsModel.label('app.vault.lock')).toBeUndefined()
+    expect(keyboardShortcutsModel.matches('app.vault.lock', keyEvent('l', {ctrlKey: true}))).toBe(false)
   })
 
   it('matches macOS command shortcuts without accepting Ctrl or extra modifiers', () => {
     setupRuntime('macos')
 
-    expect(keyboardShortcutsModel.matches('app.commandPalette.open', keyEvent('K', {metaKey: true}))).toBe(true)
-    expect(keyboardShortcutsModel.matches('app.commandPalette.open', keyEvent('k', {ctrlKey: true}))).toBe(false)
+    expect(keyboardShortcutsModel.matches('app.vault.lock', keyEvent('L', {metaKey: true}))).toBe(true)
+    expect(keyboardShortcutsModel.matches('app.vault.lock', keyEvent('l', {ctrlKey: true}))).toBe(false)
     expect(
-      keyboardShortcutsModel.matches('app.commandPalette.open', keyEvent('k', {metaKey: true, shiftKey: true})),
+      keyboardShortcutsModel.matches('app.vault.lock', keyEvent('l', {metaKey: true, shiftKey: true})),
     ).toBe(false)
   })
 
   it('matches Windows/Linux Ctrl shortcuts and keeps shifted bindings distinct', () => {
     setupRuntime('windows')
 
-    expect(keyboardShortcutsModel.matches('app.commandPalette.open', keyEvent('k', {ctrlKey: true}))).toBe(true)
-    expect(keyboardShortcutsModel.matches('app.commandPalette.open', keyEvent('k', {metaKey: true}))).toBe(false)
+    expect(keyboardShortcutsModel.matches('app.vault.lock', keyEvent('l', {ctrlKey: true}))).toBe(true)
+    expect(keyboardShortcutsModel.matches('app.vault.lock', keyEvent('l', {metaKey: true}))).toBe(false)
     expect(keyboardShortcutsModel.matches('passmanager.createEntry', keyEvent('n', {ctrlKey: true}))).toBe(true)
     expect(
       keyboardShortcutsModel.matches('passmanager.createEntry', keyEvent('N', {ctrlKey: true, shiftKey: true})),
@@ -192,11 +186,11 @@ describe('keyboardShortcutsModel', () => {
   it('supports explicit context overrides', () => {
     setupRuntime('android', 'mobile')
 
-    expect(keyboardShortcutsModel.label('app.commandPalette.open', {platform: 'windows'})).toBe('Ctrl+K')
-    expect(keyboardShortcutsModel.label('app.commandPalette.open', {platform: 'windows', enabled: false})).toBeUndefined()
-    expect(keyboardShortcutsModel.label('app.commandPalette.open', {platform: 'web', layoutMode: 'desktop'})).toBe(
-      'Ctrl+K',
+    expect(keyboardShortcutsModel.label('app.vault.lock', {platform: 'windows'})).toBe('Ctrl+L')
+    expect(keyboardShortcutsModel.label('app.vault.lock', {platform: 'windows', enabled: false})).toBeUndefined()
+    expect(keyboardShortcutsModel.label('app.vault.lock', {platform: 'web', layoutMode: 'desktop'})).toBe(
+      'Ctrl+L',
     )
-    expect(keyboardShortcutsModel.label('app.commandPalette.open', {platform: 'web', layoutMode: 'mobile'})).toBeUndefined()
+    expect(keyboardShortcutsModel.label('app.vault.lock', {platform: 'web', layoutMode: 'mobile'})).toBeUndefined()
   })
 })

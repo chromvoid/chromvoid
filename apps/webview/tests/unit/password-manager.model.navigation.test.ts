@@ -27,6 +27,7 @@ import {
   pmMotionModel,
 } from '../../src/features/passmanager/models/pm-motion.model'
 import {pmEntryEditorModel} from '../../src/features/passmanager/models/pm-entry-editor.model'
+import {pmListViewportModel} from '../../src/features/passmanager/models/pm-list-viewport.model'
 import {clearPassmanagerRoot, setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
 import {passmanagerNavigationController} from '../../src/features/passmanager/passmanager-navigation.controller'
 import {pmModel} from '../../src/features/passmanager/password-manager.model'
@@ -80,6 +81,7 @@ async function flushMicrotasks() {
 
 describe('PasswordManagerModel navigation', () => {
   let originalPassmanager: typeof window.passmanager
+  let unregisterMotionPresenter: (() => void) | undefined
 
   afterEach(() => {
     vi.clearAllTimers()
@@ -93,6 +95,8 @@ describe('PasswordManagerModel navigation', () => {
     passmanagerNavigationController.reset()
     pmEntryEditorModel.reset()
     pmModel.cleanup()
+    unregisterMotionPresenter?.()
+    unregisterMotionPresenter = undefined
     consumeAndroidPasswordSavePrefill()
   })
 
@@ -140,6 +144,35 @@ describe('PasswordManagerModel navigation', () => {
       direction: 'back',
       target: `root:${root.id}`,
     })
+  })
+
+  it('presents navigation before mutating the visible PM page', async () => {
+    originalPassmanager = window.passmanager
+    const root = new ManagerRoot({} as any)
+    const group = createGroup('group-presented', 'Group Presented')
+    root.entries.set([group])
+    window.passmanager = root
+    let commit!: () => void
+    let finish!: () => void
+    unregisterMotionPresenter = pmMotionModel.registerPresenter((request) => {
+      commit = request.commit
+      return new Promise<void>((resolve) => {
+        finish = resolve
+      })
+    })
+
+    pmModel.openItem(group)
+
+    expect(pmMotionModel.intent()).toEqual({
+      kind: 'surface-change',
+      direction: 'forward',
+      target: `group:${group.id}`,
+    })
+    expect(root.showElement()).toBe(root)
+    commit()
+    expect(root.showElement()).toBe(group)
+    finish()
+    await pmMotionModel.whenSettled()
   })
 
   it('remembers restore selection when route back applies entry -> group and group -> root', () => {
@@ -200,6 +233,40 @@ describe('PasswordManagerModel navigation', () => {
     expect(pmModel.goBackFromCurrent()).toBe(true)
     expect(root.showElement()).toBe(root)
     expect(passmanagerNavigationController.readRoute()).toEqual({kind: 'root'})
+  })
+
+  it('applies, reads, and backs out of the SSH keys route', () => {
+    originalPassmanager = window.passmanager
+    const root = new ManagerRoot({} as any)
+    root.entries.set([])
+    window.passmanager = root
+
+    expect(passmanagerNavigationController.applyRoute({kind: 'ssh-view'})).toBe(true)
+    expect(root.showElement()).toBe('sshView')
+    expect(passmanagerNavigationController.readRoute()).toEqual({kind: 'ssh-view'})
+    expect(pmMotionModel.intent()).toEqual({kind: 'surface-change', direction: 'open', target: 'ssh-view'})
+
+    expect(pmModel.goBackFromCurrent()).toBe(true)
+    expect(root.showElement()).toBe(root)
+  })
+
+  it('applies, reads, and backs out of the Env Runtime route', () => {
+    originalPassmanager = window.passmanager
+    const root = new ManagerRoot({} as any)
+    root.entries.set([])
+    window.passmanager = root
+
+    expect(passmanagerNavigationController.applyRoute({kind: 'env-runtime-view'})).toBe(true)
+    expect(root.showElement()).toBe('envRuntimeView')
+    expect(passmanagerNavigationController.readRoute()).toEqual({kind: 'env-runtime-view'})
+    expect(pmMotionModel.intent()).toEqual({
+      kind: 'surface-change',
+      direction: 'open',
+      target: 'env-runtime-view',
+    })
+
+    expect(pmModel.goBackFromCurrent()).toBe(true)
+    expect(root.showElement()).toBe(root)
   })
 
   it('shows shortcut password copy success after clipboard write succeeds', async () => {
@@ -448,7 +515,7 @@ describe('PasswordManagerModel navigation', () => {
     })
   })
 
-  it('resets motion and active row state on controller reset', () => {
+  it('resets motion, active row, and list viewport state on controller reset', () => {
     originalPassmanager = window.passmanager
 
     const root = new ManagerRoot({} as any)
@@ -458,7 +525,9 @@ describe('PasswordManagerModel navigation', () => {
     window.passmanager = root
 
     pmModel.openItem(group)
+    pmListViewportModel.saveScrollTop('root|default', 420)
     expect(pmModel.consumeRestoreSelection(root.id)).toBe(group.id)
+    expect(pmListViewportModel.getScrollTop('root|default')).toBe(420)
     expect(pmMotionModel.intent()).toMatchObject({
       kind: 'surface-change',
       direction: 'forward',
@@ -467,6 +536,7 @@ describe('PasswordManagerModel navigation', () => {
     passmanagerNavigationController.reset()
 
     expect(pmModel.consumeRestoreSelection(root.id)).toBeUndefined()
+    expect(pmListViewportModel.getScrollTop('root|default')).toBeNull()
     expect(pmMotionModel.intent()).toEqual(PASSMANAGER_NO_MOTION_INTENT)
   })
 

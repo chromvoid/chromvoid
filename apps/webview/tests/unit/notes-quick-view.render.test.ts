@@ -34,7 +34,13 @@ function ensureDefined() {
   defined = true
 }
 
-function note(nodeId: number, name: string, path: string, mimeType?: string): CatalogNotesListItem {
+function note(
+  nodeId: number,
+  name: string,
+  path: string,
+  mimeType?: string,
+  overrides: Partial<CatalogNotesListItem> = {},
+): CatalogNotesListItem {
   return {
     node_id: nodeId,
     name,
@@ -45,6 +51,7 @@ function note(nodeId: number, name: string, path: string, mimeType?: string): Ca
     source_revision: 1,
     created_at: 1_717_171_700,
     updated_at: 1_717_171_717,
+    ...overrides,
   }
 }
 
@@ -113,11 +120,24 @@ async function settle(element: NotesQuickView | NotesQuickViewMobile | NotesQuic
     await Promise.resolve()
     await element.updateComplete
   }
+}
 
-  const nested = element.shadowRoot?.querySelector<HTMLElement & {updateComplete?: Promise<unknown>}>(
-    'pm-summary-rail',
-  )
-  await nested?.updateComplete
+async function getWorkspaceHeader(element: NotesQuickView | NotesQuickViewMobile | NotesQuickViewControls) {
+  const header = element.shadowRoot?.querySelector('workspace-dashboard-header') as
+    | (HTMLElement & {updateComplete?: Promise<unknown>})
+    | null
+  await header?.updateComplete
+  return header
+}
+
+async function getMobileLayoutScroller(element: NotesQuickViewMobile) {
+  const layout = element.shadowRoot?.querySelector('mobile-surface-layout[data-layout="mobile"]') as
+    | (HTMLElement & {updateComplete?: Promise<unknown>})
+    | null
+  await layout?.updateComplete
+  const scroller = layout?.shadowRoot?.querySelector<HTMLElement>('[part~="scroll"]') ?? null
+  expect(scroller).not.toBeNull()
+  return scroller!
 }
 
 async function waitForText(
@@ -142,6 +162,7 @@ afterEach(() => {
   notesQuickViewModel.actions.clearFilters()
   notesQuickViewModel.actions.setViewMode('flat')
   notesQuickViewModel.actions.expandAllDirectories()
+  notesQuickViewModel.clearMobileScrollPosition()
   clearAppContext()
   vi.restoreAllMocks()
 })
@@ -168,62 +189,62 @@ describe('NotesQuickView render', () => {
     const summary = element.shadowRoot?.querySelector('pm-summary-rail.quick-view__summary-rail')
 
     expect(element.shadowRoot?.querySelector('[data-layout="desktop"]')).not.toBeNull()
-    expect(element.shadowRoot?.querySelector('.quick-view__header pm-summary-rail')).toBeNull()
+    expect(element.shadowRoot?.querySelector('.quick-view__header')).toBeNull()
     expect(summary).toBeNull()
     expect(element.shadowRoot?.querySelector('.quick-view > pm-summary-rail')).toBeNull()
     expect(element.shadowRoot?.querySelector('.quick-view__title-row')).toBeNull()
     expect(element.shadowRoot?.textContent).not.toContain('Markdown files across Files')
-    expect(element.shadowRoot?.querySelector('input[type="search"]')).not.toBeNull()
-    expect(element.shadowRoot?.querySelector('[data-view-mode="flat"]')?.getAttribute('aria-pressed')).toBe(
-      'true',
+    const header = await getWorkspaceHeader(element)
+    expect(header?.hasAttribute('embedded')).toBe(true)
+    expect(header?.shadowRoot?.querySelector('cv-input.search-box')).not.toBeNull()
+    expect(header?.shadowRoot?.querySelector('[data-display-mode="list"]')?.hasAttribute('checked')).toBe(
+      true,
     )
-    expect(element.shadowRoot?.querySelector('[data-view-mode="hierarchy"]')).not.toBeNull()
+    expect(header?.shadowRoot?.querySelector('[data-display-mode="tree"]')).not.toBeNull()
+    expect(header?.shadowRoot?.querySelector('.filter-chips')).not.toBeNull()
+    expect(header?.shadowRoot?.querySelector('.sort-control')).not.toBeNull()
+    expect(header?.shadowRoot?.querySelector('.view-switch')).not.toBeNull()
     expect(element.shadowRoot?.querySelectorAll('.row')).toHaveLength(2)
-    expect(element.shadowRoot?.textContent).toContain('Root.md')
-    expect(element.shadowRoot?.textContent).toContain('Plan.markdown')
+    expect(element.shadowRoot?.textContent).toContain('Root')
+    expect(element.shadowRoot?.textContent).toContain('Plan')
     expect(element.shadowRoot?.textContent).not.toContain('photo.png')
   })
 
-  it('skips the desktop local header when an external toolbar owns controls', async () => {
+  it('omits the local notes toolbar when an external workspace header owns controls', async () => {
     setupContext([note(1, 'Root.md', '/Root.md', 'text/markdown')])
 
     const element = await renderDesktopWithExternalToolbar()
 
-    expect(element.shadowRoot?.querySelector('.quick-view__header')).toBeNull()
+    expect(element.shadowRoot?.querySelector('workspace-dashboard-header')).toBeNull()
     expect(element.shadowRoot?.querySelector('pm-summary-rail.quick-view__summary-rail')).toBeNull()
     expect(element.shadowRoot?.querySelectorAll('.row')).toHaveLength(1)
   })
 
-  it('renders desktop notes controls and delegates interaction to the notes model', async () => {
+  it('renders desktop notes toolbar search and delegates interaction to the notes model', async () => {
     setupContext([note(1, 'Root.md', '/Root.md', 'text/markdown')])
 
     const element = await renderDesktopControls()
-    const search = element.shadowRoot?.querySelector('input[type="search"]') as HTMLInputElement | null
-    const hierarchyButton = element.shadowRoot?.querySelector(
-      '[data-view-mode="hierarchy"]',
-    ) as HTMLButtonElement | null
+    const header = await getWorkspaceHeader(element)
+    const search = header?.shadowRoot?.querySelector('cv-input.search-box') as
+      | (HTMLElement & {value: string})
+      | null
 
     expect(search).not.toBeNull()
-    expect(element.shadowRoot?.querySelector('[data-view-mode="flat"]')).not.toBeNull()
-    expect(hierarchyButton).not.toBeNull()
+    expect(header?.shadowRoot?.querySelector('.sort-control')).not.toBeNull()
+    expect(header?.shadowRoot?.querySelector('.view-switch')).not.toBeNull()
 
     search!.value = 'Root'
-    search!.dispatchEvent(new InputEvent('input', {bubbles: true}))
+    search!.dispatchEvent(
+      new CustomEvent('cv-input', {detail: {value: 'Root'}, bubbles: true, composed: true}),
+    )
     await settle(element)
 
     expect(notesQuickViewModel.state.query()).toBe('Root')
-    const clearFilters = element.shadowRoot?.querySelector('.clear-filters') as HTMLButtonElement | null
-    expect(clearFilters).not.toBeNull()
 
-    clearFilters?.click()
+    search!.dispatchEvent(new CustomEvent('cv-clear', {detail: {}, bubbles: true, composed: true}))
     await settle(element)
 
     expect(notesQuickViewModel.state.query()).toBe('')
-
-    hierarchyButton?.click()
-    await settle(element)
-
-    expect(notesQuickViewModel.state.viewMode()).toBe('hierarchy')
   })
 
   it('renders hierarchy mode with expandable catalog folders', async () => {
@@ -233,9 +254,10 @@ describe('NotesQuickView render', () => {
     ])
 
     const element = await renderDesktop()
-    const hierarchyButton = element.shadowRoot?.querySelector(
-      '[data-view-mode="hierarchy"]',
-    ) as HTMLButtonElement | null
+    const header = await getWorkspaceHeader(element)
+    const hierarchyButton = header?.shadowRoot?.querySelector(
+      '[data-display-mode="tree"]',
+    ) as HTMLElement | null
 
     hierarchyButton?.click()
     await settle(element)
@@ -246,11 +268,12 @@ describe('NotesQuickView render', () => {
     const folderToggle = folder?.querySelector('.folder-toggle') as HTMLButtonElement | null
 
     expect(tree).not.toBeNull()
-    expect(element.shadowRoot?.querySelector('[data-view-mode="hierarchy"]')?.getAttribute('aria-pressed')).toBe(
-      'true',
+    await header?.updateComplete
+    expect(header?.shadowRoot?.querySelector('[data-display-mode="tree"]')?.hasAttribute('checked')).toBe(
+      true,
     )
     expect(folder?.textContent).toContain('Docs')
-    expect(folder?.textContent).toContain('Plan.markdown')
+    expect(folder?.textContent).toContain('Plan')
     expect(element.shadowRoot?.textContent).not.toContain('Empty')
 
     folderToggle?.click()
@@ -258,7 +281,100 @@ describe('NotesQuickView render', () => {
 
     const collapsedFolder = element.shadowRoot?.querySelector('[data-folder-path="/Docs"]')
     expect(collapsedFolder?.querySelector('.folder-row')?.getAttribute('aria-expanded')).toBe('false')
-    expect(collapsedFolder?.textContent).not.toContain('Plan.markdown')
+    expect(collapsedFolder?.textContent).not.toContain('Plan')
+  })
+
+  it('renders list notes without path metadata and keeps preview text above compact details', async () => {
+    setupContext([
+      note(15, 'Encrypted chunks.md', '/Vault/Encrypted chunks.md', 'text/markdown', {
+        heading: 'Encrypted chunks',
+        excerpt: 'Files are split into fixed-size chunks before they ever touch disk.',
+        preview_words: 27,
+        size: 242,
+      }),
+    ])
+
+    const element = await renderDesktop()
+    const card = element.shadowRoot?.querySelector('.note-card--list')
+    const detailsElement = card?.querySelector('.note-card__details')
+    const detailsLabel = detailsElement?.getAttribute('aria-label') ?? ''
+
+    expect(card).not.toBeNull()
+    expect(card?.querySelector('.note-card__title')?.textContent).toContain('Encrypted chunks')
+    expect(card?.querySelector('.note-card__excerpt')?.textContent).toContain('Files are split')
+    expect(detailsLabel).toContain('242 B')
+    expect(detailsLabel).toContain('27 words')
+    expect(detailsLabel).toContain(' · ')
+    expect(detailsLabel).not.toContain('/Vault/')
+    expect(card?.textContent).not.toContain('/Vault/')
+  })
+
+  it('renders grid notes as content preview cards', async () => {
+    setupContext([
+      note(17, 'Chunks.md', '/Vault/Chunks.md', 'text/markdown', {
+        heading: 'Encrypted chunks',
+        excerpt: 'Files are split into fixed-size chunks before they touch disk.',
+        size: 242,
+      }),
+    ])
+
+    const element = await renderDesktop()
+    const header = await getWorkspaceHeader(element)
+    const gridButton = header?.shadowRoot?.querySelector('[data-display-mode="grid"]') as HTMLElement | null
+
+    gridButton?.click()
+    await settle(element)
+
+    const card = element.shadowRoot?.querySelector('.note-card--grid')
+    const detailsElement = card?.querySelector('.note-card__details--grid')
+    const details = detailsElement?.textContent ?? ''
+
+    expect(card).not.toBeNull()
+    expect(card?.querySelector('.note-card__grid-head')).toBeNull()
+    expect(card?.querySelector('.note-card__preview-title')?.textContent).toContain('Encrypted chunks')
+    expect(card?.querySelector('.note-card__preview-copy')?.textContent).toContain('Files are split')
+    expect(card?.querySelector('.note-card__title--grid')?.textContent).toContain('Chunks')
+    expect(details).toContain('242 B')
+    expect(detailsElement?.getAttribute('aria-label')).toContain('242 B')
+    expect(detailsElement?.getAttribute('aria-label')).toContain(' · ')
+    expect(details).not.toContain('/Vault/')
+  })
+
+  it('isolates mixed-direction note content, paths, and technical metadata at render boundaries', async () => {
+    notesQuickViewModel.actions.setDisplayMode('list')
+    setupContext([
+      note(31, 'دليل API.md', '/مشروع/دليل API.md', 'text/markdown', {
+        heading: 'دليل API',
+        excerpt: 'شرح API آمن',
+        preview_words: 27,
+        size: 242,
+      }),
+      note(32, 'خام.md', '/مشروع/خام.md', 'text/markdown', {
+        heading: ' ',
+        excerpt: ' ',
+      }),
+    ])
+
+    const element = await renderDesktop()
+    const proseCard = element.shadowRoot?.querySelector('[data-row-id="31"]')
+    const pathFallbackCard = element.shadowRoot?.querySelector('[data-row-id="32"]')
+
+    expect(proseCard?.querySelector('.note-card__title > bdi[dir="auto"]')?.textContent).toBe('دليل API')
+    expect(proseCard?.querySelector('.note-card__badge > bdi[dir="ltr"]')?.textContent).toBe('MD')
+    expect(proseCard?.querySelector('.note-card__excerpt > bdi[dir="auto"]')?.textContent).toBe('شرح API آمن')
+    expect(proseCard?.querySelectorAll('.note-card__detail > bdi[dir="ltr"]')).toHaveLength(3)
+    expect(proseCard?.getAttribute('aria-label')).toContain('\u2068دليل API.md\u2069')
+    expect(pathFallbackCard?.querySelector('.note-card__excerpt > bdi[dir="ltr"]')?.textContent).toBe(
+      '/مشروع/',
+    )
+
+    notesQuickViewModel.actions.setDisplayMode('tree')
+    await settle(element)
+
+    const folder = element.shadowRoot?.querySelector('[data-folder-path="/مشروع"]')
+    expect(folder?.querySelector('.folder-name > bdi[dir="auto"]')?.textContent).toBe('مشروع')
+    expect(folder?.querySelector('.folder-name')?.getAttribute('title')).toBe('\u2066/مشروع\u2069')
+    expect(folder?.querySelector('.folder-toggle')?.getAttribute('aria-label')).toContain('\u2068مشروع\u2069')
   })
 
   it('renders the mobile custom element with the mobile layout marker', async () => {
@@ -266,27 +382,42 @@ describe('NotesQuickView render', () => {
 
     const element = await renderMobile()
     const layout = element.shadowRoot?.querySelector('mobile-surface-layout[data-layout="mobile"]')
-    const summary = element.shadowRoot?.querySelector('pm-summary-rail.quick-view__summary-rail')
 
     expect(layout).not.toBeNull()
     expect(element.shadowRoot?.querySelector('[data-layout="desktop"]')).toBeNull()
-    expect(element.shadowRoot?.querySelector('.quick-view__header pm-summary-rail')).toBeNull()
+    expect(element.shadowRoot?.querySelector('.quick-view__header')).toBeNull()
     expect(element.shadowRoot?.querySelector('.quick-view__title-row')).toBeNull()
+    const header = await getWorkspaceHeader(element)
+    expect(header?.hasAttribute('embedded')).toBe(true)
+    expect(header?.shadowRoot?.querySelector('.filter-chips')).not.toBeNull()
+    expect(header?.shadowRoot?.querySelector('.sort-control')).toBeNull()
+    expect(header?.shadowRoot?.querySelector('.view-switch')).toBeNull()
     expect(element.shadowRoot?.querySelector('.quick-view__content')).not.toBeNull()
-    expect(summary).not.toBeNull()
-    expect(summary?.getAttribute('slot')).toBe('footer')
-    expect(layout?.lastElementChild).toBe(summary)
+    expect(element.shadowRoot?.querySelector('pm-summary-rail')).toBeNull()
+    expect(layout?.querySelector('[slot="footer"]')).toBeNull()
     expect(element.shadowRoot?.querySelectorAll('.row')).toHaveLength(2)
 
-    const hierarchyButton = element.shadowRoot?.querySelector(
-      '[data-view-mode="hierarchy"]',
-    ) as HTMLButtonElement | null
-    hierarchyButton?.click()
+    notesQuickViewModel.actions.setDisplayMode('tree')
     await settle(element)
 
     expect(notesQuickViewModel.state.viewMode()).toBe('hierarchy')
     expect(element.shadowRoot?.querySelector('.tree')).not.toBeNull()
-    expect(element.shadowRoot?.querySelector('[data-folder-path="/Docs"]')?.textContent).toContain('Mobile.md')
+    expect(element.shadowRoot?.querySelector('[data-folder-path="/Docs"]')?.textContent).toContain('Mobile')
+  })
+
+  it('restores mobile scroll when returning to the notes page', async () => {
+    setupContext([note(1, 'Root.md', '/Root.md'), note(3, 'Mobile.md', '/Docs/Mobile.md')])
+
+    const element = await renderMobile()
+    const scroller = await getMobileLayoutScroller(element)
+    scroller.scrollTop = 220
+
+    element.remove()
+
+    const restoredElement = await renderMobile()
+    const restoredScroller = await getMobileLayoutScroller(restoredElement)
+
+    expect(restoredScroller.scrollTop).toBe(220)
   })
 
   it('renders unavailable, empty, and filtered empty states', async () => {
@@ -302,7 +433,9 @@ describe('NotesQuickView render', () => {
     expect(emptyElement.shadowRoot?.querySelector('cv-empty-state')?.getAttribute('headline')).toBe(
       'No Markdown notes',
     )
-    expect(emptyElement.shadowRoot?.querySelector('cv-guidance-anchor[anchor-id="notes.create-note"]')).not.toBeNull()
+    expect(
+      emptyElement.shadowRoot?.querySelector('cv-guidance-anchor[anchor-id="notes.create-note"]'),
+    ).not.toBeNull()
     emptyElement.remove()
 
     setupContext([note(1, 'Root.md', '/Root.md')])
@@ -335,7 +468,7 @@ describe('NotesQuickView render', () => {
     expect(retry).not.toBeNull()
 
     retry?.click()
-    await waitForText(element, 'Recovered.md')
+    await waitForText(element, 'Recovered')
 
     expect(element.shadowRoot?.querySelector('cv-empty-state')).toBeNull()
     expect(listNotes).toHaveBeenCalledTimes(2)
@@ -343,7 +476,9 @@ describe('NotesQuickView render', () => {
 
   it('desktop note row delegates to model navigation', async () => {
     setupContext([note(7, 'Root.md', '/Root.md')])
-    const openMarkdownDocument = vi.spyOn(navigationModel, 'openMarkdownDocument').mockImplementation(() => {})
+    const openMarkdownDocument = vi
+      .spyOn(navigationModel, 'openMarkdownDocument')
+      .mockImplementation(() => {})
 
     const element = await renderDesktop()
     const row = element.shadowRoot?.querySelector('.row') as HTMLElement | null
@@ -356,6 +491,7 @@ describe('NotesQuickView render', () => {
     expect(openMarkdownDocument).toHaveBeenCalledWith(7, 'push', {
       source: {
         path: '/Root.md',
+        parentPath: '/',
         fileName: 'Root.md',
         size: 128,
         lastModified: 1_717_171_717,
@@ -372,7 +508,9 @@ describe('NotesQuickView render', () => {
 
   it('mobile note row delegates tap to model navigation', async () => {
     setupContext([note(11, 'Mobile.md', '/Docs/Mobile.md')])
-    const openMarkdownDocument = vi.spyOn(navigationModel, 'openMarkdownDocument').mockImplementation(() => {})
+    const openMarkdownDocument = vi
+      .spyOn(navigationModel, 'openMarkdownDocument')
+      .mockImplementation(() => {})
 
     const element = await renderMobile()
     const row = element.shadowRoot?.querySelector('.row') as HTMLElement | null
@@ -383,6 +521,7 @@ describe('NotesQuickView render', () => {
     expect(openMarkdownDocument).toHaveBeenCalledWith(11, 'push', {
       source: {
         path: '/Docs/Mobile.md',
+        parentPath: '/Docs/',
         fileName: 'Mobile.md',
         size: 128,
         lastModified: 1_717_171_717,

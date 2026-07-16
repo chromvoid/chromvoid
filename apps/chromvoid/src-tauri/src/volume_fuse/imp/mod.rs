@@ -1,7 +1,8 @@
 use super::*;
 use chromvoid_core::catalog::is_system_path;
 use chromvoid_core::rpc::types::{
-    CatalogListResponse, NodeCreatedResponse, RpcRequest, RpcResponse,
+    CatalogListResponse, CatalogTrashListItem, CatalogTrashListResponse, NodeCreatedResponse,
+    RpcRequest, RpcResponse,
 };
 use chromvoid_core::rpc::{RpcInputStream, RpcReply};
 use fuser::{
@@ -62,9 +63,21 @@ struct OpenFileState {
     tmp_path: PathBuf,
     writeable: bool,
     dirty: bool,
+    dirty_ranges: Vec<(u64, u64)>,
+    source_revision: u64,
     // For read-only opens, keep a streaming reader to avoid full download-on-open.
     read_stream: Option<Box<dyn Read + Send>>,
     read_pos: u64,
+}
+
+impl OpenFileState {
+    fn mark_dirty_range(&mut self, offset: u64, len: u64) {
+        if len == 0 {
+            return;
+        }
+        self.dirty = true;
+        self.dirty_ranges.push((offset, len));
+    }
 }
 
 pub struct PrivyFilesystem {
@@ -74,7 +87,8 @@ pub struct PrivyFilesystem {
     inode_table: InodeTable,
     staging_dir: PathBuf,
     xattrs: Mutex<HashMap<u64, HashMap<String, Vec<u8>>>>,
-    open_files: Mutex<HashMap<u64, OpenFileState>>,
+    open_files: Mutex<HashMap<u64, Arc<Mutex<OpenFileState>>>>,
+    write_leases: Mutex<HashMap<u64, u64>>,
     next_fh: AtomicU64,
     /// Serialize write-ish operations (single-writer semantics).
     write_lock: Mutex<()>,
@@ -214,7 +228,7 @@ async fn start_fuse_server_with_event_sink(
     #[cfg(target_os = "macos")]
     {
         options.push(MountOption::CUSTOM("local".to_string()));
-        options.push(MountOption::CUSTOM("daemon_timeout=15".to_string()));
+        options.push(MountOption::CUSTOM("daemon_timeout=120".to_string()));
         // Do NOT use `novncache` or `nolocalcaches` here: they interact
         // badly with `auto_cache` and can cause Finder to show -8062
         // errors when setting up .Trashes.  Instead rely on explicit
@@ -237,6 +251,7 @@ async fn start_fuse_server_with_event_sink(
         staging_dir,
         xattrs: Mutex::new(HashMap::new()),
         open_files: Mutex::new(HashMap::new()),
+        write_leases: Mutex::new(HashMap::new()),
         next_fh: AtomicU64::new(0),
         write_lock: Mutex::new(()),
     };
@@ -358,6 +373,44 @@ mod errno_tests {
         assert!(!is_trash_parent_path("/"));
         assert!(!is_trash_parent_path("/docs"));
         assert!(!is_trash_parent_path("/.Trash-"));
+    }
+
+    #[test]
+    fn trash_listing_path_detection_matches_finder_roots() {
+        assert!(is_trash_listing_path("/.Trashes/501"));
+        assert!(is_trash_listing_path("/.Trash"));
+        assert!(is_trash_listing_path("/.Trash-501"));
+
+        assert!(!is_trash_listing_path("/.Trashes"));
+        assert!(!is_trash_listing_path("/.Trashes/501/file.txt"));
+        assert!(!is_trash_listing_path("/.Trash-501/file.txt"));
+    }
+
+    #[test]
+    fn build_catalog_path_rejects_parent_cycles() {
+        let table = InodeTable::default();
+        let a_ino = fuse_ino_from_catalog_node_id(10);
+        let b_ino = fuse_ino_from_catalog_node_id(11);
+        table.upsert(InodeEntry {
+            catalog_node_id: 10,
+            name: "a".to_string(),
+            parent_ino: b_ino,
+            is_dir: true,
+            size: 0,
+            source_revision: 0,
+            modified: None,
+        });
+        table.upsert(InodeEntry {
+            catalog_node_id: 11,
+            name: "b".to_string(),
+            parent_ino: a_ino,
+            is_dir: true,
+            size: 0,
+            source_revision: 0,
+            modified: None,
+        });
+
+        assert_eq!(build_catalog_path(&table, a_ino), None);
     }
 
     #[cfg(target_os = "macos")]

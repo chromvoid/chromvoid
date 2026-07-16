@@ -3,6 +3,8 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {setLang as setAppLang} from '../../src/i18n'
 import {SettingsPage} from '../../src/routes/settings/settings-page'
+import {navigationModel} from '../../src/app/navigation/navigation.model'
+import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 
 let defined = false
 
@@ -12,79 +14,65 @@ function ensureDefined() {
   defined = true
 }
 
-function installScrollIntoViewSpy() {
-  const previous = HTMLElement.prototype.scrollIntoView
-  const scrollIntoView = vi.fn()
-
-  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
-    configurable: true,
-    value: scrollIntoView,
-  })
-
-  return {
-    scrollIntoView,
-    restore() {
-      if (previous) {
-        Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
-          configurable: true,
-          value: previous,
-        })
-      } else {
-        delete (HTMLElement.prototype as {scrollIntoView?: unknown}).scrollIntoView
-      }
-    },
-  }
+async function getMobileLayout(page: SettingsPage) {
+  const layout = page.shadowRoot?.querySelector<HTMLElement & {updateComplete: Promise<unknown>}>(
+    'settings-page-mobile-layout',
+  )
+  if (!layout?.shadowRoot) throw new Error('Mobile Settings layout not found')
+  await layout.updateComplete
+  return layout
 }
 
 describe('settings page mobile section navigation', () => {
   beforeEach(() => {
     resetRuntimeCapabilities()
     setRuntimeCapabilities({platform: 'android', mobile: true})
+    initAppContext(createMockAppContext())
+    navigationModel.snapshot.set({
+      surface: 'settings',
+      settings: {kind: 'overview'},
+      overlay: {kind: 'none'},
+    })
     setAppLang('en')
   })
 
   afterEach(() => {
     document.querySelectorAll('settings-page').forEach((element) => element.remove())
+    clearAppContext()
     resetRuntimeCapabilities()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
-  it('scrolls to settings sections from shadow-dom index links', async () => {
+  it('opens a dedicated settings category from the mobile overview', async () => {
     ensureDefined()
-    const scrollSpy = installScrollIntoViewSpy()
+    const page = document.createElement('settings-page') as SettingsPage
+    document.body.append(page)
+    await page.updateComplete
+    const layout = await getMobileLayout(page)
+    const licenseRow = layout.shadowRoot?.querySelector<HTMLButtonElement>(
+      '[data-settings-route="license"]',
+    )
 
-    try {
-      const page = document.createElement('settings-page') as SettingsPage
-      page.hideBackLink = true
-      document.body.append(page)
-      await page.updateComplete
+    expect(licenseRow).not.toBeNull()
+    licenseRow?.click()
+    await layout.updateComplete
 
-      const licenseLink = page.shadowRoot?.querySelector<HTMLAnchorElement>(
-        '.settings-index-link[data-section-id="settings-license"]',
-      )
-      expect(licenseLink).not.toBeNull()
-      expect(licenseLink?.getAttribute('href')).toBe('#settings-license')
-
-      const event = new MouseEvent('click', {bubbles: true, cancelable: true, composed: true})
-      licenseLink?.dispatchEvent(event)
-
-      expect(event.defaultPrevented).toBe(true)
-      expect(scrollSpy.scrollIntoView).toHaveBeenCalledWith({block: 'start', inline: 'nearest'})
-    } finally {
-      scrollSpy.restore()
-    }
+    expect(navigationModel.settingsRoute()).toEqual({kind: 'license'})
+    expect(layout.shadowRoot?.querySelector('#settings-mobile-heading')?.textContent).toBe('License')
+    expect(layout.shadowRoot?.querySelector('.license-input')).not.toBeNull()
   })
 
-  it('hides only the local header when rendered with an external toolbar', async () => {
+  it('renders settings content without a page-local header', async () => {
     ensureDefined()
 
     const page = document.createElement('settings-page') as SettingsPage
-    page.externalToolbar = true
     document.body.append(page)
     await page.updateComplete
+    const layout = await getMobileLayout(page)
 
-    expect(page.shadowRoot?.querySelector('.header')).toBeNull()
-    expect(page.shadowRoot?.querySelector('.settings-shell')).not.toBeNull()
+    expect(layout.shadowRoot?.querySelector('.header')).toBeNull()
+    expect(layout.shadowRoot?.querySelector('.overview')).not.toBeNull()
+    expect(layout.shadowRoot?.querySelector('h1:not(.sr-only)')).toBeNull()
   })
 })

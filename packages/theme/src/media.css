@@ -1,0 +1,100 @@
+:root {
+  --media-mini-shell-block-size: 78px;
+  --media-mini-surface: hwb(217 6.3% 86.7%);
+  --media-mini-surface-start: hwb(215 7.8% 84.7%);
+  --media-mini-surface-end: hwb(216 4.3% 89.8%);
+  --media-mini-surface-deep: hwb(205 7.5% 83.1%);
+  --media-mini-border: hwb(0 100% 0% / 0.06);
+  --media-mini-border-hover: hwb(0 100% 0% / 0.11);
+  --media-mini-foreground: hwb(210 95.7% 2%);
+  --media-mini-foreground-secondary: hwb(213 60.4% 29%);
+  --media-mini-foreground-muted: hwb(217 40% 49.8%);
+  --media-mini-accent: hwb(185 15.3% 9%);
+  --media-mini-accent-soft: hwb(185 15.3% 9% / 0.09);
+  --media-mini-accent-muted: hwb(185 15.3% 9% / 0.12);
+  --media-mini-accent-surface: hwb(185 15.3% 9% / 0.1);
+  --media-mini-accent-surface-hover: hwb(185 15.3% 9% / 0.13);
+  --media-mini-accent-border: hwb(185 15.3% 9% / 0.16);
+  --media-mini-accent-border-strong: hwb(185 15.3% 9% / 0.38);
+  --media-mini-accent-border-hover: hwb(185 15.3% 9% / 0.58);
+  --media-mini-accent-line-end: hwb(185 15.3% 9% / 0.35);
+  --media-mini-accent-glow-subtle: hwb(185 15.3% 9% / 0.06);
+  --media-mini-accent-glow: hwb(185 15.3% 9% / 0.08);
+  --media-mini-accent-glow-strong: hwb(185 15.3% 9% / 0.12);
+  --media-mini-control-surface: hwb(0 100% 0% / 0.035);
+  --media-mini-control-surface-hover: hwb(0 100% 0% / 0.055);
+  --media-mini-track: hwb(0 100% 0% / 0.1);
+  --media-mini-error-line-start: hwb(213 60.4% 29% / 0.58);
+  --media-mini-error-line-end: hwb(217 40% 49.8% / 0.24);
+  --media-mini-surface-gradient:
+    linear-gradient(180deg, var(--cv-alpha-white-4), transparent 34%),
+    linear-gradient(180deg, var(--media-mini-surface-start) 0%, var(--media-mini-surface-end) 100%);
+  --media-mini-accent-line-gradient: linear-gradient(
+    180deg,
+    var(--media-mini-accent) 0%,
+    var(--media-mini-accent-line-end) 100%
+  );
+  --media-mini-error-line-gradient: linear-gradient(
+    180deg,
+    var(--media-mini-error-line-start) 0%,
+    var(--media-mini-error-line-end) 100%
+  );
+  --media-mini-fallback-tile-gradient: linear-gradient(
+    180deg,
+    var(--media-mini-accent-surface) 0%,
+    var(--media-mini-surface-deep) 100%
+  );
+  --media-mini-shadow:
+    0 16px 40px var(--cv-alpha-black-42), 0 0 24px var(--media-mini-accent-glow-subtle);
+  --media-mini-menu-shadow: 0 16px 36px var(--cv-alpha-black-42);
+  --media-mini-control-shadow:
+    inset 0 1px 0 var(--media-mini-border), inset 0 -8px 22px hwb(185 15.3% 9% / 0.04);
+  --media-image-gallery-sheet-surface: hwb(240 8.2% 88.6%);
+  --media-image-gallery-sheet-card: hwb(240 9.4% 87.5%);
+  --media-image-gallery-sheet-card-strong: hwb(240 6.3% 91.4%);
+  --media-image-gallery-sheet-control: hwb(240 13.7% 82.7%);
+  --media-image-gallery-sheet-border: hwb(0 100% 0% / 0.07);
+  --media-image-gallery-sheet-border-strong: hwb(0 100% 0% / 0.1);
+  --media-image-gallery-sheet-text: hwb(240 95.7% 3.5%);
+  --media-image-gallery-sheet-text-soft: hwb(240 90.2% 7.5%);
+  --media-image-gallery-sheet-text-muted: hwb(240 54.1% 41.2%);
+  --media-image-gallery-sheet-text-muted-strong: hwb(240 60.4% 34.9%);
+  --media-image-gallery-sheet-handle-block-size: 24px;
+  --media-image-gallery-sheet-radius: 28px 28px 0 0;
+  --media-image-gallery-sheet-expanded-block-size: min(80dvh, calc(100dvh - 24px));
+  --media-image-gallery-sheet-middle-block-size: min(62dvh, 540px);
+  --media-image-gallery-sheet-collapsed-block-size: 156px;
+  --media-image-gallery-sheet-overlay: hwb(0 0% 100% / 0.36);
+  --media-image-gallery-sheet-grabber: hwb(240 22.7% 73.3%);
+  --media-image-gallery-sheet-file-icon-foreground: hwb(207 56.1% 20%);
+  --media-image-gallery-sheet-file-icon-background: linear-gradient(
+    135deg,
+    hwb(213 16.9% 69.8%) 0%,
+    hwb(211 7.8% 82%) 100%
+  );
+  --media-image-gallery-sheet-text-summary: hwb(240 84.7% 12.2%);
+  --media-image-gallery-sheet-text-meta: hwb(240 47.8% 47.5%);
+  --media-image-gallery-sheet-border-hairline: hwb(0 100% 0% / 0.055);
+  --media-image-gallery-sheet-divider: hwb(0 100% 0% / 0.05);
+  --media-image-gallery-sheet-notice-border: hwb(0 100% 0% / 0.09);
+  --media-image-gallery-sheet-notice-surface: hwb(0 100% 0% / 0.03);
+  --media-image-gallery-sheet-warning-border: hwb(39 12.5% 0% / 0.22);
+  --media-image-gallery-sheet-warning-surface: hwb(39 12.5% 0% / 0.08);
+  --media-image-gallery-sheet-warning-icon-surface: hwb(39 12.5% 0% / 0.14);
+  --media-image-gallery-sheet-danger-border: hwb(3 18.8% 0% / 0.22);
+  --media-image-gallery-sheet-danger-surface: hwb(3 18.8% 0% / 0.08);
+  --media-image-gallery-sheet-danger-icon-surface: hwb(3 18.8% 0% / 0.14);
+  --media-image-gallery-overlay-foreground: hwb(0 100% 0%);
+  --media-image-gallery-share-pending-background:
+    linear-gradient(180deg, var(--cv-alpha-white-10), transparent), var(--cv-alpha-black-75);
+  --media-audio-waveform-bar-gradient: linear-gradient(
+    180deg,
+    transparent 0%,
+    transparent 40%,
+    var(--cv-alpha-white-10) 49%,
+    var(--cv-alpha-white-20) 50%,
+    var(--cv-alpha-white-10) 51%,
+    transparent 60%,
+    transparent 100%
+  );
+}

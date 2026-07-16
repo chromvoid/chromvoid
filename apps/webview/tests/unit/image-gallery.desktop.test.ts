@@ -1,6 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
+import * as fileLoader from '../../src/features/media/components/file-loader'
 import {ImageGallery} from '../../src/features/media/components/image-gallery-v2/image-gallery-desktop'
 import type {ImageGalleryViewerModel} from '../../src/features/media/components/image-gallery-v2/gallery-viewer.model'
 import type {CVImageViewer} from '@chromvoid/uikit/components/cv-image-viewer'
@@ -17,16 +18,27 @@ const IMAGES = [
   },
 ]
 
+const MANY_IMAGES = Array.from({length: 46}, (_, index) => ({
+  id: index + 1,
+  name: `image-${index + 1}.jpg`,
+  path: `/image-${index + 1}.jpg`,
+  mimeType: 'image/jpeg',
+}))
+
 const originalNavigatorShare = navigator.share
 const originalNavigatorCanShare = navigator.canShare
 
-async function mountGallery(options?: {currentIndex?: number; sharePending?: boolean}) {
+async function mountGallery(options?: {
+  currentIndex?: number
+  sharePending?: boolean
+  images?: ImageGallery['images']
+}) {
   ImageGallery.define()
 
   const element = document.createElement('image-gallery') as ImageGallery & {
     model: ImageGalleryViewerModel
   }
-  element.images = IMAGES
+  element.images = options?.images ?? IMAGES
   element.currentIndex = options?.currentIndex ?? 0
   element.open = true
   element.sharePending = Boolean(options?.sharePending)
@@ -186,6 +198,46 @@ describe('image-gallery desktop actions', () => {
     expect(navigate).not.toHaveBeenCalled()
   })
 
+  it('primes the thumbnail window after controlled desktop navigation', async () => {
+    const element = await mountGallery({currentIndex: 24, images: MANY_IMAGES})
+    const primeThumbnailWindow = vi
+      .spyOn(element.model, 'primeThumbnailVirtualWindow')
+      .mockImplementation(() => undefined)
+
+    element.currentIndex = 30
+
+    await vi.waitFor(() => {
+      expect(primeThumbnailWindow).toHaveBeenCalledWith(30)
+    })
+  })
+
+  it('keeps active thumbnail previews when a desktop thumbnail is hovered', async () => {
+    vi.spyOn(fileLoader, 'loadFileSourceById').mockImplementation(async (fileId, _name, options) => ({
+      kind: 'asset-file',
+      url: `blob:${fileId}:${options?.variant}`,
+      size: 4,
+      mimeType: 'image/webp',
+      release() {},
+    }))
+
+    const element = await mountGallery({currentIndex: 43, images: MANY_IMAGES})
+    element.model.setThumbnailViewportMetrics({viewportWidth: 2048, thumbnailStepPx: 64})
+    element.model.primeThumbnailVirtualWindow(43)
+
+    const activeIndices = element.model.getThumbnailVirtualWindow().indices
+    expect(activeIndices).toEqual(Array.from({length: 32}, (_, index) => index + 14))
+    await vi.waitFor(() => {
+      expect(activeIndices.every((index) => element.model.peekThumbnailStripUrl(index))).toBe(true)
+    })
+    const activeUrls = activeIndices.map((index) => element.model.peekThumbnailStripUrl(index))
+
+    const hoveredThumbnail = queryViewer<HTMLButtonElement>(element, '[part="thumbnail"][data-index="29"]')
+    expect(hoveredThumbnail).not.toBeNull()
+    hoveredThumbnail!.dispatchEvent(new Event('pointerenter'))
+
+    expect(activeIndices.map((index) => element.model.peekThumbnailStripUrl(index))).toEqual(activeUrls)
+  })
+
   it('renders desktop viewer actions, keeps info local, and emits file actions for the current image', async () => {
     const element = await mountGallery({currentIndex: 1})
     const actions: Array<{action: string; fileId: number}> = []
@@ -193,18 +245,18 @@ describe('image-gallery desktop actions', () => {
       actions.push(event.detail)
     }) as EventListener)
 
-    for (const action of ['download', 'open-external', 'save-to-gallery', 'share']) {
+    for (const action of ['open-external', 'save-to-gallery', 'share']) {
       ;(queryViewer<HTMLElement>(element, `[data-action="${action}"]`) as HTMLElement | null)?.click()
     }
     ;(queryViewer<HTMLElement>(element, '[data-action="info"]') as HTMLElement | null)?.click()
     await element.updateComplete
 
     expect(actions).toEqual([
-      {action: 'download', fileId: 2},
       {action: 'open-external', fileId: 2},
       {action: 'save-to-gallery', fileId: 2},
       {action: 'share', fileId: 2},
     ])
+    expect(queryViewer(element, '[data-action="download"]')).toBeNull()
     expect(element.shadowRoot?.textContent).toContain('two.heic')
     expect(element.shadowRoot?.textContent).toContain('image/heic')
     await vi.waitFor(() => {
@@ -231,6 +283,14 @@ describe('image-gallery desktop actions', () => {
     expect(queryViewer(element, '[data-action="info"]')).not.toBeNull()
     expect(queryViewer(element, '[data-action="save-to-gallery"]')).toBeNull()
     expect(queryViewer(element, '[data-action="share"]')).toBeNull()
+
+    const actions: Array<{action: string; fileId: number}> = []
+    element.addEventListener('action', ((event: CustomEvent<{action: string; fileId: number}>) => {
+      actions.push(event.detail)
+    }) as EventListener)
+    ;(queryViewer<HTMLElement>(element, '[data-action="download"]') as HTMLElement | null)?.click()
+
+    expect(actions).toEqual([{action: 'download', fileId: 1}])
   })
 
   it('shows a pending share affordance for the current desktop image', async () => {

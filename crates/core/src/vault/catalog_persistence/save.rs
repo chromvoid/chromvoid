@@ -1,7 +1,9 @@
 use crate::catalog::RootIndex;
 use std::collections::{HashMap, HashSet};
 
-use crate::catalog::{apply_deltas, CatalogManager, DeltaEntry, Shard, ShardMeta, MAX_DELTAS};
+use crate::catalog::{
+    apply_deltas, CatalogManager, CatalogNode, DeltaEntry, DeltaOp, Shard, ShardMeta, MAX_DELTAS,
+};
 use crate::crypto::shard_snapshot_chunk_name;
 use crate::crypto::{decrypt, delta_chunk_name, encrypt, root_index_chunk_name};
 use crate::error::{Error, Result};
@@ -59,6 +61,7 @@ impl<'a> CatalogSaveService<'a> {
             meta.strategy = strategy;
             meta.context = format!("shard:{}", meta.shard_id);
             meta.update_stats(shard.node_count(), shard.size());
+            meta.update_root_summary(&shard.root);
             new_shards.insert(meta.shard_id.clone(), meta);
         }
 
@@ -163,11 +166,13 @@ impl<'a> CatalogSaveService<'a> {
                 continue;
             };
             let assigned_deltas = assign_delta_sequences(deltas, meta.version.saturating_add(1));
-            if self.pending_delta_chain_needs_snapshot_fallback(
-                meta,
-                &assigned_deltas,
-                intended_shard,
-            )? {
+            if pending_delta_chain_reaches_limit(meta, assigned_deltas.len())
+                || self.pending_delta_chain_needs_snapshot_fallback(
+                    meta,
+                    &assigned_deltas,
+                    intended_shard,
+                )?
+            {
                 snapshot_fallback_shards.insert(shard_id.clone());
             }
         }
@@ -242,9 +247,7 @@ impl<'a> CatalogSaveService<'a> {
 
             deltas.clear();
 
-            let should_compact = crate::catalog::is_eager_system_shard_id(&shard_id)
-                && meta.has_deltas
-                && meta.delta_count >= MAX_DELTAS;
+            let should_compact = meta.has_deltas && meta.delta_count >= MAX_DELTAS;
 
             if should_compact {
                 let prepared = CatalogCompactionService::new(self.storage, self.vault_key)
@@ -286,12 +289,30 @@ impl<'a> CatalogSaveService<'a> {
             apply_deltas(&mut replayed.root, &persisted_deltas)?;
         }
 
+        let existing_root = replayed.root.clone();
         match apply_deltas(&mut replayed.root, assigned_deltas) {
-            Ok(_) => Ok(!catalog_nodes_replay_equivalent(
-                &replayed.root,
-                &intended_shard.root,
-            )),
-            Err(Error::CatalogDeltaReplayFailed(_)) => Ok(true),
+            Ok(_) => {
+                if catalog_nodes_replay_equivalent(&replayed.root, &intended_shard.root) {
+                    return Ok(false);
+                }
+
+                ensure_snapshot_fallback_preserves_existing_nodes(
+                    meta,
+                    &existing_root,
+                    &intended_shard.root,
+                    assigned_deltas,
+                )?;
+                Ok(true)
+            }
+            Err(Error::CatalogDeltaReplayFailed(_)) => {
+                ensure_snapshot_fallback_preserves_existing_nodes(
+                    meta,
+                    &existing_root,
+                    &intended_shard.root,
+                    assigned_deltas,
+                )?;
+                Ok(true)
+            }
             Err(error) => Err(error),
         }
     }
@@ -348,6 +369,7 @@ impl<'a> CatalogSaveService<'a> {
         meta.delta_count = 0;
         meta.last_delta_seq = new_version;
         meta.update_stats(shard.node_count(), shard.size());
+        meta.update_root_summary(&shard.root);
 
         let mut snapshot = shard.clone();
         snapshot.version = new_version;
@@ -397,6 +419,7 @@ impl<'a> CatalogSaveService<'a> {
             meta.last_delta_seq = meta.version;
             meta.snapshot_seq = meta.snapshot_seq.saturating_add(1);
             meta.update_stats(shard.node_count(), shard.size());
+            meta.update_root_summary(&shard.root);
 
             let mut snapshot = shard.clone();
             snapshot.version = meta.base_version;
@@ -461,6 +484,82 @@ fn assign_delta_sequences(deltas: &[DeltaEntry], first_seq: u64) -> Vec<DeltaEnt
         .collect()
 }
 
+fn pending_delta_chain_reaches_limit(meta: &ShardMeta, pending_count: usize) -> bool {
+    if pending_count == 0 {
+        return false;
+    }
+
+    let persisted_count = if meta.has_deltas && meta.last_delta_seq >= meta.base_version {
+        meta.last_delta_seq.saturating_sub(meta.base_version)
+    } else {
+        0
+    };
+    let persisted_count = persisted_count.max(meta.delta_count as u64);
+    persisted_count.saturating_add(pending_count as u64) >= MAX_DELTAS as u64
+}
+
+fn has_existing_node_mutation_delta(deltas: &[DeltaEntry]) -> bool {
+    deltas.iter().any(|delta| {
+        matches!(
+            delta.op,
+            DeltaOp::Delete | DeltaOp::Move { .. } | DeltaOp::Update { .. }
+        )
+    })
+}
+
+fn ensure_snapshot_fallback_preserves_existing_nodes(
+    meta: &ShardMeta,
+    existing: &CatalogNode,
+    intended: &CatalogNode,
+    assigned_deltas: &[DeltaEntry],
+) -> Result<()> {
+    if !catalog_node_ids_unique(intended) {
+        return Err(Error::InvalidDataFormat(format!(
+            "refusing snapshot fallback with duplicate node ids (shard_id={})",
+            meta.shard_id
+        )));
+    }
+
+    if has_existing_node_mutation_delta(assigned_deltas)
+        || catalog_preserves_existing_nodes(existing, intended)
+    {
+        return Ok(());
+    }
+
+    Err(Error::InvalidDataFormat(format!(
+        "refusing snapshot fallback that would drop nodes without delete delta (shard_id={})",
+        meta.shard_id
+    )))
+}
+
+fn catalog_node_ids_unique(root: &CatalogNode) -> bool {
+    let mut node_ids = HashSet::new();
+    collect_catalog_node_ids(root, &mut node_ids)
+}
+
+fn collect_catalog_node_ids(node: &CatalogNode, node_ids: &mut HashSet<u64>) -> bool {
+    node_ids.insert(node.node_id)
+        && node
+            .children()
+            .iter()
+            .all(|child| collect_catalog_node_ids(child, node_ids))
+}
+
+fn catalog_preserves_existing_nodes(existing: &CatalogNode, intended: &CatalogNode) -> bool {
+    if !catalog_node_payload_equivalent(existing, intended) {
+        return false;
+    }
+
+    existing.children().iter().all(|existing_child| {
+        intended
+            .children()
+            .iter()
+            .find(|intended_child| intended_child.node_id == existing_child.node_id)
+            .map(|intended_child| catalog_preserves_existing_nodes(existing_child, intended_child))
+            .unwrap_or(false)
+    })
+}
+
 fn max_catalog_node_id(node: &crate::catalog::CatalogNode) -> u64 {
     node.children().iter().fold(node.node_id, |max_id, child| {
         max_id.max(max_catalog_node_id(child))
@@ -483,23 +582,7 @@ fn catalog_nodes_replay_equivalent(
     replayed: &crate::catalog::CatalogNode,
     intended: &crate::catalog::CatalogNode,
 ) -> bool {
-    if replayed.node_id != intended.node_id
-        || replayed.node_type != intended.node_type
-        || replayed.name != intended.name
-        || replayed.size != intended.size
-        || replayed.chunk_size != intended.chunk_size
-        || replayed.mime_type != intended.mime_type
-        || replayed.media_info != intended.media_info
-        || replayed.media_inspected_revision != intended.media_inspected_revision
-        || replayed.source_revision != intended.source_revision
-        || replayed.link_to != intended.link_to
-    {
-        return false;
-    }
-
-    if replayed.is_file()
-        && (replayed.birthtime != intended.birthtime || replayed.modtime != intended.modtime)
-    {
+    if !catalog_node_payload_equivalent(replayed, intended) {
         return false;
     }
 
@@ -510,4 +593,25 @@ fn catalog_nodes_replay_equivalent(
             .iter()
             .zip(intended_children)
             .all(|(replayed, intended)| catalog_nodes_replay_equivalent(replayed, intended))
+}
+
+fn catalog_node_payload_equivalent(
+    left: &crate::catalog::CatalogNode,
+    right: &crate::catalog::CatalogNode,
+) -> bool {
+    if left.node_id != right.node_id
+        || left.node_type != right.node_type
+        || left.name != right.name
+        || left.size != right.size
+        || left.chunk_size != right.chunk_size
+        || left.mime_type != right.mime_type
+        || left.media_info != right.media_info
+        || left.media_inspected_revision != right.media_inspected_revision
+        || left.source_revision != right.source_revision
+        || left.link_to != right.link_to
+    {
+        return false;
+    }
+
+    !left.is_file() || (left.birthtime == right.birthtime && left.modtime == right.modtime)
 }

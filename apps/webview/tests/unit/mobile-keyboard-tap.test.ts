@@ -67,14 +67,7 @@ describe('mobile keyboard visibility payload', () => {
     document.documentElement.removeAttribute(NATIVE_SAFE_AREA_BOTTOM_ATTR)
     document.documentElement.removeAttribute(ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR)
     document.documentElement.removeAttribute(IOS_NATIVE_SAFE_AREA_BOTTOM_ATTR)
-    document.documentElement.style.removeProperty('--safe-area-top-fallback')
-    document.documentElement.style.removeProperty('--safe-area-bottom-native')
-    document.documentElement.style.removeProperty('--native-keyboard-bottom-inset')
-    document.documentElement.style.removeProperty('--visual-viewport-bottom-inset')
-    document.documentElement.style.removeProperty('--mobile-keyboard-bottom-inset')
-    document.documentElement.style.removeProperty('--mobile-keyboard-scroll-action-offset')
-    document.documentElement.style.removeProperty('--mobile-keyboard-scroll-clearance')
-    document.documentElement.style.removeProperty('--mobile-keyboard-overlay-offset')
+    document.documentElement.removeAttribute('style')
     setMobileKeyboardOccluding(false)
   })
 
@@ -122,6 +115,8 @@ describe('mobile keyboard visibility payload', () => {
 
     expect(document.documentElement.hasAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(true)
     expect(document.documentElement.hasAttribute(ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR)).toBe(true)
+    expect(document.documentElement.hasAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR)).toBe(false)
+    expect(mobileKeyboardOccluding()).toBe(true)
   })
 
   it('applies android native safe-area custom events when the keyboard is hidden', () => {
@@ -168,11 +163,7 @@ describe('mobile keyboard visibility payload', () => {
 
     expect(document.documentElement.hasAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(true)
     expect(document.documentElement.hasAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR)).toBe(true)
-    expect(document.documentElement.style.getPropertyValue('--native-keyboard-bottom-inset')).toBe('302px')
-    expect(document.documentElement.style.getPropertyValue('--visual-viewport-bottom-inset')).toBe('0px')
-    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-bottom-inset')).toBe('302px')
-    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-scroll-action-offset')).toBe('0px')
-    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-overlay-offset')).toBe('0px')
+    expect(mobileKeyboardOccluding()).toBe(true)
   })
 
   it('ignores malformed ios custom events that are missing native-resize mode', () => {
@@ -190,7 +181,7 @@ describe('mobile keyboard visibility payload', () => {
     cleanup()
 
     expect(document.documentElement.hasAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(false)
-    expect(document.documentElement.style.getPropertyValue('--native-keyboard-bottom-inset')).toBe('')
+    expect(document.documentElement.hasAttribute('data-mobile-keyboard-expanded')).toBe(false)
   })
 
   it('ignores ios native progress custom events', () => {
@@ -275,9 +266,9 @@ describe('mobile keyboard visibility payload', () => {
     const cleanup = setupIOSKeyboardInsetsEventListener(document.documentElement)
     cleanup()
 
+    expect(document.documentElement.hasAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(true)
     expect(document.documentElement.hasAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR)).toBe(true)
-    expect(document.documentElement.style.getPropertyValue('--native-keyboard-bottom-inset')).toBe('288px')
-    expect(document.documentElement.style.getPropertyValue('--visual-viewport-bottom-inset')).toBe('0px')
+    expect(mobileKeyboardOccluding()).toBe(true)
   })
 
   it('clears the native keyboard inset when the keyboard is hidden', () => {
@@ -408,14 +399,14 @@ describe('mobile keyboard tap workaround', () => {
   })
 })
 
-describe('mobile keyboard native gesture setup', () => {
+describe('mobile keyboard gesture ownership', () => {
   afterEach(() => {
     tauriInvoke.mockReset()
     tauriListen.mockReset()
     document.documentElement.removeAttribute('data-mobile-keyboard-expanded')
   })
 
-  it('does not duplicate native setup from the synchronous initial mobile callback', async () => {
+  it('does not configure edge-back from the keyboard bootstrap', async () => {
     tauriInvoke.mockResolvedValue(undefined)
     tauriListen.mockResolvedValue(() => {})
     const isMobile = atom(true)
@@ -423,21 +414,21 @@ describe('mobile keyboard native gesture setup', () => {
     setupMobileKeyboardTapWorkaround({isMobile} as any)
     await flushDynamicImport()
 
-    expect(tauriInvoke.mock.calls.filter(([cmd]) => cmd === 'setup_native_gestures')).toHaveLength(1)
+    expect(tauriInvoke).not.toHaveBeenCalled()
   })
 
-  it('runs native setup when mobile becomes true after bootstrap', async () => {
+  it('does not acquire gesture ownership when mobile state changes', async () => {
     tauriInvoke.mockResolvedValue(undefined)
     tauriListen.mockResolvedValue(() => {})
     const isMobile = atom(false)
 
     setupMobileKeyboardTapWorkaround({isMobile} as any)
     await flushDynamicImport()
-    expect(tauriInvoke.mock.calls.filter(([cmd]) => cmd === 'setup_native_gestures')).toHaveLength(0)
+    expect(tauriInvoke).not.toHaveBeenCalled()
 
     isMobile.set(true)
     await Promise.resolve()
 
-    expect(tauriInvoke.mock.calls.filter(([cmd]) => cmd === 'setup_native_gestures')).toHaveLength(1)
+    expect(tauriInvoke).not.toHaveBeenCalled()
   })
 })

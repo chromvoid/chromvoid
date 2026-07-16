@@ -48,7 +48,7 @@ export function renderQuickActions(context: PMEntryMobileRenderContext) {
 export function renderEntryViewAddActions(context: PMEntryMobileRenderContext) {
   const {data, model, ui} = context
   if (data.isEditingEntry) return nothing
-  if (!data.canAddMissingOtpInEntryView && !data.canAddMissingSshInEntryView) return nothing
+  if (!data.canAddMissingOtpInEntryView) return nothing
 
   return html`
     <section class="entry-view-add-actions" aria-label=${i18n('entry:additional_information')}>
@@ -64,21 +64,6 @@ export function renderEntryViewAddActions(context: PMEntryMobileRenderContext) {
             >
               <cv-icon slot="prefix" name="shield-check" aria-hidden="true"></cv-icon>
               <span>${i18n('otp:add')}</span>
-            </cv-button>
-          `
-        : nothing}
-      ${data.canAddMissingSshInEntryView
-        ? html`
-            <cv-button
-              unstyled
-              class="entry-view-add-action"
-              type="button"
-              data-entry-view-add-action="ssh"
-              ?disabled=${model.sshGenerating()}
-              @click=${ui.handleAddMissingSshInEntryView}
-            >
-              <cv-icon slot="prefix" name="key" aria-hidden="true"></cv-icon>
-              <span>${i18n('ssh:add')}</span>
             </cv-button>
           `
         : nothing}

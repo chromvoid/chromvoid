@@ -34,6 +34,29 @@ impl Default for LoadStrategy {
     }
 }
 
+/// Compact top-level summary for a lazy shard.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+pub struct ShardRootSummary {
+    /// Top-level shard node without child payload.
+    pub node: CatalogNode,
+
+    /// Whether the top-level node has children in its full snapshot.
+    pub has_children: bool,
+}
+
+impl ShardRootSummary {
+    pub fn from_node(node: &CatalogNode) -> Self {
+        let mut summary = node.clone();
+        summary.children = None;
+        Self {
+            node: summary,
+            has_children: !node.children().is_empty(),
+        }
+    }
+}
+
 /// Metadata for a single shard
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
@@ -78,6 +101,11 @@ pub struct ShardMeta {
     #[serde(default)]
     #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
     pub snapshot_seq: u64,
+
+    /// Compact root summary used to unlock without replaying lazy shard deltas.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts-bindings", ts(optional))]
+    pub root_summary: Option<ShardRootSummary>,
 }
 
 impl ShardMeta {
@@ -97,6 +125,7 @@ impl ShardMeta {
             delta_count: 0,
             last_delta_seq: 0,
             snapshot_seq: 0,
+            root_summary: None,
         }
     }
 
@@ -114,6 +143,11 @@ impl ShardMeta {
     pub fn update_stats(&mut self, node_count: u64, size: u64) {
         self.node_count = node_count;
         self.size = size;
+    }
+
+    /// Update the compact top-level summary for this shard.
+    pub fn update_root_summary(&mut self, root: &CatalogNode) {
+        self.root_summary = Some(ShardRootSummary::from_node(root));
     }
 
     /// Increment version

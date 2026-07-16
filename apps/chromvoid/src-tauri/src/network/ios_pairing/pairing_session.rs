@@ -233,7 +233,7 @@ pub(super) async fn run_pairing_responder(
         last_seen: now_secs(),
         paired_at: now_secs(),
         platform: remote.platform,
-    });
+    })?;
     legacy_store.save()?;
     info!(
         "ios_pairing: run_pairing_responder:stored_legacy_peer session_id={} peer_id={}",

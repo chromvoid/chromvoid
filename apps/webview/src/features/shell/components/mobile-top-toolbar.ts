@@ -7,6 +7,7 @@ import {css, nothing} from 'lit'
 import {i18n} from 'root/i18n'
 import {notificationIndicatorStyles} from 'root/shared/ui/notification-indicator.styles'
 import {sharedStyles} from 'root/shared/ui/shared-styles'
+import {viewTransitionTargets} from 'root/utils/view-transition-targets'
 
 export type MobileToolbarLeadingMode = 'menu' | 'back' | 'none'
 
@@ -17,6 +18,16 @@ export type MobileToolbarAction = {
   disabled?: boolean
   active?: boolean
   tone?: 'accent'
+  overflowOnly?: boolean
+  preserveFocusOnPress?: boolean
+}
+
+export type MobileToolbarTitleAction = {
+  id: string
+  label: string
+  disabled?: boolean
+  expanded?: boolean
+  popup?: 'dialog' | 'menu'
 }
 
 export type MobileToolbarStatusTone = 'saved' | 'dirty' | 'saving' | 'error' | 'readonly' | 'neutral'
@@ -26,6 +37,13 @@ export type MobileToolbarStatus = {
   icon: string
   label: string
   spinner?: boolean
+}
+
+export type MobileToolbarMetaItem = {
+  id: string
+  icon: string
+  label: string
+  value: string
 }
 
 export class MobileTopToolbar extends ReatomLitElement {
@@ -41,29 +59,32 @@ export class MobileTopToolbar extends ReatomLitElement {
 
   static properties = {
     title: {type: String},
+    titleAction: {type: Object, attribute: false},
     subtitle: {type: String},
+    meta: {type: Array},
+    metaLabel: {type: String, attribute: 'meta-label'},
     status: {type: Object},
     leading: {type: String},
     menuOpen: {type: Boolean, attribute: 'menu-open'},
     backDisabled: {type: Boolean, attribute: 'back-disabled'},
-    showCommand: {type: Boolean, attribute: 'show-command'},
-    commandActive: {type: Boolean, attribute: 'command-active'},
     actions: {type: Array},
     maxVisible: {type: Number, attribute: 'max-visible'},
     overflowFromIndex: {type: Number, attribute: 'overflow-from-index'},
   }
 
   declare title: string
+  declare titleAction: MobileToolbarTitleAction | null
   declare subtitle: string
+  declare meta: MobileToolbarMetaItem[]
+  declare metaLabel: string
   declare status: MobileToolbarStatus | null
   declare leading: MobileToolbarLeadingMode
   declare menuOpen: boolean
   declare backDisabled: boolean
-  declare showCommand: boolean
-  declare commandActive: boolean
   declare actions: MobileToolbarAction[]
   declare maxVisible: number
   declare overflowFromIndex?: number
+  private unregisterViewTransitionTarget?: () => void
 
   static styles = [
     sharedStyles,
@@ -77,7 +98,7 @@ export class MobileTopToolbar extends ReatomLitElement {
         background: var(--cv-color-surface-glass-strong);
         backdrop-filter: blur(10px);
         -webkit-backdrop-filter: blur(10px);
-        border-block-end: 1px solid var(--border-subtle, var(--cv-alpha-white-6));
+        border-block-end: 1px solid var(--app-editorial-border-subtle, var(--cv-alpha-white-6));
       }
 
       .toolbar {
@@ -88,8 +109,8 @@ export class MobileTopToolbar extends ReatomLitElement {
         grid-template-columns: 44px minmax(0, 1fr) auto;
         align-items: center;
         gap: 4px;
-        padding-inline-start: max(4px, env(safe-area-inset-left, 0px));
-        padding-inline-end: max(8px, env(safe-area-inset-right, 0px));
+        padding-inline-start: max(4px, var(--app-runtime-safe-area-inline-start, 0px));
+        padding-inline-end: max(8px, var(--app-runtime-safe-area-inline-end, 0px));
       }
 
       .toolbar.has-subtitle {
@@ -115,12 +136,53 @@ export class MobileTopToolbar extends ReatomLitElement {
         padding-inline: 8px;
       }
 
+      .title-action {
+        inline-size: 100%;
+        border: 0;
+        border-radius: var(--cv-radius-sm);
+        background: transparent;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .title-action:hover {
+        background: var(--cv-color-primary-surface);
+      }
+
+      .title-action:focus-visible {
+        outline: 2px solid var(--cv-color-primary);
+        outline-offset: 1px;
+      }
+
+      .title-action:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
+      .title-row {
+        min-inline-size: 0;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .title-row .title {
+        flex: 0 1 auto;
+      }
+
+      .title-row cv-icon {
+        flex: 0 0 auto;
+        inline-size: 14px;
+        block-size: 14px;
+        color: var(--cv-color-text-muted);
+      }
+
       .title {
         min-inline-size: 0;
-        text-align: left;
-        font-size: var(--cv-font-size-sm, 14px);
-        font-weight: var(--cv-font-weight-semibold, 600);
-        color: var(--text-primary, var(--cv-color-text));
+        text-align: start;
+        font-size: var(--cv-font-size-base, 14px);
+        font-weight: var(--cv-font-weight-bold, 600);
+        color: var(--app-editorial-text-primary, var(--cv-color-text));
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -128,9 +190,9 @@ export class MobileTopToolbar extends ReatomLitElement {
 
       .subtitle {
         min-inline-size: 0;
-        text-align: left;
-        font-size: 12px;
-        font-weight: var(--cv-font-weight-medium, 500);
+        text-align: start;
+        font-size: var(--cv-font-size-xs, 14px);
+        font-weight: var(--cv-font-weight-medium, 400);
         color: var(--cv-color-text-muted);
         white-space: nowrap;
         overflow: hidden;
@@ -155,6 +217,38 @@ export class MobileTopToolbar extends ReatomLitElement {
 
       .subtitle.tone-readonly {
         color: var(--cv-color-warning);
+      }
+
+      .meta-row {
+        min-inline-size: 0;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        color: var(--cv-color-text-muted);
+        font-size: var(--cv-font-size-xs, 12px);
+        font-weight: var(--cv-font-weight-semibold, 600);
+        line-height: 1;
+        white-space: nowrap;
+        overflow: hidden;
+      }
+
+      .meta-item {
+        min-inline-size: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+      }
+
+      .meta-item cv-icon {
+        inline-size: 13px;
+        block-size: 13px;
+        color: var(--cv-color-text-muted);
+        opacity: 0.86;
+        flex: 0 0 auto;
+      }
+
+      .meta-value {
+        font-variant-numeric: tabular-nums;
       }
 
       .status-chip {
@@ -231,7 +325,7 @@ export class MobileTopToolbar extends ReatomLitElement {
         border: 0;
         border-radius: 999px;
         background: transparent;
-        color: var(--text-primary, var(--cv-color-text));
+        color: var(--app-editorial-text-primary, var(--cv-color-text));
         cursor: pointer;
         position: relative;
         touch-action: manipulation;
@@ -277,10 +371,10 @@ export class MobileTopToolbar extends ReatomLitElement {
       }
 
       .action-indicator {
-        --cv-notification-dot-block-start: 9px;
-        --cv-notification-dot-inline-end: 9px;
-        --cv-notification-dot-size: 7px;
-        --cv-notification-dot-border: 1.5px solid
+        --app-notification-dot-block-start: 9px;
+        --app-notification-dot-inline-end: 9px;
+        --app-notification-dot-size: 7px;
+        --app-notification-dot-border: 1.5px solid
           var(--cv-color-surface-glass-strong, var(--cv-color-surface));
       }
 
@@ -302,7 +396,7 @@ export class MobileTopToolbar extends ReatomLitElement {
         border: 0;
         border-radius: 999px;
         background: transparent;
-        color: var(--text-primary, var(--cv-color-text));
+        color: var(--app-editorial-text-primary, var(--cv-color-text));
         cursor: pointer;
         position: relative;
         touch-action: manipulation;
@@ -363,7 +457,7 @@ export class MobileTopToolbar extends ReatomLitElement {
       }
 
       .overflow-menu-item {
-        color: var(--text-primary, var(--cv-color-text));
+        color: var(--app-editorial-text-primary, var(--cv-color-text));
         font-size: var(--cv-font-size-sm, 14px);
       }
 
@@ -394,15 +488,32 @@ export class MobileTopToolbar extends ReatomLitElement {
   constructor() {
     super()
     this.title = ''
+    this.titleAction = null
     this.subtitle = ''
+    this.meta = []
+    this.metaLabel = ''
     this.status = null
     this.leading = 'none'
     this.menuOpen = false
     this.backDisabled = false
-    this.showCommand = false
-    this.commandActive = false
     this.actions = []
     this.maxVisible = 3
+  }
+
+  override connectedCallback(): void {
+    super.connectedCallback()
+    this.unregisterViewTransitionTarget = viewTransitionTargets.register('mobile-toolbar', {
+      getElement: () => this,
+      settle: async () => {
+        await this.updateComplete
+      },
+    })
+  }
+
+  override disconnectedCallback(): void {
+    this.unregisterViewTransitionTarget?.()
+    this.unregisterViewTransitionTarget = undefined
+    super.disconnectedCallback()
   }
 
   private onLeadingClick = () => {
@@ -410,15 +521,6 @@ export class MobileTopToolbar extends ReatomLitElement {
     this.dispatchEvent(
       new CustomEvent('mobile-toolbar-leading', {
         detail: {mode: this.leading},
-        bubbles: true,
-        composed: true,
-      }),
-    )
-  }
-
-  private onCommandClick = () => {
-    this.dispatchEvent(
-      new CustomEvent('mobile-toolbar-command', {
         bubbles: true,
         composed: true,
       }),
@@ -439,6 +541,22 @@ export class MobileTopToolbar extends ReatomLitElement {
     const actionId = (event.currentTarget as HTMLElement | null)?.dataset['action']
     if (!actionId) return
     this.onActionClick(actionId)
+  }
+
+  private onTitleActionClick() {
+    const action = this.titleAction
+    if (!action || action.disabled) return
+    this.onActionClick(action.id)
+  }
+
+  private onActionButtonPointerDown(event: PointerEvent) {
+    const actionId = (event.currentTarget as HTMLElement | null)?.dataset['action']
+    if (!actionId) return
+
+    const action = this.actions.find((candidate) => candidate.id === actionId)
+    if (!action?.preserveFocusOnPress || action.disabled) return
+
+    event.preventDefault()
   }
 
   private resetOverflowMenuSelection(menu: HTMLElementTagNameMap['cv-menu-button']) {
@@ -489,42 +607,37 @@ export class MobileTopToolbar extends ReatomLitElement {
     `
   }
 
-  private renderCommand() {
-    if (!this.showCommand) return nothing
-    return html`
-      <cv-button unstyled
-        class="action-btn ${this.commandActive ? 'active' : ''}"
-        data-action="mobile-command"
-        @click=${this.onCommandClick}
-        aria-label=${i18n('command:search-and-commands' as any)}
-      >
-        <cv-icon name="search"></cv-icon>
-        ${this.commandActive
-          ? html`<span class="notification-dot action-indicator" aria-hidden="true"></span>`
-          : nothing}
-      </cv-button>
-    `
-  }
-
   private renderActions() {
     const actions = this.actions
     if (!actions.length) return nothing
 
     const max = Math.max(1, this.maxVisible)
     const explicitOverflow = typeof this.overflowFromIndex === 'number'
+    const hasForcedOverflow = actions.some((action) => action.overflowOnly)
     const legacyHasOverflow = actions.length > max
-    const visible = explicitOverflow
-      ? actions.slice(0, this.overflowFromIndex)
-      : legacyHasOverflow
-        ? actions.slice(0, max - 1)
-        : actions
-    const overflow = explicitOverflow
-      ? actions.slice(this.overflowFromIndex)
-      : legacyHasOverflow
-        ? actions.slice(max - 1)
-        : []
+    const visibleCandidates = explicitOverflow ? actions.slice(0, this.overflowFromIndex ?? 0) : actions
+    const visibleLimit = Math.max(
+      0,
+      explicitOverflow
+        ? visibleCandidates.length
+        : legacyHasOverflow || hasForcedOverflow
+          ? max - 1
+          : actions.length,
+    )
+    const visible: MobileToolbarAction[] = []
+
+    for (const action of visibleCandidates) {
+      if (action.overflowOnly || visible.length >= visibleLimit) {
+        continue
+      }
+      visible.push(action)
+    }
+
+    const visibleSet = new Set(visible)
+    const overflow = actions.filter((action) => !visibleSet.has(action))
     const hasOverflow = overflow.length > 0
     const overflowActive = overflow.some((action) => action.active)
+    const overflowPreserveFocusOnPress = overflow.some((action) => action.preserveFocusOnPress)
     const overflowMenu = hasOverflow
       ? html`
           <cv-menu-button
@@ -532,6 +645,7 @@ export class MobileTopToolbar extends ReatomLitElement {
             variant="ghost"
             preset="icon-overflow"
             aria-label=${i18n('button:more_actions' as any)}
+            ?preserve-focus-on-pointer-open=${overflowPreserveFocusOnPress}
             @cv-input=${this.onOverflowMenuInput}
           >
             <span slot="prefix" class="overflow-menu-trigger">
@@ -564,6 +678,7 @@ export class MobileTopToolbar extends ReatomLitElement {
           data-action=${a.id}
           ?disabled=${a.disabled}
           aria-label=${a.label}
+          @pointerdown=${this.onActionButtonPointerDown}
           @click=${this.onActionButtonClick}
         >
           <cv-icon name=${a.icon}></cv-icon>
@@ -602,22 +717,68 @@ export class MobileTopToolbar extends ReatomLitElement {
     `
   }
 
+  private renderMeta() {
+    const meta = this.meta.filter((item) => item.value.length > 0)
+    if (meta.length === 0) return nothing
+
+    const label =
+      this.metaLabel ||
+      meta.map((item) => `${item.label}: ${item.value}`).join(', ')
+
+    return html`
+      <div class="meta-row" aria-label=${label}>
+        ${meta.map(
+          (item) => html`
+            <span class="meta-item" title=${`${item.label}: ${item.value}`} aria-hidden="true">
+              <cv-icon name=${item.icon}></cv-icon>
+              <span class="meta-value">${item.value}</span>
+            </span>
+          `,
+        )}
+      </div>
+    `
+  }
+
+  private renderTitleBlock() {
+    const content = html`
+      <div class="title-row">
+        <div class="title">${this.title || ' '}</div>
+        ${this.titleAction ? html`<cv-icon name="chevron-down" aria-hidden="true"></cv-icon>` : nothing}
+      </div>
+      ${this.subtitle
+        ? html`<div class="subtitle tone-${this.status?.tone ?? 'neutral'}">${this.subtitle}</div>`
+        : nothing}
+      ${this.renderMeta()}
+    `
+
+    if (!this.titleAction) return html`<div class="title-block">${content}</div>`
+
+    return html`
+      <button
+        class="title-block title-action"
+        type="button"
+        aria-label=${this.titleAction.label}
+        aria-haspopup=${this.titleAction.popup ?? 'dialog'}
+        aria-expanded=${String(Boolean(this.titleAction.expanded))}
+        ?disabled=${this.titleAction.disabled}
+        @click=${this.onTitleActionClick}
+      >
+        ${content}
+      </button>
+    `
+  }
+
   protected render() {
     const hasSubtitle = !!this.subtitle
+    const hasMeta = this.meta.length > 0
     return html`
-      <header class="toolbar ${hasSubtitle ? 'has-subtitle' : ''}">
+      <header class="toolbar ${hasSubtitle || hasMeta ? 'has-subtitle' : ''}">
         <div>${this.renderLeading()}</div>
-        <div class="title-block">
-          <div class="title">${this.title || ' '}</div>
-          ${hasSubtitle
-            ? html`<div class="subtitle tone-${this.status?.tone ?? 'neutral'}">${this.subtitle}</div>`
-            : nothing}
-        </div>
+        ${this.renderTitleBlock()}
         <div class="trailing">
           ${this.renderStatusChip()}
           ${this.renderActions()}
           <slot name="actions"></slot>
-          ${this.renderCommand()}
         </div>
       </header>
     `

@@ -26,7 +26,6 @@ const DEFAULT_ICON = 'folder'
 
 export class PMAvatarIconModel {
   private connected = false
-  private iconStoreUnsubscribe: (() => void) | undefined
   private iconRefSourceUnsubscribe: (() => void) | undefined
   private itemIconRefUnsubscribe: (() => void) | undefined
 
@@ -43,7 +42,6 @@ export class PMAvatarIconModel {
   private readonly pendingIconRefState = atom('', 'passmanager.avatar.pendingIconRef')
   private readonly resolvedIconRefState = atom('', 'passmanager.avatar.resolvedIconRef')
   private readonly iconRefVersionState = atom(0, 'passmanager.avatar.iconRefVersion')
-  private readonly iconStoreVersionState = atom(0, 'passmanager.avatar.iconStoreVersion')
   private readonly itemIconRefSignal = computed(
     () => this.normalizeString(this.itemState()?.iconRef ?? ''),
     'passmanager.avatar.itemIconRef',
@@ -63,17 +61,14 @@ export class PMAvatarIconModel {
     pendingIconRef: this.pendingIconRefState,
     resolvedIconRef: this.resolvedIconRefState,
     iconRefVersion: this.iconRefVersionState,
-    iconStoreVersion: this.iconStoreVersionState,
     iconRefSourceValue: computed(() => this.resolveIconRefSource()),
     iconRefValue: computed(() => this.resolveIconRef()),
     iconSrcValue: computed(() => {
-      this.iconStoreVersionState()
       const iconRef = this.normalizedResolvedIconRef()
       if (!iconRef) return ''
       return pmIconStore.getCachedUrl(iconRef) ?? ''
     }),
     renderState: computed((): PMAvatarRenderState => {
-      this.iconStoreVersionState()
       const item = this.itemState()
       const manualSrc = this.normalizedSrc()
       if (manualSrc.length > 0) {
@@ -176,7 +171,6 @@ export class PMAvatarIconModel {
     if (this.connected) return
 
     this.connected = true
-    this.subscribeIconStore()
     this.subscribeIconRefSource()
     this.subscribeItemIconRef()
     this.refreshResolvedIconRef()
@@ -184,20 +178,13 @@ export class PMAvatarIconModel {
   }
 
   disconnect(): void {
-    if (
-      !this.connected &&
-      !this.iconStoreUnsubscribe &&
-      !this.iconRefSourceUnsubscribe &&
-      !this.itemIconRefUnsubscribe
-    ) {
+    if (!this.connected && !this.iconRefSourceUnsubscribe && !this.itemIconRefUnsubscribe) {
       return
     }
 
     this.connected = false
     this.teardownIconRefSourceSubscription()
     this.teardownItemIconRefSubscription()
-    this.iconStoreUnsubscribe?.()
-    this.iconStoreUnsubscribe = undefined
   }
 
   resolveIconRefSource(): string {
@@ -232,14 +219,6 @@ export class PMAvatarIconModel {
     }
     const hue = Math.abs(hash) % 360
     return `oklch(0.65 0.15 ${hue})`
-  }
-
-  private subscribeIconStore() {
-    if (this.iconStoreUnsubscribe) return
-
-    this.iconStoreUnsubscribe = pmIconStore.subscribe(() => {
-      this.iconStoreVersionState.set(this.iconStoreVersionState() + 1)
-    })
   }
 
   private subscribeIconRefSource() {

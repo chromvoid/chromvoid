@@ -139,7 +139,8 @@ export class GroupTreeView extends ReatomLitElement {
         height: 18px;
         --pm-avatar-radius: 5px;
         --pm-avatar-image-fit: contain;
-        --pm-avatar-image-padding: 2px;
+        --pm-avatar-image-padding: 0px;
+        --pm-avatar-image-inset-shadow-color: transparent;
         --pm-avatar-contrast: calc(var(--pm-avatar-contrast-base) + 2%);
         --pm-avatar-shadow-opacity: 30%;
         --pm-avatar-icon-size: 16px;

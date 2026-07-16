@@ -705,9 +705,12 @@ fn map_audio_range_error(error: LocalMediaRangeError) -> &'static str {
         LocalMediaRangeError::StreamStale | LocalMediaRangeError::StreamNotFound => {
             "ERR_NATIVE_AUDIO_SOURCE_STALE"
         }
-        LocalMediaRangeError::SourceLoadFailed | LocalMediaRangeError::RangeReadFailed => {
-            "ERR_NATIVE_AUDIO_SOURCE_READ"
-        }
+        LocalMediaRangeError::SourceLoadFailed
+        | LocalMediaRangeError::RangeReadFailed
+        | LocalMediaRangeError::ProviderUnavailable
+        | LocalMediaRangeError::Timeout
+        | LocalMediaRangeError::Aborted
+        | LocalMediaRangeError::SourceStarved => "ERR_NATIVE_AUDIO_SOURCE_READ",
     }
 }
 

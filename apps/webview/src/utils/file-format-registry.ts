@@ -1,6 +1,13 @@
 import type {FileMediaInfo} from 'root/core/catalog/media-info'
 
-export type FileFilterGroup = 'images' | 'documents' | 'videos' | 'audio' | 'archives' | 'code'
+export type FileFilterGroup =
+  | 'images'
+  | 'documents'
+  | 'markdown'
+  | 'videos'
+  | 'audio'
+  | 'archives'
+  | 'code'
 
 export type FilePreviewMode = 'audio' | 'text' | 'image' | 'fallback'
 export type FileTypeLabelKey =
@@ -89,6 +96,7 @@ const ARCHIVE_EXTENSIONS = ['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'dmg',
 
 const FILTER_GROUP_EXTENSIONS: Record<FileFilterGroup, readonly string[]> = {
   images: [...GALLERY_IMAGE_EXTENSIONS, ...IMAGE_PREVIEW_EXTENSIONS],
+  markdown: MARKDOWN_EXTENSIONS,
   documents: [
     ...MARKDOWN_EXTENSIONS,
     ...TEXT_DOCUMENT_EXTENSIONS,
@@ -415,7 +423,7 @@ function resolveByExtension(ext: string): Omit<FileFormatDescriptor, 'extension'
       fileTypeLabelKey: 'file-type:text',
       icon: 'file-earmark-text',
       cssClass: 'file-document',
-      filterGroups: ['documents'],
+      filterGroups: ['markdown', 'documents'],
       openBehavior: {kind: 'document', mode: 'markdown'},
     }
   }
@@ -515,7 +523,7 @@ function resolveByMimeType(mimeType: string): Omit<FileFormatDescriptor, 'extens
       fileTypeLabelKey: 'file-type:text',
       icon: 'file-earmark-text',
       cssClass: 'file-document',
-      filterGroups: ['documents'],
+      filterGroups: ['markdown', 'documents'],
       openBehavior: {kind: 'document', mode: 'markdown'},
     }
   }

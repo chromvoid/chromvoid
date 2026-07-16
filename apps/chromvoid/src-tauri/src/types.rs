@@ -144,6 +144,10 @@ pub(crate) struct RuntimeCapabilities {
     pub(crate) supports_biometric: bool,
     pub(crate) supports_autofill: bool,
     pub(crate) supports_media_stream_protocol: bool,
+    pub(crate) supports_media_http_stream: bool,
+    pub(crate) supports_mse_video_playback: bool,
+    pub(crate) supports_desktop_native_video_playback: bool,
+    pub(crate) supports_mobile_native_video_playback: bool,
     pub(crate) supports_native_audio_playback: bool,
     pub(crate) supports_native_video_playback: bool,
     pub(crate) supports_native_file_upload: bool,
@@ -183,6 +187,7 @@ pub(crate) struct BackendInfo {
 #[cfg(desktop)]
 #[derive(Debug, Serialize)]
 pub(crate) struct GatewayPairingInfo {
+    pub(crate) actor_kind: crate::gateway::GatewayActorKind,
     pub(crate) pairing_token: String,
     pub(crate) pairing_expires_at_ms: u64,
     pub(crate) pin: String,
@@ -394,9 +399,14 @@ pub(crate) fn runtime_capabilities_for_current_target() -> RuntimeCapabilities {
         supports_mobile_usb_remote: mobile_usb_remote_enabled_for_target(),
         // Availability for the mobile biometric app gate only.
         supports_biometric: mobile::biometric_bridge_available(),
-        supports_autofill: mobile::autofill_extension_ready()
+        supports_autofill: cfg!(target_os = "macos")
+            || mobile::autofill_extension_ready()
             || mobile::autofill_bridge_available(),
         supports_media_stream_protocol: media_stream_protocol_enabled_for_target(),
+        supports_media_http_stream: media_http_stream_enabled_for_target(),
+        supports_mse_video_playback: mse_video_playback_enabled_for_target(),
+        supports_desktop_native_video_playback: desktop_native_video_enabled_for_target(),
+        supports_mobile_native_video_playback: supports_android_native_video,
         supports_native_audio_playback: android_native_audio_playback_rollout_enabled
             || ios_native_feature_enabled_for_target(
                 "CHROMVOID_DISABLE_IOS_NATIVE_AUDIO_PLAYBACK",
@@ -426,11 +436,8 @@ pub(crate) fn runtime_capabilities_for_current_target() -> RuntimeCapabilities {
                 "CHROMVOID_DISABLE_IOS_PHOTO_LIBRARY_SAVE",
                 true,
             ),
-        supports_credential_provider_passkeys_lite: cfg!(target_os = "android")
-            || ios_native_feature_enabled_for_target(
-                "CHROMVOID_DISABLE_IOS_CREDENTIAL_PROVIDER_PASSKEYS_LITE",
-                mobile::credential_provider_passkeys_lite_supported(),
-            ),
+        supports_credential_provider_passkeys_lite:
+            credential_provider_passkeys_lite_supported_for_target(),
         supports_android_native_video,
         android_native_audio_playback_rollout_enabled,
         supports_android_native_upload,
@@ -494,12 +501,26 @@ const IOS_NATIVE_FEATURE_ROLLBACK_GATES: &[IosNativeFeatureRollbackGate] = &[
     },
 ];
 
-fn media_stream_protocol_enabled_for_target() -> bool {
-    if !cfg!(desktop) {
+pub(crate) fn media_stream_protocol_enabled_for_target() -> bool {
+    if !(cfg!(desktop) || cfg!(target_os = "android")) {
         return false;
     }
 
     std::env::var("CHROMVOID_DISABLE_MEDIA_STREAM_PROTOCOL").as_deref() != Ok("1")
+}
+
+pub(crate) fn media_http_stream_enabled_for_target() -> bool {
+    cfg!(desktop) && std::env::var("CHROMVOID_DISABLE_MEDIA_HTTP_STREAM").as_deref() != Ok("1")
+}
+
+pub(crate) fn mse_video_playback_enabled_for_target() -> bool {
+    cfg!(desktop) && std::env::var("CHROMVOID_DISABLE_MSE_VIDEO_PLAYBACK").as_deref() != Ok("1")
+}
+
+fn desktop_native_video_enabled_for_target() -> bool {
+    cfg!(all(desktop, target_os = "macos"))
+        && std::env::var("CHROMVOID_ENABLE_DESKTOP_NATIVE_VIDEO").as_deref() == Ok("1")
+        && std::env::var("CHROMVOID_DISABLE_DESKTOP_NATIVE_VIDEO").as_deref() != Ok("1")
 }
 
 fn android_native_video_enabled_for_target() -> bool {
@@ -539,12 +560,52 @@ fn ios_native_feature_enabled_for_target(disable_env: &str, bridge_available: bo
     std::env::var(disable_env).as_deref() != Ok("1")
 }
 
+fn credential_provider_passkeys_lite_supported_for_target() -> bool {
+    #[cfg(target_os = "android")]
+    {
+        return true;
+    }
+
+    #[cfg(target_os = "ios")]
+    {
+        return ios_native_feature_enabled_for_target(
+            "CHROMVOID_DISABLE_IOS_CREDENTIAL_PROVIDER_PASSKEYS_LITE",
+            mobile::credential_provider_passkeys_lite_supported(),
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        return mobile::credential_provider_passkeys_lite_supported();
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+    {
+        false
+    }
+}
+
 #[cfg(test)]
 mod runtime_capabilities_tests {
     use super::runtime_capabilities_for_current_target;
     use std::sync::Mutex;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_exposes_credential_provider_autofill_capability() {
+        assert!(runtime_capabilities_for_current_target().supports_autofill);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_exposes_passkeys_lite_on_supported_system_versions() {
+        assert_eq!(
+            runtime_capabilities_for_current_target().supports_credential_provider_passkeys_lite,
+            objc2::available!(macos = 14.0),
+        );
+    }
 
     struct EnvGuard {
         key: &'static str,
@@ -587,7 +648,7 @@ mod runtime_capabilities_tests {
     }
 
     #[test]
-    fn media_stream_protocol_capability_defaults_to_desktop_targets() {
+    fn media_stream_protocol_capability_defaults_to_desktop_and_android_targets() {
         let _lock = ENV_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -595,7 +656,7 @@ mod runtime_capabilities_tests {
 
         assert_eq!(
             runtime_capabilities_for_current_target().supports_media_stream_protocol,
-            cfg!(desktop),
+            cfg!(desktop) || cfg!(target_os = "android"),
         );
     }
 
@@ -622,9 +683,39 @@ mod runtime_capabilities_tests {
             let _guard = EnvGuard::set("CHROMVOID_DISABLE_MEDIA_STREAM_PROTOCOL", "0");
             assert_eq!(
                 runtime_capabilities_for_current_target().supports_media_stream_protocol,
-                cfg!(desktop),
+                cfg!(desktop) || cfg!(target_os = "android"),
             );
         }
+    }
+
+    #[test]
+    fn desktop_video_streaming_capabilities_default_to_desktop_targets_with_disable_gates() {
+        let _lock = ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _http_guard = EnvGuard::unset("CHROMVOID_DISABLE_MEDIA_HTTP_STREAM");
+        let _mse_guard = EnvGuard::unset("CHROMVOID_DISABLE_MSE_VIDEO_PLAYBACK");
+        let _native_guard = EnvGuard::unset("CHROMVOID_DISABLE_DESKTOP_NATIVE_VIDEO");
+
+        let caps = runtime_capabilities_for_current_target();
+        assert_eq!(caps.supports_media_http_stream, cfg!(desktop));
+        assert_eq!(caps.supports_mse_video_playback, cfg!(desktop));
+        assert!(!caps.supports_desktop_native_video_playback);
+    }
+
+    #[test]
+    fn desktop_video_streaming_capabilities_have_disable_rollback_gates() {
+        let _lock = ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _http_guard = EnvGuard::set("CHROMVOID_DISABLE_MEDIA_HTTP_STREAM", "1");
+        let _mse_guard = EnvGuard::set("CHROMVOID_DISABLE_MSE_VIDEO_PLAYBACK", "1");
+        let _native_guard = EnvGuard::set("CHROMVOID_DISABLE_DESKTOP_NATIVE_VIDEO", "1");
+
+        let caps = runtime_capabilities_for_current_target();
+        assert!(!caps.supports_media_http_stream);
+        assert!(!caps.supports_mse_video_playback);
+        assert!(!caps.supports_desktop_native_video_playback);
     }
 
     #[test]
@@ -750,6 +841,7 @@ mod runtime_capabilities_tests {
             caps.supports_photo_library_save,
             cfg!(any(target_os = "android", target_os = "ios")),
         );
+        #[cfg(not(target_os = "macos"))]
         assert_eq!(
             caps.supports_credential_provider_passkeys_lite,
             cfg!(any(target_os = "android", target_os = "ios")),

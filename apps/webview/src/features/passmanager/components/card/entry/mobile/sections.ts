@@ -4,9 +4,9 @@ import {html} from '@chromvoid/uikit/reatom-lit'
 import {i18n} from '@project/passmanager/i18n'
 
 import {pmCredentialTagsModel} from '../../../../models/pm-credential-tags.model'
-import {renderEntryTagsEditor, renderEntryTagsReadOnly} from '../../entry-tags/entry-tags-editor'
+import {renderEntryTagsReadOnly} from '../../entry-tags/entry-tags-editor'
 import type {PMEntryMobileRenderContext} from './context'
-import {renderNoteSubmitButtons, renderSectionSnippetButtons} from './shared'
+import {renderNoteSubmitButtons} from './shared'
 
 export function renderWebsiteSection(context: PMEntryMobileRenderContext) {
   if (context.card.entryType === 'payment_card') {
@@ -29,6 +29,7 @@ export function renderWebsiteSection(context: PMEntryMobileRenderContext) {
           <span slot="label">${i18n('website:title')}</span>
           <cv-input
             class="inline-field-input"
+            dir="ltr"
             name="inline-website"
             data-inline-field="website"
             .value=${model.inlineWebsite()}
@@ -64,7 +65,7 @@ export function renderWebsiteSection(context: PMEntryMobileRenderContext) {
               (url) => html`
                 <div class="website-row">
                   <div class="website-content">
-                    <span class="website-name">${url.value}</span>
+                    <span class="website-name" dir="ltr">${url.value}</span>
                   </div>
                   <div class="website-actions">
                     ${url.openable
@@ -93,47 +94,10 @@ export function renderWebsiteSection(context: PMEntryMobileRenderContext) {
 }
 
 export function renderTagsSection(context: PMEntryMobileRenderContext) {
-  const {card, data, model, ui} = context
-  const isEditing = model.sectionSnippet() === 'tags'
+  const {data, ui} = context
 
-  if (!isEditing && !data.hasTags && !data.canEditTags) {
+  if (!data.hasTags && !data.canEditTags) {
     return nothing
-  }
-
-  if (isEditing) {
-    return html`
-      <section
-        class="section-block secondary-block"
-        aria-label=${i18n('tags:title')}
-        @keydown=${ui.handleSectionSnippetKeyDown}
-      >
-        <div class="section-head">
-          <div class="section-title">
-            <cv-icon name="tag"></cv-icon>
-            <span>${i18n('tags:title')}</span>
-          </div>
-        </div>
-        ${renderEntryTagsEditor(
-          {
-            tags: model.tagDraft(),
-            options: pmCredentialTagsModel.availableTags(),
-            comboboxType: 'select-only',
-            disabled: !data.canEditTags,
-            placeholder: i18n('tags:select_placeholder' as never),
-          },
-          {
-            onSelectExistingTagIds: ui.handleTagSelect,
-            onManageTags: ui.handleManageTags,
-          },
-        )}
-        ${model.tagError() ? html`<div class="error-text">${model.tagError()}</div>` : nothing}
-        ${renderSectionSnippetButtons({
-          onCancel: () => model.cancelTagEdit(),
-          onSave: ui.handleSaveTags,
-          saving: model.tagSaving(),
-        })}
-      </section>
-    `
   }
 
   return html`
@@ -157,7 +121,7 @@ export function renderTagsSection(context: PMEntryMobileRenderContext) {
                 variant="default"
                 size="small"
                 data-snippet-section="tags"
-                @click=${() => model.startTagEdit(card)}
+                @click=${ui.handleStartTagEdit}
                 aria-label=${i18n('tags:add')}
               >
                 <cv-icon
@@ -171,7 +135,7 @@ export function renderTagsSection(context: PMEntryMobileRenderContext) {
           : nothing}
       </div>
       ${data.hasTags
-        ? renderEntryTagsReadOnly(data.tags)
+        ? renderEntryTagsReadOnly(data.tags, pmCredentialTagsModel.availableTags())
         : html`<div class="empty-state" role="status"><span>${i18n('tags:empty')}</span></div>`}
     </section>
   `
@@ -330,7 +294,7 @@ export function renderSshSection(context: PMEntryMobileRenderContext) {
     return nothing
   }
 
-  const {card, data, model, ui} = context
+  const {card, data} = context
   if (!data.hasSshKeys) return nothing
 
   return html`
@@ -345,51 +309,7 @@ export function renderSshSection(context: PMEntryMobileRenderContext) {
               >`
             : nothing}
         </div>
-        ${data.canStartSshSnippet
-          ? html`
-              <cv-button
-                class=${data.hasSshKeys ? 'section-action edit-icon-action' : 'section-action'}
-                type="button"
-                ?unstyled=${data.hasSshKeys}
-                variant="default"
-                size="small"
-                data-snippet-section="ssh"
-                data-ssh-mode="add"
-                @click=${() => model.openSshGenerator(card)}
-                aria-label=${i18n('ssh:add')}
-              >
-                <cv-icon
-                  slot=${data.hasSshKeys ? nothing : 'prefix'}
-                  name="plus"
-                  aria-hidden="true"
-                ></cv-icon>
-                ${data.hasSshKeys ? nothing : html`<span>${i18n('ssh:add')}</span>`}
-              </cv-button>
-            `
-          : nothing}
       </div>
-      ${data.hasSshKeys
-        ? html`
-            <div class="ssh-readonly-list">
-              ${card.sshKeys.map(
-                (key) => html`
-                  <pm-entry-ssh-key
-                    .keyId=${key.id}
-                    .keyType=${key.type}
-                    .fingerprint=${key.fingerprint}
-                    .name=${key.name}
-                    .comment=${key.comment}
-                    .publicKey=${model.state.sshPublicKeys()[key.id] ?? ''}
-                    .publicKeyProvider=${async () => (await card.sshPublicKey(key.id)) ?? ''}
-                    .removable=${data.canManageSsh && !data.isEditingEntry}
-                    @pm-entry-ssh-key-remove=${ui.handleSshKeyRemove}
-                  ></pm-entry-ssh-key>
-                `,
-              )}
-            </div>
-          `
-        : nothing}
-      ${model.sshError() ? html`<div class="error-text">${model.sshError()}</div>` : nothing}
     </section>
   `
 }
@@ -404,6 +324,7 @@ export function renderInlineNoteEditor(context: PMEntryMobileRenderContext) {
         <cv-field ?invalid=${Boolean(noteError)}>
           <cv-textarea
             class="note-inline-input"
+            dir="auto"
             name="inline-note"
             .value=${model.noteDraft()}
             rows="4"

@@ -167,6 +167,58 @@ describe('UploadProgressModel hud summary', () => {
     expect(summary.direction).toBe('external')
     expect(summary.icon).toBe('box-arrow-up-right')
   })
+
+  it('dismisses only active open-external tasks', () => {
+    const layoutMode = atom<'mobile' | 'desktop'>('mobile')
+    const uploadTasks = atom<UploadTask[]>([])
+    const cancelUploadTask = vi.fn((taskId: string) => {
+      uploadTasks.set(uploadTasks().filter((task) => task.id !== taskId))
+    })
+
+    initAppContext(
+      createMockAppContext({
+        store: {
+          layoutMode,
+          uploadTasks,
+          getUploadStats: () => createUploadStats(uploadTasks()),
+          getActiveTransferBatchStats: () => createUploadStats(uploadTasks()),
+          clearCompletedUploadTasks: () => {},
+          cancelUploadTask,
+        } as any,
+      }),
+    )
+
+    const activeExternalTask = new UploadTask({
+      id: 'external-active',
+      name: 'report.pdf',
+      total: 0,
+      kind: 'open-external',
+    })
+    const doneExternalTask = new UploadTask({
+      id: 'external-done',
+      name: 'opened.pdf',
+      total: 128,
+      kind: 'open-external',
+    })
+    doneExternalTask.markDone()
+    const activeTransferTask = new UploadTask({
+      id: 'transfer-active',
+      name: 'archive.zip',
+      total: 256,
+      kind: 'transfer',
+    })
+    uploadTasks.set([activeExternalTask, doneExternalTask, activeTransferTask])
+
+    const model = new UploadProgressModel()
+
+    expect(model.hasDismissibleOpenExternalTasks()).toBe(true)
+
+    model.dismissPreparingExternalTasks()
+
+    expect(cancelUploadTask).toHaveBeenCalledTimes(1)
+    expect(cancelUploadTask).toHaveBeenCalledWith('external-active')
+    expect(uploadTasks().map((task) => task.id)).toEqual(['external-done', 'transfer-active'])
+  })
 })
 
 describe('UploadProgressModel auto-hide behavior', () => {

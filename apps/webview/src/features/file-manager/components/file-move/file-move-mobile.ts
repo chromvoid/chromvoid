@@ -21,10 +21,15 @@ export class FileMoveMobile extends FileMoveBase {
     ...fileMoveSharedStyles,
     css`
       :host {
-        --file-move-indent-step: var(--pm-move-indent-step-mobile);
         display: grid;
         min-block-size: 0;
         block-size: 100%;
+      }
+
+      .indent-step {
+        width: var(--pm-move-indent-step-mobile);
+        min-width: var(--pm-move-indent-step-mobile);
+        flex-basis: var(--pm-move-indent-step-mobile);
       }
 
       .layout {

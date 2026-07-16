@@ -90,7 +90,8 @@ export class FileMediaInspectionFlow {
   }
 
   cancelPending(reason: string): void {
-    if (this.pendingInspections.size === 0 && this.deferredVisibleTimer == null && reason === 'vault-lock') return
+    if (this.pendingInspections.size === 0 && this.deferredVisibleTimer == null && reason === 'vault-lock')
+      return
     this.generation += 1
     this.pendingInspections.clear()
     this.inFlightInspections.clear()
@@ -136,22 +137,24 @@ export class FileMediaInspectionFlow {
 
   private deferVisibleInspections(items: readonly FileListItem[]): void {
     this.deferredVisibleItems = items
-    if (!items.some((item) => this.shouldQueueVisible(item)) || this.deferredVisibleTimer != null)
-      return
+    if (!items.some((item) => this.shouldQueueVisible(item)) || this.deferredVisibleTimer != null) return
 
     const generation = this.generation
-    this.deferredVisibleTimer = setTimeout(() => {
-      this.deferredVisibleTimer = undefined
-      if (generation !== this.generation || this.isVaultLockPending()) {
-        if (this.isVaultLockPending()) {
-          this.cancelPending('vault-lock')
+    this.deferredVisibleTimer = setTimeout(
+      wrap(() => {
+        this.deferredVisibleTimer = undefined
+        if (generation !== this.generation || this.isVaultLockPending()) {
+          if (this.isVaultLockPending()) {
+            this.cancelPending('vault-lock')
+          }
+          return
         }
-        return
-      }
-      const deferredItems = this.deferredVisibleItems
-      this.deferredVisibleItems = []
-      this.startVisibleInspections(deferredItems)
-    }, MOBILE_VISIBLE_INSPECTION_DELAY_MS)
+        const deferredItems = this.deferredVisibleItems
+        this.deferredVisibleItems = []
+        this.startVisibleInspections(deferredItems)
+      }),
+      MOBILE_VISIBLE_INSPECTION_DELAY_MS,
+    )
   }
 
   private clearDeferredVisibleInspections(): void {
@@ -302,4 +305,6 @@ export class FileMediaInspectionFlow {
   }
 }
 
-type FileMediaInfoResult = Awaited<ReturnType<AppContext['catalog']['api']['inspectMediaInfo']>>['mediaInfo'] | undefined
+type FileMediaInfoResult =
+  | Awaited<ReturnType<AppContext['catalog']['api']['inspectMediaInfo']>>['mediaInfo']
+  | undefined

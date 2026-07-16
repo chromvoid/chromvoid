@@ -1,4 +1,5 @@
 import type {CatalogService} from '../../core/catalog/catalog'
+import {runtimeModeModel} from '../../core/runtime/runtime-mode.model'
 import type {ChromVoidState} from '../../core/state/app-state'
 import type {TransportLike} from '../../core/transport/transport'
 import {writeAndroidUnlockDebug} from '../../shared/services/android-unlock-debug'
@@ -12,6 +13,36 @@ import type {Store} from '../state/store'
 function readVaultLockPending(store: Store): boolean {
   const pending = (store as Store & {vaultLockPending?: () => boolean}).vaultLockPending
   return typeof pending === 'function' ? pending() : false
+}
+
+function readRemoteSessionGeneration(store: Store): number | null {
+  const generation = (store as Store & {remoteSessionGeneration?: () => number | null})
+    .remoteSessionGeneration
+  return typeof generation === 'function' ? generation() : null
+}
+
+function readRemoteSessionPeerId(store: Store): string | null {
+  const peerId = (store as Store & {remoteSessionPeerId?: () => string | null}).remoteSessionPeerId
+  return typeof peerId === 'function' ? peerId() : null
+}
+
+function subscribeStoreSignalAfterInitial(
+  source: {subscribe?: (cb: () => void) => () => void} | undefined,
+  update: () => void,
+): Unsubscribe {
+  const subscribe = typeof source?.subscribe === 'function' ? source.subscribe.bind(source) : undefined
+  return subscribeCallbackAfterInitial(subscribe, update)
+}
+
+function makeSyncKey(parts: {
+  isConnected: boolean
+  opened: boolean
+  remoteSessionState: string
+  remoteSessionPeerId: string | null
+  remoteModeActive: boolean
+  transportSessionGeneration: number | null
+}): string {
+  return JSON.stringify(parts)
 }
 
 function subscribeVaultLockPending(store: Store, update: () => void): Unsubscribe {
@@ -36,36 +67,63 @@ export const setupCatalogSync = (
   configuredSyncCatalogs.add(catalog as object)
 
   let active = false
+  let activeKey: string | null = null
   let runId = 0
   const unsubscribers: Unsubscribe[] = []
 
   const update = () => {
     const isConnected = ws.connected()
     const opened = Boolean(state.data().StorageOpened)
-    const remoteReady = store.remoteSessionState() === 'ready'
+    const remoteSessionState = store.remoteSessionState()
+    const remoteReady = remoteSessionState === 'ready'
+    const remoteSessionPeerId = readRemoteSessionPeerId(store)
+    const transportSessionGeneration = readRemoteSessionGeneration(store)
+    const remoteModeActive = runtimeModeModel.remoteCoreMode()
     const lockPending = readVaultLockPending(store)
-    const shouldSync = isConnected && !lockPending && (opened || remoteReady)
+    const localVaultReady = opened && !remoteModeActive
+    const shouldSync = isConnected && !lockPending && (localVaultReady || remoteReady)
+    const nextKey = shouldSync
+      ? makeSyncKey({
+          isConnected,
+          opened,
+          remoteSessionState,
+          remoteSessionPeerId,
+          remoteModeActive,
+          transportSessionGeneration,
+        })
+      : null
 
-    if (shouldSync === active) return
+    if (shouldSync === active && nextKey === activeKey) return
+    const wasActive = active
     active = shouldSync
+    activeKey = nextKey
 
     console.info(
-      '[debug][sync] updateSync: shouldSync=%s isConnected=%s opened=%s remoteReady=%s lockPending=%s',
+      '[debug][sync] updateSync: shouldSync=%s isConnected=%s opened=%s remoteReady=%s remoteModeActive=%s lockPending=%s peerId=%s generation=%s',
       shouldSync,
       isConnected,
       opened,
       remoteReady,
+      remoteModeActive,
       lockPending,
+      remoteSessionPeerId,
+      transportSessionGeneration,
     )
     writeAndroidUnlockDebug('catalog-sync', 'update', {
       shouldSync,
       isConnected,
       opened,
       remoteReady,
+      remoteModeActive,
       lockPending,
+      remoteSessionPeerId,
+      transportSessionGeneration,
     })
 
     if (shouldSync) {
+      if (wasActive && typeof catalog.resetForTransportSession === 'function') {
+        catalog.resetForTransportSession('transport-session-key-change')
+      }
       const id = ++runId
       const t0 = performance.now()
       writeAndroidUnlockDebug('catalog-sync', 'startSync:start', {runId: id})
@@ -91,11 +149,13 @@ export const setupCatalogSync = (
           )
           if (active && id === runId) {
             active = false
+            activeKey = null
             window.setTimeout(update, 500)
           }
         })
     } else {
       runId++
+      activeKey = null
       if (lockPending && typeof catalog.cancelSync === 'function') {
         catalog.cancelSync('vault-lock')
       } else {
@@ -108,6 +168,17 @@ export const setupCatalogSync = (
     subscribeAfterInitial(ws.connected, update),
     subscribeAfterInitial(state.data, update),
     subscribeAfterInitial(store.remoteSessionState, update),
+    subscribeAfterInitial(runtimeModeModel.remoteCoreMode, update),
+    subscribeStoreSignalAfterInitial(
+      (store as Store & {remoteSessionPeerId?: {subscribe?: (cb: () => void) => () => void}})
+        .remoteSessionPeerId,
+      update,
+    ),
+    subscribeStoreSignalAfterInitial(
+      (store as Store & {remoteSessionGeneration?: {subscribe?: (cb: () => void) => () => void}})
+        .remoteSessionGeneration,
+      update,
+    ),
     subscribeVaultLockPending(store, update),
   )
   update()
@@ -121,6 +192,7 @@ export const setupCatalogSync = (
     if (!active) return
 
     active = false
+    activeKey = null
     runId++
     void catalog.stopSync().catch(() => {})
   }

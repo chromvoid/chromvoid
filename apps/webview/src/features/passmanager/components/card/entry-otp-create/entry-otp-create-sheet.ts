@@ -24,12 +24,12 @@ export class PMEntryOTPCreateSheet extends ReatomLitElement {
       display: contents;
     }
 
-    cv-bottom-sheet::part(body) {
-      padding: 0 var(--cv-space-5) var(--cv-space-5);
+    cv-bottom-sheet {
+      --cv-bottom-sheet-header-padding: 0 var(--cv-space-5) var(--cv-space-4);
     }
 
-    cv-bottom-sheet::part(header) {
-      padding: var(--cv-space-5) var(--cv-space-5) var(--cv-space-4);
+    cv-bottom-sheet::part(body) {
+      padding: 0 var(--cv-space-5) var(--cv-space-5);
     }
 
     cv-bottom-sheet::part(title) {
@@ -99,6 +99,7 @@ export class PMEntryOTPCreateSheet extends ReatomLitElement {
       return
     }
 
+    this.model.actions.closeAdvanced()
     this.dispatchEvent(
       new CustomEvent('pm-entry-otp-create-sheet-close', {
         bubbles: true,
@@ -114,6 +115,13 @@ export class PMEntryOTPCreateSheet extends ReatomLitElement {
   }
 
   private onPrimary() {
+    if (!this.model.validate()) {
+      void this.updateComplete.then(() => {
+        this.shadowRoot?.querySelector<PMEntryOTPCreate>('pm-entry-otp-create')?.focusFirstInvalid()
+      })
+      return
+    }
+
     this.dispatchEvent(
       new CustomEvent('pm-entry-otp-create-sheet-primary', {
         bubbles: true,
@@ -124,20 +132,21 @@ export class PMEntryOTPCreateSheet extends ReatomLitElement {
 
   protected override render() {
     const qrScannerActive = this.model.qrScannerScanning()
+    const advanced = this.model.view() === 'advanced'
 
     return html`
       <cv-bottom-sheet
+        data-view=${advanced ? 'advanced' : 'main'}
         .open=${this.open}
         .closable=${!qrScannerActive}
         .closeOnEscape=${!qrScannerActive}
         .closeOnOutsidePointer=${!qrScannerActive}
         .closeOnOutsideFocus=${!qrScannerActive}
         .dragToClose=${!qrScannerActive}
-        initial-focus-id="otp-secret-input"
         @cv-change=${this.handleSheetChange}
       >
-        <span slot="title">${this.title}</span>
-        ${this.description ? html`<span slot="description">${this.description}</span>` : nothing}
+        <span slot="title">${advanced ? i18n('otp:advanced') : this.title}</span>
+        ${!advanced && this.description ? html`<span slot="description">${this.description}</span>` : nothing}
         <div class="sheet-body">
           <pm-entry-otp-create layout="card" .model=${this.model}></pm-entry-otp-create>
         </div>
@@ -147,7 +156,7 @@ export class PMEntryOTPCreateSheet extends ReatomLitElement {
           type="button"
           variant="primary"
           size="large"
-          .disabled=${this.saving || !this.model.canSubmit()}
+          .disabled=${this.saving}
           .loading=${this.saving}
           @click=${this.onPrimary}
         >

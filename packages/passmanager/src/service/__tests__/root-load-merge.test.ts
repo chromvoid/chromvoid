@@ -4,11 +4,9 @@ import {afterEach, describe, it, expect, vi, beforeEach, type Mock} from 'vitest
 vi.mock('@project/utils', () => ({sha256: vi.fn(async (s: string) => `hash:${s}`)}))
 
 import {setPassManagerDialogAdapter} from '../dialog'
-import {Entry} from '../entry'
-import {Group} from '../group'
 import {ManagerRoot} from '../root'
-import {OTP} from '../otp'
-import type {ManagerSaver, IEntry, PassManagerRootV2, PassManagerRootV3} from '../types'
+import type {OTP} from '../otp'
+import type {ManagerSaver, PassManagerRootV2, PassManagerRootV3} from '../types'
 
 beforeEach(() => {
   setPassManagerDialogAdapter({confirm: vi.fn(async () => true)})

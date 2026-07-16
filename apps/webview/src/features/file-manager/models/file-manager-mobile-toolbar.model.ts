@@ -19,6 +19,9 @@ export type FileManagerMobileToolbarAction = {
 
 export class FileManagerMobileToolbarModel {
   readonly actions = computed<FileManagerMobileToolbarAction[]>(() => this.getToolbarActions())
+  readonly selectionBarActions = computed<FileManagerMobileToolbarAction[]>(() =>
+    this.getSelectionBarActions(),
+  )
 
   constructor(
     private readonly fileList: FileListModel,
@@ -113,7 +116,7 @@ export class FileManagerMobileToolbarModel {
       {
         id: 'filters-reset',
         icon: 'x',
-        label: i18n('command-bar:reset-filters'),
+        label: i18n('file-manager:clear-filters'),
         tone: 'accent',
       },
       ...baseActions,
@@ -179,6 +182,39 @@ export class FileManagerMobileToolbarModel {
         id: 'delete-selected',
         icon: 'trash',
         label: i18n('file-manager:delete-selected', {count: String(selectedItems.length)}),
+      },
+    ]
+  }
+
+  private getSelectionBarActions(): FileManagerMobileToolbarAction[] {
+    const selectedItems = this.fileList.getSelectedFileItems()
+    const selectedFiles = selectedItems.filter((item) => !item.isDir)
+    const selectedCount = selectedItems.length
+    const shareAvailable = this.canUseNativeFileShare()
+
+    return [
+      {
+        id: 'share-selected',
+        icon: 'share-2',
+        label: i18n('button:share'),
+        disabled: !shareAvailable || selectedFiles.length === 0,
+      },
+      {
+        id: 'move-selected',
+        icon: 'folder-symlink',
+        label: i18n('file-manager:move:action'),
+        disabled: selectedCount === 0,
+      },
+      {
+        id: 'delete-selected',
+        icon: 'trash-2',
+        label: i18n('button:delete'),
+        disabled: selectedCount === 0,
+      },
+      {
+        id: 'selection-done',
+        icon: 'x',
+        label: i18n('file-manager:selection-clear'),
       },
     ]
   }

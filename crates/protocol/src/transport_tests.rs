@@ -60,4 +60,8 @@ fn transport_error_display() {
         TransportError::Io("connect refused".into()).to_string(),
         "transport I/O error: connect refused"
     );
+    assert_eq!(
+        TransportError::RecordLayerInvalidLength("payload length 0".into()).to_string(),
+        "record layer invalid length: payload length 0"
+    );
 }

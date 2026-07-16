@@ -20,6 +20,14 @@ pub(in crate::rpc) struct CatalogDeleteCleanup {
 }
 
 impl CatalogDeleteCleanup {
+    pub(in crate::rpc) fn from_nodes(nodes: &[crate::catalog::CatalogNode]) -> Self {
+        let mut file_node_ids = Vec::new();
+        for node in nodes {
+            collect_file_node_ids(node, &mut file_node_ids);
+        }
+        Self { file_node_ids }
+    }
+
     pub(in crate::rpc) fn cleanup_derivatives(
         &self,
         storage: &crate::storage::Storage,
@@ -35,7 +43,10 @@ impl CatalogDeleteCleanup {
     }
 }
 
-fn collect_file_node_ids(node: &crate::catalog::CatalogNode, out: &mut Vec<u64>) {
+pub(in crate::rpc) fn collect_file_node_ids(
+    node: &crate::catalog::CatalogNode,
+    out: &mut Vec<u64>,
+) {
     if node.is_file() {
         out.push(node.node_id);
         return;

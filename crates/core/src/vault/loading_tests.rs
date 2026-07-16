@@ -86,6 +86,7 @@ fn write_sharded_snapshot_set(
         meta.last_delta_seq = catalog.version();
         meta.snapshot_seq = snapshot_seq;
         meta.update_stats(shard.node_count(), shard.size());
+        meta.update_root_summary(&shard.root);
 
         shard.version = catalog.version();
         shard.base_version = catalog.version();
@@ -406,7 +407,7 @@ fn catalog_repair_compacts_lossless_idempotent_deltas() {
 }
 
 #[test]
-fn unlock_auto_repairs_lossless_catalog_delta_chain() {
+fn unlock_does_not_write_short_lossless_catalog_delta_chain() {
     let dir = TempDir::new().expect("temp dir");
     let storage = Storage::new(dir.path()).expect("storage");
     let keystore = InMemoryKeystore::new();
@@ -429,25 +430,65 @@ fn unlock_auto_repairs_lossless_catalog_delta_chain() {
             CatalogNode::new_file(2, "readme.txt".to_string(), 12, None),
         ),
     );
+    let before = storage.list_chunks().expect("list chunks before unlock");
 
     let outcome = Vault::unlock_with_keystore_outcome(&storage, "password", Some(&keystore))
-        .expect("unlock with auto repair");
+        .expect("unlock with short lossless delta");
 
-    let repair = outcome.repair.expect("repair summary");
-    assert_eq!(repair.status, CatalogRepairStatus::LosslessRepaired);
-    assert!(!repair.lossy_applied);
-    assert!(outcome
-        .session
-        .catalog()
-        .find_by_path("/docs/readme.txt")
-        .is_some());
+    assert!(
+        outcome.repair.is_none(),
+        "unlock must not write lossless repairs implicitly"
+    );
+    assert!(outcome.session.catalog().find_by_path("/docs").is_some());
+    assert_eq!(
+        storage.list_chunks().expect("list chunks after unlock"),
+        before,
+        "unlock read path must not compact or write"
+    );
 
     let root_index = Vault::read_root_index_from_storage(&storage, &key)
         .expect("root index")
         .expect("root index exists");
     let meta = root_index.get_shard("docs").expect("docs meta");
-    assert!(!meta.has_deltas);
-    assert_eq!(meta.base_version, 2);
+    assert!(meta.has_deltas);
+    assert_eq!(meta.base_version, 1);
+}
+
+#[test]
+fn unlock_reports_lazy_delta_repair_required_without_writing() {
+    let dir = TempDir::new().expect("temp dir");
+    let storage = Storage::new(dir.path()).expect("storage");
+    let keystore = InMemoryKeystore::new();
+    let first_unlock = Vault::unlock_with_keystore_outcome(&storage, "password", Some(&keystore))
+        .expect("initial unlock");
+    let key = *first_unlock.session.vault_key();
+    drop(first_unlock);
+
+    let (shard_id, _old_snapshot_name, _delta_name) =
+        write_corrupt_move_delta_catalog(&storage, &key);
+    let before = storage.list_chunks().expect("list chunks before unlock");
+
+    let error = match Vault::unlock_with_keystore_outcome(&storage, "password", Some(&keystore)) {
+        Ok(_) => panic!("lazy delta corruption should require explicit repair"),
+        Err(error) => error,
+    };
+    assert!(matches!(error, Error::CatalogRepairRequired(_)));
+    assert_eq!(
+        storage.list_chunks().expect("list chunks after unlock"),
+        before,
+        "repair-required unlock must not repair or compact"
+    );
+    let diagnosis = CatalogRepairService::new(&storage, &key)
+        .diagnose()
+        .expect("diagnose");
+    assert_eq!(diagnosis.status, CatalogRepairStatus::LossyRequired);
+    assert_eq!(
+        diagnosis
+            .issues
+            .first()
+            .map(|issue| issue.shard_id.as_str()),
+        Some(shard_id.as_str())
+    );
 }
 
 #[test]
@@ -490,6 +531,80 @@ fn save_catalog_falls_back_to_snapshot_when_pending_delta_chain_would_not_replay
         .expect("load shard")
         .expect("docs shard");
     assert!(loaded.root.find_child("readme.txt").is_some());
+}
+
+#[test]
+fn save_catalog_refuses_snapshot_fallback_that_drops_nodes_without_delete_delta() {
+    let (_d, storage, key) = setup();
+    let persisted = catalog_with_docs_child("old.txt", 12);
+    write_sharded_catalog(&storage, &key, &persisted);
+
+    let mut partial_root = CatalogNode::new_root();
+    let mut docs = CatalogNode::new_dir(2, "docs".to_string());
+    let new_node = CatalogNode::new_file(4, "new.txt".to_string(), 24, None);
+    assert!(docs.add_child(new_node.clone()));
+    assert!(partial_root.add_child(docs));
+    let partial_catalog =
+        CatalogManager::from_root_with_version(partial_root, persisted.version().saturating_add(1));
+
+    let mut pending = HashMap::from([(
+        "docs".to_string(),
+        vec![DeltaEntry::create(0, "/", new_node)],
+    )]);
+    let mut persisted_deltas = Vec::new();
+
+    let error = Vault::save_catalog(
+        &storage,
+        &key,
+        &partial_catalog,
+        &mut pending,
+        &mut persisted_deltas,
+    )
+    .expect_err("partial snapshot fallback must be refused");
+    assert!(matches!(error, Error::InvalidDataFormat(_)));
+
+    let loaded = Vault::load_shard_from_storage(&storage, &key, "docs")
+        .expect("load shard")
+        .expect("docs shard");
+    assert!(loaded.root.find_child("old.txt").is_some());
+    assert!(loaded.root.find_child("new.txt").is_none());
+}
+
+#[test]
+fn save_catalog_refuses_unreplayable_snapshot_fallback_that_drops_nodes() {
+    let (_d, storage, key) = setup();
+    let persisted = catalog_with_docs_child("old.txt", 12);
+    write_sharded_catalog(&storage, &key, &persisted);
+
+    let mut partial_root = CatalogNode::new_root();
+    let mut docs = CatalogNode::new_dir(2, "docs".to_string());
+    let new_node = CatalogNode::new_file(3, "new.txt".to_string(), 24, None);
+    assert!(docs.add_child(new_node.clone()));
+    assert!(partial_root.add_child(docs));
+    let partial_catalog =
+        CatalogManager::from_root_with_version(partial_root, persisted.version().saturating_add(1));
+
+    let mut pending = HashMap::from([(
+        "docs".to_string(),
+        vec![DeltaEntry::create(0, "/", new_node)],
+    )]);
+    let mut persisted_deltas = Vec::new();
+
+    let error = Vault::save_catalog(
+        &storage,
+        &key,
+        &partial_catalog,
+        &mut pending,
+        &mut persisted_deltas,
+    )
+    .expect_err("unreplayable partial snapshot fallback must be refused");
+    assert!(matches!(error, Error::InvalidDataFormat(_)));
+
+    let loaded = Vault::load_shard_from_storage(&storage, &key, "docs")
+        .expect("load shard")
+        .expect("docs shard");
+    assert!(loaded.root.find_child("old.txt").is_some());
+    assert!(loaded.root.find_child("new.txt").is_none());
 }
 
 #[test]

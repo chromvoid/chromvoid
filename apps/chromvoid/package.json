@@ -1,7 +1,7 @@
 {
   "name": "@chromvoid/desktop",
   "private": true,
-  "version": "0.2.3",
+  "version": "1.0.0",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
@@ -28,7 +28,7 @@
     "ios:deploy:release:ipa": "bun run ios:build:release:ipa && node ./scripts/install-ios-release-ipa.mjs --launch",
     "android": "node ./scripts/run-tauri-android.mjs",
     "android:dev": "CHROMVOID_ANDROID_LIVE_DEV=1 node ./scripts/run-tauri-android.mjs",
-    "android:usb-smoke": "cargo run --manifest-path src-tauri/Cargo.toml --features desktop --bin mobile-usb-smoke --",
+    "android:usb-smoke": "cargo run --manifest-path src-tauri/Cargo.toml --features mobile-usb-smoke --bin mobile-usb-smoke --",
     "android:adb-bridge": "node ./scripts/open-android-adb-bridge.mjs",
     "android:adb-wifi": "node ./scripts/android-adb-wifi-target.mjs",
     "android:remote-adb": "CHROMVOID_USE_ADB_TUNNEL=1 node ./scripts/run-tauri-android.mjs",
@@ -44,6 +44,6 @@
     "test:e2e": "bunx vitest run --config ./vitest.e2e.config.ts"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "2.10.1"
+    "@tauri-apps/cli": "2.11.4"
   }
 }

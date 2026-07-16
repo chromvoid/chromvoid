@@ -8,7 +8,6 @@ export type PMEntryEditorSurface =
   | 'website'
   | 'note'
   | 'otp'
-  | 'ssh'
   | 'tags'
   | 'payment-card'
 

@@ -1,18 +1,11 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 const openExternalBrowserUrl = vi.hoisted(() => vi.fn(() => Promise.resolve()))
-const passmanagerSshKeygenMock = vi.hoisted(() => vi.fn())
 
 vi.mock('../../src/shared/services/external-browser', () => ({
   openExternalBrowserUrl: (url: string) => openExternalBrowserUrl(url),
 }))
 
-vi.mock('../../src/features/passmanager/service/passmanager-ssh-keygen', () => ({
-  passmanagerSshKeygen: passmanagerSshKeygenMock,
-}))
-
-import {CVInput} from '@chromvoid/uikit/components/cv-input'
-import {CVTextarea} from '@chromvoid/uikit/components/cv-textarea'
 import {CVCopyButton} from '@chromvoid/uikit/components/cv-copy-button'
 import {CVCombobox} from '@chromvoid/uikit/components/cv-combobox'
 import {atom} from '@reatom/core'
@@ -21,12 +14,14 @@ import {setPasswordManagerLang} from '@project/passmanager/i18n'
 import {setupMobileKeyboardFocusScroll} from '../../src/app/bootstrap/mobile-keyboard-focus-scroll'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {PMEntryMobile} from '../../src/features/passmanager/components/card/entry/entry-mobile'
-import {passmanagerSshKeygen} from '../../src/features/passmanager/service/passmanager-ssh-keygen'
+import {configurePMEntryOtpDraftPreviewPort} from '../../src/features/passmanager/components/card/entry-otp-create'
+import {pmCredentialTagsModel} from '../../src/features/passmanager/models/pm-credential-tags.model'
 import {pmEntryEditorModel} from '../../src/features/passmanager/models/pm-entry-editor.model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
 import {MobileBottomActionFooter} from '../../src/shared/ui/mobile-bottom-action-footer'
 
 let defined = false
+let entryFixtureRoot: ManagerRoot
 
 function ensureDefined() {
   if (defined) return
@@ -119,21 +114,26 @@ function createEntry(
     tags?: string[]
   } = {},
 ) {
-  const entry = new Entry(
-    Object.create(ManagerRoot.prototype) as ManagerRoot,
-    {
-      id: options.id ?? 'entry-mobile-render-test',
-      title: '1cCloud',
-      urls,
-      username: 'andry_diego@mail.ru',
-      createdTs: Date.now(),
-      updatedTs: Date.now(),
-      otps: options.otps ?? [],
-      sshKeys: options.sshKeys ?? [],
-      tags: options.tags ?? [],
-    } as any,
-  )
-
+  const root = entryFixtureRoot
+  const entryId = options.id ?? 'entry-mobile-render-test'
+  const entry = new Entry(root, {
+    id: entryId,
+    title: '1cCloud',
+    urls,
+    username: 'andry_diego@mail.ru',
+    createdTs: Date.now(),
+    updatedTs: Date.now(),
+    otps: options.otps ?? [],
+    sshKeys: [],
+    tags: options.tags ?? [],
+  } as any)
+  root.sshKeys.set([
+    ...root.sshKeys().filter((key) => key.sourceEntryId !== entryId),
+    ...(options.sshKeys ?? []).map((key) => ({
+      ...(key as Record<string, unknown>),
+      sourceEntryId: entryId,
+    })),
+  ] as never)
   ;(entry as Entry & {flushPendingPersistence: () => Promise<void>}).flushPendingPersistence = vi.fn(
     options.flushPendingPersistence ?? (async () => {}),
   )
@@ -154,28 +154,25 @@ function createPaymentCardEntry(
     tags?: string[]
   } = {},
 ) {
-  const entry = new Entry(
-    Object.create(ManagerRoot.prototype) as ManagerRoot,
-    {
-      id: options.id ?? 'entry-mobile-payment-card-render-test',
-      entryType: 'payment_card',
-      title: 'Team Visa',
-      urls: [],
-      username: '',
-      createdTs: Date.now(),
-      updatedTs: Date.now(),
-      otps: [],
-      sshKeys: [],
-      paymentCard: {
-        cardholderName: 'Alice Doe',
-        expMonth: 12,
-        expYear: 2032,
-        brand: 'visa',
-        last4: '1111',
-      },
-      tags: options.tags ?? [],
-    } as any,
-  )
+  const entry = new Entry(entryFixtureRoot, {
+    id: options.id ?? 'entry-mobile-payment-card-render-test',
+    entryType: 'payment_card',
+    title: 'Team Visa',
+    urls: [],
+    username: '',
+    createdTs: Date.now(),
+    updatedTs: Date.now(),
+    otps: [],
+    sshKeys: [],
+    paymentCard: {
+      cardholderName: 'Alice Doe',
+      expMonth: 12,
+      expYear: 2032,
+      brand: 'visa',
+      last4: '1111',
+    },
+    tags: options.tags ?? [],
+  } as any)
 
   ;(entry as Entry & {flushPendingPersistence: () => Promise<void>}).flushPendingPersistence = vi.fn(
     options.flushPendingPersistence ?? (async () => {}),
@@ -334,9 +331,10 @@ describe('PMEntryMobile', () => {
   let currentPassmanager: typeof window.passmanager
 
   beforeEach(() => {
+    entryFixtureRoot = new ManagerRoot({} as never)
+    entryFixtureRoot.entries.set([])
     openExternalBrowserUrl.mockReset()
     openExternalBrowserUrl.mockResolvedValue(undefined)
-    vi.mocked(passmanagerSshKeygen).mockReset()
     setPasswordManagerLang('en')
     previousPassmanager = window.passmanager
     previousPassmanagerDescriptor = Object.getOwnPropertyDescriptor(window, 'passmanager')
@@ -353,6 +351,13 @@ describe('PMEntryMobile', () => {
     })
     setPassmanagerRoot(previousPassmanager as any)
     ensureDefined()
+    configurePMEntryOtpDraftPreviewPort({
+      previewOTP: vi.fn(async (data) => ({
+        otp: data.digits === 8 ? '12345678' : '123456',
+        period: data.period ?? 30,
+        leftSeconds: 12,
+      })),
+    })
   })
 
   afterEach(() => {
@@ -367,6 +372,7 @@ describe('PMEntryMobile', () => {
     } else {
       delete (window as {passmanager?: typeof window.passmanager}).passmanager
     }
+    pmCredentialTagsModel.closeSheet()
     pmEntryEditorModel.reset()
     vi.restoreAllMocks()
   })
@@ -517,6 +523,7 @@ describe('PMEntryMobile', () => {
     expect(avatarStatic?.firstElementChild).toBe(avatarWrap)
     expect(avatarWrap?.firstElementChild).toBe(avatar)
     expect(titleBlock?.querySelector('.entry-title')?.textContent).toContain('1cCloud')
+    expect(titleBlock?.querySelector('.entry-title > bdi[dir="auto"]')?.textContent).toContain('1cCloud')
     expect(titleBlock?.querySelector('.entry-header-aside')).toBe(aside)
     expect(titleBlock?.querySelector('.entry-meta-inline')).toBe(metaInline)
     expect(header?.firstElementChild).toBe(identity)
@@ -563,6 +570,10 @@ describe('PMEntryMobile', () => {
       value?: string
     }
     expect(passwordInput?.value).toBe('secret')
+    expect(passwordInput?.getAttribute('dir')).toBe('ltr')
+    expect(component.shadowRoot?.querySelector('.field-value[dir="ltr"]')?.textContent).toContain(
+      'andry_diego@mail.ru',
+    )
     expect(updatedPasswordField?.querySelector('.secret-skeleton')).toBeNull()
   })
 
@@ -710,6 +721,9 @@ describe('PMEntryMobile', () => {
     expect(component.shadowRoot?.querySelector('.website-row')).not.toBeNull()
     expect(component.shadowRoot?.querySelector('.website-actions')).not.toBeNull()
     expect(component.shadowRoot?.querySelector('.website-open')?.textContent).toContain('Open site')
+    expect(component.shadowRoot?.querySelector('.website-name[dir="ltr"]')?.textContent).toBe(
+      'https://1ccloud.ru',
+    )
     expect(component.shadowRoot?.querySelector('.inline-action')).toBeNull()
     expect(component.shadowRoot?.querySelector('.section-action')).toBeNull()
   })
@@ -907,10 +921,13 @@ describe('PMEntryMobile', () => {
     expect(titleInput?.shadowRoot?.activeElement).not.toBe(nativeTitleInput)
   })
 
-  it('renders mobile tag chips and saves changed tags from the tag section', async () => {
+  it('opens the shared mobile tag sheet and saves its entry selection', async () => {
     const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {tags: ['Work']})
     const root = new ManagerRoot({} as any)
-    root.credentialTags.set(['Work', 'Rotate'])
+    root.setCredentialTagCatalog(['Work', 'Rotate'], {
+      work: {colorId: 'orange'},
+      rotate: {colorId: 'cyan'},
+    })
     root.entries.set([entry])
     const updateTags = vi.spyOn(entry, 'updateTags').mockResolvedValue(undefined)
     window.passmanager = root as unknown as typeof window.passmanager
@@ -919,10 +936,15 @@ describe('PMEntryMobile', () => {
     component.entry = entry
     document.body.append(component)
     await settle(component)
+    const model = getEntryMobileTestModel(component)
 
     expect(component.shadowRoot?.textContent).toContain('Work')
+    expect(component.shadowRoot?.querySelector('.entry-tags-chip')?.getAttribute('data-tag-color-id')).toBe(
+      'orange',
+    )
     expect(component.shadowRoot?.querySelector('[data-snippet-section="tags"]')).toBeNull()
     await activateEntryEditMode(component, entry)
+    model.setInlineDraft('title', 'Edited title')
 
     const editButton = component.shadowRoot?.querySelector(
       '[data-snippet-section="tags"]',
@@ -931,39 +953,27 @@ describe('PMEntryMobile', () => {
     editButton?.click()
     await settle(component)
 
-    const combobox = component.shadowRoot?.querySelector('cv-combobox.entry-tags-combobox') as
-      | (HTMLElement & {shadowRoot?: ShadowRoot; updateComplete?: Promise<unknown>})
-      | null
-    await combobox?.updateComplete
+    expect(component.shadowRoot?.querySelector('cv-combobox.entry-tags-combobox')).toBeNull()
+    expect(pmCredentialTagsModel.filterSheetOpen()).toBe(true)
+    expect(pmCredentialTagsModel.sheetSelectionScope()).toBe('entry')
+    expect(pmCredentialTagsModel.entrySelectionTagKeys()).toEqual(['work'])
+    expect(pmEntryEditorModel.isActiveForEntry(entry.id, 'entry')).toBe(true)
+    expect(model.inlineTitle()).toBe('Edited title')
+    expect(getCvInput(component, 'inline-title')).not.toBeNull()
 
-    expect(combobox).not.toBeNull()
-    expect(combobox?.getAttribute('type')).toBe('select-only')
-    expect(combobox?.shadowRoot?.querySelector('[part="input"]')).toBeNull()
-    expect(combobox?.shadowRoot?.querySelector('[part="trigger"]')).not.toBeNull()
-    expect(component.shadowRoot?.querySelector('.entry-tags-add')).toBeNull()
-
-    combobox?.dispatchEvent(
-      new CustomEvent('cv-change', {
-        detail: {
-          selectedIds: ['work', 'rotate'],
-          value: 'work rotate',
-          inputValue: '',
-          activeId: null,
-          open: false,
-        },
-        bubbles: true,
-        composed: true,
-      }),
-    )
-
-    const saveButton = component.shadowRoot?.querySelector('.inline-edit-save') as HTMLButtonElement | null
-    saveButton?.click()
+    pmCredentialTagsModel.activateTagChip('rotate')
+    await pmCredentialTagsModel.confirmSheetSelection()
     await settle(component)
 
     expect(updateTags).toHaveBeenCalledWith(['Work', 'Rotate'])
+    expect(pmCredentialTagsModel.filterSheetOpen()).toBe(false)
+    expect(pmCredentialTagsModel.sheetSelectionScope()).toBe('filter')
+    expect(pmEntryEditorModel.isActiveForEntry(entry.id, 'entry')).toBe(true)
+    expect(model.inlineTitle()).toBe('Edited title')
+    expect(getCvInput(component, 'inline-title')).not.toBeNull()
   })
 
-  it('selects and saves a catalog tag from mobile full edit without focusing title', async () => {
+  it('cancels the mobile tag selection without changing the entry', async () => {
     const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {tags: []})
     const root = new ManagerRoot({} as any)
     root.credentialTags.set(['Rotate'])
@@ -988,57 +998,20 @@ describe('PMEntryMobile', () => {
     await settleFocus(component)
 
     expect(model.entryEditFocusRequest()).toBeNull()
-    const combobox = component.shadowRoot?.querySelector('cv-combobox.entry-tags-combobox') as
-      | (HTMLElement & {value: string; shadowRoot?: ShadowRoot; updateComplete: Promise<unknown>})
-      | null
-    await combobox?.updateComplete
+    expect(pmCredentialTagsModel.filterSheetOpen()).toBe(true)
+    expect(pmCredentialTagsModel.entrySelectionTagKeys()).toEqual([])
 
-    expect(combobox).not.toBeNull()
-    expect(combobox?.getAttribute('type')).toBe('select-only')
-    expect(combobox?.shadowRoot?.querySelector('[part="input"]')).toBeNull()
-    expect(combobox?.shadowRoot?.querySelector('[part="trigger"]')).not.toBeNull()
-    expect(component.shadowRoot?.querySelector('.entry-tags-add')).toBeNull()
+    pmCredentialTagsModel.activateTagChip('rotate')
+    expect(pmCredentialTagsModel.entrySelectionTagKeys()).toEqual(['rotate'])
 
-    combobox?.dispatchEvent(
-      new CustomEvent('cv-change', {
-        detail: {selectedIds: ['rotate'], value: 'rotate', inputValue: '', activeId: null, open: true},
-        bubbles: true,
-        composed: true,
-      }),
-    )
-    await settle(component)
-
-    expect(model.tagDraft()).toEqual(['Rotate'])
-    expect(component.shadowRoot?.textContent).toContain('Rotate')
-
-    combobox?.dispatchEvent(
-      new CustomEvent('cv-change', {
-        detail: {selectedIds: [], value: null, inputValue: '', activeId: null, open: true},
-        bubbles: true,
-        composed: true,
-      }),
-    )
-    await settle(component)
-
-    expect(model.tagDraft()).toEqual([])
-
-    combobox?.dispatchEvent(
-      new CustomEvent('cv-change', {
-        detail: {selectedIds: ['rotate'], value: 'rotate', inputValue: '', activeId: null, open: true},
-        bubbles: true,
-        composed: true,
-      }),
-    )
-    await settle(component)
-
-    const saveButton = component.shadowRoot?.querySelector('.inline-edit-save') as HTMLButtonElement | null
-    saveButton?.click()
+    pmCredentialTagsModel.closeSheet()
     await settleFocus(component)
 
-    expect(updateTags).toHaveBeenCalledWith(['Rotate'])
+    expect(updateTags).not.toHaveBeenCalled()
     expect(model.sectionSnippet()).toBeNull()
     expect(model.entryEditFocusRequest()).toBeNull()
-    expect(getCvInput(component, 'inline-title')).toBeNull()
+    expect(pmEntryEditorModel.isActiveForEntry(entry.id, 'entry')).toBe(true)
+    expect(getCvInput(component, 'inline-title')).not.toBeNull()
   })
 
   it.each([
@@ -1239,9 +1212,11 @@ describe('PMEntryMobile', () => {
 
     expect(update).not.toHaveBeenCalled()
     expect(updateOTPLabels).not.toHaveBeenCalled()
-    const erroredInput = component.shadowRoot?.querySelector('cv-input[data-otp-label-input="otp-1"]')
-    expect(erroredInput).not.toBeNull()
-    expect(erroredInput?.textContent).toContain('Label is too long')
+    const erroredField = component.shadowRoot?.querySelector(
+      'cv-input[data-otp-label-input="otp-1"]',
+    )?.parentElement
+    expect(erroredField).not.toBeNull()
+    expect(erroredField?.textContent).toContain('Label is too long')
   })
 
   it('does not overwrite late-loaded secrets when only metadata changes in full-entry edit', async () => {
@@ -2496,8 +2471,9 @@ describe('PMEntryMobile', () => {
     expect(quickViewButton).toBeNull()
   })
 
-  it('shows missing otp and ssh add actions on the entry view only', async () => {
+  it('shows the OTP add action and a compact non-interactive SSH indicator', async () => {
     const entryWithSecrets = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+      id: 'entry-mobile-with-secrets',
       otps: [
         {
           id: 'otp-1',
@@ -2515,7 +2491,9 @@ describe('PMEntryMobile', () => {
         },
       ],
     })
-    const entryWithoutSecrets = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entryWithoutSecrets = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+      id: 'entry-mobile-without-secrets',
+    })
 
     window.passmanager = {
       isReadOnly: () => false,
@@ -2529,9 +2507,10 @@ describe('PMEntryMobile', () => {
     const otpAddButton = manageComponent.shadowRoot?.querySelector(
       '.section-action[data-snippet-section="otp"]',
     ) as HTMLButtonElement | null
-    const sshAddButton = manageComponent.shadowRoot?.querySelector(
-      '.section-action[data-snippet-section="ssh"]',
-    ) as HTMLButtonElement | null
+    const sshSection = Array.from(manageComponent.shadowRoot?.querySelectorAll('.section-block') ?? []).find(
+      (section) => section.textContent?.includes('SSH'),
+    )
+    const sshActionButton = sshSection?.querySelector('.section-action') as HTMLButtonElement | null
     const otpItems = Array.from(
       manageComponent.shadowRoot?.querySelectorAll('pm-entry-otp-item') ?? [],
     ) as Array<HTMLElement & {shadowRoot?: ShadowRoot; updateComplete?: Promise<unknown>}>
@@ -2557,11 +2536,9 @@ describe('PMEntryMobile', () => {
     expect(viewSshAddButton).toBeNull()
     expect(otpAddButton?.classList.contains('edit-icon-action')).toBe(false)
     expect(otpAddButton?.textContent).toContain('Add OTP')
-    expect(sshAddButton?.classList.contains('edit-icon-action')).toBe(true)
-    expect(sshAddButton?.getAttribute('aria-label')).toBe('Add SSH Key')
-    expect(sshAddButton?.querySelector('span')).toBeNull()
+    expect(sshActionButton).toBeNull()
     expect(otpInlineRemoveActions).toHaveLength(0)
-    expect(sshInlineRemoveActions).toHaveLength(1)
+    expect(sshInlineRemoveActions).toHaveLength(0)
 
     await activateEntryEditMode(manageComponent, entryWithSecrets)
     const editModeOtpAddButton = manageComponent.shadowRoot?.querySelector(
@@ -2587,7 +2564,7 @@ describe('PMEntryMobile', () => {
     expect(editModeOtpAddButton).toBeNull()
     expect(editModeSshAddButton).toBeNull()
     expect(editModeOtpItems).toHaveLength(1)
-    expect(editModeSshItems).toHaveLength(1)
+    expect(editModeSshItems).toHaveLength(0)
     expect(editModeOtpRemoveActions).toHaveLength(0)
     expect(editModeSshRemoveActions).toHaveLength(0)
 
@@ -2614,7 +2591,7 @@ describe('PMEntryMobile', () => {
     expect(emptySectionOtpAddButton).toBeNull()
     expect(emptySectionSshAddButton).toBeNull()
     expect(emptyOtpAddButton?.textContent).toContain('Add OTP')
-    expect(emptySshAddButton?.textContent).toContain('Add SSH Key')
+    expect(emptySshAddButton).toBeNull()
     expect(addComponent.shadowRoot?.querySelector('pm-entry-otp-item')).toBeNull()
     expect(addComponent.shadowRoot?.querySelector('pm-entry-ssh-key')).toBeNull()
 
@@ -2640,7 +2617,7 @@ describe('PMEntryMobile', () => {
     expect(addComponent.shadowRoot?.querySelector('pm-entry-ssh-key')).toBeNull()
   })
 
-  it('opens missing otp and ssh add flows from the entry view', async () => {
+  it('opens the missing OTP flow from the entry view', async () => {
     window.passmanager = {
       isReadOnly: () => false,
     } as unknown as typeof window.passmanager
@@ -2666,29 +2643,6 @@ describe('PMEntryMobile', () => {
     ).toBeNull()
     expect(otpComponent.shadowRoot?.querySelector('pm-entry-otp-create[data-snippet="otp"]')).toBeNull()
     expect(otpComponent.shadowRoot?.querySelector('pm-entry-otp-create-sheet[open]')).not.toBeNull()
-
-    otpComponent.remove()
-    pmEntryEditorModel.reset()
-
-    const sshEntry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
-      id: 'entry-mobile-add-ssh-from-view',
-    })
-
-    const sshComponent = document.createElement('pm-entry-mobile') as PMEntryMobile
-    sshComponent.entry = sshEntry
-    document.body.append(sshComponent)
-    await settle(sshComponent)
-
-    const sshAddButton = sshComponent.shadowRoot?.querySelector(
-      '.entry-view-add-action[data-entry-view-add-action="ssh"]',
-    ) as HTMLButtonElement | null
-    sshAddButton?.click()
-    await settle(sshComponent)
-
-    expect(sshComponent.shadowRoot?.querySelector('pm-entry-edit-mobile')).toBeNull()
-    expect(sshComponent.shadowRoot?.querySelector('pm-entry-ssh-key')).toBeNull()
-    expect(sshComponent.shadowRoot?.querySelector('pm-entry-ssh-generator')).toBeNull()
-    expect(sshComponent.shadowRoot?.querySelector('pm-entry-ssh-create-sheet[open]')).not.toBeNull()
   })
 
   it('saves otp snippet from the entry page', async () => {
@@ -2749,6 +2703,7 @@ describe('PMEntryMobile', () => {
     const saveButton = otpSheet?.shadowRoot?.querySelector('.primary-action') as HTMLElement | null
     saveButton?.click()
     await settle(component)
+    await settle(component)
 
     expect(addOTP).toHaveBeenCalledTimes(1)
     expect(addOTP).toHaveBeenCalledWith(expect.objectContaining({secret: 'JBSWY3DPEHPK3PXP'}))
@@ -2798,6 +2753,7 @@ describe('PMEntryMobile', () => {
     const saveButton = otpSheet?.shadowRoot?.querySelector('.primary-action') as HTMLElement | null
     saveButton?.click()
     await settle(component)
+    await settle(component)
 
     expect(addOTP).toHaveBeenCalledWith(expect.objectContaining({secret: 'JBSWY3DPEHPK3PXP'}))
   })
@@ -2837,7 +2793,7 @@ describe('PMEntryMobile', () => {
     expect(component.shadowRoot?.querySelector('pm-entry-otp-create-sheet[open]')).toBeNull()
   })
 
-  it('opens the ssh create sheet on the entry page without opening pm-entry-edit-mobile', async () => {
+  it('shows a compact related SSH indicator without a navigation action', async () => {
     const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
       sshKeys: [
         {
@@ -2857,124 +2813,12 @@ describe('PMEntryMobile', () => {
     document.body.append(component)
     await settle(component)
 
-    const addButton = component.shadowRoot?.querySelector(
-      '.section-action[data-snippet-section="ssh"]',
-    ) as HTMLButtonElement | null
-    expect(component.shadowRoot?.querySelector('pm-entry-ssh-generator')).toBeNull()
-    expect(component.shadowRoot?.querySelector('pm-entry-ssh-create-sheet[open]')).toBeNull()
-    expect(component.shadowRoot?.querySelector('pm-entry-ssh-key')).not.toBeNull()
-    expect(addButton).not.toBeNull()
-
-    addButton?.click()
-    await settle(component)
-
-    expect(component.shadowRoot?.querySelector('pm-entry-edit-mobile')).toBeNull()
-    expect(component.shadowRoot?.querySelector('pm-entry-ssh-key')).not.toBeNull()
-    expect(component.shadowRoot?.querySelector('pm-entry-ssh-generator')).toBeNull()
-    expect(component.shadowRoot?.querySelector('pm-entry-ssh-create-sheet[open]')).not.toBeNull()
-  })
-
-  it('cancels the ssh create sheet when it closes', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
-      sshKeys: [
-        {
-          id: 'ssh-1',
-          type: 'ed25519',
-          fingerprint: 'SHA256:test',
-          comment: 'user@example.com',
-        },
-      ],
-    })
-
-    window.passmanager = {
-      isReadOnly: () => false,
-    } as unknown as typeof window.passmanager
-
-    const component = document.createElement('pm-entry-mobile') as PMEntryMobile
-    component.entry = entry
-    document.body.append(component)
-    await settle(component)
-
-    const addButton = component.shadowRoot?.querySelector(
-      '.section-action[data-snippet-section="ssh"]',
-    ) as HTMLButtonElement | null
-    addButton?.click()
-    await settle(component)
-
-    const sshSheet = component.shadowRoot?.querySelector('pm-entry-ssh-create-sheet') as HTMLElement | null
-    expect(sshSheet).not.toBeNull()
-
-    sshSheet?.dispatchEvent(
-      new CustomEvent('pm-entry-ssh-create-sheet-close', {
-        bubbles: true,
-        composed: true,
-      }),
+    const sshSection = Array.from(component.shadowRoot?.querySelectorAll('.section-block') ?? []).find(
+      (section) => section.textContent?.includes('SSH'),
     )
-    await settle(component)
-
-    expect(component.shadowRoot?.querySelector('pm-entry-ssh-generator')).toBeNull()
-    expect(component.shadowRoot?.querySelector('pm-entry-ssh-create-sheet[open]')).toBeNull()
-    expect(component.shadowRoot?.querySelector('pm-entry-ssh-key')).not.toBeNull()
-  })
-
-  it('generates ssh metadata from the sheet and keeps the result open', async () => {
-    vi.mocked(passmanagerSshKeygen).mockResolvedValue({
-      key_id: 'ssh-generated',
-      public_key_openssh: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGenerated andry_diego@mail.ru@1cCloud',
-      fingerprint: 'SHA256:generated',
-      key_type: 'ed25519',
-    })
-    const updateSshKeys = vi.fn(async () => {})
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
-    ;(entry as Entry & {updateSshKeys: typeof updateSshKeys}).updateSshKeys = updateSshKeys
-
-    window.passmanager = {
-      isReadOnly: () => false,
-    } as unknown as typeof window.passmanager
-
-    const component = document.createElement('pm-entry-mobile') as PMEntryMobile
-    component.entry = entry
-    document.body.append(component)
-    await settle(component)
-
-    const addButton = component.shadowRoot?.querySelector(
-      '.entry-view-add-action[data-entry-view-add-action="ssh"]',
-    ) as HTMLButtonElement | null
-    addButton?.click()
-    await settle(component)
-
-    const sshSheet = component.shadowRoot?.querySelector('pm-entry-ssh-create-sheet') as {
-      shadowRoot?: ShadowRoot | null
-      updateComplete?: Promise<unknown>
-    } | null
-    expect(sshSheet).not.toBeNull()
-    await sshSheet?.updateComplete
-
-    const generateButton = sshSheet?.shadowRoot?.querySelector('.primary-action') as HTMLElement | null
-    generateButton?.click()
-    await settle(component)
-    await sshSheet?.updateComplete
-
-    expect(passmanagerSshKeygen).toHaveBeenCalledWith({
-      entryId: entry.id,
-      keyType: 'ed25519',
-      comment: 'andry_diego@mail.ru@1cCloud',
-    })
-    expect(updateSshKeys).toHaveBeenCalledWith([
-      {
-        id: 'ssh-generated',
-        type: 'ed25519',
-        fingerprint: 'SHA256:generated',
-        name: '1cCloud SSH',
-        comment: 'andry_diego@mail.ru@1cCloud',
-      },
-    ])
-    expect(component.shadowRoot?.querySelector('pm-entry-ssh-create-sheet[open]')).not.toBeNull()
-    const sshCreate = sshSheet?.shadowRoot?.querySelector('pm-entry-ssh-create') as
-      | (HTMLElement & {shadowRoot?: ShadowRoot | null; updateComplete?: Promise<unknown>})
-      | null
-    await sshCreate?.updateComplete
-    expect(sshCreate?.shadowRoot?.textContent).toContain('SHA256:generated')
-    expect(sshCreate?.shadowRoot?.textContent).toContain('ssh-ed25519 AAAAC3')
+    expect(component.shadowRoot?.querySelector('pm-entry-ssh-key')).toBeNull()
+    expect(sshSection?.textContent).toContain('SSH')
+    expect(sshSection?.querySelector('.section-action')).toBeNull()
+    expect(component.shadowRoot?.querySelector('pm-entry-ssh-create-sheet')).toBeNull()
   })
 })

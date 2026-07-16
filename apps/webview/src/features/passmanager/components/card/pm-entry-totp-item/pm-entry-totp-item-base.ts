@@ -88,11 +88,12 @@ export class PMEntryTOTPItemBase extends ReatomLitElement {
       return nothing
     }
 
-    this.style.setProperty('--totp-color', view.baseColor)
-    this.style.setProperty('--totp-color-soft', view.lightColor)
-    this.style.setProperty('--arc-offset', String(view.arcOffset))
+    this.style.setProperty('--_pm-totp-color', view.baseColor)
+    this.style.setProperty('--_pm-totp-color-soft', view.lightColor)
+    this.style.setProperty('--_pm-totp-item-arc-offset', String(view.arcOffset))
     const label = view.label || i18n('otp:item')
     const feedbackLabel = view.copyFeedback === 'copied' ? i18n('button:copied') : i18n('otp:tap_to_copy')
+    const feedbackIcon = view.copyFeedback === 'copied' ? 'copy-check' : 'copy'
 
     return html`
       <div
@@ -113,6 +114,7 @@ export class PMEntryTOTPItemBase extends ReatomLitElement {
               : html`<span class="totp-code-placeholder">${i18n('loading')}</span>`}
           </div>
           <span class="totp-feedback" aria-live="polite">
+            <cv-icon class="totp-feedback-icon" name=${feedbackIcon} aria-hidden="true"></cv-icon>
             ${keyed(view.copyFeedback, html`<span class="motion-text-swap">${feedbackLabel}</span>`)}
           </span>
         </div>

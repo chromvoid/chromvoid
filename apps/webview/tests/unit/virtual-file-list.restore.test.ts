@@ -13,6 +13,8 @@ const DEFAULT_FILTERS: SearchFilters = {
   fileTypes: [],
 }
 
+const DESKTOP_ROW_HEIGHT = 36
+
 function createItems(count: number): FileListItem[] {
   return Array.from({length: count}, (_, index) => {
     const id = index + 1
@@ -39,7 +41,10 @@ function mockListHeight(height: number) {
   return vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(height)
 }
 
-async function setContainerScroll(element: HTMLElement & {updateComplete?: Promise<unknown>}, scrollTop: number) {
+async function setContainerScroll(
+  element: HTMLElement & {updateComplete?: Promise<unknown>},
+  scrollTop: number,
+) {
   const container = element.shadowRoot?.querySelector<HTMLElement>('.list-container')
   expect(container).not.toBeNull()
   container!.scrollTop = scrollTop
@@ -76,6 +81,7 @@ function getDeepActiveElement(): Element | null {
 }
 
 const MOBILE_LIST_TAG = 'test-virtual-file-list-mobile-restore'
+const MOBILE_SCROLL_LIST_TAG = 'test-virtual-file-list-mobile-scroll-restore'
 
 function createMobileListElement(): VirtualFileListMobile {
   if (!customElements.get(MOBILE_LIST_TAG)) {
@@ -85,10 +91,48 @@ function createMobileListElement(): VirtualFileListMobile {
   return document.createElement(MOBILE_LIST_TAG) as VirtualFileListMobile
 }
 
+function createMobileScrollListElement(): VirtualFileListMobile & {renderedUpdates: number} {
+  if (!customElements.get(MOBILE_SCROLL_LIST_TAG)) {
+    customElements.define(
+      MOBILE_SCROLL_LIST_TAG,
+      class extends VirtualFileListMobile {
+        renderedUpdates = 0
+
+        override updated(changed: Map<string, unknown>) {
+          super.updated(changed)
+          this.renderedUpdates += 1
+        }
+      },
+    )
+  }
+
+  return document.createElement(MOBILE_SCROLL_LIST_TAG) as VirtualFileListMobile & {
+    renderedUpdates: number
+  }
+}
+
 describe('virtual-file-list viewport restoration', () => {
   afterEach(() => {
     document.body.innerHTML = ''
     vi.restoreAllMocks()
+  })
+
+  it('reflects the mobile platform contract on the production virtual list', async () => {
+    VirtualFileList.define()
+    const element = document.createElement('virtual-file-list') as VirtualFileList
+    element.items = createItems(3)
+    element.filters = {...DEFAULT_FILTERS}
+    element.mobile = true
+
+    document.body.appendChild(element)
+    await settle(element)
+
+    expect(element.hasAttribute('mobile')).toBe(true)
+
+    element.mobile = false
+    await settle(element)
+
+    expect(element.hasAttribute('mobile')).toBe(false)
   })
 
   it('restores saved scroll position and focus target on mount', async () => {
@@ -103,7 +147,7 @@ describe('virtual-file-list viewport restoration', () => {
     element.restoreViewport = {
       path: '/Docs',
       viewMode: 'list',
-      scrollTop: 1680,
+      scrollTop: DESKTOP_ROW_HEIGHT * 21,
       activeItemId: 22,
       focusItemId: 22,
       revision: 3,
@@ -118,7 +162,7 @@ describe('virtual-file-list viewport restoration', () => {
     const activeHost = element.shadowRoot?.querySelector('file-item-desktop[data-id="22"]') as
       | (HTMLElement & {active?: boolean})
       | null
-    expect(container?.scrollTop).toBe(1680)
+    expect(container?.scrollTop).toBe(DESKTOP_ROW_HEIGHT * 21)
     expect(container?.getAttribute('aria-activedescendant')).toBe('file-option-22')
     expect(activeHost?.active).toBe(true)
     expect(active?.getAttribute('data-id')).toBe('22')
@@ -229,13 +273,39 @@ describe('virtual-file-list viewport restoration', () => {
     document.body.appendChild(element)
     await settle(element)
 
-    const container = await setContainerScroll(element, 1680)
+    const container = await setContainerScroll(element, DESKTOP_ROW_HEIGHT * 21)
     element.selectionMode = true
     element.selectedItems = [22]
     await settle(element)
 
     expect(element.shadowRoot?.querySelector('.list-container')).toBe(container)
-    expect(container.scrollTop).toBe(1680)
+    expect(container.scrollTop).toBe(DESKTOP_ROW_HEIGHT * 21)
+  })
+
+  it('resets stale scroll when a lazy folder path renders empty before items arrive', async () => {
+    mockListHeight(400)
+    VirtualFileList.define()
+    const element = document.createElement('virtual-file-list') as VirtualFileList
+    element.items = createItems(60)
+    element.filters = {...DEFAULT_FILTERS}
+    element.itemHeight = 80
+    element.currentPath = '/Docs'
+    element.itemsPreFiltered = true
+
+    document.body.appendChild(element)
+    await settle(element)
+
+    const container = await setContainerScroll(element, 1680)
+    element.currentPath = '/Docs/Nested'
+    element.items = []
+    await settle(element)
+
+    element.items = createItems(3)
+    await settle(element)
+
+    expect(container.scrollTop).toBe(0)
+    expect(element.shadowRoot?.querySelector('file-item-desktop[data-id="1"]')).not.toBeNull()
+    expect(element.getAttribute('style')).toBeNull()
   })
 
   it('preserves mobile list scroll when selection mode rerenders visible rows', async () => {
@@ -257,6 +327,34 @@ describe('virtual-file-list viewport restoration', () => {
 
     expect(element.shadowRoot?.querySelector('.list-container')).toBe(container)
     expect(container.scrollTop).toBe(1680)
+  })
+
+  it('skips mobile virtual list rerenders for scroll deltas inside the same virtual row', async () => {
+    mockListHeight(400)
+    const element = createMobileScrollListElement()
+    element.items = createItems(60)
+    element.filters = {...DEFAULT_FILTERS}
+    element.itemHeight = 80
+    element.currentPath = '/Docs'
+    element.mobile = true
+
+    document.body.appendChild(element)
+    await settle(element)
+
+    const container = await setContainerScroll(element, 10)
+    const updatesAfterFirstScroll = element.renderedUpdates
+
+    container.scrollTop = 20
+    container.dispatchEvent(new Event('scroll'))
+    await settle(element)
+
+    expect(element.renderedUpdates).toBe(updatesAfterFirstScroll)
+
+    container.scrollTop = 80
+    container.dispatchEvent(new Event('scroll'))
+    await settle(element)
+
+    expect(element.renderedUpdates).toBeGreaterThan(updatesAfterFirstScroll)
   })
 
   it('preserves mobile list scroll when contextmenu enters selection mode on a visible row', async () => {
@@ -319,7 +417,7 @@ describe('virtual-file-list viewport restoration', () => {
     document.body.appendChild(element)
     await settle(element)
 
-    const container = await setContainerScroll(element, 1680)
+    const container = await setContainerScroll(element, DESKTOP_ROW_HEIGHT * 21)
     const item = items[21]!
     const checkbox = element.shadowRoot?.querySelector<HTMLElement>(
       `.selection-checkbox[data-id="${item.id}"]`,
@@ -330,7 +428,7 @@ describe('virtual-file-list viewport restoration', () => {
     await settle(element)
 
     expect(element.selectedItems).toEqual([item.id])
-    expect(container.scrollTop).toBe(1680)
+    expect(container.scrollTop).toBe(DESKTOP_ROW_HEIGHT * 21)
   })
 
   it('keeps saved scroll when cross-view restore focus target is missing', async () => {
@@ -357,7 +455,9 @@ describe('virtual-file-list viewport restoration', () => {
 
     const container = element.shadowRoot?.querySelector<HTMLElement>('.list-container')
     expect(container?.scrollTop).toBe(1680)
-    expect(container?.getAttribute('aria-activedescendant')).toBe('file-option-18')
+    expect(container?.getAttribute('aria-activedescendant')).toBe(
+      `file-option-${Math.floor(1680 / DESKTOP_ROW_HEIGHT) + 1}`,
+    )
     expect(restored).toHaveBeenCalledWith(expect.objectContaining({detail: {revision: 5}}))
   })
 })

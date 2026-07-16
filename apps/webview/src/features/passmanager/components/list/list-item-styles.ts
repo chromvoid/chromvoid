@@ -41,18 +41,6 @@ export const listItemStyles = css`
 
   /*===================*/
 
-  .item-icon {
-    width: round(calc(var(--cv-font-size-base) * 1.125), 1px);
-    height: round(calc(var(--cv-font-size-base) * 1.125), 1px);
-    flex-shrink: 0;
-    color: var(--cv-color-text-muted);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  /*=================*/
-
   .item-content {
     min-width: 0; /*For the right text-overflow*/
     overflow: hidden;
@@ -148,17 +136,12 @@ export const listItemStyles = css`
       gap: calc(var(--cv-space-2) * 0.75);
     }
 
-    .item-icon {
-      width: var(--cv-font-size-sm);
-      height: var(--cv-font-size-sm);
-    }
-
     .item-title {
       font-size: var(--cv-font-size-xs);
     }
 
     .item-subtitle {
-      font-size: 0.65rem;
+      font-size: var(--cv-font-size-xs);
     }
 
     .action-button {
@@ -174,11 +157,6 @@ export const listItemStyles = css`
       margin: 1px 0;
       gap: calc(var(--cv-space-2) * 0.75);
       grid-template-columns: auto 1fr;
-    }
-
-    .item-icon {
-      width: var(--cv-font-size-xs);
-      height: var(--cv-font-size-xs);
     }
 
     .item-title {

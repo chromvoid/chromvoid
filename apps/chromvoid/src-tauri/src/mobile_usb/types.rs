@@ -66,6 +66,51 @@ pub struct MobileUsbPairRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MobileUsbPairConfirmRequest {
+    pub attempt_id: String,
+    pub approval_pin: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MobileUsbPairingApprovalView {
+    pub attempt_id: String,
+    pub peer_label: String,
+    pub peer_fingerprint: String,
+    pub attempts_left: u8,
+    pub locked_until_ms: Option<u64>,
+    pub expires_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MobileUsbHostApprovalDecision {
+    Pending,
+    Approved,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MobileUsbHostPairingApprovalView {
+    pub attempt_id: String,
+    pub approval_pin: String,
+    pub peer_label: String,
+    pub peer_fingerprint: String,
+    pub attempts_left: u8,
+    pub decision: MobileUsbHostApprovalDecision,
+    pub expires_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MobileUsbHostSessionApprovalView {
+    pub attempt_id: String,
+    pub peer_id: String,
+    pub peer_label: String,
+    pub transport_type: String,
+    pub decision: MobileUsbHostApprovalDecision,
+    pub expires_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MobileUsbPairedHostRecord {
     pub host_id: HostId,
     pub label: String,
@@ -88,10 +133,30 @@ impl MobileUsbPairedHostRecord {
             && !self.client_key_ref.trim().is_empty()
     }
 
+    pub fn is_connectable_pairing(&self) -> bool {
+        self.is_valid_for_auto_match() && self.pairing_confirmed_at.is_some()
+    }
+
     pub fn matches_scan_result(&self, scan: &MobileUsbScanResult) -> bool {
         self.platform == scan.platform
             && self.bridge_kind == scan.bridge_kind
             && self.usb_hint.canonical() == scan.usb_hint.canonical()
+    }
+
+    /// Serial-based heuristic for passive detect: a phone in normal (non-accessory)
+    /// USB mode keeps its serial, while other hint parts may differ from the
+    /// accessory-mode strings captured at pair time.
+    pub fn matches_detect_serial(&self, scan: &MobileUsbScanResult) -> bool {
+        if self.platform != scan.platform || self.bridge_kind != scan.bridge_kind {
+            return false;
+        }
+        match (
+            self.usb_hint.canonical().serial_number,
+            scan.usb_hint.canonical().serial_number,
+        ) {
+            (Some(paired), Some(detected)) => paired == detected,
+            _ => false,
+        }
     }
 }
 
@@ -143,11 +208,34 @@ pub struct MobileUsbScannedHost {
     pub classification: MobileUsbScanClassification,
 }
 
+/// Raw passive-inventory entry returned by a bridge: descriptors only, no AOA
+/// negotiation, no state changes on the device.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MobileUsbDetectCandidate {
+    pub scan: MobileUsbScanResult,
+    pub accessory_mode: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MobileUsbDetectedPairedMatch {
+    pub host_id: HostId,
+    pub label: String,
+    pub connectable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MobileUsbDetectedDevice {
+    pub scan: MobileUsbScanResult,
+    pub accessory_mode: bool,
+    pub paired_match: Option<MobileUsbDetectedPairedMatch>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MobileUsbCommand {
     Scan,
     Pair(MobileUsbPairRequest),
+    PairConfirm(MobileUsbPairConfirmRequest),
     Connect { host_id: HostId },
     Disconnect { reason: MobileUsbDisconnectReason },
     Status,
@@ -170,6 +258,9 @@ pub enum MobileUsbSessionEvent {
     HostUnlockConfirmed {
         session_id: SessionId,
     },
+    HostLocked {
+        session_id: SessionId,
+    },
     RemoteIoStopped {
         session_id: SessionId,
         reason: RemoteIoStopReason,
@@ -182,7 +273,13 @@ pub enum MobileUsbSessionEvent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RemoteIoStopReason {
+    /// Clean transport close (cable detach, peer closed).
     Disconnected,
+    /// Peer went silent past a timeout while the transport stayed open.
+    Liveness(String),
+    /// Framing/decrypt/protocol violation on an established channel.
+    Protocol(String),
+    /// Any other data-plane failure.
     Error(String),
 }
 
@@ -194,7 +291,9 @@ pub enum MobileUsbSessionState {
     IdleUsbMobile,
     ScanningUsbMobile,
     PairingUsbMobile,
+    PairingApprovalRequired,
     ConnectingUsbMobile,
+    SessionApprovalRequired,
     TransportReadyHostLocked,
     RemoteDashboardOpen,
     Disconnected,
@@ -206,7 +305,14 @@ pub enum MobileUsbSessionState {
 pub enum MobileUsbOperationKind {
     Scan,
     Pair,
+    PairConfirm,
     Connect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MobileUsbOperationToken {
+    pub kind: MobileUsbOperationKind,
+    pub generation: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -241,6 +347,14 @@ pub enum MobileUsbErrorCode {
     SecretRefInvalid,
     #[serde(rename = "ERR_USB_MOBILE_PAIR_COMMIT_FAILED")]
     PairCommitFailed,
+    #[serde(rename = "ERR_USB_MOBILE_PAIRING_STORE_CORRUPT")]
+    PairingStoreCorrupt,
+    #[serde(rename = "ERR_USB_MOBILE_PAIRING_APPROVAL_REQUIRED")]
+    PairingApprovalRequired,
+    #[serde(rename = "ERR_USB_MOBILE_PAIRING_APPROVAL_REJECTED")]
+    PairingApprovalRejected,
+    #[serde(rename = "ERR_USB_MOBILE_PAIRING_APPROVAL_EXPIRED")]
+    PairingApprovalExpired,
     #[serde(rename = "ERR_USB_MOBILE_RECORD_LAYER_FAILED")]
     RecordLayerFailed,
     #[serde(rename = "ERR_USB_MOBILE_CABLE_DISCONNECTED")]
@@ -290,6 +404,10 @@ impl MobileUsbErrorCode {
             Self::SecretStoreUnavailable => "ERR_USB_MOBILE_SECRET_STORE_UNAVAILABLE",
             Self::SecretRefInvalid => "ERR_USB_MOBILE_SECRET_REF_INVALID",
             Self::PairCommitFailed => "ERR_USB_MOBILE_PAIR_COMMIT_FAILED",
+            Self::PairingStoreCorrupt => "ERR_USB_MOBILE_PAIRING_STORE_CORRUPT",
+            Self::PairingApprovalRequired => "ERR_USB_MOBILE_PAIRING_APPROVAL_REQUIRED",
+            Self::PairingApprovalRejected => "ERR_USB_MOBILE_PAIRING_APPROVAL_REJECTED",
+            Self::PairingApprovalExpired => "ERR_USB_MOBILE_PAIRING_APPROVAL_EXPIRED",
             Self::RecordLayerFailed => "ERR_USB_MOBILE_RECORD_LAYER_FAILED",
             Self::CableDisconnected => "ERR_USB_MOBILE_CABLE_DISCONNECTED",
             Self::HostLocked => "ERR_USB_MOBILE_HOST_LOCKED",
@@ -309,7 +427,11 @@ impl MobileUsbErrorCode {
             | Self::HandshakeFailed
             | Self::SecretStoreUnavailable
             | Self::PairCommitFailed
+            | Self::PairingStoreCorrupt
+            | Self::PairingApprovalRejected
+            | Self::PairingApprovalExpired
             | Self::RecordLayerFailed => MobileUsbRecoveryAction::ManualRetry,
+            Self::PairingApprovalRequired => MobileUsbRecoveryAction::KeepCurrentFlow,
             Self::NoAccessory => MobileUsbRecoveryAction::RetryScan,
             Self::PermissionDenied => MobileUsbRecoveryAction::RetryPermission,
             Self::AmbiguousDiscovery => MobileUsbRecoveryAction::ListPaired,
@@ -334,6 +456,8 @@ impl std::fmt::Display for MobileUsbErrorCode {
 pub struct MobileUsbError {
     pub code: MobileUsbErrorCode,
     pub message: String,
+    pub(crate) handshake_failure_stage: Option<&'static str>,
+    pub(crate) handshake_failure_kind: Option<crate::remote_data_plane::RemoteHandshakeFailureKind>,
 }
 
 impl MobileUsbError {
@@ -341,7 +465,18 @@ impl MobileUsbError {
         Self {
             code,
             message: message.into(),
+            handshake_failure_stage: None,
+            handshake_failure_kind: None,
         }
+    }
+
+    pub(crate) fn with_handshake_failure(
+        mut self,
+        failure: crate::remote_data_plane::RemoteHandshakeError,
+    ) -> Self {
+        self.handshake_failure_stage = Some(failure.stage());
+        self.handshake_failure_kind = Some(failure.kind());
+        self
     }
 }
 
@@ -363,6 +498,7 @@ pub struct MobileUsbStatus {
     pub active_host: Option<MobileUsbHostView>,
     pub paired_hosts: Vec<MobileUsbHostView>,
     pub in_flight: Option<MobileUsbOperationKind>,
+    pub pairing_approval: Option<MobileUsbPairingApprovalView>,
     pub error_code: Option<MobileUsbErrorCode>,
 }
 
@@ -370,10 +506,13 @@ pub struct MobileUsbStatus {
 pub struct MobileUsbStateMachine {
     session_state: MobileUsbSessionState,
     selected_transport: Option<TransportType>,
-    in_flight: Option<MobileUsbOperationKind>,
+    in_flight: Option<MobileUsbOperationToken>,
+    cancelled_in_flight: Option<MobileUsbOperationToken>,
+    next_operation_generation: u64,
     error_code: Option<MobileUsbErrorCode>,
     active_session_id: Option<SessionId>,
     active_host: Option<MobileUsbHostView>,
+    pairing_approval: Option<MobileUsbPairingApprovalView>,
     pending_stopped_sessions: VecDeque<(SessionId, RemoteIoStopReason)>,
 }
 
@@ -389,9 +528,12 @@ impl MobileUsbStateMachine {
             session_state: MobileUsbSessionState::IdleUsbMobile,
             selected_transport: None,
             in_flight: None,
+            cancelled_in_flight: None,
+            next_operation_generation: 0,
             error_code: None,
             active_session_id: None,
             active_host: None,
+            pairing_approval: None,
             pending_stopped_sessions: VecDeque::new(),
         }
     }
@@ -403,25 +545,51 @@ impl MobileUsbStateMachine {
     pub fn begin_operation(
         &mut self,
         operation: MobileUsbOperationKind,
-    ) -> Result<(), MobileUsbError> {
-        if self.in_flight.is_some() {
+    ) -> Result<MobileUsbOperationToken, MobileUsbError> {
+        if self.in_flight.is_some() || self.cancelled_in_flight.is_some() {
             return Err(MobileUsbError::new(
                 MobileUsbErrorCode::Busy,
                 "mobile USB operation already in flight",
             ));
         }
+        if matches!(
+            self.session_state,
+            MobileUsbSessionState::PairingApprovalRequired
+                | MobileUsbSessionState::SessionApprovalRequired
+                | MobileUsbSessionState::TransportReadyHostLocked
+                | MobileUsbSessionState::RemoteDashboardOpen
+        ) && !matches!(operation, MobileUsbOperationKind::PairConfirm)
+        {
+            return Err(MobileUsbError::new(
+                MobileUsbErrorCode::InvalidState,
+                "mobile USB session must be disconnected before starting another operation",
+            ));
+        }
 
+        self.next_operation_generation = self.next_operation_generation.saturating_add(1);
+        let token = MobileUsbOperationToken {
+            kind: operation,
+            generation: self.next_operation_generation,
+        };
         self.error_code = None;
-        self.in_flight = Some(operation);
+        self.in_flight = Some(token);
         self.session_state = match operation {
             MobileUsbOperationKind::Scan => MobileUsbSessionState::ScanningUsbMobile,
             MobileUsbOperationKind::Pair => MobileUsbSessionState::PairingUsbMobile,
+            MobileUsbOperationKind::PairConfirm => MobileUsbSessionState::PairingUsbMobile,
             MobileUsbOperationKind::Connect => MobileUsbSessionState::ConnectingUsbMobile,
         };
-        Ok(())
+        Ok(token)
     }
 
-    pub fn complete_operation(&mut self) {
+    pub fn complete_operation(&mut self, token: MobileUsbOperationToken) {
+        if self.cancelled_in_flight == Some(token) {
+            self.cancelled_in_flight = None;
+            return;
+        }
+        if self.in_flight != Some(token) {
+            return;
+        }
         self.in_flight = None;
         if matches!(
             self.session_state,
@@ -433,12 +601,44 @@ impl MobileUsbStateMachine {
         }
     }
 
+    pub fn fail_operation(&mut self, token: MobileUsbOperationToken, code: MobileUsbErrorCode) {
+        if self.cancelled_in_flight == Some(token) {
+            self.cancelled_in_flight = None;
+            return;
+        }
+        if self.in_flight != Some(token) {
+            return;
+        }
+        self.fail(code);
+    }
+
+    pub fn require_pairing_approval(
+        &mut self,
+        token: MobileUsbOperationToken,
+        approval: MobileUsbPairingApprovalView,
+    ) {
+        if self.in_flight != Some(token) {
+            return;
+        }
+        self.in_flight = None;
+        self.error_code = None;
+        self.pairing_approval = Some(approval);
+        self.session_state = MobileUsbSessionState::PairingApprovalRequired;
+    }
+
     pub fn establish_session(
         &mut self,
+        token: MobileUsbOperationToken,
         session_id: SessionId,
         active_host: MobileUsbHostView,
         host_unlocked: bool,
     ) -> Result<(), MobileUsbError> {
+        if self.in_flight != Some(token) {
+            return Err(MobileUsbError::new(
+                MobileUsbErrorCode::InvalidState,
+                "mobile USB connect operation was cancelled before session establishment",
+            ));
+        }
         if let Some(reason) = self.take_pending_stopped_session(&session_id) {
             let error = mobile_usb_stop_reason_error(&reason);
             self.fail(error.code);
@@ -447,11 +647,12 @@ impl MobileUsbStateMachine {
 
         self.in_flight = None;
         self.error_code = None;
+        self.pairing_approval = None;
         self.selected_transport = Some(TransportType::UsbMobile);
         self.active_session_id = Some(session_id);
         self.active_host = Some(active_host);
         self.session_state = if host_unlocked {
-            MobileUsbSessionState::RemoteDashboardOpen
+            MobileUsbSessionState::SessionApprovalRequired
         } else {
             MobileUsbSessionState::TransportReadyHostLocked
         };
@@ -465,7 +666,11 @@ impl MobileUsbStateMachine {
                 "host unlock event does not match active mobile USB session",
             ));
         }
-        if self.session_state == MobileUsbSessionState::TransportReadyHostLocked {
+        if matches!(
+            self.session_state,
+            MobileUsbSessionState::TransportReadyHostLocked
+                | MobileUsbSessionState::SessionApprovalRequired
+        ) {
             self.session_state = MobileUsbSessionState::RemoteDashboardOpen;
         }
         Ok(())
@@ -480,24 +685,44 @@ impl MobileUsbStateMachine {
             self.remember_pending_stopped_session(session_id.clone(), reason);
             return false;
         }
+        // Per 6.2 the active session always lands in `disconnected`, but a
+        // non-clean stop keeps its classified error code visible instead of
+        // being indistinguishable from a clean cable detach.
+        let failure_code = match &reason {
+            RemoteIoStopReason::Disconnected => None,
+            other => Some(mobile_usb_stop_reason_error(other).code),
+        };
         self.disconnect();
+        self.error_code = failure_code;
         true
     }
 
     pub fn disconnect(&mut self) {
-        self.in_flight = None;
+        self.next_operation_generation = self.next_operation_generation.saturating_add(1);
+        if self.in_flight.is_some() {
+            self.cancelled_in_flight = self.in_flight.take();
+        }
         self.error_code = None;
         self.selected_transport = None;
         self.active_session_id = None;
         self.active_host = None;
+        self.pairing_approval = None;
         self.session_state = MobileUsbSessionState::Disconnected;
         self.pending_stopped_sessions.clear();
+    }
+
+    pub fn is_current_operation(&self, token: MobileUsbOperationToken) -> bool {
+        self.in_flight == Some(token)
     }
 
     pub fn is_active_host(&self, host_id: &HostId) -> bool {
         self.active_host
             .as_ref()
             .is_some_and(|host| host.host_id == *host_id)
+    }
+
+    pub fn active_session_id(&self) -> Option<&SessionId> {
+        self.active_session_id.as_ref()
     }
 
     pub fn can_reuse_active_host(&self, host_id: &HostId) -> bool {
@@ -511,11 +736,14 @@ impl MobileUsbStateMachine {
     }
 
     pub fn fail(&mut self, code: MobileUsbErrorCode) {
+        self.next_operation_generation = self.next_operation_generation.saturating_add(1);
         self.in_flight = None;
+        self.cancelled_in_flight = None;
         self.error_code = Some(code);
         self.selected_transport = None;
         self.active_session_id = None;
         self.active_host = None;
+        self.pairing_approval = None;
         self.session_state = MobileUsbSessionState::Error;
         self.pending_stopped_sessions.clear();
     }
@@ -529,7 +757,8 @@ impl MobileUsbStateMachine {
             fallback_allowed: false,
             active_host: self.active_host.clone(),
             paired_hosts,
-            in_flight: self.in_flight,
+            in_flight: self.in_flight.map(|operation| operation.kind),
+            pairing_approval: self.pairing_approval.clone(),
             error_code: self.error_code,
         }
     }
@@ -573,9 +802,17 @@ fn mobile_usb_stop_reason_error(reason: &RemoteIoStopReason) -> MobileUsbError {
             MobileUsbErrorCode::CableDisconnected,
             "mobile USB data plane stopped before the session became active",
         ),
-        RemoteIoStopReason::Error(message) => MobileUsbError::new(
-            MobileUsbErrorCode::RecordLayerFailed,
-            format!("mobile USB data plane stopped before the session became active: {message}"),
+        RemoteIoStopReason::Liveness(message) => MobileUsbError::new(
+            MobileUsbErrorCode::CableDisconnected,
+            format!("mobile USB data plane liveness failure: {message}"),
         ),
+        RemoteIoStopReason::Protocol(message) | RemoteIoStopReason::Error(message) => {
+            MobileUsbError::new(
+                MobileUsbErrorCode::RecordLayerFailed,
+                format!(
+                    "mobile USB data plane stopped before the session became active: {message}"
+                ),
+            )
+        }
     }
 }

@@ -47,11 +47,13 @@ fn mode_info_from_adapter(adapter: &dyn CoreAdapter) -> ModeInfo {
         .transport_metrics()
         .map(|m| transport_type_label(&m));
     let remote_core_features = adapter.remote_core_features();
+    let transport_session_generation = adapter.transport_session_generation();
 
     ModeInfo {
         mode,
         connection_state,
         transport_type,
         remote_core_features,
+        transport_session_generation,
     }
 }

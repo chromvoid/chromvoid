@@ -5,13 +5,18 @@ import {
   buildCredentialTagOptions,
   credentialTagKey,
   entryHasCredentialTag,
+  fallbackCredentialTagColorId,
   normalizeCredentialTagCatalog,
+  normalizeCredentialTagCatalogMeta,
+  normalizeCredentialTagColorId,
   normalizeCredentialTags,
   normalizeCredentialTagLabel,
   planCredentialTagDelete,
   planCredentialTagRename,
+  pruneCredentialTagCatalogMeta,
   pruneCredentialTagKeys,
   removeCredentialTagLabel,
+  renameCredentialTagCatalogMeta,
   replaceCredentialTagLabel,
 } from '../tags'
 
@@ -49,9 +54,9 @@ describe('credential tag normalization', () => {
         {tags: ['Finance']},
       ]),
     ).toEqual([
-      {key: 'finance', label: 'Finance', count: 2},
-      {key: 'work', label: 'Work', count: 2},
-      {key: 'client-a', label: 'Client A', count: 1},
+      {key: 'finance', label: 'Finance', colorId: fallbackCredentialTagColorId('finance'), count: 2},
+      {key: 'work', label: 'Work', colorId: fallbackCredentialTagColorId('work'), count: 2},
+      {key: 'client-a', label: 'Client A', colorId: fallbackCredentialTagColorId('client-a'), count: 1},
     ])
   })
 
@@ -62,10 +67,59 @@ describe('credential tag normalization', () => {
         ['Work', 'Zero Use', 'Finance'],
       ),
     ).toEqual([
-      {key: 'finance', label: 'Finance', count: 1},
-      {key: 'work', label: 'Work', count: 1},
-      {key: 'zero-use', label: 'Zero Use', count: 0},
+      {key: 'finance', label: 'Finance', colorId: fallbackCredentialTagColorId('finance'), count: 1},
+      {key: 'work', label: 'Work', colorId: fallbackCredentialTagColorId('work'), count: 1},
+      {key: 'zero-use', label: 'Zero Use', colorId: fallbackCredentialTagColorId('zero-use'), count: 0},
     ])
+  })
+
+  it('uses stored catalog metadata before deterministic color fallback', () => {
+    expect(
+      buildCredentialTagOptions(
+        [{tags: ['work']}],
+        ['Work', 'Zero Use'],
+        {
+          work: {colorId: 'pink'},
+          'zero-use': {colorId: 'cyan'},
+        },
+      ),
+    ).toEqual([
+      {key: 'work', label: 'Work', colorId: 'pink', count: 1},
+      {key: 'zero-use', label: 'Zero Use', colorId: 'cyan', count: 0},
+    ])
+  })
+
+  it('normalizes and prunes tag color metadata', () => {
+    expect(normalizeCredentialTagColorId('green')).toBe('green')
+    expect(normalizeCredentialTagColorId('red')).toBeUndefined()
+    expect(
+      normalizeCredentialTagCatalogMeta(
+        {
+          ' #Work ': {color_id: 'orange'},
+          stale: {colorId: 'blue'},
+          invalid: {colorId: 'red'},
+        },
+        ['Work'],
+      ),
+    ).toEqual({work: {colorId: 'orange'}})
+    expect(
+      pruneCredentialTagCatalogMeta(
+        {
+          work: {colorId: 'pink'},
+          stale: {colorId: 'cyan'},
+        },
+        ['Work'],
+      ),
+    ).toEqual({work: {colorId: 'pink'}})
+  })
+
+  it('moves tag color metadata on rename', () => {
+    expect(renameCredentialTagCatalogMeta({work: {colorId: 'green'}}, ['Client A'], 'work', 'client-a')).toEqual({
+      'client-a': {colorId: 'green'},
+    })
+    expect(
+      renameCredentialTagCatalogMeta({work: {colorId: 'green'}}, ['Client A'], 'work', 'client-a', 'amber'),
+    ).toEqual({'client-a': {colorId: 'amber'}})
   })
 
   it('does not apply the per-entry tag limit to catalog normalization', () => {

@@ -18,15 +18,15 @@ export const pmIconPickerBaseStyles = css`
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    inline-size: var(--pm-icon-picker-trigger-inline-size, var(--pm-icon-picker-trigger-size, 56px));
-    block-size: var(--pm-icon-picker-trigger-block-size, var(--pm-icon-picker-trigger-size, 56px));
+    inline-size: var(--pm-icon-picker-trigger-size, 56px);
+    block-size: var(--pm-icon-picker-trigger-size, 56px);
     padding: 0;
     border: 1px solid var(--pm-icon-picker-trigger-border, var(--cv-color-border-strong));
     border-radius: var(--pm-icon-picker-trigger-radius, var(--cv-radius-3, 14px));
-    background: var(--pm-icon-picker-trigger-bg, var(--cv-gradient-surface));
+    background: var(--pm-icon-picker-trigger-background, var(--cv-gradient-surface));
     box-shadow:
       inset 0 1px 0 var(--cv-alpha-white-22),
-      var(--pm-icon-picker-trigger-shadow, 0 14px 30px var(--cv-alpha-black-20));
+      0 14px 30px var(--cv-alpha-black-20);
     cursor: pointer;
     transition:
       transform var(--cv-duration-fast),
@@ -36,8 +36,8 @@ export const pmIconPickerBaseStyles = css`
 
   .icon-trigger--with-label {
     justify-content: flex-start;
-    gap: var(--pm-icon-picker-trigger-label-gap, var(--cv-space-3));
-    padding-inline: var(--pm-icon-picker-trigger-label-padding-inline, var(--cv-space-3));
+    gap: var(--cv-space-3);
+    padding-inline: var(--cv-space-3);
   }
 
   .icon-trigger:hover {
@@ -51,8 +51,8 @@ export const pmIconPickerBaseStyles = css`
   }
 
   .icon-preview {
-    width: var(--pm-icon-picker-preview-size, var(--pm-avatar-picker-preview-size));
-    height: var(--pm-icon-picker-preview-size, var(--pm-avatar-picker-preview-size));
+    inline-size: var(--pm-avatar-picker-preview-size);
+    block-size: var(--pm-avatar-picker-preview-size);
     --pm-avatar-radius: var(--pm-avatar-picker-radius);
     --pm-avatar-image-fit: contain;
     --pm-avatar-image-padding: var(--pm-avatar-picker-preview-image-padding);
@@ -63,9 +63,9 @@ export const pmIconPickerBaseStyles = css`
   .icon-trigger-label {
     overflow: hidden;
     min-width: 0;
-    color: var(--pm-icon-picker-trigger-label-color, var(--cv-color-text));
-    font-size: var(--pm-icon-picker-trigger-label-font-size, var(--cv-font-size-sm));
-    font-weight: var(--pm-icon-picker-trigger-label-font-weight, var(--cv-font-weight-semibold));
+    color: var(--cv-color-text);
+    font-size: var(--cv-font-size-sm);
+    font-weight: var(--cv-font-weight-semibold);
     line-height: 1.25;
     text-overflow: ellipsis;
     white-space: nowrap;

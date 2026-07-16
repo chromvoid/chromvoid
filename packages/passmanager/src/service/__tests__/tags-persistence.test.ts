@@ -127,6 +127,37 @@ describe('credential tags persistence', () => {
     expect(reloadedRoot.credentialTags()).toEqual(['Work', 'Zero Use'])
   })
 
+  it('saves and reloads catalog tag color metadata through the v3 root payload', async () => {
+    const saver = createMockSaver()
+    const root = new ManagerRoot(saver)
+    root.setCredentialTagCatalog(['Work', 'Zero Use'], {
+      work: {colorId: 'pink'},
+      'zero-use': {colorId: 'cyan'},
+      stale: {colorId: 'amber'},
+    })
+    root.entries.set([new Entry(root, makeLoginEntry({tags: ['Work']}))])
+
+    await root.apiSave()
+    const payload = await readSavedRoot(saver)
+    expect(payload.tags).toEqual(['Work', 'Zero Use'])
+    expect(payload.tagMeta).toEqual({
+      work: {colorId: 'pink'},
+      'zero-use': {colorId: 'cyan'},
+    })
+
+    const reloadedSaver = createMockSaver({
+      read: vi.fn(async () => JSON.stringify(payload)) as unknown as ManagerSaver['read'],
+    })
+    const reloadedRoot = new ManagerRoot(reloadedSaver)
+    await reloadedRoot.load()
+
+    expect(reloadedRoot.credentialTags()).toEqual(['Work', 'Zero Use'])
+    expect(reloadedRoot.credentialTagMeta()).toEqual({
+      work: {colorId: 'pink'},
+      'zero-use': {colorId: 'cyan'},
+    })
+  })
+
   it('derives catalog tags from entry assignments when root catalog is missing', async () => {
     const payload = {
       version: 3,
@@ -144,6 +175,7 @@ describe('credential tags persistence', () => {
     await root.load()
 
     expect(root.credentialTags()).toEqual(['Work'])
+    expect(root.credentialTagMeta()).toEqual({})
   })
 
   it('saves and reloads payment-card tags through the v3 root payload', async () => {

@@ -14,6 +14,10 @@ export type RuntimeCapabilities = {
   supports_biometric: boolean
   supports_autofill: boolean
   supports_media_stream_protocol: boolean
+  supports_media_http_stream: boolean
+  supports_mse_video_playback: boolean
+  supports_desktop_native_video_playback: boolean
+  supports_mobile_native_video_playback: boolean
   supports_native_audio_playback: boolean
   supports_native_video_playback: boolean
   supports_native_file_upload: boolean
@@ -42,6 +46,10 @@ export const RUNTIME_CAPABILITY_KEYS = [
   'supports_biometric',
   'supports_autofill',
   'supports_media_stream_protocol',
+  'supports_media_http_stream',
+  'supports_mse_video_playback',
+  'supports_desktop_native_video_playback',
+  'supports_mobile_native_video_playback',
   'supports_native_audio_playback',
   'supports_native_video_playback',
   'supports_native_file_upload',
@@ -75,6 +83,10 @@ const FALLBACK_CAPABILITIES: RuntimeCapabilities = {
   supports_biometric: false,
   supports_autofill: false,
   supports_media_stream_protocol: false,
+  supports_media_http_stream: false,
+  supports_mse_video_playback: false,
+  supports_desktop_native_video_playback: false,
+  supports_mobile_native_video_playback: false,
   supports_native_audio_playback: false,
   supports_native_video_playback: false,
   supports_native_file_upload: false,

@@ -1,4 +1,5 @@
 import type {MediaStreamErrorEvent} from 'root/core/transport/transport'
+import {runtimeModeModel} from 'root/core/runtime/runtime-mode.model'
 import {
   isMediaBlobFallbackLimitError,
   loadAudioSourceById,
@@ -82,6 +83,11 @@ export class WebAudioElementPlaybackDriver implements AudioPlaybackDriver, Media
     if (!event.streamId || event.streamId !== this.host.sourceStreamId()) return
 
     if (event.code === 'ERR_MEDIA_RANGE_REQUIRED') {
+      if (runtimeModeModel.remoteCoreMode()) {
+        void this.failCurrentSource()
+        return
+      }
+
       this.host.markNativeStreamingUnsupportedForRuntime()
       void this.reloadCurrentTrackAfterNativeFallback()
       return
@@ -92,6 +98,11 @@ export class WebAudioElementPlaybackDriver implements AudioPlaybackDriver, Media
 
   handleNativeStreamLoadabilityFailure(streamId: string): void {
     if (!streamId || streamId !== this.host.sourceStreamId()) return
+
+    if (runtimeModeModel.remoteCoreMode()) {
+      void this.failCurrentSource()
+      return
+    }
 
     this.host.markNativeStreamingUnsupportedForRuntime()
     void this.reloadCurrentTrackAfterNativeFallback()

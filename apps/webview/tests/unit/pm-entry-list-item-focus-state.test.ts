@@ -69,6 +69,19 @@ function createPaymentCardEntry(
   } as any)
 }
 
+function seedRootSshKeys(root: ManagerRoot, entries: Entry[]) {
+  root.sshKeys.set(
+    entries.flatMap((entry) =>
+      entry.entryType === 'payment_card'
+        ? []
+        : entry.data().sshKeys.map((key) => ({
+            ...key,
+            sourceEntryId: entry.id,
+          })),
+    ),
+  )
+}
+
 function setAuditEntries(
   entries: Array<[Entry, Partial<Omit<CredentialAuditEntrySummary, 'entryId'>>]>,
 ): void {
@@ -123,6 +136,7 @@ describe('PMEntryListItem active row tab order', () => {
     const root = new ManagerRoot({} as any)
     group.entries.set([entry])
     root.entries.set([group])
+    seedRootSshKeys(root, [entry])
     root.showElement.set(group)
     window.passmanager = root as typeof window.passmanager
 
@@ -148,6 +162,7 @@ describe('PMEntryListItem active row tab order', () => {
     const root = new ManagerRoot({} as any)
     group.entries.set([entry])
     root.entries.set([group])
+    seedRootSshKeys(root, [entry])
     root.showElement.set(group)
     window.passmanager = root as typeof window.passmanager
 
@@ -164,6 +179,8 @@ describe('PMEntryListItem active row tab order', () => {
 
     expect(row?.getAttribute('tabindex')).toBe('0')
     expect(primaryAction?.getAttribute('button-tabindex')).toBe('0')
+    expect(element.shadowRoot?.querySelector('.item-title > bdi[dir="auto"]')?.textContent).toBe(entry.title)
+    expect(element.shadowRoot?.querySelector('.item-subtitle')?.getAttribute('dir')).toBe('ltr')
 
     row?.focus()
     await flush(element)
@@ -184,6 +201,7 @@ describe('PMEntryListItem active row tab order', () => {
     const root = new ManagerRoot({} as any)
     group.entries.set([entry])
     root.entries.set([group])
+    seedRootSshKeys(root, [entry])
     root.showElement.set(group)
     window.passmanager = root as typeof window.passmanager
 
@@ -214,6 +232,7 @@ describe('PMEntryListItem active row tab order', () => {
     const root = new ManagerRoot({} as any)
     group.entries.set([entry])
     root.entries.set([group])
+    seedRootSshKeys(root, [entry])
     root.showElement.set(group)
     window.passmanager = root as typeof window.passmanager
 
@@ -259,7 +278,9 @@ describe('PMEntryListItem active row tab order', () => {
     expect(loginElement.shadowRoot?.querySelector('.entry-badge[data-badge-id="card"]')).toBeNull()
 
     expect(cardRow?.getAttribute('data-entry-type')).toBe('payment_card')
-    expect(cardElement.shadowRoot?.querySelector('.entry-type-glyph cv-icon[name="credit-card"]')).not.toBeNull()
+    expect(
+      cardElement.shadowRoot?.querySelector('.entry-type-glyph cv-icon[name="credit-card"]'),
+    ).not.toBeNull()
     expect(cardBadge?.textContent).toContain('Card')
     expect(cardElement.shadowRoot?.textContent).toContain('•••• 4242')
   })
@@ -288,18 +309,25 @@ describe('PMEntryListItem active row tab order', () => {
     expect(element.shadowRoot?.querySelector('.workbench-name-cell')?.textContent).toContain(
       'Entry entry-item-workbench',
     )
-    expect(element.shadowRoot?.querySelector('.workbench-name-cell')?.textContent).toContain('alice@example.test')
+    expect(element.shadowRoot?.querySelector('.workbench-name-cell')?.textContent).toContain(
+      'alice@example.test',
+    )
     expect(statusCell?.textContent).toContain('Login')
     expect(modifiedCell?.textContent).toContain(entry.updatedFormatted)
     expect(actionsCell?.querySelector('.primary-action')).not.toBeNull()
   })
 
-  it('renders a plus suffix on the tag badge when an entry has more tags', async () => {
-    const group = createGroup('entry-item-tag-suffix-group')
-    const entry = createEntry(group, 'entry-item-tag-suffix', {
-      tags: ['Operations', 'QA'],
+  it('renders desktop tag candidates with separate responsive overflow counts', async () => {
+    const group = createGroup('entry-item-tag-overflow-group')
+    const entry = createEntry(group, 'entry-item-tag-overflow', {
+      tags: ['Operations', 'QA', 'Engineering', 'Security', 'Backup'],
     })
     const root = new ManagerRoot({} as any)
+    root.setCredentialTagCatalog(['Operations', 'QA', 'Engineering', 'Security', 'Backup'], {
+      operations: {colorId: 'green'},
+      qa: {colorId: 'blue'},
+      engineering: {colorId: 'pink'},
+    })
     group.entries.set([entry])
     root.entries.set([group])
     root.showElement.set(group)
@@ -310,10 +338,28 @@ describe('PMEntryListItem active row tab order', () => {
     document.body.appendChild(element)
     await flush(element)
 
-    const tagBadge = element.shadowRoot?.querySelector('.entry-badge[data-badge-id="tag:qa"]')
+    const tagBadges = [...(element.shadowRoot?.querySelectorAll('.entry-tag-badge') ?? [])]
+    const narrowOverflow = element.shadowRoot?.querySelector('.entry-tag-overflow[data-tag-limit="2"]')
+    const wideOverflow = element.shadowRoot?.querySelector('.entry-tag-overflow[data-tag-limit="3"]')
 
-    expect(tagBadge?.querySelector('.entry-badge-label')?.textContent).toBe('QA')
-    expect(tagBadge?.querySelector('.entry-badge-suffix')?.textContent).toBe('+')
+    expect(tagBadges.map((badge) => badge.querySelector('.entry-badge-label')?.textContent)).toEqual([
+      'Operations',
+      'QA',
+      'Engineering',
+    ])
+    expect(tagBadges.map((badge) => badge.getAttribute('data-tag-position'))).toEqual(['1', '2', '3'])
+    expect(tagBadges.map((badge) => badge.getAttribute('data-tag-color-id'))).toEqual([
+      'green',
+      'blue',
+      'pink',
+    ])
+    expect(narrowOverflow?.textContent?.trim()).toBe('+3')
+    expect(narrowOverflow?.getAttribute('aria-label')).toBe('3 more tags')
+    expect(narrowOverflow?.getAttribute('role')).toBe('img')
+    expect(wideOverflow?.textContent?.trim()).toBe('+2')
+    expect(wideOverflow?.getAttribute('aria-label')).toBe('2 more tags')
+    expect(wideOverflow?.getAttribute('role')).toBe('img')
+    expect(element.shadowRoot?.querySelector('.entry-badge-suffix')).toBeNull()
   })
 })
 
@@ -368,8 +414,10 @@ describe('PMEntryListItemModel presentation', () => {
     expect(cardPresentation.visibleBadges.map((badge) => badge.id)).toContain('card')
     expect(mobileCardPresentation.typeMarker?.id).toBe('card')
     expect(mobileCardPresentation.statusBadges.map((badge) => badge.id)).not.toContain('card')
-    expect(mobileCardPresentation.visibleTextBadges.map((badge) => badge.id)).toEqual(['tag:finance'])
-    expect(mobileCardPresentation.textOverflowCount).toBe(0)
+    expect(mobileCardPresentation.tagSnippet.mobile.badges.map((badge) => badge.id)).toEqual([
+      'tag:finance',
+    ])
+    expect(mobileCardPresentation.tagSnippet.mobile.overflowCount).toBe(0)
   })
 
   it('produces metadata-backed badges with priority and overflow', () => {
@@ -387,13 +435,11 @@ describe('PMEntryListItemModel presentation', () => {
       tags: ['Finance'],
     })
     const noBadgeLogin = createEntry(group, 'entry-item-no-badges')
+    const root = new ManagerRoot({} as any)
+    seedRootSshKeys(root, [login, card, noBadgeLogin])
 
-    expect(model.getEntryBadges(login).map((badge) => badge.id)).toEqual([
-      'two_factor',
-      'ssh',
-      'tag:work',
-    ])
-    expect(model.getEntryBadges(card).map((badge) => badge.id)).toEqual(['card', 'tag:finance'])
+    expect(model.getEntryBadges(login).map((badge) => badge.id)).toEqual(['two_factor', 'ssh'])
+    expect(model.getEntryBadges(card).map((badge) => badge.id)).toEqual(['card'])
     expect(model.getEntryBadges(noBadgeLogin)).toEqual([])
 
     const syntheticBadges: PMEntryListBadge[] = [
@@ -408,22 +454,82 @@ describe('PMEntryListItemModel presentation', () => {
     })
 
     expect(model.getVisibleBadges(model.getEntryBadges(login))).toMatchObject({
-      overflowCount: 1,
+      overflowCount: 0,
     })
   })
 
-  it('uses the shortest tag as the single entry snippet tag badge', () => {
+  it('preserves tag order and calculates platform overflow counts', () => {
     const model = new PMEntryListItemModel()
-    const group = createGroup('entry-item-shortest-tag-model-group')
-    const login = createEntry(group, 'entry-item-shortest-tag', {
-      tags: ['Operations', 'QA', 'Engineering'],
+    const group = createGroup('entry-item-tag-snippet-model-group')
+    const cases = [
+      {tags: [], mobileOverflow: 0, narrowOverflow: 0, wideOverflow: 0},
+      {tags: ['Operations'], mobileOverflow: 0, narrowOverflow: 0, wideOverflow: 0},
+      {tags: ['Operations', 'QA'], mobileOverflow: 1, narrowOverflow: 0, wideOverflow: 0},
+      {
+        tags: ['Operations', 'QA', 'Engineering'],
+        mobileOverflow: 2,
+        narrowOverflow: 1,
+        wideOverflow: 0,
+      },
+      {
+        tags: ['Operations', 'QA', 'Engineering', 'Security', 'Backup'],
+        mobileOverflow: 4,
+        narrowOverflow: 3,
+        wideOverflow: 2,
+      },
+    ]
+
+    for (const [index, testCase] of cases.entries()) {
+      const entry = createEntry(group, `entry-item-tag-snippet-${index}`, {tags: testCase.tags})
+      const tagSnippet = model.getPresentation(entry).tagSnippet
+
+      expect(tagSnippet.mobile.badges.map((badge) => badge.label)).toEqual(testCase.tags.slice(0, 1))
+      expect(tagSnippet.desktop.badges.map((badge) => badge.label)).toEqual(testCase.tags.slice(0, 3))
+      expect(tagSnippet.mobile.overflowCount).toBe(testCase.mobileOverflow)
+      expect(tagSnippet.desktop.narrowOverflowCount).toBe(testCase.narrowOverflow)
+      expect(tagSnippet.desktop.wideOverflowCount).toBe(testCase.wideOverflow)
+    }
+  })
+
+  it('resolves mobile tag badge colors from catalog metadata', () => {
+    const originalPassmanager = window.passmanager
+    const model = new PMEntryListItemModel()
+    const group = createGroup('entry-item-tag-color-model-group')
+    const login = createEntry(group, 'entry-item-tag-colors', {
+      tags: ['Work', 'Banking'],
     })
+    const root = new ManagerRoot({} as any)
+    root.setCredentialTagCatalog(['Work', 'Banking'], {
+      work: {colorId: 'green'},
+      banking: {colorId: 'pink'},
+    })
+    group.entries.set([login])
+    root.entries.set([group])
 
-    const tagBadges = model.getEntryBadges(login).filter((badge) => badge.family === 'meta')
+    try {
+      window.passmanager = root as typeof window.passmanager
 
-    expect(tagBadges.map((badge) => badge.id)).toEqual(['tag:qa'])
-    expect(tagBadges.map((badge) => badge.label)).toEqual(['QA'])
-    expect(tagBadges.map((badge) => badge.hasMore)).toEqual([true])
+      const initialTagSnippet = model.getPresentation(login).tagSnippet
+      expect(initialTagSnippet.mobile.badges.map((badge) => badge.tagColorId)).toEqual(['green'])
+      expect(initialTagSnippet.desktop.badges.map((badge) => badge.tagColorId)).toEqual([
+        'green',
+        'pink',
+      ])
+
+      root.setCredentialTagCatalog(['Work', 'Banking'], {
+        work: {colorId: 'orange'},
+        banking: {colorId: 'cyan'},
+      })
+
+      const updatedTagSnippet = model.getPresentation(login).tagSnippet
+      expect(updatedTagSnippet.mobile.badges.map((badge) => badge.tagColorId)).toEqual(['orange'])
+      expect(updatedTagSnippet.desktop.badges.map((badge) => badge.tagColorId)).toEqual([
+        'orange',
+        'cyan',
+      ])
+    } finally {
+      window.passmanager = originalPassmanager
+    }
   })
 
   it('adds weak and reused password risk badges from safe audit state', () => {
@@ -434,6 +540,8 @@ describe('PMEntryListItemModel presentation', () => {
       sshKeys: [{id: 'ssh-1', type: 'ed25519', fingerprint: 'SHA256:test'}],
     })
     const noBadgeLogin = createEntry(group, 'entry-item-no-risk-badges')
+    const root = new ManagerRoot({} as any)
+    seedRootSshKeys(root, [login, noBadgeLogin])
     setAuditEntries([[login, {weakPassword: true, reusedPassword: true, strengthScore: 1}]])
 
     expect(model.getEntryBadges(login).map((badge) => badge.id)).toEqual([

@@ -448,9 +448,7 @@ class MediaPlaybackModel implements MediaStreamOwner {
       this.syncNativeAudioPreparingStatus(preparing),
     )
     this.syncPlaybackUiClock(this.playbackTimelineActive())
-    subscribeToSignalChanges(this.playbackTimelineActive, (active) =>
-      this.syncPlaybackUiClock(active),
-    )
+    subscribeToSignalChanges(this.playbackTimelineActive, (active) => this.syncPlaybackUiClock(active))
   }
 
   private getNowMs(): number {
@@ -874,10 +872,12 @@ class MediaPlaybackModel implements MediaStreamOwner {
 
     const nextIndex = clampTrackIndex(tracks, index)
     if (this.playbackIssue() && nextIndex !== this.currentIndex()) {
-      await wrap(this.startAudioSession(tracks, nextIndex, {
-        autoplay: this.playbackIntent() === 'play',
-        showFullPlayer: this.fullPlayerOpen(),
-      }))
+      await wrap(
+        this.startAudioSession(tracks, nextIndex, {
+          autoplay: this.playbackIntent() === 'play',
+          showFullPlayer: this.fullPlayerOpen(),
+        }),
+      )
       return
     }
 
@@ -910,10 +910,12 @@ class MediaPlaybackModel implements MediaStreamOwner {
           error: error instanceof Error ? error.name : typeof error,
           commandTimedOut: isAndroidMedia3CommandTimeoutError(error),
         })
-        await wrap(this.startAudioSession(tracks, nextIndex, {
-          autoplay: this.playbackIntent() === 'play',
-          showFullPlayer: this.fullPlayerOpen(),
-        }))
+        await wrap(
+          this.startAudioSession(tracks, nextIndex, {
+            autoplay: this.playbackIntent() === 'play',
+            showFullPlayer: this.fullPlayerOpen(),
+          }),
+        )
         return
       }
 
@@ -1211,11 +1213,14 @@ class MediaPlaybackModel implements MediaStreamOwner {
 
     if (this.nativeAudioPreparingStatusVisibleAtom() || this.nativeAudioPreparingStatusTimer) return
 
-    this.nativeAudioPreparingStatusTimer = setTimeout(() => {
-      this.nativeAudioPreparingStatusTimer = null
-      if (!this.nativeAudioPreparing()) return
-      this.nativeAudioPreparingStatusVisibleAtom.set(true)
-    }, ANDROID_NATIVE_AUDIO_PREPARING_STATUS_DELAY_MS)
+    this.nativeAudioPreparingStatusTimer = setTimeout(
+      wrap(() => {
+        this.nativeAudioPreparingStatusTimer = null
+        if (!this.nativeAudioPreparing()) return
+        this.nativeAudioPreparingStatusVisibleAtom.set(true)
+      }),
+      ANDROID_NATIVE_AUDIO_PREPARING_STATUS_DELAY_MS,
+    )
   }
 
   private clearNativeAudioPreparingStatusTimer(): void {
@@ -1290,7 +1295,8 @@ class MediaPlaybackModel implements MediaStreamOwner {
     if (
       (driverKind !== 'android-media3' && driverKind !== 'ios-avplayer') ||
       this.nativeSessionId() !== nativeSessionId
-    ) return
+    )
+      return
     const generation = this.audioSessionGeneration
 
     const tracks = this.tracks()

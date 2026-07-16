@@ -4,9 +4,13 @@ import {css} from 'lit'
 import {runtimeCapabilitiesAtom} from 'root/core/runtime/runtime-capabilities'
 import {ANDROID_MEDIA_SESSION_CONTROL_EVENT} from 'root/features/media/models/android-media-session-events'
 import {mediaPlaybackModel} from 'root/features/media/models/media-playback.model'
-import {MEDIA_STREAM_LOADABILITY_TIMEOUT_MS} from 'root/features/media/models/media-stream-loadability'
+import {
+  getMediaStreamLoadabilityTimeoutMs,
+  MEDIA_STREAM_LOADABILITY_TIMEOUT_MS,
+  REMOTE_MEDIA_STREAM_LOADABILITY_TIMEOUT_MS,
+} from 'root/features/media/models/media-stream-loadability'
 
-export {MEDIA_STREAM_LOADABILITY_TIMEOUT_MS}
+export {MEDIA_STREAM_LOADABILITY_TIMEOUT_MS, REMOTE_MEDIA_STREAM_LOADABILITY_TIMEOUT_MS}
 
 export class MediaPlaybackHost extends ReatomLitElement {
   static elementName = 'media-playback-host'
@@ -119,6 +123,9 @@ export class MediaPlaybackHost extends ReatomLitElement {
     this.syncSeekRequest(audio)
 
     if (intent === 'play') {
+      // Only issue play() when the element is actually paused; re-issuing it on
+      // every Lit update while playback is running is redundant churn.
+      if (!audio.paused) return
       this.trace('audioPlayRequested', {
         audioPaused: audio.paused,
         readyState: audio.readyState,
@@ -192,7 +199,7 @@ export class MediaPlaybackHost extends ReatomLitElement {
       if (activeStreamId) {
         mediaPlaybackModel.handleNativeStreamLoadabilityFailure(activeStreamId)
       }
-    }, MEDIA_STREAM_LOADABILITY_TIMEOUT_MS)
+    }, getMediaStreamLoadabilityTimeoutMs())
   }
 
   private clearLoadabilityWatchdog(): void {
@@ -261,6 +268,9 @@ export class MediaPlaybackHost extends ReatomLitElement {
       audioPaused: this.getAudioElement()?.paused ?? null,
       readyState: this.getAudioElement()?.readyState ?? null,
     })
+    // The error handler already routes to the loadability fallback; clear the
+    // watchdog so it cannot fire a second, duplicate fallback afterwards.
+    this.clearLoadabilityWatchdog()
     mediaPlaybackModel.handleMediaError()
   }
 

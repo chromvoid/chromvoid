@@ -11,7 +11,6 @@ export interface PMEntryMobileUIAdapter {
   handleCancelEntryEdit(): void
   handleSaveEntryEdit(): void
   handleAddMissingOtpInEntryView(): void
-  handleAddMissingSshInEntryView(): void
   handleHeaderAvatarAction(): void
   handleInlineIconChange(event: CustomEvent<{iconRef: string | undefined}>): void
   handleInlineEditInput(event: Event): void
@@ -36,15 +35,11 @@ export interface PMEntryMobileUIAdapter {
   handlePaymentCardInput(event: Event): void
   handleSavePaymentCard(): void
   handleToggleCardCvv(): void
-  handleTagSelect(event: Event): void
-  handleManageTags(event: Event): void
-  handleSaveTags(): void
+  handleStartTagEdit(): void
   handleOtpSave(): void
   handleOtpRemove(event: CustomEvent<{otpId: string}>): void
   handleOtpLabelInput(event: Event): void
   handleSectionSnippetKeyDown(event: KeyboardEvent): void
-  handleGenerateSshKeyRequest(event?: Event): void
-  handleSshKeyRemove(event: CustomEvent<{keyId: string}>): Promise<void>
 }
 
 export interface PMEntryMobileRenderContext {

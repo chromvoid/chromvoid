@@ -4,25 +4,30 @@ import {repeat} from 'lit/directives/repeat.js'
 import {i18n} from 'root/i18n'
 import {
   isFileListPlaceholderItem,
-  type FileListItem,
+  isRealFileListItem,
   type FileListRenderItem,
   type FileListVisibleItem,
+  type SortOption,
 } from 'root/shared/contracts/file-manager'
 
+import {getFileIcon, getFileTableTypeLabel, getFileTypeClass, isDotfile} from '../file-item/utils'
 import {formatDate, formatFileSize} from './virtual-file-list.model-helpers'
 
 export interface VirtualFileListTableSortHandlers {
   onSortName: () => void
+  onSortType: () => void
   onSortSize: () => void
   onSortDate: () => void
 }
 
 export interface VirtualFileListTableRowHandlers {
-  onRowClick: (e: Event) => void
-  onRowDblClick: (e: Event) => void
-  onRowContextMenu: (e: Event) => void
-  onCheckboxClick: (e: Event) => void
-  onMoreButtonClick: (e: Event) => void
+  onSelectAll: (event: Event) => void
+  onRowClick: (event: Event) => void
+  onRowDblClick: (event: Event) => void
+  onRowContextMenu: (event: Event) => void
+  onCheckboxClick: (event: Event) => void
+  onInfoButtonClick: (event: Event) => void
+  onMoreButtonClick: (event: Event) => void
   onDeleteExitAnimationEnd: (event: AnimationEvent, id: number) => void
 }
 
@@ -33,21 +38,25 @@ export interface VirtualFileListTableProps {
   itemHeight: number
   virtualScrollTop: number
   viewportHeight: number
-  sortBy: 'name' | 'size' | 'date'
+  sortBy: SortOption
   sortDirection: 'asc' | 'desc'
   selectedItems: number[]
   pendingExternalOpenIds: number[]
   selectionMode: boolean
+  activeItemId: number | null
   onSortName: VirtualFileListTableSortHandlers['onSortName']
+  onSortType: VirtualFileListTableSortHandlers['onSortType']
   onSortSize: VirtualFileListTableSortHandlers['onSortSize']
   onSortDate: VirtualFileListTableSortHandlers['onSortDate']
+  onSelectAll: VirtualFileListTableRowHandlers['onSelectAll']
   onRowClick: VirtualFileListTableRowHandlers['onRowClick']
   onRowDblClick: VirtualFileListTableRowHandlers['onRowDblClick']
   onRowContextMenu: VirtualFileListTableRowHandlers['onRowContextMenu']
   onCheckboxClick: VirtualFileListTableRowHandlers['onCheckboxClick']
+  onInfoButtonClick: VirtualFileListTableRowHandlers['onInfoButtonClick']
   onMoreButtonClick: VirtualFileListTableRowHandlers['onMoreButtonClick']
   onDeleteExitAnimationEnd: VirtualFileListTableRowHandlers['onDeleteExitAnimationEnd']
-  getAriaSort: (column: 'name' | 'size' | 'date') => 'none' | 'ascending' | 'descending'
+  getAriaSort: (column: SortOption) => 'none' | 'ascending' | 'descending'
 }
 
 const renderTablePlaceholderRow = (item: FileListVisibleItem): ReturnType<typeof html> => html`
@@ -67,22 +76,29 @@ const renderTablePlaceholderRow = (item: FileListVisibleItem): ReturnType<typeof
     </div>
     <div role="gridcell"><span class="skeleton-cell"></span></div>
     <div role="gridcell"><span class="skeleton-cell"></span></div>
+    <div role="gridcell"><span class="skeleton-cell"></span></div>
     <div role="gridcell"></div>
   </div>
 `
 
-const renderTableRow = (item: FileListVisibleItem, params: VirtualFileListTableProps): ReturnType<typeof html> => {
+const renderTableRow = (
+  item: FileListVisibleItem,
+  params: VirtualFileListTableProps,
+): ReturnType<typeof html> => {
   if (isFileListPlaceholderItem(item)) {
     return renderTablePlaceholderRow(item)
   }
 
   const selected = params.selectedItems.includes(item.id)
+  const active = params.activeItemId === item.id
   const pendingExternalOpen = params.pendingExternalOpenIds.includes(item.id)
   const deleteExiting = item.deleteExiting === true
+  const typeLabel = getFileTableTypeLabel(item)
 
   return html`
     <div
-      class="file-item-wrapper ${selected ? 'selected' : ''}"
+      id=${`file-option-${item.id}`}
+      class="file-item-wrapper${selected ? ' selected' : ''}${active ? ' active' : ''}"
       data-id=${item.id}
       ?data-delete-exiting=${deleteExiting}
       role="row"
@@ -97,31 +113,61 @@ const renderTableRow = (item: FileListVisibleItem, params: VirtualFileListTableP
         ? (event: AnimationEvent) => params.onDeleteExitAnimationEnd(event, item.id)
         : undefined}
     >
-      <div role="gridcell">
-        ${params.selectionMode
+      <div class="table-selection-cell" role="gridcell">
+        <cv-checkbox
+          class="selection-checkbox"
+          ?checked=${selected}
+          aria-label=${i18n('file-manager:select-item', {name: item.name})}
+          tabindex="-1"
+          data-id=${item.id}
+          @click=${params.onCheckboxClick}
+        ></cv-checkbox>
+      </div>
+      <div role="gridcell" class="table-primary-cell">
+        <cv-icon
+          class=${`table-file-icon ${item.isDir ? 'folder' : getFileTypeClass(item)}`}
+          name=${getFileIcon(item)}
+        ></cv-icon>
+        <span class="table-file-name" title=${item.name}><bdi dir="auto">${item.name}</bdi></span>
+        ${isDotfile(item)
           ? html`
-              <cv-checkbox
-                class="selection-checkbox"
-                ?checked=${selected}
-                aria-label=${i18n('file-manager:select-item', {name: item.name})}
-                tabindex="-1"
-                data-id=${item.id}
-                @click=${params.onCheckboxClick}
-              ></cv-checkbox>
+              <span class="hidden-badge" title=${i18n('file-manager:hidden-files')}>
+                ${i18n('file-manager:hidden-files')}
+              </span>
+            `
+          : nothing}
+        ${pendingExternalOpen
+          ? html`
+              <span class="table-open-status" role="status">
+                <cv-spinner size="xs" aria-hidden="true"></cv-spinner>
+                <span>${i18n('file-manager:preparing-file')}</span>
+              </span>
             `
           : nothing}
       </div>
-      <div role="gridcell" class="table-primary-cell">
-        <cv-icon name=${item.isDir ? 'folder-fill' : 'file-earmark-text'}></cv-icon>
-        <span>${item.name}</span>
+      <div role="gridcell" class="table-type-cell" title=${typeLabel}>
+        <bdi dir=${item.isDir ? 'auto' : 'ltr'}>${typeLabel}</bdi>
       </div>
-      <div role="gridcell">${item.isDir ? '—' : formatFileSize(item.size || 0)}</div>
-      <div role="gridcell">${formatDate(item.lastModified)}</div>
-      <div role="gridcell">
+      <div role="gridcell" class="table-size-cell">
+        <bdi dir="ltr">${item.isDir ? '—' : formatFileSize(item.size || 0)}</bdi>
+      </div>
+      <div role="gridcell" class="table-date-cell"><bdi dir="ltr">${formatDate(item.lastModified)}</bdi></div>
+      <div role="gridcell" class="table-actions">
         <cv-button
-          size="small"
-          variant="ghost"
-          tabindex="-1"
+          unstyled
+          class="table-action-button table-info-button"
+          title=${i18n('file-manager:info')}
+          button-tabindex="-1"
+          @click=${params.onInfoButtonClick}
+          data-id=${item.id}
+        >
+          <cv-icon name="info-circle"></cv-icon>
+        </cv-button>
+        <cv-button
+          unstyled
+          class="table-action-button"
+          title=${i18n('file-manager:more')}
+          button-tabindex="-1"
           @click=${params.onMoreButtonClick}
           data-id=${item.id}
         >
@@ -132,11 +178,39 @@ const renderTableRow = (item: FileListVisibleItem, params: VirtualFileListTableP
   `
 }
 
+const renderSortHeader = (
+  params: VirtualFileListTableProps,
+  column: SortOption,
+  label: string,
+  onSort: () => void,
+) => html`
+  <div
+    class="header-cell sortable${params.sortBy === column ? ' active' : ''}"
+    role="columnheader"
+    aria-sort=${params.getAriaSort(column)}
+  >
+    <button class="table-sort-button" type="button" @click=${onSort}>
+      <span>${label}</span>
+      ${params.sortBy === column
+        ? html`<cv-icon name=${params.sortDirection === 'asc' ? 'chevron-up' : 'chevron-down'}></cv-icon>`
+        : nothing}
+    </button>
+  </div>
+`
+
 export const renderTableView = (params: VirtualFileListTableProps) => {
   const totalHeight = params.totalItemsCount * params.itemHeight
   const scrollTop = Math.max(0, params.virtualScrollTop)
   const startIndex = Math.floor(scrollTop / params.itemHeight)
   const offsetY = startIndex * params.itemHeight
+  const selectableItems = params.filteredItems.filter(isRealFileListItem)
+  const selected = new Set(params.selectedItems)
+  const selectedVisibleCount = selectableItems.reduce(
+    (count, item) => count + (selected.has(item.id) ? 1 : 0),
+    0,
+  )
+  const allSelected = selectableItems.length > 0 && selectedVisibleCount === selectableItems.length
+  const partiallySelected = selectedVisibleCount > 0 && !allSelected
   const rows = repeat(
     params.items,
     (item) => (isFileListPlaceholderItem(item) ? item.placeholderKey : item.id),
@@ -144,41 +218,27 @@ export const renderTableView = (params: VirtualFileListTableProps) => {
   )
 
   return html`
-    <div class="table-view" role="presentation">
+    <div class="table-view" role="presentation" data-selection-mode=${String(params.selectionMode)}>
       <div class="table-header" role="row">
-        <div class="header-cell" role="columnheader" aria-label=${i18n('file-manager:select')}></div>
-        <div
-          class="header-cell sortable ${params.sortBy === 'name' ? 'active' : ''}"
-          role="columnheader"
-          aria-sort=${params.getAriaSort('name')}
-          @click=${params.onSortName}
-        >
-          ${i18n('file-manager:name')}
-          ${params.sortBy === 'name'
-            ? html`
-                <cv-icon
-                  name=${params.sortDirection === 'asc' ? 'sort-alpha-down' : 'sort-alpha-up'}
-                ></cv-icon>
-              `
-            : ''}
+        <div class="header-cell table-selection-cell" role="columnheader">
+          <cv-checkbox
+            class="table-select-all"
+            ?checked=${allSelected}
+            .indeterminate=${partiallySelected}
+            aria-label=${i18n('file-manager:select')}
+            title=${i18n('file-manager:select')}
+            @click=${params.onSelectAll}
+          ></cv-checkbox>
         </div>
+        ${renderSortHeader(params, 'name', i18n('file-manager:name'), params.onSortName)}
+        ${renderSortHeader(params, 'type', i18n('file-manager:type'), params.onSortType)}
+        ${renderSortHeader(params, 'size', i18n('file-manager:size'), params.onSortSize)}
+        ${renderSortHeader(params, 'date', i18n('file-manager:modified'), params.onSortDate)}
         <div
-          class="header-cell sortable ${params.sortBy === 'size' ? 'active' : ''}"
+          class="header-cell table-actions-header"
           role="columnheader"
-          aria-sort=${params.getAriaSort('size')}
-          @click=${params.onSortSize}
-        >
-          ${i18n('file-manager:size')}
-        </div>
-        <div
-          class="header-cell sortable ${params.sortBy === 'date' ? 'active' : ''}"
-          role="columnheader"
-          aria-sort=${params.getAriaSort('date')}
-          @click=${params.onSortDate}
-        >
-          ${i18n('file-manager:modified')}
-        </div>
-        <div class="header-cell" role="columnheader">${i18n('file-manager:actions-header')}</div>
+          aria-label=${i18n('file-manager:actions-header')}
+        ></div>
       </div>
       <div class="virtual-spacer" data-total-height=${String(totalHeight)}>
         <div class="virtual-window" data-offset-y=${String(offsetY)}>${rows}</div>

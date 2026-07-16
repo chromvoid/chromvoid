@@ -3,7 +3,7 @@ import {css} from 'lit'
 export const pmEntryCardStyles = css`
   :host {
     container-type: inline-size;
-    --entry-avatar-bg: var(--cv-color-primary-dark);
+    --pm-entry-avatar-background: var(--cv-color-primary-dark);
   }
 
   cv-input{

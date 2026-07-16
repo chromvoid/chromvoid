@@ -13,7 +13,6 @@ import {
 import {normalizePath} from 'root/core/catalog/local-catalog/path'
 import type {AppContext} from 'root/shared/services/app-context'
 import {CatalogUIService} from 'root/shared/services/catalog-ui'
-import {writeAndroidUnlockDebug} from 'root/shared/services/android-unlock-debug'
 import {
   subscribeAfterInitial,
   subscribeCallbackAfterInitial,
@@ -28,10 +27,17 @@ import {
 } from 'root/shared/contracts/file-manager'
 
 import type {FileMediaInspectionFlow} from '../media-inspection-flow.model'
+import {logFileManagerDebug} from '../file-manager-debug'
+import {
+  fileThumbnailStore,
+  getFileThumbnailKey,
+  isFileThumbnailCandidate,
+} from './file-thumbnail-cache.model'
 
 const SYSTEM_SHARD_ROOTS = [PASS_DIR, '.wallet'].map((root) =>
   root.startsWith('/') ? root : '/' + root,
 )
+const INITIAL_FILE_THUMBNAIL_WINDOW = 40
 
 type EntryMetaCandidate = {
   entryId: number
@@ -78,13 +84,29 @@ export class FileListModel {
     return this.renderItems().filter(isRealFileListItem).length
   })
 
+  readonly visibleCount = computed<number>(() => {
+    const renderedCount = this.renderItems().filter(isRealFileListItem).length
+    return Math.max(this.filteredCount(), renderedCount)
+  })
+
+  readonly folderTotalCount = computed<number>(() => {
+    void this.catalogRevision()
+    const path = normalizePath(this.currentPath())
+    const defaultState = this.getFolderStateForPath(path, 'default')
+    return Math.max(defaultState?.totalCount ?? 0, this.fileItems().length)
+  })
+
+  readonly displayTotalCount = computed<number>(() =>
+    Math.max(this.folderTotalCount(), this.visibleCount()),
+  )
+
   readonly selectedCount = computed<number>(() => this.selectedItems().length)
 
   private readonly catalogUI = new CatalogUIService()
   private readonly catalogRevision = atom(0)
   private readonly visibleRange = atom<FileListVisibleRange>({
     startIndex: 0,
-    endIndex: CATALOG_FOLDER_PAGE_DEFAULT_ITEMS,
+    endIndex: INITIAL_FILE_THUMBNAIL_WINDOW,
   })
   private readonly vaultLockPending = computed<boolean>(() => this.readVaultLockPending())
   private readonly visibleRealItems = computed<FileListItem[]>(() => {
@@ -96,6 +118,12 @@ export class FileListModel {
   private readonly mediaInspectionCandidates = computed<FileListItem[]>(() => {
     if (this.vaultLockPending()) return []
     return this.visibleRealItems().filter((item) => this.mediaInspection.shouldQueueVisible(item))
+  })
+  private readonly visibleThumbnailCandidates = computed<FileListItem[]>(() => {
+    if (this.vaultLockPending()) return []
+    const viewMode = this.searchFilters().viewMode
+    if (viewMode !== 'list' && viewMode !== 'grid') return []
+    return this.visibleRealItems().filter(isFileThumbnailCandidate)
   })
   private readonly entryMetaCandidates = computed<EntryMetaCandidate[]>(() => {
     const revision = this.catalogRevision()
@@ -113,11 +141,14 @@ export class FileListModel {
 
   private connected = false
   private lastMediaCandidateKey: string | null = null
+  private lastThumbnailCandidateKey: string | null = null
+  private lastFolderSnapshotKey: string | null = null
   private readonly hydratedEntryMetaKeys = new Set<string>()
 
   private unsubscribeMirror?: () => void
   private unsubscribeAuth?: () => void
   private unsubscribeMediaCandidates?: () => void
+  private unsubscribeThumbnailCandidates?: () => void
   private unsubscribeEntryMetaCandidates?: () => void
   private unsubscribeVaultLockPending?: () => void
 
@@ -149,7 +180,7 @@ export class FileListModel {
 
     const {ws} = this.ctx
     this.unsubscribeAuth = subscribeToSignalChanges(ws.connected, (isConnected, wasConnected) => {
-      writeAndroidUnlockDebug('file-list-model', 'connect:ws.connected changed', {
+      logFileManagerDebug('file-list-model', 'connect:ws.connected changed', {
         isConnected,
         previous: wasConnected,
       })
@@ -166,6 +197,7 @@ export class FileListModel {
     if (!this.connected) return
     this.connected = false
     this.lastMediaCandidateKey = null
+    this.lastThumbnailCandidateKey = null
     this.mediaInspection.cancelPending('file-list-cleanup')
 
     this.teardownVisibleSideEffectSubscriptions()
@@ -177,7 +209,13 @@ export class FileListModel {
   }
 
   getFileItemById(nodeId: number): FileItemData | null {
-    return this.fileItems().find((item) => item.id === nodeId) ?? null
+    return (
+      this.renderItems()
+        .filter(isRealFileListItem)
+        .find((item) => item.id === nodeId) ??
+      this.fileItems().find((item) => item.id === nodeId) ??
+      null
+    )
   }
 
   getSelectedFileItems(): FileListItem[] {
@@ -188,6 +226,10 @@ export class FileListModel {
 
     const selectedSet = new Set(selectedIds)
     return this.fileItems().filter((item) => selectedSet.has(item.id))
+  }
+
+  prewarmVisibleThumbnails(): Promise<void> {
+    return fileThumbnailStore.preload(this.visibleThumbnailCandidates())
   }
 
   getSingleSelectedItem(): FileListItem | null {
@@ -228,15 +270,46 @@ export class FileListModel {
     this.visibleRange.set(normalizedRange)
 
     const loader = this.getLazyFolderLoader()
-    if (!loader || !this.ctx.ws?.connected()) return
+    if (!loader || !this.ctx.ws?.connected()) {
+      this.logFolderSnapshot('ensureVisibleRangeLoaded:skipped', {
+        reason: loader ? 'disconnected' : 'missing-loader',
+        requestedStartIndex: normalizedRange.startIndex,
+        requestedEndIndex: normalizedRange.endIndex,
+      })
+      return
+    }
 
     const currentPath = normalizePath(this.currentPath())
-    if (isSystemShardPath(currentPath)) return
+    if (isSystemShardPath(currentPath)) {
+      this.logFolderSnapshot('ensureVisibleRangeLoaded:skipped', {
+        reason: 'system-shard',
+        requestedStartIndex: normalizedRange.startIndex,
+        requestedEndIndex: normalizedRange.endIndex,
+      })
+      return
+    }
 
     const request = this.createFolderPageRequest(currentPath, normalizedRange)
+    const queryKey = this.getFolderQueryKey()
+    this.logFolderSnapshot('ensureVisibleRangeLoaded:start', {
+      requestedStartIndex: normalizedRange.startIndex,
+      requestedEndIndex: normalizedRange.endIndex,
+      requestOffset: request.offset,
+      requestLimit: request.limit ?? null,
+      expectedVersion: request.expected_version ?? null,
+    })
     try {
-      await loader.ensureFolderRangeLoaded(request, this.getFolderQueryKey())
-    } catch {
+      await wrap(loader.ensureFolderRangeLoaded(request, queryKey))
+      this.logFolderSnapshot('ensureVisibleRangeLoaded:done', {
+        requestOffset: request.offset,
+        requestLimit: request.limit ?? null,
+      })
+    } catch (error) {
+      this.logFolderSnapshot('ensureVisibleRangeLoaded:error', {
+        requestOffset: request.offset,
+        requestLimit: request.limit ?? null,
+        error: error instanceof Error ? error.message : String(error),
+      })
       // CatalogService stores page errors in folder state for the current query.
     }
   }
@@ -246,7 +319,7 @@ export class FileListModel {
     this.teardownCatalogSubscription()
 
     if (!catalog?.catalog || !ws?.connected()) {
-      writeAndroidUnlockDebug('file-list-model', 'setupCatalogSubscription:skipped', {
+      logFileManagerDebug('file-list-model', 'setupCatalogSubscription:skipped', {
         hasCatalog: Boolean(catalog),
         connected: ws?.connected() ?? false,
       })
@@ -259,17 +332,22 @@ export class FileListModel {
         () => {
           this.validateCurrentPath()
           this.bumpCatalogRevision()
+          this.logFolderSnapshot('setupCatalogSubscription:update', {
+            catalogRevision: this.catalogRevision(),
+          })
           void this.ensureVisibleRangeLoaded(this.visibleRange())
         },
       )
-      writeAndroidUnlockDebug('file-list-model', 'setupCatalogSubscription:subscribed')
+      logFileManagerDebug('file-list-model', 'setupCatalogSubscription:subscribed')
 
       this.validateCurrentPath()
       this.bumpCatalogRevision()
       void this.ensureVisibleRangeLoaded(this.visibleRange())
-      writeAndroidUnlockDebug('file-list-model', 'setupCatalogSubscription:initial bump')
+      this.logFolderSnapshot('setupCatalogSubscription:initial bump', {
+        catalogRevision: this.catalogRevision(),
+      })
     } catch {
-      writeAndroidUnlockDebug('file-list-model', 'setupCatalogSubscription:error')
+      logFileManagerDebug('file-list-model', 'setupCatalogSubscription:error')
     }
   }
 
@@ -280,7 +358,7 @@ export class FileListModel {
 
     this.unsubscribeMirror()
     this.unsubscribeMirror = undefined
-    writeAndroidUnlockDebug('file-list-model', 'setupCatalogSubscription:unsubscribed')
+    logFileManagerDebug('file-list-model', 'setupCatalogSubscription:unsubscribed')
   }
 
   private setupVisibleSideEffectSubscriptions(): void {
@@ -288,6 +366,10 @@ export class FileListModel {
       const items = this.mediaInspectionCandidates()
       this.queueMediaInspectionCandidates(items)
     })
+    this.unsubscribeThumbnailCandidates = subscribeAfterInitial(
+      this.visibleThumbnailCandidates,
+      () => this.queueVisibleThumbnails(this.visibleThumbnailCandidates()),
+    )
     this.unsubscribeEntryMetaCandidates = subscribeAfterInitial(this.entryMetaCandidates, () => {
       const candidates = this.entryMetaCandidates()
       this.queueEntryMetaHydration(candidates)
@@ -300,12 +382,15 @@ export class FileListModel {
     })
 
     this.queueMediaInspectionCandidates(this.mediaInspectionCandidates())
+    this.queueVisibleThumbnails(this.visibleThumbnailCandidates())
     this.queueEntryMetaHydration(this.entryMetaCandidates())
   }
 
   private teardownVisibleSideEffectSubscriptions(): void {
     this.unsubscribeMediaCandidates?.()
     this.unsubscribeMediaCandidates = undefined
+    this.unsubscribeThumbnailCandidates?.()
+    this.unsubscribeThumbnailCandidates = undefined
     this.unsubscribeEntryMetaCandidates?.()
     this.unsubscribeEntryMetaCandidates = undefined
     this.unsubscribeVaultLockPending?.()
@@ -326,6 +411,13 @@ export class FileListModel {
 
   private mediaCandidateKey(item: FileItemData): string {
     return `${item.id}:${item.sourceRevision ?? 0}:${item.mimeType ?? ''}`
+  }
+
+  private queueVisibleThumbnails(items: readonly FileListItem[]): void {
+    const key = items.map(getFileThumbnailKey).join('|')
+    if (key === this.lastThumbnailCandidateKey) return
+    this.lastThumbnailCandidateKey = key
+    void fileThumbnailStore.preload(items)
   }
 
   private queueEntryMetaHydration(candidates: readonly EntryMetaCandidate[]): void {
@@ -362,10 +454,14 @@ export class FileListModel {
   }
 
   private getCurrentFolderState(): CatalogFolderState | undefined {
+    return this.getFolderStateForPath(normalizePath(this.currentPath()), this.getFolderQueryKey())
+  }
+
+  private getFolderStateForPath(path: string, queryKey: string): CatalogFolderState | undefined {
     const catalog = this.ctx.catalog?.catalog as {
       getFolderState?: (path: string, queryKey?: string) => CatalogFolderState | undefined
     } | undefined
-    return catalog?.getFolderState?.(this.currentPath(), this.getFolderQueryKey())
+    return catalog?.getFolderState?.(path, queryKey)
   }
 
   private normalizeVisibleRange(range: FileListVisibleRange): FileListVisibleRange {
@@ -392,14 +488,27 @@ export class FileListModel {
       path: currentPath,
       offset: pageOffset,
       limit,
-      expected_version: state?.version ?? null,
+      expected_version: this.getExpectedFolderVersion(state),
       sort: this.getFolderSort(),
       filter: this.getFolderFilter(),
     }
   }
 
+  private getExpectedFolderVersion(state: CatalogFolderState | undefined): number | null {
+    if (!state) return null
+    if (state.totalCount === 0 && state.loadedRanges.length === 0) return null
+    return state.version
+  }
+
   private getFolderQueryKey(filters = this.searchFilters()): string {
     const query = filters.query.trim()
+    const hasFileTypes = filters.fileTypes.length > 0
+    let searchMode = 'direct'
+    if (query !== '') {
+      searchMode = 'recursive-content'
+    } else if (hasFileTypes) {
+      searchMode = 'recursive-file-types'
+    }
     if (
       query === '' &&
       filters.sortBy === 'name' &&
@@ -411,6 +520,7 @@ export class FileListModel {
     }
 
     return JSON.stringify({
+      searchMode,
       query,
       sortBy: filters.sortBy,
       sortDirection: filters.sortDirection,
@@ -427,10 +537,14 @@ export class FileListModel {
   }
 
   private getFolderFilter(filters = this.searchFilters()): CatalogFolderFilter {
+    const query = filters.query.trim()
+    const shouldFilterRecursively = query !== '' || filters.fileTypes.length > 0
     return {
-      query: filters.query.trim() || null,
+      query: query || null,
       include_hidden: filters.showHidden,
       file_types: [...filters.fileTypes],
+      ...(shouldFilterRecursively ? {recursive: true} : {}),
+      ...(query ? {include_text_content: true} : {}),
     }
   }
 
@@ -507,5 +621,44 @@ export class FileListModel {
     } catch {
       return []
     }
+  }
+
+  private logFolderSnapshot(event: string, extra?: Record<string, unknown>): void {
+    const rawPath = this.currentPath()
+    const path = normalizePath(rawPath)
+    const queryKey = this.getFolderQueryKey()
+    const state = this.getFolderStateForPath(path, queryKey)
+    const renderItems = this.renderItems()
+    const fileItems = this.fileItems()
+    const realRenderItems = renderItems.filter(isRealFileListItem)
+    const key = `${event}|${path}|${queryKey}|${state?.version ?? 'none'}|${state?.totalCount ?? 'none'}|${renderItems.length}|${realRenderItems.length}|${fileItems.length}|${JSON.stringify(extra ?? {})}`
+    if (key === this.lastFolderSnapshotKey) return
+    this.lastFolderSnapshotKey = key
+
+    logFileManagerDebug('file-list-model', event, {
+      rawPath,
+      path,
+      queryKey,
+      renderSlots: renderItems.length,
+      renderRealCount: realRenderItems.length,
+      fileItems: fileItems.length,
+      totalCount: this.totalCount(),
+      filteredCount: this.filteredCount(),
+      folderState: state
+        ? {
+          version: state.version,
+          totalCount: state.totalCount,
+          loadedRanges: state.loadedRanges,
+          loadingRanges: state.loadingRanges,
+          error: state.error ?? null,
+        }
+        : null,
+      firstRenderItems: realRenderItems.slice(0, 5).map((item) => ({
+        id: item.id,
+        name: item.name,
+        isDir: item.isDir,
+      })),
+      ...extra,
+    })
   }
 }

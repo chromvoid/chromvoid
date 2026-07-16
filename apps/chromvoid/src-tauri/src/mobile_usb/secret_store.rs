@@ -24,6 +24,12 @@ impl KeyringMobileUsbSecretStore {
         }
     }
 
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows",
+        all(target_os = "linux", not(target_env = "musl"))
+    ))]
     fn entry(&self, key_ref: &ClientKeyRef) -> Result<keyring::Entry, MobileUsbError> {
         keyring::Entry::new(&self.service, key_ref).map_err(|error| {
             MobileUsbError::new(
@@ -31,6 +37,20 @@ impl KeyringMobileUsbSecretStore {
                 format!("secret store entry unavailable: {error}"),
             )
         })
+    }
+
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows",
+        all(target_os = "linux", not(target_env = "musl"))
+    )))]
+    fn unsupported_error(&self) -> MobileUsbError {
+        let _ = &self.service;
+        MobileUsbError::new(
+            MobileUsbErrorCode::SecretStoreUnavailable,
+            "mobile USB keyring secret store is unavailable on this target",
+        )
     }
 }
 
@@ -40,41 +60,98 @@ impl MobileUsbSecretStore for KeyringMobileUsbSecretStore {
         host_id: &HostId,
         key: &[u8],
     ) -> Result<ClientKeyRef, MobileUsbError> {
-        let key_ref = format!("mobile_usb:{host_id}");
-        let value = hex::encode(key);
-        self.entry(&key_ref)?
-            .set_password(&value)
-            .map_err(|error| {
-                MobileUsbError::new(
-                    MobileUsbErrorCode::SecretStoreUnavailable,
-                    format!("secret store save failed: {error}"),
-                )
-            })?;
-        Ok(key_ref)
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows",
+            all(target_os = "linux", not(target_env = "musl"))
+        )))]
+        {
+            let _ = (host_id, key);
+            return Err(self.unsupported_error());
+        }
+
+        #[cfg(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows",
+            all(target_os = "linux", not(target_env = "musl"))
+        ))]
+        {
+            let key_ref = format!("mobile_usb:{host_id}");
+            let value = hex::encode(key);
+            self.entry(&key_ref)?
+                .set_password(&value)
+                .map_err(|error| {
+                    MobileUsbError::new(
+                        MobileUsbErrorCode::SecretStoreUnavailable,
+                        format!("secret store save failed: {error}"),
+                    )
+                })?;
+            Ok(key_ref)
+        }
     }
 
     fn load_client_key(&self, key_ref: &ClientKeyRef) -> Result<Vec<u8>, MobileUsbError> {
-        let value = self.entry(key_ref)?.get_password().map_err(|error| {
-            MobileUsbError::new(
-                MobileUsbErrorCode::SecretRefInvalid,
-                format!("secret ref invalid: {error}"),
-            )
-        })?;
-        hex::decode(value).map_err(|error| {
-            MobileUsbError::new(
-                MobileUsbErrorCode::SecretRefInvalid,
-                format!("secret ref contains invalid key data: {error}"),
-            )
-        })
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows",
+            all(target_os = "linux", not(target_env = "musl"))
+        )))]
+        {
+            let _ = key_ref;
+            return Err(self.unsupported_error());
+        }
+
+        #[cfg(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows",
+            all(target_os = "linux", not(target_env = "musl"))
+        ))]
+        {
+            let value = self.entry(key_ref)?.get_password().map_err(|error| {
+                MobileUsbError::new(
+                    MobileUsbErrorCode::SecretRefInvalid,
+                    format!("secret ref invalid: {error}"),
+                )
+            })?;
+            hex::decode(value).map_err(|error| {
+                MobileUsbError::new(
+                    MobileUsbErrorCode::SecretRefInvalid,
+                    format!("secret ref contains invalid key data: {error}"),
+                )
+            })
+        }
     }
 
     fn delete_client_key(&self, key_ref: &ClientKeyRef) -> Result<(), MobileUsbError> {
-        self.entry(key_ref)?.delete_credential().map_err(|error| {
-            MobileUsbError::new(
-                MobileUsbErrorCode::SecretStoreUnavailable,
-                format!("secret delete failed: {error}"),
-            )
-        })
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows",
+            all(target_os = "linux", not(target_env = "musl"))
+        )))]
+        {
+            let _ = key_ref;
+            return Err(self.unsupported_error());
+        }
+
+        #[cfg(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows",
+            all(target_os = "linux", not(target_env = "musl"))
+        ))]
+        {
+            self.entry(key_ref)?.delete_credential().map_err(|error| {
+                MobileUsbError::new(
+                    MobileUsbErrorCode::SecretStoreUnavailable,
+                    format!("secret delete failed: {error}"),
+                )
+            })
+        }
     }
 }
 
@@ -106,6 +183,10 @@ impl InMemoryMobileUsbSecretStore {
             .lock()
             .expect("delete_attempts")
             .clone()
+    }
+
+    pub(crate) fn saved_refs(&self) -> Vec<ClientKeyRef> {
+        self.keys.lock().expect("keys").keys().cloned().collect()
     }
 }
 

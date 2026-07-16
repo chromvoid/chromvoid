@@ -1,6 +1,7 @@
 import {describe, expect, it} from 'vitest'
 
-import i18nData from '../../src/i18n/data.json'
+import en from '../../src/i18n/locales/en.json'
+import ru from '../../src/i18n/locales/ru.json'
 import {knownGuidanceAnchors} from '../../src/core/guidance/guidance.anchors'
 import {guidanceDefinitions} from '../../src/core/guidance/guidance.registry'
 import {validateGuidanceRegistry} from '../../src/core/guidance/guidance.validation'
@@ -36,9 +37,8 @@ const releaseMatrix = [
   {rank: 7, ids: ['pro.remote.blocked', 'pro.gateway.blocked', 'pro.remote-storage.blocked']},
   {rank: 8, ids: ['passwords.import-migration']},
   {rank: 9, ids: ['passkeys.empty-state']},
-  {rank: 10, ids: ['keyboard.shortcuts.files', 'keyboard.shortcuts.passwords', 'keyboard.shortcuts.notes']},
-  {rank: 11, ids: ['files.empty-state', 'notes.empty-state', 'passwords.empty-state']},
-  {rank: 12, ids: ['settings.ssh-agent']},
+  {rank: 10, ids: ['files.empty-state', 'notes.empty-state', 'passwords.empty-state']},
+  {rank: 11, ids: ['settings.ssh-agent']},
 ] as const
 
 const lowRankedIds = new Set(
@@ -50,7 +50,7 @@ describe('validateGuidanceRegistry', () => {
     const result = validateGuidanceRegistry({
       definitions: guidanceDefinitions,
       anchors: knownGuidanceAnchors,
-      hasI18nKey: (key) => Object.prototype.hasOwnProperty.call(i18nData, key),
+      hasI18nKey: (key) => Object.prototype.hasOwnProperty.call(en, key),
     })
 
     expect(result).toEqual({ok: true, errors: []})
@@ -69,11 +69,12 @@ describe('validateGuidanceRegistry', () => {
     }
 
     for (const key of keys) {
-      const entry = i18nData[key as keyof typeof i18nData] as {en?: string; ru?: string} | undefined
-      expect(entry?.en, `${key} English copy`).toBeTruthy()
-      expect(entry?.ru, `${key} Russian copy`).toBeTruthy()
-      expect(entry?.en).not.toBe(key)
-      expect(entry?.ru).not.toBe(key)
+      const english = en[key as keyof typeof en]
+      const russian = ru[key as keyof typeof ru]
+      expect(english, `${key} English copy`).toBeTruthy()
+      expect(russian, `${key} Russian copy`).toBeTruthy()
+      expect(english).not.toBe(key)
+      expect(russian).not.toBe(key)
     }
   })
 
@@ -145,18 +146,16 @@ describe('validateGuidanceRegistry', () => {
   })
 
   it('locks security-sensitive release copy wording', () => {
-    const copy = i18nData as Record<string, {en?: string; ru?: string}>
-
-    expect(copy['guidance:welcome.master-password:body']?.en).toContain('recovery')
-    expect(copy['guidance:remote-storage.mount-warning:body']?.en).toContain('operating system')
-    expect(copy['guidance:settings.mobile-autofill:body']?.en).toContain('credential provider')
-    expect(copy['guidance:gateway.pair-extension:body']?.en).toContain('approve the extension')
-    expect(copy['guidance:passwords.import-migration:body']?.en).toContain('Preview')
-    expect(copy['guidance:passwords.import-migration:body']?.en).toContain('conflicts')
-    expect(copy['guidance:pro.blocked.unsupported:body']?.en).toContain('platform')
-    expect(copy['guidance:pro.blocked.disabled-by-rollout:body']?.en).toContain('rollout')
-    expect(copy['guidance:pro.blocked.entitlement-unavailable:body']?.en).toContain('license')
-    expect(copy['guidance:pro.blocked.locked-pro:body']?.en).toContain('Pro license')
+    expect(en['guidance:welcome.master-password:body']).toContain('recovery')
+    expect(en['guidance:remote-storage.mount-warning:body']).toContain('operating system')
+    expect(en['guidance:settings.mobile-autofill:body']).toContain('credential provider')
+    expect(en['guidance:gateway.pair-extension:body']).toContain('approve the extension')
+    expect(en['guidance:passwords.import-migration:body']).toContain('Preview')
+    expect(en['guidance:passwords.import-migration:body']).toContain('conflicts')
+    expect(en['guidance:pro.blocked.unsupported:body']).toContain('platform')
+    expect(en['guidance:pro.blocked.disabled-by-rollout:body']).toContain('rollout')
+    expect(en['guidance:pro.blocked.entitlement-unavailable:body']).toContain('license')
+    expect(en['guidance:pro.blocked.locked-pro:body']).toContain('Pro license')
   })
 
   it('accepts valid definitions with known anchors and i18n keys', () => {

@@ -15,33 +15,33 @@ export const remoteStorageLayoutStyles = [
       min-height: 100%;
       box-sizing: border-box;
       background: var(--cv-color-bg, var(--cv-color-surface));
-      --motion-reveal-start-transform: translateY(8px);
-      --motion-reveal-end-transform: translateY(0);
-      --route-card-radius: var(--cv-radius-3);
-      --route-card-header-align-items: center;
-      --route-card-header-background: var(--cv-gradient-surface);
-      --route-card-header-border-color: var(--cv-color-border-muted);
-      --route-card-title-gap: 2px;
-      --route-card-title-name-font-size: var(--cv-font-size-base);
-      --route-card-title-name-letter-spacing: -0.01em;
-      --route-badge-gap: 6px;
-      --route-badge-padding: 5px 12px;
-      --route-badge-font-size: 11px;
-      --route-badge-text-transform: uppercase;
-      --route-badge-letter-spacing: 0.04em;
-      --route-badge-background: var(--cv-color-surface-2);
-      --route-badge-color: var(--cv-color-text-muted);
-      --route-badge-success-border-color: var(--cv-color-success-border-strong);
-      --route-badge-success-color: var(--cv-color-success);
-      --route-badge-info-border-color: var(--cv-color-info-border-strong);
-      --route-badge-info-color: var(--cv-color-info);
-      --route-badge-marker-display: block;
-      --route-callout-title-align-items: center;
-      --route-callout-title-color: var(--cv-color-warning);
-      --route-callout-title-display: flex;
-      --route-callout-title-gap: var(--app-spacing-2);
-      --route-callout-text-line-height: 1.55;
-      animation: var(--motion-page-reveal-animation, reveal 0.4s cubic-bezier(0.16, 1, 0.3, 1) both);
+      --app-motion-reveal-start-transform: translateY(8px);
+      --app-motion-reveal-end-transform: translateY(0);
+      --app-route-card-radius: var(--cv-radius-3);
+      --app-route-card-header-align-items: center;
+      --app-route-card-header-background: var(--cv-gradient-surface);
+      --app-route-card-header-border-color: var(--cv-color-border-muted);
+      --app-route-card-title-gap: 2px;
+      --app-route-card-title-name-font-size: var(--cv-font-size-base);
+      --app-route-card-title-name-letter-spacing: -0.01em;
+      --app-route-badge-gap: 6px;
+      --app-route-badge-padding: 5px 12px;
+      --app-route-badge-font-size: 11px;
+      --app-route-badge-text-transform: uppercase;
+      --app-route-badge-letter-spacing: 0.04em;
+      --app-route-badge-background: var(--cv-color-surface-2);
+      --app-route-badge-color: var(--cv-color-text-muted);
+      --app-route-badge-success-border-color: var(--cv-color-success-border-strong);
+      --app-route-badge-success-color: var(--cv-color-success);
+      --app-route-badge-info-border-color: var(--cv-color-info-border-strong);
+      --app-route-badge-info-color: var(--cv-color-info);
+      --app-route-badge-marker-display: block;
+      --app-route-callout-title-align-items: center;
+      --app-route-callout-title-color: var(--cv-color-warning);
+      --app-route-callout-title-display: flex;
+      --app-route-callout-title-gap: var(--app-spacing-2);
+      --app-route-callout-text-line-height: 1.55;
+      animation: var(--app-motion-page-reveal-animation, reveal 0.4s cubic-bezier(0.16, 1, 0.3, 1) both);
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -159,8 +159,8 @@ export const remoteStorageLayoutStyles = [
       width: 40px;
       height: 40px;
       border-radius: var(--cv-radius-2);
-      background: var(--stat-bg, var(--cv-color-surface-2));
-      color: var(--stat-color, var(--cv-color-text-muted));
+      background: var(--cv-color-surface-2);
+      color: var(--cv-color-text-muted);
       font-size: 20px;
     }
 
@@ -184,18 +184,17 @@ export const remoteStorageLayoutStyles = [
     }
 
     .stat-card.stat-card-info {
-      --stat-bg: var(--cv-color-info-surface);
-      --stat-color: var(--cv-color-info);
+      .stat-icon {
+        background: var(--cv-color-info-surface);
+        color: var(--cv-color-info);
+      }
     }
 
     .stat-card.stat-card-success {
-      --stat-bg: var(--cv-color-success-surface);
-      --stat-color: var(--cv-color-success);
-    }
-
-    .stat-card.stat-card-neutral {
-      --stat-bg: var(--cv-color-surface-2);
-      --stat-color: var(--cv-color-text-muted);
+      .stat-icon {
+        background: var(--cv-color-success-surface);
+        color: var(--cv-color-success);
+      }
     }
 
     /* ========== MAIN GRID ========== */
@@ -231,25 +230,25 @@ export const remoteStorageLayoutStyles = [
       width: 36px;
       height: 36px;
       border-radius: var(--cv-radius-2);
-      background: var(--card-icon-bg, var(--cv-color-surface-2));
-      color: var(--card-icon-color, var(--cv-color-text-muted));
+      background: var(--cv-color-surface-2);
+      color: var(--cv-color-text-muted);
       font-size: 18px;
       flex-shrink: 0;
     }
 
     .card-icon.card-icon-primary {
-      --card-icon-bg: var(--cv-color-primary-surface);
-      --card-icon-color: var(--cv-color-brand);
+      background: var(--cv-color-primary-surface);
+      color: var(--cv-color-brand);
     }
 
     .card-icon.card-icon-info {
-      --card-icon-bg: var(--cv-color-info-surface);
-      --card-icon-color: var(--cv-color-info);
+      background: var(--cv-color-info-surface);
+      color: var(--cv-color-info);
     }
 
     .card-icon.card-icon-success {
-      --card-icon-bg: var(--cv-color-success-surface);
-      --card-icon-color: var(--cv-color-success);
+      background: var(--cv-color-success-surface);
+      color: var(--cv-color-success);
     }
 
     cv-callout.remote-storage-callout {
@@ -257,15 +256,15 @@ export const remoteStorageLayoutStyles = [
     }
 
     cv-callout.remote-storage-callout[variant='info'] {
-      --route-callout-title-color: var(--cv-color-info);
+      --app-route-callout-title-color: var(--cv-color-info);
     }
 
     cv-callout.remote-storage-callout[variant='success'] {
-      --route-callout-title-color: var(--cv-color-success);
+      --app-route-callout-title-color: var(--cv-color-success);
     }
 
     cv-callout.remote-storage-callout[variant='danger'] {
-      --route-callout-title-color: var(--cv-color-danger);
+      --app-route-callout-title-color: var(--cv-color-danger);
     }
 
     /* ========== ACTIONS ========== */

@@ -9,8 +9,8 @@ use tokio::time::{timeout, Duration};
 use tracing::{debug, error, warn};
 
 use super::models::{
-    AgentShared, PendingApproval, PendingApprovalContext, SignApprovalEventPayload,
-    APPROVAL_TIMEOUT_SECS, MAX_MESSAGE_SIZE, READ_BUFFER_SIZE,
+    emit_sign_request_expired, AgentShared, PendingApproval, PendingApprovalContext,
+    SignApprovalEventPayload, APPROVAL_TIMEOUT_SECS, MAX_MESSAGE_SIZE, READ_BUFFER_SIZE,
 };
 use super::upstream::{fetch_upstream_identities, is_same_socket_endpoint, proxy_sign_request};
 use crate::ssh_agent::audit::SshAgentAuditEvent;
@@ -179,11 +179,11 @@ async fn handle_message(
             }
 
             let sign_started_at = Instant::now();
-            let entry_id = identity.entry_id.clone();
+            let key_id = identity.key_id.clone();
             let future = {
                 let guard = shared.lock().await;
                 let read_fn = &guard.read_private_key;
-                read_fn(&entry_id)
+                read_fn(&key_id)
             };
 
             let audit_log = {
@@ -194,7 +194,7 @@ async fn handle_message(
             let private_key_pem = match future.await {
                 Some(pem) => pem,
                 None => {
-                    warn!("ssh-agent: private key not available for entry {entry_id}");
+                    warn!("ssh-agent: private key not available for key {key_id}");
                     if let Some(audit_log) = audit_log {
                         audit_log
                             .log(SshAgentAuditEvent::sign_result(
@@ -216,7 +216,7 @@ async fn handle_message(
 
             match sign_data(private_key_pem.as_str(), &data, flags) {
                 Ok(signature) => {
-                    debug!("ssh-agent: SIGN_REQUEST → success for entry {entry_id}");
+                    debug!("ssh-agent: SIGN_REQUEST → success for key {key_id}");
                     if let Some(audit_log) = audit_log {
                         audit_log
                             .log(SshAgentAuditEvent::sign_result(
@@ -274,7 +274,7 @@ async fn request_connection_approval(
     let (tx, rx) = oneshot::channel::<bool>();
     let requested_at = Instant::now();
 
-    let audit_log = {
+    let (audit_log, approval_emitter) = {
         let mut guard = shared.lock().await;
         let context = PendingApprovalContext {
             request_id: request_id.clone(),
@@ -298,13 +298,14 @@ async fn request_connection_approval(
 
         guard.insert_pending_approval(PendingApproval { tx, context });
         let audit_log = guard.audit_log.clone();
+        let approval_emitter = guard.approval_emitter.clone();
         if let Err(e) = guard.approval_emitter.emit_sign_request(&payload) {
             guard.take_pending_approval(&request_id);
             error!("ssh-agent: failed to emit approval event: {e}");
             return false;
         }
 
-        audit_log
+        (audit_log, approval_emitter)
     };
 
     if let Some(audit_log) = audit_log.clone() {
@@ -328,19 +329,22 @@ async fn request_connection_approval(
                 let mut guard = shared.lock().await;
                 guard.take_pending_approval(&request_id)
             };
-            if let (Some(audit_log), Some(pending)) = (audit_log, pending) {
-                audit_log
-                    .log(SshAgentAuditEvent::approval_timeout(
-                        &pending.context.request_id,
-                        pending.context.connection_id,
-                        &pending.context.fingerprint,
-                        &pending.context.comment,
-                        pending.context.peer_pid,
-                        pending.context.peer_process.as_deref(),
-                        pending.context.host_hint.as_deref(),
-                        pending.context.requested_at.elapsed().as_millis() as u64,
-                    ))
-                    .await;
+            if let Some(pending) = pending {
+                emit_sign_request_expired(&approval_emitter, &pending.context, "cancelled");
+                if let Some(audit_log) = audit_log {
+                    audit_log
+                        .log(SshAgentAuditEvent::approval_timeout(
+                            &pending.context.request_id,
+                            pending.context.connection_id,
+                            &pending.context.fingerprint,
+                            &pending.context.comment,
+                            pending.context.peer_pid,
+                            pending.context.peer_process.as_deref(),
+                            pending.context.host_hint.as_deref(),
+                            pending.context.requested_at.elapsed().as_millis() as u64,
+                        ))
+                        .await;
+                }
             }
             false
         }
@@ -349,19 +353,22 @@ async fn request_connection_approval(
                 let mut guard = shared.lock().await;
                 guard.take_pending_approval(&request_id)
             };
-            if let (Some(audit_log), Some(pending)) = (audit_log, pending) {
-                audit_log
-                    .log(SshAgentAuditEvent::approval_timeout(
-                        &pending.context.request_id,
-                        pending.context.connection_id,
-                        &pending.context.fingerprint,
-                        &pending.context.comment,
-                        pending.context.peer_pid,
-                        pending.context.peer_process.as_deref(),
-                        pending.context.host_hint.as_deref(),
-                        pending.context.requested_at.elapsed().as_millis() as u64,
-                    ))
-                    .await;
+            if let Some(pending) = pending {
+                emit_sign_request_expired(&approval_emitter, &pending.context, "timeout");
+                if let Some(audit_log) = audit_log {
+                    audit_log
+                        .log(SshAgentAuditEvent::approval_timeout(
+                            &pending.context.request_id,
+                            pending.context.connection_id,
+                            &pending.context.fingerprint,
+                            &pending.context.comment,
+                            pending.context.peer_pid,
+                            pending.context.peer_process.as_deref(),
+                            pending.context.host_hint.as_deref(),
+                            pending.context.requested_at.elapsed().as_millis() as u64,
+                        ))
+                        .await;
+                }
             }
             false
         }

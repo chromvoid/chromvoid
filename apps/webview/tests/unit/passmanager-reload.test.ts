@@ -150,6 +150,36 @@ describe('setupPassmanagerReload', () => {
     expect(loadMock).toHaveBeenCalledTimes(1)
   })
 
+  it('reloads when a remote session becomes ready after the root was mounted', async () => {
+    const {setupPassmanagerReload} = await import('../../src/app/bootstrap/passmanager-reload')
+
+    const loadMock = vi.fn(() => Promise.resolve())
+    const remoteSessionState = atom<'inactive' | 'waiting_host_unlock' | 'ready'>('waiting_host_unlock')
+
+    setPassmanagerRoot({
+      load: loadMock,
+      showElement: atom({id: 'root'}),
+    } as never)
+
+    setupPassmanagerReload(
+      {
+        on: vi.fn(),
+      } as never,
+      {
+        isShowPasswordManager: () => true,
+        remoteSessionState,
+      } as never,
+      {
+        getRevision: vi.fn(async () => 'rev-0'),
+      } as never,
+    )
+
+    remoteSessionState.set('ready')
+    await vi.runAllTimersAsync()
+
+    expect(loadMock).toHaveBeenCalledOnce()
+  })
+
   it('ignores the synchronous subscribe callback and reloads on the next real showElement change when deferred', async () => {
     const {setupPassmanagerReload} = await import('../../src/app/bootstrap/passmanager-reload')
 

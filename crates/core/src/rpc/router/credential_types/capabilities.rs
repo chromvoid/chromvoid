@@ -10,24 +10,40 @@ pub(in crate::rpc::router) fn capability_matrix() -> CredentialProviderCapabilit
         ios: CredentialProviderCapability {
             password_provider: true,
             passkeys_lite: true,
+            one_time_codes: false,
+            one_time_codes_unsupported_reason: Some(
+                "One-time-code provider is not implemented on iOS".to_string(),
+            ),
             autofill_fallback: false,
             unsupported_reason: None,
         },
         android: CredentialProviderCapability {
             password_provider: true,
             passkeys_lite: true,
+            one_time_codes: false,
+            one_time_codes_unsupported_reason: Some(
+                "One-time-code identity provider is not implemented on Android".to_string(),
+            ),
             autofill_fallback: true,
             unsupported_reason: None,
         },
         macos: CredentialProviderCapability {
             password_provider: true,
             passkeys_lite: true,
+            one_time_codes: true,
+            one_time_codes_unsupported_reason: Some(
+                "One-time-code AutoFill requires macOS 15+".to_string(),
+            ),
             autofill_fallback: false,
             unsupported_reason: None,
         },
         windows: CredentialProviderCapability {
             password_provider: false,
             passkeys_lite: false,
+            one_time_codes: false,
+            one_time_codes_unsupported_reason: Some(
+                "Credential provider adapter is not implemented on Windows".to_string(),
+            ),
             autofill_fallback: false,
             unsupported_reason: Some(
                 "Credential provider adapter is not implemented on Windows".to_string(),
@@ -95,6 +111,17 @@ pub(in crate::rpc::router) fn command_error_map() -> CredentialProviderCommandEr
             ErrorCode::AccessDenied,
             ErrorCode::NoMatch,
             ErrorCode::InvalidContext,
+        ]),
+        get_one_time_code: error_codes(&[
+            ErrorCode::ProviderDisabled,
+            ErrorCode::VaultRequired,
+            ErrorCode::EmptyPayload,
+            ErrorCode::ProviderSessionExpired,
+            ErrorCode::AccessDenied,
+            ErrorCode::NoMatch,
+            ErrorCode::InvalidContext,
+            ErrorCode::HotpAutofillUnsupported,
+            ErrorCode::OtpGenerateFailed,
         ]),
         record_use: error_codes(&[
             ErrorCode::ProviderDisabled,

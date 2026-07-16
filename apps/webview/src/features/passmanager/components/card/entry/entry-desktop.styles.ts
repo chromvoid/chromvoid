@@ -5,14 +5,12 @@ import {entrySkeletonStyles} from './entry-skeleton.styles'
 const entryDesktopMainStyles = css`
   :host {
     container-type: inline-size;
-    --entry-avatar-bg: var(--cv-color-primary-dark);
-    --entry-header-control-size: 40px;
-    --entry-header-control-icon-size: 18px;
+    --pm-entry-avatar-background: var(--cv-color-primary-dark);
   }
 
   pm-workspace-header {
-    --cv-header-accent: var(--entry-avatar-bg, var(--cv-color-primary));
-    --pm-workspace-header-avatar-fallback-bg: var(--entry-avatar-bg);
+    --pm-header-accent: var(--pm-entry-avatar-background, var(--cv-color-primary));
+    --pm-workspace-header-avatar-fallback-background: var(--pm-entry-avatar-background);
     --pm-workspace-header-avatar-fallback-color: var(--cv-color-on-primary);
     --pm-workspace-header-avatar-image-shadow: none;
   }
@@ -29,10 +27,10 @@ const entryDesktopMainStyles = css`
   }
 
   back-button {
-    --back-button-size: var(--entry-header-control-size);
-    --back-button-icon-size: var(--entry-header-control-icon-size);
-    --back-button-border-color: var(--pm-control-border);
-    --back-button-bg: var(--cv-color-surface-2);
+    --pm-back-button-size: var(--pm-entry-header-control-size);
+    --pm-back-button-icon-size: var(--pm-entry-header-control-icon-size);
+    --pm-back-button-border-color: var(--pm-control-border);
+    --pm-back-button-background: var(--cv-color-surface-2);
   }
 
   .header-actions {
@@ -42,15 +40,15 @@ const entryDesktopMainStyles = css`
   }
 
   .entry-header-action {
-    --cv-toolbar-item-min-height: var(--entry-header-control-size);
+    --cv-toolbar-item-min-height: var(--pm-entry-header-control-size);
     --cv-toolbar-item-padding-inline: 0;
-    min-inline-size: var(--entry-header-control-size);
+    min-inline-size: var(--pm-entry-header-control-size);
   }
 
   .entry-header-action::part(base) {
-    inline-size: var(--entry-header-control-size);
-    block-size: var(--entry-header-control-size);
-    min-inline-size: var(--entry-header-control-size);
+    inline-size: var(--pm-entry-header-control-size);
+    block-size: var(--pm-entry-header-control-size);
+    min-inline-size: var(--pm-entry-header-control-size);
     padding: 0;
     border: 1px solid var(--pm-control-border);
     border-radius: var(--cv-radius-2);
@@ -91,8 +89,8 @@ const entryDesktopMainStyles = css`
   }
 
   .entry-header-action cv-icon {
-    inline-size: var(--entry-header-control-icon-size);
-    block-size: var(--entry-header-control-icon-size);
+    inline-size: var(--pm-entry-header-control-icon-size);
+    block-size: var(--pm-entry-header-control-icon-size);
   }
 
   .entry-header-action.danger::part(base) {
@@ -137,8 +135,8 @@ const entryDesktopMainStyles = css`
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    inline-size: var(--entry-header-control-size);
-    block-size: var(--entry-header-control-size);
+    inline-size: var(--pm-entry-header-control-size);
+    block-size: var(--pm-entry-header-control-size);
     padding: 0;
     border: 1px solid var(--pm-control-border);
     border-radius: var(--cv-radius-2);
@@ -152,8 +150,8 @@ const entryDesktopMainStyles = css`
       transform 0.2s ease;
 
     cv-icon {
-      inline-size: var(--entry-header-control-icon-size);
-      block-size: var(--entry-header-control-icon-size);
+      inline-size: var(--pm-entry-header-control-icon-size);
+      block-size: var(--pm-entry-header-control-icon-size);
     }
 
     &:hover {
@@ -267,10 +265,9 @@ const entryDesktopMainStyles = css`
   }
 
   .field-label {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-weight: 600;
+    font-size: var(--cv-font-size-xs);
+    letter-spacing: 0;
+    font-weight: var(--cv-font-weight-medium);
     color: var(--cv-color-text-secondary);
     display: flex;
     align-items: center;
@@ -290,18 +287,6 @@ const entryDesktopMainStyles = css`
     text-overflow: ellipsis;
     white-space: nowrap;
     line-height: 1.4;
-  }
-
-  .field-value.masked {
-    font-family: var(--cv-font-family-code);
-    letter-spacing: 0.2em;
-    font-size: 1.25rem;
-    min-height: 1.75rem;
-    line-height: 1.75rem;
-  }
-
-  .field-value.masked.revealed {
-    letter-spacing: 0.02em;
   }
 
   .field-value.empty {
@@ -334,7 +319,8 @@ const entryDesktopMainStyles = css`
 
   .password-input::part(input) {
     font-family: var(--cv-font-family-code);
-    letter-spacing: 0.2em;
+    font-variant-ligatures: none;
+    letter-spacing: 0.08em;
     font-size: 1.25rem;
     font-weight: 500;
     color: var(--cv-color-text);
@@ -452,9 +438,8 @@ const entryDesktopMainStyles = css`
     align-items: center;
     gap: 8px;
     font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    font-weight: 600;
+    letter-spacing: 0;
+    font-weight: var(--cv-font-weight-medium);
     color: var(--cv-color-text-muted);
   }
   .note-card .card-content {
@@ -468,9 +453,9 @@ const entryDesktopMainStyles = css`
   }
 
   .note-content {
-    font-family: var(--cv-font-family-code);
-    font-size: 13px;
-    line-height: 1.6;
+    font-family: var(--cv-font-family-body);
+    font-size: var(--cv-font-size-sm);
+    line-height: var(--cv-line-height-normal);
     white-space: pre-wrap;
     word-break: break-word;
     color: var(--cv-color-text);
@@ -485,7 +470,6 @@ const entryDesktopMainStyles = css`
     grid-column: 1 / -1;
   }
 
-  .inline-edit-form,
   .note-inline-form {
     display: grid;
     gap: 12px;
@@ -550,7 +534,6 @@ const entryDesktopMainStyles = css`
   }
 
   .otp-manage-list,
-  .ssh-manage-list,
   .ssh-readonly-list {
     display: flex;
     flex-direction: column;
@@ -887,16 +870,6 @@ const entryDesktopResponsiveStyles = css`
     }
   }
 
-  @media (hover: none) and (pointer: coarse) {
-    .icon-btn {
-      width: 40px;
-      height: 40px;
-    }
-    .credential-field cv-button.icon-btn {
-      --cv-button-min-height: 36px;
-    }
-  }
-
   @container (width >= 600px) {
     .wrapper {
       gap: var(--cv-space-4);
@@ -904,21 +877,11 @@ const entryDesktopResponsiveStyles = css`
     .entry-title {
       font-size: 1.5rem;
     }
-    .field-value.masked {
-      font-size: var(--cv-font-size-lg);
-      min-height: 2rem;
-      line-height: 2rem;
-    }
   }
 
   @container (width >= 1000px) {
     .entry-title {
       font-size: 1.75rem;
-    }
-    .field-value.masked {
-      font-size: 1.5rem;
-      min-height: 2.25rem;
-      line-height: 2.25rem;
     }
 
     .payment-card-face {

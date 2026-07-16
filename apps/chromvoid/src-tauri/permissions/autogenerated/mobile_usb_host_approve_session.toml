@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mobile-usb-host-approve-session"
+description = "Enables the mobile_usb_host_approve_session command without any pre-configured scope."
+commands.allow = ["mobile_usb_host_approve_session"]
+
+[[permission]]
+identifier = "deny-mobile-usb-host-approve-session"
+description = "Denies the mobile_usb_host_approve_session command without any pre-configured scope."
+commands.deny = ["mobile_usb_host_approve_session"]

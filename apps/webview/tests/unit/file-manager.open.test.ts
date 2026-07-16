@@ -4,7 +4,10 @@ import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/r
 import {CatalogEventType, type CatalogEvent} from '../../src/core/catalog/local-catalog/types'
 import type {Atom} from '../../src/core/transport/transport'
 import {FileManagerModel} from '../../src/features/file-manager/file-manager.model'
-import {OPEN_EXTERNAL_HUD_DELAY_MS} from '../../src/features/file-manager/download-flow.model'
+import {
+  OPEN_EXTERNAL_HUD_DELAY_MS,
+  SAVE_TO_GALLERY_SUCCESS_TOAST_DURATION_MS,
+} from '../../src/features/file-manager/download-flow.model'
 import type {FileItemData, SearchFilters} from '../../src/shared/contracts/file-manager'
 import {subscribeFileCommand, type FileCommand} from '../../src/shared/services/file-command-service'
 import type {AppContext} from '../../src/shared/services/app-context'
@@ -237,7 +240,20 @@ describe('FileManagerModel open dispatcher', () => {
     [{name: 'photo.png', mimeType: 'image/png'}, {kind: 'gallery', fileId: 7}],
     [{name: 'video.mp4', mimeType: 'video/mp4'}, {kind: 'video', fileId: 7, fileName: 'video.mp4'}],
     [{name: 'track.mp3', mimeType: 'audio/mpeg'}, {kind: 'audio', fileId: 7, fileName: 'track.mp3'}],
-    [{name: 'readme.md', mimeType: 'text/markdown'}, {kind: 'document', mode: 'markdown', fileId: 7}],
+    [
+      {name: 'readme.md', mimeType: 'text/markdown'},
+      {
+        kind: 'document',
+        mode: 'markdown',
+        fileId: 7,
+        source: {
+          path: '/readme.md',
+          parentPath: '/',
+          fileName: 'readme.md',
+          mimeType: 'text/markdown',
+        },
+      },
+    ],
     [{name: 'scan.heic', mimeType: 'image/heic'}, {kind: 'gallery', fileId: 7}],
   ])('dispatches %s through %o', async (partialItem, expectedCommand) => {
     const {ctx} = createContext()
@@ -253,6 +269,55 @@ describe('FileManagerModel open dispatcher', () => {
     })
 
     expect(commands).toEqual([expectedCommand])
+  })
+
+  it('opens recursive folder search results by their real path', async () => {
+    const {ctx, setCurrentPath} = createContext()
+    const model = new FileManagerModel(ctx)
+
+    await model.handleOpen({
+      id: 11,
+      path: '/Docs/Nested',
+      name: 'Nested',
+      isDir: true,
+    })
+
+    expect(setCurrentPath).toHaveBeenCalledWith('/Docs/Nested/')
+  })
+
+  it('dispatches recursive markdown search results with a route source', async () => {
+    const {ctx} = createContext()
+    const model = new FileManagerModel(ctx)
+
+    const commands = await captureFileCommands(async () => {
+      await model.handleOpen({
+        id: 12,
+        path: '/Docs/Nested/PLAN.md',
+        name: 'PLAN.md',
+        isDir: false,
+        size: 128,
+        mimeType: 'text/markdown',
+        lastModified: 1710000000000,
+        sourceRevision: 3,
+      })
+    })
+
+    expect(commands).toEqual([
+      {
+        kind: 'document',
+        mode: 'markdown',
+        fileId: 12,
+        source: {
+          path: '/Docs/Nested/PLAN.md',
+          parentPath: '/Docs/Nested',
+          fileName: 'PLAN.md',
+          size: 128,
+          mimeType: 'text/markdown',
+          lastModified: 1710000000000,
+          sourceRevision: 3,
+        },
+      },
+    ])
   })
 
   it('inspects ISO-BMFF media before opening and routes audio-only MP4 to audio', async () => {
@@ -766,6 +831,7 @@ describe('FileManagerModel open dispatcher', () => {
   })
 
   it('tracks pending state and ignores duplicate share requests for the same file', async () => {
+    setRuntimeCapabilities({supports_native_share: false})
     let resolveShare: (() => void) | undefined
     const shareSpy = vi.spyOn(shareService, 'shareFiles').mockImplementation(
       () =>
@@ -797,6 +863,52 @@ describe('FileManagerModel open dispatcher', () => {
     await firstShare
 
     expect(model.isSharePending(21)).toBe(false)
+  })
+
+  it('lets native share pending UI paint before invoking the system share sheet', async () => {
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+      supports_native_share: true,
+    })
+    let resolveFrame: FrameRequestCallback | undefined
+    let resolveShare: (() => void) | undefined
+    const frameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      resolveFrame = callback
+      return 1
+    })
+    const shareSpy = vi.spyOn(shareService, 'shareFiles').mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveShare = resolve
+        }),
+    )
+    const {ctx} = createContext()
+    const model = new FileManagerModel(ctx)
+    const item = {
+      id: 22,
+      path: '/photo.jpg',
+      name: 'photo.jpg',
+      mimeType: 'image/jpeg',
+      size: 8192,
+      isDir: false,
+    } satisfies FileItemData
+
+    const sharePromise = model.handleShare(item)
+
+    expect(model.isSharePending(22)).toBe(true)
+    expect(shareSpy).not.toHaveBeenCalled()
+    expect(frameSpy).toHaveBeenCalledTimes(1)
+
+    resolveFrame?.(0)
+    await vi.waitFor(() => {
+      expect(shareSpy).toHaveBeenCalledTimes(1)
+    })
+
+    resolveShare?.()
+    await sharePromise
+
+    expect(model.isSharePending(22)).toBe(false)
   })
 
   it('clears share pending state when sharing fails', async () => {
@@ -1009,9 +1121,14 @@ describe('FileManagerModel open dispatcher', () => {
     ])
   })
 
-  it('adds native multi-selection share action and shares only files', () => {
+  it('adds native multi-selection share action and shares only files', async () => {
     setRuntimeCapabilities({platform: 'ios', mobile: true, supports_native_share: true})
     vi.spyOn(shareService, 'canShareFiles').mockReturnValue(true)
+    let resolveFrame: FrameRequestCallback | undefined
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      resolveFrame = callback
+      return 1
+    })
 
     const {ctx} = createContext({
       children: [
@@ -1044,6 +1161,7 @@ describe('FileManagerModel open dispatcher', () => {
     const model = new FileManagerModel(ctx)
     const shareFilesSpy = vi.spyOn(shareService, 'shareFiles').mockResolvedValue()
 
+    expect(model.canDownloadSelection()).toBe(true)
     expect(model.getMobileToolbarActions().map((action) => action.id)).toEqual([
       'selection-done',
       'share-selected',
@@ -1052,20 +1170,25 @@ describe('FileManagerModel open dispatcher', () => {
       'delete-selected',
     ])
     expect(model.executeMobileCommand('share-selected')).toBe(true)
-    expect(shareFilesSpy).toHaveBeenCalledWith([
-      {
-        fileId: 9,
-        fileName: 'report.pdf',
-        mimeType: 'application/pdf',
-        lastModified: undefined,
-      },
-      {
-        fileId: 11,
-        fileName: 'photo.jpg',
-        mimeType: 'image/jpeg',
-        lastModified: undefined,
-      },
-    ])
+    expect(shareFilesSpy).not.toHaveBeenCalled()
+
+    resolveFrame?.(0)
+    await vi.waitFor(() => {
+      expect(shareFilesSpy).toHaveBeenCalledWith([
+        {
+          fileId: 9,
+          fileName: 'report.pdf',
+          mimeType: 'application/pdf',
+          lastModified: undefined,
+        },
+        {
+          fileId: 11,
+          fileName: 'photo.jpg',
+          mimeType: 'image/jpeg',
+          lastModified: undefined,
+        },
+      ])
+    })
   })
 
   it('executes selected move through the mobile toolbar contract', () => {
@@ -1120,12 +1243,44 @@ describe('FileManagerModel open dispatcher', () => {
     })
     const model = new FileManagerModel(ctx)
 
+    expect(model.canDownloadSelection()).toBe(false)
     expect(model.getMobileToolbarActions()).toEqual([
       {id: 'selection-done', icon: 'check-lg', label: 'Done'},
       {id: 'share-selected', icon: 'share-2', label: 'Share', disabled: true},
       {id: 'move-selected', icon: 'folder-symlink', label: 'Move', disabled: false},
       {id: 'download-selected', icon: 'download', label: 'Download', disabled: true},
       {id: 'delete-selected', icon: 'trash', label: 'Delete selected (2)'},
+    ])
+  })
+
+  it('surfaces fixed bottom selection bar actions with disabled native share when unavailable', () => {
+    const {ctx} = createContext({
+      children: [
+        {
+          nodeId: 9,
+          path: '/report.pdf',
+          name: 'report.pdf',
+          isDir: false,
+          size: 1024,
+          mimeType: 'application/pdf',
+        },
+        {
+          nodeId: 10,
+          path: '/Docs',
+          name: 'Docs',
+          isDir: true,
+        },
+      ],
+      selectedNodeIds: [9, 10],
+      selectionMode: true,
+    })
+    const model = new FileManagerModel(ctx)
+
+    expect(model.getMobileSelectionBarActions()).toEqual([
+      {id: 'share-selected', icon: 'share-2', label: 'Share', disabled: true},
+      {id: 'move-selected', icon: 'folder-symlink', label: 'Move', disabled: false},
+      {id: 'delete-selected', icon: 'trash-2', label: 'Delete', disabled: false},
+      {id: 'selection-done', icon: 'x', label: 'Clear'},
     ])
   })
 
@@ -1143,7 +1298,7 @@ describe('FileManagerModel open dispatcher', () => {
     const model = new FileManagerModel(ctx)
 
     expect(model.getMobileToolbarActions()).toEqual([
-      {id: 'filters-reset', icon: 'x', label: 'Reset Filters', tone: 'accent'},
+      {id: 'filters-reset', icon: 'x', label: 'Clear filters', tone: 'accent'},
       {id: 'create-note', icon: 'book-plus', label: 'Create note'},
       {id: 'create-dir', icon: 'folder-plus', label: 'Create folder'},
       {id: 'upload', icon: 'upload', label: 'Upload files'},
@@ -1191,7 +1346,20 @@ describe('FileManagerModel open dispatcher', () => {
     })
     expect(uploadedChunks).toEqual([])
     expect(refreshCatalog).toHaveBeenCalledTimes(1)
-    expect(commands).toEqual([{kind: 'document', mode: 'markdown', fileId: 77}])
+    expect(commands).toEqual([
+      {
+        kind: 'document',
+        mode: 'markdown',
+        fileId: 77,
+        viewMode: 'edit',
+        source: {
+          path: '/Daily Plan.md',
+          fileName: 'Daily Plan.md',
+          size: 0,
+          mimeType: 'text/markdown',
+        },
+      },
+    ])
     expect(pushNotification).toHaveBeenCalledWith('success', 'Note "Daily Plan.md" created')
   })
 
@@ -1317,12 +1485,13 @@ describe('FileManagerModel open dispatcher', () => {
       undefined,
       {position: 'bottom-center'},
     )
-    expect(toastManager.toast.success).toHaveBeenCalledWith(
-      'Image "photo.jpg" saved to gallery',
-      undefined,
-      {position: 'bottom-center'},
-    )
-    expect(ctx.store.pushNotification).toHaveBeenCalledWith('success', 'Image "photo.jpg" saved to gallery')
+    const message =
+      'Image "photo.jpg" saved to Pictures > ChromVoid. If it is not at the top, check the photo\'s original date.'
+    expect(toastManager.toast.success).toHaveBeenCalledWith(message, undefined, {
+      position: 'bottom-center',
+      duration: SAVE_TO_GALLERY_SUCCESS_TOAST_DURATION_MS,
+    })
+    expect(ctx.store.pushNotification).toHaveBeenCalledWith('success', message)
   })
 
   it('routes Android image downloads through native gallery save instead of browser download', async () => {
@@ -1351,13 +1520,17 @@ describe('FileManagerModel open dispatcher', () => {
     expect(downloadFile).not.toHaveBeenCalled()
     expect(createDownloadTask).not.toHaveBeenCalled()
     expect(updateUploadTask).not.toHaveBeenCalled()
-    expect(ctx.store.pushNotification).toHaveBeenCalledWith('success', 'Image "photo.jpg" saved to gallery')
+    expect(ctx.store.pushNotification).toHaveBeenCalledWith(
+      'success',
+      'Image "photo.jpg" saved to Pictures > ChromVoid. If it is not at the top, check the photo\'s original date.',
+    )
   })
 
-  it('ignores save-to-gallery outside Android runtime', async () => {
+  it('saves gallery images through native gallery service when iOS reports support', async () => {
     setRuntimeCapabilities({
       platform: 'ios',
       mobile: true,
+      supports_photo_library_save: true,
     })
 
     const {ctx} = createContext()
@@ -1369,6 +1542,37 @@ describe('FileManagerModel open dispatcher', () => {
 
     await model.handleSaveToGallery({
       id: 11,
+      path: '/photo.jpg',
+      name: 'photo.jpg',
+      mimeType: 'image/jpeg',
+      isDir: false,
+    })
+
+    expect(saveSpy).toHaveBeenCalledWith(11, 'photo.jpg', 'image/jpeg')
+    expect(toastManager.toast.success).toHaveBeenCalledWith(
+      'Image "photo.jpg" saved to gallery',
+      undefined,
+      {position: 'bottom-center', duration: SAVE_TO_GALLERY_SUCCESS_TOAST_DURATION_MS},
+    )
+    expect(ctx.store.pushNotification).toHaveBeenCalledWith('success', 'Image "photo.jpg" saved to gallery')
+  })
+
+  it('ignores save-to-gallery when photo library save is unsupported', async () => {
+    setRuntimeCapabilities({
+      platform: 'ios',
+      mobile: true,
+      supports_photo_library_save: false,
+    })
+
+    const {ctx} = createContext()
+    const model = new FileManagerModel(ctx)
+    const saveSpy = vi.spyOn(gallerySaveService, 'saveImageToGallery').mockResolvedValue({
+      name: 'photo.jpg',
+      uri: 'content://gallery/photo',
+    })
+
+    await model.handleSaveToGallery({
+      id: 12,
       path: '/photo.jpg',
       name: 'photo.jpg',
       mimeType: 'image/jpeg',

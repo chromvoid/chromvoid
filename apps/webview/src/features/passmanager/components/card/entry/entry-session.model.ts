@@ -8,7 +8,7 @@ import {
   wrap,
 } from '@reatom/core'
 
-import {Entry} from '@project/passmanager/core'
+import type {Entry} from '@project/passmanager/core'
 import {defaultLogger} from 'root/core/logger'
 
 export type PMEntrySecretStatus = 'idle' | 'loading' | 'ready' | 'missing' | 'error'

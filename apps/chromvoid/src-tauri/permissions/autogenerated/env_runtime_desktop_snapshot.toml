@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-env-runtime-desktop-snapshot"
+description = "Enables the env_runtime_desktop_snapshot command without any pre-configured scope."
+commands.allow = ["env_runtime_desktop_snapshot"]
+
+[[permission]]
+identifier = "deny-env-runtime-desktop-snapshot"
+description = "Denies the env_runtime_desktop_snapshot command without any pre-configured scope."
+commands.deny = ["env_runtime_desktop_snapshot"]

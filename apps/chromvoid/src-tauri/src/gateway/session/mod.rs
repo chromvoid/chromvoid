@@ -4,6 +4,7 @@ use super::protocol::frame_from_error;
 
 #[macro_use]
 mod macros;
+mod agent;
 mod handler;
 
 #[cfg(test)]
@@ -63,4 +64,7 @@ enum ConnectionPhase {
     Closing,
 }
 
+pub(super) use agent::handle_agent_session;
+#[cfg(feature = "env-runtime-test-probe")]
+pub(crate) use agent::resolve_and_start_run;
 pub(super) use handler::handle_extension_session;

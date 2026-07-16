@@ -60,6 +60,7 @@ export interface ModeInfo {
   connection_state: ConnectionState
   transport_type: string | null
   remote_core_features: string[]
+  transport_session_generation?: number | null
 }
 
 /** Returned by `mode_switch` command and emitted via `mode:changed`. */
@@ -67,6 +68,7 @@ export interface ModeSwitchResult {
   previous_mode: CoreMode
   current_mode: CoreMode
   remote_core_features?: string[]
+  transport_session_generation?: number | null
   auto_locked: boolean
   drain_completed: boolean
 }
@@ -84,6 +86,8 @@ export interface ConnectionStatusEvent {
   phase: string
   peer_id?: string
   relay_url?: string
+  transport_type?: string
+  reason?: string
 }
 
 /** Emitted via `sync:status` event. */
@@ -112,7 +116,9 @@ export type MobileUsbSessionState =
   | 'idle_usb_mobile'
   | 'scanning_usb_mobile'
   | 'pairing_usb_mobile'
+  | 'pairing_approval_required'
   | 'connecting_usb_mobile'
+  | 'session_approval_required'
   | 'transport_ready_host_locked'
   | 'remote_dashboard_open'
   | 'disconnected'
@@ -134,6 +140,10 @@ export type MobileUsbErrorCode =
   | 'ERR_USB_MOBILE_SECRET_STORE_UNAVAILABLE'
   | 'ERR_USB_MOBILE_SECRET_REF_INVALID'
   | 'ERR_USB_MOBILE_PAIR_COMMIT_FAILED'
+  | 'ERR_USB_MOBILE_PAIRING_STORE_CORRUPT'
+  | 'ERR_USB_MOBILE_PAIRING_APPROVAL_REQUIRED'
+  | 'ERR_USB_MOBILE_PAIRING_APPROVAL_REJECTED'
+  | 'ERR_USB_MOBILE_PAIRING_APPROVAL_EXPIRED'
   | 'ERR_USB_MOBILE_RECORD_LAYER_FAILED'
   | 'ERR_USB_MOBILE_CABLE_DISCONNECTED'
   | 'ERR_USB_MOBILE_HOST_LOCKED'
@@ -170,6 +180,45 @@ export interface MobileUsbPairRequest {
   label?: string | null
 }
 
+export interface MobileUsbPairConfirmRequest {
+  attempt_id: string
+  approval_pin: string
+}
+
+export interface MobileUsbPairingApprovalView {
+  attempt_id: string
+  peer_label: string
+  peer_fingerprint: string
+  attempts_left: number
+  locked_until_ms: number | null
+  expires_at_ms: number
+}
+
+export type MobileUsbHostApprovalDecision = 'pending' | 'approved' | 'rejected'
+
+export interface MobileUsbHostPairingApprovalView {
+  attempt_id: string
+  approval_pin: string
+  peer_label: string
+  peer_fingerprint: string
+  attempts_left: number
+  decision: MobileUsbHostApprovalDecision
+  expires_at_ms: number
+}
+
+export interface MobileUsbHostSessionApprovalView {
+  attempt_id: string
+  peer_id: string
+  peer_label: string
+  transport_type: string
+  decision: MobileUsbHostApprovalDecision
+  expires_at_ms: number
+}
+
+export interface MobileUsbHostApprovalEvent {
+  attempt_id: string
+}
+
 export interface MobileUsbScanResult {
   platform: MobileUsbPlatform
   bridge_kind: MobileUsbBridgeKind
@@ -186,6 +235,19 @@ export type MobileUsbScanClassification =
 export interface MobileUsbScannedHost {
   scan: MobileUsbScanResult
   classification: MobileUsbScanClassification
+}
+
+export interface MobileUsbDetectedPairedMatch {
+  host_id: string
+  label: string
+  connectable: boolean
+}
+
+/** Passive inventory entry from `mobile_usb_detect`: descriptors only, no AOA side effects. */
+export interface MobileUsbDetectedDevice {
+  scan: MobileUsbScanResult
+  accessory_mode: boolean
+  paired_match: MobileUsbDetectedPairedMatch | null
 }
 
 export interface MobileUsbHostView {
@@ -205,7 +267,8 @@ export interface MobileUsbStatus {
   fallback_allowed: false
   active_host: MobileUsbHostView | null
   paired_hosts: MobileUsbHostView[]
-  in_flight: 'scan' | 'pair' | 'connect' | null
+  pairing_approval: MobileUsbPairingApprovalView | null
+  in_flight: 'scan' | 'pair' | 'pair_confirm' | 'connect' | null
   error_code: MobileUsbErrorCode | null
 }
 
@@ -239,8 +302,18 @@ export async function mobileUsbScan(): Promise<MobileUsbScannedHost[]> {
   return tauriInvoke('mobile_usb_scan')
 }
 
+export async function mobileUsbDetect(): Promise<MobileUsbDetectedDevice[]> {
+  return tauriInvoke('mobile_usb_detect')
+}
+
 export async function mobileUsbPair(request: MobileUsbPairRequest): Promise<MobileUsbStatus> {
   return tauriInvoke('mobile_usb_pair', {request})
+}
+
+export async function mobileUsbConfirmPairing(
+  request: MobileUsbPairConfirmRequest,
+): Promise<MobileUsbStatus> {
+  return tauriInvoke('mobile_usb_confirm_pairing', {request})
 }
 
 export async function mobileUsbConnect(hostId: string): Promise<MobileUsbStatus> {
@@ -263,6 +336,30 @@ export async function mobileUsbRemovePaired(hostId: string): Promise<MobileUsbHo
   return tauriInvoke('mobile_usb_remove_paired', {hostId})
 }
 
+export async function mobileUsbHostPendingPairingApproval(): Promise<MobileUsbHostPairingApprovalView | null> {
+  return tauriInvoke('mobile_usb_host_pending_pairing_approval')
+}
+
+export async function mobileUsbHostApprovePairing(attemptId: string): Promise<void> {
+  return tauriInvoke('mobile_usb_host_approve_pairing', {attemptId})
+}
+
+export async function mobileUsbHostRejectPairing(attemptId: string): Promise<void> {
+  return tauriInvoke('mobile_usb_host_reject_pairing', {attemptId})
+}
+
+export async function mobileUsbHostPendingSessionApproval(): Promise<MobileUsbHostSessionApprovalView | null> {
+  return tauriInvoke('mobile_usb_host_pending_session_approval')
+}
+
+export async function mobileUsbHostApproveSession(attemptId: string): Promise<void> {
+  return tauriInvoke('mobile_usb_host_approve_session', {attemptId})
+}
+
+export async function mobileUsbHostRejectSession(attemptId: string): Promise<void> {
+  return tauriInvoke('mobile_usb_host_reject_session', {attemptId})
+}
+
 // ---------------------------------------------------------------------------
 // Mode event listeners
 // ---------------------------------------------------------------------------
@@ -281,6 +378,32 @@ export function onConnectionStatus(handler: (e: ConnectionStatusEvent) => void):
 
 export function onSyncStatus(handler: (e: SyncStatusEvent) => void): Promise<UnlistenFn> {
   return tauriListen<SyncStatusEvent>('sync:status', handler)
+}
+
+export function onMobileUsbInventoryChanged(handler: () => void): Promise<UnlistenFn> {
+  return tauriListen<unknown>('mobile_usb_inventory_changed', () => handler())
+}
+
+export function onMobileUsbStatusChanged(handler: (status: MobileUsbStatus) => void): Promise<UnlistenFn> {
+  return tauriListen<MobileUsbStatus>('mobile_usb_status_changed', handler)
+}
+
+export function onMobileUsbHostPairingApprovalRequired(
+  handler: (e: MobileUsbHostApprovalEvent) => void,
+): Promise<UnlistenFn> {
+  return tauriListen<MobileUsbHostApprovalEvent>('mobile_usb_host_pairing_approval_required', handler)
+}
+
+export function onMobileUsbHostSessionApprovalRequired(
+  handler: (e: MobileUsbHostApprovalEvent) => void,
+): Promise<UnlistenFn> {
+  return tauriListen<MobileUsbHostApprovalEvent>('mobile_usb_host_session_approval_required', handler)
+}
+
+export function onMobileUsbHostApprovalResolved(
+  handler: (e: MobileUsbHostApprovalEvent) => void,
+): Promise<UnlistenFn> {
+  return tauriListen<MobileUsbHostApprovalEvent>('mobile_usb_host_approval_resolved', handler)
 }
 
 // ---------------------------------------------------------------------------

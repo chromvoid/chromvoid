@@ -1,5 +1,6 @@
 import type {FileItemData} from 'root/shared/contracts/file-manager'
 import {getLang, i18n} from 'root/i18n'
+import {stripBidiControls} from '@project/i18n/pure'
 import {getDisplayFileExtension, resolveFileFormat} from 'root/utils/file-format-registry'
 import {formatFileSize as formatBytes} from 'root/utils/format-file-size'
 
@@ -10,11 +11,13 @@ export const formatFileSize = (bytes?: number): string => {
 
 export const formatDate = (timestamp?: number): string => {
   if (!timestamp) return ''
-  return new Date(timestamp).toLocaleDateString(getLang(), {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  })
+  return stripBidiControls(
+    new Date(timestamp).toLocaleDateString(getLang(), {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }),
+  )
 }
 
 export const getFileExtension = (name: string): string => {
@@ -29,8 +32,11 @@ export const getFileIcon = (item: FileItemData): string => {
   return resolveFileFormat(item).icon
 }
 
-export const isMobileTouch = (): boolean =>
-  typeof window !== 'undefined' && !!window.matchMedia?.('(hover: none) and (pointer: coarse)')?.matches
+export const getFileTableTypeLabel = (item: FileItemData): string =>
+  item.isDir ? i18n('node:dir') : getFileExtension(item.name) || i18n('node:file')
+
+export const isDotfile = (item: FileItemData): boolean =>
+  item.name.startsWith('.') && item.name !== '.' && item.name !== '..'
 
 export const getInfoText = (item: FileItemData): string =>
   item.isDir ? i18n('node:dir') : `${formatFileSize(item.size)} • ${formatDate(item.lastModified)}`

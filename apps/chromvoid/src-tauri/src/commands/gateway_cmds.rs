@@ -50,6 +50,35 @@ fn browser_extension_guard_sync<T>(state: &tauri::State<'_, AppState>) -> Option
     })
 }
 
+fn env_runtime_guard_sync<T>(state: &tauri::State<'_, AppState>) -> Option<RpcResult<T>> {
+    if let Err(error) = crate::pro::guard_pro_feature(state, "env-runtime") {
+        return Some(match error {
+            RpcResult::Error { error, code, .. } => RpcResult::Error {
+                ok: false,
+                error,
+                code,
+            },
+            RpcResult::Success { .. } => RpcResult::Error {
+                ok: false,
+                error: "Pro license required".to_string(),
+                code: Some("PRO_REQUIRED".to_string()),
+            },
+        });
+    }
+
+    match state.adapter.lock() {
+        Ok(adapter) if adapter.is_unlocked() => None,
+        Ok(_) => Some(rpc_err(
+            "Unlock the local vault before pairing a CLI agent",
+            Some("VAULT_REQUIRED".to_string()),
+        )),
+        Err(_) => Some(rpc_err(
+            "Adapter mutex poisoned",
+            Some("INTERNAL".to_string()),
+        )),
+    }
+}
+
 fn checked_grant_expiry_ms(
     now_ms: u64,
     ttl_secs: Option<u64>,
@@ -150,31 +179,59 @@ pub(crate) async fn gateway_revoke_extension(
 }
 
 #[tauri::command]
-pub(crate) fn gateway_start_pairing(
+pub(crate) fn gateway_list_paired_agents(
     state: tauri::State<'_, AppState>,
+) -> RpcResult<Vec<gateway::PairedAgent>> {
+    let st = lock_or_rpc_err!(state.gateway, "Gateway");
+    rpc_ok(st.config.paired_agents.clone())
+}
+
+#[tauri::command]
+pub(crate) async fn gateway_revoke_agent(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> TauriRpcResult<Vec<gateway::PairedAgent>> {
+    let result = gateway::revoke_agent_durably(
+        state.catalog_blocking_io_runtime.clone(),
+        state.gateway.clone(),
+        state.env_runtime.clone(),
+        id.clone(),
+    )
+    .await;
+    state.env_runtime.revoke_runs_for_actor(&id).await;
+    Ok(match result {
+        Ok(paired_agents) => rpc_ok(paired_agents),
+        Err(error) => {
+            let (error, code) = error.into_rpc_error();
+            rpc_err(error, code)
+        }
+    })
+}
+
+fn start_pairing_for_kind(
+    state: &tauri::State<'_, AppState>,
+    actor_kind: gateway::GatewayActorKind,
 ) -> RpcResult<GatewayPairingInfo> {
     use rand::RngCore;
 
-    if let Some(error) = browser_extension_guard_sync(&state) {
-        return error;
-    }
     let mut st = lock_or_rpc_err!(state.gateway, "Gateway");
 
     let mut token_bytes = [0u8; 16];
     rand::rngs::OsRng.fill_bytes(&mut token_bytes);
     let pairing_token = gateway::hex_encode(&token_bytes);
 
-    let pin_num: u32 = (rand::random::<u32>() % 1_000_000) as u32;
+    let pin_num: u32 = rand::random::<u32>() % 1_000_000;
     let pin = format!("{pin_num:06}");
 
-    let session = st.start_pairing(pairing_token, pin);
+    let session = st.start_pairing_for_actor(actor_kind, pairing_token, pin);
 
     info!(
-        "[gateway] start_pairing: pin_expires_at_ms={}, pairing_expires_at_ms={}, attempts_left={}",
+        "[gateway] start_pairing: actor_kind={actor_kind:?}, pin_expires_at_ms={}, pairing_expires_at_ms={}, attempts_left={}",
         session.pin_expires_at_ms, session.token_expires_at_ms, session.attempts_left,
     );
 
     rpc_ok(GatewayPairingInfo {
+        actor_kind,
         pairing_token: session.pairing_token,
         pairing_expires_at_ms: session.token_expires_at_ms,
         pin: session.pin,
@@ -182,6 +239,44 @@ pub(crate) fn gateway_start_pairing(
         attempts_left: session.attempts_left,
         locked_until_ms: session.locked_until_ms,
     })
+}
+
+#[tauri::command]
+pub(crate) fn gateway_start_pairing(
+    state: tauri::State<'_, AppState>,
+) -> RpcResult<GatewayPairingInfo> {
+    if let Some(error) = browser_extension_guard_sync(&state) {
+        return error;
+    }
+    start_pairing_for_kind(&state, gateway::GatewayActorKind::BrowserExtension)
+}
+
+#[tauri::command]
+pub(crate) async fn gateway_start_agent_pairing(
+    state: tauri::State<'_, AppState>,
+) -> TauriRpcResult<GatewayPairingInfo> {
+    let _commit_guard = match state.env_runtime.commit_guard() {
+        Ok(guard) => guard,
+        Err(error) => return Ok(rpc_err(error.message, Some(error.code.to_string()))),
+    };
+    if let Some(error) = env_runtime_guard_sync(&state) {
+        return Ok(error);
+    }
+    let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
+    let save_snapshot = {
+        let mut gateway = lock_or_tauri_rpc_err!(state.gateway, "Gateway");
+        gateway.config.enabled = true;
+        gateway.config_save_snapshot()
+    };
+    let pairing = start_pairing_for_kind(&state, gateway::GatewayActorKind::CliAgent);
+    drop(_commit_guard);
+    gateway::save_config_snapshot_best_effort(
+        catalog_blocking_io_runtime,
+        save_snapshot,
+        "Gateway enable for CLI agent pairing",
+    )
+    .await;
+    Ok(pairing)
 }
 
 #[tauri::command]

@@ -39,6 +39,12 @@ pub(crate) fn command_policy(command: &str) -> CoreRpcCommandPolicy<'_> {
             cancels_low_priority: false,
             requires_split_handler: true,
         },
+        "wallet:transactions:sync" => CoreRpcCommandPolicy {
+            command,
+            priority: CoreRpcPriority::LowPriority,
+            cancels_low_priority: false,
+            requires_split_handler: true,
+        },
         _ => CoreRpcCommandPolicy {
             command,
             priority: CoreRpcPriority::UserBlocking,
@@ -91,6 +97,24 @@ mod tests {
     #[test]
     fn media_inspect_is_low_priority_split_only() {
         let policy = command_policy("catalog:media:inspect");
+
+        assert_eq!(policy.priority, CoreRpcPriority::LowPriority);
+        assert!(!policy.cancels_low_priority);
+        assert!(policy.requires_split_handler);
+    }
+
+    #[test]
+    fn wallet_balance_can_fall_back_for_profiles_without_a_split_handler() {
+        let policy = command_policy("wallet:balance:get");
+
+        assert_eq!(policy.priority, CoreRpcPriority::UserBlocking);
+        assert!(!policy.cancels_low_priority);
+        assert!(!policy.requires_split_handler);
+    }
+
+    #[test]
+    fn wallet_history_sync_is_low_priority_split_only() {
+        let policy = command_policy("wallet:transactions:sync");
 
         assert_eq!(policy.priority, CoreRpcPriority::LowPriority);
         assert!(!policy.cancels_low_priority);

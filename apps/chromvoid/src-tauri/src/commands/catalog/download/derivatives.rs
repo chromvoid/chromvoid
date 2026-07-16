@@ -525,6 +525,30 @@ pub(super) fn build_core_backed_image_derivative_stream_with_metadata_and_cancel
         }
     }
 
+    let adapter_mode = {
+        let adapter = adapter.lock().map_err(|_| {
+            (
+                "Adapter mutex poisoned".to_string(),
+                Some("INTERNAL".to_string()),
+            )
+        })?;
+        adapter.mode()
+    };
+    if adapter_mode.is_remote() {
+        tracing::debug!(
+            "image_derivative skipped_remote_cache_miss tier={} source_revision={} storage_version={} mode={:?} node_id={}",
+            tier.label(),
+            source_revision,
+            crate::image_preview::DERIVATIVE_STORAGE_VERSION,
+            adapter_mode,
+            node_id,
+        );
+        return Err((
+            "Image derivative generation is unavailable for remote sources".to_string(),
+            Some("DERIVATIVE_UNAVAILABLE".to_string()),
+        ));
+    }
+
     let derivative = if crate::image_preview::is_image_derivative_candidate(
         source_name,
         source_mime_type,

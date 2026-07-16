@@ -11,7 +11,11 @@ impl RpcRouter {
         };
         self.with_wallet_read_session_cleaned(|session, storage| {
             let accounts = load_accounts(session, storage, request.wallet_id.as_deref())?;
-            Ok(WalletAccountsListResponse { accounts })
+            let cached_balances = load_balance_caches(session, storage, &accounts)?;
+            Ok(WalletAccountsListResponse {
+                accounts,
+                cached_balances,
+            })
         })
     }
 
@@ -19,51 +23,76 @@ impl RpcRouter {
         &mut self,
         data: &Value,
     ) -> RpcResponse {
-        if let Some(response) = self.wallet_preflight(false) {
+        if let Some(response) = self.wallet_preflight() {
             return response;
-        }
-        if let Some(error) = reject_unsupported_network(data, "network") {
-            return error.into_rpc_response();
         }
         let request = match parse::<WalletAccountsDeriveRequest>(data) {
             Ok(request) => request,
             Err(error) => return error.into_rpc_response(),
         };
+        let profile = match self
+            .wallet_chain_registry
+            .enabled_profile(&request.network, &self.wallet_runtime_config)
+        {
+            Ok(profile) => profile,
+            Err(error) => return WalletCommandError::from(error).into_rpc_response(),
+        };
+
         self.with_wallet_session_cleaned_after_preflight(|session, storage| {
-            let wallet = load_wallet(session, storage, &request.wallet_id)?;
+            let mut wallet = load_wallet(session, storage, &request.wallet_id)?;
             if wallet.kind != "hd" {
                 return Err(WalletCommandError::unsupported_account_model(
                     "imported wallet does not support account derivation",
                 ));
             }
-            if !wallet.supported_networks.contains(&request.network) {
+            let adds_network = !wallet.supported_networks.contains(&request.network);
+            if adds_network && wallet.wallet_mode != MULTICHAIN_WALLET_MODE {
                 return Err(WalletCommandError::unsupported_chain(
                     "network is not enabled for wallet",
                 ));
             }
             let secret = load_secret(session, storage, &wallet.secret_ref)?;
-            let seed = hd_seed_from_secret(&secret)?;
+            let (mnemonic_standard, mnemonic_entropy, mnemonic_words, wordlist, bip39_passphrase) =
+                restore_hd_secret_material(&secret)?;
             let accounts = load_accounts(session, storage, Some(&wallet.wallet_id))?;
             let next_index = accounts
                 .iter()
-                .filter(|account| account.network == request.network)
-                .filter_map(|account| account.account_index)
+                .filter(|account| account.network() == &request.network)
+                .filter_map(WalletAccountMeta::account_index)
                 .max()
                 .map(|index| index + 1)
                 .unwrap_or(0);
+            let now = now_ms();
             let mut uow = begin_wallet_uow(session, storage, "wallet-accounts-derive");
-            let account = materialize_hd_account(
-                &mut uow,
-                None,
-                &wallet.wallet_id,
-                request.network,
-                next_index,
-                &seed,
-                now_ms(),
-            )?;
+            let materialization = profile
+                .materialize_hd_account(WalletHdAccountMaterializeInput {
+                    wallet_id: wallet.wallet_id.clone(),
+                    network: request.network.clone(),
+                    account_index: next_index,
+                    wallet_mode: wallet.wallet_mode.clone(),
+                    mnemonic_standard,
+                    mnemonic_entropy,
+                    mnemonic_words,
+                    wordlist,
+                    bip39_passphrase,
+                    now,
+                })
+                .map_err(WalletCommandError::from)?;
+            let account = materialize_profile_account(&mut uow, materialization)?;
+            if adds_network {
+                wallet.supported_networks.push(request.network.clone());
+                wallet.updated_at = now;
+                write_json(
+                    &mut uow,
+                    &wallet_meta_path(&wallet.wallet_id),
+                    "meta.json",
+                    &wallet,
+                    JSON_MIME,
+                )?;
+            }
             commit_wallet_uow(uow, session)?;
             Ok(WalletAccountsDeriveResponse {
-                account_id: account.account_id,
+                account_id: account.account_id().to_string(),
             })
         })
     }
@@ -72,6 +101,9 @@ impl RpcRouter {
         &mut self,
         data: &Value,
     ) -> RpcResponse {
+        if let Some(response) = self.wallet_preflight() {
+            return response;
+        }
         let request = match parse::<WalletAddressesDeriveRequest>(data) {
             Ok(request) => request,
             Err(error) => return error.into_rpc_response(),
@@ -79,71 +111,40 @@ impl RpcRouter {
         if request.purpose != "receive" && request.purpose != "change" {
             return invalid_input("purpose must be receive or change").into_rpc_response();
         }
-        self.with_wallet_session_cleaned(false, |session, storage| {
-            let mut account = load_account_by_id(session, storage, &request.account_id)?;
-            if account.network != WalletNetwork::Bitcoin
-                || account.kind != "derived"
-                || account.account_model.as_deref() != Some("utxo")
-            {
+        let registry = self.wallet_chain_registry.clone();
+        let config = self.wallet_runtime_config.clone();
+        self.with_wallet_session_cleaned_after_preflight(|session, storage| {
+            let account = load_account_by_id(session, storage, &request.account_id)?;
+            if account.account_model() != Some("utxo") {
                 return Err(WalletCommandError::unsupported_account_model(
-                    "address derivation is supported only for Bitcoin derived accounts",
+                    "address derivation requires a derived utxo account",
                 ));
             }
-            let wallet = load_wallet(session, storage, &account.wallet_id)?;
+            let profile = registry
+                .enabled_profile(account.network(), &config)
+                .map_err(WalletCommandError::from)?;
+            let wallet = load_wallet(session, storage, account.wallet_id())?;
             let secret = load_secret(session, storage, &wallet.secret_ref)?;
-            let seed = hd_seed_from_secret(&secret)?;
-            let index = if request.purpose == "receive" {
-                account.next_receive_index.unwrap_or(0)
-            } else {
-                account.next_change_index.unwrap_or(0)
-            };
-            let chain = if request.purpose == "receive" { 0 } else { 1 };
-            let derivation_path =
-                bitcoin_derivation_path(account.account_index.unwrap_or(0), chain, index);
-            let address = derive_address(WalletNetwork::Bitcoin, &seed, &derivation_path);
-            let public_key = derive_public_key(&seed, &derivation_path);
-            let now = now_ms();
-            let allocated = AllocatedAddressV1 {
-                account_id: account.account_id.clone(),
-                purpose: request.purpose.clone(),
-                index,
-                address: address.clone(),
-                public_key: public_key.clone(),
-                derivation_path: derivation_path.clone(),
-                created_at: now,
-                last_observed_at: None,
-            };
-            let mut uow = begin_wallet_uow(session, storage, "wallet-addresses-derive");
-            write_json(
-                &mut uow,
-                &address_file_path(
-                    &account.wallet_id,
-                    &account.account_id,
-                    &request.purpose,
-                    index,
-                ),
-                &format!("{}-{index}.json", request.purpose),
-                &allocated,
-                JSON_MIME,
+            let allocated_addresses = load_account_addresses(
+                session,
+                storage,
+                account.wallet_id(),
+                account.account_id(),
             )?;
-            if request.purpose == "receive" {
-                account.next_receive_index = Some(index + 1);
-                account.current_receive_address = Some(address.clone());
-                account.current_receive_derivation_path = Some(derivation_path.clone());
-            } else {
-                account.next_change_index = Some(index + 1);
-            }
-            account.updated_at = now;
-            save_account(&mut uow, &account)?;
+            let output = profile
+                .derive_address(crate::wallet::WalletAddressDeriveInput {
+                    account,
+                    secret: Some(secret.payload),
+                    allocated_addresses,
+                    purpose: request.purpose.clone(),
+                    now: now_ms(),
+                })
+                .map_err(WalletCommandError::from)?;
+            let mut uow = begin_wallet_uow(session, storage, "wallet-addresses-derive");
+            materialize_profile_addresses(&mut uow, &output.account, vec![output.address.clone()])?;
+            save_account(&mut uow, &output.account)?;
             commit_wallet_uow(uow, session)?;
-            Ok(WalletAddressesDeriveResponse {
-                account_id: account.account_id,
-                purpose: request.purpose,
-                address,
-                public_key,
-                derivation_path,
-                index,
-            })
+            Ok(output.response)
         })
     }
 }

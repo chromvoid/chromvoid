@@ -98,6 +98,7 @@ pub(in crate::volume_fuse::imp) fn handle_mkdir(
         parent_ino: parent,
         is_dir: true,
         size: 0,
+        source_revision: 0,
         modified: Some(SystemTime::now()),
     });
 

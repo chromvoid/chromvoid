@@ -1,8 +1,35 @@
 # ChromVoid
 
-ChromVoid is a local-first encrypted vault for passwords, OTP, notes, files, and related secret workflows.
+Local-first encrypted vault for passwords, OTP, notes, files, and related secret workflows.
 
-It is built for people who want control over where their secrets live: on a local device, or on a phone that acts as the source of truth. ChromVoid does not make a cloud account the source of truth for your vault.
+[![Latest release](https://img.shields.io/github/v/release/chromvoid/chromvoid?label=release)](https://github.com/chromvoid/chromvoid/releases/latest)
+[![Android APK](https://img.shields.io/badge/Android-APK-00e5ff)](https://github.com/chromvoid/chromvoid/releases/latest/download/chromvoid-android-universal.apk)
+[![Security policy](https://img.shields.io/badge/security-policy-00f5a0)](SECURITY.md)
+[![License](https://img.shields.io/badge/license-AGPL--3.0%20%2B%20Commercial-b388ff)](LICENSING.md)
+
+[Download Android](https://github.com/chromvoid/chromvoid/releases/latest/download/chromvoid-android-universal.apk) ·
+[Latest release](https://github.com/chromvoid/chromvoid/releases/latest) ·
+[Threat Model](https://chromvoid.com/en/threat-model/) ·
+[Security Policy](SECURITY.md) ·
+[Website](https://chromvoid.com/en/)
+
+![ChromVoid local-first encrypted vault preview](backend/landings/src/assets/social/github-social-preview.png)
+
+ChromVoid is built for people who want control over where their secrets live: on a local device, or on a phone that acts as the source of truth. It does not make a cloud account the source of truth for your vault.
+
+## Why ChromVoid
+
+- **Local-first vault** - secrets stay with you, locally or on your phone-held host.
+- **Thin browser integration** - the browser extension is not a second vault.
+- **Autofill without cloud storage** - supported autofill paths depend on local vault state, not a background cloud password database.
+- **Deniability-oriented design** - decoy and hidden vaults are threat-model-bound, not magic.
+- **Open security posture** - the threat model, security policy, and repository are public.
+
+## Try the Android build
+
+- Download the current APK: [chromvoid-android-universal.apk](https://github.com/chromvoid/chromvoid/releases/latest/download/chromvoid-android-universal.apk).
+- Release notes and checksums live with the [latest GitHub release](https://github.com/chromvoid/chromvoid/releases/latest).
+- Review the [Threat Model](https://chromvoid.com/en/threat-model/) before relying on deniability-oriented behavior.
 
 ## What ChromVoid helps with
 
@@ -42,6 +69,13 @@ chromvoid/
 ```
 
 The codebase is organized around a Rust core, a shared WebView application UI, browser and platform integrations, and reusable TypeScript packages. Technical details live in the relevant package, crate, and feature documentation rather than in this README.
+
+## Feedback and contributions
+
+- Bug reports and feature requests should use the GitHub issue templates.
+- Security vulnerabilities should be reported privately through [SECURITY.md](SECURITY.md).
+- Contribution expectations are documented in [CONTRIBUTING.md](CONTRIBUTING.md).
+- Community conduct expectations are documented in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## License
 

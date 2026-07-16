@@ -12,6 +12,7 @@ import {dialogService} from 'root/shared/services/dialog-service'
 import {toast} from 'root/shared/services/toast-manager'
 import {PMEntryModel} from '../components/card/entry/entry.model'
 import {PMGroupModel} from '../components/group/group/group.model'
+import {pmSshKeysViewModel} from '../components/ssh-keys-view/ssh-keys-view.model'
 import {
   groupBy,
   sortDirection,
@@ -38,11 +39,20 @@ export type PMShowElement = PMRootShowElement
 
 export type PMMobileToolbarContext = {
   title: string
+  subtitle?: string
+  meta?: PMMobileToolbarMetaItem[]
+  metaLabel?: string
   canGoBack: boolean
   backDisabled: boolean
-  showCommand: boolean
   maxVisible: number
   overflowFromIndex?: number
+}
+
+export type PMMobileToolbarMetaItem = {
+  id: string
+  icon: string
+  label: string
+  value: string
 }
 
 export type PMMobileToolbarAction = {
@@ -52,6 +62,8 @@ export type PMMobileToolbarAction = {
   disabled?: boolean
   active?: boolean
   tone?: 'accent'
+  overflowOnly?: boolean
+  preserveFocusOnPress?: boolean
 }
 
 export type PMMobileCommandKind = 'passwords-list' | 'passwords-entry' | 'passwords-selection' | 'none'
@@ -77,11 +89,13 @@ class PMMobileChromeModel {
 
   getToolbarContext(): PMMobileToolbarContext {
     if (pmMobileSelectionModel.active()) {
+      const meta = this.getSelectionMeta()
       return {
-        title: `${i18n('details:selected' as any)}: ${pmMobileSelectionModel.selectedCount()}`,
+        title: i18n('details:selected' as any),
+        meta,
+        metaLabel: this.getSelectionMetaLabel(meta),
         canGoBack: true,
         backDisabled: false,
-        showCommand: false,
         maxVisible: 4,
       }
     }
@@ -90,9 +104,9 @@ class PMMobileChromeModel {
     if (!showElement) {
       return {
         title: i18n('root:title'),
+        subtitle: this.getRootSubtitle(),
         canGoBack: false,
         backDisabled: false,
-        showCommand: false,
         maxVisible: 3,
       }
     }
@@ -101,21 +115,26 @@ class PMMobileChromeModel {
     const isGroupEditActive = this.isGroupEditActive()
     const isEntryView = showElement instanceof Entry
     const hasActiveFilters = this.hasActiveFilters()
+    const subtitle = this.getContextSubtitle(showElement)
 
     const entryReadView = isEntryView && !isEntryEdit
     const canGoBack =
-      showElement === 'otpView'
+      showElement === 'otpView' || showElement === 'sshView'
         ? false
         : !(showElement instanceof ManagerRoot) || isEntryEdit || isGroupEditActive
 
     return {
       title: this.getContextTitle(showElement),
+      ...(subtitle ? {subtitle} : {}),
       canGoBack,
       backDisabled: false,
-      showCommand: false,
       maxVisible: entryReadView ? 3 : isEntryView ? 4 : hasActiveFilters ? 4 : 3,
       ...(entryReadView ? {overflowFromIndex: 2} : {}),
     }
+  }
+
+  getRootSubtitle(): string {
+    return i18n('root:subtitle')
   }
 
   getToolbarActions(): PMMobileToolbarAction[] {
@@ -125,6 +144,10 @@ class PMMobileChromeModel {
 
     const ctx = this.getCommandContext()
     const isReadOnly = ctx.readOnly
+
+    if (this.getCurrentShowElement() === 'sshView') {
+      return [{id: 'pm-create-ssh-key', icon: 'key', label: i18n('ssh:add'), disabled: isReadOnly}]
+    }
 
     if (ctx.kind === 'passwords-selection') {
       return [
@@ -138,7 +161,7 @@ class PMMobileChromeModel {
         {id: 'pm-create-group', icon: 'folder-plus', label: i18n('group:create:title'), disabled: isReadOnly},
         {id: 'pm-create-entry', icon: 'plus-lg', label: i18n('button:create_entry'), disabled: isReadOnly},
         ...(ctx.hasActiveFilters
-          ? [{id: 'pm-search-clear-query', icon: 'x', label: i18n('command-bar:reset-filters' as any), tone: 'accent' as const}]
+          ? [{id: 'pm-search-clear-query', icon: 'x', label: i18n('button:reset'), tone: 'accent' as const}]
           : []),
       ]
       if (this.isInNonRootGroup()) {
@@ -208,6 +231,10 @@ class PMMobileChromeModel {
     const isReadOnly = commandContext.readOnly
 
     switch (actionId) {
+      case 'pm-create-ssh-key':
+        if (this.getCurrentShowElement() !== 'sshView' || isReadOnly) return false
+        pmSshKeysViewModel.openCreate()
+        return true
       case 'pm-create-entry':
         if (!isListContext || isReadOnly) return false
         pmModel.onCreateEntry()
@@ -337,9 +364,40 @@ class PMMobileChromeModel {
     return (
       filterValue().trim().length > 0 ||
       quickFilters().length > 0 ||
-      selectedCredentialTagFilters().length > 0 ||
-      this.hasActiveSortGrouping()
+      selectedCredentialTagFilters().length > 0
     )
+  }
+
+  private getSelectionMeta(): PMMobileToolbarMetaItem[] {
+    const entryCount = pmMobileSelectionModel.selectedEntryIds().length
+    const groupCount = pmMobileSelectionModel.selectedGroupIds().length
+    const meta: PMMobileToolbarMetaItem[] = []
+
+    if (entryCount > 0) {
+      meta.push({
+        id: 'entries',
+        icon: 'key',
+        label: i18n('group:entries' as any),
+        value: String(entryCount),
+      })
+    }
+
+    if (groupCount > 0) {
+      meta.push({
+        id: 'groups',
+        icon: 'folder',
+        label: i18n('group:groups' as any),
+        value: String(groupCount),
+      })
+    }
+
+    return meta
+  }
+
+  private getSelectionMetaLabel(meta: PMMobileToolbarMetaItem[]): string {
+    const selectedLabel = i18n('details:selected' as any)
+    if (meta.length === 0) return selectedLabel
+    return `${selectedLabel}: ${meta.map((item) => `${item.label}: ${item.value}`).join(', ')}`
   }
 
   private isReadOnly(): boolean {
@@ -361,14 +419,23 @@ class PMMobileChromeModel {
 
   private getContextTitle(showElement: Exclude<PMShowElement, undefined>): string {
     if (showElement === 'createEntry') return i18n('entry:create:title')
-    if (showElement === 'createGroup') return i18n('group:create:title')
+    if (showElement === 'createGroup') return i18n('group:create:mobile-title')
     if (showElement === 'importDialog') return i18n('import:dialog:title')
     if (showElement === 'otpView') return i18n('otp:quick_view:title' as never)
+    if (showElement === 'sshView') return i18n('ssh:keys_view:title' as never)
     if (this.isGroupEditActive()) return i18n('group:edit:title')
     if (showElement instanceof Entry) return showElement.title || i18n('no_title')
     if (showElement instanceof Group) return showElement.name || i18n('no_title')
     if (showElement instanceof ManagerRoot) return i18n('root:title')
     return i18n('root:title')
+  }
+
+  private getContextSubtitle(showElement: Exclude<PMShowElement, undefined>): string | undefined {
+    if (showElement instanceof ManagerRoot) return this.getRootSubtitle()
+    if (showElement === 'createGroup') return i18n('group:create:mobile-subtitle')
+    if (showElement === 'otpView') return i18n('otp:quick_view:subtitle' as never)
+    if (showElement === 'sshView') return i18n('ssh:keys_view:subtitle' as never)
+    return undefined
   }
 
   private isInNonRootGroup(): boolean {

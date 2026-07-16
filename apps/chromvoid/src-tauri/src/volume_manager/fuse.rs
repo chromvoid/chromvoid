@@ -1,12 +1,16 @@
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use super::cleanup_fuse_staging_dir;
 use super::models::FuseDriverStatus;
+
+#[cfg(target_os = "macos")]
+const MACFUSE_MOUNT_HELPER_PATH: &str =
+    "/Library/Filesystems/macfuse.fs/Contents/Resources/mount_macfuse";
 
 /// Detect if FUSE driver is available on the current platform.
 pub fn detect_fuse_driver() -> FuseDriverStatus {
@@ -22,18 +26,30 @@ pub fn detect_fuse_driver() -> FuseDriverStatus {
 
     #[cfg(target_os = "macos")]
     {
-        // Check for macFUSE installation
-        // macFUSE installs to /Library/Filesystems/macfuse.fs
-        if std::path::Path::new("/Library/Filesystems/macfuse.fs").exists() {
-            FuseDriverStatus::Available
-        } else {
-            FuseDriverStatus::Missing
-        }
+        detect_macos_fuse_driver_at(std::path::Path::new(MACFUSE_MOUNT_HELPER_PATH))
     }
 
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         FuseDriverStatus::Unsupported
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn detect_macos_fuse_driver_at(mount_helper: &std::path::Path) -> FuseDriverStatus {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let Ok(metadata) = mount_helper.metadata() else {
+        return FuseDriverStatus::Missing;
+    };
+    let Ok(path) = std::ffi::CString::new(mount_helper.as_os_str().as_bytes()) else {
+        return FuseDriverStatus::Missing;
+    };
+
+    if metadata.is_file() && unsafe { libc::access(path.as_ptr(), libc::X_OK) } == 0 {
+        FuseDriverStatus::Available
+    } else {
+        FuseDriverStatus::Missing
     }
 }
 
@@ -112,5 +128,40 @@ impl FuseSessionHandle {
 impl Drop for FuseSessionHandle {
     fn drop(&mut self) {
         self.shutdown();
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    use tempfile::tempdir;
+
+    use super::{FuseDriverStatus, detect_macos_fuse_driver_at};
+
+    #[test]
+    fn macfuse_detection_requires_executable_mount_helper() {
+        let root = tempdir().expect("tempdir");
+        let helper = root.path().join("mount_macfuse");
+
+        assert_eq!(
+            detect_macos_fuse_driver_at(&helper),
+            FuseDriverStatus::Missing
+        );
+
+        std::fs::write(&helper, b"helper").expect("write helper fixture");
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o644))
+            .expect("set non-executable permissions");
+        assert_eq!(
+            detect_macos_fuse_driver_at(&helper),
+            FuseDriverStatus::Missing
+        );
+
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755))
+            .expect("set executable permissions");
+        assert_eq!(
+            detect_macos_fuse_driver_at(&helper),
+            FuseDriverStatus::Available
+        );
     }
 }

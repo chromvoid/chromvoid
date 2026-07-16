@@ -146,6 +146,12 @@ mod tests {
         assert_eq!(info.audio_tracks, 0);
         assert_eq!(info.video_tracks, 1);
         assert_eq!(info.playback_mime_type.as_deref(), Some("video/mp4"));
+        assert_eq!(
+            info.streaming_metadata
+                .as_ref()
+                .and_then(|metadata| metadata.moov_at_start),
+            Some(true)
+        );
     }
 
     #[test]
@@ -177,6 +183,25 @@ mod tests {
         assert_eq!(info.kind, CatalogMediaKind::Audio);
         assert_eq!(info.audio_tracks, 1);
         assert_eq!(info.video_tracks, 0);
+        assert_eq!(
+            info.streaming_metadata
+                .as_ref()
+                .and_then(|metadata| metadata.moov_at_start),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn marks_fragmented_mp4_only_when_moof_is_present() {
+        let mut bytes = minimal_file(&["vide"]);
+        bytes.extend(full_box(*b"moof", &[]));
+
+        let info = inspect_fixture("fragmented.mp4", Some("video/mp4"), bytes)
+            .expect("inspection should not fail")
+            .expect("fragmented MP4 should be classified");
+
+        assert_eq!(info.kind, CatalogMediaKind::Video);
+        assert_eq!(info.mse_fragmented, Some(true));
     }
 
     #[test]

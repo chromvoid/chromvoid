@@ -5,5 +5,7 @@ export type WalletBackupExportResponse = {
   export_kind: string
   mnemonic: Array<string>
   wordlist: string
+  wallet_mode: string
+  mnemonic_standard: string
   bip39_passphrase: string | null
 }

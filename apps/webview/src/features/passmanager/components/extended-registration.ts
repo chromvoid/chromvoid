@@ -9,6 +9,7 @@ import {PMEntryOTPCreate, PMEntryOTPCreateSheet} from './card/entry-otp-create'
 import {PMEntrySshGenerator} from './card/entry-ssh'
 import {PMEntryMove, PMEntryMoveMobile, PMEntryMoveSheet} from './card/pm-entry-move'
 import {PMGroupCreateDesktop, PMGroupCreateMobile} from './group/group-create'
+import {PMEnvRuntimePage} from './env-runtime/env-runtime-page'
 import {PMIconPicker} from './pm-icon-picker'
 import {PMIconPickerMobile} from './pm-icon-picker.mobile'
 
@@ -37,4 +38,5 @@ export function registerPassmanagerExtendedComponents(): void {
   defineOnce('pm-icon-picker-mobile', () => PMIconPickerMobile.define())
   defineOnce(PMEntrySshGenerator.elementName, () => PMEntrySshGenerator.define())
   defineOnce('pm-import-dialog', () => ImportDialog.define())
+  defineOnce(PMEnvRuntimePage.elementName, () => PMEnvRuntimePage.define())
 }

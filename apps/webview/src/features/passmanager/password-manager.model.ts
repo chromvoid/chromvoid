@@ -1,4 +1,4 @@
-import {atom} from '@reatom/core'
+import {atom, wrap} from '@reatom/core'
 
 import {Entry, Group, ManagerRoot} from '@project/passmanager/core'
 import {syncUiModeWithQuery} from '@project/passmanager/flags'
@@ -8,6 +8,7 @@ import {navigationModel} from 'root/app/navigation/navigation.model'
 import {defaultLogger} from 'root/core/logger'
 import {i18n as appI18n} from 'root/i18n'
 import {toast} from 'root/shared/services/toast-manager'
+import {subscribeAfterInitial, type Unsubscribe} from 'root/shared/services/subscribed-signal'
 import {pmIconStore} from './models/pm-icon-store'
 import {
   finishAndroidPasswordSave,
@@ -53,24 +54,111 @@ function shouldExposePassmanagerRootForDebug(): boolean {
 }
 
 export class PasswordManagerModel {
-  managerSaver!: ManagerSaver
+  private managerSaver?: ManagerSaver
 
-  readonly alive = atom(false)
+  readonly alive = atom(false, 'passmanager.sessionAlive')
+  readonly sessionStatus = atom<PassmanagerSessionStatus>('inactive', 'passmanager.sessionStatus')
   readonly root = passmanagerRoot
 
   private readonly logger = defaultLogger
+  private sessionKey: string | null = null
+  private sessionGeneration = 0
+  private settlementPromise: Promise<PassmanagerSessionStatus> | null = null
+  private settleSession: ((status: PassmanagerSessionStatus) => void) | null = null
+  private rootUnsubscribers: Unsubscribe[] = []
+
+  configure(managerSaver: ManagerSaver): void {
+    if (this.managerSaver === managerSaver) return
+    if (this.alive()) this.disposeSession()
+    this.managerSaver = managerSaver
+  }
+
+  prepareSession(sessionKey: string): Promise<PassmanagerSessionStatus> {
+    if (!this.managerSaver) {
+      this.sessionStatus.set('error')
+      return Promise.resolve('error')
+    }
+
+    if (this.sessionKey === sessionKey && this.alive()) {
+      return this.whenSessionSettled()
+    }
+
+    this.disposeSession()
+    this.sessionKey = sessionKey
+    const generation = this.sessionGeneration
+    const root = this.createSessionRoot(this.managerSaver)
+    this.beginSettlement()
+    this.sessionStatus.set('loading')
+    this.observeRootSettlement(root, generation)
+    void this.loadSessionRoot(root, generation)
+
+    return this.whenSessionSettled()
+  }
+
+  whenSessionSettled(): Promise<PassmanagerSessionStatus> {
+    if (this.settlementPromise) return this.settlementPromise
+    if (this.sessionStatus() !== 'inactive') return Promise.resolve(this.sessionStatus())
+
+    return Promise.resolve().then(() => this.settlementPromise ?? this.sessionStatus())
+  }
+
+  retrySessionLoad(): Promise<PassmanagerSessionStatus> {
+    const root = getPassmanagerRoot()
+    if (!root || !this.sessionKey) return Promise.resolve(this.sessionStatus())
+    if (this.sessionStatus() === 'loading') return this.whenSessionSettled()
+
+    const generation = this.sessionGeneration
+    this.beginSettlement()
+    this.sessionStatus.set('loading')
+    void this.loadSessionRoot(root, generation)
+    return this.whenSessionSettled()
+  }
 
   init(): void {
     if (this.alive()) return
+    void this.prepareSession('legacy-component-session')
+  }
 
+  cleanup(): void {
+    this.disposeSession()
+  }
+
+  deactivateSurface(): void {
+    pmActiveRowModel.clearAll()
+    pmMobileSelectionModel.exit()
+    if (hasActiveAndroidPasswordSaveToken()) {
+      void finishAndroidPasswordSave('dismissed')
+    }
+  }
+
+  disposeSession(): void {
+    this.sessionGeneration += 1
+    this.clearRootSubscriptions()
+    this.settleCurrentSession('inactive')
+    this.sessionKey = null
+
+    if (!this.alive()) return
+
+    this.deactivateSurface()
+
+    getPassmanagerRoot()?.clean()
+    pmCredentialSecurityAuditModel.dispose()
+    this.clearDebugRoot()
+    clearPassmanagerRoot()
+    pmIconStore.dispose()
+    navigationModel.detachPassmanager()
+
+    this.alive.set(false)
+  }
+
+  private createSessionRoot(managerSaver: ManagerSaver): ManagerRoot {
     pmActiveRowModel.clearAll()
     pmMobileSelectionModel.exit()
     initPassmanagerDialogAdapter()
-    const root = new ManagerRoot(this.managerSaver)
+    const root = new ManagerRoot(managerSaver)
     setPassmanagerRoot(root)
     pmCredentialSecurityAuditModel.attachRoot(root)
     this.exposeRootForDebug(root)
-    root.load()
     passmanagerNavigationController.reset()
     navigationModel.attachPassmanager(root)
 
@@ -83,25 +171,62 @@ export class PasswordManagerModel {
     if (hasAndroidPasswordSavePrefill()) {
       passmanagerNavigationController.openCreateEntry()
     }
+
+    return root
   }
 
-  cleanup(): void {
-    if (!this.alive()) return
+  private observeRootSettlement(root: ManagerRoot, generation: number): void {
+    const reconcile = () => this.reconcileRootSettlement(root, generation)
+    this.rootUnsubscribers = [
+      subscribeAfterInitial(root.entries, reconcile),
+      subscribeAfterInitial(root.isLoading, reconcile),
+    ]
+  }
 
-    pmActiveRowModel.clearAll()
-    pmMobileSelectionModel.exit()
-    if (hasActiveAndroidPasswordSaveToken()) {
-      void finishAndroidPasswordSave('dismissed')
+  private async loadSessionRoot(root: ManagerRoot, generation: number): Promise<void> {
+    try {
+      await wrap(root.load())
+    } catch (error) {
+      if (this.isCurrentSession(root, generation)) {
+        this.logger.error('[PassManager][Session] root load failed', error)
+        this.settleCurrentSession('error')
+      }
+      return
     }
 
-    getPassmanagerRoot()?.clean()
-    pmCredentialSecurityAuditModel.dispose()
-    this.clearDebugRoot()
-    clearPassmanagerRoot()
-    pmIconStore.dispose()
-    navigationModel.detachPassmanager()
+    this.reconcileRootSettlement(root, generation)
+  }
 
-    this.alive.set(false)
+  private reconcileRootSettlement(root: ManagerRoot, generation: number): void {
+    if (!this.isCurrentSession(root, generation)) return
+    if (root.entries() !== undefined) {
+      this.settleCurrentSession('ready')
+      return
+    }
+    if (!root.isLoading()) {
+      this.settleCurrentSession('error')
+    }
+  }
+
+  private isCurrentSession(root: ManagerRoot, generation: number): boolean {
+    return generation === this.sessionGeneration && getPassmanagerRoot() === root
+  }
+
+  private beginSettlement(): void {
+    this.settlementPromise = new Promise<PassmanagerSessionStatus>((resolve) => {
+      this.settleSession = resolve
+    })
+  }
+
+  private settleCurrentSession(status: PassmanagerSessionStatus): void {
+    this.sessionStatus.set(status)
+    this.settleSession?.(status)
+    this.settleSession = null
+    this.settlementPromise = null
+  }
+
+  private clearRootSubscriptions(): void {
+    for (const unsubscribe of this.rootUnsubscribers.splice(0)) unsubscribe()
   }
 
   private exposeRootForDebug(root: ManagerRoot): void {
@@ -123,6 +248,14 @@ export class PasswordManagerModel {
 
   openOtpView(): void {
     navigationModel.openPassmanagerRoute({kind: 'otp-view'})
+  }
+
+  openSshView(): void {
+    navigationModel.openPassmanagerRoute({kind: 'ssh-view'})
+  }
+
+  openEnvRuntimeView(): void {
+    navigationModel.openPassmanagerRoute({kind: 'env-runtime-view'})
   }
 
   consumeRestoreSelection(containerId: string): string | undefined {
@@ -197,5 +330,7 @@ export class PasswordManagerModel {
     }
   }
 }
+
+export type PassmanagerSessionStatus = 'inactive' | 'loading' | 'ready' | 'error'
 
 export const pmModel = new PasswordManagerModel()

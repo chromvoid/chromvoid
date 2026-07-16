@@ -11,6 +11,7 @@ import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.GetCredentialInterruptedException
 import androidx.credentials.exceptions.GetCredentialUnknownException
+import androidx.credentials.exceptions.NoCredentialException
 import androidx.credentials.provider.PendingIntentHandler
 import androidx.fragment.app.FragmentActivity
 import com.chromvoid.app.credentialprovider.BridgeError
@@ -205,7 +206,7 @@ class ChromVoidPasskeyGetActivityTest {
     }
 
     @Test
-    fun coreGetFailure_mapsToUnknown() {
+    fun coreGetNoMatch_mapsToNoCredential() {
         val requestStore = FakeRequestStore().apply {
             put(PendingPasskeyRequest("req-get-4", "get", "example.com"))
         }
@@ -234,8 +235,38 @@ class ChromVoidPasskeyGetActivityTest {
                 intent = getIntent("req-get-4", "cred-a"),
             )
 
-        assertTrue(capture.exception is GetCredentialUnknownException)
+        assertTrue(capture.exception is NoCredentialException)
         assertNull(requestStore.get("req-get-4"))
+    }
+
+    @Test
+    fun coreGetDispatcherRejection_mapsToInterruptedOnce() {
+        val requestStore = FakeRequestStore().apply {
+            put(PendingPasskeyRequest("req-get-dispatch-rejected", "get", "example.com"))
+        }
+        val resolver =
+            FakeResolver().apply {
+                getResolution =
+                    GetRequestResolution.Success(
+                        ResolvedGetPasskeyRequest(
+                            requestData = GetPasskeyRequestData("example.com", "challenge-b64", emptySet()),
+                            requestJson = sampleGetRequestJson(),
+                            origin = "https://app.example",
+                            clientDataHash = byteArrayOf(0x04),
+                        ),
+                    )
+            }
+
+        val capture =
+            runGetFlow(
+                requestStore = requestStore,
+                resolver = resolver,
+                intent = getIntent("req-get-dispatch-rejected", "cred-a"),
+                bridgeDispatcher = { _, _ -> false },
+            )
+
+        assertTrue(capture.exception is GetCredentialInterruptedException)
+        assertNull(requestStore.get("req-get-dispatch-rejected"))
     }
 
     @Test
@@ -460,6 +491,31 @@ class ChromVoidPasskeyCreateActivityTest {
     }
 
     @Test
+    fun coreCreateDispatcherRejection_mapsToInterruptedOnce() {
+        val requestStore = FakeRequestStore().apply {
+            put(PendingPasskeyRequest("req-create-dispatch-rejected", "create", "example.com"))
+        }
+        val resolver =
+            FakeResolver().apply {
+                createResolution =
+                    CreateRequestResolution.Success(
+                        ResolvedCreatePasskeyRequest(sampleCreateRequestData(), sampleCreateRequestJson(), "https://app.example", null),
+                    )
+            }
+
+        val capture =
+            runCreateFlow(
+                requestStore = requestStore,
+                resolver = resolver,
+                intent = createIntent("req-create-dispatch-rejected"),
+                bridgeDispatcher = { _, _ -> false },
+            )
+
+        assertTrue(capture.exception is CreateCredentialInterruptedException)
+        assertNull(requestStore.get("req-create-dispatch-rejected"))
+    }
+
+    @Test
     fun responseSerializationFailure_mapsToUnknown() {
         val requestStore = FakeRequestStore().apply {
             put(PendingPasskeyRequest("req-create-6", "create", "example.com"))
@@ -499,6 +555,10 @@ private fun runGetFlow(
     biometric: FakeBiometric = FakeBiometric(),
     resolver: FakeResolver = FakeResolver(),
     responseWriter: FakeResponseWriter = FakeResponseWriter(),
+    bridgeDispatcher: (owner: String, task: () -> Unit) -> Boolean = { _, task ->
+        task()
+        true
+    },
     intent: Intent,
 ): GetCapture {
     val activity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
@@ -508,6 +568,7 @@ private fun runGetFlow(
         requestRegistry = requestStore,
         requestResolver = resolver,
         responseWriter = responseWriter,
+        bridgeDispatcher = bridgeDispatcher,
     ).execute(
         activity = activity,
         intent = intent,
@@ -532,6 +593,10 @@ private fun runCreateFlow(
     biometric: FakeBiometric = FakeBiometric(),
     resolver: FakeResolver = FakeResolver(),
     responseWriter: FakeResponseWriter = FakeResponseWriter(),
+    bridgeDispatcher: (owner: String, task: () -> Unit) -> Boolean = { _, task ->
+        task()
+        true
+    },
     intent: Intent,
 ): CreateCapture {
     val activity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
@@ -541,6 +606,7 @@ private fun runCreateFlow(
         requestRegistry = requestStore,
         requestResolver = resolver,
         responseWriter = responseWriter,
+        bridgeDispatcher = bridgeDispatcher,
     ).execute(
         activity = activity,
         intent = intent,

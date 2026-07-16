@@ -2,11 +2,12 @@ import {expect, test} from 'vitest'
 
 import {waitForAuthenticated} from './utils'
 
+import type {Page} from 'playwright'
 declare global {
-  var __E2E_PAGE__: import('playwright').Page | undefined
+  var __E2E_PAGE__: Page | undefined
 }
 
-async function assertRootTheme(page: import('playwright').Page, theme: 'light' | 'dark') {
+async function assertRootTheme(page: Page, theme: 'light' | 'dark') {
   await expect(
     page.evaluate(() => ({
       dataTheme: document.documentElement.getAttribute('data-theme'),
@@ -15,7 +16,17 @@ async function assertRootTheme(page: import('playwright').Page, theme: 'light' |
   ).resolves.toEqual({dataTheme: theme, theme})
 }
 
-async function waitForSurfaceReady(page: import('playwright').Page) {
+async function getDocumentLocaleState(page: Page) {
+  return page.evaluate(() => ({
+    currentLanguage: localStorage.getItem('current-lang'),
+    direction: document.documentElement.dir,
+    filesLabel: window.i18n?.('navigation:files' as any),
+    interactiveLocale: Reflect.get(globalThis, '__documentLocaleAtInteractive'),
+    language: document.documentElement.lang,
+  }))
+}
+
+async function waitForSurfaceReady(page: Page) {
   await page.waitForFunction(
     () => {
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -33,17 +44,22 @@ async function waitForSurfaceReady(page: import('playwright').Page) {
       const rootReady = !document.documentElement.hasAttribute('loading')
       const bodyReady = !document.body.hasAttribute('loading')
       const routeReady = Boolean(
-        deepFind(document, 'chromvoid-file-manager, password-manager, notes-quick-view, notes-quick-view-mobile'),
+        deepFind(
+          document,
+          'chromvoid-file-manager, password-manager, notes-quick-view, notes-quick-view-mobile',
+        ),
       )
 
-      return rootReady && bodyReady && routeReady && !deepFind(document, 'welcome-page, no-license, no-connection')
+      return (
+        rootReady && bodyReady && routeReady && !deepFind(document, 'welcome-page, no-license, no-connection')
+      )
     },
     undefined,
     {timeout: 10_000},
   )
 }
 
-async function openNavigationItem(page: import('playwright').Page, label: string) {
+async function openNavigationItem(page: Page, label: string) {
   await page.evaluate((nextLabel) => {
     function deepCollect(root: Document | ShadowRoot, selector: string, acc: Element[] = []): Element[] {
       for (const el of root.querySelectorAll(selector)) {
@@ -68,7 +84,7 @@ async function openNavigationItem(page: import('playwright').Page, label: string
   }, label)
 }
 
-async function assertSurfaceThemeStability(page: import('playwright').Page, theme: 'light' | 'dark') {
+async function assertSurfaceThemeStability(page: Page, theme: 'light' | 'dark') {
   await page.goto('http://localhost:4400/index.html?surface=files&layout=desktop')
   await page.evaluate((nextTheme) => {
     const timestamp = Date.now()
@@ -176,6 +192,64 @@ test('S14: Switching theme and language', async () => {
   expect(afterFilesLabel).toBe('Файлы')
   await expect(page.evaluate(() => localStorage.getItem('current-lang'))).resolves.toBe('ru')
   await expect(page.evaluate(() => document.documentElement.lang)).resolves.toBe('ru')
+})
+
+test('S14: Arabic bootstraps in RTL and switches back to LTR without reload drift', async () => {
+  const page = globalThis.__E2E_PAGE__!
+
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('rtl-e2e-seeded') !== '1') {
+      localStorage.setItem('current-lang', 'ar')
+      sessionStorage.setItem('rtl-e2e-seeded', '1')
+    }
+
+    document.addEventListener('readystatechange', () => {
+      if (document.readyState === 'interactive') {
+        Reflect.set(globalThis, '__documentLocaleAtInteractive', {
+          dir: document.documentElement.dir,
+          lang: document.documentElement.lang,
+        })
+      }
+    })
+  })
+
+  await page.goto('http://localhost:4400/index.html?surface=files&layout=desktop', {
+    waitUntil: 'domcontentloaded',
+  })
+  await waitForSurfaceReady(page)
+
+  await expect(getDocumentLocaleState(page)).resolves.toEqual({
+    currentLanguage: 'ar',
+    direction: 'rtl',
+    filesLabel: 'الملفات',
+    interactiveLocale: {dir: 'rtl', lang: 'ar'},
+    language: 'ar',
+  })
+
+  await page.evaluate(async () => {
+    const dynamicImport = new Function('path', 'return import(path)') as (
+      path: string,
+    ) => Promise<{setLang(value: string): void}>
+    const {setLang} = await dynamicImport('/i18n/index.ts')
+    setLang('en')
+  })
+  await page.waitForFunction(
+    () =>
+      localStorage.getItem('current-lang') === 'en' &&
+      document.documentElement.lang === 'en' &&
+      document.documentElement.dir === 'ltr',
+  )
+
+  await page.reload({waitUntil: 'domcontentloaded'})
+  await waitForSurfaceReady(page)
+
+  await expect(getDocumentLocaleState(page)).resolves.toEqual({
+    currentLanguage: 'en',
+    direction: 'ltr',
+    filesLabel: 'Files',
+    interactiveLocale: {dir: 'ltr', lang: 'en'},
+    language: 'en',
+  })
 })
 
 test('S14: Surface navigation preserves selected root theme', async () => {

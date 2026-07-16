@@ -2,6 +2,7 @@ package com.chromvoid.app
 
 import android.annotation.SuppressLint
 import android.app.ComponentCaller
+import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.ColorDrawable
 import android.os.Build
@@ -21,6 +22,8 @@ import com.chromvoid.app.nativebridge.AndroidShareImportNativeShell
 import com.chromvoid.app.nativebridge.MobileUsbAccessoryForegroundRuntime
 import com.chromvoid.app.nativebridge.NativeUploadNativeShell
 import com.chromvoid.app.nativebridge.SafBackupNativeShell
+import com.chromvoid.app.shared.NativeRuntimeLoader
+import com.chromvoid.app.shared.UsbApprovalNotificationFactory
 import kotlin.math.roundToInt
 
 class MainActivity : TauriActivity() {
@@ -66,6 +69,13 @@ class MainActivity : TauriActivity() {
         MobileUsbAccessoryForegroundRuntime.handleIntent(applicationContext, launchIntent)
         window.setBackgroundDrawable(ColorDrawable(StartupSplashController.BACKGROUND_COLOR))
         enableEdgeToEdge()
+        check(NativeRuntimeLoader.ensureLoaded(STARTUP_LOG_TAG)) {
+            "Failed to load the Rust Android runtime"
+        }
+        check(nativeInitializeRustContext(applicationContext)) {
+            "Failed to initialize the Rust Android context"
+        }
+        logStartup("rust_context.initialized")
         super.onCreate(savedInstanceState)
         logStartup("activity.onCreate.after_super")
         startupSplashController = StartupSplashController(this, ::logStartup)
@@ -118,9 +128,15 @@ class MainActivity : TauriActivity() {
     override fun onResume() {
         super.onResume()
         logStartup("activity.onResume")
+        UsbApprovalNotificationFactory.setAppInForeground(applicationContext, true)
         MobileUsbAccessoryForegroundRuntime.handleCurrentAccessory(applicationContext)
         coordinator.dispatchPendingPasswordSaveToWebView(webView)
         AndroidShareImportNativeShell.dispatchPending(webView)
+    }
+
+    override fun onPause() {
+        UsbApprovalNotificationFactory.setAppInForeground(applicationContext, false)
+        super.onPause()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -174,6 +190,8 @@ class MainActivity : TauriActivity() {
         coordinator.dispatchPendingPasswordSaveToWebView(webView)
         AndroidShareImportNativeShell.dispatchPending(webView)
     }
+
+    private external fun nativeInitializeRustContext(context: Context): Boolean
 
     private inner class StartupSplashBridge {
         @JavascriptInterface

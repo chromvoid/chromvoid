@@ -203,7 +203,6 @@ export const audioPlayerStyles = css`
   .waveform-seek {
     position: relative;
     isolation: isolate;
-    --audio-waveform-edge: var(--app-spacing-4);
 
     min-inline-size: 0;
     block-size: 76px;
@@ -216,7 +215,7 @@ export const audioPlayerStyles = css`
 
   .waveform-seek::before {
     position: absolute;
-    inset-inline: var(--audio-waveform-edge);
+    inset-inline: var(--app-spacing-4);
     inset-block-start: 50%;
     z-index: 0;
     block-size: 1px;
@@ -228,7 +227,7 @@ export const audioPlayerStyles = css`
 
   .waveform-grid {
     position: absolute;
-    inset: var(--app-spacing-3) var(--audio-waveform-edge);
+    inset: var(--app-spacing-3) var(--app-spacing-4);
     z-index: 1;
     display: grid;
     grid-template-columns: repeat(96, minmax(1px, 1fr));
@@ -273,9 +272,9 @@ export const audioPlayerStyles = css`
   .waveform-bar {
     inline-size: min(100%, 2px);
     min-block-size: 4px;
-    block-size: var(--waveform-bar-size, 6px);
+    block-size: 6px;
     border-radius: var(--cv-radius-full);
-    background: var(--cv-gradient-audio-waveform-bar), currentColor;
+    background: var(--media-audio-waveform-bar-gradient), currentColor;
     opacity: 0.42;
     transform-origin: center;
     transition:
@@ -292,56 +291,56 @@ export const audioPlayerStyles = css`
     animation: audio-waveform-preparing 1.7s var(--cv-easing-standard) infinite;
   }
 
-  .waveform-column[data-level='0'] {
-    --waveform-bar-size: 4px;
+  .waveform-column[data-level='0'] .waveform-bar {
+    block-size: 4px;
   }
 
-  .waveform-column[data-level='1'] {
-    --waveform-bar-size: 6px;
+  .waveform-column[data-level='1'] .waveform-bar {
+    block-size: 6px;
   }
 
-  .waveform-column[data-level='2'] {
-    --waveform-bar-size: 8px;
+  .waveform-column[data-level='2'] .waveform-bar {
+    block-size: 8px;
   }
 
-  .waveform-column[data-level='3'] {
-    --waveform-bar-size: 10px;
+  .waveform-column[data-level='3'] .waveform-bar {
+    block-size: 10px;
   }
 
-  .waveform-column[data-level='4'] {
-    --waveform-bar-size: 14px;
+  .waveform-column[data-level='4'] .waveform-bar {
+    block-size: 14px;
   }
 
-  .waveform-column[data-level='5'] {
-    --waveform-bar-size: 18px;
+  .waveform-column[data-level='5'] .waveform-bar {
+    block-size: 18px;
   }
 
-  .waveform-column[data-level='6'] {
-    --waveform-bar-size: 22px;
+  .waveform-column[data-level='6'] .waveform-bar {
+    block-size: 22px;
   }
 
-  .waveform-column[data-level='7'] {
-    --waveform-bar-size: 26px;
+  .waveform-column[data-level='7'] .waveform-bar {
+    block-size: 26px;
   }
 
-  .waveform-column[data-level='8'] {
-    --waveform-bar-size: 30px;
+  .waveform-column[data-level='8'] .waveform-bar {
+    block-size: 30px;
   }
 
-  .waveform-column[data-level='9'] {
-    --waveform-bar-size: 34px;
+  .waveform-column[data-level='9'] .waveform-bar {
+    block-size: 34px;
   }
 
-  .waveform-column[data-level='10'] {
-    --waveform-bar-size: 38px;
+  .waveform-column[data-level='10'] .waveform-bar {
+    block-size: 38px;
   }
 
-  .waveform-column[data-level='11'] {
-    --waveform-bar-size: 42px;
+  .waveform-column[data-level='11'] .waveform-bar {
+    block-size: 42px;
   }
 
-  .waveform-column[data-level='12'] {
-    --waveform-bar-size: 46px;
+  .waveform-column[data-level='12'] .waveform-bar {
+    block-size: 46px;
   }
 
   .seek-slider {
@@ -355,7 +354,7 @@ export const audioPlayerStyles = css`
   }
 
   .seek-slider::part(base) {
-    inline-size: calc(100% - var(--audio-waveform-edge) - var(--audio-waveform-edge));
+    inline-size: calc(100% - var(--app-spacing-4) - var(--app-spacing-4));
     block-size: 100%;
     margin-inline: auto;
   }
@@ -577,7 +576,9 @@ export const audioPlayerStyles = css`
     inset-block: var(--app-spacing-3);
     inset-inline-start: 0;
     inline-size: 3px;
-    border-radius: 0 var(--cv-radius-full) var(--cv-radius-full) 0;
+    border-radius: 0;
+    border-start-end-radius: var(--cv-radius-full);
+    border-end-end-radius: var(--cv-radius-full);
     background: var(--cv-color-primary);
     content: '';
     opacity: 0;
@@ -692,8 +693,16 @@ export const audioPlayerStyles = css`
   }
 
   @media (max-width: 420px) {
-    .waveform-seek {
-      --audio-waveform-edge: var(--app-spacing-3);
+    .waveform-seek::before {
+      inset-inline: var(--app-spacing-3);
+    }
+
+    .waveform-grid {
+      inset-inline: var(--app-spacing-3);
+    }
+
+    .seek-slider::part(base) {
+      inline-size: calc(100% - var(--app-spacing-3) - var(--app-spacing-3));
     }
 
     .sheet-header {
@@ -717,13 +726,6 @@ export const audioPlayerStyles = css`
 
     .waveform-grid {
       gap: 1.5px;
-    }
-  }
-
-  @media (hover: none) and (pointer: coarse) {
-    .player-surface::part(overlay) {
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
     }
   }
 

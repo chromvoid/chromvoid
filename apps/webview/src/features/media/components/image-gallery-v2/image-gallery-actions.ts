@@ -35,25 +35,20 @@ const ACTION_BUTTONS: Record<ImageViewerAction, ImageViewerActionButton> = {
 }
 
 export function getImageViewerActionButtons(input: {
+  showDownload: boolean
   showSaveToGallery: boolean
   showShare: boolean
   includeInfo: boolean
   includeDelete: boolean
 }): ImageViewerActionButton[] {
-  const actions: ImageViewerAction[] = ['download', 'open-external']
-
-  if (input.includeInfo) {
-    actions.push('info')
-  }
-  if (input.showSaveToGallery) {
-    actions.push('save-to-gallery')
-  }
-  if (input.showShare) {
-    actions.push('share')
-  }
-  if (input.includeDelete) {
-    actions.push('delete')
-  }
+  const actions = [
+    input.showDownload ? 'download' : null,
+    'open-external',
+    input.includeInfo ? 'info' : null,
+    input.showSaveToGallery ? 'save-to-gallery' : null,
+    input.showShare ? 'share' : null,
+    input.includeDelete ? 'delete' : null,
+  ].filter((action): action is ImageViewerAction => action !== null)
 
   return actions.map((action) => ACTION_BUTTONS[action])
 }

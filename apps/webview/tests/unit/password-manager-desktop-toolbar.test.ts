@@ -3,7 +3,12 @@ import {Entry, Group, ManagerRoot} from '@project/passmanager/core'
 import {render} from 'lit'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
-import {DesktopShellToolbar} from '../../src/features/shell/components/desktop-shell-toolbar'
+import {DashboardHeader} from '../../src/features/shell/components/dashboard-header'
+import {moduleAccessModel} from '../../src/core/pro/module-access.model'
+import {
+  resetRuntimeCapabilities,
+  setRuntimeCapabilities,
+} from '../../src/core/runtime/runtime-capabilities'
 import {PasswordManagerDesktopLayout} from '../../src/features/passmanager/components/password-manager-layout/password-manager-desktop-layout'
 import {
   definePasswordManagerDesktopToolbarContent,
@@ -16,6 +21,7 @@ import {PMEntry} from '../../src/features/passmanager/components/card/entry/entr
 import {PMEntryModel} from '../../src/features/passmanager/components/card/entry/entry.model'
 import {PMGroup} from '../../src/features/passmanager/components/group/group'
 import {PMGroupModel} from '../../src/features/passmanager/components/group/group/group.model'
+import {pmSshKeysViewModel} from '../../src/features/passmanager/components/ssh-keys-view/ssh-keys-view.model'
 import {pmComponentLoaderModel} from '../../src/features/passmanager/models/pm-component-loader.model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
 import {pmModel} from '../../src/features/passmanager/password-manager.model'
@@ -35,6 +41,7 @@ const originalExtendedReady = pmComponentLoaderModel.extendedReady()
 
 function ensureDefined() {
   if (desktopLayoutDefined) return
+  DashboardHeader.define()
   definePasswordManagerDesktopToolbarContent()
   PasswordManagerDesktopLayout.define()
   PMEntry.define()
@@ -101,10 +108,10 @@ async function renderToolbar(passmanager: PassmanagerMock) {
   setPassmanagerRoot(passmanager as any)
   pmComponentLoaderModel.extendedReady.set(true)
 
-  const toolbar = document.createElement(DesktopShellToolbar.elementName) as DesktopShellToolbar
+  const toolbar = document.createElement(DashboardHeader.elementName) as DashboardHeader
   toolbar.classList.add('passwords-desktop-toolbar')
-  if (passmanager.showElement() !== 'otpView') {
-    toolbar.setAttribute('two-row', '')
+  if (passmanager.showElement() !== 'otpView' && passmanager.showElement() !== 'envRuntimeView') {
+    toolbar.twoRow = true
   }
   document.body.appendChild(toolbar)
   render(
@@ -128,7 +135,7 @@ async function flush(element: {updateComplete?: Promise<unknown>}) {
   await Promise.resolve()
 }
 
-type ToolbarHost = PasswordManagerDesktopLayout | DesktopShellToolbar
+type ToolbarHost = PasswordManagerDesktopLayout | DashboardHeader
 
 function getToolbarItem(host: ToolbarHost, action: string) {
   return (getToolbarButton(host, action) ?? getToolbarMenuItem(host, action)) as HTMLElement | null
@@ -144,7 +151,7 @@ function getToolbarMenuItem(host: ToolbarHost, action: string) {
 }
 
 function getToolbar(host: ToolbarHost) {
-  return host.localName === DesktopShellToolbar.elementName ? (host as DesktopShellToolbar) : null
+  return host.localName === DashboardHeader.elementName ? (host as DashboardHeader) : null
 }
 
 function getComponentToolbarItem(host: Element | null | undefined, action: string) {
@@ -161,12 +168,15 @@ describe('PasswordManagerDesktopLayout toolbar', () => {
     pmComponentLoaderModel.extendedReady.set(true)
     await Promise.resolve()
     document
-      .querySelectorAll(`${PasswordManagerDesktopLayout.elementName}, ${DesktopShellToolbar.elementName}`)
+      .querySelectorAll(`${PasswordManagerDesktopLayout.elementName}, ${DashboardHeader.elementName}`)
       .forEach((el) => el.remove())
     ;(window as any).passmanager = originalPassmanager
     setPassmanagerRoot(originalPassmanager as any)
     new PMGroupModel().exitEditMode()
+    pmSshKeysViewModel.closeCreate()
     pmComponentLoaderModel.extendedReady.set(originalExtendedReady)
+    moduleAccessModel.reset()
+    resetRuntimeCapabilities()
     vi.restoreAllMocks()
   })
 
@@ -211,6 +221,7 @@ describe('PasswordManagerDesktopLayout toolbar', () => {
     expect(getToolbarMenuItem(toolbar, 'pm-create-entry')).toBeNull()
     expect(getToolbarMenuItem(toolbar, 'pm-create-group')).toBeNull()
     expect(getToolbarItem(toolbar, 'pm-otp-view')).toBeNull()
+    expect(getToolbarMenuItem(toolbar, 'pm-ssh-view')).not.toBeNull()
     expect(
       Array.from(getToolbar(toolbar)?.querySelectorAll<HTMLElement>('cv-button[data-action]') ?? []).map(
         (button) => button.dataset['action'],
@@ -267,7 +278,7 @@ describe('PasswordManagerDesktopLayout toolbar', () => {
     expect(toolbar.hasAttribute('two-row')).toBe(false)
     expect(toolbar.querySelector('[slot="title"]')?.textContent).toBe('OTP codes')
     expect(toolbar.querySelector('[slot="subtitle"]')?.textContent).toBe(
-      'Live codes from saved login entries.',
+      'Time-based one-time passwords',
     )
     expect(toolbar.querySelector('pm-search')).toBeNull()
     expect(toolbar.querySelector('pm-quick-filters')).toBeNull()
@@ -279,6 +290,53 @@ describe('PasswordManagerDesktopLayout toolbar', () => {
     expect(getToolbarMenuItem(toolbar, 'pm-import')).not.toBeNull()
     expect(getToolbarMenuItem(toolbar, 'pm-export')).not.toBeNull()
     expect(getToolbarMenuItem(toolbar, 'pm-clean')).not.toBeNull()
+  })
+
+  it('renders the SSH key creation action without list controls on the desktop SSH view', async () => {
+    const toolbar = await renderToolbar(createPassmanager('sshView'))
+    await flush(toolbar)
+
+    expect(toolbar.querySelector('[slot="title"]')?.textContent).toBe('SSH keys')
+    expect(toolbar.querySelector('pm-search')).toBeNull()
+    expect(toolbar.querySelector('pm-quick-filters')).toBeNull()
+    expect(toolbar.querySelector('pm-sort-controls')).toBeNull()
+    expect(toolbar.querySelector('pm-otp-quick-view-search')).toBeNull()
+    const createButton = getToolbarButton(toolbar, 'pm-create-ssh-key')
+    expect(createButton).not.toBeNull()
+    expect(getToolbarMenuItem(toolbar, 'pm-ssh-view')).not.toBeNull()
+
+    createButton?.click()
+    expect(pmSshKeysViewModel.createOpen()).toBe(true)
+  })
+
+  it('renders the macOS Env Runtime title and keeps its desktop action in the vault menu', async () => {
+    setRuntimeCapabilities({platform: 'macos', desktop: true})
+    moduleAccessModel.rawStates.set([
+      {feature_key: 'env-runtime', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
+    ])
+
+    const toolbar = await renderToolbar(createPassmanager('envRuntimeView'))
+    await flush(toolbar)
+
+    expect(toolbar.hasAttribute('two-row')).toBe(false)
+    expect(toolbar.querySelector('[slot="title"]')?.textContent).toBe('Env Runtime')
+    expect(toolbar.querySelector('[slot="subtitle"]')?.textContent).toContain(
+      'Inject vault secrets into approved local commands',
+    )
+    expect(toolbar.querySelector('pm-search')).toBeNull()
+    expect(toolbar.querySelector('pm-quick-filters')).toBeNull()
+    expect(toolbar.querySelector('pm-sort-controls')).toBeNull()
+    expect(toolbar.querySelector('pm-otp-quick-view-search')).toBeNull()
+    expect(getToolbarMenuItem(toolbar, 'pm-env-runtime-view')).not.toBeNull()
+  })
+
+  it('renders Env Runtime as a full-width desktop view without the credentials sidebar', async () => {
+    expect(pmComponentLoaderModel.requiresExtendedComponents('envRuntimeView')).toBe(true)
+    const layout = await renderLayout(createPassmanager('envRuntimeView'))
+
+    expect(layout.shadowRoot?.querySelector('pm-env-runtime-page')).not.toBeNull()
+    expect(layout.shadowRoot?.querySelector('.sidebar')).toBeNull()
+    expect(layout.shadowRoot?.querySelector('.wrapper')).toBeNull()
   })
 
   it('keeps desktop search out of the password manager sidebar', async () => {
@@ -358,6 +416,7 @@ describe('PasswordManagerDesktopLayout toolbar', () => {
     const entry = createEntry(group, 'entry-spinner')
 
     vi.spyOn(pmComponentLoaderModel, 'ensureExtendedComponents').mockResolvedValue(undefined)
+    vi.spyOn(pmComponentLoaderModel, 'isReadyFor').mockReturnValue(false)
     const moveSpy = vi.spyOn(PMEntryModel.prototype, 'moveEntryCard').mockResolvedValue(undefined)
 
     const layout = await renderLayout(createPassmanager(entry), {extendedReady: false})

@@ -6,22 +6,6 @@ import {type CSSResult, css} from 'lit'
 // - Utilities (visually-hidden, text-ellipsis)
 export const sharedStyles: CSSResult[] = [
   css`
-    :host {
-      --image-aspect-ratio: 16 / 9;
-      --fallback-text: var(--cv-color-text);
-      --fallback-surface: var(--cv-color-surface);
-      --fallback-font: var(--cv-font-family-sans, system-ui);
-      --fallback-radius: var(--cv-radius-2);
-      --transform-x: 0;
-      --transform-y: 0;
-      --transform-scale: 1;
-      --fade-opacity: 1;
-      --slide-x: 0;
-      --slide-y: 0;
-      --scale-factor: 1;
-      --scale-origin: center;
-    }
-
     /*=========== Basic utilities ===========*/
     * {
       box-sizing: border-box;
@@ -101,7 +85,7 @@ export const sharedStyles: CSSResult[] = [
       overflow-y: auto;
       overflow-x: hidden;
       contain: layout style;
-      scrollbar-gutter: var(--cv-scrollable-scrollbar-gutter, stable both-edges);
+      scrollbar-gutter: stable both-edges;
       overscroll-behavior: contain;
       -webkit-overflow-scrolling: touch;
       scrollbar-width: thin;
@@ -363,7 +347,7 @@ export const sharedStyles: CSSResult[] = [
     }
 
     .focus-ring:focus-visible {
-      outline: 2px solid var(--cv-color-focus, #3b82f6);
+      outline: 2px solid var(--cv-color-focus);
       outline-offset: 2px;
     }
 
@@ -826,7 +810,7 @@ export const sharedStyles: CSSResult[] = [
       word-break: break-word;
     }
     .stable-image {
-      aspect-ratio: var(--image-aspect-ratio, 16/9);
+      aspect-ratio: 16 / 9;
       object-fit: cover;
       display: block;
     }
@@ -863,88 +847,42 @@ export const sharedStyles: CSSResult[] = [
     /*CSS custom properties optimization ====*/
     /*Unused --local-* variables removed*/
     .optimized-transitions {
-      --composite-transition:
+      transition:
         transform var(--cv-duration-fast) var(--cv-easing-standard),
         opacity var(--cv-duration-fast) var(--cv-easing-standard);
-      transition: var(--composite-transition);
     }
     /*Unused --static-* variables removed*/
     .shallow-cascade {
-      color: var(--cv-color-text, #1f2937);
-      background: var(--cv-color-surface, #ffffff);
+      color: var(--cv-color-text);
+      background: var(--cv-color-surface);
       border: 1px solid var(--cv-color-border, var(--cv-alpha-black-10));
     }
     /*Unused --theme-* variables removed*/
     .animation-optimized {
-      --anim-transform: translateY(0);
-      --anim-opacity: 1;
-      --anim-scale: scale(1);
-      transform: var(--anim-transform) var(--anim-scale);
-      opacity: var(--anim-opacity);
-      transition: var(--composite-transition);
+      transform: translateY(0) scale(1);
+      opacity: 1;
+      transition:
+        transform var(--cv-duration-fast) var(--cv-easing-standard),
+        opacity var(--cv-duration-fast) var(--cv-easing-standard);
     }
     .animation-optimized.hover {
-      --anim-transform: translateY(-2px);
-      --anim-scale: scale(1.02);
+      transform: translateY(-2px) scale(1.02);
     }
     .animation-optimized.hidden {
-      --anim-opacity: 0;
-      --anim-transform: translateY(8px);
-      --anim-scale: scale(0.95);
+      transform: translateY(8px) scale(0.95);
+      opacity: 0;
     }
     @media (prefers-reduced-motion: reduce) {
       .animation-optimized {
-        --anim-transform: translateY(0) !important;
-        --anim-scale: scale(1) !important;
+        transform: translateY(0) scale(1) !important;
         transition: none;
       }
     }
-    .viewport-optimized {
-      --responsive-spacing: var(--app-spacing-4);
-      --responsive-font-size: var(--cv-font-size-base);
-      --responsive-line-height: var(--line-height-normal);
-    }
-    @media (max-width: 768px) {
-      .viewport-optimized {
-        --responsive-spacing: var(--app-spacing-3);
-        --responsive-font-size: var(--cv-font-size-sm);
-        --responsive-line-height: var(--line-height-snug);
-      }
-    }
-    @media (min-width: 1024px) {
-      .viewport-optimized {
-        --responsive-spacing: var(--app-spacing-5);
-        --responsive-font-size: var(--cv-font-size-lg);
-        --responsive-line-height: var(--line-height-relaxed);
-      }
-    }
-    .layout-optimized {
-      --layout-gap: var(--app-spacing-4);
-      --layout-padding: var(--app-spacing-6) var(--app-spacing-4);
-      --layout-max-width: 1200px;
-      --layout-min-height: 100dvh;
-    }
-    @container (max-width: 600px) {
-      .layout-optimized {
-        --layout-gap: var(--app-spacing-2);
-        --layout-padding: var(--app-spacing-3) var(--app-spacing-2);
-      }
-    }
     .critical-path {
-      --critical-bg: var(--cv-color-surface, #ffffff);
-      --critical-text: var(--cv-color-text, #1f2937);
-      --critical-font: var(--cv-font-family-sans, system-ui);
-      --critical-size: var(--cv-font-size-base, 1rem);
-      background: var(--critical-bg);
-      color: var(--critical-text);
-      font-family: var(--critical-font);
-      font-size: var(--critical-size);
-    }
-    .efficient-colors {
-      --hover-bg: var(--cv-color-primary-surface);
-      --active-bg: var(--cv-color-primary-surface-strong);
-      --border-subtle: var(--cv-color-border-soft);
-      --text-muted: var(--cv-color-text-muted);
+      background: var(--cv-color-surface);
+      color: var(--cv-color-text);
+      font-family: var(--cv-font-family-sans);
+      font-size: var(--cv-font-size-base);
     }
     .inherit-optimized {
       color: inherit;
@@ -953,10 +891,10 @@ export const sharedStyles: CSSResult[] = [
       line-height: inherit;
     }
     .robust-fallbacks {
-      color: var(--cv-color-text, var(--fallback-text, #1f2937));
-      background: var(--cv-color-surface, var(--fallback-surface, #ffffff));
-      font-family: var(--cv-font-family-sans, var(--fallback-font, system-ui));
-      border-radius: var(--cv-radius-2, var(--fallback-radius, 8px));
+      color: var(--cv-color-text);
+      background: var(--cv-color-surface);
+      font-family: var(--cv-font-family-sans);
+      border-radius: var(--cv-radius-2);
     }
 
     /* ===== GPU optimizations ===== */
@@ -1041,8 +979,7 @@ export const sharedStyles: CSSResult[] = [
       contain: strict;
     }
     .gpu-transform-frequent {
-      transform: translateZ(0) translateX(var(--transform-x, 0)) translateY(var(--transform-y, 0))
-        scale(var(--transform-scale, 1));
+      transform: translateZ(0) translateX(0) translateY(0) scale(1);
       backface-visibility: hidden;
       will-change: auto;
     }
@@ -1051,7 +988,7 @@ export const sharedStyles: CSSResult[] = [
     }
     .gpu-fade-layer {
       transform: translateZ(0);
-      opacity: var(--fade-opacity, 1);
+      opacity: 1;
       transition: opacity var(--cv-duration-fast) var(--cv-easing-standard);
       will-change: auto;
     }
@@ -1059,7 +996,7 @@ export const sharedStyles: CSSResult[] = [
       will-change: opacity;
     }
     .gpu-slide-layer {
-      transform: translateZ(0) translateX(var(--slide-x, 0)) translateY(var(--slide-y, 0));
+      transform: translateZ(0) translateX(0) translateY(0);
       transition: transform var(--cv-duration-normal) var(--cv-easing-standard);
       will-change: auto;
     }
@@ -1067,8 +1004,8 @@ export const sharedStyles: CSSResult[] = [
       will-change: transform;
     }
     .gpu-scale-layer {
-      transform: translateZ(0) scale(var(--scale-factor, 1));
-      transform-origin: var(--scale-origin, center);
+      transform: translateZ(0) scale(1);
+      transform-origin: center;
       transition: transform var(--cv-duration-fast) var(--cv-easing-standard);
       will-change: auto;
     }
@@ -1306,7 +1243,7 @@ export const sharedStyles: CSSResult[] = [
       .status-indicator.animated::after {
         content: ' (Active)';
         font-size: 0.8em;
-        margin-left: 0.5em;
+        margin-inline-start: 0.5em;
       }
       .loading-indicator.animated::after {
         content: ' (Loading...)';
@@ -1315,7 +1252,7 @@ export const sharedStyles: CSSResult[] = [
       .progress-animated::after {
         content: ' (' attr(data-progress) '% complete)';
         font-size: 0.8em;
-        margin-left: 0.5em;
+        margin-inline-start: 0.5em;
       }
       .attention-animation {
         background-color: var(--cv-color-warning) !important;
@@ -1323,20 +1260,16 @@ export const sharedStyles: CSSResult[] = [
         border: 2px solid var(--cv-color-warning-dark) !important;
       }
       .state-transition {
-        border-left: 4px solid var(--cv-color-primary) !important;
+        border-inline-start: 4px solid var(--cv-color-primary) !important;
         background: var(--cv-color-primary-surface) !important;
       }
     }
 
     /*===== Customized animation settings ====*/
-    :root {
-      --user-animation-speed: 1;
-      --user-animation-enabled: 1;
-    }
     @media (prefers-reduced-motion: no-preference) {
       .respectful-animation {
-        transition-duration: calc(var(--cv-duration-fast) * var(--user-animation-speed, 1));
-        animation-duration: calc(var(--cv-duration-normal) * var(--user-animation-speed, 1));
+        transition-duration: var(--cv-duration-fast);
+        animation-duration: var(--cv-duration-normal);
       }
       .respectful-animation.user-disabled {
         transition: none !important;
@@ -1348,7 +1281,7 @@ export const sharedStyles: CSSResult[] = [
     /*===== A11y-first indicators =====*/
     .sr-status-update {
       position: absolute;
-      left: -9999px;
+      inset-inline-start: -9999px;
       width: 1px;
       height: 1px;
       overflow: hidden;
@@ -1387,7 +1320,7 @@ export const sharedStyles: CSSResult[] = [
       margin: var(--app-spacing-2) 0;
     }
     .mobile-gap {
-      gap: var(--touch-spacing);
+      gap: var(--app-touch-spacing);
     }
     @media (min-width: 480px) {
       .responsive-sm-up {
@@ -1406,7 +1339,7 @@ export const sharedStyles: CSSResult[] = [
         padding: var(--app-spacing-4);
       }
       .mobile-gap {
-        gap: calc(var(--touch-spacing) * 1.2);
+        gap: calc(var(--app-touch-spacing) * 1.2);
       }
     }
     @media (min-width: 768px) {
@@ -1425,15 +1358,11 @@ export const sharedStyles: CSSResult[] = [
       .show-mobile-only {
         display: none;
       }
-      .touch-target {
-        min-height: var(--touch-target-comfortable);
-        min-width: var(--touch-target-comfortable);
-      }
       .mobile-padding {
         padding: var(--app-spacing-5);
       }
       .mobile-gap {
-        gap: var(--finger-friendly-gap);
+        gap: var(--app-touch-gap);
       }
       .dual-pane-container {
         display: grid;
@@ -1492,7 +1421,7 @@ export const sharedStyles: CSSResult[] = [
       touch-action: pan-x;
       user-select: none;
       -webkit-user-select: none;
-      min-height: var(--swipe-area-height);
+      min-height: var(--app-swipe-area-block-size);
       position: relative;
       overflow-x: auto;
       scrollbar-width: none;
@@ -1527,36 +1456,22 @@ export const sharedStyles: CSSResult[] = [
     .swipe-active .swipe-indicator {
       opacity: 0.7;
     }
-    @media (hover: none) and (pointer: coarse) {
-      .interactive {
-        margin: var(--touch-spacing) 0;
-        padding: var(--app-spacing-2) var(--app-spacing-3);
-      }
-      .interactive:active,
-      cv-button:active,
-      button:active,
-      [role='button']:active {
-        transform: scale(0.98);
-        transition: transform var(--cv-duration-fast) var(--cv-easing-accelerate);
-      }
-      .touch-list-item {
-        min-height: var(--touch-target-comfortable);
-        padding: var(--app-spacing-3) var(--app-spacing-4);
-        border-bottom: 1px solid var(--cv-color-border);
-        touch-action: manipulation;
-        -webkit-tap-highlight-color: transparent;
-      }
-      .touch-list-item:active {
-        background-color: var(--cv-color-active);
-      }
-      .drag-handle {
-        min-width: var(--touch-target-large);
-        min-height: var(--touch-target-large);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        touch-action: none;
-      }
+    .touch-list-item {
+      padding: var(--app-spacing-3) var(--app-spacing-4);
+      border-bottom: 1px solid var(--cv-color-border);
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .touch-list-item:active {
+      background-color: var(--cv-color-active);
+    }
+    .drag-handle {
+      min-width: var(--app-touch-target-large);
+      min-height: var(--app-touch-target-large);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: none;
     }
   `,
 

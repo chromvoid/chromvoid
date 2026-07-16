@@ -36,28 +36,36 @@ impl RpcRouter {
                 let origin_url = Url::parse(&origin).map_err(|_| {
                     CredentialProviderCommandError::invalid_context("context.origin is invalid")
                 })?;
-
-                let domain = value
-                    .get("domain")
-                    .and_then(|v| v.as_str())
+                let canonical_domain = origin_url
+                    .host_str()
                     .map(Self::credential_provider_normalize_hostname)
-                    .filter(|s| !s.is_empty())
-                    .or_else(|| {
-                        origin_url
-                            .host_str()
-                            .map(Self::credential_provider_normalize_hostname)
-                    })
-                    .unwrap_or_default();
+                    .filter(|domain| !domain.is_empty())
+                    .ok_or_else(|| {
+                        CredentialProviderCommandError::invalid_context(
+                            "context.origin must contain a hostname",
+                        )
+                    })?;
 
-                if domain.is_empty() {
-                    return Err(CredentialProviderCommandError::invalid_context(
-                        "context.domain is required",
-                    ));
+                if let Some(domain_value) = value.get("domain") {
+                    let supplied_domain = domain_value
+                        .as_str()
+                        .map(Self::credential_provider_normalize_hostname)
+                        .filter(|domain| !domain.is_empty())
+                        .ok_or_else(|| {
+                            CredentialProviderCommandError::invalid_context(
+                                "context.domain must be a non-empty string",
+                            )
+                        })?;
+                    if supplied_domain != canonical_domain {
+                        return Err(CredentialProviderCommandError::invalid_context(
+                            "context.domain must match context.origin hostname",
+                        ));
+                    }
                 }
 
                 Ok(ProviderContext::Web(ProviderContextWeb {
                     origin_url,
-                    domain,
+                    domain: canonical_domain,
                 }))
             }
             "app" => {

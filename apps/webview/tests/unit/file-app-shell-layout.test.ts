@@ -28,12 +28,12 @@ describe('file-app-shell layout selection', () => {
     document.body.innerHTML = ''
     document.documentElement.removeAttribute(MOBILE_KEYBOARD_EXPANDED_ATTR)
     document.documentElement.removeAttribute(VISUAL_VIEWPORT_SHRUNK_ATTR)
-    document.documentElement.style.removeProperty('--native-keyboard-bottom-inset')
-    document.documentElement.style.removeProperty('--visual-viewport-bottom-inset')
-    document.documentElement.style.removeProperty('--mobile-keyboard-bottom-inset')
-    document.documentElement.style.removeProperty('--mobile-keyboard-scroll-action-offset')
-    document.documentElement.style.removeProperty('--mobile-keyboard-scroll-clearance')
-    document.documentElement.style.removeProperty('--mobile-keyboard-overlay-offset')
+    document.documentElement.style.removeProperty('--app-runtime-keyboard-native-inset-block-end')
+    document.documentElement.style.removeProperty('--app-runtime-visual-viewport-inset-block-end')
+    document.documentElement.style.removeProperty('--app-runtime-keyboard-inset-block-end')
+    document.documentElement.style.removeProperty('--app-runtime-keyboard-scroll-action-offset')
+    document.documentElement.style.removeProperty('--app-runtime-keyboard-scroll-clearance')
+    document.documentElement.style.removeProperty('--app-runtime-keyboard-overlay-offset')
     setMobileKeyboardOccluding(false)
     await mediaPlaybackModel.stopSession()
     navigationModel.disconnect()
@@ -174,7 +174,7 @@ describe('file-app-shell layout selection', () => {
   })
 
   describe('mobile layout behavior', () => {
-    it('forced mobile layout should always enable swipe (no isMobileDevice check)', () => {
+    it('forced mobile layout should always enable swipe (no pointer-capability check)', () => {
       const result = resolveLayoutMode({
         isMobile: false,
         matchesBreakpoint: false,

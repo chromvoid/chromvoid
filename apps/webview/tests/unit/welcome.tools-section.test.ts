@@ -64,6 +64,16 @@ async function mountTools(layout: 'desktop' | 'mobile') {
   return section
 }
 
+async function mountToolsWithModel(layout: 'desktop' | 'mobile', model: WelcomeToolsModel) {
+  const section = document.createElement('welcome-tools-section') as WelcomeToolsSection
+  section.layout = layout
+  section.model = model
+  document.body.append(section)
+  await section.updateComplete
+  await Promise.resolve()
+  return section
+}
+
 function findButtonByText(root: ShadowRoot | null | undefined, text: string): HTMLElement | null {
   return (
     [...(root?.querySelectorAll<HTMLElement>('cv-button') ?? [])].find((button) =>
@@ -92,11 +102,19 @@ describe('welcome tools section', () => {
     mocks.tauriListen.mockReset()
   })
 
-  it('renders desktop tools cards', async () => {
+  it('renders desktop utilities footer and opens the device utilities sheet', async () => {
     const section = await mountTools('desktop')
-    const text = (section.shadowRoot?.textContent ?? '').replace(/\s+/g, ' ')
 
-    expect(section.shadowRoot?.querySelectorAll('.tool-card')).toHaveLength(2)
+    expect(section.shadowRoot?.querySelectorAll('.desktop-utility-button')).toHaveLength(2)
+    expect(section.shadowRoot?.querySelectorAll('cv-bottom-sheet.utilities-sheet')).toHaveLength(1)
+
+    section.shadowRoot?.querySelector<HTMLButtonElement>('.desktop-utility-button')?.click()
+    await section.updateComplete
+
+    const text = (section.shadowRoot?.textContent ?? '').replace(/\s+/g, ' ')
+    expect(section.model?.deviceUtilitiesSheetOpen()).toBe(true)
+    expect(section.model?.deviceUtilitiesScreen()).toBe('list')
+    expect(text).toContain('Device utilities')
     expect(text).toContain('Backup')
     expect(text).toContain('Restore')
     expect(text).toContain('Change master password')
@@ -104,14 +122,65 @@ describe('welcome tools section', () => {
     expect(text).toContain('System')
   })
 
+  it('renders remote flow summary inside desktop utilities', async () => {
+    const model = new WelcomeToolsModel(new WelcomeSharedModel(), {
+      desktopStatusItems: () => [
+        {label: 'screen', value: 'hosts'},
+        {label: 'transport', value: 'none', state: 'idle'},
+        {label: 'peer', value: 'n/a'},
+        {label: 'hosts', value: '0'},
+      ],
+    })
+    const section = await mountToolsWithModel('desktop', model)
+    const text = (section.shadowRoot?.textContent ?? '').replace(/\s+/g, ' ')
+
+    expect(section.shadowRoot?.querySelector('.desktop-utility-status')).not.toBeNull()
+    expect(section.shadowRoot?.querySelector('.desktop-utilities-label')).toBeNull()
+    expect(text).toContain('screen · hosts')
+    expect(text).toContain('transport · none')
+    expect(text).toContain('peer · n/a')
+    expect(text).toContain('hosts · 0')
+  })
+
   it('renders mobile device utilities without the storage location panel', async () => {
     const section = await mountTools('mobile')
     const text = (section.shadowRoot?.textContent ?? '').replace(/\s+/g, ' ')
 
-    expect(section.shadowRoot?.querySelectorAll('.mobile-panel')).toHaveLength(1)
+    expect(section.shadowRoot?.querySelectorAll('.mobile-utilities-button')).toHaveLength(1)
+    expect(section.shadowRoot?.querySelectorAll('cv-bottom-sheet.utilities-sheet')).toHaveLength(1)
     expect(text).toContain('Device utilities')
     expect(text).toContain('Change master password')
     expect(text).not.toContain('Storage location')
+  })
+
+  it('keeps mobile device utilities inside the same bottom sheet when opening restore', async () => {
+    const confirmDialog = vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(true)
+    const passwordDialog = vi.spyOn(dialogService, 'showInputDialog').mockResolvedValue('secret-password')
+    const section = await mountTools('mobile')
+
+    section.shadowRoot?.querySelector<HTMLElement>('.mobile-utilities-button')?.click()
+    await section.updateComplete
+
+    const sheet = section.shadowRoot?.querySelector('cv-bottom-sheet.utilities-sheet') as
+      | (HTMLElement & {open?: boolean})
+      | null
+    await expect.poll(() => sheet?.open).toBe(true)
+
+    const restoreRow = [...(section.shadowRoot?.querySelectorAll<HTMLButtonElement>('.utilities-row') ?? [])].find(
+      (row) => (row.textContent ?? '').includes('Restore device'),
+    )
+    restoreRow?.click()
+    await section.updateComplete
+
+    expect(section.model?.deviceUtilitiesScreen()).toBe('restore')
+    expect(sheet?.open).toBe(true)
+    await expect
+      .poll(() => (section.shadowRoot?.textContent ?? '').replace(/\s+/g, ' '))
+      .toContain('I understand this restore will replace')
+    const updatedText = (section.shadowRoot?.textContent ?? '').replace(/\s+/g, ' ')
+    expect(updatedText).toContain('Restore device')
+    expect(confirmDialog).not.toHaveBeenCalled()
+    expect(passwordDialog).not.toHaveBeenCalled()
   })
 
   it('shows live storage controls only when root selection is supported', async () => {
@@ -123,11 +192,19 @@ describe('welcome tools section', () => {
     })
 
     const section = await mountTools('desktop')
-    const text = (section.shadowRoot?.textContent ?? '').replace(/\s+/g, ' ')
+    const systemButton = [...(section.shadowRoot?.querySelectorAll<HTMLButtonElement>('.desktop-utility-button') ?? [])].find(
+      (button) => (button.textContent ?? '').includes('System'),
+    )
+    systemButton?.click()
+    await section.updateComplete
 
     expect(section.model?.supportsStorageRootSelection()).toBe(true)
-    expect(text).toContain('Change Location')
-    expect(text).toContain('Use Default Location')
+    expect(section.model?.deviceUtilitiesSheetOpen()).toBe(true)
+    expect(section.model?.deviceUtilitiesScreen()).toBe('system')
+    await expect.poll(() => section.shadowRoot?.querySelector('.utilities-system-panel')).not.toBeNull()
+    await expect.poll(() => (section.shadowRoot?.textContent ?? '').replace(/\s+/g, ' ')).toContain('Change Location')
+    const updatedText = (section.shadowRoot?.textContent ?? '').replace(/\s+/g, ' ')
+    expect(updatedText).toContain('Use Default Location')
   })
 
   it('keeps mobile backup mode separate from live storage root selection', async () => {
@@ -174,6 +251,58 @@ describe('welcome tools section', () => {
       'success',
       'Backup created at: Android backup folder/backup-123',
     )
+  })
+
+  it('submits mobile backup from the utilities sub-screen without opening a password dialog', async () => {
+    setTauriRuntime()
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+      supports_mobile_backup_restore: true,
+      supports_storage_root_selection: false,
+    })
+    const passwordDialog = vi.spyOn(dialogService, 'showInputDialog').mockResolvedValue('secret-password')
+    mocks.tauriListen.mockResolvedValue(() => {})
+    mocks.tauriInvoke.mockResolvedValue({
+      ok: true,
+      result: {backup_dir: 'Android backup folder/backup-123'},
+    })
+
+    const model = new WelcomeToolsModel(new WelcomeSharedModel())
+    model.openDeviceUtilities()
+    model.onBackupFromDeviceUtilities()
+    model.handleDeviceUtilitiesMasterPasswordInput(
+      new CustomEvent('cv-input', {
+        detail: {value: 'secret-password'},
+      }),
+    )
+    model.handleDeviceUtilitiesBackupSubmit(new Event('submit', {cancelable: true}))
+
+    await vi.waitFor(() => {
+      expect(mocks.tauriInvoke).toHaveBeenCalledWith('backup_local_create', {
+        masterPassword: 'secret-password',
+      })
+    })
+    expect(passwordDialog).not.toHaveBeenCalled()
+    expect(mocks.open).not.toHaveBeenCalled()
+    expect(model.deviceUtilitiesSheetOpen()).toBe(true)
+    expect(model.deviceUtilitiesScreen()).toBe('list')
+  })
+
+  it('keeps backup submit available and explains a missing master password', async () => {
+    setTauriRuntime()
+    const model = new WelcomeToolsModel(new WelcomeSharedModel())
+    model.openDeviceUtilities()
+    model.onBackupFromDeviceUtilities()
+
+    expect(model.deviceUtilitiesSubmitDisabled()).toBe(false)
+
+    model.handleDeviceUtilitiesBackupSubmit(new Event('submit', {cancelable: true}))
+
+    await vi.waitFor(() => {
+      expect(model.deviceUtilitiesForm().error).toBe('Master Password is required')
+    })
+    expect(mocks.tauriInvoke).not.toHaveBeenCalled()
   })
 
   it('does not start backup when the password prompt is cancelled', async () => {
@@ -245,12 +374,8 @@ describe('welcome tools section', () => {
     expect(mocks.tauriInvoke).not.toHaveBeenCalled()
   })
 
-  it('sets and resets busy and loading state while master password migration is pending', async () => {
+  it('sets and resets busy and loading state while device utilities master password migration is pending', async () => {
     setTauriRuntime()
-    vi.spyOn(dialogService, 'showCustomDialog').mockResolvedValue({
-      currentPassword: 'old master password',
-      newMasterPassword: 'new master password',
-    })
     let finishRekey!: (value: unknown) => void
     mocks.tauriInvoke.mockReturnValue(
       new Promise((resolve) => {
@@ -259,7 +384,18 @@ describe('welcome tools section', () => {
     )
 
     const section = await mountTools('desktop')
-    const rekeyPromise = section.model?.onMasterPasswordChangeClick()
+    section.model?.openDeviceUtilities()
+    section.model?.onMasterPasswordChangeFromDeviceUtilities()
+    section.model?.handleDeviceUtilitiesCurrentPasswordInput(
+      new CustomEvent('cv-input', {detail: {value: 'old master password'}}),
+    )
+    section.model?.handleDeviceUtilitiesNewMasterPasswordInput(
+      new CustomEvent('cv-input', {detail: {value: 'new master password'}}),
+    )
+    section.model?.handleDeviceUtilitiesConfirmPasswordInput(
+      new CustomEvent('cv-input', {detail: {value: 'new master password'}}),
+    )
+    section.model?.handleDeviceUtilitiesMasterPasswordSubmit(new Event('submit', {cancelable: true}))
 
     await vi.waitFor(() => {
       expect(section.model?.masterRekeyInProgress()).toBe(true)
@@ -279,16 +415,14 @@ describe('welcome tools section', () => {
         backup_recommended: true,
       },
     })
-    await rekeyPromise
-    await section.updateComplete
+    await vi.waitFor(() => {
+      expect(section.model?.masterRekeyInProgress()).toBe(false)
+      expect(section.model?.busy()).toBe(false)
+    })
 
-    expect(section.model?.masterRekeyInProgress()).toBe(false)
-    expect(section.model?.busy()).toBe(false)
-    const settledButton = findButtonByText(section.shadowRoot, 'Change master password') as
-      | (HTMLElement & {loading?: boolean})
-      | null
-    expect(settledButton?.hasAttribute('disabled')).toBe(false)
-    expect(settledButton?.loading).toBe(false)
+    await section.updateComplete
+    expect(section.model?.deviceUtilitiesScreen()).toBe('list')
+    expect(section.shadowRoot?.querySelector('.utilities-form-submit')).toBeNull()
   })
 
   it('maps invalid current master password errors to user-facing copy', async () => {

@@ -1,11 +1,9 @@
-import {ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
 import {css, nothing, type PropertyValues} from 'lit'
-import {html} from '@chromvoid/uikit/reatom-lit'
 
 import {i18n} from '@project/passmanager/i18n'
 import {runtimeCapabilitiesAtom} from 'root/core/runtime/runtime-capabilities'
-import {pmCredentialTagsModel} from '../../models/pm-credential-tags.model'
 import type {PasswordManagerLayoutModel} from '../password-manager-layout/password-manager-layout.model'
 import {PMSearchInputModel} from './search.model'
 
@@ -46,7 +44,7 @@ export const searchBaseStyles = css`
   }
 
   @supports (-webkit-touch-callout: none) {
-    @media (hover: none) and (pointer: coarse) {
+    @media (max-width: 768px) {
       cv-input::part(input) {
         font-size: 16px;
       }
@@ -55,7 +53,7 @@ export const searchBaseStyles = css`
 
   /*Styling the input field*/
   cv-input {
-    --cv-input-height: var(--pm-toolbar-control-height, var(--app-toolbar-control-height, 40px));
+    --cv-input-height: var(--pm-toolbar-control-block-size, var(--app-toolbar-control-block-size, 40px));
     --cv-input-padding-inline: var(
       --pm-toolbar-control-padding-inline,
       var(--app-toolbar-control-padding-inline, var(--cv-space-3))
@@ -172,10 +170,6 @@ export abstract class PMSearchBase extends ReatomLitElement {
 
   clear() {
     this.searchModel.clear()
-  }
-
-  protected handleOpenTagManage() {
-    pmCredentialTagsModel.openManageSheet()
   }
 
   protected submitSearch(e: Event) {

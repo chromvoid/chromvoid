@@ -181,6 +181,63 @@ fn ensure_entry_with_meta(
     set_bypass_system_shard_guards(false);
 }
 
+fn ensure_entry_with_meta_and_password(
+    router: &mut RpcRouter,
+    dir_name: &str,
+    credential_id: &str,
+    title: &str,
+    username: &str,
+    url: &str,
+    password: &str,
+) {
+    ensure_entry_with_meta(router, dir_name, credential_id, title, username, url);
+    set_bypass_system_shard_guards(true);
+
+    let parent = format!("/.passmanager/{dir_name}");
+    let password_bytes = password.as_bytes().to_vec();
+    let pwd_resp = upload_create(
+        router,
+        ".password",
+        password_bytes.len() as u64,
+        &parent,
+        "text/plain",
+    );
+    assert_rpc_ok(&pwd_resp);
+    secret_write_bytes(router, get_node_id(&pwd_resp), password_bytes);
+
+    set_bypass_system_shard_guards(false);
+}
+
+fn ensure_entry_with_meta_and_password_bytes(
+    router: &mut RpcRouter,
+    dir_name: &str,
+    credential_id: &str,
+    title: &str,
+    username: &str,
+    url: &str,
+    password: &[u8],
+) {
+    ensure_entry_with_meta(router, dir_name, credential_id, title, username, url);
+    add_password_bytes(router, dir_name, password);
+}
+
+fn add_password_bytes(router: &mut RpcRouter, dir_name: &str, password: &[u8]) {
+    set_bypass_system_shard_guards(true);
+
+    let parent = format!("/.passmanager/{dir_name}");
+    let pwd_resp = upload_create(
+        router,
+        ".password",
+        password.len() as u64,
+        &parent,
+        "text/plain",
+    );
+    assert_rpc_ok(&pwd_resp);
+    secret_write_bytes(router, get_node_id(&pwd_resp), password.to_vec());
+
+    set_bypass_system_shard_guards(false);
+}
+
 fn ensure_entry_with_raw_meta(router: &mut RpcRouter, dir_name: &str, meta: serde_json::Value) {
     set_bypass_system_shard_guards(true);
 
@@ -351,6 +408,57 @@ fn provider_get_secret(
     ))
 }
 
+fn provider_get_secret_for_web(
+    router: &mut RpcRouter,
+    provider_session: &str,
+    credential_id: &str,
+    origin: &str,
+    domain: &str,
+) -> RpcResponse {
+    router.handle(&RpcRequest::new(
+        "credential_provider:getSecret",
+        serde_json::json!({
+          "provider_session": provider_session,
+          "credential_id": credential_id,
+          "context": {
+            "kind": "web",
+            "origin": origin,
+            "domain": domain,
+          }
+        }),
+    ))
+}
+
+fn provider_get_one_time_code(
+    router: &mut RpcRouter,
+    provider_session: &str,
+    credential_id: &str,
+    otp_id: &str,
+    origin: &str,
+    domain: &str,
+) -> RpcResponse {
+    router.handle(&RpcRequest::new(
+        "credential_provider:getOneTimeCode",
+        serde_json::json!({
+          "provider_session": provider_session,
+          "credential_id": credential_id,
+          "otp_id": otp_id,
+          "context": {
+            "kind": "web",
+            "origin": origin,
+            "domain": domain,
+          }
+        }),
+    ))
+}
+
+fn provider_search_all(router: &mut RpcRouter) -> RpcResponse {
+    router.handle(&RpcRequest::new(
+        "credential_provider:search",
+        serde_json::json!({ "query": "" }),
+    ))
+}
+
 #[test]
 fn test_credential_provider_status_and_session_gating() {
     let (mut router, _temp_dir) = create_test_router();
@@ -389,6 +497,24 @@ fn test_credential_provider_status_and_session_gating() {
             .and_then(|v| v.as_bool()),
         Some(true)
     );
+    assert_eq!(
+        status_unlocked
+            .result()
+            .and_then(|value| value.pointer("/capability_matrix/macos/one_time_codes"))
+            .and_then(|value| value.as_bool()),
+        Some(true)
+    );
+    assert!(status_unlocked
+        .result()
+        .and_then(|value| {
+            value.pointer("/command_error_map/credential_provider:getOneTimeCode")
+        })
+        .and_then(|value| value.as_array())
+        .is_some_and(|codes| {
+            codes
+                .iter()
+                .any(|code| code.as_str() == Some("HOTP_AUTOFILL_UNSUPPORTED"))
+        }));
 }
 
 #[test]
@@ -657,6 +783,165 @@ fn test_credential_provider_get_secret_uses_selected_otp_id() {
     );
     assert_rpc_error(&secret_missing, "NO_MATCH");
     assert_eq!(secret_missing.error_message(), Some("No OTP match"));
+}
+
+#[test]
+fn test_credential_provider_get_one_time_code_returns_only_requested_totp() {
+    let (mut router, _temp_dir) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "test"));
+
+    ensure_entry_with_otps(
+        &mut router,
+        "OtpSelector",
+        "cred-otp-multi",
+        serde_json::json!([
+            {"id": "otp-main", "label": "Main", "type": "TOTP"},
+            {"id": "otp-backup", "label": "Backup", "type": "TOTP"}
+        ]),
+        &[
+            ("otp-main", "JBSWY3DPEHPK3PXP"),
+            ("otp-backup", "KRUGS4ZANFZSAYJA"),
+        ],
+    );
+    add_password_bytes(&mut router, "OtpSelector", &[0xff, 0xfe, 0xfd]);
+
+    let listed = router.handle(&RpcRequest::new(
+        "credential_provider:list",
+        serde_json::json!({
+          "context": {
+            "kind": "web",
+            "origin": "https://otp.example.com/verify",
+            "domain": "otp.example.com",
+          }
+        }),
+    ));
+    assert_rpc_ok(&listed);
+
+    let provider_session = provider_open_session(&mut router);
+    let response = provider_get_one_time_code(
+        &mut router,
+        &provider_session,
+        "cred-otp-multi",
+        "otp-backup",
+        "https://otp.example.com/verify",
+        "otp.example.com",
+    );
+    assert_rpc_ok(&response);
+
+    let result = response.result().expect("one-time-code result");
+    let object = result.as_object().expect("one-time-code object");
+    assert_eq!(object.len(), 4);
+    assert_eq!(
+        object.get("credential_id").and_then(|value| value.as_str()),
+        Some("cred-otp-multi")
+    );
+    assert_eq!(
+        object.get("otp_id").and_then(|value| value.as_str()),
+        Some("otp-backup")
+    );
+    assert_eq!(
+        object
+            .get("code")
+            .and_then(|value| value.as_str())
+            .map(str::len),
+        Some(6)
+    );
+    assert!(!object.contains_key("password"));
+    assert!(!object.contains_key("username"));
+    assert!(!object.contains_key("secret"));
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock after epoch")
+        .as_millis() as u64;
+    let valid_until_ms = object
+        .get("valid_until_ms")
+        .and_then(|value| value.as_u64())
+        .expect("valid_until_ms");
+    assert!(valid_until_ms > now_ms);
+    assert!(valid_until_ms <= now_ms + 30_000);
+}
+
+#[test]
+fn test_credential_provider_get_one_time_code_requires_exact_context_and_ids() {
+    let (mut router, _temp_dir) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "test"));
+    ensure_entry(&mut router);
+    assert_rpc_ok(&provider_list(&mut router));
+
+    let provider_session = provider_open_session(&mut router);
+    let missing_otp = router.handle(&RpcRequest::new(
+        "credential_provider:getOneTimeCode",
+        serde_json::json!({
+          "provider_session": provider_session,
+          "credential_id": "cred-example",
+          "context": {
+            "kind": "web",
+            "origin": "https://app.example.com/login",
+            "domain": "app.example.com",
+          }
+        }),
+    ));
+    assert_rpc_error(&missing_otp, "EMPTY_PAYLOAD");
+
+    let provider_session = provider_open_session(&mut router);
+    let wrong_context = provider_get_one_time_code(
+        &mut router,
+        &provider_session,
+        "cred-example",
+        "default",
+        "https://attacker.example/login",
+        "attacker.example",
+    );
+    assert_rpc_error(&wrong_context, "ACCESS_DENIED");
+
+    let provider_session = provider_open_session(&mut router);
+    let missing_id = provider_get_one_time_code(
+        &mut router,
+        &provider_session,
+        "cred-example",
+        "missing",
+        "https://app.example.com/login",
+        "app.example.com",
+    );
+    assert_rpc_error(&missing_id, "NO_MATCH");
+}
+
+#[test]
+fn test_credential_provider_get_one_time_code_rejects_hotp() {
+    let (mut router, _temp_dir) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "test"));
+    ensure_entry_with_otps(
+        &mut router,
+        "OtpHotp",
+        "cred-otp-hotp",
+        serde_json::json!([
+            {"id": "otp-counter", "label": "Counter", "type": "HOTP"}
+        ]),
+        &[("otp-counter", "JBSWY3DPEHPK3PXP")],
+    );
+    let listed = router.handle(&RpcRequest::new(
+        "credential_provider:list",
+        serde_json::json!({
+          "context": {
+            "kind": "web",
+            "origin": "https://otp.example.com/verify",
+            "domain": "otp.example.com",
+          }
+        }),
+    ));
+    assert_rpc_ok(&listed);
+
+    let provider_session = provider_open_session(&mut router);
+    let response = provider_get_one_time_code(
+        &mut router,
+        &provider_session,
+        "cred-otp-hotp",
+        "otp-counter",
+        "https://otp.example.com/verify",
+        "otp.example.com",
+    );
+    assert_rpc_error(&response, "HOTP_AUTOFILL_UNSUPPORTED");
 }
 
 #[test]
@@ -1019,6 +1304,135 @@ fn test_credential_provider_list_supports_url_rules_alias_and_app_id_alias() {
 }
 
 #[test]
+fn test_credential_provider_public_suffix_tenants_do_not_cross_match() {
+    let (mut router, _temp_dir) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "test"));
+
+    ensure_entry_with_meta_and_password(
+        &mut router,
+        "Alice Pages",
+        "cred-alice-pages",
+        "Alice Pages",
+        "alice@pages",
+        "https://alice.github.io/login",
+        "alice-secret",
+    );
+    ensure_entry_with_meta_and_password(
+        &mut router,
+        "Bob Pages",
+        "cred-bob-pages",
+        "Bob Pages",
+        "bob@pages",
+        "https://bob.github.io/login",
+        "bob-secret",
+    );
+
+    let listed = router.handle(&RpcRequest::new(
+        "credential_provider:list",
+        serde_json::json!({
+          "context": {
+            "kind": "web",
+            "origin": "https://alice.github.io/settings",
+            "domain": "alice.github.io",
+          }
+        }),
+    ));
+    assert_rpc_ok(&listed);
+
+    let candidates = listed
+        .result()
+        .and_then(|r| r.get("candidates"))
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(
+        candidates[0].get("credential_id").and_then(|v| v.as_str()),
+        Some("cred-alice-pages")
+    );
+
+    let searched = provider_search_all(&mut router);
+    assert_rpc_ok(&searched);
+    let searched_candidates = searched
+        .result()
+        .and_then(|r| r.get("candidates"))
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(searched_candidates.len(), 2);
+
+    let provider_session = provider_open_session(&mut router);
+    let denied = provider_get_secret_for_web(
+        &mut router,
+        &provider_session,
+        "cred-bob-pages",
+        "https://alice.github.io/settings",
+        "alice.github.io",
+    );
+    assert_rpc_error(&denied, "ACCESS_DENIED");
+
+    let provider_session = provider_open_session(&mut router);
+    let allowed = provider_get_secret_for_web(
+        &mut router,
+        &provider_session,
+        "cred-alice-pages",
+        "https://alice.github.io/settings",
+        "alice.github.io",
+    );
+    assert_rpc_ok(&allowed);
+    assert_eq!(
+        allowed
+            .result()
+            .and_then(|r| r.get("password"))
+            .and_then(|v| v.as_str()),
+        Some("alice-secret")
+    );
+}
+
+#[test]
+fn test_credential_provider_get_secret_rejects_invalid_utf8_password() {
+    let (mut router, _temp_dir) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "test"));
+
+    ensure_entry_with_meta_and_password_bytes(
+        &mut router,
+        "Invalid Utf8",
+        "cred-invalid-utf8",
+        "Invalid Utf8",
+        "alice@invalid",
+        "https://invalid.example/login",
+        &[0xff, 0xfe, 0xfd],
+    );
+
+    let listed = router.handle(&RpcRequest::new(
+        "credential_provider:list",
+        serde_json::json!({
+          "context": {
+            "kind": "web",
+            "origin": "https://invalid.example/login",
+            "domain": "invalid.example",
+          }
+        }),
+    ));
+    assert_rpc_ok(&listed);
+
+    let provider_session = provider_open_session(&mut router);
+    let secret = provider_get_secret_for_web(
+        &mut router,
+        &provider_session,
+        "cred-invalid-utf8",
+        "https://invalid.example/login",
+        "invalid.example",
+    );
+
+    assert_rpc_error(&secret, "INVALID_SECRET_ENCODING");
+    assert_eq!(
+        secret.error_message(),
+        Some("Credential password secret is not valid UTF-8")
+    );
+}
+
+#[test]
 fn test_credential_provider_debug_reports_invalid_meta_json() {
     let (mut router, _temp_dir) = create_test_router();
     assert_rpc_ok(&unlock_vault(&mut router, "test"));
@@ -1106,5 +1520,178 @@ fn test_credential_provider_debug_reports_non_object_meta_root() {
             .and_then(|value| value.get("serde_error"))
             .and_then(|value| value.as_str()),
         Some("meta root is not a JSON object")
+    );
+}
+
+#[test]
+fn test_credential_provider_web_context_derives_domain_and_rejects_mismatch() {
+    let (mut router, _temp_dir) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "test"));
+    ensure_entry_with_meta(
+        &mut router,
+        "Context Domain",
+        "cred-context-domain",
+        "Context Domain",
+        "alice@example.com",
+        "https://example.com/login",
+    );
+
+    let derived = router.handle(&RpcRequest::new(
+        "credential_provider:list",
+        serde_json::json!({
+          "context": {
+            "kind": "web",
+            "origin": "https://www.example.com/login"
+          }
+        }),
+    ));
+    assert_rpc_ok(&derived);
+    assert_eq!(
+        first_candidate(&derived)
+            .get("credential_id")
+            .and_then(|value| value.as_str()),
+        Some("cred-context-domain")
+    );
+
+    let mismatched = router.handle(&RpcRequest::new(
+        "credential_provider:list",
+        serde_json::json!({
+          "context": {
+            "kind": "web",
+            "origin": "https://example.com/login",
+            "domain": "attacker.example"
+          }
+        }),
+    ));
+    assert_rpc_error(&mismatched, "INVALID_CONTEXT");
+
+    let hostless = router.handle(&RpcRequest::new(
+        "credential_provider:list",
+        serde_json::json!({
+          "context": {
+            "kind": "web",
+            "origin": "file:///tmp/login.html"
+          }
+        }),
+    ));
+    assert_rpc_error(&hostless, "INVALID_CONTEXT");
+}
+
+#[test]
+fn test_credential_provider_site_results_use_deterministic_order() {
+    let (mut router, _temp_dir) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "test"));
+
+    let entries = [
+        (
+            "Exact Used",
+            "cred-exact-used",
+            "Zulu",
+            "https://login.accounts.example.com",
+        ),
+        (
+            "Exact Unused",
+            "cred-exact-unused",
+            "Alpha",
+            "https://login.accounts.example.com",
+        ),
+        (
+            "Sub B",
+            "cred-sub-b",
+            "Same",
+            "https://accounts.example.com",
+        ),
+        (
+            "Sub A",
+            "cred-sub-a",
+            "Same",
+            "https://accounts.example.com",
+        ),
+        (
+            "Sub Alpha",
+            "cred-sub-alpha",
+            "Alpha",
+            "https://accounts.example.com",
+        ),
+        (
+            "Etld Used",
+            "cred-etld-used",
+            "Zulu",
+            "https://shop.example.com",
+        ),
+        (
+            "Etld Unused",
+            "cred-etld-unused",
+            "Alpha",
+            "https://admin.example.com",
+        ),
+    ];
+    for (dir_name, credential_id, title, url) in entries {
+        ensure_entry_with_meta(
+            &mut router,
+            dir_name,
+            credential_id,
+            title,
+            "alice@example.com",
+            url,
+        );
+    }
+
+    let list = || {
+        RpcRequest::new(
+            "credential_provider:list",
+            serde_json::json!({
+              "context": {
+                "kind": "web",
+                "origin": "https://login.accounts.example.com/session",
+                "domain": "login.accounts.example.com"
+              }
+            }),
+        )
+    };
+    assert_rpc_ok(&router.handle(&list()));
+
+    for credential_id in ["cred-exact-used", "cred-etld-used"] {
+        let provider_session = provider_open_session(&mut router);
+        let recorded = router.handle(&RpcRequest::new(
+            "credential_provider:recordUse",
+            serde_json::json!({
+              "provider_session": provider_session,
+              "credential_id": credential_id,
+              "context": {
+                "kind": "web",
+                "origin": "https://login.accounts.example.com/session",
+                "domain": "login.accounts.example.com"
+              }
+            }),
+        ));
+        assert_rpc_ok(&recorded);
+    }
+
+    let listed = router.handle(&list());
+    assert_rpc_ok(&listed);
+    let ids = listed
+        .result()
+        .and_then(|result| result.get("candidates"))
+        .and_then(|value| value.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|candidate| {
+            candidate
+                .get("credential_id")
+                .and_then(|value| value.as_str())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        vec![
+            "cred-exact-used",
+            "cred-exact-unused",
+            "cred-sub-alpha",
+            "cred-sub-a",
+            "cred-sub-b",
+            "cred-etld-used",
+            "cred-etld-unused",
+        ]
     );
 }

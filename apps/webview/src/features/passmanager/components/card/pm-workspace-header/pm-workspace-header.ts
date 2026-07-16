@@ -32,6 +32,7 @@ export class PMWorkspaceHeader extends ReatomLitElement {
     contextLabel: {type: String, attribute: 'context-label'},
     contextItems: {attribute: false},
     title: {type: String},
+    titleError: {type: String, attribute: 'title-error'},
     supportText: {type: String, attribute: 'support-text'},
     avatarLetter: {type: String, attribute: 'avatar-letter'},
     avatarFallbackBg: {type: String, attribute: 'avatar-fallback-bg'},
@@ -50,6 +51,7 @@ export class PMWorkspaceHeader extends ReatomLitElement {
   declare contextLabel: string
   declare contextItems: PMWorkspaceContextItem[]
   declare title: string
+  declare titleError: string
   declare supportText: string
   declare avatarLetter: string
   declare avatarFallbackBg: string
@@ -76,6 +78,7 @@ export class PMWorkspaceHeader extends ReatomLitElement {
     this.contextLabel = ''
     this.contextItems = []
     this.title = ''
+    this.titleError = ''
     this.supportText = ''
     this.avatarLetter = ''
     this.avatarFallbackBg = ''
@@ -242,7 +245,7 @@ export class PMWorkspaceHeader extends ReatomLitElement {
       block-size: 56px;
       flex: 0 0 56px;
       --pm-avatar-icon-size: 24px;
-      --pm-avatar-fallback-bg: var(--pm-workspace-header-avatar-fallback-bg, var(--cv-color-primary-dark));
+      --pm-avatar-fallback-background: var(--pm-workspace-header-avatar-fallback-background, var(--cv-color-primary-dark));
       --pm-avatar-fallback-color: var(
         --pm-workspace-header-avatar-fallback-color,
         var(--cv-color-on-primary)
@@ -254,7 +257,7 @@ export class PMWorkspaceHeader extends ReatomLitElement {
 
     .title-avatar-picker {
       flex: 0 0 56px;
-      --pm-avatar-fallback-bg: var(--pm-workspace-header-avatar-fallback-bg, var(--cv-color-primary-dark));
+      --pm-avatar-fallback-background: var(--pm-workspace-header-avatar-fallback-background, var(--cv-color-primary-dark));
       --pm-avatar-fallback-color: var(
         --pm-workspace-header-avatar-fallback-color,
         var(--cv-color-on-primary)
@@ -323,6 +326,17 @@ export class PMWorkspaceHeader extends ReatomLitElement {
       font-family: var(--cv-font-family-body);
       letter-spacing: -0.04em;
       line-height: 0.96;
+    }
+
+    .title-input[invalid]::part(base) {
+      border-block-end: 1px solid var(--cv-color-danger);
+    }
+
+    .title-error {
+      margin: 0;
+      color: var(--cv-color-danger);
+      font-size: var(--cv-font-size-sm);
+      line-height: 1.35;
     }
 
     .title-summary {
@@ -704,6 +718,8 @@ export class PMWorkspaceHeader extends ReatomLitElement {
                         type="text"
                         size="large"
                         .value=${this.title}
+                        ?invalid=${Boolean(this.titleError)}
+                        aria-describedby=${this.titleError ? 'workspace-title-error' : nothing}
                         placeholder=${this.titlePlaceholder}
                         @cv-input=${this.onTitleInput}
                       ></cv-input>
@@ -713,6 +729,9 @@ export class PMWorkspaceHeader extends ReatomLitElement {
                   <slot name="title-end" @slotchange=${this.handleSlotChange}></slot>
                 </div>
               </div>
+              ${this.titleError
+                ? html`<p id="workspace-title-error" class="title-error" role="alert">${this.titleError}</p>`
+                : nothing}
               <div class="title-support" ?hidden=${!this.hasSupportSlot}>
                 <slot name="support" @slotchange=${this.handleSlotChange}></slot>
               </div>

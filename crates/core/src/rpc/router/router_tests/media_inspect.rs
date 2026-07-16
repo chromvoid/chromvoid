@@ -243,6 +243,9 @@ fn test_catalog_media_inspect_stale_commit_does_not_overwrite_new_revision() {
                 audio_tracks: 1,
                 video_tracks: 0,
                 playback_mime_type: Some("audio/mp4".to_string()),
+                codec_string: None,
+                mse_fragmented: None,
+                streaming_metadata: None,
             }),
             snapshot.source_revision,
         )

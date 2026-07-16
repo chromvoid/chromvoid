@@ -36,9 +36,10 @@ import type { ContextMenu } from "../features/file-manager/components/context-me
 import type { CVPopover } from "@chromvoid/uikit/components/cv-popover";
 import type { DashboardDropzone } from "../features/file-manager/components/dashboard-dropzone";
 import type { DashboardFileList } from "../features/file-manager/components/dashboard-file-list";
-import type { DashboardHeader } from "../features/file-manager/components/dashboard-header";
+import type { DashboardHeader } from "../features/shell/components/dashboard-header";
 import type { FileItem } from "../features/file-manager/components/file-item";
 import type { FileSearch } from "../features/file-manager/components/file-search";
+import type { WorkspaceDashboardHeader } from "../features/file-manager/components/workspace-dashboard-header";
 import type { MediaMiniPlayer } from "../features/media/components/media-mini-player";
 import type { StatusBar as Footer } from "../features/file-manager/components/footer";
 import type { StatusBar } from "../features/shell/components/status-bar";
@@ -113,6 +114,7 @@ declare global {
     "file-item": FileItem;
     "file-search": FileSearch;
     "dashboard-header": DashboardHeader;
+    "workspace-dashboard-header": WorkspaceDashboardHeader;
     "dashboard-dropzone": DashboardDropzone;
     "dashboard-file-list": DashboardFileList;
     "upload-progress": UploadProgress;

@@ -41,6 +41,8 @@ pub struct CredentialProviderPasskeysLiteStatusMatrix {
 pub struct CredentialProviderCapability {
     pub password_provider: bool,
     pub passkeys_lite: bool,
+    pub one_time_codes: bool,
+    pub one_time_codes_unsupported_reason: Option<String>,
     pub autofill_fallback: bool,
     pub unsupported_reason: Option<String>,
 }
@@ -71,6 +73,8 @@ pub struct CredentialProviderCommandErrorMap {
     pub search: Vec<String>,
     #[serde(rename = "credential_provider:getSecret")]
     pub get_secret: Vec<String>,
+    #[serde(rename = "credential_provider:getOneTimeCode")]
+    pub get_one_time_code: Vec<String>,
     #[serde(rename = "credential_provider:recordUse")]
     pub record_use: Vec<String>,
     #[serde(rename = "credential_provider:passkey:create")]
@@ -130,6 +134,17 @@ pub struct CredentialSecret {
     pub password: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub otp: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+pub struct CredentialOneTimeCode {
+    pub credential_id: String,
+    pub otp_id: String,
+    pub code: String,
+    #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
+    pub valid_until_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

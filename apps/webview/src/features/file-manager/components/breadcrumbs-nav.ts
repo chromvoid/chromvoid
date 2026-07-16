@@ -165,7 +165,7 @@ export class BreadcrumbsNav extends ReatomLitElement {
 
       items.push(html`
         <cv-breadcrumb-item value=${fullPath} href=${fullPath} ?current=${isCurrent}
-          >${part}</cv-breadcrumb-item
+          ><bdi dir="auto">${part}</bdi></cv-breadcrumb-item
         >
       `)
     }

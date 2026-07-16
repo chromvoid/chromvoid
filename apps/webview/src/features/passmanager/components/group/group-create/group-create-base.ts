@@ -15,7 +15,10 @@ type FieldRenderOptions = {
   label?: string
   placeholder?: string
   required?: boolean
+  optional?: boolean
   counterLabel?: string
+  error?: string
+  size?: 'small' | 'medium' | 'large'
 }
 
 export abstract class PMGroupCreateBase extends ReatomLitElement {
@@ -25,11 +28,12 @@ export abstract class PMGroupCreateBase extends ReatomLitElement {
 
   declare hideBack: boolean
 
-  protected readonly model = new PMGroupCreateModel()
+  protected readonly model: PMGroupCreateModel
   private readonly afterRenderScheduler = createAfterRenderScheduler(this)
 
-  constructor() {
+  constructor(model = new PMGroupCreateModel()) {
     super()
+    this.model = model
     this.hideBack = false
   }
 
@@ -55,7 +59,8 @@ export abstract class PMGroupCreateBase extends ReatomLitElement {
 
   protected async onSubmit(event: Event): Promise<void> {
     event.preventDefault()
-    await this.model.submit()
+    if (await this.model.submit()) return
+    if (this.model.nameError()) this.focusNameField()
   }
 
   protected onIconChange(event: CustomEvent<{iconRef: string | undefined}>): void {
@@ -73,9 +78,10 @@ export abstract class PMGroupCreateBase extends ReatomLitElement {
   protected renderNameField(options: FieldRenderOptions = {}): TemplateResult {
     const label = options.label ?? i18n('group:name')
     const placeholder = options.placeholder ?? i18n('group:name:placeholder')
+    const error = options.error ?? ''
 
     return html`
-      <cv-field ?required=${options.required}>
+      <cv-field ?required=${options.required} ?invalid=${Boolean(error)}>
         <span slot="label" class="field-label">
           <span class="field-label-text">
             ${label}${options.required
@@ -88,7 +94,7 @@ export abstract class PMGroupCreateBase extends ReatomLitElement {
         </span>
         <cv-input
           type="text"
-          size="small"
+          size=${options.size ?? 'small'}
           name="name"
           autocomplete="card-title"
           maxlength=${GROUP_CREATE_NAME_MAX_LENGTH}
@@ -96,8 +102,10 @@ export abstract class PMGroupCreateBase extends ReatomLitElement {
           placeholder=${placeholder}
           .value=${this.model.name()}
           ?required=${options.required}
+          ?invalid=${Boolean(error)}
           @cv-input=${this.onNameInput}
         ></cv-input>
+        ${error ? html`<span slot="error" class="field-error">${error}</span>` : nothing}
       </cv-field>
     `
   }
@@ -109,14 +117,18 @@ export abstract class PMGroupCreateBase extends ReatomLitElement {
     return html`
       <cv-field>
         <span slot="label" class="field-label">
-          <span class="field-label-text">${label}</span>
+          <span class="field-label-text">
+            ${label}${options.optional
+              ? html`<span class="optional-badge">${i18n('optional:title')}</span>`
+              : nothing}
+          </span>
           ${options.counterLabel
             ? html`<span class="field-counter" aria-live="polite">${options.counterLabel}</span>`
             : nothing}
         </span>
         <cv-textarea
           name="description"
-          size="small"
+          size=${options.size ?? 'small'}
           rows="3"
           maxlength=${GROUP_CREATE_DESCRIPTION_MAX_LENGTH}
           placeholder=${placeholder}
@@ -137,7 +149,7 @@ export abstract class PMGroupCreateBase extends ReatomLitElement {
     `
   }
 
-  private focusNameField(): void {
+  protected focusNameField(): void {
     const workspaceHeader = this.shadowRoot?.querySelector<HTMLElement & {focusTitleInput?: () => void}>(
       'pm-workspace-header',
     )

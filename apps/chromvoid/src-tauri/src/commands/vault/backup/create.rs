@@ -678,7 +678,9 @@ impl Drop for BackupMasterKeyGuard {
         match self.adapter.lock() {
             Ok(mut adapter) => adapter.set_master_key(None),
             Err(_) => {
-                tracing::warn!("backup_local_create: adapter mutex poisoned while clearing master key")
+                tracing::warn!(
+                    "backup_local_create: adapter mutex poisoned while clearing master key"
+                )
             }
         }
     }
@@ -689,9 +691,9 @@ mod tests {
     #[cfg(not(target_os = "android"))]
     use std::io::Cursor;
     #[cfg(not(target_os = "android"))]
-    use std::sync::{Arc, Mutex};
-    #[cfg(not(target_os = "android"))]
     use std::sync::atomic::AtomicBool;
+    #[cfg(not(target_os = "android"))]
+    use std::sync::{Arc, Mutex};
 
     #[cfg(not(target_os = "android"))]
     use chromvoid_core::rpc::stream::{RpcOutputStream, RpcStreamMeta};
@@ -788,11 +790,10 @@ mod tests {
         let app = tauri::test::mock_app();
         let target_dir = TempDir::new().expect("backup target");
         let shared = Arc::new(Mutex::new(ScriptedBackupAdapterState::default()));
-        let adapter: Arc<Mutex<Box<dyn CoreAdapter>>> = Arc::new(Mutex::new(Box::new(
-            ScriptedBackupAdapter {
+        let adapter: Arc<Mutex<Box<dyn CoreAdapter>>> =
+            Arc::new(Mutex::new(Box::new(ScriptedBackupAdapter {
                 shared: shared.clone(),
-            },
-        )));
+            })));
 
         let result = backup_local_create_inner(
             app.handle().clone(),
@@ -860,7 +861,10 @@ mod tests {
                     state.start_saw_master_key =
                         state.master_key.as_deref() == Some("test-master-password");
                     if !state.start_saw_master_key {
-                        return RpcResponse::error("Master password required", Some("EMPTY_PAYLOAD"));
+                        return RpcResponse::error(
+                            "Master password required",
+                            Some("EMPTY_PAYLOAD"),
+                        );
                     }
                     RpcResponse::success(json!({
                         "backup_id": "backup-1",

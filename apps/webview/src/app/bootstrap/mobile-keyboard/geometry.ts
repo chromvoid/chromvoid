@@ -82,11 +82,11 @@ export const getMobileKeyboardVisibleRect = (): MobileKeyboardVisibleRect | null
   const visualBottom = viewportHeight > 0 ? viewportTop + viewportHeight : layoutHeight
   const root = document.documentElement
   const nativeResize = root.hasAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR)
-  const nativeKeyboardInset = nativeResize ? 0 : readRootCssPx('--native-keyboard-bottom-inset')
+  const nativeKeyboardInset = nativeResize ? 0 : readRootCssPx('--app-runtime-keyboard-native-inset-block-end')
   const overlayInset = Math.max(
-    readRootCssPx('--mobile-keyboard-scroll-clearance'),
-    readRootCssPx('--mobile-keyboard-overlay-offset'),
-    readRootCssPx('--visual-viewport-bottom-inset'),
+    readRootCssPx('--app-runtime-keyboard-scroll-clearance'),
+    readRootCssPx('--app-runtime-keyboard-overlay-offset'),
+    readRootCssPx('--app-runtime-visual-viewport-inset-block-end'),
     nativeKeyboardInset,
   )
   const insetBottom = layoutHeight > 0 && overlayInset > 0 ? layoutHeight - overlayInset : visualBottom

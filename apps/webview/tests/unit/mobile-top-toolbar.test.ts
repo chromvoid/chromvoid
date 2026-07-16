@@ -27,20 +27,18 @@ function getOverflowPortalItem(value: string) {
 describe('MobileTopToolbar', () => {
   afterEach(() => {
     document.querySelectorAll('mobile-top-toolbar').forEach((el) => el.remove())
+    document.querySelectorAll('[data-mobile-toolbar-focus-test]').forEach((el) => el.remove())
     vi.restoreAllMocks()
   })
 
-  it('renders title with menu leading and command, dispatching toolbar events', async () => {
+  it('renders title with menu leading and dispatches the toolbar event', async () => {
     ensureDefined()
     const toolbar = document.createElement('mobile-top-toolbar') as MobileTopToolbar
     toolbar.title = 'Files'
     toolbar.leading = 'menu'
-    toolbar.showCommand = true
 
     const onLeading = vi.fn()
-    const onCommand = vi.fn()
     toolbar.addEventListener('mobile-toolbar-leading', onLeading as EventListener)
-    toolbar.addEventListener('mobile-toolbar-command', onCommand as EventListener)
 
     document.body.appendChild(toolbar)
     await toolbar.updateComplete
@@ -52,7 +50,6 @@ describe('MobileTopToolbar', () => {
     expect(leadingButton).toBeTruthy()
     expect(leadingButton?.getAttribute('aria-label')).toBe('Open menu')
     expect(leadingIcon?.getAttribute('name')).toBe('list')
-    expect(toolbar.shadowRoot?.querySelector('[data-action="mobile-command"]')).toBeTruthy()
 
     toolbar.menuOpen = true
     await toolbar.updateComplete
@@ -62,11 +59,9 @@ describe('MobileTopToolbar', () => {
     expect(leadingIcon?.getAttribute('name')).toBe('x')
 
     leadingButton?.click()
-    ;(toolbar.shadowRoot?.querySelector('[data-action="mobile-command"]') as HTMLElement | null)?.click()
 
     expect(onLeading).toHaveBeenCalledTimes(1)
     expect((onLeading.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({mode: 'menu'})
-    expect(onCommand).toHaveBeenCalledTimes(1)
   })
 
   it('hides optional controls and blocks back event when disabled', async () => {
@@ -75,15 +70,12 @@ describe('MobileTopToolbar', () => {
     toolbar.title = 'Storage'
     toolbar.leading = 'back'
     toolbar.backDisabled = true
-    toolbar.showCommand = false
 
     const onLeading = vi.fn()
     toolbar.addEventListener('mobile-toolbar-leading', onLeading as EventListener)
 
     document.body.appendChild(toolbar)
     await toolbar.updateComplete
-
-    expect(toolbar.shadowRoot?.querySelector('[data-action="mobile-command"]')).toBeNull()
 
     const leading = toolbar.shadowRoot?.querySelector('[data-action="mobile-leading"]') as HTMLButtonElement | null
     expect(leading).toBeTruthy()
@@ -94,6 +86,65 @@ describe('MobileTopToolbar', () => {
     toolbar.leading = 'none'
     await toolbar.updateComplete
     expect(toolbar.shadowRoot?.querySelector('[data-action="mobile-leading"]')).toBeNull()
+  })
+
+  it('optionally turns the title into an accessible toolbar action', async () => {
+    ensureDefined()
+    const toolbar = document.createElement('mobile-top-toolbar') as MobileTopToolbar
+    toolbar.title = 'Personal Wallet'
+    toolbar.subtitle = 'Bitcoin · Savings'
+    toolbar.titleAction = {
+      id: 'switch-wallet',
+      label: 'Switch wallet, current Personal Wallet',
+      popup: 'dialog',
+      expanded: false,
+    }
+    const onAction = vi.fn()
+    toolbar.addEventListener('mobile-toolbar-action', onAction as EventListener)
+
+    document.body.appendChild(toolbar)
+    await toolbar.updateComplete
+
+    const titleButton = toolbar.shadowRoot?.querySelector('.title-action') as HTMLButtonElement | null
+    expect(titleButton?.getAttribute('aria-label')).toBe('Switch wallet, current Personal Wallet')
+    expect(titleButton?.getAttribute('aria-haspopup')).toBe('dialog')
+    expect(titleButton?.getAttribute('aria-expanded')).toBe('false')
+    expect(titleButton?.querySelector('cv-icon')?.getAttribute('name')).toBe('chevron-down')
+
+    titleButton?.click()
+    expect((onAction.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({actionId: 'switch-wallet'})
+
+    toolbar.titleAction = {...toolbar.titleAction!, disabled: true, expanded: true}
+    await toolbar.updateComplete
+    const disabledTitle = toolbar.shadowRoot?.querySelector('.title-action') as HTMLButtonElement | null
+    expect(disabledTitle?.disabled).toBe(true)
+    expect(disabledTitle?.getAttribute('aria-expanded')).toBe('true')
+    disabledTitle?.click()
+    expect(onAction).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders compact meta counters under the title', async () => {
+    ensureDefined()
+    const toolbar = document.createElement('mobile-top-toolbar') as MobileTopToolbar
+    toolbar.title = 'Selected'
+    toolbar.metaLabel = 'Selected: Entries: 2, Groups: 1'
+    toolbar.meta = [
+      {id: 'entries', icon: 'key', label: 'Entries', value: '2'},
+      {id: 'groups', icon: 'folder', label: 'Groups', value: '1'},
+    ]
+
+    document.body.appendChild(toolbar)
+    await toolbar.updateComplete
+
+    const metaRow = toolbar.shadowRoot?.querySelector('.meta-row') as HTMLElement | null
+    const metaItems = Array.from(toolbar.shadowRoot?.querySelectorAll('.meta-item') ?? [])
+    const icons = metaItems.map((item) => item.querySelector('cv-icon')?.getAttribute('name'))
+    const values = metaItems.map((item) => item.textContent?.trim())
+
+    expect(toolbar.shadowRoot?.querySelector('.title')?.textContent?.trim()).toBe('Selected')
+    expect(metaRow?.getAttribute('aria-label')).toBe('Selected: Entries: 2, Groups: 1')
+    expect(icons).toEqual(['key', 'folder'])
+    expect(values).toEqual(['2', '1'])
   })
 
   it('uses configurable max visible actions before collapsing into overflow', async () => {
@@ -167,6 +218,103 @@ describe('MobileTopToolbar', () => {
     expect(overflowItems).toEqual(['a3', 'a4'])
   })
 
+  it('keeps overflow-only actions in the overflow menu', async () => {
+    ensureDefined()
+    const toolbar = document.createElement('mobile-top-toolbar') as MobileTopToolbar
+    toolbar.overflowFromIndex = 2
+    toolbar.actions = [
+      {id: 'image', icon: 'image-plus', label: 'Image', overflowOnly: true},
+      {id: 'paste', icon: 'clipboard', label: 'Paste'},
+      {id: 'undo', icon: 'undo-2', label: 'Undo'},
+      {id: 'redo', icon: 'redo-2', label: 'Redo'},
+    ]
+
+    document.body.appendChild(toolbar)
+    await toolbar.updateComplete
+
+    const buttons = Array.from(
+      toolbar.shadowRoot?.querySelectorAll('.trailing > .action-btn[data-action], .trailing > .overflow-menu') ?? [],
+    )
+      .map((element) => (element.classList.contains('overflow-menu') ? 'More actions' : element.getAttribute('data-action')))
+      .filter((value): value is string => Boolean(value))
+    const overflowItems = Array.from(getOverflowMenu(toolbar)?.querySelectorAll('cv-menu-item') ?? []).map((item) =>
+      item.getAttribute('value'),
+    )
+
+    expect(buttons).toEqual(['paste', 'More actions'])
+    expect(overflowItems).toEqual(['image', 'undo', 'redo'])
+  })
+
+  it('prevents pointer focus transfer for focus-preserving visible actions', async () => {
+    ensureDefined()
+    const toolbar = document.createElement('mobile-top-toolbar') as MobileTopToolbar
+    toolbar.actions = [
+      {id: 'undo', icon: 'undo-2', label: 'Undo', preserveFocusOnPress: true},
+      {id: 'paste', icon: 'clipboard', label: 'Paste'},
+    ]
+
+    const onAction = vi.fn()
+    toolbar.addEventListener('mobile-toolbar-action', onAction as EventListener)
+    document.body.appendChild(toolbar)
+    await toolbar.updateComplete
+
+    const undoButton = toolbar.shadowRoot?.querySelector('[data-action="undo"]') as HTMLElement | null
+    const pasteButton = toolbar.shadowRoot?.querySelector('[data-action="paste"]') as HTMLElement | null
+    const undoPointerDown = new Event('pointerdown', {bubbles: true, cancelable: true})
+    const pastePointerDown = new Event('pointerdown', {bubbles: true, cancelable: true})
+
+    expect(undoButton?.dispatchEvent(undoPointerDown)).toBe(false)
+    expect(undoPointerDown.defaultPrevented).toBe(true)
+    expect(pasteButton?.dispatchEvent(pastePointerDown)).toBe(true)
+    expect(pastePointerDown.defaultPrevented).toBe(false)
+
+    undoButton?.click()
+
+    expect(onAction).toHaveBeenCalledTimes(1)
+    expect((onAction.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({actionId: 'undo'})
+  })
+
+  it('preserves current focus when opening overflow for focus-preserving actions', async () => {
+    ensureDefined()
+    const focusedInput = document.createElement('input')
+    focusedInput.setAttribute('data-mobile-toolbar-focus-test', 'true')
+    const toolbar = document.createElement('mobile-top-toolbar') as MobileTopToolbar
+    toolbar.maxVisible = 1
+    toolbar.actions = [
+      {id: 'paste', icon: 'clipboard', label: 'Paste', preserveFocusOnPress: true},
+      {id: 'rename', icon: 'pencil', label: 'Rename'},
+    ]
+    const onAction = vi.fn()
+    toolbar.addEventListener('mobile-toolbar-action', onAction as EventListener)
+
+    document.body.append(focusedInput, toolbar)
+    await toolbar.updateComplete
+    focusedInput.focus()
+
+    const menu = getOverflowMenu(toolbar)
+    const trigger = getOverflowTrigger(toolbar)
+    const pointerDown = new Event('pointerdown', {bubbles: true, composed: true, cancelable: true})
+
+    expect(menu?.preserveFocusOnPointerOpen).toBe(true)
+    expect(trigger?.dispatchEvent(pointerDown)).toBe(false)
+    expect(pointerDown.defaultPrevented).toBe(true)
+
+    trigger?.click()
+    await menu?.updateComplete
+
+    expect(menu?.open).toBe(true)
+    expect(document.activeElement).toBe(focusedInput)
+
+    const pasteItem = getOverflowPortalItem('paste')
+    expect(pasteItem).not.toBeNull()
+    pasteItem!.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
+    await menu?.updateComplete
+
+    expect(onAction).toHaveBeenCalledTimes(1)
+    expect((onAction.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({actionId: 'paste'})
+    expect(document.activeElement).toBe(focusedInput)
+  })
+
   it('renders all actions inside overflow when overflowFromIndex is zero', async () => {
     ensureDefined()
     const toolbar = document.createElement('mobile-top-toolbar') as MobileTopToolbar
@@ -233,11 +381,9 @@ describe('MobileTopToolbar', () => {
     expect(renameItem?.selected).toBe(false)
   })
 
-  it('shows active indicators on the command and overflow buttons', async () => {
+  it('shows an active indicator on the overflow button', async () => {
     ensureDefined()
     const toolbar = document.createElement('mobile-top-toolbar') as MobileTopToolbar
-    toolbar.showCommand = true
-    toolbar.commandActive = true
     toolbar.maxVisible = 3
     toolbar.actions = [
       {id: 'a1', icon: 'plus-lg', label: 'One'},
@@ -249,11 +395,8 @@ describe('MobileTopToolbar', () => {
     document.body.appendChild(toolbar)
     await toolbar.updateComplete
 
-    const commandButton = toolbar.shadowRoot?.querySelector('[data-action="mobile-command"]') as HTMLButtonElement | null
     const overflowMenu = getOverflowMenu(toolbar)
 
-    expect(commandButton?.classList.contains('active')).toBe(true)
-    expect(commandButton?.querySelector('.action-indicator')).not.toBeNull()
     expect(overflowMenu?.classList.contains('active')).toBe(true)
     expect(overflowMenu?.querySelector('.action-indicator')).not.toBeNull()
   })

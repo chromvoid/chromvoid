@@ -1,4 +1,5 @@
 import type {RuntimeCapabilities} from '../runtime/runtime-capabilities'
+import type {RpcCmdData, RpcCmdName, RpcCmdResult} from './tauri/tauri-rpc-types'
 import type {
   CatalogFileReplaceOptions,
   CatalogFileReplaceResult,
@@ -49,6 +50,8 @@ export type PreparedMediaStreamSource = {
   kind: 'media-stream'
   streamId: string
   url: string
+  fallbackUrl?: string
+  delivery?: 'custom-scheme' | 'loopback-http'
   name: string
   mimeType: string
   size: number
@@ -56,20 +59,60 @@ export type PreparedMediaStreamSource = {
   expiresAt: number
 }
 
-export type PreparedAndroidVideoSource = {
-  kind: 'android-native-video'
-  token: string
+export type PreparedVideoDelivery =
+  | {
+      delivery: 'loopback-http'
+      platform: 'desktop'
+      url: string
+    }
+  | {
+      delivery: 'mse'
+      platform: 'desktop' | 'mobile'
+      fetchUrl?: string
+      initSegment?: {offset: number; length: number}
+      mediaSegments?: Array<{offset: number; length: number; timestampUs: number}>
+    }
+  | {
+      delivery: 'native-video'
+      platform: 'desktop' | 'mobile'
+      nativeSourceToken: string
+    }
+
+export type PreparedVideoProvider =
+  | 'local-catalog'
+  | 'mobile-local-catalog'
+  | 'remote-usb'
+  | 'remote-network'
+  | 'mock'
+
+export type PreparedVideoSource = {
+  kind: 'video-source'
+  streamId: string
+  sourceToken: string
+  platform: 'desktop' | 'mobile'
+  provider: PreparedVideoProvider
+  deliveries: PreparedVideoDelivery[]
+  name: string
   mimeType: string
   size: number
   sourceRevision: number
+  mediaSourceGeneration: number
+  transportSessionGeneration?: number
+  appForegroundEpoch: number
+  expiresAt: number
 }
 
 export type AndroidVideoPlayerEvent = {
-  token: string
-  event: 'started' | 'ready' | 'buffering' | 'idle' | 'ended' | 'error' | 'released'
+  nativeSourceToken?: string
+  token?: string
+  event: 'started' | 'ready' | 'playing' | 'paused' | 'buffering' | 'idle' | 'ended' | 'error' | 'released'
   positionMs?: number
   durationMs?: number
   error?: string
+  mediaSourceGeneration?: number
+  sourceRevision?: number
+  transportSessionGeneration?: number
+  appForegroundEpoch?: number
 }
 
 export type AndroidAudioErrorCode =
@@ -270,6 +313,7 @@ export type TransportLike = {
 
   getRuntimeCapabilities?: () => RuntimeCapabilities
 
+  rpc<T extends RpcCmdName>(command: T, data: RpcCmdData<T>): Promise<RpcCmdResult<T>>
   sendCatalog(command: string, data: Record<string, unknown>): Promise<unknown>
   sendPassmanager(command: string, data: Record<string, unknown>): Promise<unknown>
 
@@ -394,15 +438,18 @@ export type TransportLike = {
     },
   ): Promise<PreparedMediaStreamSource>
   releaseMediaStream?(source: PreparedMediaStreamSource): Promise<void>
-  startAndroidVideo?(
-    nodeId: number,
+  prepareMediaSource?(
     opts: {
-      fileName: string
+      kind: 'video'
+      nodeId: number
+      sourceRevision?: number | null
+      ownerToken?: string | null
+      fileName?: string | null
       mimeType?: string | null
       lastModified?: number | null
     },
-  ): Promise<PreparedAndroidVideoSource>
-  stopAndroidVideo?(source: PreparedAndroidVideoSource): Promise<void>
+  ): Promise<PreparedVideoSource>
+  releaseMediaSource?(source: PreparedVideoSource): Promise<void>
   warmupAndroidAudio?(): Promise<boolean>
   sendAndroidAudioCommand?(command: AndroidAudioCommand): Promise<AndroidAudioCommandResult>
   sendNativeAudioCommand?(command: NativeAudioCommand): Promise<NativeAudioCommandResult>

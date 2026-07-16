@@ -1,4 +1,5 @@
 import {getLang} from 'root/i18n'
+import {stripBidiControls} from '@project/i18n/pure'
 import {formatFileSize as formatBytes} from 'root/utils/format-file-size'
 export {
   filterAndSortFileItems as filterAndSortItems,
@@ -37,9 +38,11 @@ export const formatFileSize = (bytes?: number): string => {
 
 export const formatDate = (timestamp?: number): string => {
   if (!timestamp) return '—'
-  return new Date(timestamp).toLocaleDateString(getLang(), {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  })
+  return stripBidiControls(
+    new Date(timestamp).toLocaleDateString(getLang(), {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }),
+  )
 }

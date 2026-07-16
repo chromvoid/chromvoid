@@ -3,5 +3,7 @@
 export type CatalogFolderFilter = {
   query: string | null
   include_hidden: boolean | null
+  recursive: boolean | null
+  include_text_content: boolean | null
   file_types: Array<string>
 }

@@ -14,10 +14,11 @@ pub(super) const IK_MSG1_MIN_SIZE: usize = 96;
 pub(in crate::gateway) enum GatewayWsRoute {
     Pair,
     Extension,
+    Agent,
 }
 
 pub(in crate::gateway) fn is_allowed_path(path: &str) -> bool {
-    matches!(path, "/ws" | "/pair" | "/extension")
+    matches!(path, "/ws" | "/pair" | "/extension" | "/agent")
 }
 
 pub(in crate::gateway) fn pin_to_psk(pin: &str) -> [u8; 32] {

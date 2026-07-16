@@ -31,12 +31,12 @@ afterEach(() => {
     Reflect.deleteProperty(globalThis, 'chrome')
     return
   }
-
   setChromeApi(previousChrome)
 })
 
 describe('popup messenger', () => {
-  it('sends fill_form message to active tab', async () => {
+  it('sends to the captured tab without querying active state again', async () => {
+    let queryCount = 0
     let sentTabId: number | undefined
     let sentPayload: MessageEnvelope | undefined
 
@@ -49,54 +49,38 @@ describe('popup messenger', () => {
         lastError: undefined,
       },
       tabs: {
-        query: (_queryInfo: unknown, callback: (tabs: Array<{id?: number}>) => void) => callback([{id: 44}]),
+        query: (_queryInfo: unknown, callback: (tabs: Array<{id?: number}>) => void) => {
+          queryCount += 1
+          callback([{id: 99}])
+        },
         sendMessage: (tabId: number, message: unknown, callback?: (response: unknown) => void) => {
           sentTabId = tabId
           sentPayload = message as MessageEnvelope
           callback?.({ok: true})
         },
       },
-      action: {setBadgeText: (_details: unknown, callback?: () => void) => callback?.()},
     })
 
     const messenger = new PopupMessenger()
-    const response = await messenger.sendToActiveTab('fill_form', {
-      id: 'entry-1',
-      username: 'alice',
-      password: 'secret',
-    })
-
-    assert.equal(sentTabId, 44)
-    assert.equal(sentPayload?.action, 'fill_form')
-    assert.equal(sentPayload?.from, 'popup_script')
-    assert.deepEqual(sentPayload?.data, {id: 'entry-1', username: 'alice', password: 'secret'})
-    assert.deepEqual(response, {ok: true})
-  })
-
-  it('returns undefined when active tab does not have id', async () => {
-    setChromeApi({
-      runtime: {
-        onInstalled: {addListener: () => {}},
-        onStartup: {addListener: () => {}},
-        onMessage: {addListener: () => {}},
-        sendMessage: (_message: unknown, callback?: (response: unknown) => void) => callback?.(undefined),
-        lastError: undefined,
-      },
-      tabs: {
-        query: (_queryInfo: unknown, callback: (tabs: Array<{id?: number}>) => void) => callback([{}]),
-        sendMessage: (_tabId: number, _message: unknown, callback?: (response: unknown) => void) =>
-          callback?.({}),
-      },
-      action: {setBadgeText: (_details: unknown, callback?: () => void) => callback?.()},
-    })
-
-    const messenger = new PopupMessenger()
-    const response = await messenger.sendToActiveTab('fill_otp', {
+    const response = await messenger.sendToTab(44, 'fill_otp', {
       id: 'entry-2',
       username: 'alice',
       otp: '123456',
+      expectedOrigin: 'https://example.test',
     })
 
-    assert.equal(response, undefined)
+    assert.equal(sentTabId, 44)
+    assert.equal(queryCount, 0)
+    assert.deepEqual(sentPayload, {
+      action: 'fill_otp',
+      from: 'popup_script',
+      data: {
+        id: 'entry-2',
+        username: 'alice',
+        otp: '123456',
+        expectedOrigin: 'https://example.test',
+      },
+    })
+    assert.deepEqual(response, {ok: true})
   })
 })

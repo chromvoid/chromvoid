@@ -6,6 +6,40 @@ use chromvoid_core::rpc::types::RpcResponse;
 
 use super::helpers::should_downgrade_secret_read_error;
 
+pub(super) fn bounded_env_runtime_command(command: &str) -> &'static str {
+    match command {
+        "env_runtime:status" => "env_runtime:status",
+        "env_runtime:secret:list" => "env_runtime:secret:list",
+        "env_runtime:secret:create" => "env_runtime:secret:create",
+        "env_runtime:secret:update" => "env_runtime:secret:update",
+        "env_runtime:secret:reveal" => "env_runtime:secret:reveal",
+        "env_runtime:secret:delete" => "env_runtime:secret:delete",
+        "env_runtime:profile:list" => "env_runtime:profile:list",
+        "env_runtime:profile:get" => "env_runtime:profile:get",
+        "env_runtime:profile:create" => "env_runtime:profile:create",
+        "env_runtime:profile:update" => "env_runtime:profile:update",
+        "env_runtime:profile:delete" => "env_runtime:profile:delete",
+        _ => "env_runtime:unknown",
+    }
+}
+
+#[cfg(desktop)]
+fn bounded_env_runtime_error_code(code: Option<&str>) -> &'static str {
+    match code {
+        Some("ENV_RUNTIME_REAUTH_FAILED") => "ENV_RUNTIME_REAUTH_FAILED",
+        Some("ENV_RUNTIME_REAUTH_LOCKED") => "ENV_RUNTIME_REAUTH_LOCKED",
+        Some(code) => crate::env_runtime::EnvRuntimeErrorCode::from_core(code).as_str(),
+        None => crate::env_runtime::EnvRuntimeErrorCode::CORE_ERROR.as_str(),
+    }
+}
+
+#[cfg(not(desktop))]
+fn bounded_env_runtime_error_code(_code: Option<&str>) -> &'static str {
+    // Env Runtime is desktop-only. Keep unexpected mobile RPC errors bounded
+    // without compiling the desktop runtime into the mobile application.
+    "INTERNAL"
+}
+
 pub(super) fn rpc_response_to_result(
     command: &str,
     resp: RpcResponse,
@@ -28,7 +62,17 @@ pub(super) fn rpc_response_to_result(
             }
         }
         RpcResponse::Error { ok: _, error, code } => {
-            if should_downgrade_secret_read_error(command, optional_secret_type, code.as_deref()) {
+            if command.starts_with("env_runtime:") {
+                tracing::error!(
+                    env_runtime_command = bounded_env_runtime_command(command),
+                    error_code = bounded_env_runtime_error_code(code.as_deref()),
+                    "rpc_dispatch: Env Runtime command failed"
+                );
+            } else if should_downgrade_secret_read_error(
+                command,
+                optional_secret_type,
+                code.as_deref(),
+            ) {
                 tracing::info!(
                     "rpc_dispatch: optional secret missing command={} secret_type={} code={:?} optional_secret_missing=true error={}",
                     command,
@@ -55,8 +99,34 @@ pub(super) fn rpc_response_to_result(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use super::*;
     use serde_json::json;
+
+    #[derive(Clone, Default)]
+    struct TestWriter(Arc<Mutex<Vec<u8>>>);
+
+    struct TestWriterGuard(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for TestWriterGuard {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().expect("log buffer").extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'writer> tracing_subscriber::fmt::MakeWriter<'writer> for TestWriter {
+        type Writer = TestWriterGuard;
+
+        fn make_writer(&'writer self) -> Self::Writer {
+            TestWriterGuard(Arc::clone(&self.0))
+        }
+    }
 
     #[test]
     fn rpc_response_to_result_wraps_success_response_with_command() {
@@ -112,6 +182,79 @@ mod tests {
                 assert_eq!(code.as_deref(), Some("NODE_NOT_FOUND"));
             }
             RpcResult::Success { .. } => panic!("expected error"),
+        }
+    }
+
+    #[test]
+    fn env_runtime_core_errors_return_to_ui_but_never_reach_tracing_verbatim() {
+        let markers = [
+            "secret-value-marker",
+            "master-password-marker",
+            "untrusted-reason-marker",
+            "/private/raw/path-marker",
+            "raw-id-marker",
+            "unknown-field-marker",
+            "raw-code-marker",
+        ];
+        let raw_error = markers[..6].join(" ");
+        let raw_code = Some(markers[6].to_string());
+        let writer = TestWriter::default();
+        let subscriber = tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_max_level(tracing::Level::INFO)
+            .with_writer(writer.clone())
+            .finish();
+
+        let result = tracing::subscriber::with_default(subscriber, || {
+            rpc_response_to_result(
+                "env_runtime:profile:update",
+                RpcResponse::error(raw_error.clone(), raw_code.clone()),
+                None,
+            )
+            .expect("finalize")
+        });
+
+        match result {
+            RpcResult::Error { error, code, .. } => {
+                assert_eq!(error, raw_error);
+                assert_eq!(code, raw_code);
+            }
+            RpcResult::Success { .. } => panic!("expected error"),
+        }
+        let log = String::from_utf8(writer.0.lock().expect("log buffer").clone())
+            .expect("UTF-8 audit log");
+        assert!(log.contains("env_runtime_command=\"env_runtime:profile:update\""));
+        assert!(log.contains("error_code=\"INTERNAL\""));
+        for marker in markers {
+            assert!(!log.contains(marker), "leaked {marker}: {log}");
+        }
+    }
+
+    #[test]
+    fn unknown_env_runtime_command_is_bounded_before_tracing() {
+        let writer = TestWriter::default();
+        let subscriber = tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_max_level(tracing::Level::INFO)
+            .with_writer(writer.clone())
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            rpc_response_to_result(
+                "env_runtime:unknown:raw-command-marker",
+                RpcResponse::error("raw-error-marker", Some("raw-code-marker")),
+                None,
+            )
+            .expect("finalize");
+        });
+
+        let log = String::from_utf8(writer.0.lock().expect("log buffer").clone())
+            .expect("UTF-8 audit log");
+        assert!(log.contains("env_runtime_command=\"env_runtime:unknown\""));
+        for marker in ["raw-command-marker", "raw-error-marker", "raw-code-marker"] {
+            assert!(!log.contains(marker), "leaked {marker}: {log}");
         }
     }
 }

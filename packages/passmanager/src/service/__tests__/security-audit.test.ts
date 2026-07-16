@@ -1,6 +1,13 @@
 import {describe, expect, it} from 'vitest'
 
-import {createCredentialAuditResult, type CredentialAuditEntryInput} from '../security-audit'
+import {
+  CREDENTIAL_SECURITY_AUDIT_ALGORITHM_VERSION,
+  CREDENTIAL_SECURITY_AUDIT_ARTIFACT_VERSION,
+  createCredentialAuditResult,
+  parseCredentialSecurityAuditArtifact,
+  type CredentialAuditEntryInput,
+  type CredentialSecurityAuditArtifactV1,
+} from '../security-audit'
 
 function loginEntry(overrides: Partial<CredentialAuditEntryInput> = {}): CredentialAuditEntryInput {
   return {
@@ -21,6 +28,125 @@ function cardEntry(overrides: Partial<CredentialAuditEntryInput> = {}): Credenti
     ...overrides,
   }
 }
+
+function auditArtifact(
+  overrides: Partial<CredentialSecurityAuditArtifactV1> = {},
+): CredentialSecurityAuditArtifactV1 {
+  return {
+    version: CREDENTIAL_SECURITY_AUDIT_ARTIFACT_VERSION,
+    algorithmVersion: CREDENTIAL_SECURITY_AUDIT_ALGORITHM_VERSION,
+    revision: 'catalog-revision-1',
+    generatedAt: 1_783_648_923_456,
+    entries: {
+      'login-1': {
+        entryId: 'login-1',
+        weakPassword: true,
+        reusedPassword: false,
+        hasTwoFactor: true,
+        strengthScore: 1,
+      },
+    },
+    failedEntryIds: ['login-2'],
+    ...overrides,
+  }
+}
+
+describe('parseCredentialSecurityAuditArtifact()', () => {
+  it('round-trips the secret-free artifact through JSON serialization', () => {
+    const artifact = auditArtifact()
+    const serialized = JSON.stringify(artifact)
+
+    expect(parseCredentialSecurityAuditArtifact(JSON.parse(serialized), artifact.revision)).toEqual(
+      artifact,
+    )
+  })
+
+  it.each([
+    ['schema version', {version: 2}],
+    ['algorithm version', {algorithmVersion: 2}],
+    ['catalog revision', {revision: 'stale-revision'}],
+  ])('rejects a mismatched %s', (_name, overrides) => {
+    expect(
+      parseCredentialSecurityAuditArtifact(
+        {...auditArtifact(), ...overrides},
+        'catalog-revision-1',
+      ),
+    ).toBeUndefined()
+  })
+
+  it.each([
+    ['non-object payload', null],
+    ['missing root field', {...auditArtifact(), entries: undefined}],
+    ['negative timestamp', auditArtifact({generatedAt: -1})],
+    ['fractional timestamp', auditArtifact({generatedAt: 1.5})],
+    ['non-object entries', auditArtifact({entries: [] as never})],
+    [
+      'entry key mismatch',
+      auditArtifact({
+        entries: {
+          'login-1': {...auditArtifact().entries['login-1']!, entryId: 'different-login'},
+        },
+      }),
+    ],
+    [
+      'invalid strength score',
+      auditArtifact({
+        entries: {
+          'login-1': {...auditArtifact().entries['login-1']!, strengthScore: 5 as never},
+        },
+      }),
+    ],
+    [
+      'inconsistent weak flag',
+      auditArtifact({
+        entries: {
+          'login-1': {...auditArtifact().entries['login-1']!, weakPassword: false},
+        },
+      }),
+    ],
+    ['duplicate failed entry id', auditArtifact({failedEntryIds: ['login-2', 'login-2']})],
+  ])('rejects invalid shape: %s', (_name, value) => {
+    expect(parseCredentialSecurityAuditArtifact(value)).toBeUndefined()
+  })
+
+  it.each(['password', 'hash', 'passwordHash', 'passwordFingerprint', 'fingerprint'])(
+    'rejects a secret-bearing root field named %s',
+    (field) => {
+      expect(
+        parseCredentialSecurityAuditArtifact({...auditArtifact(), [field]: 'secret-value'}),
+      ).toBeUndefined()
+    },
+  )
+
+  it.each(['password', 'hash', 'passwordHash', 'passwordFingerprint', 'fingerprint'])(
+    'rejects a secret-bearing summary field named %s',
+    (field) => {
+      const artifact = auditArtifact()
+      expect(
+        parseCredentialSecurityAuditArtifact({
+          ...artifact,
+          entries: {
+            'login-1': {...artifact.entries['login-1'], [field]: 'secret-value'},
+          },
+        }),
+      ).toBeUndefined()
+    },
+  )
+
+  it('rejects unknown root and summary fields', () => {
+    const artifact = auditArtifact()
+
+    expect(parseCredentialSecurityAuditArtifact({...artifact, unexpected: true})).toBeUndefined()
+    expect(
+      parseCredentialSecurityAuditArtifact({
+        ...artifact,
+        entries: {
+          'login-1': {...artifact.entries['login-1'], unexpected: true},
+        },
+      }),
+    ).toBeUndefined()
+  })
+})
 
 describe('createCredentialAuditResult()', () => {
   it('counts score 0 or 1 login passwords as weak', () => {

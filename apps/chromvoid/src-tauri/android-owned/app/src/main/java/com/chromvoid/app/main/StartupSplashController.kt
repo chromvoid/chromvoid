@@ -3,10 +3,6 @@ package com.chromvoid.app.main
 import android.animation.ValueAnimator
 import android.app.Activity
 import android.graphics.Color
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
-import android.graphics.RenderEffect
-import android.graphics.Shader
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -17,8 +13,6 @@ import android.view.ViewGroup
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
-import android.widget.ImageView
-import com.chromvoid.app.R
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -38,15 +32,16 @@ internal class StartupSplashController(
     }
     private val splashIdleStartRunnable = Runnable {
         logStartup("native_splash.idle.start_delayed", null)
-        startIdleAnimation()
+        startHeartbeatAnimation()
     }
 
-    private var baseLogo: ImageView? = null
-    private var glowLogo: ImageView? = null
-    private var idleAnimator: ValueAnimator? = null
+    private var iconView: ChromVoidSplashIconView? = null
+    private var introAnimator: ValueAnimator? = null
+    private var heartbeatAnimator: ValueAnimator? = null
     private var overlay: View? = null
     private var startedAtMs = 0L
     private var releaseQueued = false
+    private var releaseInProgress = false
 
     fun install() {
         if (overlay != null) {
@@ -62,50 +57,28 @@ internal class StartupSplashController(
                 isClickable = true
                 isFocusable = false
             }
-        val glow =
-            ImageView(activity).apply {
-                setImageResource(R.drawable.splash_logo)
-                scaleType = ImageView.ScaleType.FIT_CENTER
-                alpha = 0f
-                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    setRenderEffect(
-                        RenderEffect.createBlurEffect(
-                            STARTUP_GLOW_BLUR_PX,
-                            STARTUP_GLOW_BLUR_PX,
-                            Shader.TileMode.CLAMP,
-                        ),
-                    )
-                }
-            }
-        val logo =
-            ImageView(activity).apply {
-                setImageResource(R.drawable.splash_logo)
-                scaleType = ImageView.ScaleType.FIT_CENTER
-                alpha = 1f
-                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }
+        val icon = ChromVoidSplashIconView(activity)
         val logoSize = resolveLogoSizePx()
         logStartup("native_splash.logo.size", "px=$logoSize")
 
         overlayView.addView(
-            glow,
-            FrameLayout.LayoutParams(logoSize, logoSize, Gravity.CENTER),
-        )
-        overlayView.addView(
-            logo,
+            icon,
             FrameLayout.LayoutParams(logoSize, logoSize, Gravity.CENTER),
         )
         overlay = overlayView
-        baseLogo = logo
-        glowLogo = glow
+        iconView = icon
         startedAtMs = SystemClock.uptimeMillis()
         releaseQueued = false
+        releaseInProgress = false
         attachOverlay(overlayView, "overlay.install")
         ensureOnTop("overlay.install")
         splashFallbackHandler.postDelayed(splashFallbackRunnable, STARTUP_SPLASH_FALLBACK_MS)
         logStartup("native_splash.overlay.installed", "fallbackMs=$STARTUP_SPLASH_FALLBACK_MS")
-        startAnimation()
+        icon.onFirstDraw = {
+            if (overlay === overlayView && !releaseInProgress) {
+                startAnimation()
+            }
+        }
     }
 
     fun requestRelease() {
@@ -155,12 +128,30 @@ internal class StartupSplashController(
             (overlayView.parent as? ViewGroup)?.removeView(overlayView)
         }
         overlay = null
-        baseLogo = null
-        glowLogo = null
+        iconView = null
         releaseQueued = false
+        releaseInProgress = false
     }
 
     internal fun hasOverlayForTests(): Boolean = overlay != null
+
+    internal fun hasIconViewForTests(): Boolean = iconView != null
+
+    internal fun introProgressForTests(): Float? = iconView?.introProgressForTests
+
+    internal fun coreProgressForTests(): Float? = iconView?.coreProgressForTests
+
+    internal fun spiralRevealProgressForTests(): Float? = iconView?.spiralRevealProgressForTests
+
+    internal fun heartbeatProgressForTests(): Float? = iconView?.heartbeatProgressForTests
+
+    internal fun hasRunningIntroAnimatorForTests(): Boolean = introAnimator?.isRunning == true
+
+    internal fun hasHeartbeatAnimatorForTests(): Boolean = heartbeatAnimator != null
+
+    internal fun dispatchIconFirstDrawForTests() {
+        iconView?.dispatchFirstDrawForTests()
+    }
 
     internal fun releaseQueuedForTests(): Boolean = releaseQueued
 
@@ -169,8 +160,9 @@ internal class StartupSplashController(
             overlay ?: run {
                 logStartup("native_splash.release.skip-no-overlay", null)
                 return
-            }
+        }
         logStartup("native_splash.release.start", null)
+        releaseInProgress = true
         splashFallbackHandler.removeCallbacks(splashFallbackRunnable)
         splashFallbackHandler.removeCallbacks(splashReadyReleaseRunnable)
         stopAnimation()
@@ -186,8 +178,7 @@ internal class StartupSplashController(
                 if (overlay === overlayView) {
                     overlay = null
                 }
-                baseLogo = null
-                glowLogo = null
+                iconView = null
             }
             .start()
     }
@@ -226,144 +217,79 @@ internal class StartupSplashController(
     private fun dpToPx(value: Int): Int = (value * activity.resources.displayMetrics.density).roundToInt()
 
     private fun startAnimation() {
-        logStartup("native_splash.animation.base-frame", null)
-        applyBaseFrame()
-        splashFallbackHandler.postDelayed(splashIdleStartRunnable, STARTUP_IDLE_START_DELAY_MS)
+        val icon = iconView ?: return
+        logStartup("native_splash.animation.intro.started", null)
+        if (!ValueAnimator.areAnimatorsEnabled()) {
+            icon.setFinalFrame()
+            logStartup("native_splash.animation.disabled", null)
+            return
+        }
+
+        var cancelled = false
+        val animator =
+            ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = STARTUP_ANIMATION_INTRO_MS
+                interpolator = LinearInterpolator()
+                addUpdateListener { valueAnimator ->
+                    val progress = valueAnimator.animatedValue as Float
+                    icon.setIntroProgress(progress)
+                }
+                addListener(
+                    object : android.animation.AnimatorListenerAdapter() {
+                        override fun onAnimationCancel(animation: android.animation.Animator) {
+                            cancelled = true
+                        }
+
+                        override fun onAnimationEnd(animation: android.animation.Animator) {
+                            if (cancelled || introAnimator !== animation) return
+                            introAnimator = null
+                            icon.setFinalFrame()
+                            logStartup("native_splash.animation.intro.completed", null)
+                            splashFallbackHandler.postDelayed(
+                                splashIdleStartRunnable,
+                                STARTUP_HEARTBEAT_START_DELAY_MS,
+                            )
+                        }
+                    },
+                )
+            }
+
+        introAnimator = animator
+        animator.start()
     }
 
-    private fun startIdleAnimation() {
-        if (overlay == null || idleAnimator != null) {
+    private fun startHeartbeatAnimation() {
+        val icon = iconView
+        if (overlay == null || icon == null || heartbeatAnimator != null || !ValueAnimator.areAnimatorsEnabled()) {
             logStartup(
-                "native_splash.idle.skip",
-                "hasOverlay=${overlay != null} hasAnimator=${idleAnimator != null}",
+                "native_splash.heartbeat.skip",
+                "hasOverlay=${overlay != null} hasIcon=${icon != null} hasAnimator=${heartbeatAnimator != null}",
             )
             return
         }
 
         val animator =
             ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = STARTUP_ANIMATION_IDLE_MS
+                duration = STARTUP_ANIMATION_HEARTBEAT_MS
                 repeatCount = ValueAnimator.INFINITE
                 repeatMode = ValueAnimator.RESTART
                 interpolator = LinearInterpolator()
                 addUpdateListener { valueAnimator ->
-                    val progress = valueAnimator.animatedValue as Float
-                    applyIdleFrame(progress)
+                    icon.setHeartbeatProgress(valueAnimator.animatedValue as Float)
                 }
             }
 
-        idleAnimator = animator
+        heartbeatAnimator = animator
         animator.start()
-        logStartup("native_splash.idle.started", null)
-    }
-
-    private fun applyBaseFrame() {
-        baseLogo?.colorFilter = createColorFilter(
-            hueDegrees = STARTUP_FILTER_VIOLET_HUE_DEGREES,
-            saturation = STARTUP_FILTER_VIOLET_SATURATION,
-            brightness = STARTUP_FILTER_VIOLET_BRIGHTNESS,
-        )
-        baseLogo?.alpha = 1f
-        baseLogo?.scaleX = 1f
-        baseLogo?.scaleY = 1f
-
-        glowLogo?.alpha = 0f
-        glowLogo?.scaleX = 1f
-        glowLogo?.scaleY = 1f
-    }
-
-    private fun applyIdleFrame(progress: Float) {
-        val cyanBlend = smoothStep((1f - kotlin.math.cos(progress * TWO_PI)).toFloat() * 0.5f)
-        val glowScale = 1.012f + cyanBlend * STARTUP_GLOW_SCALE_DELTA
-
-        baseLogo?.colorFilter = createColorFilter(
-            hueDegrees = lerp(STARTUP_FILTER_VIOLET_HUE_DEGREES, STARTUP_FILTER_CYAN_HUE_DEGREES, cyanBlend),
-            saturation = lerp(STARTUP_FILTER_VIOLET_SATURATION, STARTUP_FILTER_CYAN_SATURATION, cyanBlend),
-            brightness = lerp(STARTUP_FILTER_VIOLET_BRIGHTNESS, STARTUP_FILTER_CYAN_BRIGHTNESS, cyanBlend),
-        )
-        baseLogo?.alpha = 1f
-        baseLogo?.scaleX = 1f
-        baseLogo?.scaleY = 1f
-
-        glowLogo?.colorFilter = createColorFilter(
-            hueDegrees = lerp(STARTUP_GLOW_VIOLET_HUE_DEGREES, STARTUP_GLOW_CYAN_HUE_DEGREES, cyanBlend),
-            saturation = lerp(STARTUP_GLOW_VIOLET_SATURATION, STARTUP_GLOW_CYAN_SATURATION, cyanBlend),
-            brightness = lerp(STARTUP_GLOW_VIOLET_BRIGHTNESS, STARTUP_GLOW_CYAN_BRIGHTNESS, cyanBlend),
-        )
-        glowLogo?.alpha = lerp(STARTUP_GLOW_VIOLET_ALPHA, STARTUP_GLOW_CYAN_ALPHA, cyanBlend)
-        glowLogo?.scaleX = glowScale
-        glowLogo?.scaleY = glowScale
-    }
-
-    private fun createColorFilter(
-        hueDegrees: Float,
-        saturation: Float,
-        brightness: Float,
-    ): ColorMatrixColorFilter {
-        val matrix = ColorMatrix(hueRotationMatrix(hueDegrees))
-        matrix.postConcat(
-            ColorMatrix().apply {
-                setSaturation(saturation)
-            },
-        )
-        matrix.postConcat(
-            ColorMatrix(
-                floatArrayOf(
-                    brightness, 0f, 0f, 0f, 0f,
-                    0f, brightness, 0f, 0f, 0f,
-                    0f, 0f, brightness, 0f, 0f,
-                    0f, 0f, 0f, 1f, 0f,
-                ),
-            ),
-        )
-        return ColorMatrixColorFilter(matrix)
-    }
-
-    private fun hueRotationMatrix(degrees: Float): FloatArray {
-        val radians = Math.toRadians(degrees.toDouble())
-        val cos = kotlin.math.cos(radians).toFloat()
-        val sin = kotlin.math.sin(radians).toFloat()
-        val lumR = 0.213f
-        val lumG = 0.715f
-        val lumB = 0.072f
-
-        return floatArrayOf(
-            lumR + cos * (1f - lumR) + sin * (-lumR),
-            lumG + cos * (-lumG) + sin * (-lumG),
-            lumB + cos * (-lumB) + sin * (1f - lumB),
-            0f,
-            0f,
-            lumR + cos * (-lumR) + sin * 0.143f,
-            lumG + cos * (1f - lumG) + sin * 0.14f,
-            lumB + cos * (-lumB) + sin * -0.283f,
-            0f,
-            0f,
-            lumR + cos * (-lumR) + sin * -(1f - lumR),
-            lumG + cos * (-lumG) + sin * lumG,
-            lumB + cos * (1f - lumB) + sin * lumB,
-            0f,
-            0f,
-            0f,
-            0f,
-            0f,
-            1f,
-            0f,
-        )
+        logStartup("native_splash.heartbeat.started", null)
     }
 
     private fun stopAnimation() {
         splashFallbackHandler.removeCallbacks(splashIdleStartRunnable)
-        idleAnimator?.cancel()
-        idleAnimator = null
-    }
-
-    private fun lerp(from: Float, to: Float, progress: Float): Float {
-        return from + (to - from) * progress.coerceIn(0f, 1f)
-    }
-
-    private fun smoothStep(progress: Float): Float {
-        val t = progress.coerceIn(0f, 1f)
-        return t * t * (3f - 2f * t)
+        introAnimator?.cancel()
+        introAnimator = null
+        heartbeatAnimator?.cancel()
+        heartbeatAnimator = null
     }
 
     companion object {
@@ -377,24 +303,8 @@ internal class StartupSplashController(
         private const val STARTUP_LOGO_MIN_DP = 300
         private const val STARTUP_LOGO_MAX_DP = 420
         private const val STARTUP_LOGO_VIEWPORT_FRACTION = 0.38f
-        private const val STARTUP_IDLE_START_DELAY_MS = 450L
-        private const val STARTUP_ANIMATION_IDLE_MS = 4_800L
-        private const val STARTUP_FILTER_VIOLET_HUE_DEGREES = 0f
-        private const val STARTUP_FILTER_CYAN_HUE_DEGREES = -68f
-        private const val STARTUP_FILTER_VIOLET_SATURATION = 1.04f
-        private const val STARTUP_FILTER_CYAN_SATURATION = 1.16f
-        private const val STARTUP_FILTER_VIOLET_BRIGHTNESS = 1.02f
-        private const val STARTUP_FILTER_CYAN_BRIGHTNESS = 1.07f
-        private const val STARTUP_GLOW_VIOLET_HUE_DEGREES = -12f
-        private const val STARTUP_GLOW_CYAN_HUE_DEGREES = -72f
-        private const val STARTUP_GLOW_VIOLET_SATURATION = 1.16f
-        private const val STARTUP_GLOW_CYAN_SATURATION = 1.3f
-        private const val STARTUP_GLOW_VIOLET_BRIGHTNESS = 1.05f
-        private const val STARTUP_GLOW_CYAN_BRIGHTNESS = 1.14f
-        private const val STARTUP_GLOW_VIOLET_ALPHA = 0.025f
-        private const val STARTUP_GLOW_CYAN_ALPHA = 0.115f
-        private const val STARTUP_GLOW_SCALE_DELTA = 0.032f
-        private const val STARTUP_GLOW_BLUR_PX = 18f
-        private val TWO_PI = (Math.PI * 2).toFloat()
+        private const val STARTUP_HEARTBEAT_START_DELAY_MS = 80L
+        private const val STARTUP_ANIMATION_INTRO_MS = 1_100L
+        private const val STARTUP_ANIMATION_HEARTBEAT_MS = 2_300L
     }
 }

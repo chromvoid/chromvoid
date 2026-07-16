@@ -5,7 +5,8 @@ use chromvoid_core::crypto::keystore::InMemoryKeystore;
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 use chromvoid_core::rpc::{RpcInputStream, RpcReply, RpcRouter};
 use chromvoid_core::storage::Storage;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
 use tempfile::TempDir;
 
 fn create_router() -> (RpcRouter, TempDir) {

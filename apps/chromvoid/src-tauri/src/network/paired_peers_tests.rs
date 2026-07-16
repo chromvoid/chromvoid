@@ -30,7 +30,7 @@ fn store_add_save_reload() {
 
     {
         let mut store = PairedPeerStore::load(&path);
-        store.upsert(sample_peer("peer-1"));
+        store.upsert(sample_peer("peer-1")).expect("upsert peer");
         store.save().expect("save");
     }
 
@@ -54,7 +54,7 @@ fn store_is_paired() {
     let mut store = PairedPeerStore::load(&path);
 
     assert!(!store.is_paired("peer-x"));
-    store.upsert(sample_peer("peer-x"));
+    store.upsert(sample_peer("peer-x")).expect("upsert peer");
     assert!(store.is_paired("peer-x"));
 }
 
@@ -64,7 +64,7 @@ fn store_remove() {
     let path = dir.path().join("paired_network_peers.json");
     let mut store = PairedPeerStore::load(&path);
 
-    store.upsert(sample_peer("peer-del"));
+    store.upsert(sample_peer("peer-del")).expect("upsert peer");
     assert!(store.is_paired("peer-del"));
 
     let removed = store.remove("peer-del");
@@ -79,7 +79,7 @@ fn store_find_by_id() {
     let path = dir.path().join("paired_network_peers.json");
     let mut store = PairedPeerStore::load(&path);
 
-    store.upsert(sample_peer("peer-find"));
+    store.upsert(sample_peer("peer-find")).expect("upsert peer");
     assert!(store.find_by_id("peer-find").is_some());
     assert!(store.find_by_id("nonexistent").is_none());
 }
@@ -99,4 +99,61 @@ fn legacy_plaintext_store_migrates_to_encrypted() {
     let raw = std::fs::read_to_string(&path).expect("read migrated store");
     assert!(raw.contains("ciphertext_b64"));
     assert!(!raw.contains("deadbeef"));
+
+    let backup = std::fs::read_dir(dir.path())
+        .expect("read dir")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("paired_network_peers.json.bak."))
+        })
+        .expect("legacy backup");
+    let backup_raw = std::fs::read_to_string(backup).expect("read legacy backup");
+    assert!(backup_raw.contains("deadbeef"));
+}
+
+#[test]
+fn store_rejects_peer_id_takeover_with_different_pubkey() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("paired_network_peers.json");
+    let mut store = PairedPeerStore::load(&path);
+    let original = sample_peer("peer-1");
+    store
+        .upsert(original.clone())
+        .expect("insert original peer");
+
+    let mut attacker = sample_peer("peer-1");
+    attacker.peer_pubkey = vec![9, 9, 9];
+    let error = store
+        .upsert(attacker)
+        .expect_err("same peer_id with different pubkey must fail");
+
+    assert!(error.contains("different public key"));
+    assert_eq!(
+        store.get("peer-1").expect("original kept").peer_pubkey,
+        original.peer_pubkey
+    );
+}
+
+#[test]
+fn corrupt_store_fails_closed_and_refuses_mutation() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("paired_network_peers.json");
+    std::fs::write(&path, b"{not valid json").expect("write corrupt store");
+
+    let mut store = PairedPeerStore::load(&path);
+    assert!(store.load_error().is_some());
+    assert!(store.list().is_empty());
+
+    let error = store
+        .upsert(sample_peer("peer-1"))
+        .expect_err("corrupt store must reject mutation");
+    assert!(error.contains("refusing to mutate trust store"));
+    assert!(store.save().is_err());
+    assert_eq!(
+        std::fs::read(&path).expect("read original corrupt file"),
+        b"{not valid json"
+    );
 }

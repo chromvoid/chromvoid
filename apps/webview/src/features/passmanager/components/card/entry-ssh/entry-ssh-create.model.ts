@@ -28,20 +28,21 @@ export class PMEntrySshCreateModel {
   private readonly keyTypeState = atom<SshKeyType>('ed25519', 'passmanager.entrySshCreate.keyType')
   private readonly nameState = atom('', 'passmanager.entrySshCreate.name')
   private readonly commentState = atom('', 'passmanager.entrySshCreate.comment')
-  private readonly advancedOpenState = atom(false, 'passmanager.entrySshCreate.advancedOpen')
   private readonly resultState = atom<PMEntrySshCreateResult | null>(null, 'passmanager.entrySshCreate.result')
   private readonly errorState = atom('', 'passmanager.entrySshCreate.error')
   private readonly nameTouchedState = atom(false, 'passmanager.entrySshCreate.nameTouched')
   private readonly commentTouchedState = atom(false, 'passmanager.entrySshCreate.commentTouched')
 
-  private readonly nameErrorState = computed(() => this.getNameError(), 'passmanager.entrySshCreate.nameError')
+  private readonly nameErrorState = computed(
+    () => (this.nameTouchedState() ? this.getNameError() : ''),
+    'passmanager.entrySshCreate.nameError',
+  )
   private readonly canSubmitState = computed(() => !this.getNameError(), 'passmanager.entrySshCreate.canSubmit')
 
   readonly state = {
     keyType: this.keyTypeState,
     name: this.nameState,
     comment: this.commentState,
-    advancedOpen: this.advancedOpenState,
     result: this.resultState,
     error: this.errorState,
     nameError: this.nameErrorState,
@@ -51,7 +52,6 @@ export class PMEntrySshCreateModel {
   readonly keyType = this.keyTypeState
   readonly name = this.nameState
   readonly comment = this.commentState
-  readonly advancedOpen = this.advancedOpenState
   readonly result = this.resultState
   readonly error = this.errorState
   readonly nameError = this.nameErrorState
@@ -63,7 +63,6 @@ export class PMEntrySshCreateModel {
       this.keyTypeState.set('ed25519')
       this.nameState.set(defaults.name)
       this.commentState.set(defaults.comment)
-      this.advancedOpenState.set(false)
       this.resultState.set(null)
       this.errorState.set('')
       this.nameTouchedState.set(false)
@@ -83,9 +82,6 @@ export class PMEntrySshCreateModel {
 
     setKeyType: action((value: SshKeyType) => {
       this.keyTypeState.set(value)
-      if (value !== 'ed25519') {
-        this.advancedOpenState.set(true)
-      }
       this.refreshResultAfterEdit()
       this.errorState.set('')
     }, 'passmanager.entrySshCreate.setKeyType'),
@@ -103,10 +99,6 @@ export class PMEntrySshCreateModel {
       this.refreshResultAfterEdit()
       this.errorState.set('')
     }, 'passmanager.entrySshCreate.setComment'),
-
-    setAdvancedOpen: action((value: boolean) => {
-      this.advancedOpenState.set(value)
-    }, 'passmanager.entrySshCreate.setAdvancedOpen'),
 
     setPending: action(() => {
       const form = this.getFormData()
@@ -160,10 +152,6 @@ export class PMEntrySshCreateModel {
     this.actions.setComment(value)
   }
 
-  setAdvancedOpen(value: boolean): void {
-    this.actions.setAdvancedOpen(value)
-  }
-
   setPending(): void {
     this.actions.setPending()
   }
@@ -197,12 +185,11 @@ export class PMEntrySshCreateModel {
   private getDefaults(options?: PMEntrySshCreateResetOptions): PMEntrySshCreateFormData {
     const entryTitle = options?.entryTitle?.trim() || ''
     const username = options?.username?.trim() || ''
-    const name = entryTitle ? `${entryTitle} SSH` : i18n('ssh:name:default')
     const comment = username && entryTitle ? `${username}@${entryTitle}` : entryTitle || username
 
     return {
       keyType: 'ed25519',
-      name,
+      name: '',
       comment,
     }
   }

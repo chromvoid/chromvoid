@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-env-runtime-preset-save"
+description = "Enables the env_runtime_preset_save command without any pre-configured scope."
+commands.allow = ["env_runtime_preset_save"]
+
+[[permission]]
+identifier = "deny-env-runtime-preset-save"
+description = "Denies the env_runtime_preset_save command without any pre-configured scope."
+commands.deny = ["env_runtime_preset_save"]

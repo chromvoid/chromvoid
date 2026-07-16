@@ -16,29 +16,21 @@ export class ButtonBack extends ReatomLitElement {
     }
   }
   static styles = css`
-    :host {
-      --back-button-radius: var(--cv-radius-2);
-      --back-button-color: var(--cv-color-primary);
-      --back-button-hover-bg: var(--cv-color-primary-surface-strong);
-      --back-button-hover-border-color: var(--cv-color-primary);
-      --back-button-hover-color: var(--back-button-color);
-    }
-
     cv-button {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      inline-size: var(--back-button-size, 48px);
-      block-size: var(--back-button-size, 48px);
+      inline-size: var(--pm-back-button-size, 48px);
+      block-size: var(--pm-back-button-size, 48px);
       padding: 0;
       border: 1px solid
         var(
-          --back-button-border-color,
+          --pm-back-button-border-color,
           var(--cv-color-border-strong)
         );
-      border-radius: var(--back-button-radius, var(--cv-radius-2));
-      background: var(--back-button-bg, var(--cv-color-surface-2));
-      color: var(--back-button-color, var(--cv-color-primary));
+      border-radius: var(--cv-radius-2);
+      background: var(--pm-back-button-background, var(--cv-color-surface-2));
+      color: var(--cv-color-primary);
       cursor: pointer;
       transition:
         background-color 0.2s ease,
@@ -47,12 +39,9 @@ export class ButtonBack extends ReatomLitElement {
         transform 0.2s ease;
 
       &:hover {
-        background: var(
-          --back-button-hover-bg,
-          var(--cv-color-primary-surface-strong)
-        );
-        border-color: var(--back-button-hover-border-color, var(--cv-color-primary));
-        color: var(--back-button-hover-color, var(--back-button-color, var(--cv-color-primary)));
+        background: var(--cv-color-primary-surface-strong);
+        border-color: var(--cv-color-primary);
+        color: var(--cv-color-primary);
       }
 
       &:active {
@@ -61,8 +50,8 @@ export class ButtonBack extends ReatomLitElement {
     }
 
     cv-icon {
-      inline-size: var(--back-button-icon-size, 22px);
-      block-size: var(--back-button-icon-size, 22px);
+      inline-size: var(--pm-back-button-icon-size, 22px);
+      block-size: var(--pm-back-button-icon-size, 22px);
     }
   `
   handleClick() {

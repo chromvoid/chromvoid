@@ -1,9 +1,22 @@
 import {navigationModel} from 'root/app/navigation/navigation.model'
+import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
 import {tauriInvoke} from 'root/core/transport/tauri/ipc'
+import {runtimeModeModel} from 'root/core/runtime/runtime-mode.model'
 import {getAppContext} from 'root/shared/services/app-context'
+import {subscribeToSignalChanges, type Unsubscribe} from 'root/shared/services/subscribed-signal'
 import {i18n} from 'root/i18n'
+import {wrap} from '@reatom/core'
 
-import {getModeStatus, isRemoteMode, onConnectionStatus, onModeChanged, type RemoteHost} from './remote.model'
+import {
+  getModeStatus,
+  isRemoteMode,
+  mobileUsbStatus,
+  onConnectionStatus,
+  onMobileUsbStatusChanged,
+  onModeChanged,
+  type MobileUsbStatus,
+  type RemoteHost,
+} from './remote.model'
 
 type RpcOk<T> = {ok: true; result: T}
 type RpcErr = {ok: false; error: string; code?: string | null}
@@ -36,10 +49,44 @@ function resolveRemotePeerId(host: RemoteHost): string | null {
   return null
 }
 
+function isMobileUsbHost(host: RemoteHost): boolean {
+  return host.type === 'mobile_usb'
+}
+
+function normalizeTransportSessionGeneration(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null
+}
+
+function readRemoteSessionGeneration(store: unknown): number | null {
+  const source = (store as {remoteSessionGeneration?: () => number | null}).remoteSessionGeneration
+  return typeof source === 'function' ? source() : null
+}
+
+function setRemoteSessionGeneration(store: unknown, generation: number | null): void {
+  const source = (store as {remoteSessionGeneration?: {set?: (value: number | null) => void}})
+    .remoteSessionGeneration
+  if (typeof source?.set === 'function') source.set(generation)
+}
+
+function setRemoteSessionPhoneApproval(store: unknown, peerId: string | null): void {
+  const source = (store as {setRemoteSessionPhoneApproval?: (peerId: string | null) => void})
+    .setRemoteSessionPhoneApproval
+  if (typeof source === 'function') {
+    source(peerId)
+    return
+  }
+
+  const fallback = (store as {setRemoteSessionWaiting?: (peerId: string | null) => void})
+    .setRemoteSessionWaiting
+  if (typeof fallback === 'function') fallback(peerId)
+}
+
 class RemoteSessionModel {
   private readonly pollIntervalMs = 5_000
   private modeChangedUnlisten: (() => void) | null = null
   private connectionStatusUnlisten: (() => void) | null = null
+  private mobileUsbStatusUnlisten: (() => void) | null = null
+  private transportConnectedUnlisten: Unsubscribe | null = null
   private pollTimer: ReturnType<typeof setInterval> | null = null
   private syncPromise: Promise<void> | null = null
   private connected = false
@@ -47,20 +94,31 @@ class RemoteSessionModel {
   async connect(): Promise<void> {
     if (this.connected) return
     this.connected = true
-    this.modeChangedUnlisten = await onModeChanged(() => {
-      void this.syncNow()
+    const {ws} = getAppContext()
+    this.transportConnectedUnlisten = subscribeToSignalChanges(ws.connected, (connected) => {
+      if (connected) void this.syncNow()
     })
-    this.connectionStatusUnlisten = await onConnectionStatus(() => {
+    this.modeChangedUnlisten = await wrap(onModeChanged(wrap(() => {
       void this.syncNow()
-    })
-    await this.syncNow()
+    })))
+    this.connectionStatusUnlisten = await wrap(onConnectionStatus(wrap(() => {
+      void this.syncNow()
+    })))
+    this.mobileUsbStatusUnlisten = await wrap(onMobileUsbStatusChanged(wrap(() => {
+      void this.syncNow()
+    })))
+    await wrap(this.syncNow())
   }
 
   disconnect(): void {
     this.modeChangedUnlisten?.()
     this.connectionStatusUnlisten?.()
+    this.mobileUsbStatusUnlisten?.()
+    this.transportConnectedUnlisten?.()
     this.modeChangedUnlisten = null
     this.connectionStatusUnlisten = null
+    this.mobileUsbStatusUnlisten = null
+    this.transportConnectedUnlisten = null
     this.stopPolling()
     this.syncPromise = null
     this.connected = false
@@ -82,19 +140,31 @@ class RemoteSessionModel {
   }
 
   private async performSync(): Promise<void> {
-    const {store} = getAppContext()
+    const {store, ws} = getAppContext()
+
+    if (!ws.connected() || !getRuntimeCapabilities().desktop) {
+      store.resetRemoteSession()
+      this.stopPolling()
+      return
+    }
+
     const previousState = store.remoteSessionState()
     const previousPeerId = store.remoteSessionPeerId()
+    const previousGeneration = readRemoteSessionGeneration(store)
 
     let modeInfo
     try {
-      modeInfo = await getModeStatus()
+      modeInfo = await wrap(getModeStatus())
     } catch (error) {
       console.warn('[remote-session] mode_status failed', error)
       store.resetRemoteSession()
       this.stopPolling()
       return
     }
+    const transportSessionGeneration = normalizeTransportSessionGeneration(
+      modeInfo.transport_session_generation,
+    )
+    runtimeModeModel.setCoreMode(modeInfo.mode, modeInfo.remote_core_features, transportSessionGeneration)
 
     if (!isRemoteMode(modeInfo.mode)) {
       store.resetRemoteSession()
@@ -102,7 +172,8 @@ class RemoteSessionModel {
       return
     }
 
-    const peerId = resolveRemotePeerId(modeInfo.mode.remote.host as RemoteHost)
+    const remoteHost = modeInfo.mode.remote.host as RemoteHost
+    const peerId = resolveRemotePeerId(remoteHost)
     if (!peerId || modeInfo.connection_state === 'disconnected' || modeInfo.connection_state === 'error') {
       store.resetRemoteSession()
       this.stopPolling()
@@ -111,33 +182,66 @@ class RemoteSessionModel {
 
     this.startPolling()
 
+    if (isMobileUsbHost(remoteHost)) {
+      const usbStatus = await this.loadMobileUsbStatus()
+      if (usbStatus?.session_state === 'session_approval_required') {
+        setRemoteSessionGeneration(store, transportSessionGeneration)
+        setRemoteSessionPhoneApproval(store, peerId)
+        return
+      }
+
+      if (usbStatus?.session_state === 'transport_ready_host_locked') {
+        setRemoteSessionGeneration(store, transportSessionGeneration)
+        store.setRemoteSessionWaiting(peerId)
+        if (previousState === 'ready') {
+          store.handleRemoteHostLocked()
+        }
+        return
+      }
+    }
+
     let vaultStatus: VaultStatusResponse
     try {
-      vaultStatus = await tauriRpc<VaultStatusResponse>('vault:status', {})
+      vaultStatus = await wrap(tauriRpc<VaultStatusResponse>('vault:status', {}))
     } catch (error) {
       console.warn('[remote-session] vault:status failed', error)
       return
     }
 
     if (vaultStatus.is_unlocked) {
-      if (previousState !== 'ready' || previousPeerId !== peerId) {
+      if (
+        previousState !== 'ready' ||
+        previousPeerId !== peerId ||
+        previousGeneration !== transportSessionGeneration
+      ) {
         navigationModel.reset()
       }
+      setRemoteSessionGeneration(store, transportSessionGeneration)
       store.setRemoteSessionReady(peerId)
       return
     }
 
+    setRemoteSessionGeneration(store, transportSessionGeneration)
     store.setRemoteSessionWaiting(peerId)
     if (previousState === 'ready') {
       store.handleRemoteHostLocked()
     }
   }
 
+  private async loadMobileUsbStatus(): Promise<MobileUsbStatus | null> {
+    try {
+      return await wrap(mobileUsbStatus())
+    } catch (error) {
+      console.warn('[remote-session] mobile_usb_status failed', error)
+      return null
+    }
+  }
+
   private startPolling(): void {
     if (this.pollTimer !== null) return
-    this.pollTimer = setInterval(() => {
+    this.pollTimer = setInterval(wrap(() => {
       void this.syncNow()
-    }, this.pollIntervalMs)
+    }), this.pollIntervalMs)
   }
 
   private stopPolling(): void {

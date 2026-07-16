@@ -103,6 +103,8 @@ fn error_codes_nonzero() {
     assert_ne!(error_codes::REPLAY_DETECTED, 0);
     assert_ne!(error_codes::RATE_LIMIT_EXCEEDED, 0);
     assert_ne!(error_codes::CAPABILITY_DENIED, 0);
+    assert_ne!(error_codes::STREAM_READ_FAILED, 0);
+    assert_ne!(error_codes::STREAM_CANCELLED, 0);
 }
 
 #[test]
@@ -114,6 +116,8 @@ fn error_codes_distinct() {
         error_codes::REPLAY_DETECTED,
         error_codes::RATE_LIMIT_EXCEEDED,
         error_codes::CAPABILITY_DENIED,
+        error_codes::STREAM_READ_FAILED,
+        error_codes::STREAM_CANCELLED,
     ];
     for (i, a) in codes.iter().enumerate() {
         for b in &codes[i + 1..] {

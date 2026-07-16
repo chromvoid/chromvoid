@@ -17,8 +17,8 @@ export class StatusBar extends ReatomLitElement {
     css`
       :host {
         display: block;
-        background: var(--bars-background);
-        color: var(--bars-color);
+        background: var(--app-bars-background);
+        color: var(--app-bars-foreground);
         container-type: inline-size;
       }
 

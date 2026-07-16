@@ -72,7 +72,7 @@ internal object MobileUsbAccessoryForegroundRuntime {
             return MobileUsbAccessoryCoordinatorResult.Ignored
         }
         if (state == MobileUsbAccessoryCoordinatorState.Open) {
-            val disconnectResult = coordinator.disconnect()
+            val disconnectResult = coordinator.disconnect(MobileUsbAccessorySessionStopReason.SessionReplaced)
             Log.i(
                 TAG,
                 "accessory_system_handshake_replace result=${disconnectResult.resultName()} state=${coordinator.status.state}",
@@ -338,9 +338,21 @@ internal object MobileUsbAccessoryForegroundRuntime {
         reasonCode: String,
         accessory: UsbAccessory?,
     ): Boolean =
-        reasonCode == "transport_closed" ||
-            reasonCode == "pairing_complete" ||
-            (reasonCode != "shutdown" && accessory != null)
+        when (reasonCode) {
+            // The accessory stays in AOA mode after a desktop disconnect or
+            // transient detach and Android may not re-deliver ATTACHED without
+            // a cable replug, so the host must re-arm itself or the next
+            // desktop connect fails its IK handshake against a dead listener.
+            "accessory_detached",
+            "peer_closed",
+            "pairing_complete",
+            "vault_locked",
+            "stream_timeout",
+            "transport_closed",
+            "data_plane_error",
+            "error" -> accessory != null
+            else -> false
+        }
 
     private fun MobileUsbAccessoryIntentEvent.eventName(): String =
         when (this) {

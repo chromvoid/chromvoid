@@ -31,6 +31,8 @@ export class VideoPlayerBase extends ReatomLitElement {
   protected readonly fallbackLimited = this.model.fallbackLimited
   protected readonly errorMessage = this.model.errorMessage
   protected readonly sourceKind = this.model.sourceKind
+  protected readonly sourceDelivery = this.model.sourceDelivery
+  protected readonly sourceState = this.model.sourceState
   protected previousFocus: HTMLElement | null = null
 
   constructor() {
@@ -107,12 +109,19 @@ export class VideoPlayerBase extends ReatomLitElement {
     this.dispatchEvent(new CustomEvent('close', {bubbles: true, composed: true}))
   }
 
-  protected handleVideoElementReady() {
-    this.model.handleVideoElementReady()
+  protected handleVideoElementReady(event?: Event) {
+    const video = event?.currentTarget instanceof HTMLVideoElement ? event.currentTarget : undefined
+    this.model.handleVideoElementReady(video)
   }
 
-  protected handleVideoElementError() {
-    this.model.handleVideoElementError()
+  protected handleVideoElementError(event?: Event) {
+    const video = event?.currentTarget instanceof HTMLVideoElement ? event.currentTarget : undefined
+    this.model.handleVideoElementError(video)
+  }
+
+  protected handleVideoPlaybackEvent(event: Event) {
+    if (!(event.currentTarget instanceof HTMLVideoElement)) return
+    this.model.handleVideoPlaybackEvent(event.type, event.currentTarget)
   }
 
   protected handleOpenExternal() {

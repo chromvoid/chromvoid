@@ -131,11 +131,28 @@ fn encode_signature(signature: Signature) -> Result<Vec<u8>, String> {
 
 /// Extract the public key blob from an OpenSSH public key string.
 pub fn public_key_blob_from_openssh(public_key_openssh: &str) -> Result<Vec<u8>, String> {
+    Ok(public_key_material_from_openssh(public_key_openssh)?.key_blob)
+}
+
+pub struct PublicKeyMaterial {
+    pub key_blob: Vec<u8>,
+    pub fingerprint: String,
+}
+
+pub fn public_key_material_from_openssh(
+    public_key_openssh: &str,
+) -> Result<PublicKeyMaterial, String> {
     let public_key = ssh_key::PublicKey::from_openssh(public_key_openssh)
         .map_err(|e| format!("Failed to parse public key: {e}"))?;
-    public_key
+    let key_blob = public_key
         .to_bytes()
-        .map_err(|e| format!("Failed to encode public key blob: {e}"))
+        .map_err(|e| format!("Failed to encode public key blob: {e}"))?;
+    let fingerprint = public_key.fingerprint(HashAlg::Sha256).to_string();
+
+    Ok(PublicKeyMaterial {
+        key_blob,
+        fingerprint,
+    })
 }
 
 #[cfg(test)]

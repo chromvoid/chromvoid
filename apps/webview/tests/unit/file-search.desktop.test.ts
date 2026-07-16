@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
-import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
+import {resetRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {FileSearch} from '../../src/features/file-manager/components/file-search.desktop'
 import {createFileSearchFilterActions} from '../../src/features/file-manager/models/file-search-filters.model'
 
@@ -37,10 +37,14 @@ describe('file-search desktop filters', () => {
     await settle(element)
 
     const text = element.shadowRoot?.textContent ?? ''
-    const searchInput = element.shadowRoot?.querySelector('cv-input.search-input') as {value?: string} | null
+    const searchInput = element.shadowRoot?.querySelector('cv-input.search-input') as {
+      value?: string
+      placeholder?: string
+    } | null
 
     expect(searchInput).not.toBeNull()
     expect(searchInput?.value).toBe('report')
+    expect(searchInput?.placeholder).toBe('Search this folder…')
     expect(text).toContain('Search: report')
     expect(text).toContain('Show hidden')
     expect(text).toContain('Documents')
@@ -70,6 +74,89 @@ describe('file-search desktop filters', () => {
     expect(text).not.toContain('Sort:')
     expect(text).not.toContain('View:')
     expect(text).not.toContain('Reset')
+  })
+
+  it('renders a native popover menu for type and hidden-file filters', async () => {
+    const element = document.createElement('file-search') as FileSearch
+    element.filters = {
+      query: '',
+      sortBy: 'name',
+      sortDirection: 'asc',
+      viewMode: 'list',
+      showHidden: true,
+      fileTypes: ['documents'],
+    }
+    document.body.appendChild(element)
+    await settle(element)
+
+    const popover = element.shadowRoot?.querySelector('cv-popover.type-filter')
+    const typeOptions = popover?.querySelectorAll('.type-filter-option[data-file-type]')
+    const documents = popover?.querySelector('[data-file-type="documents"]')
+    const audioIcon = popover?.querySelector('[data-file-type="audio"] cv-icon')
+    const showHidden = popover?.querySelector('.type-filter-option:not([data-file-type])')
+
+    expect(popover).not.toBeNull()
+    expect(typeOptions).toHaveLength(7)
+    expect(popover?.querySelector('.type-filter-menu')?.getAttribute('role')).toBe('group')
+    expect(popover?.querySelector('.type-filter-menu__label')?.textContent).toBe('Filter by type')
+    expect(documents?.getAttribute('aria-pressed')).toBe('true')
+    expect(showHidden?.getAttribute('aria-pressed')).toBe('true')
+    expect(audioIcon?.getAttribute('name')).toBe('music')
+    expect(element.shadowRoot?.querySelector('.type-filter__count')?.textContent).toBe('1')
+    expect(popover?.textContent).toContain('Types')
+    expect(popover?.querySelector('.sr-only')?.textContent).toBe('File type')
+    expect(popover?.querySelector('.type-filter__label')?.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('routes popover choices through provided filter actions', async () => {
+    const element = document.createElement('file-search') as FileSearch
+    element.filters = {
+      query: '',
+      sortBy: 'name',
+      sortDirection: 'asc',
+      viewMode: 'list',
+      showHidden: false,
+      fileTypes: [],
+    }
+    const toggleFileType = vi.fn()
+    const toggleShowHidden = vi.fn()
+    element.filterActions = {
+      ...createFileSearchFilterActions({
+        read: () => element.filters,
+        write: vi.fn(),
+      }),
+      toggleFileType,
+      toggleShowHidden,
+    }
+    document.body.appendChild(element)
+    await settle(element)
+
+    element.shadowRoot?.querySelector<HTMLButtonElement>('[data-file-type="images"]')?.click()
+    element.shadowRoot
+      ?.querySelector<HTMLButtonElement>('.type-filter-option:not([data-file-type])')
+      ?.click()
+
+    expect(toggleFileType).toHaveBeenCalledWith('images')
+    expect(toggleShowHidden).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps active filter pills out of compact toolbar-only usage', async () => {
+    const element = document.createElement('file-search') as FileSearch
+    element.setAttribute('toolbar-only', '')
+    element.filters = {
+      query: 'report',
+      sortBy: 'name',
+      sortDirection: 'asc',
+      viewMode: 'list',
+      showHidden: true,
+      fileTypes: ['documents'],
+    }
+    document.body.appendChild(element)
+    await settle(element)
+
+    expect(element.shadowRoot?.querySelector('cv-input.search-input')).not.toBeNull()
+    expect(element.shadowRoot?.querySelector('cv-popover.type-filter')).not.toBeNull()
+    expect(element.shadowRoot?.querySelector('.chipgroup')).toBeNull()
   })
 
   it('updates query from the desktop search input through provided filter actions', async () => {
@@ -160,56 +247,4 @@ describe('file-search desktop filters', () => {
     })
   })
 
-  it('opens the command palette directly from active filter chips', async () => {
-    const element = document.createElement('file-search') as FileSearch
-    element.filters = {
-      query: 'report',
-      sortBy: 'name',
-      sortDirection: 'asc',
-      viewMode: 'list',
-      showHidden: false,
-      fileTypes: [],
-    }
-    document.body.appendChild(element)
-    await settle(element)
-
-    const openSpy = vi.fn()
-    const keydownSpy = vi.fn()
-    window.addEventListener('command-bar:open', openSpy as EventListener)
-    window.addEventListener('keydown', keydownSpy as EventListener)
-
-    try {
-      element.shadowRoot?.querySelector<HTMLButtonElement>('.chipgroup__main')?.click()
-
-      expect(openSpy).toHaveBeenCalledTimes(1)
-      expect((openSpy.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({mode: 'all'})
-      expect(keydownSpy).not.toHaveBeenCalled()
-    } finally {
-      window.removeEventListener('command-bar:open', openSpy as EventListener)
-      window.removeEventListener('keydown', keydownSpy as EventListener)
-    }
-  })
-
-  it('uses platform-aware command-palette titles for active filter chips', async () => {
-    setRuntimeCapabilities({platform: 'windows', desktop: true})
-    const element = document.createElement('file-search') as FileSearch
-    element.filters = {
-      query: 'report',
-      sortBy: 'name',
-      sortDirection: 'asc',
-      viewMode: 'list',
-      showHidden: false,
-      fileTypes: [],
-    }
-    document.body.appendChild(element)
-    await settle(element)
-
-    const button = element.shadowRoot?.querySelector<HTMLButtonElement>('.chipgroup__main')
-    expect(button?.title).toBe('Edit in Ctrl+K')
-
-    setRuntimeCapabilities({platform: 'android', mobile: true})
-    element.requestUpdate()
-    await settle(element)
-    expect(button?.title).toBe('Edit in command palette')
-  })
 })

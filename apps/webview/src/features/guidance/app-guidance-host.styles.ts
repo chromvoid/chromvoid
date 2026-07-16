@@ -3,12 +3,10 @@ import {css} from 'lit'
 export const appGuidanceHostStyles = css`
   :host {
     display: contents;
-    --app-guidance-z-index: calc(var(--cv-z-overlay, 1000) + 24);
-    --app-guidance-overlay-color: var(--cv-color-overlay);
   }
 
   cv-popover {
-    --cv-popover-z-index: var(--app-guidance-z-index, 80);
+    --cv-popover-z-index: calc(var(--cv-z-overlay) + 24);
     --cv-popover-padding: 0;
     --cv-popover-min-inline-size: min(320px, calc(100vw - 40px));
     --cv-popover-max-inline-size: min(360px, calc(100vw - 40px));
@@ -93,10 +91,10 @@ export const appGuidanceHostStyles = css`
   .guidance-backdrop {
     position: fixed;
     inset: 0;
-    z-index: calc(var(--app-guidance-z-index, 1024) - 1);
+    z-index: calc(var(--cv-z-overlay) + 23);
     padding: 0;
     border: 0;
-    background: var(--app-guidance-overlay-color);
+    background: var(--cv-color-overlay);
     backdrop-filter: blur(3px);
     -webkit-backdrop-filter: blur(3px);
   }

@@ -99,6 +99,9 @@ fn install_accepts_valid_pro_cert() {
     assert!(status
         .feature_keys
         .contains(&PRO_FEATURE_REMOTE.to_string()));
+    assert!(status
+        .feature_keys
+        .contains(&PRO_FEATURE_ENV_RUNTIME.to_string()));
     assert!(store.status().licensed);
 }
 

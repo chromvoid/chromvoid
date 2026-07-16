@@ -27,8 +27,23 @@ function createAtom<T>(initial: T): Atom<T> {
   return signal
 }
 
-function initFileManagerContext(): AppContext {
+const DEFAULT_CHILDREN = [
+  {
+    nodeId: 9,
+    path: '/photo.jpg',
+    name: 'photo.jpg',
+    isDir: false,
+    size: 1024,
+    mimeType: 'image/jpeg',
+  },
+]
+
+function initFileManagerContext(options?: {
+  children?: Array<Record<string, unknown>>
+  nodeById?: Record<number, Record<string, unknown> | null>
+}): AppContext {
   const currentPath = createAtom('/')
+  const children = options?.children ?? DEFAULT_CHILDREN
 
   const context = createMockAppContext({
     ws: {
@@ -55,16 +70,13 @@ function initFileManagerContext(): AppContext {
     } as any,
     catalog: {
       catalog: {
-        getChildren: vi.fn().mockReturnValue([
-          {
-            nodeId: 9,
-            path: '/photo.jpg',
-            name: 'photo.jpg',
-            isDir: false,
-            size: 1024,
-            mimeType: 'image/jpeg',
-          },
-        ]),
+        getChildren: vi.fn().mockReturnValue(children),
+        getNode: vi.fn((nodeId: number) => {
+          if (options?.nodeById && nodeId in options.nodeById) {
+            return options.nodeById[nodeId]
+          }
+          return children.find((node) => node['nodeId'] === nodeId)
+        }),
       },
       getEntryMeta: vi.fn(),
       ensureEntryMeta: vi.fn(),
@@ -126,5 +138,58 @@ describe('FileManager global file actions', () => {
         name: 'photo.jpg',
       }),
     )
+  })
+
+  it('routes download through catalog node fallback when the item is not in the rendered list', () => {
+    const ctx = initFileManagerContext({
+      children: [],
+      nodeById: {
+        9: {
+          nodeId: 9,
+          path: '/photo.jpg',
+          name: 'photo.jpg',
+          isDir: false,
+          size: 1024,
+          mimeType: 'image/jpeg',
+        },
+      },
+    })
+    FileManager.define()
+
+    const model = getFileManagerModel(ctx)
+    const actionSpy = vi.spyOn(model, 'executeFileAction').mockReturnValue(true)
+
+    const element = document.createElement('chromvoid-file-manager') as FileManager
+    ;(element as any).handleGlobalFileAction(
+      new CustomEvent('file-action', {
+        detail: {action: 'download', fileId: 9},
+      }),
+    )
+
+    expect(actionSpy).toHaveBeenCalledWith(
+      'download',
+      expect.objectContaining({
+        id: 9,
+        name: 'photo.jpg',
+      }),
+    )
+  })
+
+  it('notifies when a global file action target is no longer available', () => {
+    const ctx = initFileManagerContext({children: []})
+    FileManager.define()
+
+    const model = getFileManagerModel(ctx)
+    const actionSpy = vi.spyOn(model, 'executeFileAction').mockReturnValue(true)
+
+    const element = document.createElement('chromvoid-file-manager') as FileManager
+    ;(element as any).handleGlobalFileAction(
+      new CustomEvent('file-action', {
+        detail: {action: 'download', fileId: 404},
+      }),
+    )
+
+    expect(actionSpy).not.toHaveBeenCalled()
+    expect(ctx.store.pushNotification).toHaveBeenCalledWith('warning', 'File is no longer available')
   })
 })

@@ -1,13 +1,6 @@
-import {HOTP, Secret, TOTP} from 'otpauth'
-import {action, atom, computed, wrap} from '@reatom/core'
+import {action, atom, computed, isAbort, withAbort, withAsync, wrap} from '@reatom/core'
 
-import {
-  ALGORITHMS,
-  DEFAULT_OPTIONS,
-  ENCODINGS,
-  parseOtpAuthUri,
-  type OtpAuthUriParseErrorCode,
-} from '@project/passmanager/core'
+import {DEFAULT_OPTIONS, parseOtpAuthUri, type OtpAuthUriParseErrorCode} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
 import {timer} from '@project/passmanager/timer'
 import type {Algorithm, Encoding, OTPOptions, OTPType} from '@project/passmanager/types'
@@ -17,41 +10,37 @@ import {
   OtpQrNativeScanError,
   type OtpQrScannerPort,
 } from './entry-otp-native-scanner.service'
-
-const GOOGLE_PRESET = {
-  algorithm: 'SHA1' as Algorithm,
-  digits: 6,
-  period: 30,
-  encoding: 'base32' as Encoding,
-}
+import {
+  defaultOtpClipboardPort,
+  defaultOtpDraftPreviewPort,
+  getCoreValidationErrorMessage,
+  getCoreValidationKey,
+  GOOGLE_PRESET,
+  groupOtpCode,
+  type OtpClipboardPort,
+  type PMEntryOtpDraftPreviewPort,
+  type PMEntryOtpPreview,
+  type PMEntryOtpPreviewResource,
+  type PMEntryOtpResetOptions,
+  type PMEntryOtpSecretValidation,
+} from './entry-otp-create.preview'
 
 export type PMEntryOtpPreset = 'googleAuth' | 'custom'
-
-export type PMEntryOtpSecretValidation = {
-  status: 'idle' | 'valid' | 'error'
-  message: string
-}
-
-export type PMEntryOtpPreview = {
-  label: string
-  code: string
-  leftSeconds: number
-  period: number
-}
-
-export type PMEntryOtpResetOptions = {
-  label?: string
-}
-
-export type OtpClipboardPort = {
-  readText(): Promise<string>
-}
-
-export const defaultOtpClipboardPort: OtpClipboardPort = {
-  async readText(): Promise<string> {
-    return (await navigator.clipboard?.readText?.()) ?? ''
-  },
-}
+export type PMEntryOtpCreateView = 'main' | 'advanced'
+export {
+  configurePMEntryOtpDraftPreviewPort,
+  defaultOtpClipboardPort,
+  defaultOtpDraftPreviewPort,
+  PM_ENTRY_OTP_ALGORITHMS,
+  PM_ENTRY_OTP_ENCODINGS,
+} from './entry-otp-create.preview'
+export type {
+  OtpClipboardPort,
+  PMEntryOtpDraftPreviewPort,
+  PMEntryOtpPreview,
+  PMEntryOtpResetOptions,
+  PMEntryOtpSecretValidation,
+} from './entry-otp-create.preview'
 
 export class PMEntryOtpCreateModel {
   private qrScannerRunId = 0
@@ -76,7 +65,7 @@ export class PMEntryOtpCreateModel {
     'passmanager.entryOtpCreate.encoding',
   )
   private readonly counterState = atom(0, 'passmanager.entryOtpCreate.counter')
-  private readonly advancedOpenState = atom(false, 'passmanager.entryOtpCreate.advancedOpen')
+  private readonly viewState = atom<PMEntryOtpCreateView>('main', 'passmanager.entryOtpCreate.view')
 
   private readonly secretErrorState = atom('', 'passmanager.entryOtpCreate.secretError')
   private readonly digitsErrorState = atom('', 'passmanager.entryOtpCreate.digitsError')
@@ -86,6 +75,11 @@ export class PMEntryOtpCreateModel {
   private readonly qrScannerOpenState = atom(false, 'passmanager.entryOtpCreate.qrScannerOpen')
   private readonly qrScannerScanningState = atom(false, 'passmanager.entryOtpCreate.qrScannerScanning')
   private readonly qrScannerErrorState = atom('', 'passmanager.entryOtpCreate.qrScannerError')
+  private readonly secretValidationPendingKeyState = atom('', 'passmanager.entryOtpCreate.secretValidationPendingKey')
+  private readonly previewResourceState = atom<PMEntryOtpPreviewResource | null>(
+    null,
+    'passmanager.entryOtpCreate.previewResource',
+  )
   private readonly qrScannerAvailableState = computed(
     () => canScanOtpQrReactive() && this.qrScanner.isAvailable(),
     'passmanager.entryOtpCreate.qrScannerAvailable',
@@ -114,7 +108,7 @@ export class PMEntryOtpCreateModel {
     algorithm: this.algorithmState,
     encoding: this.encodingState,
     counter: this.counterState,
-    advancedOpen: this.advancedOpenState,
+    view: this.viewState,
     secretError: this.secretErrorState,
     digitsError: this.digitsErrorState,
     periodError: this.periodErrorState,
@@ -139,7 +133,7 @@ export class PMEntryOtpCreateModel {
   readonly algorithm = this.algorithmState
   readonly encoding = this.encodingState
   readonly counter = this.counterState
-  readonly advancedOpen = this.advancedOpenState
+  readonly view = this.viewState
   readonly secretError = this.secretErrorState
   readonly digitsError = this.digitsErrorState
   readonly periodError = this.periodErrorState
@@ -155,11 +149,72 @@ export class PMEntryOtpCreateModel {
   constructor(
     private readonly qrScanner: OtpQrScannerPort = defaultOtpQrScannerPort,
     private readonly clipboard: OtpClipboardPort = defaultOtpClipboardPort,
+    private readonly previewPort: PMEntryOtpDraftPreviewPort = defaultOtpDraftPreviewPort,
   ) {}
+
+  private readonly validateWithCoreAction = action(async (): Promise<boolean> => {
+    const form = this.getFormData()
+    const key = getCoreValidationKey(form)
+    const localError = this.getLocalSecretError(form)
+
+    this.previewResourceState.set(null)
+
+    if (localError) {
+      this.secretValidationPendingKeyState.set('')
+      this.previewResourceState.set({
+        key,
+        status: 'error',
+        message: localError,
+      })
+      return false
+    }
+
+    this.secretValidationPendingKeyState.set(key)
+
+    try {
+      const result = await wrap(
+        this.previewPort.previewOTP({
+          secret: form.secret ?? '',
+          encoding: form.encoding,
+          algorithm: form.algorithm,
+          digits: form.digits,
+          period: form.period,
+          type: form.type ?? 'TOTP',
+          counter: form.type === 'HOTP' ? (form.counter ?? 0) : undefined,
+          ts: Math.floor(Date.now() / 1000),
+        }),
+      )
+      this.previewResourceState.set({
+        key,
+        status: 'valid',
+        preview: {
+          label: form.label || i18n('otp:default:name'),
+          code: groupOtpCode(result.otp),
+          leftSeconds: result.leftSeconds,
+          period: result.period,
+        },
+      })
+      return true
+    } catch (error) {
+      if (isAbort(error)) throw error
+      this.previewResourceState.set({
+        key,
+        status: 'error',
+        message: getCoreValidationErrorMessage(error),
+      })
+      return false
+    } finally {
+      if (this.secretValidationPendingKeyState() === key) {
+        this.secretValidationPendingKeyState.set('')
+      }
+    }
+  }, 'passmanager.entryOtpCreate.validateWithCore').extend(withAbort(), withAsync({status: true}))
 
   readonly actions = {
     setSecret: action((value: string) => {
-      return this.setSecretValue(value)
+      const next = this.setSecretValue(value)
+      this.requestCoreValidation()
+      return next
     }, 'passmanager.entryOtpCreate.setSecret'),
 
     pasteSecretFromClipboard: action(async () => {
@@ -170,7 +225,10 @@ export class PMEntryOtpCreateModel {
         return ''
       }
 
-      return value ? this.setSecretValue(value) : ''
+      if (!value) return ''
+      const next = this.setSecretValue(value)
+      this.requestCoreValidation()
+      return next
     }, 'passmanager.entryOtpCreate.pasteSecretFromClipboard'),
 
     setLabel: action((value: string) => {
@@ -183,6 +241,7 @@ export class PMEntryOtpCreateModel {
       this.presetState.set('custom')
       this.periodState.set(next)
       this.periodErrorState.set('')
+      this.requestCoreValidation()
     }, 'passmanager.entryOtpCreate.setPeriod'),
 
     setDigits: action((value: number) => {
@@ -190,42 +249,46 @@ export class PMEntryOtpCreateModel {
       this.presetState.set('custom')
       this.digitsState.set(next)
       this.digitsErrorState.set('')
+      this.requestCoreValidation()
     }, 'passmanager.entryOtpCreate.setDigits'),
 
     setCounter: action((value: number) => {
       const next = Math.max(0, Number.isFinite(value) ? value : 0)
       this.counterState.set(next)
       this.counterErrorState.set('')
+      this.requestCoreValidation()
     }, 'passmanager.entryOtpCreate.setCounter'),
 
     setPreset: action((value: PMEntryOtpPreset) => {
       this.presetState.set(value)
-      if (value === 'custom') {
-        this.advancedOpenState.set(true)
-      }
       this.secretInputState.set(this.formatSecretInput(this.secretInputState()))
+      this.requestCoreValidation()
     }, 'passmanager.entryOtpCreate.setPreset'),
 
     setOtpType: action((value: OTPType) => {
       this.otpTypeState.set(value)
-      if (value === 'HOTP') {
-        this.advancedOpenState.set(true)
-      }
+      this.requestCoreValidation()
     }, 'passmanager.entryOtpCreate.setOtpType'),
 
-    setAdvancedOpen: action((value: boolean) => {
-      this.advancedOpenState.set(value)
-    }, 'passmanager.entryOtpCreate.setAdvancedOpen'),
+    openAdvanced: action(() => {
+      this.viewState.set('advanced')
+    }, 'passmanager.entryOtpCreate.openAdvanced'),
+
+    closeAdvanced: action(() => {
+      this.viewState.set('main')
+    }, 'passmanager.entryOtpCreate.closeAdvanced'),
 
     setAlgorithm: action((value: Algorithm) => {
       this.presetState.set('custom')
       this.algorithmState.set(value)
+      this.requestCoreValidation()
     }, 'passmanager.entryOtpCreate.setAlgorithm'),
 
     setEncoding: action((value: Encoding) => {
       this.presetState.set('custom')
       this.encodingState.set(value)
       this.secretInputState.set(this.formatSecretInput(this.secretInputState()))
+      this.requestCoreValidation()
     }, 'passmanager.entryOtpCreate.setEncoding'),
 
     openQrScanner: action(async () => {
@@ -254,29 +317,13 @@ export class PMEntryOtpCreateModel {
         return false
       }
 
-      const otp = result.otp
-      const type = otp.type ?? 'TOTP'
-      const preset = this.isGoogleAuthPreset(otp) ? 'googleAuth' : 'custom'
-
-      this.presetState.set(preset)
-      this.otpTypeState.set(type)
-      this.algorithmState.set(otp.algorithm)
-      this.encodingState.set(otp.encoding)
-      this.digitsState.set(otp.digits)
-      this.periodState.set(otp.period)
-      this.counterState.set(otp.counter ?? 0)
-      this.labelState.set(otp.label)
-      this.secretInputState.set(this.formatSecretInput(otp.secret ?? ''))
-      this.secretTouchedState.set(true)
-      if (preset === 'custom' || type === 'HOTP') {
-        this.advancedOpenState.set(true)
-      }
-      this.resetErrors()
-      this.qrScannerErrorState.set('')
-      this.qrScannerScanningState.set(false)
-      this.qrScannerOpenState.set(false)
+      this.applyDraftValue(result.otp)
       return true
     }, 'passmanager.entryOtpCreate.applyQrPayload'),
+
+    applyDraft: action((otp: OTPOptions) => {
+      this.applyDraftValue(otp)
+    }, 'passmanager.entryOtpCreate.applyDraft'),
 
     reset: action((options?: PMEntryOtpResetOptions) => {
       this.secretInputState.set(this.formatSecretInput(DEFAULT_OPTIONS.secret ?? ''))
@@ -289,11 +336,14 @@ export class PMEntryOtpCreateModel {
       this.algorithmState.set(DEFAULT_OPTIONS.algorithm ?? 'SHA1')
       this.encodingState.set(DEFAULT_OPTIONS.encoding ?? 'base32')
       this.counterState.set(0)
-      this.advancedOpenState.set(false)
+      this.viewState.set('main')
       this.resetErrors()
       this.qrScannerOpenState.set(false)
       this.qrScannerScanningState.set(false)
       this.qrScannerErrorState.set('')
+      this.previewResourceState.set(null)
+      this.secretValidationPendingKeyState.set('')
+      this.validateWithCoreAction.abort('entry otp create reset')
       this.cancelActiveQrScan()
     }, 'passmanager.entryOtpCreate.reset'),
 
@@ -341,7 +391,7 @@ export class PMEntryOtpCreateModel {
     }
 
     if (isCustom) {
-      if (!digits || digits < 4 || digits > 10) {
+      if (digits !== 6 && digits !== 8) {
         this.digitsErrorState.set(i18n('error:digits_range'))
         ok = false
       }
@@ -363,6 +413,15 @@ export class PMEntryOtpCreateModel {
     }
 
     return ok
+  }
+
+  async validateWithCore(): Promise<boolean> {
+    this.secretTouchedState.set(true)
+    const ok = await this.validateWithCoreAction().catch((error) => {
+      if (isAbort(error)) return false
+      return false
+    })
+    return this.validate() && ok
   }
 
   setSecret(value: string): string {
@@ -421,6 +480,10 @@ export class PMEntryOtpCreateModel {
     return this.actions.applyQrPayload(value)
   }
 
+  applyDraft(otp: OTPOptions): void {
+    this.actions.applyDraft(otp)
+  }
+
   reset(options?: PMEntryOtpResetOptions): void {
     this.actions.reset(options)
   }
@@ -431,6 +494,8 @@ export class PMEntryOtpCreateModel {
 
   private getSecretValidation(): PMEntryOtpSecretValidation {
     const secret = this.state.secret()
+    const form = this.getFormData()
+    const key = getCoreValidationKey(form)
 
     if (!secret) {
       if (!this.secretTouchedState() && !this.secretErrorState()) {
@@ -446,17 +511,33 @@ export class PMEntryOtpCreateModel {
       }
     }
 
-    if (this.hasInvalidBase32Chars(secret)) {
+    const localError = this.getLocalSecretError(form)
+    if (localError) {
       return {
         status: 'error',
-        message: i18n('otp:secret:error:base32_chars'),
+        message: localError,
       }
     }
 
-    if (!this.canCreateOtpToken()) {
+    if (this.secretValidationPendingKeyState() === key) {
+      return {
+        status: 'pending',
+        message: '',
+      }
+    }
+
+    const resource = this.previewResourceState()
+    if (resource?.key !== key) {
+      return {
+        status: 'idle',
+        message: '',
+      }
+    }
+
+    if (resource.status === 'error') {
       return {
         status: 'error',
-        message: i18n('otp:secret:error:invalid'),
+        message: resource.message,
       }
     }
 
@@ -484,63 +565,21 @@ export class PMEntryOtpCreateModel {
   }
 
   private getPreview(): PMEntryOtpPreview | null {
-    if (this.state.otpType() !== 'TOTP' || this.state.secretValidation().status !== 'valid') {
+    if (this.state.secretValidation().status !== 'valid') {
       return null
     }
 
     timer()
 
-    try {
-      const form = this.getFormData()
-      const period = form.period ?? 30
-      const now = Date.now()
-      const token = new TOTP({
-        issuer: '',
-        label: form.label || i18n('otp:default:name'),
-        secret: this.createOtpAuthSecret(form),
-        algorithm: form.algorithm,
-        digits: form.digits,
-        period,
-      }).generate({timestamp: now})
-      const elapsed = Math.floor(now / 1000) % period
-
-      return {
-        label: form.label || i18n('otp:default:name'),
-        code: this.groupOtpCode(token),
-        leftSeconds: Math.max(1, period - elapsed),
-        period,
-      }
-    } catch {
+    const form = this.getFormData()
+    const resource = this.previewResourceState()
+    if (resource?.key !== getCoreValidationKey(form) || resource.status !== 'valid') {
       return null
     }
-  }
 
-  private canCreateOtpToken(): boolean {
-    try {
-      const form = this.getFormData()
-      if (form.type === 'HOTP') {
-        new HOTP({
-          issuer: '',
-          label: form.label || i18n('otp:default:name'),
-          secret: this.createOtpAuthSecret(form),
-          algorithm: form.algorithm,
-          digits: form.digits,
-          counter: form.counter ?? 0,
-        }).generate()
-        return true
-      }
-
-      new TOTP({
-        issuer: '',
-        label: form.label || i18n('otp:default:name'),
-        secret: this.createOtpAuthSecret(form),
-        algorithm: form.algorithm,
-        digits: form.digits,
-        period: form.period ?? 30,
-      }).generate()
-      return true
-    } catch {
-      return false
+    return {
+      ...resource.preview,
+      label: form.label || i18n('otp:default:name'),
     }
   }
 
@@ -552,23 +591,6 @@ export class PMEntryOtpCreateModel {
     }
 
     return compact.toUpperCase()
-  }
-
-  private createOtpAuthSecret(form: OTPOptions): string | Secret {
-    const secret = form.secret ?? ''
-    switch (form.encoding) {
-      case 'base16':
-        return Secret.fromHex(secret)
-      case 'base64': {
-        const binary = atob(secret)
-        return Secret.fromLatin1(binary)
-      }
-      case 'utf-8':
-        return Secret.fromUTF8(secret)
-      case 'base32':
-      default:
-        return secret
-    }
   }
 
   private formatSecretInput(value: string): string {
@@ -600,7 +622,7 @@ export class PMEntryOtpCreateModel {
 
   private getDigitsError(): string {
     const digits = this.state.digits()
-    return !digits || digits < 4 || digits > 10 ? i18n('error:digits_range') : ''
+    return digits !== 6 && digits !== 8 ? i18n('error:digits_range') : ''
   }
 
   private getPeriodError(): string {
@@ -620,12 +642,28 @@ export class PMEntryOtpCreateModel {
     return this.state.label().length > 64 ? i18n('error:label_too_long') : ''
   }
 
-  private groupOtpCode(value: string): string {
-    if (value.length <= 3) {
-      return value
+  private getLocalSecretError(form: OTPOptions): string {
+    const secret = form.secret ?? ''
+    if (!secret) {
+      return i18n('error:required')
     }
 
-    return value.replace(/(.{3})(?=.)/g, '$1 ')
+    if (this.hasInvalidBase32Chars(secret)) {
+      return i18n('otp:secret:error:base32_chars')
+    }
+
+    return ''
+  }
+
+  private requestCoreValidation(): void {
+    if (!this.state.secret()) {
+      this.validateWithCoreAction.abort('entry otp secret empty')
+      this.secretValidationPendingKeyState.set('')
+      this.previewResourceState.set(null)
+      return
+    }
+
+    void this.validateWithCoreAction().catch(() => undefined)
   }
 
   private resetErrors(): void {
@@ -724,6 +762,27 @@ export class PMEntryOtpCreateModel {
     return i18n('otp:qr:error:invalid')
   }
 
+  private applyDraftValue(otp: OTPOptions): void {
+    const type = otp.type ?? 'TOTP'
+    const preset = this.isGoogleAuthPreset(otp) ? 'googleAuth' : 'custom'
+
+    this.presetState.set(preset)
+    this.otpTypeState.set(type)
+    this.algorithmState.set(otp.algorithm)
+    this.encodingState.set(otp.encoding)
+    this.digitsState.set(otp.digits)
+    this.periodState.set(otp.period)
+    this.counterState.set(otp.counter ?? 0)
+    this.labelState.set(otp.label)
+    this.secretInputState.set(this.formatSecretInput(otp.secret ?? ''))
+    this.secretTouchedState.set(true)
+    this.resetErrors()
+    this.qrScannerErrorState.set('')
+    this.qrScannerScanningState.set(false)
+    this.qrScannerOpenState.set(false)
+    this.requestCoreValidation()
+  }
+
   private setSecretValue(value: string): string {
     const next = this.formatSecretInput(value)
     this.secretInputState.set(next)
@@ -732,6 +791,3 @@ export class PMEntryOtpCreateModel {
     return next
   }
 }
-
-export const PM_ENTRY_OTP_ALGORITHMS = ALGORITHMS
-export const PM_ENTRY_OTP_ENCODINGS = ENCODINGS

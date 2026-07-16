@@ -8,6 +8,7 @@ import {
   ManagerSaverAdapter,
   PassmanagerTransport,
 } from '../../core/state/passmanager'
+import {configurePMEntryOtpDraftPreviewPort} from '../../features/passmanager/components/card/entry-otp-create/entry-otp-create.model'
 import type {TransportLike} from '../../core/transport/transport'
 import {MockTransport} from '../../core/transport/mock/mock-transport'
 import {TauriTransport} from '../../core/transport/tauri/tauri-transport'
@@ -27,6 +28,7 @@ import {Store} from '../state/store'
 import type {FullChromVoidState} from '@chromvoid/scheme'
 
 import {configureSurfaceComponentLoader, ensureDashboardSurfaceComponents} from './surface-component-loader'
+import {setupPassmanagerSession} from './passmanager-session'
 import {removeLegacyUIFlagStorage} from './legacy-cleanup'
 import {syncIOSViewportZoomPolicy} from './ios-viewport'
 import {scheduleAfterFirstPaintIdle} from './idle-scheduler'
@@ -76,8 +78,10 @@ export const init = () => {
   const transport = new PassmanagerTransport(catalog)
   const repo = new CatalogPasswordsRepository(catalog, transport)
   const secrets = new CatalogOTPSecretsGateway(catalog, transport)
+  configurePMEntryOtpDraftPreviewPort(secrets)
   const saver = new ManagerSaverAdapter(repo, secrets)
   configureSurfaceComponentLoader({managerSaver: saver})
+  setupPassmanagerSession(ws, state, store, saver)
   startUiComponentIdleWarmup()
 
   if (initialSurface === 'passwords') {
@@ -140,7 +144,7 @@ export const init = () => {
       console.warn('[dashboard][media] vault lock release failed', error)
     })
     if (wasOpened && reason !== 'manual') {
-      store.handleVaultLocked({reason, source: 'system'})
+      store.handleVaultLocked()
     }
   })
   setupMediaStreamErrorDispatch(ws)
@@ -210,12 +214,21 @@ export const init = () => {
       import('./catalog-sync'),
       import('./passmanager-reload'),
       import('./ssh-agent-handler'),
+      import('./transport-session-recovery'),
     ])
-      .then(([{setupCatalogSync}, {setupPassmanagerReload}, {setupSshAgentHandler}]) => {
-        setupCatalogSync(ws, state, store, catalog)
-        setupPassmanagerReload(ws, store, repo)
-        setupSshAgentHandler(ws)
-      })
+      .then(
+        ([
+          {setupCatalogSync},
+          {setupPassmanagerReload},
+          {setupSshAgentHandler},
+          {setupTransportSessionRecovery},
+        ]) => {
+          setupCatalogSync(ws, state, store, catalog)
+          setupPassmanagerReload(ws, store, repo)
+          setupSshAgentHandler(ws)
+          setupTransportSessionRecovery(store)
+        },
+      )
       .catch((error) => {
         console.warn('[dashboard] deferred data bootstrap failed:', error)
         store.markBootstrapFatalError(formatBootstrapFatalError('Data', error))

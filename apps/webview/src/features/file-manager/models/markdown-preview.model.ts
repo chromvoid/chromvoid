@@ -1,14 +1,18 @@
 import {atom, computed, wrap} from '@reatom/core'
 
-import type {CatalogFileReplaceConflictMode, CatalogFileReplaceResult} from 'root/core/catalog/catalog'
-import {
-  loadSessionSettings,
-  type SessionSettings,
-} from 'root/core/session/session-settings'
-import {
-  systemClipboardTextReader,
-  type ClipboardTextReader,
-} from 'root/shared/services/clipboard'
+import type {
+  CatalogFileReplaceConflictMode,
+  CatalogFileReplaceResult,
+  CatalogService,
+} from 'root/core/catalog/catalog'
+import type {CatalogFileLinkItem} from 'root/core/catalog/local-catalog/types'
+import {loadSessionSettings, type SessionSettings} from 'root/core/session/session-settings'
+import {systemClipboardTextReader, type ClipboardTextReader} from 'root/shared/services/clipboard'
+import {navigationModel} from 'root/app/navigation/navigation.model'
+import type {MarkdownDocumentViewMode} from 'root/app/navigation/navigation.types'
+import {tryGetAppContext} from 'root/shared/services/app-context'
+import {resolveFileFormat} from 'root/utils/file-format-registry'
+import {i18n} from 'root/i18n'
 import type {FilePreviewFallbackReasonKey} from '../components/file-preview.model'
 import {
   FileLoadError,
@@ -18,10 +22,24 @@ import {
 } from '../services/text-file-io'
 import {formatMarkdownSource} from '../services/markdown-formatter'
 import {getMarkdownErrorKey, type MarkdownErrorKey} from '../services/markdown-errors'
+import type {MarkdownFileLinkCandidate} from '../services/markdown-file-links'
 import {
-  renderMarkdownSource,
-  type MarkdownImageRef,
-} from '../services/markdown-renderer'
+  getMarkdownTaskListItemCheckedAtLine,
+  toggleMarkdownTaskListItemAtLine,
+} from '../services/markdown-task-lists'
+import {renderMarkdownSource, type MarkdownImageRef} from '../services/markdown-renderer'
+import {
+  markdownNoteLinkIndexModel,
+  type MarkdownNoteLinkIndexLike,
+  type MarkdownNoteLinkResolution,
+} from './markdown-note-link-index.model'
+import {
+  createMarkdownNoteContext,
+  normalizeMarkdownAnchor,
+  type MarkdownNoteContext,
+  type MarkdownNoteLinkCandidate,
+  type MarkdownNoteLinkCompletion,
+} from '../services/markdown-note-links'
 import {
   MarkdownImageAssetError,
   markdownImageAssetService,
@@ -31,16 +49,20 @@ import {
 } from '../services/markdown-image-assets'
 import {normalizeMarkdownAttachmentFolderPath} from '../services/markdown-attachment-settings'
 
-export type MarkdownPreviewMode = 'preview' | 'edit'
+export type MarkdownPreviewMode = MarkdownDocumentViewMode
 export type MarkdownReadOnlyReasonKey = 'markdown:read-only:save-unavailable'
 
 export type MarkdownPreviewData = {
   fileId: number
   fileName: string
+  path?: string
+  parentPath?: string
   size?: number
   mimeType?: string
   lastModified?: number
   sourceRevision?: number
+  anchor?: string
+  viewMode?: MarkdownPreviewMode
   mode?: 'markdown'
 }
 
@@ -56,6 +78,33 @@ export type MarkdownImageInsertionSelection = {
   selectionEnd: number
 }
 
+export type MarkdownQuickTextAction =
+  | 'table'
+  | 'bold'
+  | 'italic'
+  | 'strikethrough'
+  | 'heading-h2'
+  | 'bullet-list'
+  | 'numbered-list'
+  | 'task-list'
+  | 'quote'
+  | 'inline-code'
+  | 'divider'
+
+export type MarkdownAnchorScrollRequest = {
+  id: number
+  anchor: string
+}
+
+export type MarkdownViewportAnchorKind = 'selection' | 'focused-element' | 'viewport-top'
+
+export type MarkdownViewportAnchor = {
+  sourceLine: number
+  sourceOffset: number | null
+  viewportOffset: number
+  kind: MarkdownViewportAnchorKind
+}
+
 export type MarkdownPreviewImageAssetState = {
   key: string
   rawRef: string
@@ -64,10 +113,17 @@ export type MarkdownPreviewImageAssetState = {
   url: string | null
 }
 
+export type MarkdownFileLinkResolution =
+  | {kind: 'pending'; candidateId: string}
+  | {kind: 'resolved'; candidateId: string; target: CatalogFileLinkItem}
+  | {kind: 'unresolved'; candidateId: string}
+
 export type MarkdownPreviewReadyState = {
   kind: 'ready'
   fileId: number
   fileName: string
+  path?: string
+  parentPath?: string
   size?: number
   mimeType: string
   lastModified?: number
@@ -82,6 +138,10 @@ export type MarkdownPreviewReadyState = {
   stale: boolean
   renderedHtml: string
   imageAssets: Record<string, MarkdownPreviewImageAssetState>
+  fileLinks?: MarkdownFileLinkCandidate[]
+  fileLinkResolutions?: Record<string, MarkdownFileLinkResolution>
+  noteLinks?: MarkdownNoteLinkCandidate[]
+  noteLinkResolutions?: Record<string, MarkdownNoteLinkResolution>
   errorKey: MarkdownErrorKey | null
   readOnlyReasonKey: MarkdownReadOnlyReasonKey | null
   lastSavedAt: number | null
@@ -106,6 +166,14 @@ export type MarkdownPreviewModelDeps = {
   >
   clipboardTextReader?: ClipboardTextReader
   loadSessionSettings?: typeof loadSessionSettings
+  noteLinkIndex?: MarkdownNoteLinkIndexLike
+  noteNavigation?: Pick<typeof navigationModel, 'openMarkdownDocument'>
+  fileLinkCatalog?: Pick<CatalogService, 'resolveFileLinks' | 'completeFileLinks'>
+  fileNavigation?: Pick<
+    typeof navigationModel,
+    'openMarkdownDocument' | 'openPreview' | 'openGallery' | 'openVideo' | 'openAudio'
+  >
+  documentNavigation?: Pick<typeof navigationModel, 'updateCurrentMarkdownDocumentViewMode'>
   renderDebounceMs?: number
   autosaveDebounceMs?: number
   historyGroupMs?: number
@@ -120,6 +188,8 @@ const DEFAULT_HISTORY_GROUP_MS = 750
 const DEFAULT_MAX_HISTORY_LENGTH = 100
 const MARKDOWN_MIME_TYPE = 'text/markdown'
 const SAVE_UNAVAILABLE_REASON_KEY: MarkdownReadOnlyReasonKey = 'markdown:read-only:save-unavailable'
+const QUICK_ACTION_TABLE_MARKDOWN = '| Column 1 | Column 2 |\n| --- | --- |\n|  |  |'
+const QUICK_ACTION_DIVIDER_MARKDOWN = '---'
 
 type MarkdownHistoryState = {
   undoStack: string[]
@@ -127,7 +197,7 @@ type MarkdownHistoryState = {
   activeGroupStartedAt: number | null
 }
 
-type MarkdownHistoryOrigin = 'user' | 'format'
+type MarkdownHistoryOrigin = 'user' | 'format' | 'command'
 type MarkdownSaveOrigin = 'manual' | 'autosave' | 'overwrite'
 
 type RenderSnapshot = {
@@ -135,12 +205,22 @@ type RenderSnapshot = {
   baseHtml: string
   imageAssets: Record<string, MarkdownPreviewImageAssetState>
   imageRefs: MarkdownImageRef[]
+  fileLinks: MarkdownFileLinkCandidate[]
+  fileLinkResolutions: Record<string, MarkdownFileLinkResolution>
+  noteLinks: MarkdownNoteLinkCandidate[]
+  noteLinkResolutions: Record<string, MarkdownNoteLinkResolution>
   errorKey: MarkdownErrorKey | null
 }
 
 type InsertMarkdownResult = {
   source: string
   selectionStart: number
+}
+
+type MarkdownLineRange = {
+  lineStart: number
+  lineEnd: number
+  text: string
 }
 
 type ImagePickerTrigger = () => void
@@ -153,10 +233,14 @@ function isSamePreviewData(a: MarkdownPreviewData | null, b: MarkdownPreviewData
   return (
     a?.fileId === b?.fileId &&
     a?.fileName === b?.fileName &&
+    a?.path === b?.path &&
+    a?.parentPath === b?.parentPath &&
     a?.size === b?.size &&
     a?.mimeType === b?.mimeType &&
     a?.lastModified === b?.lastModified &&
     a?.sourceRevision === b?.sourceRevision &&
+    a?.anchor === b?.anchor &&
+    a?.viewMode === b?.viewMode &&
     a?.mode === b?.mode
   )
 }
@@ -177,6 +261,10 @@ export class MarkdownPreviewModel {
   readonly editorFocusRequest = atom<MarkdownEditorFocusRequest | null>(
     null,
     'markdown.preview.editorFocusRequest',
+  )
+  readonly anchorScrollRequest = atom<MarkdownAnchorScrollRequest | null>(
+    null,
+    'markdown.preview.anchorScrollRequest',
   )
   readonly imageAttaching = atom(false, 'markdown.preview.imageAttaching')
   private readonly lastImageInsertionSelection = atom<MarkdownImageInsertionSelection | null>(
@@ -249,11 +337,7 @@ export class MarkdownPreviewModel {
   readonly canSave = computed(() => {
     const state = this.state()
     return (
-      state.kind === 'ready' &&
-      state.dirty &&
-      !state.saving &&
-      !state.formatting &&
-      !state.readOnlyReasonKey
+      state.kind === 'ready' && state.dirty && !state.saving && !state.formatting && !state.readOnlyReasonKey
     )
   })
   readonly canFormat = computed(() => {
@@ -270,6 +354,26 @@ export class MarkdownPreviewModel {
       !this.imageAttaching()
     )
   })
+  readonly canInsertNoteLink = computed(() => {
+    const state = this.state()
+    return state.kind === 'ready' && !state.saving && !state.formatting && !state.readOnlyReasonKey
+  })
+  readonly canInsertFileLink = computed(() => {
+    const state = this.state()
+    return state.kind === 'ready' && !state.saving && !state.formatting && !state.readOnlyReasonKey
+  })
+  readonly canApplyMarkdownQuickAction = computed(() => {
+    const state = this.state()
+    return state.kind === 'ready' && !state.saving && !state.formatting && !state.readOnlyReasonKey
+  })
+  readonly noteLinkCompletions = computed(() => {
+    const state = this.state()
+    if (state.kind !== 'ready') {
+      return [] satisfies MarkdownNoteLinkCompletion[]
+    }
+
+    return this.noteLinkIndex.completions(this.getReadyNoteContext(state))
+  }, 'markdown.preview.noteLinkCompletions')
   readonly canPasteText = computed(() => this.state().kind === 'ready')
 
   private readonly loadText: typeof loadTextFileById
@@ -282,6 +386,14 @@ export class MarkdownPreviewModel {
     'releaseResolution' | 'resolveImageRef' | 'uploadImageFiles'
   >
   private readonly loadSettings: typeof loadSessionSettings
+  private readonly noteLinkIndex: MarkdownNoteLinkIndexLike
+  private readonly noteNavigation: Pick<typeof navigationModel, 'openMarkdownDocument'>
+  private readonly fileLinkCatalog: Pick<CatalogService, 'resolveFileLinks' | 'completeFileLinks'> | null
+  private readonly fileNavigation: Pick<
+    typeof navigationModel,
+    'openMarkdownDocument' | 'openPreview' | 'openGallery' | 'openVideo' | 'openAudio'
+  >
+  private readonly documentNavigation: Pick<typeof navigationModel, 'updateCurrentMarkdownDocumentViewMode'>
   private readonly renderDebounceMs: number
   private readonly autosaveDebounceMs: number
   private readonly historyGroupMs: number
@@ -292,13 +404,16 @@ export class MarkdownPreviewModel {
   private attachmentUploadController: AbortController | null = null
   private operationToken = 0
   private imageResolutionToken = 0
+  private fileLinkResolutionToken = 0
   private attachmentUploadToken = 0
   private imageAssetResolutions = new Map<string, MarkdownImageAssetResolution>()
   private renderTimer: ReturnType<typeof setTimeout> | null = null
   private autosaveTimer: ReturnType<typeof setTimeout> | null = null
   private pendingCloseResume: (() => void) | null = null
   private editorFocusRequestId = 0
+  private anchorScrollRequestId = 0
   private imagePickerTrigger: ImagePickerTrigger | null = null
+  private readonly viewportAnchorMemory = new Map<number, MarkdownViewportAnchor>()
 
   constructor(deps: MarkdownPreviewModelDeps = {}) {
     this.loadText = deps.loadTextFileById ?? loadTextFileById
@@ -308,6 +423,11 @@ export class MarkdownPreviewModel {
     this.clipboardTextReader = deps.clipboardTextReader ?? systemClipboardTextReader
     this.imageAssetService = deps.imageAssetService ?? markdownImageAssetService
     this.loadSettings = deps.loadSessionSettings ?? loadSessionSettings
+    this.noteLinkIndex = deps.noteLinkIndex ?? markdownNoteLinkIndexModel
+    this.noteNavigation = deps.noteNavigation ?? navigationModel
+    this.fileLinkCatalog = deps.fileLinkCatalog ?? null
+    this.fileNavigation = deps.fileNavigation ?? navigationModel
+    this.documentNavigation = deps.documentNavigation ?? navigationModel
     this.renderDebounceMs = deps.renderDebounceMs ?? DEFAULT_RENDER_DEBOUNCE_MS
     this.autosaveDebounceMs = deps.autosaveDebounceMs ?? DEFAULT_AUTOSAVE_DEBOUNCE_MS
     this.historyGroupMs = deps.historyGroupMs ?? DEFAULT_HISTORY_GROUP_MS
@@ -328,17 +448,22 @@ export class MarkdownPreviewModel {
       }
 
       const sourceRevision = data.sourceRevision ?? state.sourceRevision
+      const viewMode = data.viewMode ?? state.mode
       if (!state.dirty && sourceRevision === state.sourceRevision) {
         this.currentData.set(data)
         this.state.set({
           ...state,
           fileName: data.fileName,
+          ...(data.path ? {path: data.path} : {}),
+          ...(data.parentPath ? {parentPath: data.parentPath} : {}),
           size: data.size ?? state.size,
           mimeType: data.mimeType ?? state.mimeType,
           lastModified: data.lastModified ?? state.lastModified,
           sourceRevision,
           baselineSourceRevision: sourceRevision,
+          mode: viewMode,
         })
+        this.requestAnchorScroll(data.anchor)
         return
       }
 
@@ -347,24 +472,30 @@ export class MarkdownPreviewModel {
         this.state.set({
           ...state,
           fileName: data.fileName,
+          ...(data.path ? {path: data.path} : {}),
+          ...(data.parentPath ? {parentPath: data.parentPath} : {}),
           size: data.size ?? state.size,
           mimeType: data.mimeType ?? state.mimeType,
           lastModified: data.lastModified ?? state.lastModified,
+          mode: viewMode,
           stale: state.stale || sourceRevision !== state.sourceRevision,
           errorKey: sourceRevision !== state.sourceRevision ? 'markdown:error:stale-source' : state.errorKey,
         })
+        this.requestAnchorScroll(data.anchor)
         return
       }
     }
 
     this.abortCurrentOperation()
     this.clearImageAssets()
+    this.abortFileLinkResolution()
     this.abortAttachmentUpload()
     this.clearRenderTimer()
     this.clearAutosaveTimer()
     this.resetHistory()
     this.pendingCloseIntent.set(null)
     this.editorFocusRequest.set(null)
+    this.anchorScrollRequest.set(null)
     this.resetImageInsertionSelection()
     this.currentData.set(data)
 
@@ -388,24 +519,64 @@ export class MarkdownPreviewModel {
     )
   }
 
-  setMode(mode: MarkdownPreviewMode, options: {selectionStart?: number | null} = {}): void {
+  setMode(
+    mode: MarkdownPreviewMode,
+    options: {
+      focusEditor?: boolean
+      selectionStart?: number | null
+      viewportAnchor?: MarkdownViewportAnchor | null
+    } = {},
+  ): void {
     const state = this.state()
     if (state.kind !== 'ready') {
       return
     }
 
-    if (mode === 'edit') {
-      this.requestEditorFocus(state, options.selectionStart ?? null)
-    } else {
-      this.editorFocusRequest.set(null)
+    if (options.viewportAnchor) {
+      this.rememberViewportAnchor(state.fileId, options.viewportAnchor)
     }
 
+    const nextState = state.mode === mode ? state : {...state, mode}
     if (state.mode !== mode) {
-      this.state.set({...state, mode})
+      this.state.set(nextState)
+      this.documentNavigation.updateCurrentMarkdownDocumentViewMode(state.fileId, mode)
     }
+
+    if (mode === 'edit') {
+      if (options.focusEditor) {
+        this.requestEditorFocus(nextState, options.selectionStart ?? null)
+      }
+      return
+    }
+
+    this.editorFocusRequest.set(null)
   }
 
-  updateSource(source: string): void {
+  rememberViewportAnchor(fileId: number, anchor: MarkdownViewportAnchor): void {
+    const sourceLine = Number.isFinite(anchor.sourceLine) ? Math.max(0, anchor.sourceLine) : 0
+    const sourceOffset =
+      anchor.sourceOffset !== null && Number.isFinite(anchor.sourceOffset)
+        ? Math.max(0, Math.floor(anchor.sourceOffset))
+        : null
+    const viewportOffset = Number.isFinite(anchor.viewportOffset) ? anchor.viewportOffset : 0
+    this.viewportAnchorMemory.set(fileId, {
+      sourceLine,
+      sourceOffset,
+      viewportOffset,
+      kind: anchor.kind,
+    })
+  }
+
+  getViewportAnchor(fileId: number): MarkdownViewportAnchor | null {
+    const anchor = this.viewportAnchorMemory.get(fileId)
+    return anchor ? {...anchor} : null
+  }
+
+  clearViewportAnchorMemory(): void {
+    this.viewportAnchorMemory.clear()
+  }
+
+  updateSource(source: string, options: {render?: boolean} = {}): void {
     const current = this.state()
     if (current.kind !== 'ready' || current.source === source) {
       return
@@ -418,8 +589,87 @@ export class MarkdownPreviewModel {
       errorKey: current.stale ? current.errorKey : null,
     })
     this.recordHistoryForSourceChange(current.source, 'user')
+    if (options.render !== false) {
+      this.scheduleRender()
+    }
+    this.scheduleAutosaveForCurrentSource()
+  }
+
+  applyMarkdownQuickAction(
+    action: MarkdownQuickTextAction,
+    selection?: MarkdownImageInsertionSelection,
+  ): boolean {
+    const current = this.state()
+    if (
+      current.kind !== 'ready' ||
+      current.saving ||
+      current.formatting ||
+      current.readOnlyReasonKey
+    ) {
+      return false
+    }
+
+    const normalizedSelection = this.normalizeImageInsertionSelection(
+      selection ?? this.getLastKnownEditorSelection(current),
+      current.source.length,
+    )
+    const applied = this.applyMarkdownQuickActionToSource(
+      current.source,
+      action,
+      normalizedSelection,
+    )
+
+    this.lastImageInsertionSelection.set({
+      selectionStart: applied.selectionStart,
+      selectionEnd: applied.selectionStart,
+    })
+
+    const nextState: MarkdownPreviewReadyState = {
+      ...current,
+      mode: 'edit',
+      source: applied.source,
+      dirty: applied.source !== current.baseline,
+      errorKey: current.stale ? current.errorKey : null,
+    }
+
+    if (applied.source === current.source) {
+      if (current.mode !== 'edit') {
+        this.state.set(nextState)
+      }
+      this.requestEditorFocus(nextState, applied.selectionStart)
+      return true
+    }
+
+    this.recordHistoryForSourceChange(current.source, 'command')
+    this.state.set(nextState)
+    this.requestEditorFocus(nextState, applied.selectionStart)
     this.scheduleRender()
     this.scheduleAutosaveForCurrentSource()
+    return true
+  }
+
+  toggleTaskListItemAtLine(line: number): boolean {
+    const current = this.state()
+    if (current.kind !== 'ready' || current.saving || current.formatting || current.readOnlyReasonKey) {
+      return false
+    }
+
+    const toggled = toggleMarkdownTaskListItemAtLine(current.source, line)
+    if (!toggled || toggled.source === current.source) {
+      return false
+    }
+
+    this.updateSource(toggled.source, {render: false})
+    return true
+  }
+
+  getTaskListItemCheckedAtLine(line: number): boolean | null {
+    const current = this.state()
+    if (current.kind !== 'ready') {
+      return null
+    }
+
+    return getMarkdownTaskListItemCheckedAtLine(current.source, line)
   }
 
   async save(): Promise<boolean> {
@@ -460,7 +710,7 @@ export class MarkdownPreviewModel {
       }
 
       this.recordHistoryForSourceChange(current.source, 'format')
-      const rendered = this.renderMarkdown(formattedSource)
+      const rendered = this.renderMarkdown(formattedSource, this.getReadyNoteContext(current))
       this.clearImageAssets()
       this.state.set({
         ...current,
@@ -469,9 +719,14 @@ export class MarkdownPreviewModel {
         formatting: false,
         renderedHtml: rendered.renderedHtml,
         imageAssets: rendered.imageAssets,
+        fileLinks: rendered.fileLinks,
+        fileLinkResolutions: rendered.fileLinkResolutions,
+        noteLinks: rendered.noteLinks,
+        noteLinkResolutions: rendered.noteLinkResolutions,
         errorKey: current.stale ? current.errorKey : rendered.errorKey,
       })
       this.startImageResolution(rendered, formattedSource)
+      this.startFileLinkResolution(rendered, formattedSource)
       this.scheduleAutosaveForCurrentSource()
       return true
     } catch {
@@ -536,7 +791,7 @@ export class MarkdownPreviewModel {
     this.clearRenderTimer()
     this.clearAutosaveTimer()
     this.resetHistory()
-    const rendered = this.renderMarkdown(state.baseline)
+    const rendered = this.renderMarkdown(state.baseline, this.getReadyNoteContext(state))
     this.state.set({
       ...state,
       source: state.baseline,
@@ -547,10 +802,15 @@ export class MarkdownPreviewModel {
       stale: false,
       renderedHtml: rendered.renderedHtml,
       imageAssets: rendered.imageAssets,
+      fileLinks: rendered.fileLinks,
+      fileLinkResolutions: rendered.fileLinkResolutions,
+      noteLinks: rendered.noteLinks,
+      noteLinkResolutions: rendered.noteLinkResolutions,
       errorKey: rendered.errorKey,
       autosavePending: false,
     })
     this.startImageResolution(rendered, state.baseline)
+    this.startFileLinkResolution(rendered, state.baseline)
   }
 
   requestCloseIntent(intent: MarkdownCloseIntent, resume?: () => void): boolean {
@@ -591,8 +851,31 @@ export class MarkdownPreviewModel {
 
   handleRenderedPreviewClick(event: MouseEvent): void {
     const target = event.target
-    const element =
-      target instanceof Element ? target : target instanceof Node ? target.parentElement : null
+    const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null
+    const taskLine = this.getRenderedTaskLine(element)
+    if (taskLine !== null) {
+      event.preventDefault()
+      event.stopPropagation()
+      this.toggleTaskListItemAtLine(taskLine)
+      return
+    }
+
+    const noteLinkId = this.getRenderedNoteLinkId(element)
+    if (noteLinkId) {
+      event.preventDefault()
+      event.stopPropagation()
+      this.activateNoteLink(noteLinkId)
+      return
+    }
+
+    const fileLinkId = this.getRenderedFileLinkId(element)
+    if (fileLinkId) {
+      event.preventDefault()
+      event.stopPropagation()
+      this.activateFileLink(fileLinkId)
+      return
+    }
+
     const anchor = element?.closest('a')
     if (!anchor) {
       return
@@ -602,12 +885,161 @@ export class MarkdownPreviewModel {
     event.stopPropagation()
   }
 
+  handleRenderedPreviewKeyDown(event: KeyboardEvent): void {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return
+    }
+
+    const target = event.target
+    const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null
+    const taskLine = this.getRenderedTaskLine(element)
+    if (taskLine !== null) {
+      event.preventDefault()
+      event.stopPropagation()
+      this.toggleTaskListItemAtLine(taskLine)
+      return
+    }
+
+    const noteLinkId = this.getRenderedNoteLinkId(element)
+    const fileLinkId = this.getRenderedFileLinkId(element)
+    if (!noteLinkId && !fileLinkId) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    if (noteLinkId) {
+      this.activateNoteLink(noteLinkId)
+      return
+    }
+    if (fileLinkId) {
+      this.activateFileLink(fileLinkId)
+    }
+  }
+
   registerImagePickerTrigger(trigger: ImagePickerTrigger): () => void {
     this.imagePickerTrigger = trigger
     return () => {
       if (this.imagePickerTrigger === trigger) {
         this.imagePickerTrigger = null
       }
+    }
+  }
+
+  private getRenderedTaskLine(element: Element | null): number | null {
+    const task = element?.closest<HTMLElement>('[data-cv-task-line]')
+    const line = Number.parseInt(task?.dataset['cvTaskLine'] ?? '', 10)
+    return Number.isInteger(line) && line >= 0 ? line : null
+  }
+
+  private getRenderedNoteLinkId(element: Element | null): string | null {
+    const noteLink = element?.closest<HTMLElement>('[data-cv-note-link-id]')
+    return noteLink?.dataset['cvNoteLinkId'] || null
+  }
+
+  private getRenderedFileLinkId(element: Element | null): string | null {
+    const fileLink = element?.closest<HTMLElement>('[data-cv-file-link-id]')
+    return fileLink?.dataset['cvFileLinkId'] || null
+  }
+
+  activateNoteLink(candidateId: string): boolean {
+    const state = this.state()
+    if (state.kind !== 'ready') {
+      return false
+    }
+
+    const resolution = state.noteLinkResolutions?.[candidateId]
+    if (!resolution) {
+      return false
+    }
+
+    if (resolution.kind === 'same-note-anchor') {
+      this.requestAnchorScroll(resolution.anchor)
+      return true
+    }
+
+    if (resolution.kind !== 'resolved') {
+      return false
+    }
+
+    const target = resolution.target
+    const resume = () => {
+      this.noteNavigation.openMarkdownDocument(target.fileId, 'push', {
+        parentPath: target.parentPath,
+        source: {
+          path: target.path,
+          parentPath: target.parentPath,
+          fileName: target.fileName,
+          ...(target.size !== undefined ? {size: target.size} : {}),
+          ...(target.mimeType ? {mimeType: target.mimeType} : {}),
+          ...(target.lastModified !== undefined ? {lastModified: target.lastModified} : {}),
+          ...(target.sourceRevision !== undefined ? {sourceRevision: target.sourceRevision} : {}),
+          ...(target.anchor ? {anchor: target.anchor} : {}),
+        },
+      })
+    }
+
+    if (this.requestCloseIntent({kind: 'note-link', candidateId, fileId: target.fileId}, resume)) {
+      resume()
+    }
+    return true
+  }
+
+  activateFileLink(candidateId: string): boolean {
+    const state = this.state()
+    if (state.kind !== 'ready') {
+      return false
+    }
+
+    const resolution = state.fileLinkResolutions?.[candidateId]
+    if (resolution?.kind !== 'resolved') {
+      return false
+    }
+
+    const target = resolution.target
+    const resume = () => this.openResolvedFileLink(target)
+    if (this.requestCloseIntent({kind: 'file-link', candidateId, fileId: target.node_id}, resume)) {
+      resume()
+    }
+    return true
+  }
+
+  private openResolvedFileLink(target: CatalogFileLinkItem): void {
+    const format = resolveFileFormat({
+      name: target.name,
+      mimeType: target.mime_type ?? null,
+      isDir: false,
+    })
+    const parentPath = target.parent_path
+
+    switch (format.openBehavior.kind) {
+      case 'document':
+        this.fileNavigation.openMarkdownDocument(target.node_id, 'push', {
+          parentPath,
+          source: {
+            path: target.path,
+            parentPath,
+            fileName: target.name,
+            size: target.size,
+            ...(target.mime_type ? {mimeType: target.mime_type} : {}),
+            lastModified: target.updated_at,
+            sourceRevision: target.source_revision,
+          },
+        })
+        return
+      case 'gallery':
+        this.fileNavigation.openGallery(target.node_id, 'push', {parentPath})
+        return
+      case 'video':
+        this.fileNavigation.openVideo(target.node_id, 'push', {parentPath})
+        return
+      case 'audio':
+        this.fileNavigation.openAudio(target.node_id, 'push', {parentPath})
+        return
+      case 'preview':
+        this.fileNavigation.openPreview(target.node_id, 'push', {parentPath})
+        return
+      case 'folder':
+        return
     }
   }
 
@@ -625,14 +1057,54 @@ export class MarkdownPreviewModel {
     this.lastImageInsertionSelection.set(nextSelection)
     this.pendingImageInsertionSelection.set(nextSelection)
 
-    if (snapshot.mode === 'edit') {
-      this.requestEditorFocus(snapshot, nextSelection.selectionStart)
-    } else {
-      this.setMode('edit', {selectionStart: nextSelection.selectionStart})
+    if (snapshot.mode !== 'edit') {
+      this.setMode('edit')
     }
 
     trigger()
     return true
+  }
+
+  requestFileLinkInsertion(selection?: MarkdownImageInsertionSelection): boolean {
+    const snapshot = this.state()
+    if (!this.canInsertFileLink() || snapshot.kind !== 'ready') {
+      return false
+    }
+
+    const nextSelection = this.normalizeImageInsertionSelection(
+      selection ?? this.getLastKnownEditorSelection(snapshot),
+      snapshot.source.length,
+    )
+    this.lastImageInsertionSelection.set(nextSelection)
+
+    if (snapshot.mode === 'edit') {
+      this.requestEditorFocus(snapshot, nextSelection.selectionStart)
+    } else {
+      this.setMode('edit', {focusEditor: true, selectionStart: nextSelection.selectionStart})
+    }
+
+    return true
+  }
+
+  requestNoteLinkInsertion(selection?: MarkdownImageInsertionSelection): boolean {
+    return this.requestFileLinkInsertion(selection)
+  }
+
+  async completeFileLinks(query: string): Promise<CatalogFileLinkItem[]> {
+    const state = this.state()
+    const catalog = this.getFileLinkCatalog()
+    if (state.kind !== 'ready' || !catalog) {
+      return []
+    }
+
+    const response = await wrap(
+      catalog.completeFileLinks({
+        query,
+        limit: 20,
+        current_path: this.getReadyFileLinkCurrentPath(state),
+      }),
+    )
+    return response.items
   }
 
   updateEditorSelection(selection: MarkdownImageInsertionSelection): void {
@@ -673,10 +1145,7 @@ export class MarkdownPreviewModel {
       return false
     }
 
-    const normalizedSelection = this.normalizeImageInsertionSelection(
-      initialSelection,
-      current.source.length,
-    )
+    const normalizedSelection = this.normalizeImageInsertionSelection(initialSelection, current.source.length)
     const inserted = this.insertTextAtSelection(current.source, text, normalizedSelection)
     this.lastImageInsertionSelection.set({
       selectionStart: inserted.selectionStart,
@@ -758,12 +1227,7 @@ export class MarkdownPreviewModel {
       }
 
       const current = this.state()
-      if (
-        current.kind !== 'ready' ||
-        current.saving ||
-        current.formatting ||
-        current.readOnlyReasonKey
-      ) {
+      if (current.kind !== 'ready' || current.saving || current.formatting || current.readOnlyReasonKey) {
         return false
       }
 
@@ -805,6 +1269,7 @@ export class MarkdownPreviewModel {
   cleanup(): void {
     this.abortCurrentOperation()
     this.clearImageAssets()
+    this.abortFileLinkResolution()
     this.abortAttachmentUpload()
     this.clearRenderTimer()
     this.clearAutosaveTimer()
@@ -813,6 +1278,7 @@ export class MarkdownPreviewModel {
     this.pendingCloseIntent.set(null)
     this.pendingCloseResume = null
     this.editorFocusRequest.set(null)
+    this.anchorScrollRequest.set(null)
     this.resetImageInsertionSelection()
     this.state.set({kind: 'idle'})
   }
@@ -846,9 +1312,22 @@ export class MarkdownPreviewModel {
         return
       }
 
+      void this.loadNoteLinkIndex().then(() => {
+        const current = this.state()
+        if (
+          !controller.signal.aborted &&
+          token === this.operationToken &&
+          current.kind === 'ready' &&
+          (current.noteLinks?.length ?? 0) > 0
+        ) {
+          this.updateRenderedMarkdown()
+        }
+      })
+
       const ready = this.createReadyState(data, loaded)
       this.state.set(ready.state)
       this.startImageResolution(ready.rendered, loaded.text)
+      this.startFileLinkResolution(ready.rendered, loaded.text)
     } catch (error) {
       if (isAbortError(error) || token !== this.operationToken) {
         return
@@ -866,16 +1345,20 @@ export class MarkdownPreviewModel {
     data: MarkdownPreviewData,
     loaded: FileTextLoadResult,
   ): {state: MarkdownPreviewReadyState; rendered: RenderSnapshot} {
-    const rendered = this.renderMarkdown(loaded.text)
+    const context = this.getDataNoteContext(data)
+    const rendered = this.renderMarkdown(loaded.text, context)
     const sourceRevision = loaded.sourceRevision ?? null
     const readOnlyReasonKey =
       loaded.sourceMetadataUnavailable || sourceRevision === null ? SAVE_UNAVAILABLE_REASON_KEY : null
+    this.requestAnchorScroll(data.anchor)
 
     return {
       state: {
         kind: 'ready',
         fileId: data.fileId,
         fileName: data.fileName,
+        ...(data.path ? {path: data.path} : {}),
+        ...(data.parentPath ? {parentPath: data.parentPath} : {}),
         size: loaded.size,
         mimeType: loaded.mimeType,
         lastModified: data.lastModified,
@@ -883,13 +1366,17 @@ export class MarkdownPreviewModel {
         baseline: loaded.text,
         sourceRevision,
         baselineSourceRevision: sourceRevision,
-        mode: 'preview',
+        mode: data.viewMode ?? 'preview',
         dirty: false,
         saving: false,
         formatting: false,
         stale: false,
         renderedHtml: rendered.renderedHtml,
         imageAssets: rendered.imageAssets,
+        fileLinks: rendered.fileLinks,
+        fileLinkResolutions: rendered.fileLinkResolutions,
+        noteLinks: rendered.noteLinks,
+        noteLinkResolutions: rendered.noteLinkResolutions,
         errorKey: rendered.errorKey,
         readOnlyReasonKey,
         lastSavedAt: null,
@@ -997,14 +1484,15 @@ export class MarkdownPreviewModel {
           ...currentData,
           fileId: result.nodeId,
           fileName: state.fileName,
+          ...(state.path ? {path: state.path} : {}),
+          ...(state.parentPath ? {parentPath: state.parentPath} : {}),
           size: result.size,
           mimeType: result.mimeType,
           lastModified: result.modtime,
           sourceRevision: result.sourceRevision ?? undefined,
         }
       }
-      shouldScheduleTrailingAutosave =
-        nextState.source !== savedSource && this.canStartAutosave(nextState)
+      shouldScheduleTrailingAutosave = nextState.source !== savedSource && this.canStartAutosave(nextState)
       return nextState
     })
     if (savedData) {
@@ -1034,16 +1522,25 @@ export class MarkdownPreviewModel {
     })
   }
 
-  private renderMarkdown(source: string): RenderSnapshot {
+  private renderMarkdown(source: string, context: MarkdownNoteContext | null): RenderSnapshot {
     try {
       const result = this.renderSource(source)
       const imageRefs = result.imageRefs ?? []
+      const fileLinks = result.fileLinks ?? []
+      const fileLinkResolutions = this.createPendingFileLinkResolutions(fileLinks)
+      const noteLinks = result.noteLinks ?? []
+      const noteLinkResolutions = this.resolveNoteLinks(context, noteLinks)
+      const baseHtml = this.applyNoteLinkResolutionStates(result.html, noteLinks, noteLinkResolutions)
       const imageAssets = this.createLoadingImageAssetState(imageRefs)
       return {
-        renderedHtml: this.applyImageAssetStates(result.html, imageAssets),
-        baseHtml: result.html,
+        renderedHtml: this.composeRenderedHtml(baseHtml, imageAssets, fileLinks, fileLinkResolutions),
+        baseHtml,
         imageAssets,
         imageRefs,
+        fileLinks,
+        fileLinkResolutions,
+        noteLinks,
+        noteLinkResolutions,
         errorKey: null,
       }
     } catch (error) {
@@ -1052,6 +1549,10 @@ export class MarkdownPreviewModel {
         baseHtml: '',
         imageAssets: {},
         imageRefs: [],
+        fileLinks: [],
+        fileLinkResolutions: {},
+        noteLinks: [],
+        noteLinkResolutions: {},
         errorKey: getMarkdownErrorKey(error, 'markdown:error:render-failed'),
       }
     }
@@ -1059,10 +1560,13 @@ export class MarkdownPreviewModel {
 
   private scheduleRender(): void {
     this.clearRenderTimer()
-    this.renderTimer = setTimeout(() => {
-      this.renderTimer = null
-      this.updateRenderedMarkdown()
-    }, this.renderDebounceMs)
+    this.renderTimer = setTimeout(
+      wrap(() => {
+        this.renderTimer = null
+        this.updateRenderedMarkdown()
+      }),
+      this.renderDebounceMs,
+    )
   }
 
   private updateRenderedMarkdown(): void {
@@ -1071,15 +1575,41 @@ export class MarkdownPreviewModel {
       return
     }
 
-    const rendered = this.renderMarkdown(state.source)
+    const rendered = this.renderMarkdown(state.source, this.getReadyNoteContext(state))
     this.clearImageAssets()
     this.state.set({
       ...state,
       renderedHtml: rendered.renderedHtml,
       imageAssets: rendered.imageAssets,
+      fileLinks: rendered.fileLinks,
+      fileLinkResolutions: rendered.fileLinkResolutions,
+      noteLinks: rendered.noteLinks,
+      noteLinkResolutions: rendered.noteLinkResolutions,
       errorKey: rendered.errorKey ?? state.errorKey,
     })
     this.startImageResolution(rendered, state.source)
+    this.startFileLinkResolution(rendered, state.source)
+  }
+
+  private composeRenderedHtml(
+    baseHtml: string,
+    imageAssets: Record<string, MarkdownPreviewImageAssetState>,
+    fileLinks: readonly MarkdownFileLinkCandidate[],
+    fileLinkResolutions: Record<string, MarkdownFileLinkResolution>,
+  ): string {
+    const htmlWithFileLinks = this.applyFileLinkResolutionStates(baseHtml, fileLinks, fileLinkResolutions)
+    return this.applyImageAssetStates(htmlWithFileLinks, imageAssets)
+  }
+
+  private createPendingFileLinkResolutions(
+    fileLinks: readonly MarkdownFileLinkCandidate[],
+  ): Record<string, MarkdownFileLinkResolution> {
+    return Object.fromEntries(
+      fileLinks.map((candidate) => [
+        candidate.id,
+        {kind: 'pending', candidateId: candidate.id} satisfies MarkdownFileLinkResolution,
+      ]),
+    )
   }
 
   private createLoadingImageAssetState(
@@ -1150,6 +1680,246 @@ export class MarkdownPreviewModel {
 
   private imageStatusClass(status: MarkdownPreviewImageAssetState['status']): string {
     return status === 'blocked-external' ? 'blocked' : status
+  }
+
+  private resolveNoteLinks(
+    context: MarkdownNoteContext | null,
+    noteLinks: readonly MarkdownNoteLinkCandidate[],
+  ): Record<string, MarkdownNoteLinkResolution> {
+    return Object.fromEntries(
+      noteLinks.map((candidate) => [
+        candidate.id,
+        context
+          ? this.noteLinkIndex.resolve(context, candidate)
+          : ({kind: 'unresolved', candidateId: candidate.id} satisfies MarkdownNoteLinkResolution),
+      ]),
+    )
+  }
+
+  private applyNoteLinkResolutionStates(
+    baseHtml: string,
+    noteLinks: readonly MarkdownNoteLinkCandidate[],
+    resolutions: Record<string, MarkdownNoteLinkResolution>,
+  ): string {
+    if (!baseHtml || typeof document === 'undefined' || noteLinks.length === 0) {
+      return baseHtml
+    }
+
+    const labels = new Map(noteLinks.map((candidate) => [candidate.id, candidate.label]))
+    const template = document.createElement('template')
+    template.innerHTML = baseHtml
+
+    for (const element of template.content.querySelectorAll<HTMLElement>('[data-cv-note-link-id]')) {
+      const id = element.dataset['cvNoteLinkId']
+      const resolution = id ? resolutions[id] : undefined
+      if (!id || !resolution) {
+        continue
+      }
+
+      element.dataset['cvNoteLinkState'] = resolution.kind
+      if (resolution.kind === 'resolved' || resolution.kind === 'same-note-anchor') {
+        element.removeAttribute('aria-disabled')
+      } else {
+        element.setAttribute('aria-disabled', 'true')
+      }
+
+      const label = labels.get(id) ?? element.textContent ?? ''
+      element.setAttribute('aria-label', this.getNoteLinkAriaLabel(label, resolution.kind))
+    }
+
+    return template.innerHTML
+  }
+
+  private applyFileLinkResolutionStates(
+    baseHtml: string,
+    fileLinks: readonly MarkdownFileLinkCandidate[],
+    resolutions: Record<string, MarkdownFileLinkResolution>,
+  ): string {
+    if (!baseHtml || typeof document === 'undefined' || fileLinks.length === 0) {
+      return baseHtml
+    }
+
+    const labels = new Map(fileLinks.map((candidate) => [candidate.id, candidate.label]))
+    const template = document.createElement('template')
+    template.innerHTML = baseHtml
+
+    for (const element of template.content.querySelectorAll<HTMLElement>('[data-cv-file-link-id]')) {
+      const id = element.dataset['cvFileLinkId']
+      const resolution = id ? resolutions[id] : undefined
+      if (!id || !resolution) {
+        continue
+      }
+
+      element.dataset['cvFileLinkState'] = resolution.kind
+      if (resolution.kind === 'resolved') {
+        element.removeAttribute('aria-disabled')
+      } else {
+        element.setAttribute('aria-disabled', 'true')
+      }
+
+      const label = labels.get(id) ?? element.textContent ?? ''
+      element.setAttribute('aria-label', this.getFileLinkAriaLabel(label, resolution.kind))
+    }
+
+    return template.innerHTML
+  }
+
+  private getFileLinkAriaLabel(label: string, state: MarkdownFileLinkResolution['kind']): string {
+    if (state === 'resolved') {
+      return label
+    }
+    return `${label} (${state === 'pending' ? 'loading' : 'unresolved'})`
+  }
+
+  private getNoteLinkAriaLabel(label: string, state: MarkdownNoteLinkResolution['kind']): string {
+    if (state === 'resolved' || state === 'same-note-anchor') {
+      return label
+    }
+    if (state === 'ambiguous') {
+      return `${label} (${this.getNoteLinkStateLabel('markdown:note-link:ambiguous')})`
+    }
+    if (state === 'unresolved') {
+      return `${label} (${this.getNoteLinkStateLabel('markdown:note-link:unresolved')})`
+    }
+    return `${label} (${this.getNoteLinkStateLabel('markdown:note-link:external')})`
+  }
+
+  private getNoteLinkStateLabel(key: string): string {
+    return i18n(key as never)
+  }
+
+  private getDataNoteContext(data: MarkdownPreviewData): MarkdownNoteContext {
+    return createMarkdownNoteContext({
+      fileId: data.fileId,
+      fileName: data.fileName,
+      path: data.path,
+      parentPath: data.parentPath,
+      sourceRevision: data.sourceRevision ?? null,
+    })
+  }
+
+  private getReadyNoteContext(state: MarkdownPreviewReadyState): MarkdownNoteContext {
+    return createMarkdownNoteContext({
+      fileId: state.fileId,
+      fileName: state.fileName,
+      path: state.path,
+      parentPath: state.parentPath,
+      sourceRevision: state.sourceRevision,
+    })
+  }
+
+  private getReadyFileLinkCurrentPath(state: MarkdownPreviewReadyState): string | null {
+    if (state.parentPath) {
+      return state.parentPath
+    }
+    if (!state.path) {
+      return null
+    }
+
+    const normalized = state.path.replace(/\/+$/g, '')
+    const index = normalized.lastIndexOf('/')
+    return index <= 0 ? '/' : normalized.slice(0, index)
+  }
+
+  private async loadNoteLinkIndex(): Promise<void> {
+    try {
+      await wrap(this.noteLinkIndex.loadNotes())
+    } catch {
+      // The index fails closed through unresolved candidates.
+    }
+  }
+
+  private requestAnchorScroll(anchor: string | null | undefined): void {
+    if (!anchor) {
+      return
+    }
+
+    this.anchorScrollRequest.set({
+      id: ++this.anchorScrollRequestId,
+      anchor: normalizeMarkdownAnchor(anchor),
+    })
+  }
+
+  private getFileLinkCatalog(): Pick<CatalogService, 'resolveFileLinks' | 'completeFileLinks'> | null {
+    return this.fileLinkCatalog ?? tryGetAppContext()?.catalog ?? null
+  }
+
+  private startFileLinkResolution(rendered: RenderSnapshot, source: string): void {
+    this.abortFileLinkResolution()
+    if (rendered.errorKey || rendered.fileLinks.length === 0) {
+      return
+    }
+
+    const token = ++this.fileLinkResolutionToken
+    void this.resolveFileLinks(rendered, source, token)
+  }
+
+  private async resolveFileLinks(rendered: RenderSnapshot, source: string, token: number): Promise<void> {
+    const catalog = this.getFileLinkCatalog()
+    if (!catalog) {
+      this.applyResolvedFileLinks(rendered, source, token, this.createUnresolvedFileLinkResolutions(rendered))
+      return
+    }
+
+    try {
+      const response = await wrap(
+        catalog.resolveFileLinks({
+          targets: rendered.fileLinks.map((candidate) => candidate.targetPath),
+        }),
+      )
+      const byTarget = new Map(response.results.map((result) => [result.target, result.item ?? null]))
+      const resolutions = Object.fromEntries(
+        rendered.fileLinks.map((candidate) => {
+          const item = byTarget.get(candidate.targetPath) ?? null
+          return [
+            candidate.id,
+            item
+              ? ({
+                  kind: 'resolved',
+                  candidateId: candidate.id,
+                  target: item,
+                } satisfies MarkdownFileLinkResolution)
+              : ({
+                  kind: 'unresolved',
+                  candidateId: candidate.id,
+                } satisfies MarkdownFileLinkResolution),
+          ]
+        }),
+      )
+      this.applyResolvedFileLinks(rendered, source, token, resolutions)
+    } catch {
+      this.applyResolvedFileLinks(rendered, source, token, this.createUnresolvedFileLinkResolutions(rendered))
+    }
+  }
+
+  private createUnresolvedFileLinkResolutions(
+    rendered: RenderSnapshot,
+  ): Record<string, MarkdownFileLinkResolution> {
+    return Object.fromEntries(
+      rendered.fileLinks.map((candidate) => [
+        candidate.id,
+        {kind: 'unresolved', candidateId: candidate.id} satisfies MarkdownFileLinkResolution,
+      ]),
+    )
+  }
+
+  private applyResolvedFileLinks(
+    rendered: RenderSnapshot,
+    source: string,
+    token: number,
+    resolutions: Record<string, MarkdownFileLinkResolution>,
+  ): void {
+    this.updateReadyState((state) => {
+      if (token !== this.fileLinkResolutionToken || state.source !== source) {
+        return state
+      }
+
+      return {
+        ...state,
+        fileLinkResolutions: resolutions,
+        renderedHtml: this.composeRenderedHtml(rendered.baseHtml, state.imageAssets, rendered.fileLinks, resolutions),
+      }
+    })
   }
 
   private startImageResolution(rendered: RenderSnapshot, source: string): void {
@@ -1227,7 +1997,12 @@ export class MarkdownPreviewModel {
       this.state.set({
         ...current,
         imageAssets: nextAssets,
-        renderedHtml: this.applyImageAssetStates(rendered.baseHtml, nextAssets),
+        renderedHtml: this.composeRenderedHtml(
+          rendered.baseHtml,
+          nextAssets,
+          rendered.fileLinks,
+          current.fileLinkResolutions ?? rendered.fileLinkResolutions,
+        ),
       })
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -1251,7 +2026,12 @@ export class MarkdownPreviewModel {
           ? {
               ...state,
               imageAssets: erroredAssets,
-              renderedHtml: this.applyImageAssetStates(rendered.baseHtml, erroredAssets),
+              renderedHtml: this.composeRenderedHtml(
+                rendered.baseHtml,
+                erroredAssets,
+                rendered.fileLinks,
+                state.fileLinkResolutions ?? rendered.fileLinkResolutions,
+              ),
             }
           : state,
       )
@@ -1294,6 +2074,10 @@ export class MarkdownPreviewModel {
     }
   }
 
+  private abortFileLinkResolution(): void {
+    this.fileLinkResolutionToken += 1
+  }
+
   private abortAttachmentUpload(): void {
     this.attachmentUploadToken += 1
     if (this.attachmentUploadController) {
@@ -1319,10 +2103,7 @@ export class MarkdownPreviewModel {
 
   private getAttachmentUploadErrorKey(error: unknown): MarkdownErrorKey {
     if (error instanceof MarkdownImageAssetError) {
-      if (
-        error.code === 'ATTACHMENT_FOLDER_INVALID' ||
-        error.code === 'ATTACHMENT_FOLDER_CONFLICT'
-      ) {
+      if (error.code === 'ATTACHMENT_FOLDER_INVALID' || error.code === 'ATTACHMENT_FOLDER_CONFLICT') {
         return 'markdown:error:attachment-folder-invalid'
       }
       if (error.code === 'ATTACHMENT_NOT_IMAGE') {
@@ -1338,6 +2119,92 @@ export class MarkdownPreviewModel {
       ...state,
       errorKey,
     }))
+  }
+
+  private applyMarkdownQuickActionToSource(
+    source: string,
+    action: MarkdownQuickTextAction,
+    selection: MarkdownImageInsertionSelection,
+  ): InsertMarkdownResult {
+    switch (action) {
+      case 'bold':
+        return this.applyInlineMarkdownWrapper(source, selection, '**', '**')
+      case 'italic':
+        return this.applyInlineMarkdownWrapper(source, selection, '*', '*')
+      case 'strikethrough':
+        return this.applyInlineMarkdownWrapper(source, selection, '~~', '~~')
+      case 'inline-code':
+        return this.applyInlineMarkdownWrapper(source, selection, '`', '`')
+      case 'table':
+        return this.insertMarkdownAtSelection(source, QUICK_ACTION_TABLE_MARKDOWN, selection)
+      case 'divider':
+        return this.insertMarkdownAtSelection(source, QUICK_ACTION_DIVIDER_MARKDOWN, selection)
+      case 'heading-h2':
+        return this.applyMarkdownLinePrefix(source, selection, () => '## ')
+      case 'bullet-list':
+        return this.applyMarkdownLinePrefix(source, selection, () => '- ')
+      case 'numbered-list':
+        return this.applyMarkdownLinePrefix(source, selection, (_line, index) => `${index + 1}. `)
+      case 'task-list':
+        return this.applyMarkdownLinePrefix(source, selection, () => '- [ ] ')
+      case 'quote':
+        return this.applyMarkdownLinePrefix(source, selection, () => '> ')
+    }
+  }
+
+  private applyInlineMarkdownWrapper(
+    source: string,
+    selection: MarkdownImageInsertionSelection,
+    openingMarker: string,
+    closingMarker: string,
+  ): InsertMarkdownResult {
+    const selectedText = source.slice(selection.selectionStart, selection.selectionEnd)
+    const insertion = `${openingMarker}${selectedText}${closingMarker}`
+
+    return {
+      source: `${source.slice(0, selection.selectionStart)}${insertion}${source.slice(selection.selectionEnd)}`,
+      selectionStart: selectedText
+        ? selection.selectionStart + insertion.length
+        : selection.selectionStart + openingMarker.length,
+    }
+  }
+
+  private applyMarkdownLinePrefix(
+    source: string,
+    selection: MarkdownImageInsertionSelection,
+    getPrefix: (line: string, index: number) => string,
+  ): InsertMarkdownResult {
+    const range = this.getMarkdownLineRange(source, selection)
+    const replacement = range.text
+      .split('\n')
+      .map((line, index) => `${getPrefix(line, index)}${line}`)
+      .join('\n')
+
+    return {
+      source: `${source.slice(0, range.lineStart)}${replacement}${source.slice(range.lineEnd)}`,
+      selectionStart: range.lineStart + replacement.length,
+    }
+  }
+
+  private getMarkdownLineRange(
+    source: string,
+    selection: MarkdownImageInsertionSelection,
+  ): MarkdownLineRange {
+    const lineStart = source.lastIndexOf('\n', Math.max(0, selection.selectionStart - 1)) + 1
+    let lastSelectionOffset =
+      selection.selectionEnd > selection.selectionStart ? selection.selectionEnd - 1 : selection.selectionStart
+    if (selection.selectionEnd > selection.selectionStart && source[lastSelectionOffset] === '\n') {
+      lastSelectionOffset = Math.max(selection.selectionStart, lastSelectionOffset - 1)
+    }
+
+    const nextLineBreak = source.indexOf('\n', lastSelectionOffset)
+    const lineEnd = nextLineBreak === -1 ? source.length : nextLineBreak
+
+    return {
+      lineStart,
+      lineEnd,
+      text: source.slice(lineStart, lineEnd),
+    }
   }
 
   private insertMarkdownAtSelection(
@@ -1379,9 +2246,7 @@ export class MarkdownPreviewModel {
     return Number.isFinite(value) ? Math.min(source.length, Math.max(0, Math.floor(value))) : source.length
   }
 
-  private getLastKnownEditorSelection(
-    state: MarkdownPreviewReadyState,
-  ): MarkdownImageInsertionSelection {
+  private getLastKnownEditorSelection(state: MarkdownPreviewReadyState): MarkdownImageInsertionSelection {
     return (
       this.lastImageInsertionSelection() ?? {
         selectionStart: state.source.length,
@@ -1414,9 +2279,7 @@ export class MarkdownPreviewModel {
   }
 
   private boundedStack(stack: string[]): string[] {
-    return stack.length <= this.maxHistoryLength
-      ? stack
-      : stack.slice(stack.length - this.maxHistoryLength)
+    return stack.length <= this.maxHistoryLength ? stack : stack.slice(stack.length - this.maxHistoryLength)
   }
 
   private recordHistoryForSourceChange(previousSource: string, origin: MarkdownHistoryOrigin): void {
@@ -1520,10 +2383,13 @@ export class MarkdownPreviewModel {
     }
 
     this.setAutosavePending(true)
-    this.autosaveTimer = setTimeout(() => {
-      this.autosaveTimer = null
-      void this.runAutosave()
-    }, this.autosaveDebounceMs)
+    this.autosaveTimer = setTimeout(
+      wrap(() => {
+        this.autosaveTimer = null
+        void this.runAutosave()
+      }),
+      this.autosaveDebounceMs,
+    )
   }
 
   private async runAutosave(): Promise<void> {

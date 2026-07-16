@@ -3,8 +3,9 @@ import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
 import {i18n} from '@project/passmanager/i18n'
 import type {Algorithm, Encoding, OTPOptions, OTPType} from '@project/passmanager/types'
-import {CVDisclosure, type CVDisclosureEventDetail} from '@chromvoid/uikit/components/cv-disclosure'
 import type {CVInputInputEvent} from '@chromvoid/uikit/components/cv-input'
+import {CVRadio} from '@chromvoid/uikit/components/cv-radio'
+import {CVRadioGroup, type CVRadioGroupChangeEvent} from '@chromvoid/uikit/components/cv-radio-group'
 import type {CVSelectChangeEvent} from '@chromvoid/uikit/components/cv-select'
 import {
   PM_ENTRY_OTP_ALGORITHMS,
@@ -29,7 +30,8 @@ export class PMEntryOTPCreate extends ReatomLitElement {
     if (!customElements.get('pm-entry-otp-create')) {
       customElements.define('pm-entry-otp-create', this)
     }
-    CVDisclosure.define()
+    CVRadio.define()
+    CVRadioGroup.define()
   }
 
   static styles = pmEntryOtpCreateStyles
@@ -45,6 +47,13 @@ export class PMEntryOTPCreate extends ReatomLitElement {
 
   getFormData(): OTPOptions {
     return this.model.getFormData()
+  }
+
+  focusFirstInvalid(): void {
+    const input = this.shadowRoot?.querySelector<HTMLElement>('.secret-input')
+    const nativeInput = input?.shadowRoot?.querySelector<HTMLInputElement>('input')
+    const focusTarget = nativeInput ?? input
+    focusTarget?.focus()
   }
 
   onSubmit(e: Event) {
@@ -85,6 +94,12 @@ export class PMEntryOTPCreate extends ReatomLitElement {
     this.model.actions.setDigits(e.detail.value)
   }
 
+  private onDigitsRadioChange(e: CVRadioGroupChangeEvent) {
+    if (e.detail.value) {
+      this.model.actions.setDigits(Number(e.detail.value))
+    }
+  }
+
   private onCounterInput(e: PMEntryOtpNumberChangeEvent) {
     this.model.actions.setCounter(e.detail.value)
   }
@@ -117,8 +132,36 @@ export class PMEntryOTPCreate extends ReatomLitElement {
     }
   }
 
-  private onAdvancedChange(e: CustomEvent<CVDisclosureEventDetail>) {
-    this.model.actions.setAdvancedOpen(e.detail.open)
+  private onRadioPresetChange(e: CVRadioGroupChangeEvent) {
+    if (e.detail.value) {
+      this.model.actions.setPreset(e.detail.value as PMEntryOtpPreset)
+    }
+  }
+
+  private onRadioOtpTypeChange(e: CVRadioGroupChangeEvent) {
+    if (e.detail.value) {
+      this.model.actions.setOtpType(e.detail.value as OTPType)
+    }
+  }
+
+  private onRadioAlgorithmChange(e: CVRadioGroupChangeEvent) {
+    if (e.detail.value) {
+      this.model.actions.setAlgorithm(e.detail.value as Algorithm)
+    }
+  }
+
+  private onRadioEncodingChange(e: CVRadioGroupChangeEvent) {
+    if (e.detail.value) {
+      this.model.actions.setEncoding(e.detail.value as Encoding)
+    }
+  }
+
+  private onAdvancedClick() {
+    this.model.actions.openAdvanced()
+  }
+
+  private onAdvancedBack() {
+    this.model.actions.closeAdvanced()
   }
 
   private onQrScanClick() {
@@ -154,7 +197,7 @@ export class PMEntryOTPCreate extends ReatomLitElement {
                     ?disabled=${qrScannerScanning}
                     @click=${this.onQrScanClick}
                   >
-                    <cv-icon name="qr-code-scan" aria-hidden="true"></cv-icon>
+                    <cv-icon name="qr-code" aria-hidden="true"></cv-icon>
                     <span>${qrScannerScanning ? i18n('otp:qr:scanning') : i18n('otp:qr:scan')}</span>
                   </button>
                 `
@@ -208,8 +251,10 @@ export class PMEntryOTPCreate extends ReatomLitElement {
 
   private renderCardLayout() {
     const {state} = this.model
-    const isCustom = state.preset() === 'custom'
-    const isHOTP = state.otpType() === 'HOTP'
+    if (state.view() === 'advanced') {
+      return this.renderAdvancedLayout()
+    }
+
     const secretValidation = state.secretValidation()
     const preview = state.preview()
     const canScanQr = state.qrScannerAvailable()
@@ -228,7 +273,7 @@ export class PMEntryOTPCreate extends ReatomLitElement {
                 @click=${this.onQrScanClick}
               >
                 <span class="qr-hero-icon" aria-hidden="true">
-                  <cv-icon name="qr-code-scan"></cv-icon>
+                  <cv-icon name="qr-code"></cv-icon>
                 </span>
                 <span class="qr-hero-copy">
                   <span class="qr-hero-title">
@@ -294,30 +339,51 @@ export class PMEntryOTPCreate extends ReatomLitElement {
 
         ${preview ? this.renderPreview(preview) : nothing}
 
-        <cv-disclosure
-          class="otp-advanced"
-          ?open=${state.advancedOpen()}
-          @cv-change=${this.onAdvancedChange}
+        <button
+          class="otp-advanced-link"
+          type="button"
+          aria-label=${i18n('otp:advanced')}
+          @click=${this.onAdvancedClick}
         >
-          <span slot="trigger" class="otp-advanced-trigger">
+          <span class="otp-advanced-icon" aria-hidden="true">
             <cv-icon name="gear" aria-hidden="true"></cv-icon>
-            <span>${i18n('otp:advanced')}</span>
           </span>
-          <div class="otp-advanced-body">
-            ${this.renderOtpTypeField(state.otpType())}
-            ${this.renderPresetField(state.preset())}
-            ${isHOTP ? this.renderCounterField(state.counter(), state.counterError()) : nothing}
-            ${isCustom
-              ? html`
-                  ${!isHOTP ? this.renderPeriodField(state.period(), state.periodError()) : nothing}
-                  ${this.renderDigitsField(state.digits(), state.digitsError())}
-                  ${this.renderAlgorithmField(state.algorithm())}
-                  ${this.renderEncodingField(state.encoding())}
-                `
-              : nothing}
-          </div>
-        </cv-disclosure>
+          <span class="otp-advanced-copy">
+            <strong>${i18n('otp:advanced')}</strong>
+            <span>${i18n('otp:preset:helper')}</span>
+          </span>
+          <cv-icon class="otp-advanced-chevron" name="chevron-right" aria-hidden="true"></cv-icon>
+        </button>
+      </div>
+    `
+  }
 
+  private renderAdvancedLayout(): TemplateResult {
+    const {state} = this.model
+    const isCustom = state.preset() === 'custom'
+    const isHOTP = state.otpType() === 'HOTP'
+
+    return html`
+      <div class="otp-create otp-create-card otp-advanced-screen" data-layout="card" data-view="advanced">
+        <button class="otp-advanced-back" type="button" @click=${this.onAdvancedBack}>
+          <cv-icon name="chevron-left" aria-hidden="true"></cv-icon>
+          <span>${i18n('button:back')}</span>
+        </button>
+
+        ${this.renderOtpTypeRadioField(state.otpType())} ${this.renderPresetRadioField(state.preset())}
+        ${isHOTP ? this.renderAdvancedCounterField(state.counter(), state.counterError()) : nothing}
+        ${isCustom
+          ? html`
+              <div class="custom-controls">
+                ${!isHOTP
+                  ? this.renderAdvancedPeriodField(state.period(), state.periodError())
+                  : nothing}
+                ${this.renderDigitsRadioField(state.digits())}
+                ${this.renderAlgorithmRadioField(state.algorithm())}
+                ${this.renderEncodingRadioField(state.encoding())}
+              </div>
+            `
+          : nothing}
       </div>
     `
   }
@@ -395,6 +461,43 @@ export class PMEntryOTPCreate extends ReatomLitElement {
     `
   }
 
+  private renderOtpTypeRadioField(value: OTPType): TemplateResult {
+    return html`
+      <section class="radio-field" aria-labelledby="otp-type-heading">
+        <h4 id="otp-type-heading">${i18n('otp:type')}</h4>
+        <cv-radio-group
+          .value=${value}
+          orientation="vertical"
+          aria-label=${i18n('otp:type')}
+          @cv-change=${this.onRadioOtpTypeChange}
+        >
+          <cv-radio value="TOTP" aria-label=${i18n('otp:type:totp')}> ${i18n('otp:type:totp')} </cv-radio>
+          <cv-radio value="HOTP" aria-label=${i18n('otp:type:hotp')}> ${i18n('otp:type:hotp')} </cv-radio>
+        </cv-radio-group>
+      </section>
+    `
+  }
+
+  private renderPresetRadioField(value: PMEntryOtpPreset): TemplateResult {
+    return html`
+      <section class="radio-field" aria-labelledby="otp-preset-heading">
+        <h4 id="otp-preset-heading">${i18n('otp:preset')}</h4>
+        <cv-radio-group
+          .value=${value}
+          orientation="vertical"
+          aria-label=${i18n('otp:preset')}
+          @cv-change=${this.onRadioPresetChange}
+        >
+          <cv-radio value="googleAuth" aria-label=${i18n('otp:googleauth')}>
+            ${i18n('otp:googleauth')}
+          </cv-radio>
+          <cv-radio value="custom" aria-label=${i18n('otp:custom')}> ${i18n('otp:custom')} </cv-radio>
+        </cv-radio-group>
+        <div class="otp-helper">${i18n('otp:preset:helper')}</div>
+      </section>
+    `
+  }
+
   private renderCounterField(value: number, error: string): TemplateResult {
     return html`
       <cv-field ?invalid=${Boolean(error)}>
@@ -407,6 +510,30 @@ export class PMEntryOTPCreate extends ReatomLitElement {
           ?invalid=${Boolean(error)}
           @cv-change=${this.onCounterInput}
         ></cv-number>
+        ${error ? html`<div slot="error">${error}</div>` : nothing}
+      </cv-field>
+    `
+  }
+
+  private renderAdvancedCounterField(value: number, error: string): TemplateResult {
+    return html`
+      <cv-field ?invalid=${Boolean(error)}>
+        <h4 slot="label">${i18n('otp:counter')}</h4>
+        <cv-number
+          class="advanced-number"
+          .value=${value}
+          placeholder=${i18n('otp:counter:placeholder')}
+          size="large"
+          variant="filled"
+          min="0"
+          step="1"
+          large-step="10"
+          stepper
+          ?invalid=${Boolean(error)}
+          @cv-change=${this.onCounterInput}
+        >
+          <span slot="prefix" aria-hidden="true">#</span>
+        </cv-number>
         ${error ? html`<div slot="error">${error}</div>` : nothing}
       </cv-field>
     `
@@ -425,6 +552,31 @@ export class PMEntryOTPCreate extends ReatomLitElement {
           ?invalid=${Boolean(error)}
           @cv-change=${this.onPeriodInput}
         ></cv-number>
+        ${error ? html`<div slot="error">${error}</div>` : nothing}
+      </cv-field>
+    `
+  }
+
+  private renderAdvancedPeriodField(value: number, error: string): TemplateResult {
+    return html`
+      <cv-field ?invalid=${Boolean(error)}>
+        <h4 slot="label">${i18n('otp:period')}</h4>
+        <cv-number
+          class="advanced-number"
+          .value=${value}
+          placeholder=${i18n('otp:period.placeholder')}
+          size="large"
+          variant="filled"
+          min="10"
+          max="120"
+          step="5"
+          large-step="30"
+          stepper
+          ?invalid=${Boolean(error)}
+          @cv-change=${this.onPeriodInput}
+        >
+          <span slot="suffix">${i18n('otp:period:unit' as never)}</span>
+        </cv-number>
         ${error ? html`<div slot="error">${error}</div>` : nothing}
       </cv-field>
     `
@@ -481,6 +633,63 @@ export class PMEntryOTPCreate extends ReatomLitElement {
           )}
         </cv-select>
       </div>
+    `
+  }
+
+  private renderAlgorithmRadioField(value: Algorithm): TemplateResult {
+    return html`
+      <section class="radio-field" aria-labelledby="otp-algorithm-heading">
+        <h4 id="otp-algorithm-heading">${i18n('algorithm')}</h4>
+        <div class="radio-scroll">
+          <cv-radio-group
+            .value=${value}
+            orientation="horizontal"
+            aria-label=${i18n('algorithm')}
+            @cv-change=${this.onRadioAlgorithmChange}
+          >
+            ${PM_ENTRY_OTP_ALGORITHMS.map(
+              (item) => html`<cv-radio value=${item} aria-label=${item}>${item}</cv-radio>`,
+            )}
+          </cv-radio-group>
+        </div>
+      </section>
+    `
+  }
+
+  private renderEncodingRadioField(value: Encoding): TemplateResult {
+    return html`
+      <section class="radio-field radio-field-grid" aria-labelledby="otp-encoding-heading">
+        <h4 id="otp-encoding-heading">${i18n('encoding')}</h4>
+        <cv-radio-group
+          .value=${value}
+          orientation="vertical"
+          aria-label=${i18n('encoding')}
+          @cv-change=${this.onRadioEncodingChange}
+        >
+          ${PM_ENTRY_OTP_ENCODINGS.map(
+            (item) => html`<cv-radio value=${item} aria-label=${item}>${item}</cv-radio>`,
+          )}
+        </cv-radio-group>
+      </section>
+    `
+  }
+
+  private renderDigitsRadioField(value: number): TemplateResult {
+    return html`
+      <section class="radio-field" aria-labelledby="otp-digits-heading">
+        <h4 id="otp-digits-heading">${i18n('otp:digits')}</h4>
+        <div class="radio-scroll">
+          <cv-radio-group
+            .value=${String(value)}
+            orientation="horizontal"
+            aria-label=${i18n('otp:digits')}
+            @cv-change=${this.onDigitsRadioChange}
+          >
+            <cv-radio value="6" aria-label="6">6</cv-radio>
+            <cv-radio value="8" aria-label="8">8</cv-radio>
+          </cv-radio-group>
+        </div>
+      </section>
     `
   }
 }

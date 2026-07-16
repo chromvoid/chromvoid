@@ -1,12 +1,12 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use super::super::*;
 
 fn take_open_file_for_release(
-    open_files: &Mutex<HashMap<u64, OpenFileState>>,
+    open_files: &Mutex<HashMap<u64, Arc<Mutex<OpenFileState>>>>,
     fh: u64,
-) -> Result<Option<OpenFileState>, i32> {
+) -> Result<Option<Arc<Mutex<OpenFileState>>>, i32> {
     let mut map = open_files.lock().map_err(|_| libc::EIO)?;
     Ok(map.remove(&fh))
 }
@@ -35,22 +35,29 @@ pub(in crate::volume_fuse::imp) fn handle_flush(
 ) {
     trace!(target: "chromvoid_lib::volume_fuse::imp", ino, fh, "FUSE flush");
 
-    let mut map = match fs.open_files.lock() {
-        Ok(m) => m,
+    let handle = match fs.open_file_handle(fh) {
+        Ok(handle) => handle,
         Err(_) => {
             reply.error(fuse_errno(libc::EIO));
             return;
         }
     };
-    let Some(st) = map.get_mut(&fh) else {
+    let Some(handle) = handle else {
         reply.ok();
         return;
+    };
+    let mut st = match handle.lock() {
+        Ok(st) => st,
+        Err(_) => {
+            reply.error(fuse_errno(libc::EIO));
+            return;
+        }
     };
     if st.ino != ino {
         reply.error(fuse_errno(libc::EIO));
         return;
     }
-    match fs.flush_open_file(ino, st) {
+    match fs.flush_open_file(ino, &mut st) {
         Ok(()) => reply.ok(),
         Err(e) => reply.error(fuse_errno(e)),
     }
@@ -80,7 +87,7 @@ pub(in crate::volume_fuse::imp) fn handle_release(
 ) {
     trace!(target: "chromvoid_lib::volume_fuse::imp", ino, fh, "FUSE release");
 
-    let mut st = match take_open_file_for_release(&fs.open_files, fh) {
+    let st = match take_open_file_for_release(&fs.open_files, fh) {
         Ok(st) => st,
         Err(errno) => {
             reply.error(fuse_errno(errno));
@@ -89,10 +96,17 @@ pub(in crate::volume_fuse::imp) fn handle_release(
     };
 
     let mut flush_err: Option<i32> = None;
-    if let Some(ref mut st) = st {
-        match validate_release_inode(st, ino, fh) {
+    if let Some(st) = st {
+        let mut st = match st.lock() {
+            Ok(st) => st,
+            Err(_) => {
+                reply.error(fuse_errno(libc::EIO));
+                return;
+            }
+        };
+        match validate_release_inode(&st, ino, fh) {
             Ok(()) => {
-                if let Err(e) = fs.flush_open_file(ino, st) {
+                if let Err(e) = fs.flush_open_file(ino, &mut st) {
                     warn!(
                         "FUSE: flush on release failed ino={} fh={} err={}",
                         ino, fh, e
@@ -108,6 +122,9 @@ pub(in crate::volume_fuse::imp) fn handle_release(
         // If flush failed, keep the temp file for debugging / recovery.
         if flush_err.is_none() {
             let _ = std::fs::remove_file(&st.tmp_path);
+        }
+        if st.writeable {
+            fs.release_write_lease(st.node_id, fh);
         }
     }
 
@@ -130,12 +147,14 @@ mod tests {
             tmp_path: PathBuf::from("/tmp/chromvoid-release-test"),
             writeable: false,
             dirty: false,
+            dirty_ranges: Vec::new(),
+            source_revision: 0,
             read_stream: None,
             read_pos: 0,
         }
     }
 
-    fn poisoned_open_files() -> Mutex<HashMap<u64, OpenFileState>> {
+    fn poisoned_open_files() -> Mutex<HashMap<u64, Arc<Mutex<OpenFileState>>>> {
         let map = Mutex::new(HashMap::new());
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _guard = map.lock().expect("open files lock");
@@ -146,13 +165,16 @@ mod tests {
 
     #[test]
     fn take_open_file_for_release_removes_handle() {
-        let open_files = Mutex::new(HashMap::from([(9, open_file_state(2))]));
+        let open_files = Mutex::new(HashMap::from([(
+            9,
+            Arc::new(Mutex::new(open_file_state(2))),
+        )]));
 
         let state = take_open_file_for_release(&open_files, 9)
             .expect("open file lookup")
             .expect("open file state");
 
-        assert_eq!(state.ino, 2);
+        assert_eq!(state.lock().expect("state lock").ino, 2);
         assert!(take_open_file_for_release(&open_files, 9)
             .expect("second open file lookup")
             .is_none());

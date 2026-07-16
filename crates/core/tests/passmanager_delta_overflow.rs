@@ -9,6 +9,7 @@ use chromvoid_core::crypto::{
     shard_chunk_name, StoragePepper,
 };
 use chromvoid_core::rpc::commands::set_bypass_system_shard_guards;
+use chromvoid_core::rpc::types::RpcRequest;
 use chromvoid_core::rpc::RpcRouter;
 use chromvoid_core::storage::Storage;
 use std::collections::BTreeSet;
@@ -89,6 +90,80 @@ fn write_inconsistent_passmanager_fixture(
     }
 }
 
+fn write_overlong_lazy_work_fixture(storage: &Storage, vault_key: &[u8; 32], delta_count: u64) {
+    let shard_id = "Work";
+    let mut index = RootIndex::new();
+    index.root_version = delta_count;
+
+    let mut meta = ShardMeta::new(shard_id, LoadStrategy::Lazy);
+    meta.version = delta_count;
+    meta.base_version = 0;
+    meta.has_deltas = true;
+    meta.delta_count = delta_count as u32;
+    meta.last_delta_seq = delta_count;
+    index.shards.insert(shard_id.to_string(), meta);
+
+    let root_name = root_index_chunk_name(vault_key, 0);
+    let root_plain = serde_json::to_vec(&index).expect("root index serialize");
+    write_encrypted_chunk(storage, vault_key, &root_name, &root_plain);
+
+    let mut work = CatalogNode::new_dir(10, shard_id.to_string());
+    work.add_child(CatalogNode::new_dir(11, "Projects".to_string()));
+    let shard = Shard {
+        v: 2,
+        shard_id: shard_id.to_string(),
+        version: 0,
+        base_version: 0,
+        root: work,
+    };
+    let snap_name = shard_chunk_name(vault_key, shard_id, 0);
+    let snap_plain = serde_json::to_vec(&shard).expect("shard serialize");
+    write_encrypted_chunk(storage, vault_key, &snap_name, &snap_plain);
+
+    for seq in 1..=delta_count {
+        let delta = DeltaEntry::update(seq, "/", PartialNode::default()).with_node_id(10);
+        let delta_name = delta_chunk_name(vault_key, shard_id, seq);
+        let delta_plain = serde_json::to_vec(&delta).expect("delta serialize");
+        write_encrypted_chunk(storage, vault_key, &delta_name, &delta_plain);
+    }
+}
+
+fn repair_diagnose(
+    router: &mut RpcRouter,
+    password: &str,
+) -> chromvoid_core::rpc::types::RpcResponse {
+    router.handle(&RpcRequest::new(
+        "vault:repair:diagnose",
+        serde_json::json!({"password": password}),
+    ))
+}
+
+fn repair_apply(
+    router: &mut RpcRouter,
+    password: &str,
+    repair_id: &str,
+    allow_lossy: bool,
+) -> chromvoid_core::rpc::types::RpcResponse {
+    router.handle(&RpcRequest::new(
+        "vault:repair:apply",
+        serde_json::json!({
+            "password": password,
+            "repair_id": repair_id,
+            "allow_lossy": allow_lossy,
+        }),
+    ))
+}
+
+fn repair_id(response: &chromvoid_core::rpc::types::RpcResponse) -> String {
+    response
+        .result()
+        .expect("repair response result")
+        .get("repair_id")
+        .and_then(|value| value.as_str())
+        .expect("repair id")
+        .to_string()
+}
+
 #[test]
 fn test_unlock_errors_when_passmanager_deltas_exceed_limit_without_writing() {
     let (_router, temp_dir, keystore) = create_test_router_with_keystore();
@@ -113,12 +188,12 @@ fn test_unlock_errors_when_passmanager_deltas_exceed_limit_without_writing() {
 
     let mut router = RpcRouter::new(storage.clone()).with_keystore(keystore);
     let unlock = unlock_vault(&mut router, password);
-    assert_rpc_error(&unlock, "INTERNAL_ERROR");
+    assert_rpc_error(&unlock, "CATALOG_REPAIR_REQUIRED");
     assert!(
         unlock
             .error_message()
             .unwrap_or_default()
-            .contains("shard delta log exceeds MAX_DELTAS"),
+            .contains("Catalog repair required"),
         "unexpected unlock error: {unlock:?}"
     );
 
@@ -152,7 +227,7 @@ fn test_overflow_unlock_does_not_fall_back_to_legacy_catalog_or_enable_mutation(
 
     let mut router = RpcRouter::new(storage.clone()).with_keystore(keystore);
     let unlock = unlock_vault(&mut router, password);
-    assert_rpc_error(&unlock, "INTERNAL_ERROR");
+    assert_rpc_error(&unlock, "CATALOG_REPAIR_REQUIRED");
     assert!(
         router.session().is_none(),
         "failed overflow unlock must not leave a mutable session"
@@ -164,6 +239,116 @@ fn test_overflow_unlock_does_not_fall_back_to_legacy_catalog_or_enable_mutation(
         .into_iter()
         .collect::<BTreeSet<_>>();
     assert_eq!(after, before, "failed unlock must leave storage unchanged");
+}
+
+#[test]
+fn test_lazy_user_shard_overflow_repairs_via_repair_rpc_and_unlocks() {
+    let (_router, temp_dir, keystore) = create_test_router_with_keystore();
+    drop(_router);
+
+    let password = "test_password";
+    let delta_count: u64 = (MAX_DELTAS as u64) + 16;
+
+    let storage = Storage::new(temp_dir.path()).expect("storage");
+    let vault_salt = storage.get_or_create_salt().expect("vault salt");
+    let pepper = StoragePepper::get_or_create(keystore.as_ref()).expect("pepper");
+    let vault_key = derive_vault_key_v2(password, &vault_salt, &pepper).expect("derive v2 key");
+
+    write_overlong_lazy_work_fixture(&storage, &*vault_key, delta_count);
+    let before_unlock = storage
+        .list_chunks()
+        .expect("list chunks before unlock")
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+
+    let mut router = RpcRouter::new(storage.clone()).with_keystore(keystore);
+    let unlock = unlock_vault(&mut router, password);
+    assert_rpc_error(&unlock, "CATALOG_REPAIR_REQUIRED");
+    assert!(router.session().is_none());
+    let after_unlock = storage
+        .list_chunks()
+        .expect("list chunks after failed unlock")
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        after_unlock, before_unlock,
+        "repair-required unlock must be read-only"
+    );
+
+    let diagnosis = repair_diagnose(&mut router, password);
+    assert_rpc_ok(&diagnosis);
+    let diagnosis_result = diagnosis.result().expect("diagnosis result");
+    assert_eq!(
+        diagnosis_result
+            .get("status")
+            .and_then(|value| value.as_str()),
+        Some("lossless_required")
+    );
+    assert_eq!(
+        diagnosis_result
+            .get("lossy_requires_confirm")
+            .and_then(|value| value.as_bool()),
+        Some(false)
+    );
+    let repair_id = repair_id(&diagnosis);
+
+    let applied = repair_apply(&mut router, password, &repair_id, false);
+    assert_rpc_ok(&applied);
+    assert!(
+        router.session().is_some(),
+        "repair apply should open the session"
+    );
+    assert_eq!(
+        applied
+            .result()
+            .and_then(|result| result.get("repair"))
+            .and_then(|repair| repair.get("status"))
+            .and_then(|value| value.as_str()),
+        Some("lossless_repaired")
+    );
+
+    let index = read_root_index(&storage, &*vault_key);
+    let work = index.get_shard("Work").expect("Work shard meta");
+    assert!(!work.has_deltas);
+    assert_eq!(work.delta_count, 0);
+    assert!(
+        work.root_summary
+            .as_ref()
+            .map(|summary| summary.has_children)
+            .unwrap_or(false),
+        "repair compaction must publish root summary for lazy unlock"
+    );
+
+    let manifest = sync_init(&mut router);
+    assert_rpc_ok(&manifest);
+    let has_work_summary = manifest
+        .result()
+        .and_then(|result| result.get("root_summaries"))
+        .and_then(|value| value.as_array())
+        .expect("root summaries")
+        .iter()
+        .any(|summary| {
+            summary.get("n").and_then(|value| value.as_str()) == Some("Work")
+                && summary.get("h").and_then(|value| value.as_bool()) == Some(true)
+        });
+    assert!(
+        has_work_summary,
+        "manifest should include Work root summary"
+    );
+
+    let loaded = router.handle(&RpcRequest::new(
+        "catalog:shard:load",
+        serde_json::json!({"shard_id": "Work"}),
+    ));
+    assert_rpc_ok(&loaded);
+    assert_eq!(
+        loaded
+            .result()
+            .and_then(|result| result.get("root"))
+            .and_then(|root| root.get("n"))
+            .and_then(|value| value.as_str()),
+        Some("Work")
+    );
 }
 
 #[test]
@@ -249,5 +434,42 @@ fn test_auto_compacts_passmanager_when_delta_chain_reaches_threshold() {
     assert!(
         !storage.chunk_exists(&delta1).expect("chunk_exists"),
         "expected delta chunks to be removed after auto-compaction"
+    );
+}
+
+#[test]
+fn test_auto_compacts_lazy_user_shard_when_delta_chain_reaches_threshold() {
+    let (mut router, temp_dir, keystore) = create_test_router_with_keystore();
+    let password = "test_password";
+    assert_rpc_ok(&unlock_vault(&mut router, password));
+
+    assert_rpc_ok(&create_dir(&mut router, "Work"));
+    let n = (MAX_DELTAS as usize) + 10;
+    for i in 0..n {
+        let name = format!("task_{i}");
+        assert_rpc_ok(&create_dir_at(&mut router, "/Work", &name));
+    }
+    router.save().expect("save");
+
+    let storage = Storage::new(temp_dir.path()).expect("storage");
+    let vault_salt = storage.get_or_create_salt().expect("vault salt");
+    let pepper = StoragePepper::get_or_create(keystore.as_ref()).expect("pepper");
+    let vault_key = derive_vault_key_v2(password, &vault_salt, &pepper).expect("derive v2 key");
+
+    let index = read_root_index(&storage, &*vault_key);
+    let work = index.get_shard("Work").expect("Work shard meta");
+    assert!(
+        work.delta_count < MAX_DELTAS,
+        "expected auto-compaction to keep Work delta chain bounded, got delta_count={}",
+        work.delta_count
+    );
+    assert_eq!(
+        work.has_deltas,
+        work.delta_count > 0,
+        "has_deltas must match remaining post-compaction deltas"
+    );
+    assert!(
+        work.root_summary.is_some(),
+        "lazy user shard must publish root summary after save"
     );
 }

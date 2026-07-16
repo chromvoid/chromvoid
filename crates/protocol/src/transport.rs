@@ -38,6 +38,7 @@ impl fmt::Display for TransportType {
 pub enum TransportError {
     Closed,
     Timeout,
+    RecordLayerInvalidLength(String),
     Io(String),
 }
 
@@ -46,6 +47,9 @@ impl fmt::Display for TransportError {
         match self {
             Self::Closed => write!(f, "transport closed"),
             Self::Timeout => write!(f, "transport timeout"),
+            Self::RecordLayerInvalidLength(msg) => {
+                write!(f, "record layer invalid length: {}", msg)
+            }
             Self::Io(msg) => write!(f, "transport I/O error: {}", msg),
         }
     }

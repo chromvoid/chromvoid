@@ -1,20 +1,26 @@
 @import '../../../packages/uikit/src/theme/tokens.css';
 
-:root {
-  --cv-radius-sm: 10px;
-  --cv-radius-md: 13px;
-}
-
 html,
 body {
   padding: 0;
   margin: 0;
-  width: 430px;
-  min-height: 380px;
+  width: 420px;
+  height: min(560px, 100vh);
+  min-height: min(360px, 100vh);
+  max-height: 560px;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
-    'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji',
+    'Segoe UI Emoji', 'Segoe UI Symbol';
   overflow: hidden;
+  color: var(--cv-color-text);
+  background: var(--cv-color-bg);
+}
+
+app-root {
+  display: block;
+  width: 100%;
+  height: 100%;
 }

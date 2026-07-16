@@ -1,7 +1,7 @@
 import {nothing} from 'lit'
 import {html} from '@chromvoid/uikit/reatom-lit'
 
-import {Entry} from '@project/passmanager/core'
+import type {Entry} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
 
 import type {PMEntryEditData} from '../entry-edit.model'
@@ -122,6 +122,7 @@ export function renderHeaderIdentity(context: PMEntryMobileRenderContext) {
           ? html`
               <cv-input
                 class="inline-field-input entry-title-input"
+                dir="auto"
                 name="inline-title"
                 data-inline-field="title"
                 .value=${model.inlineTitle()}
@@ -143,7 +144,7 @@ export function renderHeaderIdentity(context: PMEntryMobileRenderContext) {
               @pointercancel=${data.canEditFields ? ui.handleTitleEntryTapCancel : undefined}
               @dblclick=${data.canEditFields ? ui.handleTitleEntryDoubleTap : undefined}
             >
-              <h1 class="entry-title">${data.title}</h1>
+              <h1 class="entry-title"><bdi dir="auto">${data.title}</bdi></h1>
             </div>
           `}
         <div class="entry-header-aside">${renderHeaderBadges(data)}</div>

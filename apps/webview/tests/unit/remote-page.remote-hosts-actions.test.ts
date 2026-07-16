@@ -18,9 +18,12 @@ describe('RemotePage remote hosts side effects', () => {
 
   it('keeps pair and back navigation side effects after the renderer contract shrink', async () => {
     const model = new RemotePageModel() as any
+    const view = atom<'hosts' | 'pair-ios' | 'wait' | 'usb-mobile'>('pair-ios')
     model.remoteHosts = {
+      view,
       openPairIos: vi.fn(),
       closePairIos: vi.fn().mockResolvedValue(undefined),
+      closeUsbMobile: vi.fn().mockResolvedValue(undefined),
     }
 
     const navigateSpy = vi.spyOn(navigationModel, 'navigateToRemotePanel').mockImplementation(() => {})

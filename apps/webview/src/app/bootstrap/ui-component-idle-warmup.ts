@@ -11,7 +11,7 @@ import {scheduleAfterFirstPaintIdle} from './idle-scheduler'
 
 const WARMUP_IDLE_TIMEOUT_MS = 1_500
 
-const COMMON_SURFACE_ORDER: SurfaceId[] = ['files', 'notes', 'passwords', 'passkeys', 'settings']
+const COMMON_SURFACE_ORDER: SurfaceId[] = ['files', 'notes', 'passwords', 'passkeys', 'wallet', 'settings']
 const GATED_SURFACE_ORDER: SurfaceId[] = ['remote', 'gateway', 'remote-storage']
 
 type WarmupScheduler = typeof scheduleAfterFirstPaintIdle

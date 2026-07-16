@@ -5,9 +5,12 @@ import os from 'node:os'
 import path from 'node:path'
 import {spawnSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
+import {loadWalletEnvFromRoot} from './wallet-env.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.resolve(scriptDir, '..')
+const repoRoot = path.resolve(appRoot, '..', '..')
+loadWalletEnvFromRoot(repoRoot)
 const forwardedArgs = process.argv.slice(2)
 const licensePublicKeyEnv = 'CHROMVOID_LICENSE_PUBLIC_KEY_ED25519_2026_01'
 const licensePublicKeyFiles = [

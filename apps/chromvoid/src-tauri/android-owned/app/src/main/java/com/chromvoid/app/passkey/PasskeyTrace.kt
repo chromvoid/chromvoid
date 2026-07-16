@@ -15,7 +15,7 @@ internal object PasskeyTrace {
     }
 
     fun diagnostic(name: String, vararg fields: Pair<String, Any?>) {
-        log(name = name, fields = fields, logcat = true, force = true)
+        log(name = name, fields = fields, logcat = true)
     }
 
     fun file(name: String, vararg fields: Pair<String, Any?>) {
@@ -26,12 +26,7 @@ internal object PasskeyTrace {
         name: String,
         fields: Array<out Pair<String, Any?>>,
         logcat: Boolean,
-        force: Boolean = false,
     ) {
-        if (!BuildConfig.DEBUG && !force) {
-            return
-        }
-
         val suffix =
             fields.joinToString(" ") { (key, value) ->
                 "$key=${value?.toString()?.replace('\n', ' ') ?: "null"}"
@@ -43,7 +38,7 @@ internal object PasskeyTrace {
                 "event=$name $suffix"
             }
 
-        if (logcat) {
+        if (BuildConfig.DEBUG && logcat) {
             Log.w(TAG, message)
         }
         appendToTraceFile(message)

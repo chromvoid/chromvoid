@@ -6,6 +6,7 @@ export const SURFACE_IDS = [
   'notes',
   'passwords',
   'passkeys',
+  'wallet',
   'settings',
   'remote',
   'gateway',
@@ -24,6 +25,18 @@ export type PassmanagerRoute =
   | {kind: 'create-group'; targetGroupPath?: string}
   | {kind: 'import'}
   | {kind: 'otp-view'}
+  | {kind: 'ssh-view'}
+  | {kind: 'env-runtime-view'}
+
+export type SettingsRoute =
+  | {kind: 'overview'}
+  | {kind: 'security'}
+  | {kind: 'autofill'}
+  | {kind: 'files'}
+  | {kind: 'passwords'}
+  | {kind: 'license'}
+  | {kind: 'vault-rekey'}
+  | {kind: 'password-import'}
 
 export type OverlayRoute =
   | {kind: 'none'}
@@ -34,14 +47,17 @@ export type OverlayRoute =
   | {kind: 'audio'; fileId: number}
 
 export type FilesDocumentOriginSurface = Extract<SurfaceId, 'files' | 'notes'>
+export type MarkdownDocumentViewMode = 'preview' | 'edit'
 
 export type MarkdownDocumentRouteSource = {
   path: string
+  parentPath?: string
   fileName: string
   size?: number
   mimeType?: string
   lastModified?: number
   sourceRevision?: number
+  anchor?: string
 }
 
 export type FilesDocumentRoute = {
@@ -49,6 +65,7 @@ export type FilesDocumentRoute = {
   fileId: number
   originSurface?: FilesDocumentOriginSurface
   source?: MarkdownDocumentRouteSource
+  viewMode?: MarkdownDocumentViewMode
 }
 
 export type ResolvedGalleryImage = {
@@ -107,22 +124,38 @@ export type ResolvedFilesDocumentState =
       kind: 'markdown'
       fileId: number
       fileName: string
+      path?: string
+      parentPath?: string
       size?: number
       mimeType?: string
       lastModified?: number
       sourceRevision?: number
+      anchor?: string
       mode: 'markdown'
+      viewMode?: MarkdownDocumentViewMode
     }
 
 export type NavigationSnapshot = {
   surface: SurfaceId
   files?: {path: string; document?: FilesDocumentRoute}
   passwords?: PassmanagerRoute
+  settings?: SettingsRoute
   remote?: {panel: RemotePanel}
   overlay?: OverlayRoute
 }
 
 export type HistoryMode = 'push' | 'replace' | 'none'
+
+export type NavigationApplyContext = {
+  historyDelta?: number
+  motion?: 'auto' | 'none'
+}
+
+export type NavigationApplyResult = {
+  accepted: boolean
+  committed: Promise<void>
+  synchronous: boolean
+}
 
 export type NavigationIntentKind =
   | 'close-overlay'

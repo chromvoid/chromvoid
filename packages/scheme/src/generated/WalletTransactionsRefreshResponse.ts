@@ -5,6 +5,6 @@ export type WalletTransactionsRefreshResponse = {
   tx_ref: string
   network: WalletNetwork
   status: string
-  tx_hash: string
+  tx_hash: string | null
   updated_at: number
 }

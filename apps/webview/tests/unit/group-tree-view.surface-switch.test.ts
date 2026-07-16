@@ -203,9 +203,11 @@ describe('group-tree-view surface remount', () => {
       customElements.define('pm-group', class extends HTMLElement {})
     }
     const read = vi.fn(async () => makePayload())
-    PasswordManagerElement.define({
+    const managerSaver = {
       read,
-    } as any)
+    } as any
+    PasswordManagerElement.define(managerSaver)
+    await pmModel.prepareSession('surface-switch-test')
     TestSurfaceSwitchHost.define()
 
     const host = document.createElement('test-surface-switch-host') as TestSurfaceSwitchHost & {
@@ -260,7 +262,7 @@ describe('group-tree-view surface remount', () => {
     await waitForPassmanagerLoad()
     await settleElement(tree!)
 
-    expect(read).toHaveBeenCalledTimes(2)
+    expect(read).toHaveBeenCalledTimes(1)
     expect(window.passmanager?.entriesList().length).toBeGreaterThan(0)
     expect(pmGroupTreeModel.tree().groups.map((group) => group.path)).toEqual(['Work'])
     expect(

@@ -2,8 +2,10 @@ use base64::{engine::general_purpose, Engine as _};
 use zeroize::Zeroizing;
 
 use crate::rpc::router::credential_matching::CredentialProviderCandidate;
-use crate::rpc::router::otp_sidecar::{generate_otp, OtpGenerateRequest};
-use crate::rpc::router::passmanager::otp::generate_by_id_lookup;
+use crate::rpc::router::otp_sidecar::{generate_otp, generate_otp_with_timing, OtpGenerateRequest};
+use crate::rpc::router::passmanager::otp::{
+    generate_by_id_lookup, generate_by_id_lookup_with_timing,
+};
 use crate::rpc::router::passmanager::otp_target::PassmanagerOtpTargetRequest;
 
 use super::super::credential_types::{
@@ -13,8 +15,9 @@ use super::super::credential_types::{
 use super::super::state::RpcRouter;
 use super::error::CredentialProviderCommandError;
 use super::request::{
-    CredentialProviderListRequest, CredentialProviderRecordUseRequest,
-    CredentialProviderSearchRequest, CredentialProviderSecretRequest,
+    CredentialProviderListRequest, CredentialProviderOneTimeCodeRequest,
+    CredentialProviderRecordUseRequest, CredentialProviderSearchRequest,
+    CredentialProviderSecretRequest,
 };
 
 pub(in crate::rpc::router) struct CredentialProviderOpenSessionResult {
@@ -32,6 +35,13 @@ pub(in crate::rpc::router) struct CredentialProviderSecretResult {
     pub(in crate::rpc::router) username: String,
     pub(in crate::rpc::router) password: Option<String>,
     pub(in crate::rpc::router) otp: Option<String>,
+}
+
+pub(in crate::rpc::router) struct CredentialProviderOneTimeCodeResult {
+    pub(in crate::rpc::router) credential_id: String,
+    pub(in crate::rpc::router) otp_id: String,
+    pub(in crate::rpc::router) code: String,
+    pub(in crate::rpc::router) valid_until_ms: u64,
 }
 
 impl RpcRouter {
@@ -209,13 +219,17 @@ impl RpcRouter {
         };
 
         let password = match entry.password_node_id {
-            Some(node_id) => self
-                .read_file_plain(session.vault_key(), node_id)
-                .ok()
-                .map(|bytes| {
+            Some(node_id) => match self.read_file_plain(session.vault_key(), node_id).ok() {
+                Some(bytes) => {
                     let bytes = Zeroizing::new(bytes);
-                    String::from_utf8_lossy(bytes.as_slice()).to_string()
-                }),
+                    Some(
+                        std::str::from_utf8(bytes.as_slice())
+                            .map_err(|_| CredentialProviderCommandError::invalid_secret_encoding())?
+                            .to_string(),
+                    )
+                }
+                None => None,
+            },
             None => None,
         };
 
@@ -232,6 +246,98 @@ impl RpcRouter {
             username: entry.username,
             password,
             otp,
+        })
+    }
+
+    pub(in crate::rpc::router::credential_provider) fn credential_provider_get_one_time_code_service(
+        &mut self,
+        request: CredentialProviderOneTimeCodeRequest<'_>,
+        context: ProviderContext,
+    ) -> Result<CredentialProviderOneTimeCodeResult, CredentialProviderCommandError> {
+        self.credential_provider_validate_session_typed(request.provider_session, false)?;
+        self.credential_provider_require_allowlisted_typed(request.credential_id)?;
+
+        let entries = self.credential_provider_collect_entries()?;
+        let entry = self.credential_provider_find_context_entry(
+            entries,
+            request.credential_id,
+            Some(&context),
+        )?;
+        let option = entry
+            .otp_options
+            .iter()
+            .find(|option| option.id == request.otp_id)
+            .ok_or_else(CredentialProviderCommandError::no_otp_match)?;
+        if option.otp_type.as_deref() == Some("HOTP") {
+            return Err(CredentialProviderCommandError::hotp_one_time_code_unsupported());
+        }
+
+        self.credential_provider_validate_session_typed(request.provider_session, true)?;
+        let Some(session) = self.session.as_ref() else {
+            return Err(CredentialProviderCommandError::vault_required());
+        };
+
+        let now_seconds = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or(0);
+        let generated = match &option.resolution {
+            CredentialProviderOtpResolution::ById(otp_id) => generate_by_id_lookup_with_timing(
+                session,
+                &self.storage,
+                &self.passmanager_otp_target_cache,
+                PassmanagerOtpTargetRequest {
+                    otp_id: Some(otp_id.as_str()),
+                    entry_id: Some(entry.entry_id.as_str()),
+                    fallback_label: None,
+                },
+                Some(now_seconds),
+                None,
+            )
+            .map_err(CredentialProviderCommandError::from)?,
+            CredentialProviderOtpResolution::ByLabel(label) => generate_otp_with_timing(
+                session,
+                &self.storage,
+                OtpGenerateRequest {
+                    node_id: entry.entry_node_id,
+                    label: Some(label.as_str()),
+                    ts: Some(now_seconds),
+                    counter: None,
+                },
+            )
+            .map_err(CredentialProviderCommandError::from)?,
+            CredentialProviderOtpResolution::FirstAvailable => generate_otp_with_timing(
+                session,
+                &self.storage,
+                OtpGenerateRequest {
+                    node_id: entry.entry_node_id,
+                    label: None,
+                    ts: Some(now_seconds),
+                    counter: None,
+                },
+            )
+            .map_err(CredentialProviderCommandError::from)?,
+        };
+        let period = u64::from(generated.period);
+        let valid_until_ms = now_seconds
+            .checked_div(period)
+            .and_then(|window| window.checked_add(1))
+            .and_then(|window| window.checked_mul(period))
+            .and_then(|boundary| boundary.checked_mul(1_000))
+            .ok_or_else(|| {
+                CredentialProviderCommandError::internal("OTP validity timestamp overflow")
+            })?;
+
+        let now_ms = Self::credential_provider_now_ms();
+        self.credential_provider_runtime
+            .record_last_used(request.credential_id, now_ms);
+        self.credential_provider_allow(request.credential_id);
+
+        Ok(CredentialProviderOneTimeCodeResult {
+            credential_id: request.credential_id.to_string(),
+            otp_id: request.otp_id.to_string(),
+            code: generated.otp,
+            valid_until_ms,
         })
     }
 
@@ -328,6 +434,7 @@ impl RpcRouter {
                     fallback_label: None,
                 },
                 None,
+                None,
             )
             .map(|response| response.otp)
             .map_err(CredentialProviderCommandError::from),
@@ -338,6 +445,7 @@ impl RpcRouter {
                     node_id: entry.entry_node_id,
                     label: Some(label.as_str()),
                     ts: None,
+                    counter: None,
                 },
             )
             .map(|response| response.otp)
@@ -349,6 +457,7 @@ impl RpcRouter {
                     node_id: entry.entry_node_id,
                     label: None,
                     ts: None,
+                    counter: None,
                 },
             )
             .map(|response| response.otp)

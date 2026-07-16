@@ -13,7 +13,6 @@ describe('RemoteStorageModel mobile toolbar state', () => {
       title: 'Storage',
       canGoBack: false,
       backDisabled: false,
-      showCommand: true,
     })
 
     remoteStorageModel.transferStep.set('confirm')
@@ -21,7 +20,6 @@ describe('RemoteStorageModel mobile toolbar state', () => {
       title: 'Confirm Export',
       canGoBack: true,
       backDisabled: false,
-      showCommand: false,
     })
 
     remoteStorageModel.transferStep.set('password')
@@ -29,7 +27,6 @@ describe('RemoteStorageModel mobile toolbar state', () => {
       title: 'Authorization',
       canGoBack: true,
       backDisabled: false,
-      showCommand: false,
     })
 
     remoteStorageModel.transferStep.set('progress')
@@ -37,7 +34,6 @@ describe('RemoteStorageModel mobile toolbar state', () => {
       title: 'Export in Progress',
       canGoBack: true,
       backDisabled: true,
-      showCommand: false,
     })
 
     remoteStorageModel.transferStep.set('result')

@@ -5,7 +5,10 @@ use crate::error::ErrorCode;
 use crate::license::LicenseStore;
 use crate::storage::Storage;
 use crate::vault::VaultSession;
-use crate::wallet::{WalletProvider, WalletRuntimeConfig};
+use crate::wallet::{
+    NoopWalletTelemetrySink, WalletChainProfile, WalletChainRegistry, WalletRuntimeConfig,
+    WalletTelemetrySink,
+};
 use std::sync::{Arc, Mutex};
 use zeroize::Zeroize;
 
@@ -13,14 +16,43 @@ use super::super::derivative_index::DerivativeIndexState;
 use super::credential_provider::runtime::CredentialProviderRuntime;
 use super::events::RouterEventQueue;
 use super::passmanager::otp_target::PassmanagerOtpTargetCache;
+use super::reauth::ReauthLimiter;
 use super::session_lifecycle::{LongRunningSessionTtls, LongRunningSessions};
 use super::storage_gc::StorageGcScanRegistry;
-use crate::rpc::types::RpcResponse;
+use crate::rpc::types::{RpcResponse, WalletSpendAuthorizationScope};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub(super) struct EraseTokenState {
     pub(super) token: String,
     pub(super) expires_at: std::time::SystemTime,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct WalletSpendAuthorizationWindow {
+    pub(super) scope: WalletSpendAuthorizationScope,
+    pub(super) expires_at: u64,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct WalletMnemonicDraft {
+    pub(super) wallet_mode: String,
+    pub(super) mnemonic_standard: String,
+    pub(super) wordlist: String,
+    pub(super) mnemonic: Vec<String>,
+    pub(super) expires_at: u64,
+}
+
+impl Drop for WalletMnemonicDraft {
+    fn drop(&mut self) {
+        self.mnemonic.zeroize();
+    }
+}
+
+#[derive(Debug, Default)]
+pub(super) struct WalletAuthRuntime {
+    pub(super) reauth_limiter: ReauthLimiter,
+    pub(super) spend_authorizations: HashMap<String, WalletSpendAuthorizationWindow>,
 }
 
 /// RPC Router state
@@ -45,7 +77,12 @@ pub struct RpcRouter {
     pub(super) credential_provider_runtime: CredentialProviderRuntime,
 
     pub(super) wallet_runtime_config: WalletRuntimeConfig,
-    pub(super) wallet_provider: Option<Arc<dyn WalletProvider>>,
+    pub(super) wallet_chain_registry: WalletChainRegistry,
+    pub(super) wallet_telemetry_sink: Arc<dyn WalletTelemetrySink>,
+    pub(super) wallet_auth_runtime: WalletAuthRuntime,
+    pub(super) wallet_mnemonic_drafts: HashMap<String, WalletMnemonicDraft>,
+
+    pub(super) env_runtime_reauth_limiter: ReauthLimiter,
 
     pub(super) passmanager_otp_target_cache: Mutex<PassmanagerOtpTargetCache>,
 
@@ -68,7 +105,11 @@ impl RpcRouter {
             event_queue: RouterEventQueue::default(),
             credential_provider_runtime: CredentialProviderRuntime::default(),
             wallet_runtime_config: WalletRuntimeConfig::default(),
-            wallet_provider: None,
+            wallet_chain_registry: WalletChainRegistry::default(),
+            wallet_telemetry_sink: Arc::new(NoopWalletTelemetrySink),
+            wallet_auth_runtime: WalletAuthRuntime::default(),
+            wallet_mnemonic_drafts: HashMap::new(),
+            env_runtime_reauth_limiter: ReauthLimiter::default(),
             passmanager_otp_target_cache: Mutex::new(PassmanagerOtpTargetCache::default()),
             derivative_index_state: Arc::new(DerivativeIndexState::default()),
             storage_gc_scan_registry: StorageGcScanRegistry::default(),
@@ -123,9 +164,37 @@ impl RpcRouter {
         self
     }
 
-    pub fn with_wallet_provider(mut self, provider: Arc<dyn WalletProvider>) -> Self {
-        self.wallet_provider = Some(provider);
+    pub fn with_wallet_chain_profile(mut self, profile: Arc<dyn WalletChainProfile>) -> Self {
+        self.wallet_chain_registry.register(profile);
         self
+    }
+
+    pub fn with_wallet_telemetry_sink(mut self, sink: Arc<dyn WalletTelemetrySink>) -> Self {
+        self.wallet_telemetry_sink = sink;
+        self
+    }
+
+    pub(super) fn core_capability_features(&self) -> Vec<String> {
+        let mut features = crate::rpc::types::core_capability_features();
+        if self.wallet_runtime_config.wallet_enabled {
+            features.push(crate::rpc::types::CORE_FEATURE_WALLET_DOMAIN_BASE_V1.to_string());
+        }
+        if self
+            .wallet_chain_registry
+            .has_enabled_profile("bitcoin", &self.wallet_runtime_config)
+            && self
+                .wallet_chain_registry
+                .has_enabled_profile("ethereum", &self.wallet_runtime_config)
+        {
+            features.push(crate::rpc::types::CORE_FEATURE_WALLET_CORE_BTC_ETH_V1.to_string());
+        }
+        if self
+            .wallet_chain_registry
+            .has_enabled_profile("ton", &self.wallet_runtime_config)
+        {
+            features.push(crate::rpc::types::CORE_FEATURE_WALLET_CORE_TON_V1.to_string());
+        }
+        features
     }
 
     pub fn set_master_key(&mut self, master_key: Option<String>) {

@@ -28,33 +28,41 @@ function createStore() {
   return store
 }
 
-describe('Store vault lock toast notifications', () => {
+describe('Store vault lock cleanup notifications', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     navigationModel.disconnect()
     clearAppContext()
   })
 
-  it('shows manual vault lock as a transient success toast', () => {
+  it('clears unlocked UI state without queuing a duplicate manual-lock toast', () => {
     const store = createStore()
     const successSpy = vi.spyOn(toast, 'success').mockImplementation(() => 'toast-manual')
     const warningSpy = vi.spyOn(toast, 'warning').mockImplementation(() => 'toast-warning')
+    store.currentPath.set('/Secrets/')
+    store.selectedNodeIds.set([1, 2])
+    store.showSettingsPage.set(true)
 
-    store.handleVaultLocked({source: 'manual'})
+    store.handleVaultLocked()
 
-    expect(successSpy).toHaveBeenCalledWith('Vault locked')
+    expect(store.currentPath()).toBe('/')
+    expect(store.selectedNodeIds()).toEqual([])
+    expect(store.showSettingsPage()).toBe(false)
+    expect(successSpy).not.toHaveBeenCalled()
     expect(warningSpy).not.toHaveBeenCalled()
     expect(store.statusMessage()).toBeNull()
   })
 
-  it('shows system vault lock as a transient warning toast with reason', () => {
+  it('finishes a pending lock request without creating stale notification state', () => {
     const store = createStore()
     const successSpy = vi.spyOn(toast, 'success').mockImplementation(() => 'toast-manual')
     const warningSpy = vi.spyOn(toast, 'warning').mockImplementation(() => 'toast-system')
+    store.beginVaultLockRequest()
 
-    store.handleVaultLocked({reason: 'mobile background', source: 'system'})
+    store.handleVaultLocked()
 
-    expect(warningSpy).toHaveBeenCalledWith('Vault locked (mobile background)')
+    expect(store.vaultLockPending()).toBe(false)
+    expect(warningSpy).not.toHaveBeenCalled()
     expect(successSpy).not.toHaveBeenCalled()
     expect(store.statusMessage()).toBeNull()
   })

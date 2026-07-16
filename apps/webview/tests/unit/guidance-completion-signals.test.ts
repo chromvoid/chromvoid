@@ -34,6 +34,7 @@ import {WelcomeSharedModel, WelcomeToolsModel} from '../../src/routes/welcome/we
 import {dialogService} from '../../src/shared/services/dialog-service'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
+import {createDefaultFileSearchFilters} from '../../src/features/file-manager/models/file-search-filters.model'
 
 const PRODUCT_STATE_KEYS = [
   'vault.created',
@@ -170,6 +171,8 @@ function initGuidanceTestContext(): void {
       store: {
         pushNotification: vi.fn(),
         remoteSessionState: atom<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive'),
+        currentPath: atom('/'),
+        searchFilters: atom(createDefaultFileSearchFilters()),
       } as never,
       state: {
         data: () => ({

@@ -21,7 +21,7 @@ pub struct Identity {
     pub key_blob: Vec<u8>,
     pub comment: String,
     pub fingerprint: String,
-    pub entry_id: String,
+    pub key_id: String,
 }
 
 pub type PrivateKeyPem = Zeroizing<String>;
@@ -30,6 +30,13 @@ pub type ReadPrivateKeyFn = dyn Fn(&str) -> ReadPrivateKeyFuture + Send + Sync;
 
 pub trait ApprovalEventEmitter: Send + Sync {
     fn emit_sign_request(&self, payload: &SignApprovalEventPayload) -> Result<(), String>;
+
+    fn emit_sign_request_expired(
+        &self,
+        _payload: &SignApprovalExpiredEventPayload,
+    ) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 pub type ApprovalEmitterHandle = Arc<dyn ApprovalEventEmitter>;
@@ -129,6 +136,19 @@ impl<R: tauri::Runtime> ApprovalEventEmitter for TauriApprovalEventEmitter<R> {
             .emit("ssh-agent:sign-request", payload)
             .map_err(|error| error.to_string())
     }
+
+    fn emit_sign_request_expired(
+        &self,
+        payload: &SignApprovalExpiredEventPayload,
+    ) -> Result<(), String> {
+        let Some(main_window) = self.app_handle.get_webview_window("main") else {
+            return Err("main window missing".to_string());
+        };
+
+        main_window
+            .emit("ssh-agent:sign-request-expired", payload)
+            .map_err(|error| error.to_string())
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -140,6 +160,42 @@ pub struct SignApprovalEventPayload {
     pub peer_pid: Option<u32>,
     pub peer_process: Option<String>,
     pub host_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SignApprovalExpiredEventPayload {
+    pub request_id: String,
+    pub connection_id: u64,
+    pub fingerprint: String,
+    pub comment: String,
+    pub reason: String,
+}
+
+impl SignApprovalExpiredEventPayload {
+    pub fn from_context(context: &PendingApprovalContext, reason: impl Into<String>) -> Self {
+        Self {
+            request_id: context.request_id.clone(),
+            connection_id: context.connection_id,
+            fingerprint: context.fingerprint.clone(),
+            comment: context.comment.clone(),
+            reason: reason.into(),
+        }
+    }
+}
+
+pub fn emit_sign_request_expired(
+    emitter: &ApprovalEmitterHandle,
+    context: &PendingApprovalContext,
+    reason: impl Into<String>,
+) {
+    let reason = reason.into();
+    let payload = SignApprovalExpiredEventPayload::from_context(context, reason.as_str());
+    if let Err(error) = emitter.emit_sign_request_expired(&payload) {
+        tracing::warn!(
+            "ssh-agent: failed to emit expired approval event for request_id={}: {error}",
+            context.request_id
+        );
+    }
 }
 
 #[cfg(test)]

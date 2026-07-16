@@ -1,10 +1,10 @@
 import {css, nothing, type TemplateResult} from 'lit'
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {CVDisclosure, type CVDisclosureEventDetail} from '@chromvoid/uikit/components/cv-disclosure'
+import {CVField} from '@chromvoid/uikit/components/cv-field'
 import {CVInput, type CVInputInputEvent} from '@chromvoid/uikit/components/cv-input'
-import {CVSelect, type CVSelectChangeEvent} from '@chromvoid/uikit/components/cv-select'
-import {CVSelectOption} from '@chromvoid/uikit/components/cv-select-option'
+import {CVRadio} from '@chromvoid/uikit/components/cv-radio'
+import {CVRadioGroup, type CVRadioGroupChangeEvent} from '@chromvoid/uikit/components/cv-radio-group'
 import {i18n} from '@project/passmanager/i18n'
 import type {SshKeyType} from '@project/passmanager/types'
 
@@ -29,196 +29,113 @@ export class PMEntrySshCreate extends ReatomLitElement {
 
     .ssh-create {
       display: grid;
-      gap: 1rem;
+      gap: var(--cv-space-4);
     }
 
     cv-input,
-    cv-select {
+    cv-radio-group {
       inline-size: 100%;
     }
 
-    cv-input::part(base),
-    cv-select::part(trigger) {
+    cv-input::part(base) {
       border-color: var(--cv-color-border);
-      background: var(--cv-color-surface-2);
-    }
-
-    cv-input[focused]::part(base),
-    cv-select:focus-within::part(trigger) {
-      border-color: var(--cv-color-primary);
-      box-shadow: 0 0 0 3px var(--cv-color-primary-ring);
-    }
-
-    cv-input::part(form-control-label),
-    .select-label {
-      margin: 0;
-      padding: 0 0 0.375rem;
-      color: var(--cv-color-text-muted);
-      font-size: 0.875rem;
-      font-weight: var(--cv-font-weight-medium);
-      letter-spacing: 0;
-      line-height: 1.2;
-      text-transform: none;
-    }
-
-    .ssh-key-hero {
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      align-items: center;
-      gap: 0.875rem;
-      inline-size: 100%;
-      min-block-size: 5.75rem;
-      padding: 1rem;
-      border: 1px solid var(--cv-color-primary-border-strong);
-      border-radius: var(--cv-radius-3);
-      background: var(--cv-color-surface-2);
-      color: var(--cv-color-text);
-      text-align: start;
-      cursor: pointer;
-      transition:
-        border-color 160ms var(--cv-easing-standard),
-        background 160ms var(--cv-easing-standard),
-        box-shadow 160ms var(--cv-easing-standard);
-    }
-
-    .ssh-key-hero:hover {
-      border-color: var(--cv-color-primary);
-      background: var(--cv-color-primary-surface);
-    }
-
-    .ssh-key-hero:focus-visible {
-      outline: 2px solid var(--cv-color-primary);
-      outline-offset: 2px;
-    }
-
-    .ssh-key-hero-icon {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      inline-size: 3rem;
-      block-size: 3rem;
-      border: 1px solid var(--cv-color-primary-border);
       border-radius: var(--cv-radius-2);
-      background: var(--cv-color-primary-surface);
-      color: var(--cv-color-primary);
+      background: var(--cv-color-surface);
+      min-block-size: 48px;
+      padding-inline: var(--cv-space-4);
     }
 
-    .ssh-key-hero-icon cv-icon {
-      inline-size: 1.5rem;
-      block-size: 1.5rem;
+    cv-input[focused]::part(base) {
+      border-color: var(--cv-color-primary);
+      box-shadow: 0 0 0 2px var(--cv-color-primary-ring);
     }
 
-    .ssh-key-hero-copy {
+    .ssh-key-type-label {
+      margin: 0;
+      padding: 0;
+      color: var(--cv-color-text-muted);
+      font-size: var(--cv-font-size-sm);
+      font-weight: var(--cv-font-weight-medium);
+      line-height: 1.3;
+    }
+
+    .ssh-key-type {
       display: grid;
-      gap: 0.25rem;
+      gap: var(--cv-space-2);
       min-inline-size: 0;
     }
 
-    .ssh-key-hero-title-row {
+    .ssh-key-type-options {
+      display: block;
+      inline-size: 100%;
+      --cv-radio-group-gap: 2px;
+    }
+
+    .ssh-key-type-options::part(base) {
+      padding: 2px;
+      border-color: var(--cv-color-border);
+      border-radius: var(--cv-radius-2);
+      background: var(--cv-color-surface);
+    }
+
+    .ssh-key-type-option::part(base) {
+      justify-content: center;
+      inline-size: 100%;
+      min-block-size: 42px;
+      padding-inline: var(--cv-space-2);
+      border-radius: calc(var(--cv-radius-2) - 2px);
+    }
+
+    .ssh-key-type-option::part(label) {
+      font-size: var(--cv-font-size-sm);
+      font-weight: var(--cv-font-weight-semibold);
+      line-height: 1;
+    }
+
+    .ssh-key-type-meta {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: var(--cv-space-2);
       min-inline-size: 0;
-      flex-wrap: wrap;
     }
 
-    .ssh-key-hero-title {
-      color: var(--cv-color-text-strongest);
-      font-size: 1rem;
-      font-weight: var(--cv-font-weight-bold);
-      line-height: 1.2;
-    }
-
-    .ssh-key-hero-badge {
+    .ssh-key-type-badge {
       display: inline-flex;
       align-items: center;
-      min-block-size: 1.375rem;
-      padding: 0 0.5rem;
+      flex: 0 0 auto;
+      min-block-size: 18px;
+      padding-inline: var(--cv-space-1);
       border: 1px solid var(--cv-color-primary-border);
-      border-radius: var(--cv-radius-pill);
-      color: var(--cv-color-primary);
+      border-radius: var(--cv-radius-1);
       background: var(--cv-color-primary-surface);
-      font-size: 0.75rem;
+      color: var(--cv-color-primary);
+      font-size: var(--cv-font-size-xs);
       font-weight: var(--cv-font-weight-medium);
       line-height: 1;
     }
 
-    .ssh-key-hero-text,
     .ssh-helper {
       color: var(--cv-color-text-muted);
-      font-size: 0.8125rem;
-      line-height: 1.35;
-    }
-
-    .ssh-key-hero-chevron {
-      inline-size: 1rem;
-      block-size: 1rem;
-      color: var(--cv-color-text-muted);
-    }
-
-    .ssh-field {
-      display: grid;
-      gap: 0.375rem;
+      font-size: var(--cv-font-size-xs);
+      line-height: 1.4;
     }
 
     .ssh-error {
       color: var(--cv-color-danger);
     }
 
-    .ssh-advanced {
-      display: block;
-      margin-block-start: 0.125rem;
-    }
-
-    .ssh-advanced::part(trigger) {
-      min-block-size: 2.625rem;
-      padding-inline: 0.875rem;
-      border-color: var(--cv-color-border);
-      border-radius: 0.875rem;
-      background: var(--cv-color-surface-2);
-      color: var(--cv-color-text);
-      font-size: 0.9375rem;
-      font-weight: var(--cv-font-weight-semibold);
-    }
-
-    .ssh-advanced-trigger {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.625rem;
-      min-inline-size: 0;
-    }
-
-    .ssh-advanced-trigger cv-icon {
-      inline-size: 1.125rem;
-      block-size: 1.125rem;
-      color: var(--cv-color-text-muted);
-    }
-
-    .ssh-advanced::part(panel) {
-      margin-block-start: 0.5rem;
-      padding: 0;
-      border: 0;
-      background: transparent;
-    }
-
-    .ssh-advanced-body {
-      display: grid;
-      gap: 0.875rem;
-      padding: 0.25rem 0;
-    }
-
     .ssh-result {
       display: grid;
-      gap: 1rem;
+      gap: var(--cv-space-3);
     }
 
     .ssh-result-card {
       display: grid;
       grid-template-columns: auto minmax(0, 1fr);
-      gap: 0.875rem;
+      gap: var(--cv-space-3);
       align-items: center;
-      min-block-size: 5.75rem;
-      padding: 0.875rem;
+      min-block-size: 80px;
+      padding: var(--cv-space-3);
       border: 1px solid var(--cv-color-success-border);
       border-radius: var(--cv-radius-3);
       background: var(--cv-color-success-surface);
@@ -228,8 +145,8 @@ export class PMEntrySshCreate extends ReatomLitElement {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      inline-size: 3rem;
-      block-size: 3rem;
+      inline-size: 44px;
+      block-size: 44px;
       border: 1px solid var(--cv-color-success-border);
       border-radius: var(--cv-radius-2);
       color: var(--cv-color-success);
@@ -237,22 +154,22 @@ export class PMEntrySshCreate extends ReatomLitElement {
     }
 
     .ssh-result-icon cv-icon {
-      inline-size: 1.5rem;
-      block-size: 1.5rem;
+      inline-size: 22px;
+      block-size: 22px;
     }
 
     .ssh-result-content {
       display: grid;
-      gap: 0.25rem;
+      gap: var(--cv-space-1);
       min-inline-size: 0;
     }
 
     .ssh-result-name {
       overflow: hidden;
       color: var(--cv-color-text);
-      font-size: 1rem;
-      font-weight: var(--cv-font-weight-bold);
-      line-height: 1.2;
+      font-size: var(--cv-font-size-base);
+      font-weight: var(--cv-font-weight-semibold);
+      line-height: 1.25;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
@@ -260,25 +177,25 @@ export class PMEntrySshCreate extends ReatomLitElement {
     .ssh-result-meta {
       overflow: hidden;
       color: var(--cv-color-text-muted);
-      font-size: 0.8125rem;
-      line-height: 1.35;
+      font-size: var(--cv-font-size-sm);
+      line-height: 1.4;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
     .ssh-public-field {
       display: grid;
-      gap: 0.5rem;
-      padding: 0.875rem;
+      gap: var(--cv-space-2);
+      padding: var(--cv-space-3);
       border: 1px solid var(--cv-color-border);
-      border-radius: var(--cv-radius-3);
-      background: var(--cv-color-surface-2);
+      border-radius: var(--cv-radius-2);
+      background: var(--cv-color-surface);
     }
 
     .ssh-public-label {
       margin: 0;
       color: var(--cv-color-text-muted);
-      font-size: 0.875rem;
+      font-size: var(--cv-font-size-sm);
       font-weight: var(--cv-font-weight-medium);
       line-height: 1.2;
     }
@@ -288,12 +205,36 @@ export class PMEntrySshCreate extends ReatomLitElement {
       overflow: hidden;
       color: var(--cv-color-text);
       font-family: var(--cv-font-family-code);
-      font-size: 0.8125rem;
+      font-size: var(--cv-font-size-sm);
       line-height: 1.45;
       overflow-wrap: anywhere;
       -webkit-line-clamp: 3;
       -webkit-box-orient: vertical;
     }
+
+    :host([layout='card']) .ssh-create {
+      gap: var(--cv-space-2);
+    }
+
+    :host([layout='card']) .ssh-result-card {
+      min-block-size: 72px;
+    }
+
+    :host([layout='card']) .ssh-result-icon {
+      inline-size: 40px;
+      block-size: 40px;
+    }
+
+    :host([layout='card']) .ssh-result-icon cv-icon {
+      inline-size: 20px;
+      block-size: 20px;
+    }
+
+    :host([layout='card']) cv-input::part(base),
+    :host([layout='card']) .ssh-key-type-option::part(base) {
+      min-block-size: 42px;
+    }
+
   `
 
   declare model: PMEntrySshCreateModel
@@ -306,13 +247,20 @@ export class PMEntrySshCreate extends ReatomLitElement {
   }
 
   static define() {
-    CVDisclosure.define()
+    CVField.define()
     CVInput.define()
-    CVSelect.define()
-    CVSelectOption.define()
+    CVRadio.define()
+    CVRadioGroup.define()
     if (!customElements.get(this.elementName)) {
       customElements.define(this.elementName, this)
     }
+  }
+
+  focusNameInput(): void {
+    const input = this.shadowRoot?.querySelector<HTMLElement>('#ssh-name-input')
+    const nativeInput = input?.shadowRoot?.querySelector<HTMLInputElement>('input')
+    const focusTarget = nativeInput ?? input
+    focusTarget?.focus()
   }
 
   private onNameInput(event: CVInputInputEvent) {
@@ -323,18 +271,10 @@ export class PMEntrySshCreate extends ReatomLitElement {
     this.model.actions.setComment(event.detail.value ?? '')
   }
 
-  private onAdvancedChange(event: CustomEvent<CVDisclosureEventDetail>) {
-    this.model.actions.setAdvancedOpen(event.detail.open)
-  }
-
-  private onKeyTypeChange(event: CVSelectChangeEvent) {
+  private onKeyTypeChange(event: CVRadioGroupChangeEvent) {
     const value = event.detail.value
-    if (!value) return
+    if (!value || !SSH_KEY_TYPES.includes(value as SshKeyType)) return
     this.model.actions.setKeyType(value as SshKeyType)
-  }
-
-  private onKeyHeroClick() {
-    this.model.actions.setAdvancedOpen(true)
   }
 
   protected override render(): TemplateResult {
@@ -350,20 +290,40 @@ export class PMEntrySshCreate extends ReatomLitElement {
   }
 
   private renderSetup(): TemplateResult {
+    const keyType = this.model.state.keyType()
+
     return html`
-      <button class="ssh-key-hero" type="button" @click=${this.onKeyHeroClick}>
-        <span class="ssh-key-hero-icon" aria-hidden="true">
-          <cv-icon name="key"></cv-icon>
-        </span>
-        <span class="ssh-key-hero-copy">
-          <span class="ssh-key-hero-title-row">
-            <span class="ssh-key-hero-title">${i18n('ssh:key_type:ed25519')}</span>
-            <span class="ssh-key-hero-badge">${i18n('ssh:key_type:recommended')}</span>
-          </span>
-          <span class="ssh-key-hero-text">${i18n('ssh:key_type:ed25519:description')}</span>
-        </span>
-        <cv-icon class="ssh-key-hero-chevron" name="chevron-right" aria-hidden="true"></cv-icon>
-      </button>
+      <div class="ssh-key-type">
+        <p class="ssh-key-type-label">${i18n('ssh:key_type')}</p>
+        <cv-radio-group
+          class="ssh-key-type-options"
+          name="ssh-key-type"
+          variant="segmented"
+          .value=${keyType}
+          aria-label=${i18n('ssh:key_type')}
+          @cv-change=${this.onKeyTypeChange}
+        >
+          ${SSH_KEY_TYPES.map(
+            (type) => html`
+              <cv-radio
+                class="ssh-key-type-option"
+                value=${type}
+                aria-label=${type === 'ed25519'
+                  ? `${this.keyTypeLabel(type)}, ${i18n('ssh:key_type:recommended')}`
+                  : this.keyTypeLabel(type)}
+              >
+                ${this.keyTypeLabel(type)}
+              </cv-radio>
+            `,
+          )}
+        </cv-radio-group>
+        <div class="ssh-key-type-meta">
+          ${keyType === 'ed25519'
+            ? html`<span class="ssh-key-type-badge">${i18n('ssh:key_type:recommended')}</span>`
+            : nothing}
+          <span class="ssh-helper">${this.keyTypeDescription(keyType)}</span>
+        </div>
+      </div>
 
       <cv-field ?invalid=${Boolean(this.model.state.nameError() && !this.model.state.name().trim())}>
         <span slot="label">${i18n('ssh:name')}</span>
@@ -392,37 +352,6 @@ export class PMEntrySshCreate extends ReatomLitElement {
         ></cv-input>
         <div slot="description" class="ssh-helper">${i18n('ssh:comment:helper')}</div>
       </cv-field>
-
-      <cv-disclosure
-        class="ssh-advanced"
-        ?open=${this.model.state.advancedOpen()}
-        @cv-change=${this.onAdvancedChange}
-      >
-        <span slot="trigger" class="ssh-advanced-trigger">
-          <cv-icon name="gear" aria-hidden="true"></cv-icon>
-          <span>${i18n('ssh:advanced')}</span>
-        </span>
-        <div class="ssh-advanced-body">
-          <div class="ssh-field">
-            <p class="select-label">${i18n('ssh:key_type')}</p>
-            <cv-select
-              size="small"
-              .value=${this.model.state.keyType()}
-              aria-label=${i18n('ssh:key_type')}
-              @cv-change=${this.onKeyTypeChange}
-            >
-              ${SSH_KEY_TYPES.map(
-                (type) => html`
-                  <cv-select-option value=${type}>
-                    ${this.keyTypeLabel(type)}
-                  </cv-select-option>
-                `,
-              )}
-            </cv-select>
-            <div class="ssh-helper">${this.keyTypeDescription(this.model.state.keyType())}</div>
-          </div>
-        </div>
-      </cv-disclosure>
     `
   }
 

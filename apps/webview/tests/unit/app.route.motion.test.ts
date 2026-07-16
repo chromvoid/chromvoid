@@ -51,8 +51,9 @@ function setupContext(route: Routes) {
   return {routeAtom}
 }
 
-function renderAppRouteContent(route: Routes): HTMLElement {
+function renderAppRouteContent(route: Routes, surface: 'files' | 'notes' = 'files'): HTMLElement {
   setupContext(route)
+  navigationModel.navigateToSurface(surface, 'replace')
   const app = new ChromVoidApp() as ChromVoidApp & {
     renderContent: () => unknown
   }
@@ -97,6 +98,18 @@ describe('ChromVoidApp route motion contract', () => {
     expect(wrappers).toHaveLength(1)
     expect(wrappers[0]?.getAttribute('data-route')).toBe('biometric-gate')
     expect(host.querySelector('biometric-app-gate')).not.toBeNull()
+  })
+
+  it('omits the global shell status bar on the Files dashboard', () => {
+    const host = renderAppRouteContent('dashboard', 'files')
+
+    expect(host.querySelector('status-bar')).toBeNull()
+  })
+
+  it('keeps the global shell status bar on non-Files dashboard surfaces', () => {
+    const host = renderAppRouteContent('dashboard', 'notes')
+
+    expect(host.querySelector('status-bar')).not.toBeNull()
   })
 
   it('derives P0 route motion intent without reading DOM state', () => {

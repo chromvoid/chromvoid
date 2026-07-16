@@ -2,7 +2,7 @@ import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {cvAnyBottomSheetOpen} from '@chromvoid/uikit/components/cv-bottom-sheet'
 import {CVDrawer, type CVDrawerEventDetail} from '@chromvoid/uikit/components/cv-drawer'
 
-import {css, nothing} from 'lit'
+import {css, nothing, type PropertyValues} from 'lit'
 
 import {tryGetAppContext} from 'root/shared/services/app-context'
 import {mobileKeyboardOccluding} from 'root/app/bootstrap/mobile-keyboard/keyboard-occlusion.model'
@@ -10,8 +10,8 @@ import {MobileBottomActionFooter} from 'root/shared/ui/mobile-bottom-action-foot
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 import {EdgeSwipeBack} from 'root/utils/edge-swipe-back'
 import {SwipeGesture} from 'root/utils/swipe-gestures'
+import {viewTransitionTargets} from 'root/utils/view-transition-targets'
 
-import {CommandBar} from 'root/features/file-manager/components/command-bar'
 import {MediaMiniPlayer} from 'root/features/media/components/media-mini-player'
 import {mediaPlaybackModel} from 'root/features/media/models/media-playback.model'
 import {MobileTabBar} from './mobile-tab-bar'
@@ -23,7 +23,7 @@ export type MobileShellContentScrollMode = 'shell' | 'surface'
  * Mobile layout for file-app-shell.
  *
  * - Always renders `mobile-tab-bar` (no media-query gating)
- * - Always enables swipe gestures (no `isMobileDevice()` check)
+ * - Always enables swipe gestures (no pointer-capability check)
  * - Navigation rail is rendered inside a slide-out drawer
  */
 export class FileAppShellMobileLayout extends ReatomLitElement {
@@ -36,7 +36,6 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
     MobileTabBar.define()
     MobileBottomActionFooter.define()
     MediaMiniPlayer.define()
-    CommandBar.define()
     CVDrawer.define()
     NavigationRailActions.define()
   }
@@ -61,6 +60,7 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
 
   private swipeGesture?: SwipeGesture
   private edgeSwipeBack?: EdgeSwipeBack
+  private unregisterPageTransitionTarget?: () => void
 
   static styles = [
     sharedStyles,
@@ -80,26 +80,13 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
          * the viewport in mobile WebViews.
          */
         contain: style;
-        background: var(--surface-base, var(--cv-color-bg, #000));
-        color: var(--text-primary, var(--cv-color-text, #fff));
+        background: var(--app-editorial-surface-base);
+        color: var(--app-editorial-text-primary);
         height: 100%;
-        --mobile-topbar-block-size: var(--app-mobile-topbar-block-size, 56px);
-        --mobile-tab-bar-block-size: var(--app-mobile-tabbar-block-size, 64px);
-        --mobile-tab-bar-active-block-size: var(
-          --mobile-tab-bar-keyboard-aware-block-size,
-          var(--mobile-tab-bar-block-size)
+        --app-mobile-shell-topbar-block-size: var(--app-mobile-topbar-block-size, 56px);
+        --app-mobile-shell-tab-bar-content-clearance: calc(
+          var(--app-runtime-tab-bar-block-size) + var(--app-runtime-safe-area-block-end-active)
         );
-        /*
-         * chromvoid-app already removes bottom safe-area from the shell height.
-         * Content only needs the tab bar portion that overlaps the shell box.
-         */
-        --mobile-tab-bar-content-clearance: var(--mobile-tab-bar-active-block-size);
-        --mobile-tab-bar-viewport-clearance: calc(
-          var(--mobile-tab-bar-active-block-size) +
-            var(--safe-area-bottom-active, var(--safe-area-bottom, 0px))
-        );
-        --mobile-media-mini-block-size: 78px;
-        --mobile-media-mini-gap: var(--app-spacing-3);
       }
 
       .content::before {
@@ -121,9 +108,8 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
         min-block-size: 0;
         overflow: auto;
         position: relative;
-        padding-block-start: var(--mobile-topbar-block-size);
-        padding-block-end: var(--mobile-tab-bar-content-clearance);
-        view-transition-name: shell-content;
+        padding-block-start: var(--app-mobile-shell-topbar-block-size);
+        padding-block-end: var(--app-mobile-shell-tab-bar-content-clearance);
         contain: style;
       }
 
@@ -147,8 +133,8 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
 
       .content--media-mini {
         padding-block-end: calc(
-          var(--mobile-tab-bar-content-clearance) + var(--mobile-media-mini-block-size) +
-            var(--mobile-media-mini-gap)
+          var(--app-mobile-shell-tab-bar-content-clearance) + var(--media-mini-shell-block-size) +
+            var(--app-spacing-3)
         );
       }
 
@@ -157,16 +143,14 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
       }
 
       .content--no-tabbar.content--media-mini {
-        padding-block-end: calc(var(--mobile-media-mini-block-size) + var(--mobile-media-mini-gap));
+        padding-block-end: calc(var(--media-mini-shell-block-size) + var(--app-spacing-3));
       }
 
       .mobile-media-mini {
         position: fixed;
-        inset-inline: max(var(--app-spacing-3), env(safe-area-inset-left, 0px))
-          max(var(--app-spacing-3), env(safe-area-inset-right, 0px));
-        inset-block-end: calc(
-          var(--mobile-tab-bar-viewport-clearance) + var(--mobile-media-mini-gap)
-        );
+        inset-inline: max(var(--app-spacing-3), var(--app-runtime-safe-area-inline-start, 0px))
+          max(var(--app-spacing-3), var(--app-runtime-safe-area-inline-end, 0px));
+        inset-block-end: calc(var(--app-mobile-shell-tab-bar-content-clearance) + var(--app-spacing-3));
         z-index: calc(var(--cv-z-overlay, 300) - 1);
         pointer-events: none;
       }
@@ -176,7 +160,10 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
       }
 
       .mobile-media-mini--no-tabbar {
-        inset-block-end: calc(var(--safe-area-bottom-active, var(--safe-area-bottom, 0px)) + var(--mobile-media-mini-gap));
+        inset-block-end: calc(
+          var(--app-runtime-safe-area-block-end-active, var(--app-runtime-safe-area-block-end, 0px)) +
+            var(--app-spacing-3)
+        );
       }
 
       .topbar {
@@ -184,7 +171,7 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
         min-inline-size: 0;
         min-block-size: 0;
         position: fixed;
-        inset-block-start: var(--safe-area-top, 0px);
+        inset-block-start: var(--app-runtime-safe-area-block-start, 0px);
         inset-inline: 0;
         /* Keep the toolbar above scrolling content, but below open mobile overlays. */
         z-index: calc(var(--cv-z-overlay, 300) - 1);
@@ -220,10 +207,12 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
         inset-block: 0;
         inset-inline-end: 0;
         inline-size: 100%;
-        background: var(--surface-overlay, #111);
-        border-inline-start: 1px solid var(--border-subtle, var(--cv-alpha-white-6));
+        background: var(--app-editorial-surface-overlay);
+        border-inline-start: 1px solid var(--app-editorial-border-subtle, var(--cv-alpha-white-6));
         box-shadow: var(--cv-shadow-xl, 0 16px 48px var(--cv-alpha-black-65));
-        transform: translateX(100%);
+        transform: translateX(
+          calc(100% * var(--app-runtime-inline-end-direction-sign, 1))
+        );
         opacity: 0;
         pointer-events: none;
         visibility: hidden;
@@ -236,7 +225,6 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
         transition-behavior: allow-discrete;
         z-index: calc(var(--cv-z-overlay, 300) + 1);
         overflow: auto;
-        view-transition-name: details-panel;
       }
 
       :host([data-details-open]) .details {
@@ -253,8 +241,8 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
 
       .mobile-nav-drawer {
         --cv-drawer-z-index: var(--cv-z-overlay, 300);
-        --cv-drawer-size: min(82vw, var(--nav-rail-width-expanded, 240px));
-        --cv-drawer-max-size: min(82vw, var(--nav-rail-width-expanded, 240px));
+        --cv-drawer-size: min(82vw, var(--app-editorial-navigation-rail-inline-size-expanded, 240px));
+        --cv-drawer-max-size: min(82vw, var(--app-editorial-navigation-rail-inline-size-expanded, 240px));
         --cv-drawer-border-radius: 0px;
         --cv-drawer-body-spacing: 0px;
         --cv-drawer-footer-spacing: 0px;
@@ -275,12 +263,12 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
 
       .mobile-nav-drawer::part(panel) {
         border: 0;
-        border-inline-end: 1px solid var(--border-subtle, var(--cv-alpha-white-6));
-        background: var(--surface-base, var(--cv-color-bg, #000));
+        border-inline-end: 1px solid var(--app-editorial-border-subtle, var(--cv-alpha-white-6));
+        background: var(--app-editorial-surface-base);
         box-shadow: var(--cv-shadow-xl, 0 16px 48px var(--cv-alpha-black-65));
-        inset-block-start: var(--safe-area-top, 0px);
+        inset-block-start: var(--app-runtime-safe-area-block-start, 0px);
         inset-block-end: 0;
-        block-size: calc(100dvh - var(--safe-area-top, 0px));
+        block-size: calc(100dvh - var(--app-runtime-safe-area-block-start, 0px));
         grid-template-rows: auto minmax(0, 1fr) auto;
         min-block-size: 0;
         overflow: hidden;
@@ -301,12 +289,12 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
         display: block;
         grid-row: 3;
         min-block-size: 0;
-        background: var(--surface-base, var(--cv-color-bg, #000));
-        padding-block-end: var(--safe-area-bottom-active, var(--safe-area-bottom, 0px));
+        background: var(--app-editorial-surface-base);
+        padding-block-end: var(--app-runtime-safe-area-block-end-active, var(--app-runtime-safe-area-block-end, 0px));
       }
 
       .mobile-nav-rail {
-        --nav-rail-width-expanded: 100%;
+        --app-editorial-navigation-rail-inline-size-expanded: 100%;
         display: block;
         flex: 1 1 auto;
         min-block-size: 0;
@@ -316,7 +304,7 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
       }
 
       .mobile-nav-actions {
-        --nav-rail-width-expanded: 100%;
+        --app-editorial-navigation-rail-inline-size-expanded: 100%;
         display: block;
         inline-size: 100%;
       }
@@ -374,12 +362,24 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
     })
   }
 
+  protected override firstUpdated(changedProperties: PropertyValues): void {
+    super.firstUpdated(changedProperties)
+    this.unregisterPageTransitionTarget = viewTransitionTargets.register('mobile-page', {
+      getElement: () => this.renderRoot.querySelector<HTMLElement>('.content'),
+      settle: async () => {
+        await this.updateComplete
+      },
+    })
+  }
+
   override disconnectedCallback() {
-    super.disconnectedCallback()
+    this.unregisterPageTransitionTarget?.()
+    this.unregisterPageTransitionTarget = undefined
     this.swipeGesture?.destroy()
     this.swipeGesture = undefined
     this.edgeSwipeBack?.destroy()
     this.edgeSwipeBack = undefined
+    super.disconnectedCallback()
   }
 
   /** Mobile layout always enables swipe gestures — no capability check. */
@@ -422,8 +422,6 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
     const hideTabBar = false
 
     return html`
-      <command-bar></command-bar>
-
       <cv-drawer
         class="mobile-nav-drawer"
         placement="start"

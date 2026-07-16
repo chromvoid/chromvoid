@@ -2,10 +2,11 @@ use std::sync::Mutex;
 
 use crate::error::ErrorCode;
 use crate::rpc::router::otp_sidecar::{
-    generate_otp, remove_otp_secret, rename_otp_secret, set_otp_secret, OtpGenerateRequest,
-    OtpRemoveSecretRequest, OtpRenameSecretRequest, OtpSidecarError,
+    generate_otp, generate_otp_with_timing, preview_otp, remove_otp_secret, rename_otp_secret,
+    set_otp_secret, OtpGenerateRequest, OtpRemoveSecretRequest, OtpRenameSecretRequest,
+    OtpSidecarError,
 };
-use crate::rpc::types::OtpGenerateResponse;
+use crate::rpc::types::{OtpGenerateResponse, OtpPreviewResponse};
 use crate::storage::Storage;
 use crate::vault::VaultSession;
 
@@ -46,12 +47,27 @@ pub(super) fn generate(
                 node_id,
                 label: request.target.fallback_label,
                 ts: request.ts,
+                counter: request.counter,
             },
         )
         .map_err(PassmanagerOtpError::from);
     }
 
-    generate_by_id_lookup(session, storage, cache, request.target, request.ts)
+    generate_by_id_lookup(
+        session,
+        storage,
+        cache,
+        request.target,
+        request.ts,
+        request.counter,
+    )
+}
+
+pub(super) fn preview(
+    request: super::request::PassmanagerOtpPreviewRequest<'_>,
+) -> Result<OtpPreviewResponse, PassmanagerOtpError> {
+    let sidecar_request = request.into_sidecar_request()?;
+    preview_otp(sidecar_request).map_err(PassmanagerOtpError::from)
 }
 
 pub(super) fn remove_secret(
@@ -103,9 +119,22 @@ pub(in crate::rpc::router) fn generate_by_id_lookup(
     cache: &Mutex<PassmanagerOtpTargetCache>,
     lookup: PassmanagerOtpTargetRequest<'_>,
     ts: Option<u64>,
+    counter: Option<u64>,
 ) -> Result<OtpGenerateResponse, PassmanagerOtpError> {
+    generate_by_id_lookup_with_timing(session, storage, cache, lookup, ts, counter)
+        .map(|generated| OtpGenerateResponse { otp: generated.otp })
+}
+
+pub(in crate::rpc::router) fn generate_by_id_lookup_with_timing(
+    session: &VaultSession,
+    storage: &Storage,
+    cache: &Mutex<PassmanagerOtpTargetCache>,
+    lookup: PassmanagerOtpTargetRequest<'_>,
+    ts: Option<u64>,
+    counter: Option<u64>,
+) -> Result<OtpPreviewResponse, PassmanagerOtpError> {
     let target = resolve_required_target(session, storage, cache, lookup, false)?;
-    let initial = generate_for_target(session, storage, &target, ts);
+    let initial = generate_for_target_with_timing(session, storage, &target, ts, counter);
     let initial_error = match initial {
         Ok(response) => return Ok(response),
         Err(error) => error,
@@ -123,7 +152,8 @@ pub(in crate::rpc::router) fn generate_by_id_lookup(
         return Err(PassmanagerOtpError::from(initial_error));
     }
 
-    generate_for_target(session, storage, &refreshed, ts).map_err(PassmanagerOtpError::from)
+    generate_for_target_with_timing(session, storage, &refreshed, ts, counter)
+        .map_err(PassmanagerOtpError::from)
 }
 
 fn resolve_required_target(
@@ -148,19 +178,21 @@ fn resolve_target(
         .map_err(PassmanagerOtpError::resolve_failed)
 }
 
-fn generate_for_target(
+fn generate_for_target_with_timing(
     session: &VaultSession,
     storage: &Storage,
     target: &ResolvedOtpTarget,
     ts: Option<u64>,
-) -> Result<OtpGenerateResponse, OtpSidecarError> {
-    generate_otp(
+    counter: Option<u64>,
+) -> Result<OtpPreviewResponse, OtpSidecarError> {
+    generate_otp_with_timing(
         session,
         storage,
         OtpGenerateRequest {
             node_id: target.node_id,
             label: Some(&target.label),
             ts,
+            counter,
         },
     )
 }

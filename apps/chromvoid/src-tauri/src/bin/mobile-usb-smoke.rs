@@ -4,16 +4,16 @@ use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
-use chromvoid_core::rpc::RpcReply;
+use chromvoid_core::rpc::{RpcRangeStreamMeta, RpcReply};
 use chromvoid_lib::mobile_usb::{
-    commit_pairing_with_secret, create_android_aoa_mobile_usb_bridge, ClientKeyRef,
-    JsonMobileUsbPairingStore, KeyringMobileUsbSecretStore, MobileUsbBridge, MobileUsbBridgeKind,
-    MobileUsbError, MobileUsbErrorCode, MobileUsbPairRequest, MobileUsbPairedHostRecord,
-    MobileUsbPairingStore, MobileUsbPlatform, MobileUsbRemoteTransport, MobileUsbScanResult,
-    MobileUsbSecretStore,
+    commit_pairing_with_secret, create_android_aoa_mobile_usb_bridge_for_app_identifier,
+    ClientKeyRef, JsonMobileUsbPairingStore, KeyringMobileUsbSecretStore, MobileUsbBridge,
+    MobileUsbBridgeKind, MobileUsbError, MobileUsbErrorCode, MobileUsbPairRequest,
+    MobileUsbPairedHostRecord, MobileUsbPairingStore, MobileUsbPlatform, MobileUsbRemoteTransport,
+    MobileUsbScanResult, MobileUsbSecretStore,
 };
 use chromvoid_lib::remote_data_plane::{
     handshake_ik_over_transport, handshake_xx_over_transport, spawn_remote_io_task, RemoteIoEvent,
@@ -21,9 +21,13 @@ use chromvoid_lib::remote_data_plane::{
 };
 use chromvoid_lib::RemoteRpcPriority;
 use chromvoid_protocol::{NoiseTransport, RemoteTransport};
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest as _, Sha256};
 use tokio::sync::oneshot;
+
+type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Debug, Clone, Copy)]
 enum Command {
@@ -32,6 +36,7 @@ enum Command {
     Pair,
     Connect,
     RemoteLock,
+    StreamPerf,
 }
 
 #[derive(Debug)]
@@ -45,6 +50,11 @@ struct Args {
     android_package: String,
     skip_android_prepare: bool,
     secret_store: SecretStoreKind,
+    pair_pin: Option<String>,
+    node_id: Option<u64>,
+    source_revision: Option<u64>,
+    range_offset: u64,
+    range_length: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,6 +117,26 @@ struct RemoteLockSummary {
 }
 
 #[derive(Serialize)]
+struct StreamPerfSummary {
+    ok: bool,
+    host_id: String,
+    label: String,
+    bridge_kind: MobileUsbBridgeKind,
+    node_id: u64,
+    expected_source_revision: u64,
+    range_offset: u64,
+    requested_range_length: u64,
+    range_meta: RpcRangeStreamMeta,
+    time_to_stream_meta_ms: u64,
+    time_to_first_body_chunk_ms: Option<u64>,
+    total_transfer_ms: u64,
+    bytes_read: u64,
+    chunks_read: u64,
+    control_latency_ms: u64,
+    vault_status_response: RpcResponse,
+}
+
+#[derive(Serialize)]
 struct PairSummary {
     ok: bool,
     host_id: String,
@@ -116,6 +146,8 @@ struct PairSummary {
     client_pubkey_len: usize,
     android_peer_id: String,
     android_label: String,
+    approval_attempt_id: String,
+    approval_attempts_left: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,6 +156,30 @@ struct PairingHello {
     peer_label: String,
     peer_pubkey_hex: String,
     platform: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct PairingApprovalChallenge {
+    attempt_id: String,
+    salt_hex: String,
+    host_pubkey_hex: String,
+    peer_fingerprint: String,
+    attempts_left: u8,
+    expires_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct PairingApprovalProof {
+    attempt_id: String,
+    proof_hex: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct PairingApprovalAck {
+    attempt_id: String,
+    accepted: bool,
+    error: Option<String>,
+    attempts_left: u8,
 }
 
 #[derive(Clone)]
@@ -139,6 +195,8 @@ struct SmokeSession {
 const CONNECT_IK_HANDSHAKE_ATTEMPTS: usize = 2;
 const CONNECT_IK_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const CONNECT_IK_HANDSHAKE_RETRY_DELAY: Duration = Duration::from_millis(500);
+const PAIR_XX_HANDSHAKE_ATTEMPTS: usize = 2;
+const PAIR_XX_HANDSHAKE_RETRY_DELAY: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Copy)]
 enum AndroidEndpointPrepare<'a> {
@@ -257,7 +315,7 @@ async fn run() -> Result<(), String> {
         )
     })?;
     let watchdog_done = start_watchdog(args.timeout);
-    let bridge = create_android_aoa_mobile_usb_bridge();
+    let bridge = create_android_aoa_mobile_usb_bridge_for_app_identifier(&args.android_package);
     let store = JsonMobileUsbPairingStore::new(&args.storage_root);
     let file_secrets =
         FileMobileUsbSecretStore::new(args.storage_root.join("mobile_usb_secrets.json"));
@@ -308,10 +366,17 @@ async fn run() -> Result<(), String> {
             print_json(&views)
         }
         Command::Pair => {
-            if !args.skip_android_prepare {
-                prepare_android_accessory_endpoint(&args)?;
-            }
-            let summary = pair_smoke(bridge.as_ref(), &store, secrets, args.timeout).await?;
+            let android_prepare =
+                (!args.skip_android_prepare).then_some(AndroidEndpointPrepare::Full(&args));
+            let summary = pair_smoke(
+                bridge.as_ref(),
+                &store,
+                secrets,
+                args.timeout,
+                android_prepare,
+                args.pair_pin.as_deref(),
+            )
+            .await?;
             print_json(&summary)
         }
         Command::Connect => {
@@ -341,6 +406,21 @@ async fn run() -> Result<(), String> {
                 args.timeout,
                 android_prepare,
                 android_rearm,
+            )
+            .await?;
+            print_json(&summary)
+        }
+        Command::StreamPerf => {
+            let android_prepare =
+                (!args.skip_android_prepare).then_some(AndroidEndpointPrepare::Full(&args));
+            let summary = stream_perf_smoke(
+                bridge.as_ref(),
+                &store,
+                secrets,
+                args.host_id.as_deref(),
+                args.timeout,
+                android_prepare,
+                &args,
             )
             .await?;
             print_json(&summary)
@@ -394,6 +474,7 @@ async fn open_smoke_session(
     let handle = spawn_remote_io_task(RemoteIoTaskConfig {
         transport,
         noise_transport,
+        peer_features: chromvoid_lib::remote_data_plane::RemotePeerFeatures::new(),
     });
 
     Ok(SmokeSession { record, handle })
@@ -461,14 +542,28 @@ async fn open_connect_transport_with_retry(
 
 fn is_retryable_connect_ik_error(error: &str) -> bool {
     error.contains("IK handshake timed out")
-        || (error.contains("ik msg1 send")
-            && error.contains("mobile_usb record write failed")
-            && (error.contains("transport timeout")
-                || error.contains("TimedOut")
-                || error.contains("timed out")
-                || error.contains("Timeout")
-                || error.contains("timeout")
-                || error.contains("Android AOA endpoint failed")))
+        || is_retryable_first_write_error(error, "ik msg1 send")
+        || is_retryable_early_msg2_stale_stream_error(error, "ik msg2 read")
+}
+
+fn is_retryable_pair_xx_error(error: &str) -> bool {
+    is_retryable_first_write_error(error, "xx msg1 send")
+        || is_retryable_early_msg2_stale_stream_error(error, "xx msg2 read")
+}
+
+fn is_retryable_first_write_error(error: &str, marker: &str) -> bool {
+    error.contains(marker)
+        && error.contains("mobile_usb record write failed")
+        && (error.contains("transport timeout")
+            || error.contains("TimedOut")
+            || error.contains("timed out")
+            || error.contains("Timeout")
+            || error.contains("timeout")
+            || error.contains("Android AOA endpoint failed"))
+}
+
+fn is_retryable_early_msg2_stale_stream_error(error: &str, marker: &str) -> bool {
+    error.contains(marker) && (error.contains("decrypt error") || error.contains("input error"))
 }
 
 async fn connect_smoke(
@@ -590,6 +685,148 @@ async fn remote_lock_smoke(
     })
 }
 
+async fn stream_perf_smoke(
+    bridge: &dyn MobileUsbBridge,
+    store: &dyn MobileUsbPairingStore,
+    secrets: &dyn MobileUsbSecretStore,
+    host_id: Option<&str>,
+    timeout: Duration,
+    android_prepare: Option<AndroidEndpointPrepare<'_>>,
+    args: &Args,
+) -> Result<StreamPerfSummary, String> {
+    let node_id = args
+        .node_id
+        .ok_or_else(|| "stream-perf requires --node-id".to_string())?;
+    let expected_source_revision = args
+        .source_revision
+        .ok_or_else(|| "stream-perf requires --source-revision".to_string())?;
+    let session =
+        open_smoke_session(bridge, store, secrets, host_id, timeout, android_prepare).await?;
+    let record = session.record;
+    let handle = session.handle;
+    let stream_started = Instant::now();
+    let (reply_tx, reply_rx) = oneshot::channel();
+    handle
+        .req_tx
+        .send(RemoteIoRequest {
+            request: RpcRequest::new(
+                "catalog:downloadRange",
+                json!({
+                    "node_id": node_id,
+                    "offset": args.range_offset,
+                    "length": args.range_length,
+                    "expected_source_revision": expected_source_revision,
+                }),
+            ),
+            stream: None,
+            reply_tx,
+            priority: RemoteRpcPriority::Media,
+            cancel_group: None,
+        })
+        .await
+        .map_err(|_| "catalog:downloadRange send failed: remote data-plane stopped".to_string())?;
+
+    let reply = tokio::time::timeout(timeout, reply_rx)
+        .await
+        .map_err(|_| {
+            format!(
+                "catalog:downloadRange meta timed out after {}s",
+                timeout.as_secs()
+            )
+        })?
+        .map_err(|_| "catalog:downloadRange reply channel closed".to_string())?;
+    let out = match reply {
+        RpcReply::RangeStream(out) => out,
+        RpcReply::Json(response) => {
+            handle.task_handle.abort();
+            return Err(format!(
+                "catalog:downloadRange returned JSON: {}",
+                describe_rpc_error(&response)
+            ));
+        }
+        RpcReply::Stream(_) => {
+            handle.task_handle.abort();
+            return Err("catalog:downloadRange returned full stream".to_string());
+        }
+    };
+    let time_to_stream_meta_ms = elapsed_ms(stream_started);
+
+    let range_meta = out.meta;
+    let reader_started = stream_started;
+    let reader_task = tokio::task::spawn_blocking(move || {
+        read_range_stream_with_timing(out.reader, reader_started)
+    });
+    let (vault_status_response, control_latency_ms) =
+        run_json_rpc_timed(&handle.req_tx, "vault:status", timeout).await?;
+    let read_timing = tokio::time::timeout(timeout, reader_task)
+        .await
+        .map_err(|_| {
+            format!(
+                "catalog:downloadRange body timed out after {}s",
+                timeout.as_secs()
+            )
+        })?
+        .map_err(|error| format!("catalog:downloadRange reader task failed: {error}"))??;
+    handle.task_handle.abort();
+
+    Ok(StreamPerfSummary {
+        ok: true,
+        host_id: record.host_id,
+        label: record.label,
+        bridge_kind: record.bridge_kind,
+        node_id,
+        expected_source_revision,
+        range_offset: args.range_offset,
+        requested_range_length: args.range_length,
+        range_meta,
+        time_to_stream_meta_ms,
+        time_to_first_body_chunk_ms: read_timing.time_to_first_body_chunk_ms,
+        total_transfer_ms: read_timing.total_transfer_ms,
+        bytes_read: read_timing.bytes_read,
+        chunks_read: read_timing.chunks_read,
+        control_latency_ms,
+        vault_status_response,
+    })
+}
+
+struct StreamReadTiming {
+    time_to_first_body_chunk_ms: Option<u64>,
+    total_transfer_ms: u64,
+    bytes_read: u64,
+    chunks_read: u64,
+}
+
+fn read_range_stream_with_timing(
+    mut reader: Box<dyn std::io::Read + Send>,
+    started: Instant,
+) -> Result<StreamReadTiming, String> {
+    let mut buf = vec![0_u8; 64 * 1024];
+    let mut first_chunk_ms = None;
+    let mut bytes_read = 0_u64;
+    let mut chunks_read = 0_u64;
+
+    loop {
+        let n = reader
+            .read(&mut buf)
+            .map_err(|error| format!("read range stream: {error}"))?;
+        if n == 0 {
+            break;
+        }
+        if first_chunk_ms.is_none() {
+            first_chunk_ms = Some(elapsed_ms(started));
+        }
+        bytes_read = bytes_read.saturating_add(n as u64);
+        chunks_read = chunks_read.saturating_add(1);
+    }
+
+    Ok(StreamReadTiming {
+        time_to_first_body_chunk_ms: first_chunk_ms,
+        total_transfer_ms: elapsed_ms(started),
+        bytes_read,
+        chunks_read,
+    })
+}
+
 async fn select_record(
     bridge: &dyn MobileUsbBridge,
     store: &dyn MobileUsbPairingStore,
@@ -636,7 +873,17 @@ async fn pair_smoke(
     store: &dyn MobileUsbPairingStore,
     secrets: &dyn MobileUsbSecretStore,
     timeout: Duration,
+    android_prepare: Option<AndroidEndpointPrepare<'_>>,
+    pair_pin: Option<&str>,
 ) -> Result<PairSummary, String> {
+    let pair_pin = pair_pin
+        .map(str::trim)
+        .filter(|pin| !pin.is_empty())
+        .ok_or("pair requires --pair-pin PIN from the Android approval screen")?;
+    if !is_six_digit_pin(pair_pin) {
+        return Err("--pair-pin must contain exactly 6 digits".to_string());
+    }
+
     let scan = select_single_android_scan(bridge).await?;
     let request = MobileUsbPairRequest {
         platform: scan.platform,
@@ -645,18 +892,53 @@ async fn pair_smoke(
         label: scan.label,
     };
     let keypair = noise_static_keypair()?;
-    let stream = bridge
-        .open_pair_stream(&request)
-        .await
-        .map_err(|error| format!("open Android AOA pair stream: {error}"))?;
-    let transport = MobileUsbRemoteTransport::new(stream, request.bridge_kind);
-    let (mut transport, mut noise_transport, peer_pubkey) = tokio::time::timeout(
-        timeout,
-        handshake_xx_over_transport(Box::new(transport), &keypair.private),
-    )
-    .await
-    .map_err(|_| format!("XX handshake timed out after {}s", timeout.as_secs()))?
-    .map_err(|error| format!("XX handshake failed: {error}"))?;
+    let mut last_error = None;
+    let (mut transport, mut noise_transport, peer_pubkey) = 'handshake: loop {
+        for attempt in 0..PAIR_XX_HANDSHAKE_ATTEMPTS {
+            if let Some(prepare) = android_prepare {
+                let prepare = if attempt == 0 {
+                    prepare
+                } else {
+                    prepare.rearm()
+                };
+                prepare_android_endpoint_for_open(prepare)?;
+            }
+
+            let stream = bridge
+                .open_pair_stream(&request)
+                .await
+                .map_err(|error| format!("open Android AOA pair stream: {error}"))?;
+            let transport = MobileUsbRemoteTransport::new(stream, request.bridge_kind);
+            let result = tokio::time::timeout(
+                timeout,
+                handshake_xx_over_transport(Box::new(transport), &keypair.private),
+            )
+            .await
+            .map_err(|_| format!("XX handshake timed out after {}s", timeout.as_secs()))?
+            .map_err(|error| format!("XX handshake failed: {error}"));
+
+            match result {
+                Ok(result) => break 'handshake result,
+                Err(error)
+                    if attempt + 1 < PAIR_XX_HANDSHAKE_ATTEMPTS
+                        && is_retryable_pair_xx_error(&error) =>
+                {
+                    eprintln!(
+                        "XX handshake failed on attempt {}; reopening Android AOA stream: {}",
+                        attempt + 1,
+                        error
+                    );
+                    last_error = Some(error);
+                    tokio::time::sleep(PAIR_XX_HANDSHAKE_RETRY_DELAY).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
+        return Err(
+            last_error.unwrap_or_else(|| "XX handshake failed before opening stream".to_string())
+        );
+    };
 
     let host_id = new_host_id();
     let local_hello = PairingHello {
@@ -670,6 +952,39 @@ async fn pair_smoke(
         recv_pairing_hello(transport.as_mut(), &mut noise_transport, timeout).await?;
     if remote_hello.peer_pubkey_hex != hex_encode(&peer_pubkey) {
         return Err("Android pairing ack pubkey does not match XX remote key".to_string());
+    }
+    let approval_challenge =
+        recv_pairing_approval_challenge(transport.as_mut(), &mut noise_transport, timeout).await?;
+    if approval_challenge.host_pubkey_hex != remote_hello.peer_pubkey_hex {
+        return Err("Android approval challenge pubkey does not match pairing hello".to_string());
+    }
+    let proof_hex = pairing_approval_proof_hex(
+        pair_pin,
+        &approval_challenge.attempt_id,
+        &approval_challenge.salt_hex,
+        &local_hello.peer_pubkey_hex,
+        &approval_challenge.host_pubkey_hex,
+    )?;
+    send_pairing_approval_proof(
+        transport.as_mut(),
+        &mut noise_transport,
+        &PairingApprovalProof {
+            attempt_id: approval_challenge.attempt_id.clone(),
+            proof_hex,
+        },
+    )
+    .await?;
+    let approval_ack =
+        recv_pairing_approval_ack(transport.as_mut(), &mut noise_transport, timeout).await?;
+    if approval_ack.attempt_id != approval_challenge.attempt_id {
+        return Err("Android approval ack attempt_id mismatch".to_string());
+    }
+    if !approval_ack.accepted {
+        return Err(format!(
+            "Android pairing approval rejected: {} ({} attempts left)",
+            approval_ack.error.unwrap_or_else(|| "unknown".to_string()),
+            approval_ack.attempts_left
+        ));
     }
 
     let record = MobileUsbPairedHostRecord {
@@ -700,6 +1015,8 @@ async fn pair_smoke(
         client_pubkey_len: record.client_pubkey.len(),
         android_peer_id: remote_hello.peer_id,
         android_label: remote_hello.peer_label,
+        approval_attempt_id: approval_ack.attempt_id,
+        approval_attempts_left: approval_ack.attempts_left,
     })
 }
 
@@ -768,6 +1085,92 @@ async fn recv_pairing_hello(
     serde_json::from_slice(&decrypted).map_err(|error| format!("decode hello: {error}"))
 }
 
+async fn recv_pairing_approval_challenge(
+    transport: &mut dyn RemoteTransport,
+    noise: &mut NoiseTransport,
+    timeout: Duration,
+) -> Result<PairingApprovalChallenge, String> {
+    recv_encrypted_pairing_message(transport, noise, timeout, "approval challenge").await
+}
+
+async fn send_pairing_approval_proof(
+    transport: &mut dyn RemoteTransport,
+    noise: &mut NoiseTransport,
+    proof: &PairingApprovalProof,
+) -> Result<(), String> {
+    send_encrypted_pairing_message(transport, noise, proof, "approval proof").await
+}
+
+async fn recv_pairing_approval_ack(
+    transport: &mut dyn RemoteTransport,
+    noise: &mut NoiseTransport,
+    timeout: Duration,
+) -> Result<PairingApprovalAck, String> {
+    recv_encrypted_pairing_message(transport, noise, timeout, "approval ack").await
+}
+
+async fn send_encrypted_pairing_message<T: Serialize>(
+    transport: &mut dyn RemoteTransport,
+    noise: &mut NoiseTransport,
+    value: &T,
+    label: &'static str,
+) -> Result<(), String> {
+    let payload =
+        serde_json::to_vec(value).map_err(|error| format!("serialize {label}: {error}"))?;
+    let encrypted = noise
+        .encrypt(&payload)
+        .map_err(|error| format!("encrypt {label}: {error}"))?;
+    transport
+        .send(&encrypted)
+        .await
+        .map_err(|error| format!("send {label}: {error}"))
+}
+
+async fn recv_encrypted_pairing_message<T: for<'de> Deserialize<'de>>(
+    transport: &mut dyn RemoteTransport,
+    noise: &mut NoiseTransport,
+    timeout: Duration,
+    label: &'static str,
+) -> Result<T, String> {
+    let encrypted = tokio::time::timeout(timeout, transport.recv())
+        .await
+        .map_err(|_| format!("recv {label} timed out after {}s", timeout.as_secs()))?
+        .map_err(|error| format!("recv {label}: {error}"))?;
+    let decrypted = noise
+        .decrypt(&encrypted)
+        .map_err(|error| format!("decrypt {label}: {error}"))?;
+    serde_json::from_slice(&decrypted).map_err(|error| format!("decode {label}: {error}"))
+}
+
+fn pairing_approval_proof_hex(
+    pin: &str,
+    attempt_id: &str,
+    salt_hex: &str,
+    desktop_pubkey_hex: &str,
+    host_pubkey_hex: &str,
+) -> Result<String, String> {
+    let psk = pin_to_psk(pin);
+    let mut mac = HmacSha256::new_from_slice(&psk)
+        .map_err(|error| format!("approval proof hmac key: {error}"))?;
+    mac.update(b"chromvoid mobile usb pairing approval");
+    mac.update(attempt_id.as_bytes());
+    mac.update(salt_hex.as_bytes());
+    mac.update(desktop_pubkey_hex.as_bytes());
+    mac.update(host_pubkey_hex.as_bytes());
+    Ok(hex_encode(&mac.finalize().into_bytes()))
+}
+
+fn pin_to_psk(pin: &str) -> [u8; 32] {
+    let digest = Sha256::digest(pin.as_bytes());
+    let mut psk = [0_u8; 32];
+    psk.copy_from_slice(&digest);
+    psk
+}
+
+fn is_six_digit_pin(pin: &str) -> bool {
+    pin.len() == 6 && pin.bytes().all(|byte| byte.is_ascii_digit())
+}
+
 async fn run_json_rpc(
     req_tx: &tokio::sync::mpsc::Sender<RemoteIoRequest>,
     command: &'static str,
@@ -798,9 +1201,20 @@ async fn run_json_rpc(
     }
 }
 
+async fn run_json_rpc_timed(
+    req_tx: &tokio::sync::mpsc::Sender<RemoteIoRequest>,
+    command: &'static str,
+    timeout: Duration,
+) -> Result<(RpcResponse, u64), String> {
+    let started = Instant::now();
+    let response = run_json_rpc(req_tx, command, timeout).await?;
+    Ok((response, elapsed_ms(started)))
+}
+
 fn smoke_priority_for_command(command: &str) -> RemoteRpcPriority {
     match command {
         "vault:lock" => RemoteRpcPriority::High,
+        "catalog:downloadRange" => RemoteRpcPriority::Media,
         _ => RemoteRpcPriority::Normal,
     }
 }
@@ -825,6 +1239,10 @@ async fn wait_for_remote_disconnect(
             timeout.as_secs()
         )
     })
+}
+
+fn elapsed_ms(started: Instant) -> u64 {
+    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
 fn capability_features(response: &RpcResponse) -> Vec<String> {
@@ -871,6 +1289,13 @@ fn parse_args() -> Result<Args, String> {
     let mut android_package = "com.chromvoid.app.dev".to_string();
     let mut skip_android_prepare = false;
     let mut secret_store = SecretStoreKind::File;
+    let mut pair_pin = env::var("CHROMVOID_MOBILE_USB_PAIR_PIN")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let mut node_id = None;
+    let mut source_revision = None;
+    let mut range_offset = 0_u64;
+    let mut range_length = 8 * 1024 * 1024_u64;
     let mut positionals = Vec::new();
     let mut iter = env::args().skip(1);
 
@@ -922,6 +1347,36 @@ fn parse_args() -> Result<Args, String> {
                 };
                 secret_store = parse_secret_store_kind(&value)?;
             }
+            "--pair-pin" => {
+                let Some(value) = iter.next() else {
+                    return Err("--pair-pin requires a 6-digit value".to_string());
+                };
+                pair_pin = Some(value);
+            }
+            "--node-id" => {
+                let Some(value) = iter.next() else {
+                    return Err("--node-id requires a value".to_string());
+                };
+                node_id = Some(parse_u64_arg("--node-id", &value)?);
+            }
+            "--source-revision" => {
+                let Some(value) = iter.next() else {
+                    return Err("--source-revision requires a value".to_string());
+                };
+                source_revision = Some(parse_u64_arg("--source-revision", &value)?);
+            }
+            "--range-offset" => {
+                let Some(value) = iter.next() else {
+                    return Err("--range-offset requires a value".to_string());
+                };
+                range_offset = parse_u64_arg("--range-offset", &value)?;
+            }
+            "--range-length" => {
+                let Some(value) = iter.next() else {
+                    return Err("--range-length requires a value".to_string());
+                };
+                range_length = parse_u64_arg("--range-length", &value)?;
+            }
             "--skip-android-prepare" => {
                 skip_android_prepare = true;
             }
@@ -952,6 +1407,25 @@ fn parse_args() -> Result<Args, String> {
             _ if arg.starts_with("--secret-store=") => {
                 secret_store = parse_secret_store_kind(arg.trim_start_matches("--secret-store="))?;
             }
+            _ if arg.starts_with("--pair-pin=") => {
+                pair_pin = Some(arg.trim_start_matches("--pair-pin=").to_string());
+            }
+            _ if arg.starts_with("--node-id=") => {
+                let value = arg.trim_start_matches("--node-id=");
+                node_id = Some(parse_u64_arg("--node-id", value)?);
+            }
+            _ if arg.starts_with("--source-revision=") => {
+                let value = arg.trim_start_matches("--source-revision=");
+                source_revision = Some(parse_u64_arg("--source-revision", value)?);
+            }
+            _ if arg.starts_with("--range-offset=") => {
+                let value = arg.trim_start_matches("--range-offset=");
+                range_offset = parse_u64_arg("--range-offset", value)?;
+            }
+            _ if arg.starts_with("--range-length=") => {
+                let value = arg.trim_start_matches("--range-length=");
+                range_length = parse_u64_arg("--range-length", value)?;
+            }
             _ if arg.starts_with('-') => {
                 return Err(format!("unknown argument: {arg}\n{}", usage()))
             }
@@ -966,6 +1440,7 @@ fn parse_args() -> Result<Args, String> {
         [command] if command == "pair" => Command::Pair,
         [command] if command == "connect" => Command::Connect,
         [command] if command == "remote-lock" => Command::RemoteLock,
+        [command] if command == "stream-perf" => Command::StreamPerf,
         [command] => return Err(format!("unknown command: {command}\n{}", usage())),
         _ => return Err(format!("too many positional arguments\n{}", usage())),
     };
@@ -984,7 +1459,18 @@ fn parse_args() -> Result<Args, String> {
         android_package,
         skip_android_prepare,
         secret_store,
+        pair_pin,
+        node_id,
+        source_revision,
+        range_offset,
+        range_length,
     })
+}
+
+fn parse_u64_arg(name: &str, value: &str) -> Result<u64, String> {
+    value
+        .parse::<u64>()
+        .map_err(|_| format!("invalid {name} value: {value}"))
 }
 
 fn parse_secret_store_kind(value: &str) -> Result<SecretStoreKind, String> {
@@ -1218,6 +1704,55 @@ fn init_tracing() {
 }
 
 fn usage() -> String {
-    "usage: mobile-usb-smoke [scan|list-paired|pair|connect|remote-lock] [--storage-root PATH] [--host-id HOST_ID] [--timeout-secs N] [--adb PATH] [--adb-serial SERIAL] [--android-package PACKAGE] [--secret-store file|keyring] [--skip-android-prepare]"
+    "usage: mobile-usb-smoke [scan|list-paired|pair|connect|remote-lock|stream-perf] [--storage-root PATH] [--host-id HOST_ID] [--timeout-secs N] [--adb PATH] [--adb-serial SERIAL] [--android-package PACKAGE] [--secret-store file|keyring] [--pair-pin PIN] [--node-id ID] [--source-revision REV] [--range-offset BYTES] [--range-length BYTES] [--skip-android-prepare]"
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn connect_ik_retry_classifier_accepts_only_early_msg2_stale_stream_errors() {
+        assert!(is_retryable_connect_ik_error(
+            "IK handshake failed: ik msg2 read: decrypt error"
+        ));
+        assert!(is_retryable_connect_ik_error(
+            "IK handshake failed: ik msg2 read: input error"
+        ));
+        assert!(!is_retryable_connect_ik_error(
+            "remote data plane recv: decrypt error"
+        ));
+    }
+
+    #[test]
+    fn pair_xx_retry_classifier_accepts_only_early_msg2_stale_stream_errors() {
+        assert!(is_retryable_pair_xx_error(
+            "XX handshake failed: xx msg2 read: decrypt error"
+        ));
+        assert!(is_retryable_pair_xx_error(
+            "XX handshake failed: xx msg2 read: input error"
+        ));
+        assert!(!is_retryable_pair_xx_error(
+            "remote data plane recv: decrypt error"
+        ));
+    }
+
+    #[test]
+    fn pair_pin_validation_accepts_only_six_digits() {
+        assert!(is_six_digit_pin("123456"));
+        assert!(!is_six_digit_pin("12345"));
+        assert!(!is_six_digit_pin("1234567"));
+        assert!(!is_six_digit_pin("12345a"));
+    }
+
+    #[test]
+    fn pairing_approval_proof_changes_with_pin() {
+        let first = pairing_approval_proof_hex("123456", "attempt", "salt", "desktop", "host")
+            .expect("first proof");
+        let second = pairing_approval_proof_hex("654321", "attempt", "salt", "desktop", "host")
+            .expect("second proof");
+        assert_eq!(first.len(), 64);
+        assert_ne!(first, second);
+    }
 }

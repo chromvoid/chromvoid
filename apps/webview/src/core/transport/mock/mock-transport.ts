@@ -1,10 +1,25 @@
 import {atom, wrap} from '@reatom/core'
 import {
   normalizeCredentialTagCatalog,
+  normalizeCredentialTagCatalogMeta,
   normalizeCredentialTags,
+  pruneCredentialTagCatalogMeta,
+  type CredentialTagCatalogMeta,
 } from '@project/passmanager/tags'
+import {
+  parseCredentialSecurityAuditArtifact,
+  type CredentialSecurityAuditArtifactV1,
+} from '@project/passmanager/security-audit'
+import type {PassManagerSshKey} from '@project/passmanager/types'
+import {sha256} from '@project/utils'
+import {
+  isMarkdownFile,
+  isTextPreviewFile,
+  resolveFileFormat,
+} from 'root/utils/file-format-registry'
 
 import type {TransportEventHandler, TransportLike} from '../transport'
+import type {RpcCmdData, RpcCmdName, RpcCmdResult} from '../tauri/tauri-rpc-types'
 import type {
   CatalogFileReplaceOptions,
   CatalogFileReplaceResult,
@@ -14,6 +29,9 @@ import {normalizeFileMediaInfo, toCompactFileMediaInfo} from '../../catalog/medi
 import {
   CatalogEventType,
   type CatalogEvent,
+  type CatalogFileLinkItem,
+  type CatalogFileLinksCompleteRequest,
+  type CatalogFileLinksResolveRequest,
   type CatalogFolderFilter,
   type CatalogFolderPageRequest,
   type CatalogFolderSort,
@@ -27,6 +45,7 @@ import {
   MOCK_TRANSPORT_LOG_ENDPOINT,
   type HandlerSet,
   type MockNode,
+  type MockOtpSecret,
   type MockPassmanagerFolderMeta,
   type MockPassmanagerIcon,
   type MockTransportLogChannel,
@@ -60,6 +79,60 @@ function mockParentPath(path: string): string {
   if (normalized === '/') return '/'
   const index = normalized.lastIndexOf('/')
   return index <= 0 ? '/' : `${normalized.slice(0, index)}/`
+}
+
+const MOCK_NOTES_PREVIEW_READ_LIMIT = 4096
+const MOCK_NOTES_EXCERPT_CHAR_LIMIT = 220
+const MOCK_TEXT_SEARCH_MAX_BYTES = 1_048_576
+const MOCK_FILE_LINK_COMPLETION_DEFAULT_LIMIT = 20
+const MOCK_FILE_LINK_COMPLETION_MAX_LIMIT = 50
+
+type MockFolderCandidate = {
+  node: MockNode
+  path: string
+  parentPath: string
+}
+
+function collapseMockPreviewWhitespace(value: string): string {
+  return value.trim().split(/\s+/).filter(Boolean).join(' ')
+}
+
+function clampMockExcerpt(value: string): string {
+  const chars = Array.from(value)
+  if (chars.length <= MOCK_NOTES_EXCERPT_CHAR_LIMIT) return value
+  return `${chars.slice(0, MOCK_NOTES_EXCERPT_CHAR_LIMIT).join('').trimEnd()}...`
+}
+
+function mockMarkdownHeading(line: string): string | null {
+  const trimmed = line.trimStart()
+  if (!trimmed.startsWith('#')) return null
+
+  const heading = trimmed.replace(/^#+/, '').trim()
+  return heading ? clampMockExcerpt(collapseMockPreviewWhitespace(heading)) : null
+}
+
+function deriveMockNotePreview(bytes?: Uint8Array): Partial<CatalogNotesListItem> {
+  if (!bytes || bytes.byteLength === 0) return {}
+
+  const previewBytes = bytes.subarray(0, MOCK_NOTES_PREVIEW_READ_LIMIT)
+  const text = new TextDecoder().decode(previewBytes)
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (!lines.length) return {}
+
+  const heading = lines.map(mockMarkdownHeading).find((value): value is string => Boolean(value))
+  const excerptLine = lines.find((line) => !mockMarkdownHeading(line)) ?? lines[0]
+  const excerpt = excerptLine ? clampMockExcerpt(collapseMockPreviewWhitespace(excerptLine)) : undefined
+  const previewWords = text.trim() ? text.trim().split(/\s+/).length : 0
+
+  return {
+    preview_words: previewWords,
+    preview_truncated: bytes.byteLength > MOCK_NOTES_PREVIEW_READ_LIMIT,
+    ...(heading ? {heading} : {}),
+    ...(excerpt ? {excerpt} : {}),
+  }
 }
 
 function inferMockMediaInfo(name: string, mimeType?: string | null): FileMediaInfo | null {
@@ -106,7 +179,7 @@ export class MockTransport implements TransportLike {
   private nodes = new Map<number, MockNode>()
   private files = new Map<number, Uint8Array>()
   private secrets = new Map<number, Uint8Array>()
-  private otpSecrets = new Map<string, {secret: string; digits: number; period: number}>()
+  private otpSecrets = new Map<string, MockOtpSecret>()
 
   private nextId = 1
   private passmanagerRevision = 0
@@ -114,10 +187,14 @@ export class MockTransport implements TransportLike {
   private passmanagerFolders = new Set<string>()
   private passmanagerFolderMeta = new Map<string, MockPassmanagerFolderMeta>()
   private passmanagerTags: string[] = []
+  private passmanagerTagMeta: CredentialTagCatalogMeta = {}
   private passmanagerEntries = new Map<string, {nodeId: number; meta: Record<string, unknown>}>()
   private passmanagerSecrets = new Map<string, string>()
-  private passmanagerOtpSecrets = new Map<string, {secret: string; digits: number; period: number}>()
+  private passmanagerSshKeys = new Map<string, PassManagerSshKey>()
+  private passmanagerSshSecrets = new Map<string, {privateKey?: string; publicKey?: string}>()
+  private passmanagerOtpSecrets = new Map<string, MockOtpSecret>()
   private passmanagerIcons = new Map<string, MockPassmanagerIcon>()
+  private passmanagerSecurityAudit: CredentialSecurityAuditArtifactV1 | undefined
 
   private saveTimer: ReturnType<typeof setTimeout> | null = null
   private static readonly SAVE_DEBOUNCE_MS = 500
@@ -137,6 +214,73 @@ export class MockTransport implements TransportLike {
       parentId: null,
       children: [],
     })
+  }
+
+  private normalizePassmanagerSshKey(value: unknown): PassManagerSshKey | null {
+    if (!value || typeof value !== 'object') return null
+    const raw = value as Record<string, unknown>
+    const id = toOptionalString(raw['id'] ?? raw['key_id'])
+    const keyType = toOptionalString(raw['type'] ?? raw['key_type'])
+    const fingerprint = toOptionalString(raw['fingerprint'])
+    if (!id || !fingerprint || !['ed25519', 'rsa', 'ecdsa'].includes(keyType ?? '')) return null
+
+    return {
+      id,
+      type: keyType as PassManagerSshKey['type'],
+      fingerprint,
+      ...(toOptionalString(raw['name']) ? {name: toOptionalString(raw['name'])} : {}),
+      ...(toOptionalString(raw['comment']) ? {comment: toOptionalString(raw['comment'])} : {}),
+      ...(toOptionalString(raw['sourceEntryId'] ?? raw['source_entry_id'])
+        ? {sourceEntryId: toOptionalString(raw['sourceEntryId'] ?? raw['source_entry_id'])}
+        : {}),
+      ...(toNumberValue(raw['createdTs'] ?? raw['created_ts']) !== undefined
+        ? {createdTs: toNumberValue(raw['createdTs'] ?? raw['created_ts'])}
+        : {}),
+      ...(toNumberValue(raw['updatedTs'] ?? raw['updated_ts']) !== undefined
+        ? {updatedTs: toNumberValue(raw['updatedTs'] ?? raw['updated_ts'])}
+        : {}),
+    }
+  }
+
+  private isValidPassmanagerSshKeyId(keyId: string): boolean {
+    return /^[A-Za-z0-9_-]{1,64}$/.test(keyId)
+  }
+
+  private async migratePassmanagerLegacySshKeys(): Promise<void> {
+    const usedIds = new Set(this.passmanagerSshKeys.keys())
+    let changed = false
+
+    for (const [entryId, entry] of this.passmanagerEntries) {
+      const legacyKeys = Array.isArray(entry.meta['sshKeys']) ? entry.meta['sshKeys'] : []
+      if ('sshKeys' in entry.meta) changed = true
+      delete entry.meta['sshKeys']
+
+      for (const value of legacyKeys) {
+        const legacy = this.normalizePassmanagerSshKey(value)
+        if (!legacy) continue
+        const keyId =
+          this.isValidPassmanagerSshKeyId(legacy.id) && !usedIds.has(legacy.id)
+            ? legacy.id
+            : `migrated-${(await sha256(`${entryId}:${legacy.id}`)).slice(0, 32)}`
+        if (usedIds.has(keyId)) continue
+
+        usedIds.add(keyId)
+        changed = true
+        this.passmanagerSshKeys.set(keyId, {
+          ...legacy,
+          id: keyId,
+          sourceEntryId: legacy.sourceEntryId ?? entryId,
+        })
+
+        const privateKey = this.passmanagerSecrets.get(`${entryId}:ssh_private_key:${legacy.id}`)
+        const publicKey = this.passmanagerSecrets.get(`${entryId}:ssh_public_key:${legacy.id}`)
+        if (privateKey || publicKey) this.passmanagerSshSecrets.set(keyId, {privateKey, publicKey})
+        this.passmanagerSecrets.delete(`${entryId}:ssh_private_key:${legacy.id}`)
+        this.passmanagerSecrets.delete(`${entryId}:ssh_public_key:${legacy.id}`)
+      }
+    }
+
+    if (changed) this.bumpPassmanagerRevision()
   }
 
   // ── Persistence ──────────────────────────────────────────
@@ -167,6 +311,7 @@ export class MockTransport implements TransportLike {
         }))
         .sort((left, right) => left.path.localeCompare(right.path)),
       tags: this.effectivePassmanagerTags(),
+      tagMeta: pruneCredentialTagCatalogMeta(this.passmanagerTagMeta, this.effectivePassmanagerTags()),
       entries: Array.from(this.passmanagerEntries.entries())
         .map(([, value]) => ({
           nodeId: value.nodeId,
@@ -180,10 +325,19 @@ export class MockTransport implements TransportLike {
       secrets: Array.from(this.passmanagerSecrets.entries()).sort(([left], [right]) =>
         left.localeCompare(right),
       ),
+      sshKeys: Array.from(this.passmanagerSshKeys.entries()).sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
+      sshSecrets: Array.from(this.passmanagerSshSecrets.entries()).sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
       otpSecrets: Array.from(this.passmanagerOtpSecrets.entries()).sort(([left], [right]) =>
         left.localeCompare(right),
       ),
       icons: Array.from(this.passmanagerIcons.entries()).sort(([left], [right]) => left.localeCompare(right)),
+      ...(this.passmanagerSecurityAudit
+        ? {securityAudit: structuredClone(this.passmanagerSecurityAudit)}
+        : {}),
     }
     return JSON.stringify(data)
   }
@@ -267,11 +421,30 @@ export class MockTransport implements TransportLike {
       this.passmanagerEntries.set(entryId, {nodeId, meta})
       this.passmanagerNextNodeId = Math.max(this.passmanagerNextNodeId, nodeId + 1)
     }
+    this.passmanagerTagMeta = normalizeCredentialTagCatalogMeta(
+      json.tagMeta ?? (json as PersistedPassmanagerState & {tag_meta?: unknown}).tag_meta,
+      this.effectivePassmanagerTags(),
+    )
 
     this.passmanagerSecrets.clear()
     for (const [key, value] of json.secrets ?? []) {
       if (typeof key !== 'string' || typeof value !== 'string') continue
       this.passmanagerSecrets.set(key, value)
+    }
+
+    this.passmanagerSshKeys.clear()
+    for (const [keyId, value] of json.sshKeys ?? []) {
+      if (!value || typeof value !== 'object') continue
+      const key = this.normalizePassmanagerSshKey(value)
+      if (key && key.id === keyId) this.passmanagerSshKeys.set(keyId, key)
+    }
+
+    this.passmanagerSshSecrets.clear()
+    for (const [keyId, value] of json.sshSecrets ?? []) {
+      if (typeof keyId !== 'string' || !value || typeof value !== 'object') continue
+      const privateKey = toOptionalString(value.privateKey)
+      const publicKey = toOptionalString(value.publicKey)
+      if (privateKey || publicKey) this.passmanagerSshSecrets.set(keyId, {privateKey, publicKey})
     }
 
     this.passmanagerOtpSecrets.clear()
@@ -281,8 +454,12 @@ export class MockTransport implements TransportLike {
       if (!secret) continue
       this.passmanagerOtpSecrets.set(key, {
         secret,
+        encoding: toOptionalString((value as {encoding?: unknown}).encoding) ?? 'base32',
+        algorithm: toOptionalString((value as {algorithm?: unknown}).algorithm) ?? 'SHA1',
         digits: toNumberValue((value as {digits?: unknown}).digits) ?? 6,
         period: toNumberValue((value as {period?: unknown}).period) ?? 30,
+        type: toOptionalString((value as {type?: unknown}).type) ?? 'TOTP',
+        counter: toNumberValue((value as {counter?: unknown}).counter),
       })
     }
 
@@ -291,6 +468,7 @@ export class MockTransport implements TransportLike {
       if (typeof key !== 'string' || !value || typeof value !== 'object') continue
       this.passmanagerIcons.set(key, structuredClone(value))
     }
+    this.passmanagerSecurityAudit = parseCredentialSecurityAuditArtifact(json.securityAudit)
   }
 
   private effectivePassmanagerTags(extraTags: readonly string[] = []): string[] {
@@ -557,6 +735,31 @@ export class MockTransport implements TransportLike {
     return undefined
   }
 
+  private createMockOtpResult(params: {
+    entryNodeId?: number
+    digits?: number
+    period?: number
+    type?: string
+    ts?: number
+    counter?: number
+  }): {otp: string; period: number; left_seconds: number} {
+    const digits = params.digits ?? 6
+    const period = params.period ?? 30
+    const otpType = (params.type ?? 'TOTP').toUpperCase()
+    const nowSeconds = Math.floor(Date.now() / 1000)
+    const ts = params.ts ?? nowSeconds
+    const slot = otpType === 'HOTP' ? (params.counter ?? 0) : Math.floor(ts / period)
+    const mod = Math.pow(10, digits)
+    const value = (slot + (params.entryNodeId ?? 0)) % mod
+    const leftSeconds = otpType === 'HOTP' ? 0 : Math.max(1, period - (ts % period))
+
+    return {
+      otp: String(value).padStart(digits, '0'),
+      period,
+      left_seconds: leftSeconds,
+    }
+  }
+
   private createNode(params: {
     parentId: number
     name: string
@@ -727,43 +930,115 @@ export class MockTransport implements TransportLike {
     }
   }
 
-  private toCatalogFolderItem(node: MockNode) {
+  private toCatalogFolderItem(candidate: MockFolderCandidate) {
+    const {node} = candidate
     return {
       node_id: node.id,
       name: node.name,
+      path: candidate.path,
+      parent_path: candidate.parentPath,
       is_dir: node.type === 0 || node.type === 255,
       size: node.type === 1 ? node.size : null,
       mime_type: node.mimeType ?? null,
       media_info: node.mediaInfo ?? null,
       media_inspected_revision: node.mediaInspectedRevision ?? 0,
+      source_revision: node.sourceRevision ?? 0,
       created_at: node.modtime,
       updated_at: node.modtime,
     }
   }
 
-  private mockNodeMatchesFilter(
+  private mockDirectFolderCandidates(parentPath: string, node: MockNode): MockFolderCandidate[] {
+    return node.children
+      .map((cid) => this.nodes.get(cid))
+      .filter((child): child is MockNode => Boolean(child))
+      .map((child) => {
+        const path = normalizePath(parentPath === '/' ? `/${child.name}` : `${parentPath}/${child.name}`)
+        return {node: child, path, parentPath}
+      })
+  }
+
+  private collectMockRecursiveFolderCandidates(
     parentPath: string,
     node: MockNode,
-    filter?: CatalogFolderFilter | null,
-  ): boolean {
+    includeHidden: boolean,
+    out: MockFolderCandidate[],
+  ): void {
+    for (const childId of node.children) {
+      const child = this.nodes.get(childId)
+      if (!child) continue
+      if (!includeHidden && child.name.startsWith('.')) continue
+
+      const path = normalizePath(parentPath === '/' ? `/${child.name}` : `${parentPath}/${child.name}`)
+      out.push({node: child, path, parentPath})
+      if (child.type === 0 || child.type === 255) {
+        this.collectMockRecursiveFolderCandidates(path, child, includeHidden, out)
+      }
+    }
+  }
+
+  private mockTextContentMatchesQuery(node: MockNode, query: string): boolean {
+    if (node.type !== 1 || node.size > MOCK_TEXT_SEARCH_MAX_BYTES) return false
+    if (!isMarkdownFile(node.name, node.mimeType) && !isTextPreviewFile(node.name, node.mimeType)) return false
+
+    const bytes = this.files.get(node.id)
+    if (!bytes || bytes.byteLength > MOCK_TEXT_SEARCH_MAX_BYTES) return false
+
+    return new TextDecoder().decode(bytes).toLocaleLowerCase().includes(query)
+  }
+
+  private mockNodeMatchesFilter(candidate: MockFolderCandidate, filter?: CatalogFolderFilter | null): boolean {
+    const {node} = candidate
     if (!filter?.include_hidden && node.name.startsWith('.')) return false
 
-    const query = filter?.query?.trim().toLowerCase()
+    const query = filter?.query?.trim().toLocaleLowerCase()
     if (query) {
-      const path = parentPath === '/' ? `/${node.name}` : `${parentPath}/${node.name}`
-      if (!node.name.toLowerCase().includes(query) && !path.toLowerCase().includes(query)) return false
-    }
-
-    const fileTypes = filter?.file_types ?? []
-    if (fileTypes.length > 0 && node.type === 1) {
-      const mime = node.mimeType?.toLowerCase() ?? ''
-      const ext = mockExtension(node.name)
-      if (!fileTypes.some((type) => mime.includes(type.toLowerCase()) || ext === type.toLowerCase())) {
-        return false
+      if (
+        node.name.toLocaleLowerCase().includes(query) ||
+        candidate.path.toLocaleLowerCase().includes(query)
+      ) {
+        return true
       }
+      if (filter?.include_text_content && this.mockTextContentMatchesQuery(node, query)) return true
+      return false
     }
 
     return true
+  }
+
+  private mockNodeMatchesFileTypes(
+    node: MockNode,
+    fileTypes: readonly string[],
+    options: {includeDirectories: boolean},
+  ): boolean {
+    if (fileTypes.length === 0) return true
+    if (node.type !== 1) return options.includeDirectories
+    const groups = resolveFileFormat({
+      name: node.name,
+      mimeType: node.mimeType,
+      mediaInfo: node.mediaInfo ?? null,
+      isDir: node.type !== 1,
+    }).filterGroups
+    return groups.some((group) => fileTypes.includes(group))
+  }
+
+  private mockQuickFilterCounts(nodes: readonly MockNode[]) {
+    const counts = {all: 0, markdown: 0, images: 0}
+
+    for (const node of nodes) {
+      if (node.type !== 1) continue
+
+      counts.all += 1
+      const groups = resolveFileFormat({
+        name: node.name,
+        mimeType: node.mimeType,
+        mediaInfo: node.mediaInfo ?? null,
+      }).filterGroups
+      if (groups.includes('markdown')) counts.markdown += 1
+      if (groups.includes('images')) counts.images += 1
+    }
+
+    return counts
   }
 
   private compareMockNodes(sort?: CatalogFolderSort | null): (left: MockNode, right: MockNode) => number {
@@ -784,6 +1059,16 @@ export class MockTransport implements TransportLike {
     }
   }
 
+  private mockRecursiveFolderCandidates(
+    path: string,
+    node: MockNode,
+    includeHidden: boolean,
+  ): MockFolderCandidate[] {
+    const candidates: MockFolderCandidate[] = []
+    this.collectMockRecursiveFolderCandidates(path, node, includeHidden, candidates)
+    return candidates
+  }
+
   private getFolderPage(request: CatalogFolderPageRequest) {
     const path = normalizePath(request.path || '/')
     const id = this.findIdByPath(path)
@@ -794,11 +1079,27 @@ export class MockTransport implements TransportLike {
 
     const limit = Math.max(1, Math.min(request.limit ?? 200, 500))
     const offset = Math.max(0, request.offset ?? 0)
-    const children = node.children
-      .map((cid) => this.nodes.get(cid))
-      .filter((child): child is MockNode => Boolean(child))
-      .filter((child) => this.mockNodeMatchesFilter(path, child, request.filter))
-      .sort(this.compareMockNodes(request.sort))
+    const recursive = Boolean(request.filter?.recursive)
+    const includeHidden = Boolean(request.filter?.include_hidden)
+    const candidates = recursive
+      ? this.mockRecursiveFolderCandidates(path, node, includeHidden)
+      : this.mockDirectFolderCandidates(path, node)
+    const baseChildren = candidates.filter((candidate) => this.mockNodeMatchesFilter(candidate, request.filter))
+    const countBaseChildren = recursive
+      ? baseChildren
+      : this.mockRecursiveFolderCandidates(path, node, includeHidden).filter((candidate) =>
+          this.mockNodeMatchesFilter(candidate, request.filter),
+        )
+    const filterCounts = this.mockQuickFilterCounts(countBaseChildren.map((candidate) => candidate.node))
+    const fileTypes = request.filter?.file_types ?? []
+    const compareNodes = this.compareMockNodes(request.sort)
+    const children = baseChildren
+      .filter((candidate) =>
+        this.mockNodeMatchesFileTypes(candidate.node, fileTypes, {
+          includeDirectories: !recursive,
+        }),
+      )
+      .sort((left, right) => compareNodes(left.node, right.node))
     const items = children.slice(offset, offset + limit).map((child) => this.toCatalogFolderItem(child))
 
     return ok({
@@ -809,6 +1110,7 @@ export class MockTransport implements TransportLike {
       limit,
       next_offset: offset + items.length < children.length ? offset + items.length : null,
       reload_required: false,
+      filter_counts: filterCounts,
       items,
     })
   }
@@ -836,17 +1138,22 @@ export class MockTransport implements TransportLike {
 
       if (!this.isMockMarkdownNote(child)) continue
 
-      out.push({
-        node_id: child.id,
-        name: child.name,
-        path: normalizePath(path),
-        parent_path: mockParentPath(path),
-        size: child.size,
-        mime_type: child.mimeType ?? null,
-        source_revision: child.sourceRevision ?? 0,
-        created_at: child.modtime,
-        updated_at: child.modtime,
-      })
+      out.push(
+        Object.assign(
+          {
+            node_id: child.id,
+            name: child.name,
+            path: normalizePath(path),
+            parent_path: mockParentPath(path),
+            size: child.size,
+            mime_type: child.mimeType ?? null,
+            source_revision: child.sourceRevision ?? 0,
+            created_at: child.modtime,
+            updated_at: child.modtime,
+          },
+          deriveMockNotePreview(this.files.get(child.id)),
+        ),
+      )
     }
   }
 
@@ -857,6 +1164,131 @@ export class MockTransport implements TransportLike {
       version: 1,
       items,
     })
+  }
+
+  private mockCatalogLinkParentPath(path: string): string {
+    const normalized = normalizePath(path)
+    if (normalized === '/') return '/'
+    const index = normalized.lastIndexOf('/')
+    return index <= 0 ? '/' : normalized.slice(0, index)
+  }
+
+  private normalizeMockCatalogLinkTarget(value: unknown, options: {allowRoot: boolean}): string | null {
+    if (typeof value !== 'string') return null
+    const trimmed = value.trim()
+    if (!trimmed.startsWith('/') || trimmed.startsWith('//')) return null
+    if (trimmed === '/') return options.allowRoot ? '/' : null
+
+    const segments = trimmed.split('/').slice(1)
+    if (segments.some((segment) => !segment || segment === '.' || segment === '..')) return null
+    return `/${segments.join('/')}`
+  }
+
+  private collectMockFileLinks(parentPath: string, id: number, out: CatalogFileLinkItem[]): void {
+    const node = this.nodes.get(id)
+    if (!node) return
+
+    for (const childId of node.children) {
+      const child = this.nodes.get(childId)
+      if (!child || child.name.startsWith('.')) continue
+
+      const path = normalizePath(parentPath === '/' ? `/${child.name}` : `${parentPath}/${child.name}`)
+      if (child.type === 0 || child.type === 255) {
+        this.collectMockFileLinks(path, child.id, out)
+        continue
+      }
+      if (child.type !== 1) continue
+
+      out.push({
+        node_id: child.id,
+        name: child.name,
+        path,
+        parent_path: this.mockCatalogLinkParentPath(path),
+        size: child.size,
+        mime_type: child.mimeType ?? null,
+        source_revision: child.sourceRevision ?? 0,
+        created_at: child.modtime,
+        updated_at: child.modtime,
+      })
+    }
+  }
+
+  private compareMockFileLinkItems(query: string, currentPath: string | null) {
+    const rank = (item: CatalogFileLinkItem): number => {
+      if (!query) return currentPath && item.parent_path === currentPath ? 0 : 3
+
+      const name = item.name.toLocaleLowerCase()
+      const path = item.path.toLocaleLowerCase()
+      if (name === query) return 0
+      if (name.startsWith(query)) return 1
+      if (name.includes(query)) return 2
+      if (path.includes(query)) return 3
+      return 4
+    }
+
+    return (left: CatalogFileLinkItem, right: CatalogFileLinkItem): number => {
+      const rankDelta = rank(left) - rank(right)
+      if (rankDelta !== 0) return rankDelta
+
+      if (currentPath) {
+        const leftSameParent = left.parent_path === currentPath
+        const rightSameParent = right.parent_path === currentPath
+        if (leftSameParent !== rightSameParent) return leftSameParent ? -1 : 1
+      }
+
+      return (
+        left.path.toLocaleLowerCase().localeCompare(right.path.toLocaleLowerCase()) ||
+        left.path.localeCompare(right.path)
+      )
+    }
+  }
+
+  private getFileLinkCompletions(request: CatalogFileLinksCompleteRequest) {
+    const query = request.query.trim().toLocaleLowerCase()
+    const limit = Math.max(
+      1,
+      Math.min(request.limit ?? MOCK_FILE_LINK_COMPLETION_DEFAULT_LIMIT, MOCK_FILE_LINK_COMPLETION_MAX_LIMIT),
+    )
+    const currentPath = this.normalizeMockCatalogLinkTarget(request.current_path, {allowRoot: true})
+    const items: CatalogFileLinkItem[] = []
+    this.collectMockFileLinks('/', 0, items)
+
+    const matches = items
+      .filter((item) => {
+        if (!query) return true
+        return (
+          item.name.toLocaleLowerCase().includes(query) ||
+          item.path.toLocaleLowerCase().includes(query)
+        )
+      })
+      .sort(this.compareMockFileLinkItems(query, currentPath))
+      .slice(0, limit)
+
+    return ok({
+      version: 1,
+      items: matches,
+    })
+  }
+
+  private resolveFileLinks(request: CatalogFileLinksResolveRequest) {
+    const items: CatalogFileLinkItem[] = []
+    this.collectMockFileLinks('/', 0, items)
+    const byPath = new Map(items.map((item) => [item.path, item]))
+
+    return ok({
+      version: 1,
+      results: request.targets.map((target) => {
+        const normalized = this.normalizeMockCatalogLinkTarget(target, {allowRoot: false})
+        return {
+          target,
+          item: normalized ? (byPath.get(normalized) ?? null) : null,
+        }
+      }),
+    })
+  }
+
+  async rpc<T extends RpcCmdName>(command: T, data: RpcCmdData<T>): Promise<RpcCmdResult<T>> {
+    return (await this.sendCatalog(command, data as Record<string, unknown>)) as RpcCmdResult<T>
   }
 
   async sendCatalog(command: string, data: Record<string, unknown>): Promise<unknown> {
@@ -926,6 +1358,20 @@ export class MockTransport implements TransportLike {
 
           case 'catalog:notes:list': {
             return this.getNotesList()
+          }
+
+          case 'catalog:file-links:complete': {
+            return this.getFileLinkCompletions({
+              query: toStringValue(data['query']) ?? '',
+              limit: toNumberValue(data['limit']),
+              current_path: toStringValue(data['current_path'] ?? data['currentPath']),
+            })
+          }
+
+          case 'catalog:file-links:resolve': {
+            return this.resolveFileLinks({
+              targets: Array.isArray(data['targets']) ? data['targets'].map(String) : [],
+            })
           }
 
           case 'catalog:list': {
@@ -1139,7 +1585,7 @@ export class MockTransport implements TransportLike {
               nextMeta['username'] = toOptionalString(data['username']) ?? ''
               nextMeta['urls'] = Array.isArray(data['urls']) ? structuredClone(data['urls']) : []
               if (Array.isArray(data['otps'])) nextMeta['otps'] = structuredClone(data['otps'])
-              if (Array.isArray(data['sshKeys'])) nextMeta['sshKeys'] = structuredClone(data['sshKeys'])
+              delete nextMeta['sshKeys']
               delete nextMeta['payment_card']
             }
             const importSource = data['import_source']
@@ -1299,26 +1745,68 @@ export class MockTransport implements TransportLike {
             return ok(undefined)
           }
 
+          case 'passmanager:ssh:list': {
+            await this.migratePassmanagerLegacySshKeys()
+            return ok({
+              sshKeys: Array.from(this.passmanagerSshKeys.values())
+                .map((key) => structuredClone(key))
+                .sort((left, right) => left.id.localeCompare(right.id)),
+            })
+          }
+
+          case 'passmanager:ssh:key:update': {
+            const key = this.normalizePassmanagerSshKey(data['key'])
+            if (!key) return err('invalid SSH key metadata')
+            if (!this.isValidPassmanagerSshKeyId(key.id)) return err('invalid SSH key id')
+            this.passmanagerSshKeys.set(key.id, structuredClone(key))
+            this.bumpPassmanagerRevision()
+            return ok(undefined)
+          }
+
+          case 'passmanager:ssh:key:delete': {
+            const keyId = toOptionalString(data['key_id'] ?? data['keyId'])
+            if (!keyId) return err('key_id is required')
+            this.passmanagerSshKeys.delete(keyId)
+            this.passmanagerSshSecrets.delete(keyId)
+            this.bumpPassmanagerRevision()
+            return ok(undefined)
+          }
+
+          case 'passmanager:ssh:secret:read': {
+            const keyId = toOptionalString(data['key_id'] ?? data['keyId'])
+            const secretType = toOptionalString(data['secret_type'] ?? data['secretType'])
+            if (!keyId) return err('key_id is required')
+            if (secretType !== 'ssh_public_key') return err('private key access is native-only')
+            const value = this.passmanagerSshSecrets.get(keyId)?.publicKey
+            return value ? ok({value}) : err('secret_not_found')
+          }
+
           case 'passmanager:ssh:keygen': {
-            const entryId = toOptionalString(data['entry_id'] ?? data['entryId'])
             const keyType = toOptionalString(data['key_type'] ?? data['keyType'])
+            const name = toOptionalString(data['name'])
             const comment = toStringValue(data['comment']) ?? ''
-            if (!entryId) return err('entry_id is required')
+            const sourceEntryId = toOptionalString(data['source_entry_id'] ?? data['sourceEntryId'])
             if (!keyType) return err('key_type is required')
-            if (!this.passmanagerEntries.has(entryId)) return err('entry_not_found')
             if (keyType !== 'ed25519' && keyType !== 'rsa' && keyType !== 'ecdsa') {
               return err(`Unsupported SSH key type: ${keyType}`)
             }
 
             const generated = await createMockSshKeyMaterial(keyType, comment)
-            this.passmanagerSecrets.set(
-              `${entryId}:ssh_private_key:${generated.key_id}`,
-              generated.private_key_openssh,
-            )
-            this.passmanagerSecrets.set(
-              `${entryId}:ssh_public_key:${generated.key_id}`,
-              generated.public_key_openssh,
-            )
+            const now = Date.now()
+            this.passmanagerSshSecrets.set(generated.key_id, {
+              privateKey: generated.private_key_openssh,
+              publicKey: generated.public_key_openssh,
+            })
+            this.passmanagerSshKeys.set(generated.key_id, {
+              id: generated.key_id,
+              type: generated.key_type as PassManagerSshKey['type'],
+              fingerprint: generated.fingerprint,
+              ...(name ? {name} : {}),
+              ...(comment ? {comment} : {}),
+              ...(sourceEntryId ? {sourceEntryId} : {}),
+              createdTs: now,
+              updatedTs: now,
+            })
             this.bumpPassmanagerRevision()
 
             return ok({
@@ -1418,9 +1906,21 @@ export class MockTransport implements TransportLike {
               this.passmanagerFolders.clear()
               this.passmanagerFolderMeta.clear()
               this.passmanagerTags = []
+              this.passmanagerTagMeta = {}
               this.passmanagerEntries.clear()
               this.passmanagerSecrets.clear()
+              this.passmanagerSshKeys.clear()
+              this.passmanagerSshSecrets.clear()
               this.passmanagerOtpSecrets.clear()
+            }
+
+            const importSshKeys = Array.isArray(data['sshKeys'] ?? data['ssh_keys'])
+              ? ((data['sshKeys'] ?? data['ssh_keys']) as unknown[])
+              : []
+            for (const value of importSshKeys) {
+              const key = this.normalizePassmanagerSshKey(value)
+              if (!key || !this.isValidPassmanagerSshKeyId(key.id)) return err('invalid SSH key metadata')
+              this.passmanagerSshKeys.set(key.id, key)
             }
 
             const importFolders = Array.isArray(data['folders'])
@@ -1443,22 +1943,39 @@ export class MockTransport implements TransportLike {
                 rawEntry['folderPath'] ?? rawEntry['groupPath'],
               )
               if (folderPath) this.ensurePassmanagerFolder(folderPath)
+              const entryMeta = structuredClone(rawEntry)
               this.passmanagerEntries.set(entryId, {
                 nodeId: this.passmanagerEntries.get(entryId)?.nodeId ?? this.passmanagerNextNodeId++,
                 meta: {
-                  ...structuredClone(rawEntry),
+                  ...entryMeta,
                   id: entryId,
                   ...(folderPath ? {folderPath} : {}),
                 },
               })
             }
 
+            await this.migratePassmanagerLegacySshKeys()
+
             const importedTags = Array.isArray(data['tags'])
               ? normalizeCredentialTagCatalog(data['tags'])
               : []
+            const importedTagMeta = normalizeCredentialTagCatalogMeta(
+              data['tag_meta'] ?? data['tagMeta'],
+              this.effectivePassmanagerTags(importedTags),
+            )
             this.passmanagerTags = destructiveMode
               ? this.effectivePassmanagerTags(importedTags)
-              : normalizeCredentialTagCatalog([...this.passmanagerTags, ...this.effectivePassmanagerTags(importedTags)])
+              : normalizeCredentialTagCatalog([
+                  ...this.passmanagerTags,
+                  ...this.effectivePassmanagerTags(importedTags),
+                ])
+            this.passmanagerTagMeta = pruneCredentialTagCatalogMeta(
+              {
+                ...(destructiveMode ? {} : this.passmanagerTagMeta),
+                ...importedTagMeta,
+              },
+              this.passmanagerTags,
+            )
 
             const foldersMeta = Array.isArray(data['folders_meta'] ?? data['foldersMeta'])
               ? ((data['folders_meta'] ?? data['foldersMeta']) as Array<Record<string, unknown>>)
@@ -1486,11 +2003,16 @@ export class MockTransport implements TransportLike {
           case 'passmanager:tags:setCatalog': {
             if (!Array.isArray(data['tags'])) return err('tags must be string[]')
             this.passmanagerTags = normalizeCredentialTagCatalog(data['tags'])
+            this.passmanagerTagMeta =
+              data['tag_meta'] === undefined && data['tagMeta'] === undefined
+                ? pruneCredentialTagCatalogMeta(this.passmanagerTagMeta, this.passmanagerTags)
+                : normalizeCredentialTagCatalogMeta(data['tag_meta'] ?? data['tagMeta'], this.passmanagerTags)
             this.bumpPassmanagerRevision()
             return ok(undefined)
           }
 
           case 'passmanager:root:export': {
+            await this.migratePassmanagerLegacySshKeys()
             const entries = Array.from(this.passmanagerEntries.values())
               .map(({meta}) => {
                 const next = structuredClone(meta)
@@ -1500,6 +2022,7 @@ export class MockTransport implements TransportLike {
                 if (folderPath) next['folderPath'] = folderPath
                 else next['folderPath'] = null
                 delete next['groupPath']
+                delete next['sshKeys']
                 const entryId = toOptionalString(next['id'])
                 const entryType = toOptionalString(next['entry_type']) ?? 'login'
                 if (entryId) {
@@ -1532,11 +2055,15 @@ export class MockTransport implements TransportLike {
               .sort((left, right) => left.path.localeCompare(right.path))
             return ok({
               root: {
-                version: 1,
+                version: 4,
                 entries,
                 folders,
                 foldersMeta,
+                sshKeys: Array.from(this.passmanagerSshKeys.values())
+                  .map((key) => structuredClone(key))
+                  .sort((left, right) => left.id.localeCompare(right.id)),
                 tags: this.effectivePassmanagerTags(),
+                tagMeta: pruneCredentialTagCatalogMeta(this.passmanagerTagMeta, this.effectivePassmanagerTags()),
               },
             })
           }
@@ -1547,17 +2074,26 @@ export class MockTransport implements TransportLike {
             const label = toStringValue(data['label'])
             const resolved = this.resolvePassmanagerOtpTarget({otpId, entryId, label})
             if (!resolved) return err('otp_id or entry_id is required')
-            const digits =
-              toNumberValue(data['digits']) ?? this.passmanagerOtpSecrets.get(resolved.key)?.digits ?? 6
-            const period =
-              toNumberValue(data['period']) ?? this.passmanagerOtpSecrets.get(resolved.key)?.period ?? 30
-            const ts = toNumberValue(data['ts']) ?? Date.now()
+            const stored = this.passmanagerOtpSecrets.get(resolved.key)
+            const digits = toNumberValue(data['digits']) ?? stored?.digits ?? 6
+            const period = toNumberValue(data['period']) ?? stored?.period ?? 30
+            const ts = toNumberValue(data['ts']) ?? Math.floor(Date.now() / 1000)
+            const type = toOptionalString(data['type']) ?? stored?.type ?? 'TOTP'
+            const counter = toNumberValue(data['counter']) ?? stored?.counter
             const entryNodeId = this.passmanagerEntries.get(resolved.entryId)?.nodeId ?? 0
-            const counter = Math.floor(ts / (period * 1000))
-            const mod = Math.pow(10, digits)
-            const value = (counter + entryNodeId) % mod
-            const otp = String(value).padStart(digits, '0')
+            const {otp} = this.createMockOtpResult({entryNodeId, digits, period, type, ts, counter})
             return ok({otp})
+          }
+
+          case 'passmanager:otp:preview': {
+            const secret = toOptionalString(data['secret'])
+            if (!secret) return err('non-empty secret is required')
+            const digits = toNumberValue(data['digits']) ?? 6
+            const period = toNumberValue(data['period']) ?? 30
+            const type = toOptionalString(data['type']) ?? 'TOTP'
+            const ts = toNumberValue(data['ts']) ?? Math.floor(Date.now() / 1000)
+            const counter = toNumberValue(data['counter'])
+            return ok(this.createMockOtpResult({digits, period, type, ts, counter}))
           }
 
           case 'passmanager:otp:setSecret': {
@@ -1570,8 +2106,12 @@ export class MockTransport implements TransportLike {
             if (!secret) return err('non-empty secret is required')
             this.passmanagerOtpSecrets.set(resolved.key, {
               secret,
+              encoding: toOptionalString(data['encoding']) ?? 'base32',
+              algorithm: toOptionalString(data['algorithm']) ?? 'SHA1',
               digits: toNumberValue(data['digits']) ?? 6,
               period: toNumberValue(data['period']) ?? 30,
+              type: toOptionalString(data['type']) ?? 'TOTP',
+              counter: toNumberValue(data['counter']),
             })
             this.bumpPassmanagerRevision()
             return ok(undefined)
@@ -1649,6 +2189,33 @@ export class MockTransport implements TransportLike {
             return ok(structuredClone(icon))
           }
 
+          case 'passmanager:icon:getMany': {
+            const rawRefs = data['icon_refs'] ?? data['iconRefs']
+            if (!Array.isArray(rawRefs)) return err('icon_refs must be a non-empty array')
+            const iconRefs: string[] = []
+            const seen = new Set<string>()
+            for (const value of rawRefs) {
+              const iconRef = typeof value === 'string' ? value.trim() : ''
+              if (!/^sha256:[0-9a-f]{64}$/.test(iconRef)) return err('invalid icon_ref format')
+              if (!seen.has(iconRef)) {
+                seen.add(iconRef)
+                iconRefs.push(iconRef)
+              }
+            }
+            if (iconRefs.length === 0 || iconRefs.length > 64) {
+              return err('icon_refs must contain between 1 and 64 unique refs')
+            }
+
+            const icons = []
+            const missingIconRefs = []
+            for (const iconRef of iconRefs) {
+              const icon = this.passmanagerIcons.get(iconRef)
+              if (icon) icons.push(structuredClone(icon))
+              else missingIconRefs.push(iconRef)
+            }
+            return ok({icons, missing_icon_refs: missingIconRefs})
+          }
+
           case 'passmanager:icon:list': {
             return ok({
               icons: Array.from(this.passmanagerIcons.values())
@@ -1686,6 +2253,22 @@ export class MockTransport implements TransportLike {
             }
             if (deleted > 0) this.bumpPassmanagerRevision()
             return ok({deleted})
+          }
+
+          case 'passmanager:securityAudit:get': {
+            return ok({
+              artifact: this.passmanagerSecurityAudit
+                ? structuredClone(this.passmanagerSecurityAudit)
+                : null,
+            })
+          }
+
+          case 'passmanager:securityAudit:set': {
+            const artifact = parseCredentialSecurityAuditArtifact(data['artifact'])
+            if (!artifact) return err('invalid credential security audit artifact')
+            this.passmanagerSecurityAudit = artifact
+            this.scheduleSave()
+            return ok(undefined)
           }
 
           default:
@@ -1871,6 +2454,8 @@ export class MockTransport implements TransportLike {
     digits?: number
     period?: number
     ha?: string
+    type?: string
+    counter?: number
   }): Promise<string> {
     const otp_id = params.otpId?.trim() || null
     const entry_id = params.entryId?.trim() || null
@@ -1884,6 +2469,8 @@ export class MockTransport implements TransportLike {
       digits: params.digits ?? null,
       period: params.period ?? null,
       ha: params.ha ?? null,
+      type: params.type ?? null,
+      counter: params.counter ?? null,
     })) as {ok: boolean; result?: {otp?: string}}
     if (!res.ok || !res.result?.otp) throw new Error('passmanager:otp:generate failed')
     return res.result.otp
@@ -1896,6 +2483,8 @@ export class MockTransport implements TransportLike {
     algorithm?: string
     digits?: number
     period?: number
+    type?: string
+    counter?: number
   }): Promise<void> {
     const res = (await this.sendPassmanager('passmanager:otp:setSecret', {
       otp_id: params.otpId,
@@ -1905,6 +2494,8 @@ export class MockTransport implements TransportLike {
       algorithm: params.algorithm ?? null,
       digits: params.digits ?? null,
       period: params.period ?? null,
+      type: params.type ?? null,
+      counter: params.counter ?? null,
     })) as {ok: boolean; error?: string}
     if (!res.ok) throw new Error(res.error ?? 'passmanager:otp:setSecret failed')
   }

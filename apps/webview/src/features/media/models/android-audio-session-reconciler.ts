@@ -1,3 +1,5 @@
+import {wrap} from '@reatom/core'
+
 import type {AndroidAudioPlayerEvent} from 'root/core/transport/transport'
 import type {ResolvedAudioTrack} from 'root/app/navigation/navigation.types'
 
@@ -7,11 +9,7 @@ import {
 } from './android-media3-playback-driver'
 import type {AudioPlaybackDriverKind} from './audio-playback-driver'
 import {writeAndroidUnlockDebug} from 'root/shared/services/android-unlock-debug'
-import type {
-  MediaPlaybackIntent,
-  MediaPlaybackLoadingState,
-  MediaPlaybackState,
-} from './media-playback.model'
+import type {MediaPlaybackIntent, MediaPlaybackLoadingState, MediaPlaybackState} from './media-playback.model'
 
 export const ANDROID_MEDIA3_START_ACK_TIMEOUT_MS = 2_500
 export const ANDROID_MEDIA3_PLAYBACK_READY_TIMEOUT_MS = 5_000
@@ -233,12 +231,15 @@ export class AndroidAudioSessionReconciler {
       expectedNativeSessionId: redactAndroidNativeSessionId(nativeSessionId),
       timeoutMs: ANDROID_MEDIA3_START_ACK_TIMEOUT_MS,
     })
-    this.androidStartAckTimeout = setTimeout(() => {
-      this.androidStartAckTimeout = null
-      if (this.androidStartAckNativeSessionId !== nativeSessionId) return
-      this.androidStartAckNativeSessionId = null
-      void this.host.fallbackAndroidAudioToWeb(nativeSessionId, 'native_start_no_event')
-    }, ANDROID_MEDIA3_START_ACK_TIMEOUT_MS)
+    this.androidStartAckTimeout = setTimeout(
+      wrap(() => {
+        this.androidStartAckTimeout = null
+        if (this.androidStartAckNativeSessionId !== nativeSessionId) return
+        this.androidStartAckNativeSessionId = null
+        void this.host.fallbackAndroidAudioToWeb(nativeSessionId, 'native_start_no_event')
+      }),
+      ANDROID_MEDIA3_START_ACK_TIMEOUT_MS,
+    )
   }
 
   startPlaybackReadyWatchdogIfNeeded(): void {
@@ -254,12 +255,15 @@ export class AndroidAudioSessionReconciler {
 
     this.clearPlaybackReadyWatchdog()
     this.androidPlaybackReadyNativeSessionId = nativeSessionId
-    this.androidPlaybackReadyTimeout = setTimeout(() => {
-      this.androidPlaybackReadyTimeout = null
-      if (this.androidPlaybackReadyNativeSessionId !== nativeSessionId) return
-      this.androidPlaybackReadyNativeSessionId = null
-      void this.host.fallbackAndroidAudioToWeb(nativeSessionId, 'native_playback_not_ready')
-    }, ANDROID_MEDIA3_PLAYBACK_READY_TIMEOUT_MS)
+    this.androidPlaybackReadyTimeout = setTimeout(
+      wrap(() => {
+        this.androidPlaybackReadyTimeout = null
+        if (this.androidPlaybackReadyNativeSessionId !== nativeSessionId) return
+        this.androidPlaybackReadyNativeSessionId = null
+        void this.host.fallbackAndroidAudioToWeb(nativeSessionId, 'native_playback_not_ready')
+      }),
+      ANDROID_MEDIA3_PLAYBACK_READY_TIMEOUT_MS,
+    )
   }
 
   clearPlaybackReadyWatchdog(): void {

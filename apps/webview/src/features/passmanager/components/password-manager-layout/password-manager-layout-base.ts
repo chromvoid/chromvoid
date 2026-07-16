@@ -1,4 +1,6 @@
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {nothing, type PropertyValues} from 'lit'
+import {i18n} from '@project/passmanager/i18n'
 import {
   PasswordManagerLayoutModel,
   type PMGlobalShortcutAction,
@@ -16,6 +18,10 @@ export abstract class PMLayoutBase extends ReatomLitElement implements EventList
   }
 
   protected abstract getSearchElement(): SearchElement | null
+
+  protected get extendedComponentLayout(): 'desktop' | 'mobile' {
+    return 'desktop'
+  }
 
   protected handleExtraKeys(_event: KeyboardEvent, _shortcutBlocked: boolean): boolean {
     return false
@@ -59,6 +65,54 @@ export abstract class PMLayoutBase extends ReatomLitElement implements EventList
         @import-close=${this.handleImportClose}
       ></pm-import-dialog>
     `
+  }
+
+  protected renderSessionUnavailable(pending = false) {
+    return this.renderUnavailable({pending, onRetry: this.handleRetrySessionLoad})
+  }
+
+  protected renderExtendedComponentsUnavailable() {
+    return this.renderUnavailable({onRetry: this.handleRetryExtendedComponents})
+  }
+
+  private renderUnavailable({pending, onRetry}: {pending?: boolean; onRetry: () => void}) {
+    return html`
+      <cv-empty-state
+        class="session-unavailable"
+        icon="shield-alert"
+        headline=${i18n('credentials:unavailable:title' as never)}
+        description=${i18n('credentials:unavailable:description' as never)}
+        role="status"
+        aria-busy=${pending === undefined ? nothing : String(pending)}
+      >
+        <button
+          slot="actions"
+          class="session-retry"
+          type="button"
+          ?disabled=${pending === true}
+          @click=${onRetry}
+        >
+          ${i18n(
+            pending
+              ? ('credentials:unavailable:retrying' as never)
+              : ('credentials:unavailable:retry' as never),
+          )}
+        </button>
+      </cv-empty-state>
+    `
+  }
+
+  protected handleRetrySessionLoad() {
+    this.model.retrySessionLoad()
+  }
+
+  protected handleRetryExtendedComponents() {
+    this.model.retryExtendedComponents(this.extendedComponentLayout)
+  }
+
+  protected override updated(changedProperties: PropertyValues): void {
+    super.updated(changedProperties)
+    this.model.requestExtendedComponents(this.extendedComponentLayout)
   }
 
   protected async onGlobalKeyDown(event: KeyboardEvent): Promise<void> {
@@ -112,8 +166,6 @@ export abstract class PMLayoutBase extends ReatomLitElement implements EventList
       search.focusInput()
       return
     }
-
-    this.model.openSearchPalette()
   }
 
   protected clearSearch() {

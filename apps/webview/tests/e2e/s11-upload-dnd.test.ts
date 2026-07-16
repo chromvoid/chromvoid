@@ -2,8 +2,9 @@ import {expect, test} from 'vitest'
 
 import {createUniqueName, openFilesRoot} from './utils'
 
+import type {Page} from 'playwright'
 declare global {
-  var __E2E_PAGE__: import('playwright').Page | undefined
+  var __E2E_PAGE__: Page | undefined
 }
 
 test('S11: Upload a file via Drag & Drop', async () => {
@@ -54,7 +55,7 @@ test('S11: Upload a file via Drag & Drop', async () => {
       return null
     }
 
-    return Boolean(queryDeep('dashboard-header'))
+    return Boolean(queryDeep('workspace-dashboard-header'))
   })
 
   // Browser-level synthetic external DnD is unreliable in Playwright, so this
@@ -78,9 +79,9 @@ test('S11: Upload a file via Drag & Drop', async () => {
     const file = new File([new Blob(['hello e2e'])], name, {type: 'text/plain'})
     const dt = new DataTransfer()
     dt.items.add(file)
-    const target = queryDeep('dashboard-header')
+    const target = queryDeep('workspace-dashboard-header')
     if (!target) {
-      throw new Error('dashboard-header is unavailable')
+      throw new Error('workspace-dashboard-header is unavailable')
     }
     target.dispatchEvent(
       new CustomEvent('upload-requested', {

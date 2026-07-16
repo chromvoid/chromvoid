@@ -35,8 +35,14 @@ export class VideoPlayerMobile extends VideoPlayerBase {
         justify-content: space-between;
         padding: var(--app-spacing-3);
         padding-top: max(var(--app-spacing-3), env(safe-area-inset-top));
-        padding-left: max(var(--app-spacing-3), env(safe-area-inset-left));
-        padding-right: max(var(--app-spacing-3), env(safe-area-inset-right));
+        padding-inline-start: max(
+          var(--app-spacing-3),
+          var(--app-runtime-safe-area-inline-start, 0px)
+        );
+        padding-inline-end: max(
+          var(--app-spacing-3),
+          var(--app-runtime-safe-area-inline-end, 0px)
+        );
         z-index: 1;
       }
 
@@ -166,7 +172,7 @@ export class VideoPlayerMobile extends VideoPlayerBase {
     const isLoading = this.loading()
     const fallbackLimited = this.fallbackLimited()
     const errorMessage = this.errorMessage()
-    const nativeVideo = this.sourceKind() === 'android-native-video'
+    const nativeVideo = this.sourceKind() === 'video-source' && this.sourceDelivery() === 'native-video'
     const showShare = canShareFiles()
 
     if (nativeVideo && !isLoading && !fallbackLimited && !errorMessage) {
@@ -260,6 +266,15 @@ export class VideoPlayerMobile extends VideoPlayerBase {
                         @loadedmetadata=${this.handleVideoElementReady}
                         @canplay=${this.handleVideoElementReady}
                         @error=${this.handleVideoElementError}
+                        @waiting=${this.handleVideoPlaybackEvent}
+                        @stalled=${this.handleVideoPlaybackEvent}
+                        @progress=${this.handleVideoPlaybackEvent}
+                        @seeking=${this.handleVideoPlaybackEvent}
+                        @seeked=${this.handleVideoPlaybackEvent}
+                        @playing=${this.handleVideoPlaybackEvent}
+                        @pause=${this.handleVideoPlaybackEvent}
+                        @canplaythrough=${this.handleVideoPlaybackEvent}
+                        @timeupdate=${this.handleVideoPlaybackEvent}
                       ></video>
                     `
                   : nothing}

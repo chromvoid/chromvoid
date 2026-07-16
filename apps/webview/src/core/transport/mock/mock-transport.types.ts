@@ -1,6 +1,9 @@
 import type {TransportEventHandler} from '../transport'
 import type {FileMediaInfo} from '../../catalog/media-info'
 import type {NodeType} from '../../catalog/local-catalog/types'
+import type {CredentialTagCatalogMeta} from '@project/passmanager/tags'
+import type {CredentialSecurityAuditArtifactV1} from '@project/passmanager/security-audit'
+import type {PassManagerSshKey} from '@project/passmanager/types'
 
 export type HandlerSet = Set<TransportEventHandler>
 
@@ -40,7 +43,17 @@ export type PersistedState = {
   nodes: [number, MockNode][]
   files: [number, string][]
   secrets: [number, string][]
-  otpSecrets: [string, {secret: string; digits: number; period: number}][]
+  otpSecrets: [string, MockOtpSecret][]
+}
+
+export type MockOtpSecret = {
+  secret: string
+  encoding?: string
+  algorithm?: string
+  digits: number
+  period: number
+  type?: string
+  counter?: number
 }
 
 export type MockPassmanagerIcon = {
@@ -67,8 +80,12 @@ export type PersistedPassmanagerState = {
   folders: string[]
   foldersMeta: Array<{path: string; iconRef?: string | null; description?: string | null}>
   tags?: string[]
+  tagMeta?: CredentialTagCatalogMeta
   entries: Array<{nodeId: number; meta: Record<string, unknown>}>
   secrets: [string, string][]
-  otpSecrets: [string, {secret: string; digits: number; period: number}][]
+  sshKeys?: [string, PassManagerSshKey][]
+  sshSecrets?: [string, {privateKey?: string; publicKey?: string}][]
+  otpSecrets: [string, MockOtpSecret][]
   icons: [string, MockPassmanagerIcon][]
+  securityAudit?: CredentialSecurityAuditArtifactV1
 }

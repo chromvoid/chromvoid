@@ -1,4 +1,5 @@
 import com.android.build.api.dsl.ApplicationExtension
+import java.io.File
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.Plugin
@@ -108,6 +109,39 @@ open class RustPlugin : Plugin<Project> {
                         projectDirPath = project.projectDir.path
                         target = targetName
                         release = profile == "release"
+                        skipFreshTauriPrebuild =
+                            project.findProperty(SKIP_FRESH_TAURI_PREBUILD_PROPERTY)?.toString() == "true"
+                        productionWebviewDebug =
+                            project.findProperty(PRODUCTION_WEBVIEW_DEBUG_PROPERTY)?.toString() == "true"
+
+                        val root = project.file(config.rootDirRel)
+                        val workspaceRoot = File(root, "../../..").canonicalFile
+                        rustInputFiles.from(
+                            project.fileTree(root).matching {
+                                include("Cargo.toml")
+                                include("Cargo.lock")
+                                include("build.rs")
+                                include("src/**/*.rs")
+                                include("capabilities/**")
+                                include("permissions/**")
+                                include("tauri*.conf.json")
+                                exclude("target/**")
+                                exclude("gen/**")
+                            },
+                            project.fileTree(File(workspaceRoot, "apps/webview/dist")).matching {
+                                include("**/*")
+                                exclude(".chromvoid-build-cache.json")
+                            },
+                            project.fileTree(File(workspaceRoot, "crates/core")).matching {
+                                include("Cargo.toml")
+                                include("build.rs")
+                                include("src/**/*.rs")
+                            },
+                            project.fileTree(File(workspaceRoot, "crates/protocol")).matching {
+                                include("Cargo.toml")
+                                include("src/**/*.rs")
+                            },
+                        )
                     }
 
                     buildTask.dependsOn(targetBuildTask)

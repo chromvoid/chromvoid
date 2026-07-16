@@ -4,6 +4,7 @@ import {VolumeMountModel, type VolumeStatus} from '../../src/routes/volume/volum
 import {setRuntimeCapabilities, resetRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 
 const tauriInvoke = vi.fn()
+const openExternalBrowserUrl = vi.fn(() => Promise.resolve())
 
 vi.mock('root/core/transport/tauri/ipc', () => {
   return {
@@ -11,10 +12,15 @@ vi.mock('root/core/transport/tauri/ipc', () => {
   }
 })
 
+vi.mock('root/shared/services/external-browser', () => ({
+  openExternalBrowserUrl: (url: string) => openExternalBrowserUrl(url),
+}))
+
 describe('VolumeMountModel', () => {
   beforeEach(() => {
     tauriInvoke.mockReset()
-    setRuntimeCapabilities({supports_volume: true})
+    openExternalBrowserUrl.mockClear()
+    setRuntimeCapabilities({platform: 'macos', desktop: true, supports_volume: true})
   })
 
   afterEach(() => {
@@ -43,7 +49,7 @@ describe('VolumeMountModel', () => {
     expect(model.status()).toEqual(status)
   })
 
-  it('refreshBackends auto-selects first available backend', async () => {
+  it('uses WebDAV and exposes optional macFUSE install info when macFUSE is missing', async () => {
     const model = new VolumeMountModel()
 
     tauriInvoke.mockResolvedValue({
@@ -58,6 +64,130 @@ describe('VolumeMountModel', () => {
 
     expect(tauriInvoke).toHaveBeenCalledWith('volume_get_backends')
     expect(model.selectedBackend()).toBe('webdav')
+    expect(model.backendDiscoveryState()).toBe('ready')
+    expect(model.missingMacFuse()).toEqual({
+      id: 'fuse',
+      available: false,
+      label: 'FUSE',
+      install_url: 'https://example.com/fuse',
+    })
+  })
+
+  it('prefers installed macFUSE by default', async () => {
+    const model = new VolumeMountModel()
+
+    tauriInvoke.mockResolvedValue({
+      ok: true,
+      result: [
+        {id: 'fuse', available: true, label: 'FUSE', install_url: null},
+        {id: 'webdav', available: true, label: 'WebDAV', install_url: null},
+      ],
+    })
+
+    await model.refreshBackends()
+
+    expect(model.selectedBackend()).toBe('fuse')
+    expect(model.missingMacFuse()).toBeNull()
+  })
+
+  it('keeps the preferred backend automatic so mount can fall back to WebDAV', async () => {
+    const model = new VolumeMountModel()
+    const status: VolumeStatus = {
+      state: 'mounted',
+      backend: 'webdav',
+      mountpoint: 'http://127.0.0.1:12345',
+      webdav_port: 12345,
+      error: null,
+    }
+
+    tauriInvoke
+      .mockResolvedValueOnce({
+        ok: true,
+        result: [
+          {id: 'fuse', available: true, label: 'FUSE', install_url: null},
+          {id: 'webdav', available: true, label: 'WebDAV', install_url: null},
+        ],
+      })
+      .mockResolvedValueOnce({ok: true, result: status})
+
+    await model.refreshBackends()
+    expect(model.selectedBackend()).toBe('fuse')
+
+    await model.mount()
+
+    expect(tauriInvoke).toHaveBeenLastCalledWith('volume_mount', {backend: null})
+    expect(model.status()).toEqual(status)
+  })
+
+  it('keeps an explicit WebDAV selection after backend refresh', async () => {
+    const model = new VolumeMountModel()
+    tauriInvoke.mockResolvedValue({
+      ok: true,
+      result: [
+        {id: 'fuse', available: true, label: 'FUSE', install_url: null},
+        {id: 'webdav', available: true, label: 'WebDAV', install_url: null},
+      ],
+    })
+
+    await model.refreshBackends()
+    model.selectBackend('webdav')
+    await model.refreshBackends()
+
+    expect(model.selectedBackend()).toBe('webdav')
+  })
+
+  it('falls back to WebDAV when the selected macFUSE backend becomes unavailable', async () => {
+    const model = new VolumeMountModel()
+    model.backends.set([
+      {id: 'fuse', available: true, label: 'FUSE', install_url: null},
+      {id: 'webdav', available: true, label: 'WebDAV', install_url: null},
+    ])
+    model.selectBackend('fuse')
+    tauriInvoke.mockResolvedValue({
+      ok: true,
+      result: [
+        {id: 'fuse', available: false, label: 'FUSE', install_url: 'https://example.com/fuse'},
+        {id: 'webdav', available: true, label: 'WebDAV', install_url: null},
+      ],
+    })
+
+    await model.refreshBackends()
+
+    expect(model.selectedBackend()).toBe('webdav')
+  })
+
+  it('uses a silent WebDAV fallback when backend discovery fails', async () => {
+    const model = new VolumeMountModel()
+    tauriInvoke.mockRejectedValue(new Error('backend discovery failed'))
+
+    await model.refreshBackends()
+
+    expect(model.selectedBackend()).toBe('webdav')
+    expect(model.backendDiscoveryState()).toBe('error')
+    expect(model.missingMacFuse()).toBeNull()
+  })
+
+  it('opens the official install URL from discovered backend metadata', async () => {
+    const model = new VolumeMountModel()
+    tauriInvoke.mockResolvedValue({
+      ok: true,
+      result: [
+        {
+          id: 'fuse',
+          available: false,
+          label: 'FUSE',
+          install_url: 'https://macfuse.github.io/',
+        },
+        {id: 'webdav', available: true, label: 'WebDAV', install_url: null},
+      ],
+    })
+    await model.refreshBackends()
+    const preventDefault = vi.fn()
+
+    model.openMacFuseInstallPage({preventDefault} as unknown as Event)
+
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(openExternalBrowserUrl).toHaveBeenCalledWith('https://macfuse.github.io/')
   })
 
   it('mount passes explicit selected backend to tauri', async () => {
@@ -70,7 +200,11 @@ describe('VolumeMountModel', () => {
       error: null,
     }
 
-    model.selectedBackend.set('fuse')
+    model.backends.set([
+      {id: 'fuse', available: true, label: 'FUSE', install_url: null},
+      {id: 'webdav', available: true, label: 'WebDAV', install_url: null},
+    ])
+    model.selectBackend('fuse')
     tauriInvoke.mockResolvedValue({ok: true, result: status})
 
     await model.mount()

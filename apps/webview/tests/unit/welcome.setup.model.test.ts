@@ -7,7 +7,9 @@ import {clearAppContext, createMockAppContext, initAppContext} from '../../src/s
 import {WelcomeSetupModel} from '../../src/routes/welcome/welcome.model'
 
 function initWelcomeContext(needUserInitialization: boolean) {
-  const remoteSessionState = atom<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive')
+  const remoteSessionState = atom<'inactive' | 'waiting_host_unlock' | 'waiting_phone_approval' | 'ready'>(
+    'inactive',
+  )
   initAppContext(
     createMockAppContext({
       store: {
@@ -108,6 +110,14 @@ describe('WelcomeSetupModel', () => {
     expect(syncSpy).toHaveBeenCalledTimes(2)
     expect(syncSpy).toHaveBeenLastCalledWith('waiting_host_unlock')
     expect(model.setupStep()).toBe('remote-wait')
+
+    remoteSessionState.set('waiting_phone_approval')
+    await Promise.resolve()
+
+    expect(syncSpy).toHaveBeenCalledTimes(3)
+    expect(syncSpy).toHaveBeenLastCalledWith('waiting_phone_approval')
+    expect(model.setupStep()).toBe('remote-wait')
+    expect(model.remoteWaitReason()).toBe('phone_approval')
 
     model.disconnect()
   })

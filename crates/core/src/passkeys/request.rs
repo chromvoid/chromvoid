@@ -2,7 +2,7 @@ use serde_json::Value;
 
 use super::encoding::decode_b64url;
 use super::types::PasskeyError;
-use super::validation::validate_rp_id;
+use super::validation::normalize_rp_id;
 
 pub(super) fn public_key_request(data: &Value) -> &Value {
     let request = data.get("request").unwrap_or(data);
@@ -47,8 +47,7 @@ pub(super) fn decode_b64url_field(value: &Value, key: &str) -> Result<Vec<u8>, P
 
 pub(super) fn rp_id_from_get_request(request: &Value) -> Result<String, PasskeyError> {
     if let Some(rp_id) = optional_str(request, "rpId") {
-        validate_rp_id(rp_id)?;
-        return Ok(rp_id.to_string());
+        return normalize_rp_id(rp_id);
     }
     if let Some(rp_id) = request
         .get("rp")
@@ -57,8 +56,7 @@ pub(super) fn rp_id_from_get_request(request: &Value) -> Result<String, PasskeyE
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        validate_rp_id(rp_id)?;
-        return Ok(rp_id.to_string());
+        return normalize_rp_id(rp_id);
     }
     Err(PasskeyError::new("EMPTY_PAYLOAD", "rpId is required"))
 }

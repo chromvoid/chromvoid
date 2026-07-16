@@ -1,6 +1,7 @@
 use serde_json::Value;
 
 use crate::catalog::{CatalogNode, LoadStrategy};
+use crate::error::Result;
 use crate::rpc::types::{
     CatalogSyncManifestResponse, ListShardsResponse, ShardMetaResponse,
     CATALOG_MANIFEST_BUDGET_BYTES,
@@ -44,13 +45,13 @@ fn compact_summary_from_node(node: &CatalogNode) -> Value {
 pub(super) fn catalog_sync_manifest(
     session: &VaultSession,
     storage: &Storage,
-) -> CatalogSyncManifestResponse {
+) -> Result<CatalogSyncManifestResponse> {
     let vault_key = session.vault_key();
     let mut root_version = session.catalog().version();
     let mut shards: Vec<ShardMetaResponse> = Vec::new();
     let mut eager_data = serde_json::Map::new();
 
-    if let Ok(Some(index)) = Vault::read_root_index_from_storage(storage, vault_key) {
+    if let Some(index) = Vault::read_root_index_from_storage(storage, vault_key)? {
         root_version = index.root_version;
         for meta in index.shards.values() {
             if is_system_shard_id_guarded(&meta.shard_id) {
@@ -94,7 +95,7 @@ pub(super) fn catalog_sync_manifest(
     }
 
     shards.sort_by(|a, b| a.shard_id.cmp(&b.shard_id));
-    let root_summaries = session
+    let mut root_summaries = session
         .catalog()
         .root()
         .children()
@@ -102,24 +103,32 @@ pub(super) fn catalog_sync_manifest(
         .filter(|node| !crate::catalog::is_system_shard_id(&node.name))
         .map(compact_summary_from_node)
         .collect::<Vec<_>>();
+    root_summaries.sort_by(|a, b| {
+        let a_name = a.get("n").and_then(Value::as_str).unwrap_or_default();
+        let b_name = b.get("n").and_then(Value::as_str).unwrap_or_default();
+        a_name.cmp(b_name)
+    });
 
-    CatalogSyncManifestResponse {
+    Ok(CatalogSyncManifestResponse {
         root_version,
         format: "manifest".to_string(),
         manifest_budget_bytes: CATALOG_MANIFEST_BUDGET_BYTES,
         shards,
         root_summaries,
         eager_data: Value::Object(eager_data),
-    }
+    })
 }
 
-pub(super) fn catalog_shard_list(session: &VaultSession, storage: &Storage) -> ListShardsResponse {
+pub(super) fn catalog_shard_list(
+    session: &VaultSession,
+    storage: &Storage,
+) -> Result<ListShardsResponse> {
     let root_version = session.catalog().version();
     let vault_key = session.vault_key();
 
     let mut shards: Vec<ShardMetaResponse> = Vec::new();
 
-    if let Ok(Some(index)) = Vault::read_root_index_from_storage(storage, vault_key) {
+    if let Some(index) = Vault::read_root_index_from_storage(storage, vault_key)? {
         for meta in index.shards.values() {
             shards.push(shard_meta_response(meta));
         }
@@ -140,8 +149,8 @@ pub(super) fn catalog_shard_list(session: &VaultSession, storage: &Storage) -> L
     shards.retain(|s| !is_system_shard_id_guarded(&s.shard_id));
     shards.sort_by(|a, b| a.shard_id.cmp(&b.shard_id));
 
-    ListShardsResponse {
+    Ok(ListShardsResponse {
         root_version,
         shards,
-    }
+    })
 }

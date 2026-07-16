@@ -116,10 +116,16 @@ const traverseDOM = (node: Node & ParentNode, check = true): HTMLInputElement | 
 }
 
 messenger.on('fill_form', (data) => {
+  if (data.expectedOrigin !== location.origin) {
+    return
+  }
   fillFormsPassword(document, data)
 })
 
 messenger.on('fill_otp', (data) => {
+  if (data.expectedOrigin !== location.origin) {
+    return
+  }
   const forms = document.querySelectorAll('form')
 
   forms.forEach((form) => {

@@ -81,6 +81,16 @@ pub(super) fn entry_tags(entry: &serde_json::Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+pub(super) fn root_tag_meta(response: &RpcResponse) -> serde_json::Map<String, serde_json::Value> {
+    response
+        .result()
+        .and_then(|r| r.get("root"))
+        .and_then(|root| root.get("tagMeta"))
+        .and_then(|meta| meta.as_object())
+        .expect("root tagMeta")
+        .clone()
+}
+
 pub(super) fn tag_key(label: &str) -> String {
     label
         .trim()

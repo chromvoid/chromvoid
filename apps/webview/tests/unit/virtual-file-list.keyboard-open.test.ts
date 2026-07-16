@@ -17,10 +17,18 @@ const ORDERED_ITEMS: FileListItem[] = [
   {id: 3, path: '/c.txt', name: 'c.txt', isDir: false},
 ]
 
-function createHandlers(emitItemAction = vi.fn(), emitSelectionChange = vi.fn()) {
+function createHandlers(
+  emitItemAction = vi.fn(),
+  emitSelectionChange = vi.fn(),
+  selectedItems: number[] = [ITEM.id],
+  selectionMode = true,
+  emitSelectionModeRequested = vi.fn(),
+) {
   return createKeyboardHandlers({
     getItems: () => [ITEM],
-    getSelectedItems: () => [ITEM.id],
+    getSelectedItems: () => selectedItems,
+    isSelectionMode: () => selectionMode,
+    emitSelectionModeRequested,
     emitSelectionChange,
     emitNavigate: () => {},
     emitItemAction,
@@ -73,7 +81,7 @@ describe('virtual-file-list keyboard open shortcut', () => {
     expect(event.defaultPrevented).toBe(false)
   })
 
-  it('uses the shortcut model for select-all keyboard selection', () => {
+  it('uses the shortcut model to toggle select-all keyboard selection', () => {
     setRuntimeCapabilities({platform: 'macos', desktop: true})
     const emitSelectionChange = vi.fn()
     const handlers = createHandlers(vi.fn(), emitSelectionChange)
@@ -81,8 +89,49 @@ describe('virtual-file-list keyboard open shortcut', () => {
     const event = new KeyboardEvent('keydown', {key: 'a', metaKey: true, cancelable: true})
     handlers.onContainerKeyDown(event)
 
-    expect(emitSelectionChange).toHaveBeenCalledWith([ITEM.id])
+    expect(emitSelectionChange).toHaveBeenCalledWith([])
     expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('enters selection mode when select-all starts a keyboard selection', () => {
+    setRuntimeCapabilities({platform: 'macos', desktop: true})
+    const emitSelectionChange = vi.fn()
+    const emitSelectionModeRequested = vi.fn()
+    const handlers = createHandlers(vi.fn(), emitSelectionChange, [], false, emitSelectionModeRequested)
+
+    handlers.onContainerKeyDown(new KeyboardEvent('keydown', {key: 'a', metaKey: true, cancelable: true}))
+
+    expect(emitSelectionModeRequested).toHaveBeenCalledWith(true)
+    expect(emitSelectionChange).toHaveBeenCalledWith([ITEM.id])
+  })
+
+  it('keeps select-all available while a selection checkbox has focus', () => {
+    setRuntimeCapabilities({platform: 'macos', desktop: true})
+    const emitSelectionChange = vi.fn()
+    const handlers = createHandlers(vi.fn(), emitSelectionChange)
+    const checkbox = document.createElement('button')
+    const event = new KeyboardEvent('keydown', {key: 'a', metaKey: true, cancelable: true})
+    vi.spyOn(event, 'composedPath').mockReturnValue([checkbox])
+
+    handlers.onContainerKeyDown(event)
+
+    expect(emitSelectionChange).toHaveBeenCalledWith([])
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('leaves select-all with a text input so it can select text', () => {
+    setRuntimeCapabilities({platform: 'macos', desktop: true})
+    const emitSelectionChange = vi.fn()
+    const handlers = createHandlers(vi.fn(), emitSelectionChange)
+    const input = document.createElement('input')
+    input.type = 'search'
+    const event = new KeyboardEvent('keydown', {key: 'a', metaKey: true, cancelable: true})
+    vi.spyOn(event, 'composedPath').mockReturnValue([input])
+
+    handlers.onContainerKeyDown(event)
+
+    expect(emitSelectionChange).not.toHaveBeenCalled()
+    expect(event.defaultPrevented).toBe(false)
   })
 
   it('uses the current anchor item id for shift selection after the list order changes', () => {
@@ -92,7 +141,9 @@ describe('virtual-file-list keyboard open shortcut', () => {
     const emitSelectionChange = vi.fn()
     const handlers = createKeyboardHandlers({
       getItems: () => items,
-      getSelectedItems: () => [],
+      getSelectedItems: () => [2],
+      isSelectionMode: () => false,
+      emitSelectionModeRequested: () => {},
       emitSelectionChange,
       emitNavigate: () => {},
       emitItemAction: () => {},
@@ -122,7 +173,7 @@ describe('virtual-file-list keyboard open shortcut', () => {
     const event = new KeyboardEvent('keydown', {key: ' ', shiftKey: true, cancelable: true})
     handlers.onContainerKeyDown(event)
 
-    expect(emitSelectionChange).toHaveBeenCalledWith([3, 2, 1])
+    expect(emitSelectionChange).toHaveBeenCalledWith([2, 3, 1])
     expect(selectionAnchorId).toBe(1)
     expect(keyboardAnchorId).toBe(3)
     expect(event.defaultPrevented).toBe(true)

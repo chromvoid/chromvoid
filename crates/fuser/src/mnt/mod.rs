@@ -225,7 +225,9 @@ fn is_mounted(fuse_device: &DevFuse) -> bool {
 #[cfg(test)]
 mod test {
     use std::ffi::CStr;
+    #[cfg(not(target_os = "macos"))]
     use std::path::Path;
+    #[cfg(not(target_os = "macos"))]
     use std::process::Command;
 
     use crate::mnt::*;

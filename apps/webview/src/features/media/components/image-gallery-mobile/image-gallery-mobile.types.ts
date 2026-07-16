@@ -1,6 +1,6 @@
 import type {ImagePhotoMetadata} from 'root/core/transport/transport'
 
-export type MobileGalleryInfoSheetDetent = 'collapsed' | 'middle' | 'expanded'
+export type MobileGalleryInfoSheetDetent = 'collapsed' | 'expanded'
 
 export type MobileGalleryGpsAvailability =
   | 'gps-available'
@@ -32,8 +32,6 @@ export type MobileGalleryInfoSheetRenderState = {
 export type MobileGalleryRenderActions = {
   onSheetClose: (event: Event) => void
   onExternalUrlClick: (event: MouseEvent) => void
-  onInfoSheetSurfaceChange: (
-    event: CustomEvent<{open: boolean; detent?: MobileGalleryInfoSheetDetent}>,
-  ) => void
+  onInfoSheetSurfaceChange: (event: CustomEvent<{open: boolean; detent?: string}>) => void
   onThumbnailSelect: (event: CustomEvent<{index: number}>) => void
 }

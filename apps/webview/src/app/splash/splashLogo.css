@@ -3,9 +3,6 @@
 }
 
 #loading-native[data-splash-mode='web'].loading-screen {
-  --splash-logo-size: clamp(300px, 38vmin, 420px);
-  --splash-exit-duration: 220ms;
-
   position: fixed;
   inset: 0;
   z-index: var(--cv-z-overlay, 1000);
@@ -14,7 +11,7 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--cv-gradient-splash-screen);
+  background: var(--splash-screen-background-gradient);
   text-align: center;
 }
 
@@ -22,21 +19,21 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: var(--cv-gradient-splash-grid);
+  background: var(--splash-grid-background);
   background-size: 56px 56px;
-  -webkit-mask-image: var(--cv-gradient-splash-grid-mask);
-  mask-image: var(--cv-gradient-splash-grid-mask);
+  -webkit-mask-image: var(--splash-grid-mask);
+  mask-image: var(--splash-grid-mask);
   opacity: 0.22;
   pointer-events: none;
 }
 
 #loading-native[data-splash-state='exiting'][data-splash-mode='web'] {
-  animation: splash-screen-exit var(--splash-exit-duration) var(--cv-easing-decelerate, ease-out) both;
+  animation: splash-screen-exit var(--cv-duration-normal) var(--cv-easing-decelerate) both;
 }
 
 .splash-logo {
   position: relative;
-  width: var(--splash-logo-size);
+  width: clamp(300px, 38vmin, 420px);
   aspect-ratio: 1;
   contain: strict;
   isolation: isolate;
@@ -61,10 +58,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #loading-native[data-splash-mode='web'].loading-screen {
-    --splash-exit-duration: 120ms;
-  }
-
   #loading-native[data-splash-mode='web'].loading-screen,
   #loading-native[data-splash-state='exiting'],
   .splash-logo__image {

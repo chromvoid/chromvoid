@@ -20,8 +20,14 @@ mod state;
 
 #[cfg(any(target_os = "android", test))]
 pub(crate) use direct_transport::accept_direct_transport_until_closed;
+#[cfg(test)]
+pub(crate) use direct_transport::shutdown_signal_from_unit_receiver;
 #[cfg(any(target_os = "android", test))]
-pub(crate) use direct_transport::{DirectTransportStopReason, DirectTransportTimelineContext};
+pub(crate) use direct_transport::DirectTransportAcceptFailure;
+#[cfg(any(target_os = "android", test))]
+pub(crate) use direct_transport::{
+    DirectTransportShutdownSignal, DirectTransportStopReason, DirectTransportTimelineContext,
+};
 
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -41,6 +47,7 @@ use listener::{wait_until_next_accept_ready, AcceptErrorClass, RetryBackoffState
 #[cfg(test)]
 use state::AcceptorInner;
 pub use state::MobileAcceptorRuntimeState;
+pub(crate) use state::MobileUsbApprovalKind;
 use state::PeerConnection;
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -1129,7 +1136,7 @@ mod tests {
             paired_at: 0,
             platform: "desktop".to_string(),
         };
-        store.upsert(peer);
+        store.upsert(peer).expect("upsert peer");
         store.save().unwrap();
 
         let found = is_peer_known(&[10, 20, 30], &store);
