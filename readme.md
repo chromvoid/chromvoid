@@ -13,7 +13,7 @@ Local-first encrypted vault for passwords, OTP, notes, files, and related secret
 [Security Policy](SECURITY.md) ·
 [Website](https://chromvoid.com/en/)
 
-![ChromVoid local-first encrypted vault preview](backend/landings/src/assets/social/github-social-preview.png)
+![ChromVoid local-first encrypted vault preview](assets/github-social-preview.png)
 
 ChromVoid is built for people who want control over where their secrets live: on a local device, or on a phone that acts as the source of truth. It does not make a cloud account the source of truth for your vault.
 
