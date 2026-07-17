@@ -46,5 +46,5 @@ apps/chromvoid/src-tauri/gen/android/keystore.properties
 apps/chromvoid/src-tauri/gen/android/sideload-keystore.properties
 apps/chromvoid/src-tauri/gen/android/*.jks
 .codex-artifacts
-output/playwright
+**/output/playwright/
 .mock/

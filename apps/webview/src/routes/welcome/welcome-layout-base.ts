@@ -63,7 +63,11 @@ export abstract class WelcomePageLayoutBase extends ReatomLitElement {
       this.model.setup.isNeedInit() &&
       (setupStep === 'mode-select' || setupStep === 'create-master')
     const unlockInProgress = isMobileLockedVault && this.model.setup.unlockInProgress()
-    const containerClass = isMobileLockedVault ? 'container locked-vault' : 'container'
+    const containerClass = isMobileLockedVault
+      ? 'container locked-vault'
+      : isMobileFirstRun
+        ? 'container first-run-container'
+        : 'container'
     const mainCardClass = isMobileFirstRun ? 'main-card first-run-card' : 'main-card'
 
     return html`

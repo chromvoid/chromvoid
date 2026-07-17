@@ -35,6 +35,11 @@ export class WelcomePageMobileLayout extends WelcomePageLayoutBase {
         gap: var(--app-spacing-4);
       }
 
+      .container.first-run-container {
+        grid-template-rows: minmax(0, 1fr) auto;
+        gap: 0;
+      }
+
       .main-card {
         position: relative;
         overflow: hidden;
@@ -65,7 +70,7 @@ export class WelcomePageMobileLayout extends WelcomePageLayoutBase {
       }
 
       .main-card.first-run-card {
-        min-block-size: min(680px, calc(100svh - env(safe-area-inset-top, 0px)));
+        min-block-size: 0;
         align-content: center;
         padding: clamp(32px, 8svh, 68px) clamp(22px, 6vw, 32px);
         border: 0;
@@ -81,10 +86,21 @@ export class WelcomePageMobileLayout extends WelcomePageLayoutBase {
 
       .main-card.first-run-card + welcome-tools-section {
         padding-inline: clamp(22px, 6vw, 32px);
-        padding-block-end: var(
-          --app-runtime-safe-area-block-end-active,
-          var(--app-runtime-safe-area-block-end, 0px)
+        padding-block-end: calc(
+          var(
+              --app-runtime-safe-area-block-end-active,
+              var(--app-runtime-safe-area-block-end, 0px)
+            ) +
+            var(--app-spacing-4)
         );
+      }
+
+      @media (max-height: 700px) {
+        .main-card.first-run-card {
+          padding-block-start: clamp(20px, 4svh, 28px);
+          padding-block-end: clamp(16px, 3svh, 24px);
+          gap: clamp(18px, 3svh, 24px);
+        }
       }
 
       .locked-vault {
