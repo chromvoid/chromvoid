@@ -79,6 +79,14 @@ export class WelcomePageMobileLayout extends WelcomePageLayoutBase {
         content: none;
       }
 
+      .main-card.first-run-card + welcome-tools-section {
+        padding-inline: clamp(22px, 6vw, 32px);
+        padding-block-end: var(
+          --app-runtime-safe-area-block-end-active,
+          var(--app-runtime-safe-area-block-end, 0px)
+        );
+      }
+
       .locked-vault {
         position: relative;
         isolation: isolate;
