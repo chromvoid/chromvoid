@@ -102,6 +102,31 @@ describe('welcome remote panels', () => {
     expect(buttons.some((button) => button.textContent?.includes('Connect Remote'))).toBe(false)
   })
 
+  it('starts mobile first-run setup with one create-storage action and opens its sheet', async () => {
+    setRuntimeCapabilities({
+      desktop: false,
+      mobile: true,
+      supports_network_remote: true,
+    })
+    const model = new WelcomeSetupModel()
+    const section = await mountSection(model, 'mobile')
+
+    const createButton = section.shadowRoot?.querySelector<HTMLElement>('[data-create-storage]')
+    expect(createButton?.textContent).toContain('Create Storage')
+    expect(section.shadowRoot?.querySelector('.mode-card-local')).toBeNull()
+    expect(section.shadowRoot?.querySelector('.mode-card-remote')).toBeNull()
+    expect(section.shadowRoot?.textContent).not.toContain('Connect Remote')
+    expect(section.shadowRoot?.querySelector('form.master-password-form')).toBeNull()
+
+    createButton?.click()
+
+    await vi.waitFor(() => {
+      expect(model.effectiveStep()).toBe('create-master')
+      expect(section.shadowRoot?.querySelector('cv-bottom-sheet[open]')).not.toBeNull()
+      expect(section.shadowRoot?.querySelector('form.master-password-form')).not.toBeNull()
+    })
+  })
+
   it('routes remote connect actions through the shared remote renderer contract', async () => {
     const model = new WelcomeSetupModel()
     model.setupStep.set('remote-connect')

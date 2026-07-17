@@ -58,8 +58,13 @@ export abstract class WelcomePageLayoutBase extends ReatomLitElement {
     const setupStep = this.model.setup.effectiveStep()
     const isRemoteFlow = this.isRemoteSetupStep(setupStep)
     const isMobileLockedVault = this.layoutVariant === 'mobile' && !this.model.setup.isNeedInit() && setupStep === null
+    const isMobileFirstRun =
+      this.layoutVariant === 'mobile' &&
+      this.model.setup.isNeedInit() &&
+      (setupStep === 'mode-select' || setupStep === 'create-master')
     const unlockInProgress = isMobileLockedVault && this.model.setup.unlockInProgress()
     const containerClass = isMobileLockedVault ? 'container locked-vault' : 'container'
+    const mainCardClass = isMobileFirstRun ? 'main-card first-run-card' : 'main-card'
 
     return html`
       <div class=${containerClass} aria-busy=${unlockInProgress ? 'true' : nothing}>
@@ -83,7 +88,7 @@ export abstract class WelcomePageLayoutBase extends ReatomLitElement {
               </header>
             `
           : nothing}
-        <div class="main-card">
+        <div class=${mainCardClass}>
           ${isRemoteFlow
             ? nothing
             : html`

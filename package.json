@@ -69,6 +69,7 @@
     "test:android:providers:api34": "node ./scripts/mobile/test-android-providers.mjs api34",
     "test:android:ui": "node ./scripts/mobile/test-android-ui.mjs emulator",
     "test:android:ui:smoke": "node ./scripts/mobile/test-android-ui.mjs emulator",
+    "test:android:ui:vault-create": "CHROMVOID_ANDROID_UI_SPEC=vault-first-run-create node ./scripts/mobile/test-android-ui.mjs emulator",
     "test:android:ui:physical": "node ./scripts/mobile/test-android-ui.mjs physical",
     "test:android:ui:doctor": "node ./scripts/mobile/preflight-android-ui-check.mjs",
     "test:android:catalog-smoke": "bash scripts/mobile/android-catalog-smoke.sh",

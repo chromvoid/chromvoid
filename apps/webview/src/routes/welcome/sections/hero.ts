@@ -371,9 +371,24 @@ export class WelcomeHeroSection extends ReatomLitElement {
       return nothing
     }
 
-    const isLockedVault = !this.model.isNeedInit() && this.model.effectiveStep() === null
+    const setupStep = this.model.effectiveStep()
+    const isLockedVault = !this.model.isNeedInit() && setupStep === null
     const isMobileLockedVault = this.layout === 'mobile' && isLockedVault
+    const isMobileFirstRun =
+      this.layout === 'mobile' &&
+      this.model.isNeedInit() &&
+      (setupStep === 'mode-select' || setupStep === 'create-master')
     const isUnlocking = isMobileLockedVault && this.model.unlockInProgress()
+    const eyebrow = isMobileFirstRun
+      ? i18n('welcome:eyebrow-first-run')
+      : this.model.heroEyebrow()
+    const title = isMobileFirstRun ? i18n('onboard:hero:create') : this.model.heroTitle()
+    const description = isMobileFirstRun
+      ? i18n('welcome:create-master-desc')
+      : this.model.heroDescription()
+    const proof = isMobileFirstRun
+      ? i18n('welcome:proof-create-master')
+      : this.model.heroProof()
 
     return html`
       <div class="hero ${isLockedVault ? 'locked-vault' : ''}${isUnlocking ? ' unlocking' : ''}">
@@ -387,16 +402,16 @@ export class WelcomeHeroSection extends ReatomLitElement {
           </div>
 
           <div class="hero-kicker">
-            ${isMobileLockedVault ? i18n('welcome:device-locked') : this.model.heroEyebrow()}
+            ${isMobileLockedVault ? i18n('welcome:device-locked') : eyebrow}
           </div>
         </div>
 
         <div class="hero-copy">
-          <div class="hero-title">${this.model.heroTitle()}</div>
-          <div class="hero-desc">${this.model.heroDescription()}</div>
+          <div class="hero-title">${title}</div>
+          <div class="hero-desc">${description}</div>
         </div>
 
-        ${isMobileLockedVault ? nothing : html`<div class="hero-proof">${this.model.heroProof()}</div>`}
+        ${isMobileLockedVault ? nothing : html`<div class="hero-proof">${proof}</div>`}
       </div>
     `
   }

@@ -83,6 +83,8 @@ export class WelcomeSetupModel {
     p1: '',
     p2: '',
   })
+  readonly masterPasswordError = atom('', 'welcome.masterPasswordError')
+  readonly masterPasswordConfirmError = atom('', 'welcome.masterPasswordConfirmError')
 
   private remoteSessionUnsubscribe: (() => void) | null = null
   private passwordStrengthRequestId = 0
@@ -191,15 +193,18 @@ export class WelcomeSetupModel {
     this.remoteSessionUnsubscribe = null
   }
 
-  handleCreateMasterSubmit = (event: Event) => {
-    event.preventDefault()
-    void this.submitMasterSetup()
-  }
-
   handleMasterPasswordInput = (event: Event) => {
     const nextValue = this.resolveInputValue(event)
     const state = this.creationState()
     this.creationState.set({...state, p1: nextValue})
+    if (this.masterPasswordError()) {
+      this.masterPasswordError.set(this.getMasterPasswordError(nextValue))
+    }
+    if (this.masterPasswordConfirmError() && state.p2) {
+      this.masterPasswordConfirmError.set(
+        nextValue === state.p2 ? '' : i18n('welcome:master-mismatch'),
+      )
+    }
     void this.updatePasswordStrength(nextValue)
   }
 
@@ -207,26 +212,23 @@ export class WelcomeSetupModel {
     const nextValue = this.resolveInputValue(event)
     const state = this.creationState()
     this.creationState.set({...state, p2: nextValue})
+    if (this.masterPasswordConfirmError()) {
+      this.masterPasswordConfirmError.set(
+        nextValue === state.p1 ? '' : i18n('welcome:master-mismatch'),
+      )
+    }
   }
 
   submitMasterSetup = async () => {
     if (this.shared.busy()) return
     const {p1, p2} = this.creationState()
 
-    if (!p1) {
-      this.shared.setBusy(false, i18n('welcome:master-required'))
-      return
-    }
-
-    if (p1.length < 12) {
-      this.shared.setBusy(false, i18n('welcome:master-too-short'))
-      return
-    }
-
-    if (p1 !== p2) {
-      this.shared.setBusy(false, i18n('welcome:master-mismatch'))
-      return
-    }
+    const passwordError = this.getMasterPasswordError(p1)
+    const confirmationError =
+      !passwordError && p1 !== p2 ? i18n('welcome:master-mismatch') : ''
+    this.masterPasswordError.set(passwordError)
+    this.masterPasswordConfirmError.set(confirmationError)
+    if (passwordError || confirmationError) return
 
     try {
       this.setupInProgress.set(true)
@@ -237,8 +239,7 @@ export class WelcomeSetupModel {
       getAppContext().state.update({NeedUserInitialization: false})
       getAppContext().store.pushNotification('success', i18n('welcome:storage-created'))
       this.setupStep.set(null)
-      this.creationState.set({p1: '', p2: ''})
-      this.resetPasswordStrength()
+      this.resetCreationForm()
     } catch (error) {
       this.shared.setBusy(false, error instanceof Error ? error.message : String(error))
     } finally {
@@ -404,7 +405,16 @@ export class WelcomeSetupModel {
   onSelectLocalMode = () => {
     this.remote.showHosts()
     this.shared.clearError()
+    this.masterPasswordError.set('')
+    this.masterPasswordConfirmError.set('')
     this.setupStep.set('create-master')
+  }
+
+  handleCreateStorageSheetChange = (event: Event) => {
+    const detail = (event as CustomEvent<{open?: boolean}>).detail
+    if (detail?.open === false && this.setupStep() === 'create-master') {
+      this.onBackToModeSelect()
+    }
   }
 
   onSelectRemoteMode = () => {
@@ -423,8 +433,7 @@ export class WelcomeSetupModel {
     this.remote.showHosts()
     this.shared.clearError()
     this.setupStep.set('mode-select')
-    this.creationState.set({p1: '', p2: ''})
-    this.resetPasswordStrength()
+    this.resetCreationForm()
   }
 
   onOpenRemotePair = () => {
@@ -490,8 +499,21 @@ export class WelcomeSetupModel {
     this.passwordStrength.set(createNeutralPasswordFeedback())
   }
 
+  private resetCreationForm(): void {
+    this.creationState.set({p1: '', p2: ''})
+    this.masterPasswordError.set('')
+    this.masterPasswordConfirmError.set('')
+    this.resetPasswordStrength()
+  }
+
+  private getMasterPasswordError(password: string): string {
+    if (!password) return i18n('welcome:master-required')
+    if (password.length < 12) return i18n('welcome:master-too-short')
+    return ''
+  }
+
   private async ensureLocalModeForMasterSetup(): Promise<void> {
-    if (!isTauriRuntime()) return
+    if (!isTauriRuntime() || !getRuntimeCapabilities().desktop) return
 
     const modeInfo = await wrap(getModeStatus())
     if (!modeInfo || !isRemoteMode(modeInfo.mode)) return

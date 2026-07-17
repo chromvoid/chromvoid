@@ -64,6 +64,21 @@ export class WelcomePageMobileLayout extends WelcomePageLayoutBase {
         opacity: 0.8;
       }
 
+      .main-card.first-run-card {
+        min-block-size: min(680px, calc(100svh - env(safe-area-inset-top, 0px)));
+        align-content: center;
+        padding: clamp(32px, 8svh, 68px) clamp(22px, 6vw, 32px);
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+        gap: clamp(24px, 5svh, 40px);
+      }
+
+      .main-card.first-run-card::before {
+        content: none;
+      }
+
       .locked-vault {
         position: relative;
         isolation: isolate;

@@ -8,6 +8,10 @@ import {dialogService} from '../../src/shared/services/dialog'
 import {WelcomeSetupSection} from '../../src/routes/welcome/sections/steps'
 import {WelcomeSetupModel} from '../../src/routes/welcome/welcome.model'
 import {RpcError} from '../../src/routes/welcome/welcome-rpc'
+import {
+  resetRuntimeCapabilities,
+  setRuntimeCapabilities,
+} from '../../src/core/runtime/runtime-capabilities'
 import type * as WelcomeRpcModule from '../../src/routes/welcome/welcome-rpc'
 import type * as RemoteModelModule from '../../src/routes/remote/remote.model'
 import type * as RuntimeModule from '../../src/core/runtime/runtime'
@@ -80,6 +84,7 @@ describe('welcome create-master submit', () => {
   }
 
   beforeEach(() => {
+    setRuntimeCapabilities({platform: 'macos', desktop: true, mobile: false})
     CVInput.define()
     WelcomeSetupSection.define()
     pushNotification = vi.fn()
@@ -157,6 +162,7 @@ describe('welcome create-master submit', () => {
   afterEach(() => {
     section.remove()
     clearAppContext()
+    resetRuntimeCapabilities()
     vi.restoreAllMocks()
   })
 
@@ -194,6 +200,60 @@ describe('welcome create-master submit', () => {
 
     expect(submitEvent.defaultPrevented).toBe(true)
     expect(submitSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps mobile creation available and focuses the first invalid field after submit', async () => {
+    section.layout = 'mobile'
+    model.creationState.set({p1: '', p2: ''})
+    await section.updateComplete
+
+    const form = section.shadowRoot?.querySelector<HTMLFormElement>('form.master-password-form')
+    const submit = form?.querySelector<HTMLElement>('cv-button[type="submit"]')
+    expect(form).toBeInstanceOf(HTMLFormElement)
+    expect(submit?.hasAttribute('disabled')).toBe(false)
+
+    form?.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))
+
+    await vi.waitFor(() => {
+      expect(model.masterPasswordError()).toBe('Master Password is required')
+    })
+    await section.updateComplete
+
+    const passwordInput = form?.querySelector<CVInput>('#welcome-create-master-password')
+    const nativeInput = passwordInput?.shadowRoot?.querySelector('input')
+    expect(passwordInput?.hasAttribute('invalid')).toBe(true)
+    expect(passwordInput?.getAttribute('aria-describedby')).toBe('welcome-create-master-password-error')
+    expect(form?.querySelector('[role="alert"]')?.textContent).toContain('Master Password is required')
+    expect(passwordInput?.shadowRoot?.activeElement).toBe(nativeInput)
+    expect(welcomeRpcMocks.tauriRpc).not.toHaveBeenCalled()
+  })
+
+  it('associates a password mismatch with confirmation and clears it while editing', async () => {
+    section.layout = 'mobile'
+    model.creationState.set({
+      p1: 'correct horse battery staple',
+      p2: 'different horse battery staple',
+    })
+    await section.updateComplete
+
+    const form = section.shadowRoot?.querySelector<HTMLFormElement>('form.master-password-form')
+    form?.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))
+
+    await vi.waitFor(() => {
+      expect(model.masterPasswordConfirmError()).toBe('Master Passwords do not match')
+    })
+    expect(welcomeRpcMocks.tauriRpc).not.toHaveBeenCalled()
+
+    const confirmInput = form?.querySelector<CVInput>('#welcome-confirm-master-password')
+    confirmInput?.dispatchEvent(
+      new CustomEvent('cv-input', {
+        detail: {value: 'correct horse battery staple'},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+
+    expect(model.masterPasswordConfirmError()).toBe('')
   })
 
   it('creates the master vault and commits setup state after the RPC resolves', async () => {
@@ -238,6 +298,19 @@ describe('welcome create-master submit', () => {
     expect(remoteModelMocks.switchMode.mock.invocationCallOrder[0]).toBeLessThan(
       welcomeRpcMocks.tauriRpc.mock.invocationCallOrder[0],
     )
+  })
+
+  it('creates first-run mobile storage without invoking desktop mode commands', async () => {
+    setRuntimeCapabilities({platform: 'android', desktop: false, mobile: true})
+    remoteModelMocks.getModeStatus.mockRejectedValueOnce(new Error('Command mode_status not found'))
+
+    await model.submitMasterSetup()
+
+    expect(remoteModelMocks.getModeStatus).not.toHaveBeenCalled()
+    expect(remoteModelMocks.switchMode).not.toHaveBeenCalled()
+    expect(welcomeRpcMocks.tauriRpc).toHaveBeenCalledWith('master:setup', {
+      master_password: 'correct horse battery staple',
+    })
   })
 
   it('unlocks the vault through the password sheet and commits opened state after the RPC resolves', async () => {
